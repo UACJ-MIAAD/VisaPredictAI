@@ -1,65 +1,142 @@
-# Visa Bulletin Scraper
+# 📊 VisaBulletinScraping
 
-![India visa wait times](figures/India_visa_wait_times.png)
-![China visa wait times](figures/China_visa_wait_times.png)
-![Mexico visa wait times](figures/Mexico_visa_wait_times.png)
-![Philippines visa wait times](figures/Philippines_visa_wait_times.png)
-![Rest of the world visa wait times](figures/RoW_visa_wait_times.png)
+Herramienta de web scraping para extraer datos históricos del [Visa Bulletin](https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html) del Departamento de Estado de EE.UU. Este repositorio forma parte del proyecto de tesis **VisaPredict AI**, que busca predecir fechas de boletines de visa de inmigración mediante Machine Learning.
 
-This codebase scrapes the employment-based visa bulletin data from the [U.S. Department of State's website](https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html) and processes it into a clean CSV file for each country: India, China, Mexico and Philippines, as well as the rest of the world. The scraper script is `scrape_visa_bulletins.py` and the scraped data separated by country is in `data/`.
+## 🎯 Objetivo
 
-The scraper is re-run every Sunday at midnight to ensure the data files and figures are always up-to-date. The top of this README has a status badge indicating if the most recent data update succeeded or failed. This provides an aggregated view of historical visa bulletin data in both CSV and visual format for easy consumption as opposed to the outdated PDF aggregations in tabular format on the website. 
+Recopilar y estructurar los datos históricos del Visa Bulletin (disponibles desde 1982) para su uso en modelos predictivos de series de tiempo. El scraping extrae las **Priority Dates** publicadas mensualmente, que determinan cuándo un solicitante puede avanzar en su proceso migratorio.
 
-## Visualizing visa wait-times
-For each specially designated country and the rest of the world, a basic time series visualization of the EB-1 through EB-4 visa wait times can be found in `figures/`. You can also take the `.csv` files from `data/` and upload them to ChatGPT-4 (with the advanced data analysis extension enabled) and ask it to make any figures you want. Good luck!
+## 📋 ¿Qué es el Visa Bulletin?
 
-## Dependencies
+El Visa Bulletin es un boletín mensual publicado por el Bureau of Consular Affairs del Departamento de Estado de EE.UU. Contiene dos tablas principales por categoría:
 
-The scraper and visualization code require the following Python libraries, which can be installed using pip:
+- **Tabla A — Final Action Dates:** Fecha a partir de la cual una visa puede ser emitida o se puede adjudicar el ajuste de estatus.
+- **Tabla B — Dates for Filing:** Fecha a partir de la cual un solicitante puede presentar su aplicación.
 
-- requests
-- pandas
-- tqdm
-- matplotlib
-- beautifulsoup4
+Cada tabla reporta fechas de prioridad para dos tipos de categorías:
 
-In your Python virtual environment, install all dependencies using the following command:
+### Family-Sponsored (Patrocinio Familiar)
+| Categoría | Descripción |
+|-----------|-------------|
+| F1 | Hijos solteros adultos de ciudadanos estadounidenses |
+| F2A | Cónyuges e hijos menores de residentes permanentes |
+| F2B | Hijos solteros adultos (21+) de residentes permanentes |
+| F3 | Hijos casados de ciudadanos estadounidenses |
+| F4 | Hermanos de ciudadanos estadounidenses adultos |
+
+### Employment-Based (Basado en Empleo)
+| Categoría | Descripción |
+|-----------|-------------|
+| EB-1 | Trabajadores con prioridad (habilidades extraordinarias) |
+| EB-2 | Profesionales con grado avanzado |
+| EB-3 | Trabajadores calificados y profesionales |
+| EB-4 | Inmigrantes especiales |
+| EB-5 | Inversionistas |
+
+### Países con límites especiales
+Debido a la alta demanda, algunos países tienen fechas de prioridad separadas: **China (mainland)**, **India**, **México** y **Filipinas**. El resto se agrupa como **ROW** (Rest of World).
+
+## 🗂️ Estructura del Repositorio
 
 ```
+VisaBulletinScraping/
+├── scrape_visa_bulletins.py            # Scraper para categorías Employment-Based
+├── scrape_family_visa_bulletins.py     # Scraper para categorías Family-Sponsored
+├── visualize_visa_wait_times.py        # Gráficas para Employment-Based
+├── visualize_family_wait_times.py      # Gráficas para Family-Sponsored
+├── requirements.txt                    # Dependencias de Python
+├── CLAUDE.md                           # Contexto para Claude Code
+├── data/                               # CSVs generados por los scrapers
+│   ├── {country}_visa_backlog_timecourse.csv          # Datos EB
+│   └── {country}_family_visa_backlog_timecourse.csv   # Datos Family
+├── figures/                            # Gráficas generadas
+└── ante/                               # Ambiente virtual Python
+```
+
+## ⚙️ Requisitos
+
+- Python 3.10+
+- macOS / Linux / Windows
+
+### Dependencias
+```
+pandas>=2.2.2
+matplotlib>=3.9.0
+beautifulsoup4>=4.12.2
+requests>=2.31.0
+tqdm>=4.66.1
+```
+
+## 🚀 Instalación y Uso
+
+```bash
+# 1. Clonar el repositorio
+git clone https://github.com/tu-usuario/VisaBulletinScraping.git
+cd VisaBulletinScraping
+
+# 2. Crear y activar ambiente virtual
+python -m venv ante
+source ante/bin/activate        # macOS/Linux
+# ante\Scripts\activate         # Windows
+
+# 3. Instalar dependencias
 pip install -r requirements.txt
-```
 
-## How it Works
+# 4. Ejecutar scrapers
+python scrape_visa_bulletins.py           # Employment-Based (~2 min)
+python scrape_family_visa_bulletins.py    # Family-Sponsored (~2 min)
 
-The script works by first extracting links to monthly visa bulletins from the [main page](https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html). Each link is then visited to extract employment-based visa tables (specifically the first occurrence, which contains final action dates). For each country, this tabular data is then cleaned and processed, including converting date strings to datetime objects, calculating the backlog period, and renaming columns for clarity.
-
-## Scraped Data Output
-
-The output is a CSV file named {country}_visa_backlog_timecourse.csv with the following columns:
-
-- EB_level: The employment-based visa level (integers 1, 2, 3, 4).
-- final_action_dates: The final action date for the visa.
-- visa_bulletin_date: The date of the monthly visa bulletin.
-- visa_wait_time: The calculated wait time for the visa *in years*.
-
-## Running the Script
-
-To run the web scraping script, simply execute `scrape_visa_bulletins.py`. The script is designed to be run as a standalone program in about 2 minutes, depending on the speed of your internet connection:
-
-```shell
-python scrape_visa_bulletins.py
-```
-
-The data populates in `data/`.
-
-To run the visualization script, simply execute the `visualize_visa_wait_times.py` file. 
-
-```shell
+# 5. Generar visualizaciones
 python visualize_visa_wait_times.py
+python visualize_family_wait_times.py
 ```
 
-The figures populate in `figures/`.
+## 📊 Datos de Salida
 
-## Note
+### CSVs Employment-Based
+| Columna | Descripción |
+|---------|-------------|
+| `EB_level` | Categoría (1, 2, 3, 4, 5) |
+| `final_action_dates` | Fecha de acción final publicada |
+| `visa_bulletin_date` | Fecha del boletín mensual |
+| `visa_wait_time` | Tiempo de espera calculado (días) |
 
-As with any web scraping, this script is designed specifically for the U.S. Department of State website's HTML structure as of the time of writing (Sep. 24, 2023). If the website structure changes in the future, the script may need to be updated.
+### CSVs Family-Sponsored
+| Columna | Descripción |
+|---------|-------------|
+| `F_level` | Categoría (1, 2A, 2B, 3, 4) |
+| `final_action_dates` | Fecha de acción final publicada |
+| `visa_bulletin_date` | Fecha del boletín mensual |
+| `visa_wait_time` | Tiempo de espera calculado (días) |
+| `table_type` | `final_action` (Tabla A) o `dates_for_filing` (Tabla B) |
+
+### Valores Especiales
+- **C (Current):** La categoría está al día; `wait_time = 0`
+- **U (Unavailable):** No hay visas disponibles; `wait_time = NaN`
+
+## 📈 Visualizaciones
+
+Los scripts de visualización generan gráficas por país en `figures/`, mostrando la evolución histórica de los tiempos de espera por categoría de preferencia.
+
+## 🔗 Fuente de Datos
+
+Todos los datos se extraen directamente del sitio oficial del Departamento de Estado:
+- **URL:** https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html
+- **Formato de fechas:** DD-MMM-YY (día-mes-año)
+- **Años fiscales disponibles:** Desde 1982 hasta el presente
+
+## 🎓 Contexto Académico
+
+Este repositorio es el componente de adquisición de datos del proyecto de tesis **"VisaPredict AI"**, desarrollado como parte de la Maestría en Inteligencia Artificial y Analítica de Datos (MIAAD) en la Universidad Autónoma de Ciudad Juárez (UACJ).
+
+- **Autor:** Javier Rebull
+- **Asesor:** Dr. Vicente García Jiménez
+- **Programa:** MIAAD — UACJ
+
+## 📄 Licencia
+
+Este proyecto es para fines académicos y de investigación.
+
+## 🙏 Créditos
+
+Basado en el repositorio original [visa_dates](https://github.com/DavidBellamy/visa_dates) de David Bellamy, extendido con soporte para categorías Family-Sponsored y extracción de ambas tablas (A y B).
