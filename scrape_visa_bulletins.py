@@ -171,10 +171,13 @@ def main():
     month_links = extract_month_links()
     
     all_data = []
-    for i, link in tqdm(enumerate(month_links), total=len(month_links), 
+    for i, link in tqdm(enumerate(month_links), total=len(month_links),
                         desc="Extracting all employment-based visa bulletin tables"):
-        table_data = extract_tables(link)
-        all_data.extend(table_data)
+        try:
+            table_data = extract_tables(link)
+            all_data.extend(table_data)
+        except Exception:
+            pass
 
     countries = ['india', 'china', 'mexico', 'philippines', 'row']
     for country in tqdm(countries, desc=f"Extracting data for each country and computing backlogs"):
