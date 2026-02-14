@@ -155,9 +155,12 @@ def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataF
         
         country_df = pd.concat(country_data, axis=0, ignore_index=True)
 
+        country_df = country_df[country_df['visa_bulletin_date'].notna()]
         # calculate backlog period length (difference in months between 'india' and 'bulletin_year_month')
         country_df['final_action_dates'] = country_df.apply(lambda row: string_to_datetime(row['final_action_dates'], row['visa_bulletin_date']), axis=1)
-        country_df['visa_wait_time'] = country_df.apply(lambda row: (row['visa_bulletin_date'] - row['final_action_dates']).days / 365.25, axis=1)
+        country_df['visa_wait_time'] = country_df.apply(
+            lambda row: (row['visa_bulletin_date'] - row['final_action_dates']).days / 365.25
+            if pd.notna(row['final_action_dates']) and pd.notna(row['visa_bulletin_date']) else None, axis=1)
         
         # In column "EB_level", sub values "1st", "2nd", "3rd", "4th", for the integers 1, 2, 3, 4
         country_df['EB_level'] = country_df['EB_level'].str.replace('st', '').str.replace('nd', '').str.replace('rd', '').str.replace('th', '')
