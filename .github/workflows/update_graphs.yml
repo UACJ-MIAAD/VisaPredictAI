@@ -40,8 +40,8 @@ jobs:
 
     - name: Commit and push changes
       run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
+        git config --local user.email "168046724+jrebull@users.noreply.github.com"
+        git config --local user.name "Javier Rebull"
         # Check for changes
         if git diff --exit-code; then
           echo "No changes to commit"
