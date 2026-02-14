@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://www.uacj.mx/comunicacion/img/Logotipos/UACJ%20Horizontal.png" alt="UACJ" width="320">
+  <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/Escudo_UACJ.svg/500px-Escudo_UACJ.svg.png" alt="UACJ" width="150">
 </p>
 
 <h1 align="center" style="color:#003CA6;">VisaBulletinScraping</h1>
