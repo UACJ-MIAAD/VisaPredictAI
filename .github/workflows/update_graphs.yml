@@ -11,10 +11,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
 
@@ -23,11 +23,17 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Run web scraping script
+    - name: Run employment-based scraping script
       run: python scrape_visa_bulletins.py
 
-    - name: Run visualization script
+    - name: Run family-based scraping script
+      run: python scrape_family_visa_bulletins.py
+
+    - name: Run employment-based visualization script
       run: python visualize_visa_wait_times.py
+
+    - name: Run family-based visualization script
+      run: python visualize_family_wait_times.py
 
     - name: Commit and push changes
       run: |
