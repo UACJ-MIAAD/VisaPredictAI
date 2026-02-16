@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Maestría en Inteligencia Artificial y Analítica de Datos (MIAAD)</strong><br>
-  Universidad Autónoma de Ciudad Juárez
+  Universidad Autónoma de Ciudad Juárez!
 </p>
 
 <p align="center">
