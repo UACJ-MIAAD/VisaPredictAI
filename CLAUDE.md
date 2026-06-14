@@ -95,7 +95,12 @@ El scraper extrae tablas **Employment-Based** del Visa Bulletin mensual publicad
   CSV ahora guarda el código canónico (no el entero 1-4).
 - **Países con límites especiales:** India, China, México, Filipinas
 - **Resto del mundo (RoW):** "All chargeability areas except those listed"
-- **Rango temporal:** Desde Oct 2003 hasta el boletín más reciente
+- **Rango temporal:** Desde **Dic 2001** (piso de la fuente oficial) hasta el
+  boletín más reciente. La detección de columnas es robusta a 20 años de deriva
+  de formato (categoría = columna 0; país por nombre normalizado), lo que
+  recuperó 2001-2003 y arregló RoW (antes truncado a 2016). **China desde
+  2005-04** (antes no tenía columna EB propia). Pre-2002 da 404; 1992 solo sería
+  alcanzable vía Wayback Machine (fuera de alcance).
 
 ### Estructura de los CSVs por país
 
@@ -135,15 +140,21 @@ Generado por `build_panel.py` a partir de los 10 CSV por país. Esquema largo:
 | `days_since_base` | **variable dependiente** = días desde `BASE=1980-01-01`, **solo status='F'** |
 | `raw_value` | celda cruda |
 
-Snapshot actual: **21,562 filas · 186 series · 60% entrenable (status F)** · rango
-2003-10→2026-06 · `days_since_base ∈ [1400, 16854]`, 0 negativos. Muchas series
+Snapshot actual: **24,731 filas · 195 series · 54% entrenable (status F)** · rango
+**2001-12→2026-06** · `days_since_base ∈ [1400, 16854]`, 0 negativos. Muchas series
 EB-5 son cortas/discontinuas por los cambios de régimen de categoría (TEA→RC→
 Set-Asides): cobertura **estructural**; el filtro evaluable/piloto es posterior.
 
-### Pendientes de cobertura (post-fix H1+H2+H3, ver `data_quality_report.md`)
+### Pendientes de cobertura (post-fix H1+H2+H3+H4, ver `data_quality_report.md`)
 
-- **H4** FAD pre-2003 hacia 1992 (boletines archivados con otra URL).
-- Huecos de meses dispersos (~10% empleo) y RoW empleo truncado a 2016.
+- **Huecos residuales** ~15-26 meses/país (2005-2012): unos ausentes del acordeón
+  oficial, otros con markup que no contiene el literal "employment-based". One-offs
+  frágiles; bajo retorno.
+- **Pre-2002 (→1992):** no existe en travel.state.gov (404). ⚠️ El `.tex` afirma
+  "FAD desde 1992 (~408 obs)"; lo alcanzable es ~294 meses (dic-2001). **Reconciliar
+  el claim del anteproyecto** o comprometerse a Wayback Machine.
+- **Scraper familiar:** podría beneficiarse de la misma detección robusta de
+  columnas (gaps propios), no aplicado aún.
 
 ## Objetivo: VisaPredict AI
 

@@ -133,9 +133,13 @@ def main() -> None:
         "mapea las etiquetas (con 20 años de deriva) a 16 códigos canónicos: EB1-4, "
         "EB3_OW, EB4_RW/TRANS, y EB5 (bare/TEA/PILOT/RC/NONRC/UNRESERVED/RURAL/"
         "HIGHUNEMP/INFRA). Schedule A queda fuera de alcance. Panel 90→186 series.",
-        "- **H4 — FAD no llega a 1992.** El acordeón de travel.state.gov no lista "
-        "boletines pre-2003; el histórico 1996–2002 vive en páginas archivadas. "
-        "*Pendiente.*",
+        "- **H4 — Cobertura extendida al piso de la fuente ✅ (parcial).** "
+        "Detección robusta de columnas (categoría = col 0; país por nombre "
+        "normalizado) recuperó **2001-12→2003-09**, **arregló RoW** (estaba "
+        "truncado a 2016-04) y redujo huecos. **Piso real = dic-2001**: pre-2002 "
+        "da 404 en travel.state.gov; llegar a 1992 exigiría Wayback Machine "
+        "(frágil, fuera de alcance). ⚠️ El `.tex` afirma 'FAD desde 1992 (~408 "
+        "obs)' — irreal desde la fuente oficial (~294 meses máx).",
         "- **H5 — `NaN` ambiguo ✅ RESUELTO.** `status` distingue 'U' (Unavailable) "
         "de 'NA' (celda vacía/no parseable). En el panel actual: 0 filas NA.",
         "",

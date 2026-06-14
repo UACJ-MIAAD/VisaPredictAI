@@ -8,11 +8,13 @@ Convenciones de las columnas: `final_action_dates` = fecha de prioridad publicad
 
 | País | Filas | Rango | Meses esp. | Faltantes | Dup. clave | Niveles | NaN fecha | DFF |
 |---|---|---|---|---|---|---|---|---|
-| mexico | 3124 | 2003-10→2026-06 | 273 | 26 | 2 | 16 cats | 3% | ✓ |
-| india | 3124 | 2003-10→2026-06 | 273 | 26 | 2 | 16 cats | 3% | ✓ |
-| china | 3021 | 2005-04→2026-06 | 255 | 21 | 2 | 16 cats | 3% | ✓ |
-| philippines | 3108 | 2003-10→2026-06 | 273 | 28 | 2 | 16 cats | 3% | ✓ |
-| row | 1181 | 2016-04→2026-06 | 123 | 0 | 1 | 12 cats | 6% | ✓ |
+| mexico | 3410 | 2001-12→2026-06 | 295 | 19 | 0 | 16 cats | 3% | ✓ |
+| india | 3355 | 2001-12→2026-06 | 295 | 26 | 0 | 16 cats | 3% | ✓ |
+| china | 3117 | 2005-04→2026-06 | 255 | 16 | 0 | 16 cats | 3% | ✓ |
+|   ↳ huecos china: 2005-07, 2005-09, 2005-10, 2005-11, 2005-12, 2006-01, 2007-08, 2007-11, 2007-12, 2008-01, 2008-03, 2009-03, 2009-09, 2009-10, 2009-11, 2012-10 | | | | | | | | |
+| philippines | 3394 | 2001-12→2026-06 | 295 | 21 | 0 | 16 cats | 3% | ✓ |
+| row | 3442 | 2001-12→2026-06 | 295 | 15 | 0 | 16 cats | 3% | ✓ |
+|   ↳ huecos row: 2005-04, 2005-05, 2005-08, 2006-07, 2007-08, 2007-11, 2007-12, 2008-01, 2008-03, 2009-03, 2009-07, 2009-09, 2009-10, 2009-11, 2012-10 | | | | | | | | |
 
 ## Bloque: Familiar
 
@@ -27,10 +29,10 @@ Convenciones de las columnas: `final_action_dates` = fecha de prioridad publicad
 
 ## Panel consolidado `visa_panel_long.csv`
 
-- Filas: **21,562** · series país×categoría×tabla: **186**
-- Status: F=12,859, C=8,242, U=460
-- Bloque×tabla: employment/DFF=4,460, employment/FAD=9,089, family/DFF=3,190, family/FAD=4,823
-- Objetivo entrenable (status=F): **12,859** filas (60%)
+- Filas: **24,731** · series país×categoría×tabla: **195**
+- Status: F=13,456, C=10,768, U=506
+- Bloque×tabla: employment/DFF=5,655, employment/FAD=11,063, family/DFF=3,190, family/FAD=4,823
+- Objetivo entrenable (status=F): **13,456** filas (54%)
 - `days_since_base` ∈ [1400, 16854] (base 1980-01-01); 0 negativos.
 
 ## Hallazgos transversales

@@ -240,28 +240,29 @@ def classify_eb_category(raw) -> Union[None, str]:
 
 
 def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataFrame:
+        # 'row' (Rest of World) lives in the "all chargeability areas..." column;
+        # match a stable normalized substring so it survives spacing variants.
+        search_country = 'all chargeability' if country == 'row' else country
+
         country_data = []
         for df in all_data:
-            # Replace non-breaking spaces with regular spaces in column names
-            df.columns = [column.replace(u'\xa0', u' ') for column in df.columns]
+            norm = {col: _norm_label(col) for col in df.columns}
 
-            # for rest of the world, match the specific column string (use a
-            # separate variable so the loop parameter is not mutated)
-            search_country = country
-            if country == 'row':
-                search_country = 'all chargeability  areas except those listed'
+            # The EB-category column is always column 0 (header is
+            # 'employment-based', 'employment -based', or '' in 2001-2003).
+            cat_col = df.columns[0]
+            # Country column by normalized-substring match (handles \xa0, \n,
+            # double spaces and case across 20+ years of bulletin formats).
+            country_col = next((c for c in df.columns if search_country in norm[c]), None)
+            if country_col is None or country_col == cat_col:
+                continue
 
-            if any([search_country in col for col in df.columns]):
-                col_idx = [i for i, col in enumerate(df.columns) if search_country in col][0]
-                country_col = df.columns[col_idx]
-                try:
-                    df_subset = df[['employment-based', country_col, 'visa_bulletin_date', 'table_type']]
-                    df_subset = df_subset.copy()
-                    df_subset.columns = df_subset.columns.str.replace(country_col, 'final_action_dates')
-                    df_subset.columns = df_subset.columns.str.replace('employment-based', 'EB_level')
-                    country_data.append(df_subset)
-                except:
-                    pass
+            try:
+                df_subset = df[[cat_col, country_col, 'visa_bulletin_date', 'table_type']].copy()
+                df_subset.columns = ['EB_level', 'final_action_dates', 'visa_bulletin_date', 'table_type']
+                country_data.append(df_subset)
+            except Exception:
+                pass
 
         if not country_data:
             return pd.DataFrame(columns=['EB_level', 'final_action_dates', 'visa_bulletin_date',
@@ -284,6 +285,12 @@ def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataF
         # (EB1..EB5 + subcategories); drop rows that are not an EB preference (H3).
         country_df['EB_level'] = country_df['EB_level'].apply(classify_eb_category)
         country_df = country_df[country_df['EB_level'].notna()]
+
+        # A label transition can put the same canonical category twice in one
+        # bulletin (e.g. the May-2022 EB-5 'Unreserved' split); keep the first
+        # so the (category, month, table) key stays unique.
+        country_df = country_df.drop_duplicates(
+            subset=['EB_level', 'visa_bulletin_date', 'table_type'], keep='first')
 
         return country_df
 
