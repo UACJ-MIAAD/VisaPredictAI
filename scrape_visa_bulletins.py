@@ -160,7 +160,7 @@ def classify_status(date_str) -> str:
         'F'  a specific final-action date is published (a parseable date)
         'C'  Current  -- no backlog this month
         'U'  Unavailable -- no numbers available this month
-        'NA' empty or unparseable cell
+        'UNK' empty or unparseable cell
 
     Preserves the regime annotation that is otherwise lost when 'C' is mapped
     to the bulletin date and 'U' to NaN. Per the VisaPredict AI v5.1
@@ -168,10 +168,10 @@ def classify_status(date_str) -> str:
     are kept as descriptive annotation.
     """
     if pd.isna(date_str):
-        return 'NA'
+        return 'UNK'
     s = str(date_str).strip().upper()
     if s == '':
-        return 'NA'
+        return 'UNK'
     if s == 'C':
         return 'C'
     if s == 'U':
@@ -180,7 +180,7 @@ def classify_status(date_str) -> str:
         datetime.strptime(str(date_str).strip(), '%d%b%y')
         return 'F'
     except ValueError:
-        return 'NA'
+        return 'UNK'
 
 
 def _norm_label(s) -> str:

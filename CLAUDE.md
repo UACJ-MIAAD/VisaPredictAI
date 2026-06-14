@@ -74,6 +74,12 @@ python audit_data_quality.py
 # MEGA AUDIT exhaustivo (12 dimensiones) -> mega_audit_report.md
 python mega_audit.py
 
+# Suite de pruebas (sin pytest; salida 0/1 para CI gate)
+python tests/test_parsers.py          # 12 casos · funciones de parseo/clasificación
+python tests/test_panel_integrity.py  # 9 invariantes duras del panel (contrato de datos)
+
+# Audit MLOps de madurez de ingeniería -> mlops_audit_report.md (estático, no regenera)
+
 # Generar gráficas (genera PNGs en figures/)
 python visualize_visa_wait_times.py
 ```
@@ -113,7 +119,7 @@ El scraper extrae tablas **Employment-Based** del Visa Bulletin mensual publicad
 | `final_action_dates` | datetime | Fecha publicada; `C`→fecha del boletín, `U`→NaN (legado, no romper visualizadores) |
 | `visa_bulletin_date` | datetime | Fecha del boletín mensual                             |
 | `raw_value`          | str      | **Celda original** tal cual se publicó (`01MAY16`, `C`, `U`) |
-| `status`             | str      | **Régimen e∈{C,F,U,NA}** — ver abajo                  |
+| `status`             | str      | **Régimen e∈{C,F,U,UNK}** — ver abajo                 |
 | `table_type`         | str      | Solo familiar: `final_action` / `dates_for_filing`    |
 | `visa_wait_time`     | float    | Tiempo de espera en **años** (legado)                 |
 
@@ -125,7 +131,7 @@ Preserva el régimen que se perdía al aplanar `C`→fecha y `U`→NaN. La emite
 - `F` — se publicó una **fecha específica** (único objetivo predictivo, v5.1).
 - `C` — *Current*, sin backlog ese mes (anotación descriptiva, no objetivo).
 - `U` — *Unavailable*, sin números ese mes (anotación descriptiva).
-- `NA` — celda vacía o no parseable (distingue 'sin dato' de 'Unavailable').
+- `UNK` — celda vacía o no parseable (distingue 'sin dato' de 'Unavailable'). **Centinela `UNK`, NO `NA`**: el string `"NA"` colisiona con la coerción por defecto de pandas (`read_csv` lo lee como `NaN`) y borraba la anotación; `UNK` es seguro para cualquier consumidor downstream.
 
 ### Panel consolidado `data/visa_panel_long.csv` (objetivo y_{p,c,b,t})
 
@@ -138,9 +144,9 @@ Generado por `build_panel.py` a partir de los 10 CSV por país. Esquema largo:
 | `category` | EB1..EB4 / F1,F2A,F2B,F3,F4 |
 | `table` | `FAD` / `DFF` (ambos bloques; DFF de empleo desde Oct-2015) |
 | `bulletin_date` | mes del boletín (t) |
-| `status` | C/F/U/NA |
-| `priority_date` | fecha de prioridad **solo si status='F'** (NaT en C/U/NA) |
-| `days_since_base` | **variable dependiente** = días desde `BASE=1980-01-01`, **solo status='F'** |
+| `status` | C/F/U/UNK |
+| `priority_date` | fecha de prioridad **solo si status='F'** (NaT en C/U/UNK) |
+| `days_since_base` | **variable dependiente** = días desde `BASE=1975-01-01`, **solo status='F'** |
 | `raw_value` | celda cruda |
 
 Snapshot actual: **27,127 filas · 194 series · 58% entrenable (status F)** · rango

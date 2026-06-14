@@ -36,15 +36,15 @@ Convenciones de las columnas: `final_action_dates` = fecha de prioridad publicad
 ## Panel consolidado `visa_panel_long.csv`
 
 - Filas: **27,127** · series país×categoría×tabla: **194**
-- Status: F=15,662, C=10,896, U=568
+- Status: F=15,662, C=10,896, U=568, UNK=1
 - Bloque×tabla: employment/DFF=5,648, employment/FAD=11,287, family/DFF=3,225, family/FAD=6,967
 - Objetivo entrenable (status=F): **15,662** filas (58%)
 - `days_since_base` ∈ [1765, 18680] (base 1975-01-01); 0 negativos.
 
 ## Hallazgos transversales
 
-- **H1 — Estado e∈{C,F,U} ✅ RESUELTO.** Los scrapers ahora emiten las columnas `status` (C/F/U/NA) y `raw_value`; el panel entrena *solo sobre status='F'* y conserva C/U como anotación descriptiva (formulación v5.1).
+- **H1 — Estado e∈{C,F,U} ✅ RESUELTO.** Los scrapers ahora emiten las columnas `status` (C/F/U/UNK) y `raw_value`; el panel entrena *solo sobre status='F'* y conserva C/U como anotación descriptiva (formulación v5.1).
 - **H2 — DFF de Empleo ✅ RESUELTO.** El scraper de empleo ahora captura las dos tablas (FAD + DFF, vía `table_type`); DFF disponible desde Oct-2015. +2,032 filas DFF de empleo, +20 series.
 - **H3 — EB-5 y subcategorías ✅ RESUELTO.** `classify_eb_category()` mapea las etiquetas (con 20 años de deriva) a 16 códigos canónicos: EB1-4, EB3_OW, EB4_RW/TRANS, y EB5 (bare/TEA/PILOT/RC/NONRC/UNRESERVED/RURAL/HIGHUNEMP/INFRA). Schedule A queda fuera de alcance. Panel 90→186 series.
 - **H4 — Cobertura extendida al piso de la fuente ✅ (parcial).** Detección robusta de columnas/sección en **ambos scrapers** (categoría = col 0; sección por `employment[\s-]*based` / substring `family`; RoW por `except those listed`) recuperó **2001-12→2003-09**, el **cluster 2007-2008** y **arregló RoW** (empleo truncado a 2016-04, familiar a 2015-05). Huecos familiares 58-69→6-17. **Piso real = dic-2001**: pre-2002 da 404 en travel.state.gov; llegar a 1992 exigiría Wayback Machine (fuera de alcance). ⚠️ El `.tex` afirma 'FAD desde 1992 (~408 obs)' — irreal desde la fuente oficial (~294 meses máx).
-- **H5 — `NaN` ambiguo ✅ RESUELTO.** `status` distingue 'U' (Unavailable) de 'NA' (celda vacía/no parseable). En el panel actual: 0 filas NA.
+- **H5 — `NaN` ambiguo ✅ RESUELTO.** `status` distingue 'U' (Unavailable) de 'UNK' (celda vacía/no parseable). Centinela `UNK` (no `NA`) para evitar la coerción a NaN de pandas. En el panel actual: 1 fila UNK.

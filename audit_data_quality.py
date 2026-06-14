@@ -124,7 +124,7 @@ def main() -> None:
         "## Hallazgos transversales",
         "",
         "- **H1 — Estado e∈{C,F,U} ✅ RESUELTO.** Los scrapers ahora emiten las "
-        "columnas `status` (C/F/U/NA) y `raw_value`; el panel entrena *solo sobre "
+        "columnas `status` (C/F/U/UNK) y `raw_value`; el panel entrena *solo sobre "
         "status='F'* y conserva C/U como anotación descriptiva (formulación v5.1).",
         "- **H2 — DFF de Empleo ✅ RESUELTO.** El scraper de empleo ahora "
         "captura las dos tablas (FAD + DFF, vía `table_type`); DFF disponible "
@@ -143,7 +143,8 @@ def main() -> None:
         "⚠️ El `.tex` afirma 'FAD desde 1992 (~408 obs)' — irreal desde la fuente "
         "oficial (~294 meses máx).",
         "- **H5 — `NaN` ambiguo ✅ RESUELTO.** `status` distingue 'U' (Unavailable) "
-        "de 'NA' (celda vacía/no parseable). En el panel actual: 0 filas NA.",
+        "de 'UNK' (celda vacía/no parseable). Centinela `UNK` (no `NA`) para evitar "
+        "la coerción a NaN de pandas. En el panel actual: 1 fila UNK.",
         "",
     ]
     OUT.write_text("\n".join(lines), encoding="utf-8")

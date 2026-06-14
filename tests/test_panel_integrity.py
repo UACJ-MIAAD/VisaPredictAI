@@ -1,0 +1,105 @@
+"""Integrity contract for data/visa_panel_long.csv.
+
+Encodes the mega-audit invariants as hard assertions so a regression in any
+scraper or in build_panel.py fails loudly. Suitable as a CI quality gate
+(run after build_panel.py, before committing the data).
+
+    ante/bin/python tests/test_panel_integrity.py
+"""
+import sys
+from pathlib import Path
+
+import pandas as pd
+
+ROOT = Path(__file__).resolve().parent.parent
+PANEL = ROOT / "data" / "visa_panel_long.csv"
+
+EXPECTED_COLS = ["country", "block", "category", "table", "bulletin_date",
+                 "status", "priority_date", "days_since_base", "raw_value"]
+VALID_STATUS = {"C", "F", "U", "UNK"}
+KEY = ["country", "block", "category", "table", "bulletin_date"]
+# Floor of the official online source (deep_missing_search.py).
+MIN_BULLETIN = pd.Timestamp("2001-12-01")
+
+
+def _panel():
+    return pd.read_csv(PANEL, parse_dates=["bulletin_date", "priority_date"])
+
+
+def test_schema():
+    p = _panel()
+    assert list(p.columns) == EXPECTED_COLS, f"columnas inesperadas: {list(p.columns)}"
+
+
+def test_key_unique():
+    p = _panel()
+    n = int(p.duplicated(subset=KEY).sum())
+    assert n == 0, f"{n} claves duplicadas"
+
+
+def test_status_domain():
+    p = _panel()
+    bad = set(p.status.unique()) - VALID_STATUS
+    assert not bad, f"estados inválidos: {bad}"
+
+
+def test_priority_only_when_F():
+    p = _panel()
+    leak = int(p[p.status != "F"].priority_date.notna().sum())
+    assert leak == 0, f"{leak} fechas de prioridad en filas no-F"
+
+
+def test_days_defined_iff_F():
+    p = _panel()
+    mismatch = int((p.days_since_base.notna() != (p.status == "F")).sum())
+    assert mismatch == 0, f"{mismatch} filas con days_since_base mal definido"
+
+
+def test_no_negative_days():
+    p = _panel()
+    neg = int((p.days_since_base < 0).sum())
+    assert neg == 0, f"{neg} días negativos"
+
+
+def test_bulletin_floor():
+    p = _panel()
+    assert p.bulletin_date.min() >= MIN_BULLETIN, \
+        f"boletín anterior al piso esperado: {p.bulletin_date.min()}"
+
+
+def test_priority_not_in_future():
+    # A Final Action / Dates-for-Filing date cannot exceed its bulletin month.
+    p = _panel()
+    f = p[p.status == "F"]
+    future = int((f.priority_date > f.bulletin_date).sum())
+    assert future == 0, f"{future} fechas de prioridad posteriores al boletín"
+
+
+def test_min_rows():
+    # Row-count sanity gate: guard against a parser regression silently gutting
+    # the panel. Current build ~27k; alert if it falls below 20k.
+    p = _panel()
+    assert len(p) >= 20_000, f"panel demasiado pequeño ({len(p)} filas) — posible regresión"
+
+
+def _run():
+    if not PANEL.exists():
+        print(f"✗ no existe {PANEL}; corre build_panel.py primero")
+        return False
+    fns = [v for k, v in sorted(globals().items())
+           if k.startswith("test_") and callable(v)]
+    passed = failed = 0
+    for fn in fns:
+        try:
+            fn()
+            passed += 1
+        except AssertionError as e:
+            failed += 1
+            print(f"  ✗ {fn.__name__}: {e}")
+    print(f"\n{passed}/{passed + failed} invariantes OK" +
+          (" ✓" if not failed else f"  ({failed} FALLAN)"))
+    return failed == 0
+
+
+if __name__ == "__main__":
+    sys.exit(0 if _run() else 1)

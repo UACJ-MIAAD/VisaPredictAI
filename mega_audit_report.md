@@ -47,14 +47,14 @@ _Auditoría exhaustiva generada por `mega_audit.py` sobre `data/visa_panel_long.
 | mexico | EB5_NONRC | FAD | 80 | 0 | 2015-09→2022-04 |
 | mexico | EB5_NONRC | DFF | 78 | 0 | 2015-11→2022-04 |
 
-## 4. Distribución de estado e∈{C,F,U,NA}
+## 4. Distribución de estado e∈{C,F,U,UNK}
 
 | status | filas | % |
 |---|--:|--:|
 | F | 15,662 | 57.7% |
 | C | 10,896 | 40.2% |
 | U | 568 | 2.1% |
-| NA | 0 | 0.0% |
+| UNK | 1 | 0.0% |
 
 - Por bloque×tabla (solo F / total):
 
@@ -157,7 +157,7 @@ _Auditoría exhaustiva generada por `mega_audit.py` sobre `data/visa_panel_long.
 ## Veredicto
 
 - 🔴 CRÍTICOS: **0** — ninguno ✓
-- 🟡 ADVERTENCIAS: **0** — ninguna ✓
+- 🟡 ADVERTENCIAS: **1**: 1 filas status=UNK (celdas no parseadas)
 - 🔵 INFORMATIVOS: **2**: 6 pares con DFF anterior a FAD (revisar); 14 saltos grandes mes-a-mes
 
 **Estado del panel: APTO**

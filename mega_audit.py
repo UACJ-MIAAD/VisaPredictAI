@@ -6,7 +6,7 @@ Dimensions:
   1  Schema & dtypes
   2  Bulletin-level completeness (accordion vs dead months)
   3  Series inventory (length, span, gaps per series)
-  4  Status distribution (F/C/U/NA)
+  4  Status distribution (F/C/U/UNK)
   5  Temporal gaps (classified)
   6  Key uniqueness
   7  Date validity (range, priority<=bulletin, base non-negative)
@@ -132,15 +132,15 @@ def d3_inventory(inv):
 
 # ------------------------------------------------------- 4. status
 def d4_status(p):
-    sec(4, "Distribución de estado e∈{C,F,U,NA}")
+    sec(4, "Distribución de estado e∈{C,F,U,UNK}")
     vc = p.status.value_counts()
     add("| status | filas | % |", "|---|--:|--:|")
-    for s in ["F", "C", "U", "NA"]:
+    for s in ["F", "C", "U", "UNK"]:
         n = int(vc.get(s, 0))
         add(f"| {s} | {n:,} | {100*n/len(p):.1f}% |")
-    na = int(vc.get("NA", 0))
+    na = int(vc.get("UNK", 0))
     if na > 0:
-        flag("WARN", f"{na} filas status=NA (celdas no parseadas)")
+        flag("WARN", f"{na} filas status=UNK (celdas no parseadas)")
     add("", "- Por bloque×tabla (solo F / total):")
     add("", "| bloque | tabla | F | total | %F |", "|---|---|--:|--:|--:|")
     for (b, t), d in p.groupby(["block", "table"]):
