@@ -85,8 +85,10 @@ def extract_tables(link: str) -> List[pd.DataFrame]:
 
     for table in tables:
         rows = table.find_all('tr')
-        # Search for "employment-based" in the table's rows
-        if any("employment-based" in row.get_text(strip=True).lower() for row in rows):
+        # Detect the employment section tolerating spacing drift in the header
+        # ('employment-based', 'employment- based', 'employment based').
+        if any(re.search(r'employment[\s-]*based', row.get_text(strip=True).lower())
+               for row in rows):
             # On a bulletin page the employment section lists Final Action Dates
             # first and Dates for Filing second (DFF tables exist only from
             # Oct 2015 on; earlier months have a single FAD table).
@@ -240,9 +242,10 @@ def classify_eb_category(raw) -> Union[None, str]:
 
 
 def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataFrame:
-        # 'row' (Rest of World) lives in the "all chargeability areas..." column;
-        # match a stable normalized substring so it survives spacing variants.
-        search_country = 'all chargeability' if country == 'row' else country
+        # 'row' (Rest of World) lives in the "all chargeability areas except
+        # those listed" column; match 'except those listed', which is stable
+        # even when older bulletins split 'chargeability' as 'charge ability'.
+        search_country = 'except those listed' if country == 'row' else country
 
         country_data = []
         for df in all_data:

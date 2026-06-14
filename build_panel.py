@@ -25,9 +25,9 @@ DATA = Path("data")
 OUT = DATA / "visa_panel_long.csv"
 
 # Fixed reference epoch for the dependent variable. Chosen before any observed
-# priority date (earliest seen: 1983-11) so days_since_base is always
-# non-negative and comparable across the whole panel. Single source of truth.
-BASE = pd.Timestamp("1980-01-01")
+# priority date (earliest seen: 1979-11, Philippines F4 in the 2001 bulletins)
+# so days_since_base is always non-negative and comparable across the panel.
+BASE = pd.Timestamp("1975-01-01")
 
 # Raw scraper country slug -> canonical panel label.
 COUNTRIES = {

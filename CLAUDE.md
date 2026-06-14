@@ -140,21 +140,23 @@ Generado por `build_panel.py` a partir de los 10 CSV por país. Esquema largo:
 | `days_since_base` | **variable dependiente** = días desde `BASE=1980-01-01`, **solo status='F'** |
 | `raw_value` | celda cruda |
 
-Snapshot actual: **24,731 filas · 195 series · 54% entrenable (status F)** · rango
-**2001-12→2026-06** · `days_since_base ∈ [1400, 16854]`, 0 negativos. Muchas series
-EB-5 son cortas/discontinuas por los cambios de régimen de categoría (TEA→RC→
-Set-Asides): cobertura **estructural**; el filtro evaluable/piloto es posterior.
+Snapshot actual: **27,062 filas · 194 series · 58% entrenable (status F)** · rango
+**2001-12→2026-06** (base=1975-01-01) · `days_since_base` 0 negativos · 0 claves
+duplicadas. Ambos scrapers (empleo y familiar) usan la **misma detección robusta**
+(categoría = col 0; país por `'except those listed'` para RoW / substring para el
+resto; detección de sección tolerante a `employment[\s-]*based` y substring
+`family`). Muchas series EB-5 son cortas/discontinuas por cambios de régimen de
+categoría (TEA→RC→Set-Asides): cobertura **estructural**; el filtro evaluable/
+piloto es posterior.
 
-### Pendientes de cobertura (post-fix H1+H2+H3+H4, ver `data_quality_report.md`)
+### Pendientes de cobertura (post-fix H1+H2+H3+H4+familiar, ver `data_quality_report.md`)
 
-- **Huecos residuales** ~15-26 meses/país (2005-2012): unos ausentes del acordeón
-  oficial, otros con markup que no contiene el literal "employment-based". One-offs
-  frágiles; bajo retorno.
+- **Huecos residuales** ~6-17 meses/país: en su mayoría meses ausentes del acordeón
+  oficial (p.ej. 2012-10, 2009-03) + india familiar sparse pre-2006 (no tenía
+  columna propia). Bajo retorno.
 - **Pre-2002 (→1992):** no existe en travel.state.gov (404). ⚠️ El `.tex` afirma
   "FAD desde 1992 (~408 obs)"; lo alcanzable es ~294 meses (dic-2001). **Reconciliar
   el claim del anteproyecto** o comprometerse a Wayback Machine.
-- **Scraper familiar:** podría beneficiarse de la misma detección robusta de
-  columnas (gaps propios), no aplicado aún.
 
 ## Objetivo: VisaPredict AI
 

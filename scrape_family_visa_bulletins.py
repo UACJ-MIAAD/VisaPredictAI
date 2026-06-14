@@ -76,7 +76,11 @@ def extract_tables(link: str) -> List[pd.DataFrame]:
 
     for table in tables:
         rows = table.find_all('tr')
-        if any("family-sponsored" in row.get_text(strip=True).lower() for row in rows):
+        # Detect the family section by the 'family' substring (the header is
+        # 'family' / 'family- sponsored', sometimes concatenated with the next
+        # cell as 'familyall chargeability...' in 2007-2008). The employment and
+        # diversity-visa tables never contain it.
+        if any('family' in row.get_text(strip=True).lower() for row in rows):
             family_table_count += 1
             table_type = "final_action" if family_table_count == 1 else "dates_for_filing"
 
@@ -150,26 +154,56 @@ def classify_status(date_str) -> str:
         return 'NA'
 
 
+def _norm_label(s) -> str:
+    """Collapse whitespace noise (\\n, \\xa0, runs of spaces) and lowercase."""
+    if pd.isna(s):
+        return ''
+    return re.sub(r'\s+', ' ', str(s).replace('\xa0', ' ')).strip().lower()
+
+
+def classify_family_category(raw) -> Union[None, str]:
+    """Map a raw 'Family-Sponsored' row label to a canonical level code,
+    absorbing label drift ('1st'->F1 in 2006-2011, 'F1' from 2011 on, and the
+    '*' footnote variants). Returns None for non-category rows (e.g. the
+    'family' spanning header). Codes match the legacy values: 1, 2A, 2B, 3, 4.
+    """
+    s = _norm_label(raw)
+    if s in ('1st', 'f1'):
+        return '1'
+    if s in ('2a', '2a*', '2nd-a', '2nda', 'f2a', 'f2a*'):
+        return '2A'
+    if s in ('2b', '2b*', '2nd-b', '2ndb', 'f2b', 'f2b*'):
+        return '2B'
+    if s in ('3rd', 'f3'):
+        return '3'
+    if s in ('4th', 'f4'):
+        return '4'
+    return None
+
+
 def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataFrame:
+        # 'row' (Rest of World) lives in the "all chargeability areas except
+        # those listed" column; match 'except those listed', which is stable
+        # even when older bulletins split 'chargeability' as 'charge ability'.
+        search_country = 'except those listed' if country == 'row' else country
+
         country_data = []
         for df in all_data:
-            df.columns = [column.replace(u'\xa0', u' ') for column in df.columns]
+            norm = {col: _norm_label(col) for col in df.columns}
 
-            search_country = country
-            if country == 'row':
-                search_country = 'all chargeability  areas except those listed'
+            # The family-category column is always column 0 (header is
+            # 'family- sponsored', 'family', or '' across the years).
+            cat_col = df.columns[0]
+            country_col = next((c for c in df.columns if search_country in norm[c]), None)
+            if country_col is None or country_col == cat_col:
+                continue
 
-            if any([search_country in col for col in df.columns]):
-                col_idx = [i for i, col in enumerate(df.columns) if search_country in col][0]
-                country_col = df.columns[col_idx]
-                try:
-                    df_subset = df[['family-sponsored', country_col, 'visa_bulletin_date', 'table_type']]
-                    df_subset = df_subset.copy()
-                    df_subset.columns = df_subset.columns.str.replace(country_col, 'final_action_dates')
-                    df_subset.columns = df_subset.columns.str.replace('family-sponsored', 'F_level')
-                    country_data.append(df_subset)
-                except:
-                    pass
+            try:
+                df_subset = df[[cat_col, country_col, 'visa_bulletin_date', 'table_type']].copy()
+                df_subset.columns = ['F_level', 'final_action_dates', 'visa_bulletin_date', 'table_type']
+                country_data.append(df_subset)
+            except Exception:
+                pass
 
         if not country_data:
             return pd.DataFrame(columns=['F_level', 'final_action_dates', 'visa_bulletin_date', 'visa_wait_time', 'table_type'])
@@ -186,25 +220,15 @@ def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataF
             lambda row: (row['visa_bulletin_date'] - row['final_action_dates']).days / 365.25
             if pd.notna(row['final_action_dates']) and pd.notna(row['visa_bulletin_date']) else None, axis=1)
 
-        # Clean F_level values: "1st" -> "1", "2nd-A" -> "2A", "2nd-B" -> "2B", "3rd" -> "3", "4th" -> "4"
-        level_map = {}
-        for val in country_df['F_level'].unique():
-            cleaned = val.strip().lower()
-            if cleaned in ('1st', 'f1'):
-                level_map[val] = '1'
-            elif cleaned in ('2a', '2nd-a', 'f2a', '2nda'):
-                level_map[val] = '2A'
-            elif cleaned in ('2b', '2nd-b', 'f2b', '2ndb'):
-                level_map[val] = '2B'
-            elif cleaned in ('3rd', 'f3'):
-                level_map[val] = '3'
-            elif cleaned in ('4th', 'f4'):
-                level_map[val] = '4'
+        # Map the raw 'Family-Sponsored' label to a canonical level code
+        # (1, 2A, 2B, 3, 4); drop rows that are not a family category.
+        country_df['F_level'] = country_df['F_level'].apply(classify_family_category)
+        country_df = country_df[country_df['F_level'].notna()]
 
-        country_df['F_level'] = country_df['F_level'].map(level_map)
-
-        valid_levels = ['1', '2A', '2B', '3', '4']
-        country_df = country_df[country_df['F_level'].isin(valid_levels)]
+        # Keep a unique (level, month, table) key (guards against any label
+        # transition putting the same category twice in one bulletin).
+        country_df = country_df.drop_duplicates(
+            subset=['F_level', 'visa_bulletin_date', 'table_type'], keep='first')
 
         return country_df
 

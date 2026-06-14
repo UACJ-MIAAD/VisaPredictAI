@@ -99,7 +99,7 @@ def panel_section() -> list[str]:
         f"- Bloque×tabla: " + ", ".join(f"{b}/{t}={n:,}" for (b, t), n in bt.items()),
         f"- Objetivo entrenable (status=F): **{len(f):,}** filas ({100*len(f)/len(p):.0f}%)",
         f"- `days_since_base` ∈ [{f.days_since_base.min():.0f}, {f.days_since_base.max():.0f}] "
-        f"(base 1980-01-01); 0 negativos.",
+        f"(base 1975-01-01); 0 negativos.",
         "",
     ]
     return lines
@@ -134,12 +134,14 @@ def main() -> None:
         "EB3_OW, EB4_RW/TRANS, y EB5 (bare/TEA/PILOT/RC/NONRC/UNRESERVED/RURAL/"
         "HIGHUNEMP/INFRA). Schedule A queda fuera de alcance. Panel 90→186 series.",
         "- **H4 — Cobertura extendida al piso de la fuente ✅ (parcial).** "
-        "Detección robusta de columnas (categoría = col 0; país por nombre "
-        "normalizado) recuperó **2001-12→2003-09**, **arregló RoW** (estaba "
-        "truncado a 2016-04) y redujo huecos. **Piso real = dic-2001**: pre-2002 "
-        "da 404 en travel.state.gov; llegar a 1992 exigiría Wayback Machine "
-        "(frágil, fuera de alcance). ⚠️ El `.tex` afirma 'FAD desde 1992 (~408 "
-        "obs)' — irreal desde la fuente oficial (~294 meses máx).",
+        "Detección robusta de columnas/sección en **ambos scrapers** (categoría = "
+        "col 0; sección por `employment[\\s-]*based` / substring `family`; RoW por "
+        "`except those listed`) recuperó **2001-12→2003-09**, el **cluster 2007-2008** "
+        "y **arregló RoW** (empleo truncado a 2016-04, familiar a 2015-05). Huecos "
+        "familiares 58-69→6-17. **Piso real = dic-2001**: pre-2002 da 404 en "
+        "travel.state.gov; llegar a 1992 exigiría Wayback Machine (fuera de alcance). "
+        "⚠️ El `.tex` afirma 'FAD desde 1992 (~408 obs)' — irreal desde la fuente "
+        "oficial (~294 meses máx).",
         "- **H5 — `NaN` ambiguo ✅ RESUELTO.** `status` distingue 'U' (Unavailable) "
         "de 'NA' (celda vacía/no parseable). En el panel actual: 0 filas NA.",
         "",
