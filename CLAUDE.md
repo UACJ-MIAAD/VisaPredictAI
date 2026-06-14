@@ -17,7 +17,12 @@ visa_dates/
 ├── CLAUDE.md                          # Este archivo (contexto para Claude Code)
 ├── README.md                          # Documentación original del repo
 ├── requirements.txt                   # Dependencias Python
-├── scrape_visa_bulletins.py           # Script principal de scraping (~2 min de ejecución)
+├── visa_common.py                     # ★ helpers compartidos (fetch/links/fecha/estado) — NO duplicar en los scrapers
+├── scrape_visa_bulletins.py           # scraper empleo (importa de visa_common; ~2 min)
+├── scrape_family_visa_bulletins.py    # scraper familiar (importa de visa_common)
+├── build_panel.py · audit_data_quality.py · mega_audit.py  # consolidación + auditorías
+├── tests/                             # test_parsers.py (12) · test_panel_integrity.py (9 invariantes)
+├── *_audit_report.md                  # data_quality · mega · mlops · solid_clean
 ├── visualize_visa_wait_times.py       # Generación de gráficas por país
 ├── data/                              # CSVs generados por el scraper
 │   ├── china_visa_backlog_timecourse.csv
@@ -194,6 +199,7 @@ Construir modelos predictivos para forecasting de fechas del Visa Bulletin, con 
 ## Notas para Claude Code
 
 - Los CSVs en `data/` son **generados automáticamente** por `scrape_visa_bulletins.py`. No editarlos a mano; si necesitan cambios, modificar el scraper.
+- **`visa_common.py` es la única fuente de verdad** de las funciones compartidas (`get_soup`, `extract_month_links`, `extract_datetime_from_link`, `string_to_datetime`, `classify_status`, `_norm_label`) y constantes (`SITE_ROOT`, `SCRAPER_COUNTRIES`). **NO re-duplicarlas** en los scrapers (lo estaban; deduplicadas 14-jun-2026, refactor verificado byte-idéntico). Cada scraper conserva sólo lo que difiere: `extract_tables` (detección de sección), `classify_eb_category`/`classify_family_category`, `extract_country_data`, `main`.
 - El scraper tarda ~2 minutos en ejecutarse porque hace requests HTTP a cada boletín mensual individualmente.
 - Los `NaN` en `visa_wait_time` corresponden a meses donde la categoría estaba `U` (Unavailable).
 - El GitHub Action (`update_graphs.yml`) corre diariamente y auto-commitea si hay cambios.

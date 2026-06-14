@@ -1,92 +1,19 @@
 from typing import List, Union
-import requests
 import re
-import time
-from datetime import datetime
 
-from bs4 import BeautifulSoup
 import pandas as pd
 from tqdm import tqdm
 
-
-BASE_URL = "https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html"
-
-def extract_datetime_from_link(link: str) -> Union[None, datetime]:
-    # Regular expression to match "visa-bulletin-for-month-year.html"
-    pattern = r'visa-bulletin-for-(\w+)-(\d{4})\.html$'
-    
-    match = re.search(pattern, link)
-
-    if not match:
-        return None
-
-    # Extract month and year from the matched groups
-    month_str, year = match.groups()
-
-    # Map month string to its corresponding number
-    month_map = {
-        'january': 1,
-        'february': 2,
-        'march': 3,
-        'april': 4,
-        'may': 5,
-        'june': 6,
-        'july': 7,
-        'august': 8,
-        'september': 9,
-        'october': 10,
-        'november': 11,
-        'december': 12
-    }
-
-    month = month_map.get(month_str.lower())
-
-    if not month:
-        return None
-
-    # Create a datetime object
-    dt = datetime(year=int(year), month=month, day=1)
-
-    return dt
-
-def get_soup(url: str, retries: int = 4) -> BeautifulSoup:
-    # Retry with backoff so a transient HTTP blip does not silently drop a whole
-    # month (a bare requests.get + `except: pass` in main was losing bulletins).
-    last = None
-    for attempt in range(retries):
-        try:
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-            return BeautifulSoup(response.text, 'html.parser')
-        except Exception as exc:
-            last = exc
-            time.sleep(2 * (attempt + 1))
-    raise last
-
-def extract_month_links() -> List[str]:
-    soup = get_soup(BASE_URL)
-    month_links = []
-
-    # Step 1: Find each main accordion container
-    accordion_sections = soup.find_all('div', class_='accordion parbase section')
-
-    for section in accordion_sections:
-        # Step 2: Locate the div containing the links
-        link_container = section.find('div', class_='tsg-rwd-accordion-copy')
-
-        if link_container:
-            # Step 3: Extract all the <a> tags
-            links = link_container.find_all('a', href=True)
-            
-            for link in links:
-                month_links.append(link['href'])
-
-    return month_links
+from visa_common import (
+    SITE_ROOT, SCRAPER_COUNTRIES,
+    extract_datetime_from_link, get_soup, extract_month_links,
+    string_to_datetime, classify_status, _norm_label,
+)
 
 
 def extract_tables(link: str) -> List[pd.DataFrame]:
     year_month = extract_datetime_from_link(link)
-    soup = get_soup('https://travel.state.gov/' + link)
+    soup = get_soup(SITE_ROOT + link)
 
     # Find all table elements
     tables = soup.find_all('table')
@@ -138,57 +65,6 @@ def extract_tables(link: str) -> List[pd.DataFrame]:
                 break  # FAD + DFF captured
 
     return dfs
-
-
-def string_to_datetime(date_str: str, bulletin_date: datetime) -> Union[None, datetime]:
-    # Handle special cases
-    if date_str == 'C':
-        return bulletin_date
-    elif date_str == 'U':
-        return None
-    elif pd.isna(date_str):
-        return None
-
-    try:
-        return datetime.strptime(date_str, '%d%b%y')
-    except ValueError:
-        return None
-
-
-def classify_status(date_str) -> str:
-    """Annotate the published cell as its visa-bulletin regime:
-        'F'  a specific final-action date is published (a parseable date)
-        'C'  Current  -- no backlog this month
-        'U'  Unavailable -- no numbers available this month
-        'UNK' empty or unparseable cell
-
-    Preserves the regime annotation that is otherwise lost when 'C' is mapped
-    to the bulletin date and 'U' to NaN. Per the VisaPredict AI v5.1
-    formulation, only rows with status 'F' are a prediction target; 'C'/'U'
-    are kept as descriptive annotation.
-    """
-    if pd.isna(date_str):
-        return 'UNK'
-    s = str(date_str).strip().upper()
-    if s == '':
-        return 'UNK'
-    if s == 'C':
-        return 'C'
-    if s == 'U':
-        return 'U'
-    try:
-        datetime.strptime(str(date_str).strip(), '%d%b%y')
-        return 'F'
-    except ValueError:
-        return 'UNK'
-
-
-def _norm_label(s) -> str:
-    """Collapse whitespace noise (\\n, \\xa0, runs of spaces) and lowercase."""
-    if pd.isna(s):
-        return ''
-    return re.sub(r'\s+', ' ', str(s).replace('\xa0', ' ')).strip().lower()
-
 
 def classify_eb_category(raw) -> Union[None, str]:
     """Map a raw 'Employment-based' row label to a canonical category code,
@@ -250,7 +126,6 @@ def classify_eb_category(raw) -> Union[None, str]:
         return 'EB5'
     # Schedule A workers and anything else: outside EB-1..5 scope
     return None
-
 
 def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataFrame:
         # 'row' (Rest of World) lives in the "all chargeability areas except
@@ -325,7 +200,7 @@ def main():
         for link, err in failed:
             print(f"   {link.split('/')[-1]}  {err}")
 
-    countries = ['india', 'china', 'mexico', 'philippines', 'row']
+    countries = SCRAPER_COUNTRIES
     for country in tqdm(countries, desc=f"Extracting data for each country and computing backlogs"):
         country_df = extract_country_data(country, all_data)
         country_df = country_df.sort_values(by='visa_bulletin_date', ascending=False)
