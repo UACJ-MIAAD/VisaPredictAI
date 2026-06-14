@@ -4,11 +4,7 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
 
-# UACJ / MIAAD institutional colors
-UACJ_AZUL = '#003CA6'
-UACJ_AMARILLO = '#FFD600'
-UACJ_GRIS = '#555559'
-UACJ_NEGRO = '#231F20'
+from config import UACJ_AMARILLO, UACJ_AZUL, UACJ_GRIS, UACJ_NEGRO  # noqa: F401
 
 TODAY = datetime(2026, 2, 13)
 

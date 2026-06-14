@@ -24,14 +24,12 @@ from pathlib import Path
 
 import pandas as pd
 
-DATA = Path("data")
+from config import CANONICAL_COUNTRY as COUNTRIES
+from config import DATA_DIR as DATA
+from config import DEAD_MONTHS
+from config import PANEL_PATH as PANEL
+
 OUT = Path("mega_audit_report.md")
-PANEL = DATA / "visa_panel_long.csv"
-COUNTRIES = {"mexico": "mexico", "india": "india", "china": "china",
-             "philippines": "philippines", "row": "all_chargeability"}
-# Established by deep_missing_search.py: months absent from the official site
-# (404 on constructed URL, not in accordion; present only in Wayback legacy).
-DEAD_MONTHS = ['2009-03', '2009-09', '2009-10', '2009-11', '2012-10']
 
 L = []          # report lines
 FLAGS = []      # (severity, message)

@@ -23,22 +23,12 @@ from pathlib import Path
 
 import pandas as pd
 
-DATA = Path("data")
-OUT = DATA / "visa_panel_long.csv"
+from config import BASE_EPOCH, TABLE_MAP
+from config import CANONICAL_COUNTRY as COUNTRIES
+from config import DATA_DIR as DATA
+from config import PANEL_PATH as OUT
 
-# Fixed reference epoch for the dependent variable. Chosen before any observed
-# priority date (earliest seen: 1979-11, Philippines F4 in the 2001 bulletins)
-# so days_since_base is always non-negative and comparable across the panel.
-BASE = pd.Timestamp("1975-01-01")
-
-# Raw scraper country slug -> canonical panel label.
-COUNTRIES = {
-    "mexico": "mexico",
-    "india": "india",
-    "china": "china",
-    "philippines": "philippines",
-    "row": "all_chargeability",  # "All Chargeability Areas Except Those Listed"
-}
+BASE = pd.Timestamp(BASE_EPOCH)
 
 PANEL_COLS = [
     "country", "block", "category", "table",
@@ -53,9 +43,6 @@ def _require(df: pd.DataFrame, fp: Path) -> None:
             f"{fp} no tiene las columnas {missing}. "
             f"Re-ejecuta los scrapers (que ya emiten status/raw_value/table_type) antes de build_panel."
         )
-
-
-TABLE_MAP = {"final_action": "FAD", "dates_for_filing": "DFF"}
 
 
 def load_employment() -> pd.DataFrame:

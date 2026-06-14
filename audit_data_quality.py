@@ -18,8 +18,10 @@ from pathlib import Path
 
 import pandas as pd
 
-COUNTRIES = ["mexico", "india", "china", "philippines", "row"]
-DATA = Path("data")
+from config import CANONICAL_COUNTRY
+from config import DATA_DIR as DATA
+
+COUNTRIES = list(CANONICAL_COUNTRY)  # slugs in canonical order
 OUT = Path("data_quality_report.md")
 
 
