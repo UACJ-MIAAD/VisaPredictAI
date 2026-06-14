@@ -139,7 +139,7 @@ python visualize_family_wait_times.py
 
 ## Visualizaciones
 
-Los scripts de visualización generan gráficas por país en `figures/`, mostrando la evolución histórica de los tiempos de espera por categoría de preferencia.
+Los scripts de visualización generan gráficas por país en `figures/`, mostrando la evolución histórica de los tiempos de espera por categoría de preferencia. Las figuras **no se versionan** (son artefactos generados); regenéralas con `make figures`.
 
 ## Fuente de Datos
 

@@ -42,11 +42,8 @@ jobs:
         python tests/test_extraction.py       # offline extraction over HTML fixtures
         python tests/test_panel_integrity.py  # hard invariants of the freshly built panel
 
-    - name: Run employment-based visualization script
-      run: python visualize_visa_wait_times.py
-
-    - name: Run family-based visualization script
-      run: python visualize_family_wait_times.py
+    # Figures are no longer versioned (regenerate locally with `make figures`),
+    # so the daily run no longer produces or commits them.
 
     - name: Commit and push changes
       run: |

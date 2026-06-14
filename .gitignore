@@ -2,3 +2,6 @@
 ante/
 __pycache__/
 *.pyc
+
+# Generated figures: regenerate with `make figures` (not versioned -- avoids binary git bloat)
+figures/
