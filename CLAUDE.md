@@ -62,7 +62,7 @@ source ante/bin/activate
 pip install -r requirements.txt
 
 # Ejecutar scrapers (genera CSVs por país en data/, ~2 min c/u)
-python scrape_visa_bulletins.py          # empleo (EB 1-4, FAD)
+python scrape_visa_bulletins.py          # empleo (EB 1-4, FAD+DFF)
 python scrape_family_visa_bulletins.py   # familiar (F1-F4, FAD+DFF)
 
 # Consolidar el panel largo y_{p,c,b,t} -> data/visa_panel_long.csv
@@ -84,11 +84,13 @@ El scraper extrae tablas **Employment-Based** del Visa Bulletin mensual publicad
 
 ### Qué extrae
 
-- **Tabla:** Final Action Dates (primera tabla employment-based de cada boletín mensual)
-- **Categorías:** EB-1, EB-2, EB-3, EB-4 (niveles de visa basados en empleo)
+- **Tablas:** Final Action Dates (FAD) **y** Dates for Filing (DFF) — las dos
+  tablas employment-based de cada boletín, etiquetadas en `table_type`. DFF de
+  empleo existe desde Oct-2015 (antes solo hay FAD).
+- **Categorías:** EB-1, EB-2, EB-3, EB-4 (filtro actual; EB-5 pendiente, H3)
 - **Países con límites especiales:** India, China, México, Filipinas
 - **Resto del mundo (RoW):** "All chargeability areas except those listed"
-- **Rango temporal:** Desde Oct 2007 hasta el boletín más reciente
+- **Rango temporal:** Desde Oct 2003 hasta el boletín más reciente
 
 ### Estructura de los CSVs por país
 
@@ -121,19 +123,18 @@ Generado por `build_panel.py` a partir de los 10 CSV por país. Esquema largo:
 | `country` | mexico, india, china, philippines, **all_chargeability** (= `row`) |
 | `block` | `employment` / `family` |
 | `category` | EB1..EB4 / F1,F2A,F2B,F3,F4 |
-| `table` | `FAD` / `DFF` |
+| `table` | `FAD` / `DFF` (ambos bloques; DFF de empleo desde Oct-2015) |
 | `bulletin_date` | mes del boletín (t) |
 | `status` | C/F/U/NA |
 | `priority_date` | fecha de prioridad **solo si status='F'** (NaT en C/U/NA) |
 | `days_since_base` | **variable dependiente** = días desde `BASE=1980-01-01`, **solo status='F'** |
 | `raw_value` | celda cruda |
 
-Snapshot actual: **12,365 filas · 70 series · 78% entrenable (status F)** · rango
+Snapshot actual: **14,397 filas · 90 series · 74% entrenable (status F)** · rango
 2003-10→2026-06 · `days_since_base ∈ [1400, 16854]`, 0 negativos.
 
-### Pendientes de cobertura (post-fix H1, ver `data_quality_report.md`)
+### Pendientes de cobertura (post-fix H1+H2, ver `data_quality_report.md`)
 
-- **H2** DFF de empleo (el scraper de empleo solo extrae FAD).
 - **H3** EB-5 y subcategorías (filtro deja solo EB 1-4).
 - **H4** FAD pre-2003 hacia 1992 (boletines archivados con otra URL).
 - Huecos de meses dispersos (~10% empleo) y RoW empleo truncado a 2016.

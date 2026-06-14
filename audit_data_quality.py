@@ -115,7 +115,7 @@ def main() -> None:
         "(**el estado original C/F/U no se conserva** — ver hallazgo H1).",
         "",
     ]
-    lines += audit_block("Empleo", "EB_level", has_table_type=False)
+    lines += audit_block("Empleo", "EB_level", has_table_type=True)
     lines += audit_block("Familiar", "F_level", has_table_type=True)
 
     lines += panel_section()
@@ -125,8 +125,9 @@ def main() -> None:
         "- **H1 — Estado e∈{C,F,U} ✅ RESUELTO.** Los scrapers ahora emiten las "
         "columnas `status` (C/F/U/NA) y `raw_value`; el panel entrena *solo sobre "
         "status='F'* y conserva C/U como anotación descriptiva (formulación v5.1).",
-        "- **H2 — DFF ausente en Empleo.** El scraper de empleo corta tras la "
-        "primera tabla (solo FAD). *Pendiente.*",
+        "- **H2 — DFF de Empleo ✅ RESUELTO.** El scraper de empleo ahora "
+        "captura las dos tablas (FAD + DFF, vía `table_type`); DFF disponible "
+        "desde Oct-2015. +2,032 filas DFF de empleo, +20 series.",
         "- **H3 — EB-5 y subcategorías descartadas.** Filtro deja solo EB 1–4. "
         "*Pendiente.*",
         "- **H4 — FAD no llega a 1992.** El acordeón de travel.state.gov no lista "

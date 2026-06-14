@@ -79,27 +79,34 @@ def extract_tables(link: str) -> List[pd.DataFrame]:
 
     # Find all table elements
     tables = soup.find_all('table')
-    
+
     dfs = []  # List to hold DataFrames
+    employment_table_count = 0  # 1st employment table = FAD, 2nd = DFF
 
     for table in tables:
         rows = table.find_all('tr')
         # Search for "employment-based" in the table's rows
         if any("employment-based" in row.get_text(strip=True).lower() for row in rows):
+            # On a bulletin page the employment section lists Final Action Dates
+            # first and Dates for Filing second (DFF tables exist only from
+            # Oct 2015 on; earlier months have a single FAD table).
+            employment_table_count += 1
+            table_type = "final_action" if employment_table_count == 1 else "dates_for_filing"
+
             table_data = []
             for row in rows:
                 th_cols = row.find_all('th')
                 td_cols = row.find_all('td')
-                
+
                 # Combine the th and td columns, th first
                 all_cols = th_cols + td_cols
-                
+
                 # Extract text from each column
                 cols = [ele.text.strip() for ele in all_cols]
                 table_data.append(cols)
-            
+
             # If the first row only has one column, it is a spanning header, remove it
-            if len(table_data[0]) == 1: 
+            if len(table_data[0]) == 1:
                 columns = table_data[1]
                 table_body = table_data[2:]
             else:
@@ -109,11 +116,14 @@ def extract_tables(link: str) -> List[pd.DataFrame]:
             # Convert the table_data into a DataFrame, treating the first row as headers
             df = pd.DataFrame(table_body, columns=columns)
             df['visa_bulletin_date'] = year_month  # Add a column for the year_month
+            df['table_type'] = table_type
             df.columns = df.columns.str.replace('\n', '').str.replace('- ', '-')
             df.columns = df.columns.str.lower()
             dfs.append(df)  # Append the DataFrame to the list
-            break  # Only extract the first table
-    
+
+            if employment_table_count >= 2:
+                break  # FAD + DFF captured
+
     return dfs
 
 
@@ -166,21 +176,28 @@ def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataF
             # Replace non-breaking spaces with regular spaces in column names
             df.columns = [column.replace(u'\xa0', u' ') for column in df.columns]
 
-            # for rest of the world, put country as the specific string
+            # for rest of the world, match the specific column string (use a
+            # separate variable so the loop parameter is not mutated)
+            search_country = country
             if country == 'row':
-                country = 'all chargeability  areas except those listed'
+                search_country = 'all chargeability  areas except those listed'
 
-            if any([country in col for col in df.columns]):
-                col_idx = [i for i, col in enumerate(df.columns) if country in col][0]
+            if any([search_country in col for col in df.columns]):
+                col_idx = [i for i, col in enumerate(df.columns) if search_country in col][0]
                 country_col = df.columns[col_idx]
                 try:
-                    df = df[['employment-based', country_col, 'visa_bulletin_date']]
-                    df.columns = df.columns.str.replace(country_col, 'final_action_dates')
-                    df.columns = df.columns.str.replace('employment-based', 'EB_level')
-                    country_data.append(df)
+                    df_subset = df[['employment-based', country_col, 'visa_bulletin_date', 'table_type']]
+                    df_subset = df_subset.copy()
+                    df_subset.columns = df_subset.columns.str.replace(country_col, 'final_action_dates')
+                    df_subset.columns = df_subset.columns.str.replace('employment-based', 'EB_level')
+                    country_data.append(df_subset)
                 except:
                     pass
-        
+
+        if not country_data:
+            return pd.DataFrame(columns=['EB_level', 'final_action_dates', 'visa_bulletin_date',
+                                         'table_type', 'raw_value', 'status', 'visa_wait_time'])
+
         country_df = pd.concat(country_data, axis=0, ignore_index=True)
 
         country_df = country_df[country_df['visa_bulletin_date'].notna()]

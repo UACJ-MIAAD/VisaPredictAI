@@ -45,12 +45,15 @@ PANEL_COLS = [
 
 
 def _require(df: pd.DataFrame, fp: Path) -> None:
-    missing = {"status", "raw_value"} - set(df.columns)
+    missing = {"status", "raw_value", "table_type"} - set(df.columns)
     if missing:
         raise SystemExit(
             f"{fp} no tiene las columnas {missing}. "
-            f"Re-ejecuta los scrapers (que ya emiten status/raw_value) antes de build_panel."
+            f"Re-ejecuta los scrapers (que ya emiten status/raw_value/table_type) antes de build_panel."
         )
+
+
+TABLE_MAP = {"final_action": "FAD", "dates_for_filing": "DFF"}
 
 
 def load_employment() -> pd.DataFrame:
@@ -64,13 +67,12 @@ def load_employment() -> pd.DataFrame:
         df["country"] = canon
         df["block"] = "employment"
         df["category"] = "EB" + df["EB_level"].astype("Int64").astype(str)
-        df["table"] = "FAD"  # employment scraper only extracts FAD (H2 pendiente)
+        df["table"] = df["table_type"].map(TABLE_MAP)  # FAD + DFF (DFF desde Oct-2015)
         frames.append(df)
     return pd.concat(frames, ignore_index=True)
 
 
 def load_family() -> pd.DataFrame:
-    tmap = {"final_action": "FAD", "dates_for_filing": "DFF"}
     frames = []
     for slug, canon in COUNTRIES.items():
         fp = DATA / f"{slug}_family_visa_backlog_timecourse.csv"
@@ -81,7 +83,7 @@ def load_family() -> pd.DataFrame:
         df["country"] = canon
         df["block"] = "family"
         df["category"] = "F" + df["F_level"].astype(str)
-        df["table"] = df["table_type"].map(tmap)
+        df["table"] = df["table_type"].map(TABLE_MAP)
         frames.append(df)
     return pd.concat(frames, ignore_index=True)
 
