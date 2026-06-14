@@ -24,6 +24,11 @@ SCRAPER_COUNTRIES = ["india", "china", "mexico", "philippines", "row"]
 DATE_FMT = "%d%b%y"
 REQUEST_TIMEOUT = 30
 MAX_RETRIES = 4
+# A handful of months can fail transiently (a redirect loop, a 5xx); the run
+# proceeds and the failure-reporter logs them. But if MORE than this many fail,
+# something is structurally wrong with the source (site redesign, outage) and
+# the scraper aborts WITHOUT writing, so a degraded panel is never published.
+MAX_FETCH_FAILURES = 10
 
 MONTH_MAP = {
     "january": 1, "february": 2, "march": 3, "april": 4,

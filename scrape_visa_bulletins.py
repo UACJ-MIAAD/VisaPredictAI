@@ -5,7 +5,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from visa_common import (
-    SITE_ROOT, SCRAPER_COUNTRIES,
+    SITE_ROOT, SCRAPER_COUNTRIES, MAX_FETCH_FAILURES,
     extract_datetime_from_link, get_soup, extract_month_links, parse_tables,
     string_to_datetime, classify_status, _norm_label,
 )
@@ -155,11 +155,21 @@ def main():
         print(f"\n⚠️  {len(failed)} boletines fallaron tras reintentos (meses perdidos):")
         for link, err in failed:
             print(f"   {link.split('/')[-1]}  {err}")
+        if len(failed) > MAX_FETCH_FAILURES:
+            raise SystemExit(
+                f"{len(failed)} boletines fallaron (> {MAX_FETCH_FAILURES}): probable "
+                f"problema de la fuente, no un blip transitorio. Se aborta sin escribir "
+                f"para no publicar un panel degradado.")
 
     countries = SCRAPER_COUNTRIES
     for country in tqdm(countries, desc=f"Extracting data for each country and computing backlogs"):
         country_df = extract_country_data(country, all_data)
-        country_df = country_df.sort_values(by='visa_bulletin_date', ascending=False)
+        # Deterministic order (newest first, then table then category): a fully
+        # specifying key, so a transient dropped month cannot cascade-reorder the
+        # rest via an unstable sort.
+        country_df = country_df.sort_values(
+            by=['visa_bulletin_date', 'table_type', 'EB_level'],
+            ascending=[False, True, True])
         country_df.to_csv(f'data/{country}_visa_backlog_timecourse.csv', index=False)
 
 
