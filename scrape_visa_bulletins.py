@@ -8,12 +8,11 @@ from visa_common import (
     SCRAPER_COUNTRIES,
     SITE_ROOT,
     _norm_label,
-    classify_status,
+    annotate_dates,
     extract_datetime_from_link,
     extract_month_links,
     get_soup,
     parse_tables,
-    string_to_datetime,
 )
 
 
@@ -109,28 +108,21 @@ def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataF
                 continue
 
             try:
-                df_subset = df[[cat_col, country_col, 'visa_bulletin_date', 'table_type']].copy()
-                df_subset.columns = ['EB_level', 'final_action_dates', 'visa_bulletin_date', 'table_type']
-                country_data.append(df_subset)
-            except Exception:
-                pass
+                sub = df[[cat_col, country_col, 'visa_bulletin_date', 'table_type']].copy()
+            except KeyError:
+                continue
+            sub.columns = ['EB_level', 'priority_date', 'visa_bulletin_date', 'table_type']
+            country_data.append(sub)
 
         if not country_data:
-            return pd.DataFrame(columns=['EB_level', 'final_action_dates', 'visa_bulletin_date',
+            return pd.DataFrame(columns=['EB_level', 'priority_date', 'visa_bulletin_date',
                                          'table_type', 'raw_value', 'status', 'visa_wait_time'])
 
         country_df = pd.concat(country_data, axis=0, ignore_index=True)
-
         country_df = country_df[country_df['visa_bulletin_date'].notna()]
-        # Preserve the raw published cell and its C/F/U/UNK regime BEFORE the
-        # cell is flattened into a date (H1 fix: keep the annotation).
-        country_df['raw_value'] = country_df['final_action_dates']
-        country_df['status'] = country_df['final_action_dates'].apply(classify_status)
-        # calculate backlog period length (difference in months between 'india' and 'bulletin_year_month')
-        country_df['final_action_dates'] = country_df.apply(lambda row: string_to_datetime(row['final_action_dates'], row['visa_bulletin_date']), axis=1)
-        country_df['visa_wait_time'] = country_df.apply(
-            lambda row: (row['visa_bulletin_date'] - row['final_action_dates']).days / 365.25
-            if pd.notna(row['final_action_dates']) and pd.notna(row['visa_bulletin_date']) else None, axis=1)
+
+        # raw_value / status / parse priority_date / visa_wait_time (H1 annotation).
+        country_df = annotate_dates(country_df, 'priority_date')
 
         # Map the raw 'Employment-based' label to a canonical category code
         # (EB1..EB5 + subcategories); drop rows that are not an EB preference (H3).

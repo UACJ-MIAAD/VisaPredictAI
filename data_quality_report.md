@@ -2,7 +2,7 @@
 
 _Generado por `audit_data_quality.py` sobre los CSV vigentes en `data/`._
 
-Convenciones de las columnas: `final_action_dates` = fecha de prioridad publicada; `C` se convirtió a la fecha del boletín y `U` a `NaN` (**el estado original C/F/U no se conserva** — ver hallazgo H1).
+Convenciones de las columnas: `priority_date` = fecha de prioridad publicada (parseada); `status` ∈ {C,F,U,UNK} conserva el régimen y `raw_value` la celda cruda (fix H1).
 
 ## Bloque: Empleo
 

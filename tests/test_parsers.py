@@ -13,11 +13,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scrape_family_visa_bulletins import classify_family_category  # noqa: E402
-from scrape_visa_bulletins import (  # noqa: E402
-    _norm_label,
-    classify_eb_category,
-    classify_status,
-)
+from scrape_visa_bulletins import classify_eb_category  # noqa: E402
+from visa_common import _norm_label, classify_status  # noqa: E402
 
 
 # ---- classify_status (C/F/U/NA) ----------------------------------------

@@ -92,7 +92,7 @@ def test_status_domain_offline():
         assert not bad, f"{name}: estados inválidos {bad}"
         # every 'F' row must carry a parsed date ('C' maps to the bulletin date
         # by design in the legacy column, so we don't assert on non-F rows here).
-        miss = (d.status.eq("F") & d.final_action_dates.isna()).sum()
+        miss = (d.status.eq("F") & d.priority_date.isna()).sum()
         assert miss == 0, f"{name}: {miss} filas F sin fecha"
 
 

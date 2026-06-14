@@ -5,7 +5,7 @@ Produces a Markdown report covering, per (country x block x table):
   - temporal coverage and gaps (missing monthly bulletins)
   - duplicate (level, bulletin, table) keys
   - failed parses vs. true 'U' (Unavailable) -- currently indistinguishable
-  - share of NaN final_action_dates
+  - share of NaN priority_date
   - category coverage vs. the panel y_{p,c,b,t} promised in the anteproyecto
 
 Run from the repo root:
@@ -67,7 +67,7 @@ def audit_block(name: str, level_col: str, has_table_type: bool) -> list[str]:
 
         uniq = sorted(df[level_col].dropna().astype(str).unique())
         levels = f"{len(uniq)} cats" if len(uniq) > 6 else "/".join(uniq)
-        nan_pct = 100 * df["final_action_dates"].isna().mean()
+        nan_pct = 100 * df["priority_date"].isna().mean()
 
         if has_table_type:
             dff = "✓" if "dates_for_filing" in df.get("table_type", pd.Series()).unique() else "✗"
@@ -115,9 +115,9 @@ def main() -> None:
         "",
         "_Generado por `audit_data_quality.py` sobre los CSV vigentes en `data/`._",
         "",
-        "Convenciones de las columnas: `final_action_dates` = fecha de prioridad "
-        "publicada; `C` se convirtió a la fecha del boletín y `U` a `NaN` "
-        "(**el estado original C/F/U no se conserva** — ver hallazgo H1).",
+        "Convenciones de las columnas: `priority_date` = fecha de prioridad "
+        "publicada (parseada); `status` ∈ {C,F,U,UNK} conserva el régimen y "
+        "`raw_value` la celda cruda (fix H1).",
         "",
     ]
     lines += audit_block("Empleo", "EB_level", has_table_type=True)

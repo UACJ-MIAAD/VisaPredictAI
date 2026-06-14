@@ -1,4 +1,4 @@
-EB_level,final_action_dates,visa_bulletin_date,table_type,raw_value,status,visa_wait_time
+EB_level,priority_date,visa_bulletin_date,table_type,raw_value,status,visa_wait_time
 EB1,2026-06-01,2026-06-01 00:00:00,dates_for_filing,C,C,0.0
 EB2,2026-06-01,2026-06-01 00:00:00,dates_for_filing,C,C,0.0
 EB3,2024-01-01,2026-06-01 00:00:00,dates_for_filing,01JAN24,F,2.414784394250513

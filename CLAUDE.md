@@ -134,7 +134,7 @@ El scraper extrae tablas **Employment-Based** del Visa Bulletin mensual publicad
 | Columna              | Tipo     | Descripción                                           |
 |----------------------|----------|-------------------------------------------------------|
 | `EB_level`/`F_level` | str      | Categoría (empleo: código canónico EB1..EB5_*; familiar 1,2A,2B,3,4) |
-| `final_action_dates` | datetime | Fecha publicada; `C`→fecha del boletín, `U`→NaN (legado, no romper visualizadores) |
+| `priority_date`      | datetime | Fecha de prioridad parseada; `C`→fecha del boletín, `U`→NaN (legado). **Renombrada desde `final_action_dates`** (guardaba FAD *y* DFF → el nombre mentía) |
 | `visa_bulletin_date` | datetime | Fecha del boletín mensual                             |
 | `raw_value`          | str      | **Celda original** tal cual se publicó (`01MAY16`, `C`, `U`) |
 | `status`             | str      | **Régimen e∈{C,F,U,UNK}** — ver abajo                 |
@@ -196,7 +196,7 @@ series EB-5 son cortas/discontinuas por cambios de régimen de categoría: cober
 Construir modelos predictivos para forecasting de fechas del Visa Bulletin, con enfoque principal en **México**:
 
 - **Modelos planeados:** XGBoost, modelos de series de tiempo (ARIMA, Prophet, LSTM)
-- **Variable objetivo:** `final_action_dates` o `visa_wait_time` futuras
+- **Variable objetivo:** `priority_date` (o `days_since_base` del panel) futuras
 - **Granularidad:** por país y nivel EB
 - **Enfoque geográfico:** México (principal), con comparativas contra India, China, Filipinas y RoW
 

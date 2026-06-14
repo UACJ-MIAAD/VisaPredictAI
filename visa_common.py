@@ -177,3 +177,21 @@ def parse_tables(soup: BeautifulSoup, year_month, section_matcher) -> list[pd.Da
         if table_count >= 2:
             break
     return dfs
+
+
+def annotate_dates(df: pd.DataFrame, value_col: str) -> pd.DataFrame:
+    """Annotate a per-country frame whose ``value_col`` holds the raw published
+    cells. Adds ``raw_value`` and ``status``, parses ``value_col`` into a date
+    in place, and adds ``visa_wait_time`` (years). Shared by both scrapers'
+    extract_country_data (was duplicated verbatim).
+    """
+    df = df.copy()
+    df["raw_value"] = df[value_col]
+    df["status"] = df[value_col].apply(classify_status)
+    df[value_col] = df.apply(
+        lambda r: string_to_datetime(r[value_col], r["visa_bulletin_date"]), axis=1)
+    df["visa_wait_time"] = df.apply(
+        lambda r: (r["visa_bulletin_date"] - r[value_col]).days / 365.25
+        if pd.notna(r[value_col]) and pd.notna(r["visa_bulletin_date"]) else None,
+        axis=1)
+    return df

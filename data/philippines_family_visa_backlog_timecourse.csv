@@ -1,4 +1,4 @@
-F_level,final_action_dates,visa_bulletin_date,table_type,raw_value,status,visa_wait_time
+F_level,priority_date,visa_bulletin_date,table_type,raw_value,status,visa_wait_time
 1,2015-04-22,2026-06-01 00:00:00,dates_for_filing,22APR15,F,11.110198494182066
 2A,2026-06-01,2026-06-01 00:00:00,dates_for_filing,C,C,0.0
 2B,2013-10-01,2026-06-01 00:00:00,dates_for_filing,01OCT13,F,12.6652977412731

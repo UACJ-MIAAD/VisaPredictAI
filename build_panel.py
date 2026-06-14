@@ -51,8 +51,7 @@ def load_employment() -> pd.DataFrame:
         fp = DATA / f"{slug}_visa_backlog_timecourse.csv"
         df = pd.read_csv(fp)
         _require(df, fp)
-        df = df.rename(columns={"final_action_dates": "priority_date",
-                                "visa_bulletin_date": "bulletin_date"})
+        df = df.rename(columns={"visa_bulletin_date": "bulletin_date"})  # priority_date already named
         df["country"] = canon
         df["block"] = "employment"
         df["category"] = df["EB_level"].astype(str)  # ya es código canónico EB1..EB5_*
@@ -67,8 +66,7 @@ def load_family() -> pd.DataFrame:
         fp = DATA / f"{slug}_family_visa_backlog_timecourse.csv"
         df = pd.read_csv(fp)
         _require(df, fp)
-        df = df.rename(columns={"final_action_dates": "priority_date",
-                                "visa_bulletin_date": "bulletin_date"})
+        df = df.rename(columns={"visa_bulletin_date": "bulletin_date"})  # priority_date already named
         df["country"] = canon
         df["block"] = "family"
         df["category"] = "F" + df["F_level"].astype(str)
