@@ -17,7 +17,7 @@ country_names_es = {
     'India': 'India', 'China': 'China', 'Mexico': 'M\u00e9xico',
     'Philippines': 'Filipinas', 'RoW': 'Resto del Mundo',
 }
-eb_levels = [1, 2, 3, 4]
+eb_levels = ['EB1', 'EB2', 'EB3', 'EB4']
 eb_labels = [
     'EB-1 \u2014 Prioridad para trabajadores\ncon habilidades extraordinarias',
     'EB-2 \u2014 Profesionistas con grado\navanzado o habilidad excepcional',
@@ -35,9 +35,13 @@ for country in countries:
     fig.suptitle(f'Tiempos de espera de visa por empleo \u2014 {nombre}',
                  fontsize=14, fontweight='bold', color=UACJ_NEGRO)
 
+    # Only the Final Action Dates table feeds these wait-time curves; the CSV
+    # now also carries Dates for Filing rows (table_type), which must be excluded.
+    fad = df[df['table_type'] == 'final_action'] if 'table_type' in df.columns else df
+
     for i, (level, label) in enumerate(zip(eb_levels, eb_labels)):
         ax = axs[i // 2, i % 2]
-        data = df[df['EB_level'] == level]
+        data = fad[fad['EB_level'] == level]
 
         ax.plot(data['visa_bulletin_date'], data['visa_wait_time'],
                 color=UACJ_AZUL, linewidth=1.5,

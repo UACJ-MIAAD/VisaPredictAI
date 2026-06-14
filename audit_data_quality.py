@@ -61,7 +61,8 @@ def audit_block(name: str, level_col: str, has_table_type: bool) -> list[str]:
         key = [level_col, "visa_bulletin_date"] + (["table_type"] if has_table_type else [])
         n_dup = int(df.duplicated(subset=key).sum())
 
-        levels = "/".join(map(str, sorted(df[level_col].dropna().astype(str).unique())))
+        uniq = sorted(df[level_col].dropna().astype(str).unique())
+        levels = f"{len(uniq)} cats" if len(uniq) > 6 else "/".join(uniq)
         nan_pct = 100 * df["final_action_dates"].isna().mean()
 
         if has_table_type:
@@ -128,8 +129,10 @@ def main() -> None:
         "- **H2 — DFF de Empleo ✅ RESUELTO.** El scraper de empleo ahora "
         "captura las dos tablas (FAD + DFF, vía `table_type`); DFF disponible "
         "desde Oct-2015. +2,032 filas DFF de empleo, +20 series.",
-        "- **H3 — EB-5 y subcategorías descartadas.** Filtro deja solo EB 1–4. "
-        "*Pendiente.*",
+        "- **H3 — EB-5 y subcategorías ✅ RESUELTO.** `classify_eb_category()` "
+        "mapea las etiquetas (con 20 años de deriva) a 16 códigos canónicos: EB1-4, "
+        "EB3_OW, EB4_RW/TRANS, y EB5 (bare/TEA/PILOT/RC/NONRC/UNRESERVED/RURAL/"
+        "HIGHUNEMP/INFRA). Schedule A queda fuera de alcance. Panel 90→186 series.",
         "- **H4 — FAD no llega a 1992.** El acordeón de travel.state.gov no lista "
         "boletines pre-2003; el histórico 1996–2002 vive en páginas archivadas. "
         "*Pendiente.*",

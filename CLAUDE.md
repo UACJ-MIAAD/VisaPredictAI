@@ -87,7 +87,12 @@ El scraper extrae tablas **Employment-Based** del Visa Bulletin mensual publicad
 - **Tablas:** Final Action Dates (FAD) **y** Dates for Filing (DFF) — las dos
   tablas employment-based de cada boletín, etiquetadas en `table_type`. DFF de
   empleo existe desde Oct-2015 (antes solo hay FAD).
-- **Categorías:** EB-1, EB-2, EB-3, EB-4 (filtro actual; EB-5 pendiente, H3)
+- **Categorías:** EB-1..EB-4 + subcategorías, vía `classify_eb_category()` que
+  normaliza 20 años de deriva de etiquetas a 16 códigos canónicos: `EB1` `EB2`
+  `EB3` `EB3_OW` `EB4` `EB4_RW` `EB4_TRANS` `EB5` `EB5_TEA` `EB5_PILOT` `EB5_RC`
+  `EB5_NONRC` `EB5_UNRESERVED` `EB5_RURAL` `EB5_HIGHUNEMP` `EB5_INFRA`. Schedule A
+  Workers queda fuera de alcance (no es preferencia EB-1..5). El `EB_level` del
+  CSV ahora guarda el código canónico (no el entero 1-4).
 - **Países con límites especiales:** India, China, México, Filipinas
 - **Resto del mundo (RoW):** "All chargeability areas except those listed"
 - **Rango temporal:** Desde Oct 2003 hasta el boletín más reciente
@@ -96,7 +101,7 @@ El scraper extrae tablas **Employment-Based** del Visa Bulletin mensual publicad
 
 | Columna              | Tipo     | Descripción                                           |
 |----------------------|----------|-------------------------------------------------------|
-| `EB_level`/`F_level` | str      | Categoría (empleo 1-4 / familiar 1,2A,2B,3,4)         |
+| `EB_level`/`F_level` | str      | Categoría (empleo: código canónico EB1..EB5_*; familiar 1,2A,2B,3,4) |
 | `final_action_dates` | datetime | Fecha publicada; `C`→fecha del boletín, `U`→NaN (legado, no romper visualizadores) |
 | `visa_bulletin_date` | datetime | Fecha del boletín mensual                             |
 | `raw_value`          | str      | **Celda original** tal cual se publicó (`01MAY16`, `C`, `U`) |
@@ -130,12 +135,13 @@ Generado por `build_panel.py` a partir de los 10 CSV por país. Esquema largo:
 | `days_since_base` | **variable dependiente** = días desde `BASE=1980-01-01`, **solo status='F'** |
 | `raw_value` | celda cruda |
 
-Snapshot actual: **14,397 filas · 90 series · 74% entrenable (status F)** · rango
-2003-10→2026-06 · `days_since_base ∈ [1400, 16854]`, 0 negativos.
+Snapshot actual: **21,562 filas · 186 series · 60% entrenable (status F)** · rango
+2003-10→2026-06 · `days_since_base ∈ [1400, 16854]`, 0 negativos. Muchas series
+EB-5 son cortas/discontinuas por los cambios de régimen de categoría (TEA→RC→
+Set-Asides): cobertura **estructural**; el filtro evaluable/piloto es posterior.
 
-### Pendientes de cobertura (post-fix H1+H2, ver `data_quality_report.md`)
+### Pendientes de cobertura (post-fix H1+H2+H3, ver `data_quality_report.md`)
 
-- **H3** EB-5 y subcategorías (filtro deja solo EB 1-4).
 - **H4** FAD pre-2003 hacia 1992 (boletines archivados con otra URL).
 - Huecos de meses dispersos (~10% empleo) y RoW empleo truncado a 2016.
 

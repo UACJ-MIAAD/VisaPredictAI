@@ -170,6 +170,75 @@ def classify_status(date_str) -> str:
         return 'NA'
 
 
+def _norm_label(s) -> str:
+    """Collapse whitespace noise (\\n, \\xa0, runs of spaces) and lowercase."""
+    if pd.isna(s):
+        return ''
+    return re.sub(r'\s+', ' ', str(s).replace('\xa0', ' ')).strip().lower()
+
+
+def classify_eb_category(raw) -> Union[None, str]:
+    """Map a raw 'Employment-based' row label to a canonical category code,
+    absorbing 20+ years of label drift. Returns None for rows that are not an
+    EB-1..EB-5 preference line (e.g. Schedule A, footnotes).
+
+    Canonical codes (H3):
+      EB1 EB2 EB3 EB3_OW EB4 EB4_RW EB4_TRANS EB5
+      EB5_TEA EB5_PILOT EB5_RC EB5_NONRC
+      EB5_UNRESERVED EB5_RURAL EB5_HIGHUNEMP EB5_INFRA
+
+    Order matters: 'targeted employment' and 'non-regional center' must be
+    tested before the bare 'regional center' substring they contain, and the
+    post-2022 set-asides before the generic EB-5 checks.
+    """
+    s = _norm_label(raw)
+    if not s:
+        return None
+    # Numbered preferences
+    if s == '1st':
+        return 'EB1'
+    if s == '2nd':
+        return 'EB2'
+    if s == '3rd':
+        return 'EB3'
+    if s == '4th':
+        return 'EB4'
+    # EB-3 subcategory
+    if s.startswith('other worker'):
+        return 'EB3_OW'
+    # EB-4 subcategories
+    if 'religious' in s:
+        return 'EB4_RW'
+    if 'translator' in s:
+        return 'EB4_TRANS'
+    # EB-5 post-2022 set-asides
+    if 'set aside' in s or 'set-aside' in s:
+        if 'rural' in s:
+            return 'EB5_RURAL'
+        if 'high unemployment' in s:
+            return 'EB5_HIGHUNEMP'
+        if 'infrastructure' in s:
+            return 'EB5_INFRA'
+        return 'EB5_UNRESERVED'  # defensive fallback
+    if 'unreserved' in s:
+        return 'EB5_UNRESERVED'
+    # EB-5 pre-2015 targeted-employment / pilot (TEA contains 'regional center')
+    if 'targeted employment' in s:
+        return 'EB5_TEA'
+    if 'pilot program' in s:
+        return 'EB5_PILOT'
+    # EB-5 2015-2022 regional-center split ('non-regional' contains 'regional')
+    if 'non-regional center' in s:
+        return 'EB5_NONRC'
+    if 'regional center' in s:
+        return 'EB5_RC'
+    # Bare 5th (2003-2011)
+    if s == '5th':
+        return 'EB5'
+    # Schedule A workers and anything else: outside EB-1..5 scope
+    return None
+
+
 def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataFrame:
         country_data = []
         for df in all_data:
@@ -211,11 +280,10 @@ def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataF
             lambda row: (row['visa_bulletin_date'] - row['final_action_dates']).days / 365.25
             if pd.notna(row['final_action_dates']) and pd.notna(row['visa_bulletin_date']) else None, axis=1)
         
-        # In column "EB_level", sub values "1st", "2nd", "3rd", "4th", for the integers 1, 2, 3, 4
-        country_df['EB_level'] = country_df['EB_level'].str.replace('st', '').str.replace('nd', '').str.replace('rd', '').str.replace('th', '')
-
-        # Filter all other EB levels/description besides 1-4
-        country_df = country_df[country_df['EB_level'].isin(['1', '2', '3', '4'])]
+        # Map the raw 'Employment-based' label to a canonical category code
+        # (EB1..EB5 + subcategories); drop rows that are not an EB preference (H3).
+        country_df['EB_level'] = country_df['EB_level'].apply(classify_eb_category)
+        country_df = country_df[country_df['EB_level'].notna()]
 
         return country_df
 

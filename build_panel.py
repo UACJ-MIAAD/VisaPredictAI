@@ -66,7 +66,7 @@ def load_employment() -> pd.DataFrame:
                                 "visa_bulletin_date": "bulletin_date"})
         df["country"] = canon
         df["block"] = "employment"
-        df["category"] = "EB" + df["EB_level"].astype("Int64").astype(str)
+        df["category"] = df["EB_level"].astype(str)  # ya es código canónico EB1..EB5_*
         df["table"] = df["table_type"].map(TABLE_MAP)  # FAD + DFF (DFF desde Oct-2015)
         frames.append(df)
     return pd.concat(frames, ignore_index=True)
@@ -107,6 +107,15 @@ def main() -> None:
     panel = panel[PANEL_COLS].sort_values(
         ["country", "block", "category", "table", "bulletin_date"]
     ).reset_index(drop=True)
+
+    # Defensive: the same canonical category can appear twice in one bulletin
+    # during a label transition (e.g. the May-2022 EB-5 'Unreserved' split).
+    # Keep the first and report, so the panel key stays unique.
+    key = ["country", "block", "category", "table", "bulletin_date"]
+    dup = panel.duplicated(subset=key, keep="first")
+    if dup.any():
+        print(f"  aviso: {int(dup.sum())} filas duplicadas por clave colapsadas (keep=first)")
+        panel = panel[~dup].reset_index(drop=True)
 
     panel.to_csv(OUT, index=False)
 
