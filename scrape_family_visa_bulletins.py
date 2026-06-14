@@ -1,6 +1,7 @@
 from typing import List, Union
 import requests
 import re
+import time
 from datetime import datetime
 
 from bs4 import BeautifulSoup
@@ -43,9 +44,19 @@ def extract_datetime_from_link(link: str) -> Union[None, datetime]:
 
     return dt
 
-def get_soup(url: str) -> BeautifulSoup:
-    response = requests.get(url)
-    return BeautifulSoup(response.text, 'html.parser')
+def get_soup(url: str, retries: int = 4) -> BeautifulSoup:
+    # Retry with backoff so a transient HTTP blip does not silently drop a whole
+    # month (a bare requests.get + `except: pass` in main was losing bulletins).
+    last = None
+    for attempt in range(retries):
+        try:
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            return BeautifulSoup(response.text, 'html.parser')
+        except Exception as exc:
+            last = exc
+            time.sleep(2 * (attempt + 1))
+    raise last
 
 def extract_month_links() -> List[str]:
     soup = get_soup(BASE_URL)
@@ -236,13 +247,18 @@ def main():
     month_links = extract_month_links()
 
     all_data = []
+    failed = []
     for i, link in tqdm(enumerate(month_links), total=len(month_links),
                         desc="Extracting all family-sponsored visa bulletin tables"):
         try:
             table_data = extract_tables(link)
             all_data.extend(table_data)
-        except Exception:
-            pass
+        except Exception as exc:
+            failed.append((link, str(exc)[:60]))
+    if failed:
+        print(f"\n⚠️  {len(failed)} boletines fallaron tras reintentos (meses perdidos):")
+        for link, err in failed:
+            print(f"   {link.split('/')[-1]}  {err}")
 
     countries = ['india', 'china', 'mexico', 'philippines', 'row']
     for country in tqdm(countries, desc=f"Extracting data for each country and computing backlogs"):

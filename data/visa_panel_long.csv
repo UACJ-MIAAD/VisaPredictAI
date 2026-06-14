@@ -198,6 +198,7 @@ all_chargeability,employment,EB1,FAD,2007-08-01,U,,,U
 all_chargeability,employment,EB1,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 all_chargeability,employment,EB1,FAD,2007-10-01,C,,,C
 all_chargeability,employment,EB1,FAD,2007-11-01,C,,,C
+all_chargeability,employment,EB1,FAD,2007-12-01,C,,,C
 all_chargeability,employment,EB1,FAD,2008-01-01,C,,,C
 all_chargeability,employment,EB1,FAD,2008-02-01,C,,,C
 all_chargeability,employment,EB1,FAD,2008-03-01,C,,,C
@@ -613,6 +614,7 @@ all_chargeability,employment,EB2,FAD,2007-08-01,U,,,U
 all_chargeability,employment,EB2,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 all_chargeability,employment,EB2,FAD,2007-10-01,C,,,C
 all_chargeability,employment,EB2,FAD,2007-11-01,C,,,C
+all_chargeability,employment,EB2,FAD,2007-12-01,C,,,C
 all_chargeability,employment,EB2,FAD,2008-01-01,C,,,C
 all_chargeability,employment,EB2,FAD,2008-02-01,C,,,C
 all_chargeability,employment,EB2,FAD,2008-03-01,C,,,C
@@ -1028,6 +1030,7 @@ all_chargeability,employment,EB3,FAD,2007-08-01,U,,,U
 all_chargeability,employment,EB3,FAD,2007-09-01,F,2002-08-01,10074.0,01AUG02
 all_chargeability,employment,EB3,FAD,2007-10-01,F,2002-08-01,10074.0,01AUG02
 all_chargeability,employment,EB3,FAD,2007-11-01,F,2002-08-01,10074.0,01AUG02
+all_chargeability,employment,EB3,FAD,2007-12-01,F,2002-09-01,10105.0,01SEP02
 all_chargeability,employment,EB3,FAD,2008-01-01,F,2002-10-15,10149.0,15OCT02
 all_chargeability,employment,EB3,FAD,2008-02-01,F,2002-11-01,10166.0,01NOV02
 all_chargeability,employment,EB3,FAD,2008-03-01,F,2005-01-01,10958.0,01JAN05
@@ -1443,6 +1446,7 @@ all_chargeability,employment,EB3_OW,FAD,2007-08-01,U,,,U
 all_chargeability,employment,EB3_OW,FAD,2007-09-01,U,,,U
 all_chargeability,employment,EB3_OW,FAD,2007-10-01,F,2001-10-01,9770.0,01OCT01
 all_chargeability,employment,EB3_OW,FAD,2007-11-01,F,2001-10-01,9770.0,01OCT01
+all_chargeability,employment,EB3_OW,FAD,2007-12-01,F,2001-10-01,9770.0,01OCT01
 all_chargeability,employment,EB3_OW,FAD,2008-01-01,F,2001-10-01,9770.0,01OCT01
 all_chargeability,employment,EB3_OW,FAD,2008-02-01,F,2001-10-01,9770.0,01OCT01
 all_chargeability,employment,EB3_OW,FAD,2008-03-01,F,2002-01-01,9862.0,01JAN02
@@ -1858,6 +1862,7 @@ all_chargeability,employment,EB4,FAD,2007-08-01,U,,,U
 all_chargeability,employment,EB4,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 all_chargeability,employment,EB4,FAD,2007-10-01,C,,,C
 all_chargeability,employment,EB4,FAD,2007-11-01,C,,,C
+all_chargeability,employment,EB4,FAD,2007-12-01,C,,,C
 all_chargeability,employment,EB4,FAD,2008-01-01,C,,,C
 all_chargeability,employment,EB4,FAD,2008-02-01,C,,,C
 all_chargeability,employment,EB4,FAD,2008-03-01,C,,,C
@@ -2270,6 +2275,7 @@ all_chargeability,employment,EB4_RW,FAD,2007-08-01,U,,,U
 all_chargeability,employment,EB4_RW,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 all_chargeability,employment,EB4_RW,FAD,2007-10-01,C,,,C
 all_chargeability,employment,EB4_RW,FAD,2007-11-01,C,,,C
+all_chargeability,employment,EB4_RW,FAD,2007-12-01,C,,,C
 all_chargeability,employment,EB4_RW,FAD,2008-01-01,C,,,C
 all_chargeability,employment,EB4_RW,FAD,2008-02-01,C,,,C
 all_chargeability,employment,EB4_RW,FAD,2008-03-01,C,,,C
@@ -2565,6 +2571,7 @@ all_chargeability,employment,EB5,FAD,2007-08-01,U,,,U
 all_chargeability,employment,EB5,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 all_chargeability,employment,EB5,FAD,2007-10-01,C,,,C
 all_chargeability,employment,EB5,FAD,2007-11-01,C,,,C
+all_chargeability,employment,EB5,FAD,2007-12-01,C,,,C
 all_chargeability,employment,EB5,FAD,2008-01-01,C,,,C
 all_chargeability,employment,EB5,FAD,2008-02-01,C,,,C
 all_chargeability,employment,EB5,FAD,2008-03-01,C,,,C
@@ -3304,6 +3311,7 @@ all_chargeability,employment,EB5_TEA,FAD,2007-08-01,U,,,U
 all_chargeability,employment,EB5_TEA,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 all_chargeability,employment,EB5_TEA,FAD,2007-10-01,C,,,C
 all_chargeability,employment,EB5_TEA,FAD,2007-11-01,C,,,C
+all_chargeability,employment,EB5_TEA,FAD,2007-12-01,C,,,C
 all_chargeability,employment,EB5_TEA,FAD,2008-01-01,C,,,C
 all_chargeability,employment,EB5_TEA,FAD,2008-02-01,C,,,C
 all_chargeability,employment,EB5_TEA,FAD,2008-03-01,C,,,C
@@ -3689,6 +3697,7 @@ all_chargeability,family,F1,FAD,2007-08-01,F,2001-08-08,9716.0,08AUG01
 all_chargeability,family,F1,FAD,2007-09-01,F,2001-10-01,9770.0,01OCT01
 all_chargeability,family,F1,FAD,2007-10-01,F,2001-11-08,9808.0,08NOV01
 all_chargeability,family,F1,FAD,2007-11-01,F,2001-12-08,9838.0,08DEC01
+all_chargeability,family,F1,FAD,2007-12-01,F,2002-01-08,9869.0,08JAN02
 all_chargeability,family,F1,FAD,2008-01-01,F,2002-02-01,9893.0,01FEB02
 all_chargeability,family,F1,FAD,2008-02-01,F,2002-02-08,9900.0,08FEB02
 all_chargeability,family,F1,FAD,2008-03-01,F,2002-02-15,9907.0,15FEB02
@@ -4101,6 +4110,7 @@ all_chargeability,family,F2A,FAD,2007-08-01,F,2002-07-22,10064.0,22JUL02
 all_chargeability,family,F2A,FAD,2007-09-01,F,2002-10-08,10142.0,08OCT02
 all_chargeability,family,F2A,FAD,2007-10-01,F,2002-11-15,10180.0,15NOV02
 all_chargeability,family,F2A,FAD,2007-11-01,F,2002-12-15,10210.0,15DEC02
+all_chargeability,family,F2A,FAD,2007-12-01,F,2003-01-15,10241.0,15JAN03
 all_chargeability,family,F2A,FAD,2008-01-01,F,2003-02-22,10279.0,22FEB03
 all_chargeability,family,F2A,FAD,2008-02-01,F,2003-03-15,10300.0,15MAR03
 all_chargeability,family,F2A,FAD,2008-03-01,F,2003-04-15,10331.0,15APR03
@@ -4513,6 +4523,7 @@ all_chargeability,family,F2B,FAD,2007-08-01,F,1998-04-08,8498.0,08APR98
 all_chargeability,family,F2B,FAD,2007-09-01,F,1998-07-01,8582.0,01JUL98
 all_chargeability,family,F2B,FAD,2007-10-01,F,1998-08-15,8627.0,15AUG98
 all_chargeability,family,F2B,FAD,2007-11-01,F,1998-09-15,8658.0,15SEP98
+all_chargeability,family,F2B,FAD,2007-12-01,F,1998-10-15,8688.0,15OCT98
 all_chargeability,family,F2B,FAD,2008-01-01,F,1998-11-22,8726.0,22NOV98
 all_chargeability,family,F2B,FAD,2008-02-01,F,1999-01-01,8766.0,01JAN99
 all_chargeability,family,F2B,FAD,2008-03-01,F,1999-02-08,8804.0,08FEB99
@@ -4925,6 +4936,7 @@ all_chargeability,family,F3,FAD,2007-08-01,F,1999-10-01,9039.0,01OCT99
 all_chargeability,family,F3,FAD,2007-09-01,F,2000-01-01,9131.0,01JAN00
 all_chargeability,family,F3,FAD,2007-10-01,F,2000-02-15,9176.0,15FEB00
 all_chargeability,family,F3,FAD,2007-11-01,F,2000-03-01,9191.0,01MAR00
+all_chargeability,family,F3,FAD,2007-12-01,F,2000-04-08,9229.0,08APR00
 all_chargeability,family,F3,FAD,2008-01-01,F,2000-05-08,9259.0,08MAY00
 all_chargeability,family,F3,FAD,2008-02-01,F,2000-05-08,9259.0,08MAY00
 all_chargeability,family,F3,FAD,2008-03-01,F,2000-05-15,9266.0,15MAY00
@@ -5336,6 +5348,7 @@ all_chargeability,family,F4,FAD,2007-08-01,F,1996-11-01,7975.0,01NOV96
 all_chargeability,family,F4,FAD,2007-09-01,F,1997-03-01,8095.0,01MAR97
 all_chargeability,family,F4,FAD,2007-10-01,F,1997-04-15,8140.0,15APR97
 all_chargeability,family,F4,FAD,2007-11-01,F,1997-05-22,8177.0,22MAY97
+all_chargeability,family,F4,FAD,2007-12-01,F,1997-06-22,8208.0,22JUN97
 all_chargeability,family,F4,FAD,2008-01-01,F,1997-07-08,8224.0,08JUL97
 all_chargeability,family,F4,FAD,2008-02-01,F,1997-07-08,8224.0,08JUL97
 all_chargeability,family,F4,FAD,2008-03-01,F,1997-07-15,8231.0,15JUL97
@@ -5704,6 +5717,7 @@ china,employment,EB1,FAD,2007-08-01,U,,,U
 china,employment,EB1,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 china,employment,EB1,FAD,2007-10-01,C,,,C
 china,employment,EB1,FAD,2007-11-01,C,,,C
+china,employment,EB1,FAD,2007-12-01,C,,,C
 china,employment,EB1,FAD,2008-01-01,C,,,C
 china,employment,EB1,FAD,2008-02-01,C,,,C
 china,employment,EB1,FAD,2008-03-01,C,,,C
@@ -6076,6 +6090,7 @@ china,employment,EB2,FAD,2007-08-01,U,,,U
 china,employment,EB2,FAD,2007-09-01,F,2006-01-01,11323.0,01JAN06
 china,employment,EB2,FAD,2007-10-01,F,2006-01-01,11323.0,01JAN06
 china,employment,EB2,FAD,2007-11-01,F,2006-01-01,11323.0,01JAN06
+china,employment,EB2,FAD,2007-12-01,F,2003-01-01,10227.0,01JAN03
 china,employment,EB2,FAD,2008-01-01,F,2003-01-01,10227.0,01JAN03
 china,employment,EB2,FAD,2008-02-01,F,2003-01-01,10227.0,01JAN03
 china,employment,EB2,FAD,2008-03-01,F,2003-12-01,10561.0,01DEC03
@@ -6448,6 +6463,7 @@ china,employment,EB3,FAD,2007-08-01,U,,,U
 china,employment,EB3,FAD,2007-09-01,U,,,U
 china,employment,EB3,FAD,2007-10-01,F,2001-09-01,9740.0,01SEP01
 china,employment,EB3,FAD,2007-11-01,F,2001-09-01,9740.0,01SEP01
+china,employment,EB3,FAD,2007-12-01,F,2001-10-15,9784.0,15OCT01
 china,employment,EB3,FAD,2008-01-01,F,2001-11-01,9801.0,01NOV01
 china,employment,EB3,FAD,2008-02-01,F,2001-11-15,9815.0,15NOV01
 china,employment,EB3,FAD,2008-03-01,F,2002-12-01,10196.0,01DEC02
@@ -6820,6 +6836,7 @@ china,employment,EB3_OW,FAD,2007-08-01,U,,,U
 china,employment,EB3_OW,FAD,2007-09-01,U,,,U
 china,employment,EB3_OW,FAD,2007-10-01,F,2001-10-01,9770.0,01OCT01
 china,employment,EB3_OW,FAD,2007-11-01,F,2001-10-01,9770.0,01OCT01
+china,employment,EB3_OW,FAD,2007-12-01,F,2001-10-01,9770.0,01OCT01
 china,employment,EB3_OW,FAD,2008-01-01,F,2001-10-01,9770.0,01OCT01
 china,employment,EB3_OW,FAD,2008-02-01,F,2001-10-01,9770.0,01OCT01
 china,employment,EB3_OW,FAD,2008-03-01,F,2002-01-01,9862.0,01JAN02
@@ -7192,6 +7209,7 @@ china,employment,EB4,FAD,2007-08-01,U,,,U
 china,employment,EB4,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 china,employment,EB4,FAD,2007-10-01,C,,,C
 china,employment,EB4,FAD,2007-11-01,C,,,C
+china,employment,EB4,FAD,2007-12-01,C,,,C
 china,employment,EB4,FAD,2008-01-01,C,,,C
 china,employment,EB4,FAD,2008-02-01,C,,,C
 china,employment,EB4,FAD,2008-03-01,C,,,C
@@ -7564,6 +7582,7 @@ china,employment,EB4_RW,FAD,2007-08-01,U,,,U
 china,employment,EB4_RW,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 china,employment,EB4_RW,FAD,2007-10-01,C,,,C
 china,employment,EB4_RW,FAD,2007-11-01,C,,,C
+china,employment,EB4_RW,FAD,2007-12-01,C,,,C
 china,employment,EB4_RW,FAD,2008-01-01,C,,,C
 china,employment,EB4_RW,FAD,2008-02-01,C,,,C
 china,employment,EB4_RW,FAD,2008-03-01,C,,,C
@@ -7815,6 +7834,7 @@ china,employment,EB5,FAD,2007-08-01,U,,,U
 china,employment,EB5,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 china,employment,EB5,FAD,2007-10-01,C,,,C
 china,employment,EB5,FAD,2007-11-01,C,,,C
+china,employment,EB5,FAD,2007-12-01,C,,,C
 china,employment,EB5,FAD,2008-01-01,C,,,C
 china,employment,EB5,FAD,2008-02-01,C,,,C
 china,employment,EB5,FAD,2008-03-01,C,,,C
@@ -8511,6 +8531,7 @@ china,employment,EB5_TEA,FAD,2007-08-01,U,,,U
 china,employment,EB5_TEA,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 china,employment,EB5_TEA,FAD,2007-10-01,C,,,C
 china,employment,EB5_TEA,FAD,2007-11-01,C,,,C
+china,employment,EB5_TEA,FAD,2007-12-01,C,,,C
 china,employment,EB5_TEA,FAD,2008-01-01,C,,,C
 china,employment,EB5_TEA,FAD,2008-02-01,C,,,C
 china,employment,EB5_TEA,FAD,2008-03-01,C,,,C
@@ -8862,6 +8883,7 @@ china,family,F1,FAD,2007-08-01,F,2001-08-08,9716.0,08AUG01
 china,family,F1,FAD,2007-09-01,F,2001-10-01,9770.0,01OCT01
 china,family,F1,FAD,2007-10-01,F,2001-11-08,9808.0,08NOV01
 china,family,F1,FAD,2007-11-01,F,2001-12-08,9838.0,08DEC01
+china,family,F1,FAD,2007-12-01,F,2002-01-08,9869.0,08JAN02
 china,family,F1,FAD,2008-01-01,F,2002-02-01,9893.0,01FEB02
 china,family,F1,FAD,2008-02-01,F,2002-02-08,9900.0,08FEB02
 china,family,F1,FAD,2008-03-01,F,2002-02-15,9907.0,15FEB02
@@ -9243,6 +9265,7 @@ china,family,F2A,FAD,2007-08-01,F,2002-07-22,10064.0,22JUL02
 china,family,F2A,FAD,2007-09-01,F,2002-10-08,10142.0,08OCT02
 china,family,F2A,FAD,2007-10-01,F,2002-11-15,10180.0,15NOV02
 china,family,F2A,FAD,2007-11-01,F,2002-12-15,10210.0,15DEC02
+china,family,F2A,FAD,2007-12-01,F,2003-01-15,10241.0,15JAN03
 china,family,F2A,FAD,2008-01-01,F,2003-02-22,10279.0,22FEB03
 china,family,F2A,FAD,2008-02-01,F,2003-03-15,10300.0,15MAR03
 china,family,F2A,FAD,2008-03-01,F,2003-04-15,10331.0,15APR03
@@ -9624,6 +9647,7 @@ china,family,F2B,FAD,2007-08-01,F,1998-04-08,8498.0,08APR98
 china,family,F2B,FAD,2007-09-01,F,1998-07-01,8582.0,01JUL98
 china,family,F2B,FAD,2007-10-01,F,1998-08-15,8627.0,15AUG98
 china,family,F2B,FAD,2007-11-01,F,1998-09-15,8658.0,15SEP98
+china,family,F2B,FAD,2007-12-01,F,1998-10-15,8688.0,15OCT98
 china,family,F2B,FAD,2008-01-01,F,1998-11-22,8726.0,22NOV98
 china,family,F2B,FAD,2008-02-01,F,1999-01-01,8766.0,01JAN99
 china,family,F2B,FAD,2008-03-01,F,1999-02-08,8804.0,08FEB99
@@ -10005,6 +10029,7 @@ china,family,F3,FAD,2007-08-01,F,1999-10-01,9039.0,01OCT99
 china,family,F3,FAD,2007-09-01,F,2000-01-01,9131.0,01JAN00
 china,family,F3,FAD,2007-10-01,F,2000-02-15,9176.0,15FEB00
 china,family,F3,FAD,2007-11-01,F,2000-03-01,9191.0,01MAR00
+china,family,F3,FAD,2007-12-01,F,2000-04-08,9229.0,08APR00
 china,family,F3,FAD,2008-01-01,F,2000-05-08,9259.0,08MAY00
 china,family,F3,FAD,2008-02-01,F,2000-05-08,9259.0,08MAY00
 china,family,F3,FAD,2008-03-01,F,2000-05-15,9266.0,15MAY00
@@ -10386,6 +10411,7 @@ china,family,F4,FAD,2007-08-01,F,1996-07-22,7873.0,22JUL96
 china,family,F4,FAD,2007-09-01,F,1996-07-22,7873.0,22JUL96
 china,family,F4,FAD,2007-10-01,F,1996-08-15,7897.0,15AUG96
 china,family,F4,FAD,2007-11-01,F,1996-09-08,7921.0,08SEP96
+china,family,F4,FAD,2007-12-01,F,1996-10-08,7951.0,08OCT96
 china,family,F4,FAD,2008-01-01,F,1996-11-01,7975.0,01NOV96
 china,family,F4,FAD,2008-02-01,F,1996-11-15,7989.0,15NOV96
 china,family,F4,FAD,2008-03-01,F,1996-12-01,8005.0,01DEC96
@@ -10788,6 +10814,7 @@ india,employment,EB1,FAD,2007-08-01,U,,,U
 india,employment,EB1,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 india,employment,EB1,FAD,2007-10-01,C,,,C
 india,employment,EB1,FAD,2007-11-01,C,,,C
+india,employment,EB1,FAD,2007-12-01,C,,,C
 india,employment,EB1,FAD,2008-01-01,C,,,C
 india,employment,EB1,FAD,2008-02-01,C,,,C
 india,employment,EB1,FAD,2008-03-01,C,,,C
@@ -11190,6 +11217,7 @@ india,employment,EB2,FAD,2007-08-01,U,,,U
 india,employment,EB2,FAD,2007-09-01,F,2004-04-01,10683.0,01APR04
 india,employment,EB2,FAD,2007-10-01,F,2004-04-01,10683.0,01APR04
 india,employment,EB2,FAD,2007-11-01,F,2004-04-01,10683.0,01APR04
+india,employment,EB2,FAD,2007-12-01,F,2002-01-01,9862.0,01JAN02
 india,employment,EB2,FAD,2008-01-01,F,2000-01-01,9131.0,01JAN00
 india,employment,EB2,FAD,2008-02-01,U,,,U
 india,employment,EB2,FAD,2008-03-01,U,,,U
@@ -11592,6 +11620,7 @@ india,employment,EB3,FAD,2007-08-01,U,,,U
 india,employment,EB3,FAD,2007-09-01,U,,,U
 india,employment,EB3,FAD,2007-10-01,F,2001-04-22,9608.0,22APR01
 india,employment,EB3,FAD,2007-11-01,F,2001-04-22,9608.0,22APR01
+india,employment,EB3,FAD,2007-12-01,F,2001-05-01,9617.0,01MAY01
 india,employment,EB3,FAD,2008-01-01,F,2001-05-01,9617.0,01MAY01
 india,employment,EB3,FAD,2008-02-01,F,2001-05-08,9624.0,08MAY01
 india,employment,EB3,FAD,2008-03-01,F,2001-08-01,9709.0,01AUG01
@@ -11994,6 +12023,7 @@ india,employment,EB3_OW,FAD,2007-08-01,U,,,U
 india,employment,EB3_OW,FAD,2007-09-01,U,,,U
 india,employment,EB3_OW,FAD,2007-10-01,F,2001-10-01,9770.0,01OCT01
 india,employment,EB3_OW,FAD,2007-11-01,F,2001-10-01,9770.0,01OCT01
+india,employment,EB3_OW,FAD,2007-12-01,F,2001-10-01,9770.0,01OCT01
 india,employment,EB3_OW,FAD,2008-01-01,F,2001-10-01,9770.0,01OCT01
 india,employment,EB3_OW,FAD,2008-02-01,F,2001-10-01,9770.0,01OCT01
 india,employment,EB3_OW,FAD,2008-03-01,F,2002-01-01,9862.0,01JAN02
@@ -12396,6 +12426,7 @@ india,employment,EB4,FAD,2007-08-01,U,,,U
 india,employment,EB4,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 india,employment,EB4,FAD,2007-10-01,C,,,C
 india,employment,EB4,FAD,2007-11-01,C,,,C
+india,employment,EB4,FAD,2007-12-01,C,,,C
 india,employment,EB4,FAD,2008-01-01,C,,,C
 india,employment,EB4,FAD,2008-02-01,C,,,C
 india,employment,EB4,FAD,2008-03-01,C,,,C
@@ -12796,6 +12827,7 @@ india,employment,EB4_RW,FAD,2007-08-01,U,,,U
 india,employment,EB4_RW,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 india,employment,EB4_RW,FAD,2007-10-01,C,,,C
 india,employment,EB4_RW,FAD,2007-11-01,C,,,C
+india,employment,EB4_RW,FAD,2007-12-01,C,,,C
 india,employment,EB4_RW,FAD,2008-01-01,C,,,C
 india,employment,EB4_RW,FAD,2008-02-01,C,,,C
 india,employment,EB4_RW,FAD,2008-03-01,C,,,C
@@ -13077,6 +13109,7 @@ india,employment,EB5,FAD,2007-08-01,U,,,U
 india,employment,EB5,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 india,employment,EB5,FAD,2007-10-01,C,,,C
 india,employment,EB5,FAD,2007-11-01,C,,,C
+india,employment,EB5,FAD,2007-12-01,C,,,C
 india,employment,EB5,FAD,2008-01-01,C,,,C
 india,employment,EB5,FAD,2008-02-01,C,,,C
 india,employment,EB5,FAD,2008-03-01,C,,,C
@@ -13803,6 +13836,7 @@ india,employment,EB5_TEA,FAD,2007-08-01,U,,,U
 india,employment,EB5_TEA,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 india,employment,EB5_TEA,FAD,2007-10-01,C,,,C
 india,employment,EB5_TEA,FAD,2007-11-01,C,,,C
+india,employment,EB5_TEA,FAD,2007-12-01,C,,,C
 india,employment,EB5_TEA,FAD,2008-01-01,C,,,C
 india,employment,EB5_TEA,FAD,2008-02-01,C,,,C
 india,employment,EB5_TEA,FAD,2008-03-01,C,,,C
@@ -14180,6 +14214,7 @@ india,family,F1,FAD,2007-08-01,F,2001-08-08,9716.0,08AUG01
 india,family,F1,FAD,2007-09-01,F,2001-10-01,9770.0,01OCT01
 india,family,F1,FAD,2007-10-01,F,2001-11-08,9808.0,08NOV01
 india,family,F1,FAD,2007-11-01,F,2001-12-08,9838.0,08DEC01
+india,family,F1,FAD,2007-12-01,F,2002-01-08,9869.0,08JAN02
 india,family,F1,FAD,2008-01-01,F,2002-02-01,9893.0,01FEB02
 india,family,F1,FAD,2008-02-01,F,2002-02-08,9900.0,08FEB02
 india,family,F1,FAD,2008-03-01,F,2002-02-15,9907.0,15FEB02
@@ -14587,6 +14622,7 @@ india,family,F2A,FAD,2007-08-01,F,2002-07-22,10064.0,22JUL02
 india,family,F2A,FAD,2007-09-01,F,2002-10-08,10142.0,08OCT02
 india,family,F2A,FAD,2007-10-01,F,2002-11-15,10180.0,15NOV02
 india,family,F2A,FAD,2007-11-01,F,2002-12-15,10210.0,15DEC02
+india,family,F2A,FAD,2007-12-01,F,2003-01-15,10241.0,15JAN03
 india,family,F2A,FAD,2008-01-01,F,2003-02-22,10279.0,22FEB03
 india,family,F2A,FAD,2008-02-01,F,2003-03-15,10300.0,15MAR03
 india,family,F2A,FAD,2008-03-01,F,2003-04-15,10331.0,15APR03
@@ -14994,6 +15030,7 @@ india,family,F2B,FAD,2007-08-01,F,1998-04-08,8498.0,08APR98
 india,family,F2B,FAD,2007-09-01,F,1998-07-01,8582.0,01JUL98
 india,family,F2B,FAD,2007-10-01,F,1998-08-15,8627.0,15AUG98
 india,family,F2B,FAD,2007-11-01,F,1998-09-15,8658.0,15SEP98
+india,family,F2B,FAD,2007-12-01,F,1998-10-15,8688.0,15OCT98
 india,family,F2B,FAD,2008-01-01,F,1998-11-22,8726.0,22NOV98
 india,family,F2B,FAD,2008-02-01,F,1999-01-01,8766.0,01JAN99
 india,family,F2B,FAD,2008-03-01,F,1999-02-08,8804.0,08FEB99
@@ -15401,6 +15438,7 @@ india,family,F3,FAD,2007-08-01,F,1999-10-01,9039.0,01OCT99
 india,family,F3,FAD,2007-09-01,F,2000-01-01,9131.0,01JAN00
 india,family,F3,FAD,2007-10-01,F,2000-02-15,9176.0,15FEB00
 india,family,F3,FAD,2007-11-01,F,2000-03-01,9191.0,01MAR00
+india,family,F3,FAD,2007-12-01,F,2000-04-08,9229.0,08APR00
 india,family,F3,FAD,2008-01-01,F,2000-05-08,9259.0,08MAY00
 india,family,F3,FAD,2008-02-01,F,2000-05-08,9259.0,08MAY00
 india,family,F3,FAD,2008-03-01,F,2000-05-15,9266.0,15MAY00
@@ -15808,6 +15846,7 @@ india,family,F4,FAD,2007-08-01,F,1996-03-01,7730.0,01MAR96
 india,family,F4,FAD,2007-09-01,F,1996-04-15,7775.0,15APR96
 india,family,F4,FAD,2007-10-01,F,1996-05-08,7798.0,08MAY96
 india,family,F4,FAD,2007-11-01,F,1996-06-22,7843.0,22JUN96
+india,family,F4,FAD,2007-12-01,F,1996-08-15,7897.0,15AUG96
 india,family,F4,FAD,2008-01-01,F,1996-09-15,7928.0,15SEP96
 india,family,F4,FAD,2008-02-01,F,1996-10-08,7951.0,08OCT96
 india,family,F4,FAD,2008-03-01,F,1996-11-01,7975.0,01NOV96
@@ -16217,6 +16256,7 @@ mexico,employment,EB1,FAD,2007-08-01,U,,,U
 mexico,employment,EB1,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 mexico,employment,EB1,FAD,2007-10-01,C,,,C
 mexico,employment,EB1,FAD,2007-11-01,C,,,C
+mexico,employment,EB1,FAD,2007-12-01,C,,,C
 mexico,employment,EB1,FAD,2008-01-01,C,,,C
 mexico,employment,EB1,FAD,2008-02-01,C,,,C
 mexico,employment,EB1,FAD,2008-03-01,C,,,C
@@ -16626,6 +16666,7 @@ mexico,employment,EB2,FAD,2007-08-01,U,,,U
 mexico,employment,EB2,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 mexico,employment,EB2,FAD,2007-10-01,C,,,C
 mexico,employment,EB2,FAD,2007-11-01,C,,,C
+mexico,employment,EB2,FAD,2007-12-01,C,,,C
 mexico,employment,EB2,FAD,2008-01-01,C,,,C
 mexico,employment,EB2,FAD,2008-02-01,C,,,C
 mexico,employment,EB2,FAD,2008-03-01,C,,,C
@@ -17035,6 +17076,7 @@ mexico,employment,EB3,FAD,2007-08-01,U,,,U
 mexico,employment,EB3,FAD,2007-09-01,U,,,U
 mexico,employment,EB3,FAD,2007-10-01,F,2001-04-22,9608.0,22APR01
 mexico,employment,EB3,FAD,2007-11-01,F,2001-04-22,9608.0,22APR01
+mexico,employment,EB3,FAD,2007-12-01,F,2001-04-22,9608.0,22APR01
 mexico,employment,EB3,FAD,2008-01-01,F,2001-04-22,9608.0,22APR01
 mexico,employment,EB3,FAD,2008-02-01,F,2001-04-22,9608.0,22APR01
 mexico,employment,EB3,FAD,2008-03-01,F,2001-05-01,9617.0,01MAY01
@@ -17444,6 +17486,7 @@ mexico,employment,EB3_OW,FAD,2007-08-01,U,,,U
 mexico,employment,EB3_OW,FAD,2007-09-01,U,,,U
 mexico,employment,EB3_OW,FAD,2007-10-01,F,2001-10-01,9770.0,01OCT01
 mexico,employment,EB3_OW,FAD,2007-11-01,F,2001-10-01,9770.0,01OCT01
+mexico,employment,EB3_OW,FAD,2007-12-01,F,2001-10-01,9770.0,01OCT01
 mexico,employment,EB3_OW,FAD,2008-01-01,F,2001-10-01,9770.0,01OCT01
 mexico,employment,EB3_OW,FAD,2008-02-01,F,2001-10-01,9770.0,01OCT01
 mexico,employment,EB3_OW,FAD,2008-03-01,F,2002-01-01,9862.0,01JAN02
@@ -17853,6 +17896,7 @@ mexico,employment,EB4,FAD,2007-08-01,U,,,U
 mexico,employment,EB4,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 mexico,employment,EB4,FAD,2007-10-01,C,,,C
 mexico,employment,EB4,FAD,2007-11-01,C,,,C
+mexico,employment,EB4,FAD,2007-12-01,C,,,C
 mexico,employment,EB4,FAD,2008-01-01,C,,,C
 mexico,employment,EB4,FAD,2008-02-01,C,,,C
 mexico,employment,EB4,FAD,2008-03-01,C,,,C
@@ -18259,6 +18303,7 @@ mexico,employment,EB4_RW,FAD,2007-08-01,U,,,U
 mexico,employment,EB4_RW,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 mexico,employment,EB4_RW,FAD,2007-10-01,C,,,C
 mexico,employment,EB4_RW,FAD,2007-11-01,C,,,C
+mexico,employment,EB4_RW,FAD,2007-12-01,C,,,C
 mexico,employment,EB4_RW,FAD,2008-01-01,C,,,C
 mexico,employment,EB4_RW,FAD,2008-02-01,C,,,C
 mexico,employment,EB4_RW,FAD,2008-03-01,C,,,C
@@ -18547,6 +18592,7 @@ mexico,employment,EB5,FAD,2007-08-01,U,,,U
 mexico,employment,EB5,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 mexico,employment,EB5,FAD,2007-10-01,C,,,C
 mexico,employment,EB5,FAD,2007-11-01,C,,,C
+mexico,employment,EB5,FAD,2007-12-01,C,,,C
 mexico,employment,EB5,FAD,2008-01-01,C,,,C
 mexico,employment,EB5,FAD,2008-02-01,C,,,C
 mexico,employment,EB5,FAD,2008-03-01,C,,,C
@@ -19280,6 +19326,7 @@ mexico,employment,EB5_TEA,FAD,2007-08-01,U,,,U
 mexico,employment,EB5_TEA,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 mexico,employment,EB5_TEA,FAD,2007-10-01,C,,,C
 mexico,employment,EB5_TEA,FAD,2007-11-01,C,,,C
+mexico,employment,EB5_TEA,FAD,2007-12-01,C,,,C
 mexico,employment,EB5_TEA,FAD,2008-01-01,C,,,C
 mexico,employment,EB5_TEA,FAD,2008-02-01,C,,,C
 mexico,employment,EB5_TEA,FAD,2008-03-01,C,,,C
@@ -19668,6 +19715,7 @@ mexico,family,F1,FAD,2007-08-01,F,1991-01-01,5844.0,01JAN91
 mexico,family,F1,FAD,2007-09-01,F,1991-01-01,5844.0,01JAN91
 mexico,family,F1,FAD,2007-10-01,F,1992-05-01,6330.0,01MAY92
 mexico,family,F1,FAD,2007-11-01,F,1992-06-01,6361.0,01JUN92
+mexico,family,F1,FAD,2007-12-01,F,1992-07-01,6391.0,01JUL92
 mexico,family,F1,FAD,2008-01-01,F,1992-07-01,6391.0,01JUL92
 mexico,family,F1,FAD,2008-02-01,F,1992-07-01,6391.0,01JUL92
 mexico,family,F1,FAD,2008-03-01,F,1992-07-01,6391.0,01JUL92
@@ -20086,6 +20134,7 @@ mexico,family,F2A,FAD,2007-08-01,F,2001-11-01,9801.0,01NOV01
 mexico,family,F2A,FAD,2007-09-01,F,2002-04-01,9952.0,01APR02
 mexico,family,F2A,FAD,2007-10-01,F,2002-05-01,9982.0,01MAY02
 mexico,family,F2A,FAD,2007-11-01,F,2002-05-01,9982.0,01MAY02
+mexico,family,F2A,FAD,2007-12-01,F,2002-05-01,9982.0,01MAY02
 mexico,family,F2A,FAD,2008-01-01,F,2002-05-01,9982.0,01MAY02
 mexico,family,F2A,FAD,2008-02-01,F,2002-05-01,9982.0,01MAY02
 mexico,family,F2A,FAD,2008-03-01,F,2002-05-01,9982.0,01MAY02
@@ -20504,6 +20553,7 @@ mexico,family,F2B,FAD,2007-08-01,F,1992-03-08,6276.0,08MAR92
 mexico,family,F2B,FAD,2007-09-01,F,1992-03-08,6276.0,08MAR92
 mexico,family,F2B,FAD,2007-10-01,F,1992-03-15,6283.0,15MAR92
 mexico,family,F2B,FAD,2007-11-01,F,1992-03-15,6283.0,15MAR92
+mexico,family,F2B,FAD,2007-12-01,F,1992-03-15,6283.0,15MAR92
 mexico,family,F2B,FAD,2008-01-01,F,1992-03-22,6290.0,22MAR92
 mexico,family,F2B,FAD,2008-02-01,F,1992-03-22,6290.0,22MAR92
 mexico,family,F2B,FAD,2008-03-01,F,1992-04-01,6300.0,01APR92
@@ -20922,6 +20972,7 @@ mexico,family,F3,FAD,2007-08-01,F,1988-02-08,4786.0,08FEB88
 mexico,family,F3,FAD,2007-09-01,F,1988-02-08,4786.0,08FEB88
 mexico,family,F3,FAD,2007-10-01,F,1992-05-01,6330.0,01MAY92
 mexico,family,F3,FAD,2007-11-01,F,1992-06-08,6368.0,08JUN92
+mexico,family,F3,FAD,2007-12-01,F,1992-07-08,6398.0,08JUL92
 mexico,family,F3,FAD,2008-01-01,F,1992-07-08,6398.0,08JUL92
 mexico,family,F3,FAD,2008-02-01,F,1992-07-08,6398.0,08JUL92
 mexico,family,F3,FAD,2008-03-01,F,1992-07-15,6405.0,15JUL92
@@ -21339,6 +21390,7 @@ mexico,family,F4,FAD,2007-08-01,F,1993-02-01,6606.0,01FEB93
 mexico,family,F4,FAD,2007-09-01,F,1990-09-01,5722.0,01SEP90
 mexico,family,F4,FAD,2007-10-01,F,1994-07-22,7142.0,22JUL94
 mexico,family,F4,FAD,2007-11-01,F,1994-08-22,7173.0,22AUG94
+mexico,family,F4,FAD,2007-12-01,F,1994-09-22,7204.0,22SEP94
 mexico,family,F4,FAD,2008-01-01,F,1994-10-01,7213.0,01OCT94
 mexico,family,F4,FAD,2008-02-01,F,1994-11-01,7244.0,01NOV94
 mexico,family,F4,FAD,2008-03-01,F,1994-11-15,7258.0,15NOV94
@@ -21746,6 +21798,7 @@ philippines,employment,EB1,FAD,2007-08-01,U,,,U
 philippines,employment,EB1,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 philippines,employment,EB1,FAD,2007-10-01,C,,,C
 philippines,employment,EB1,FAD,2007-11-01,C,,,C
+philippines,employment,EB1,FAD,2007-12-01,C,,,C
 philippines,employment,EB1,FAD,2008-01-01,C,,,C
 philippines,employment,EB1,FAD,2008-02-01,C,,,C
 philippines,employment,EB1,FAD,2008-03-01,C,,,C
@@ -22153,6 +22206,7 @@ philippines,employment,EB2,FAD,2007-08-01,U,,,U
 philippines,employment,EB2,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 philippines,employment,EB2,FAD,2007-10-01,C,,,C
 philippines,employment,EB2,FAD,2007-11-01,C,,,C
+philippines,employment,EB2,FAD,2007-12-01,C,,,C
 philippines,employment,EB2,FAD,2008-01-01,C,,,C
 philippines,employment,EB2,FAD,2008-02-01,C,,,C
 philippines,employment,EB2,FAD,2008-03-01,C,,,C
@@ -22560,6 +22614,7 @@ philippines,employment,EB3,FAD,2007-08-01,U,,,U
 philippines,employment,EB3,FAD,2007-09-01,F,2002-08-01,10074.0,01AUG02
 philippines,employment,EB3,FAD,2007-10-01,F,2002-08-01,10074.0,01AUG02
 philippines,employment,EB3,FAD,2007-11-01,F,2002-08-01,10074.0,01AUG02
+philippines,employment,EB3,FAD,2007-12-01,F,2002-09-01,10105.0,01SEP02
 philippines,employment,EB3,FAD,2008-01-01,F,2002-10-15,10149.0,15OCT02
 philippines,employment,EB3,FAD,2008-02-01,F,2002-11-01,10166.0,01NOV02
 philippines,employment,EB3,FAD,2008-03-01,F,2005-01-01,10958.0,01JAN05
@@ -22967,6 +23022,7 @@ philippines,employment,EB3_OW,FAD,2007-08-01,U,,,U
 philippines,employment,EB3_OW,FAD,2007-09-01,U,,,U
 philippines,employment,EB3_OW,FAD,2007-10-01,F,2001-10-01,9770.0,01OCT01
 philippines,employment,EB3_OW,FAD,2007-11-01,F,2001-10-01,9770.0,01OCT01
+philippines,employment,EB3_OW,FAD,2007-12-01,F,2001-10-01,9770.0,01OCT01
 philippines,employment,EB3_OW,FAD,2008-01-01,F,2001-10-01,9770.0,01OCT01
 philippines,employment,EB3_OW,FAD,2008-02-01,F,2001-10-01,9770.0,01OCT01
 philippines,employment,EB3_OW,FAD,2008-03-01,F,2002-01-01,9862.0,01JAN02
@@ -23374,6 +23430,7 @@ philippines,employment,EB4,FAD,2007-08-01,U,,,U
 philippines,employment,EB4,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 philippines,employment,EB4,FAD,2007-10-01,C,,,C
 philippines,employment,EB4,FAD,2007-11-01,C,,,C
+philippines,employment,EB4,FAD,2007-12-01,C,,,C
 philippines,employment,EB4,FAD,2008-01-01,C,,,C
 philippines,employment,EB4,FAD,2008-02-01,C,,,C
 philippines,employment,EB4,FAD,2008-03-01,C,,,C
@@ -23778,6 +23835,7 @@ philippines,employment,EB4_RW,FAD,2007-08-01,U,,,U
 philippines,employment,EB4_RW,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 philippines,employment,EB4_RW,FAD,2007-10-01,C,,,C
 philippines,employment,EB4_RW,FAD,2007-11-01,C,,,C
+philippines,employment,EB4_RW,FAD,2007-12-01,C,,,C
 philippines,employment,EB4_RW,FAD,2008-01-01,C,,,C
 philippines,employment,EB4_RW,FAD,2008-02-01,C,,,C
 philippines,employment,EB4_RW,FAD,2008-03-01,C,,,C
@@ -24064,6 +24122,7 @@ philippines,employment,EB5,FAD,2007-08-01,U,,,U
 philippines,employment,EB5,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 philippines,employment,EB5,FAD,2007-10-01,C,,,C
 philippines,employment,EB5,FAD,2007-11-01,C,,,C
+philippines,employment,EB5,FAD,2007-12-01,C,,,C
 philippines,employment,EB5,FAD,2008-01-01,C,,,C
 philippines,employment,EB5,FAD,2008-02-01,C,,,C
 philippines,employment,EB5,FAD,2008-03-01,C,,,C
@@ -24795,6 +24854,7 @@ philippines,employment,EB5_TEA,FAD,2007-08-01,U,,,U
 philippines,employment,EB5_TEA,FAD,2007-09-01,F,2007-01-01,11688.0,01JAN07
 philippines,employment,EB5_TEA,FAD,2007-10-01,C,,,C
 philippines,employment,EB5_TEA,FAD,2007-11-01,C,,,C
+philippines,employment,EB5_TEA,FAD,2007-12-01,C,,,C
 philippines,employment,EB5_TEA,FAD,2008-01-01,C,,,C
 philippines,employment,EB5_TEA,FAD,2008-02-01,C,,,C
 philippines,employment,EB5_TEA,FAD,2008-03-01,C,,,C
@@ -25182,6 +25242,7 @@ philippines,family,F1,FAD,2007-08-01,F,1992-05-01,6330.0,01MAY92
 philippines,family,F1,FAD,2007-09-01,F,1992-05-15,6344.0,15MAY92
 philippines,family,F1,FAD,2007-10-01,F,1992-06-15,6375.0,15JUN92
 philippines,family,F1,FAD,2007-11-01,F,1992-07-22,6412.0,22JUL92
+philippines,family,F1,FAD,2007-12-01,F,1992-09-22,6474.0,22SEP92
 philippines,family,F1,FAD,2008-01-01,F,1992-11-22,6535.0,22NOV92
 philippines,family,F1,FAD,2008-02-01,F,1993-01-22,6596.0,22JAN93
 philippines,family,F1,FAD,2008-03-01,F,1993-03-01,6634.0,01MAR93
@@ -25598,6 +25659,7 @@ philippines,family,F2A,FAD,2007-08-01,F,2002-07-22,10064.0,22JUL02
 philippines,family,F2A,FAD,2007-09-01,F,2002-10-08,10142.0,08OCT02
 philippines,family,F2A,FAD,2007-10-01,F,2002-11-15,10180.0,15NOV02
 philippines,family,F2A,FAD,2007-11-01,F,2002-12-15,10210.0,15DEC02
+philippines,family,F2A,FAD,2007-12-01,F,2003-01-15,10241.0,15JAN03
 philippines,family,F2A,FAD,2008-01-01,F,2003-02-22,10279.0,22FEB03
 philippines,family,F2A,FAD,2008-02-01,F,2003-03-15,10300.0,15MAR03
 philippines,family,F2A,FAD,2008-03-01,F,2003-04-15,10331.0,15APR03
@@ -26014,6 +26076,7 @@ philippines,family,F2B,FAD,2007-08-01,F,1996-10-22,7965.0,22OCT96
 philippines,family,F2B,FAD,2007-09-01,F,1996-11-15,7989.0,15NOV96
 philippines,family,F2B,FAD,2007-10-01,F,1996-12-08,8012.0,08DEC96
 philippines,family,F2B,FAD,2007-11-01,F,1996-12-22,8026.0,22DEC96
+philippines,family,F2B,FAD,2007-12-01,F,1997-01-01,8036.0,01JAN97
 philippines,family,F2B,FAD,2008-01-01,F,1997-01-15,8050.0,15JAN97
 philippines,family,F2B,FAD,2008-02-01,F,1997-01-22,8057.0,22JAN97
 philippines,family,F2B,FAD,2008-03-01,F,1997-02-01,8067.0,01FEB97
@@ -26430,6 +26493,7 @@ philippines,family,F3,FAD,2007-08-01,F,1985-01-01,3653.0,01JAN85
 philippines,family,F3,FAD,2007-09-01,F,1991-02-15,5889.0,15FEB91
 philippines,family,F3,FAD,2007-10-01,F,1991-02-22,5896.0,22FEB91
 philippines,family,F3,FAD,2007-11-01,F,1991-03-01,5903.0,01MAR91
+philippines,family,F3,FAD,2007-12-01,F,1991-04-01,5934.0,01APR91
 philippines,family,F3,FAD,2008-01-01,F,1991-04-01,5934.0,01APR91
 philippines,family,F3,FAD,2008-02-01,F,1991-04-01,5934.0,01APR91
 philippines,family,F3,FAD,2008-03-01,F,1991-04-01,5934.0,01APR91
@@ -26845,6 +26909,7 @@ philippines,family,F4,FAD,2007-08-01,F,1985-05-01,3773.0,01MAY85
 philippines,family,F4,FAD,2007-09-01,F,1985-06-01,3804.0,01JUN85
 philippines,family,F4,FAD,2007-10-01,F,1985-07-08,3841.0,08JUL85
 philippines,family,F4,FAD,2007-11-01,F,1985-08-08,3872.0,08AUG85
+philippines,family,F4,FAD,2007-12-01,F,1985-11-08,3964.0,08NOV85
 philippines,family,F4,FAD,2008-01-01,F,1986-02-01,4049.0,01FEB86
 philippines,family,F4,FAD,2008-02-01,F,1986-02-15,4063.0,15FEB86
 philippines,family,F4,FAD,2008-03-01,F,1986-02-22,4070.0,22FEB86

@@ -71,6 +71,9 @@ python build_panel.py
 # Auditoría de calidad -> data_quality_report.md
 python audit_data_quality.py
 
+# MEGA AUDIT exhaustivo (12 dimensiones) -> mega_audit_report.md
+python mega_audit.py
+
 # Generar gráficas (genera PNGs en figures/)
 python visualize_visa_wait_times.py
 ```
@@ -140,23 +143,29 @@ Generado por `build_panel.py` a partir de los 10 CSV por país. Esquema largo:
 | `days_since_base` | **variable dependiente** = días desde `BASE=1980-01-01`, **solo status='F'** |
 | `raw_value` | celda cruda |
 
-Snapshot actual: **27,062 filas · 194 series · 58% entrenable (status F)** · rango
+Snapshot actual: **27,127 filas · 194 series · 58% entrenable (status F)** · rango
 **2001-12→2026-06** (base=1975-01-01) · `days_since_base` 0 negativos · 0 claves
-duplicadas. Ambos scrapers (empleo y familiar) usan la **misma detección robusta**
-(categoría = col 0; país por `'except those listed'` para RoW / substring para el
-resto; detección de sección tolerante a `employment[\s-]*based` y substring
-`family`). Muchas series EB-5 son cortas/discontinuas por cambios de régimen de
-categoría (TEA→RC→Set-Asides): cobertura **estructural**; el filtro evaluable/
-piloto es posterior.
+duplicadas · **mega audit APTO (0 críticos, 0 advertencias)**. Cobertura a nivel
+boletín = **290/295 meses (98.3%)**; los 5 ausentes (`2009-03/09/10/11`, `2012-10`)
+no existen en travel.state.gov (404), solo en el archivo legacy de Wayback.
 
-### Pendientes de cobertura (post-fix H1+H2+H3+H4+familiar, ver `data_quality_report.md`)
+Ambos scrapers usan la **misma detección robusta** (categoría = col 0; RoW por
+`'except those listed'`, resto por substring; sección por `employment[\s-]*based`
+y substring `family`) y **`get_soup` con retry+backoff** (un fallo HTTP transitorio
+ya NO descarta un mes en silencio; `main()` reporta cualquier mes perdido). Muchas
+series EB-5 son cortas/discontinuas por cambios de régimen de categoría: cobertura
+**estructural**; el filtro evaluable/piloto es posterior.
 
-- **Huecos residuales** ~6-17 meses/país: en su mayoría meses ausentes del acordeón
-  oficial (p.ej. 2012-10, 2009-03) + india familiar sparse pre-2006 (no tenía
-  columna propia). Bajo retorno.
+### Pendientes de cobertura (post-mega-audit, ver `mega_audit_report.md`)
+
+- **5 meses muertos** (`2009-03/09/10/11`, `2012-10`): solo en Wayback legacy
+  (`bulletin_NNNN.html`); recuperables manualmente, no auto-integrados (1.7%, el
+  Action diario los borraría). Mapear el ID secuencial al mes es ambiguo.
 - **Pre-2002 (→1992):** no existe en travel.state.gov (404). ⚠️ El `.tex` afirma
   "FAD desde 1992 (~408 obs)"; lo alcanzable es ~294 meses (dic-2001). **Reconciliar
   el claim del anteproyecto** o comprometerse a Wayback Machine.
+- **2 hallazgos informativos** (no bugs): 6 inversiones DFF<FAD reales y 14
+  retrogresiones/avances fuertes — el modelo deberá tolerarlos.
 
 ## Objetivo: VisaPredict AI
 
