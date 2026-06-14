@@ -55,7 +55,7 @@ def get_soup(url: str, retries: int = MAX_RETRIES) -> BeautifulSoup:
     A bare ``requests.get`` plus ``except: pass`` in the caller was silently
     dropping a whole month on any transient HTTP blip; the retry prevents that.
     """
-    last = None
+    last: Exception = RuntimeError(f"no fetch attempt for {url}")
     for attempt in range(retries):
         try:
             response = requests.get(url, timeout=REQUEST_TIMEOUT)
@@ -75,7 +75,7 @@ def extract_month_links() -> list[str]:
         link_container = section.find("div", class_="tsg-rwd-accordion-copy")
         if link_container:
             for link in link_container.find_all("a", href=True):
-                month_links.append(link["href"])
+                month_links.append(str(link["href"]))
     return month_links
 
 

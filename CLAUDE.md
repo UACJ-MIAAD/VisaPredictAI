@@ -60,7 +60,7 @@ visa_dates/
 ## Tooling MLOps (mejores prácticas)
 
 - **Dependencias pin-eadas** (`requirements.txt` + `pyproject.toml`): versiones exactas validadas en dev (pandas 3.0.0, py3.14); el Action usa el mismo Python → CI reproduce dev.
-- **`ruff`** (lint + import-sort + pyupgrade + bugbear) configurado en `pyproject.toml`; `ruff check .` debe dar **All checks passed**.
+- **`ruff`** (lint + import-sort + pyupgrade + bugbear) + **`mypy`** (`--ignore-missing-imports`) configurados en `pyproject.toml`. `make check` = lint + typecheck + test; ambos deben pasar limpio.
 - **Dos workflows de GitHub Actions:** `ci.yml` (lint + tests en cada push/PR a `main`) y `update_graphs.yml` (cron diario: scrape→panel→**gate de tests**→figuras→commit; abre issue `scrape-failure` en fallo).
 - **`Makefile`**: `make install|scrape|panel|test|lint|figures|audit|all` (un comando). Override: `make test PY=python`.
 - **`.pre-commit-config.yaml`**: ruff + tests rápidos antes de cada commit (`pre-commit install`).

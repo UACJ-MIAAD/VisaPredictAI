@@ -31,8 +31,8 @@ from config import PANEL_PATH as PANEL
 
 OUT = Path("mega_audit_report.md")
 
-L = []          # report lines
-FLAGS = []      # (severity, message)
+L: list[str] = []                  # report lines
+FLAGS: list[tuple[str, str]] = []  # (severity, message)
 
 
 def add(*lines):

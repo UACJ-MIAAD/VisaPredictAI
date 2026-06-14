@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["ruff==0.15.17"]
+dev = ["ruff==0.15.17", "mypy==2.1.0"]
 
 [tool.ruff]
 line-length = 120
@@ -28,3 +28,8 @@ select = ["E4", "E7", "E9", "F", "W", "I", "UP", "B"]
 # Audit/analysis scripts favor dense one-liners and f-strings for report text.
 "mega_audit.py" = ["E741"]
 "audit_data_quality.py" = ["E741"]
+
+[tool.mypy]
+python_version = "3.14"
+ignore_missing_imports = true   # no pandas/bs4 stubs installed
+exclude = ['ante', 'tests/fixtures']

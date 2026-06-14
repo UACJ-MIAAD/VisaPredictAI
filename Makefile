@@ -2,7 +2,7 @@
 # Override the interpreter with: make test PY=python
 PY ?= ante/bin/python
 
-.PHONY: help install scrape panel figures audit test lint all
+.PHONY: help install scrape panel figures audit test lint typecheck check all
 
 help:
 	@echo "install  - install pinned dependencies (+ ruff)"
@@ -12,11 +12,13 @@ help:
 	@echo "audit    - data-quality + mega audits"
 	@echo "test     - run the full test suite (offline)"
 	@echo "lint     - ruff check"
+	@echo "typecheck- mypy"
+	@echo "check    - lint + typecheck + test"
 	@echo "all      - scrape -> panel -> test -> figures -> audit"
 
 install:
 	$(PY) -m pip install -r requirements.txt
-	$(PY) -m pip install ruff==0.15.17
+	$(PY) -m pip install ruff==0.15.17 mypy==2.1.0
 
 scrape:
 	$(PY) scrape_visa_bulletins.py
@@ -40,5 +42,10 @@ test:
 
 lint:
 	$(PY) -m ruff check .
+
+typecheck:
+	$(PY) -m mypy --ignore-missing-imports *.py tests/*.py
+
+check: lint typecheck test
 
 all: scrape panel test figures audit
