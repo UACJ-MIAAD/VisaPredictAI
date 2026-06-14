@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/UACJ-003CA6?style=flat-square&logo=data:image/svg+xml;base64,&logoColor=white" alt="UACJ">
   <img src="https://img.shields.io/badge/MIAAD-FFD600?style=flat-square&logoColor=231F20" alt="MIAAD">
-  <img src="https://img.shields.io/badge/Python-3.10+-555559?style=flat-square&logo=python&logoColor=FFD600" alt="Python">
+  <img src="https://img.shields.io/badge/Python-3.14-555559?style=flat-square&logo=python&logoColor=FFD600" alt="Python">
   <img src="https://img.shields.io/badge/License-Academic-003CA6?style=flat-square" alt="License">
 </p>
 

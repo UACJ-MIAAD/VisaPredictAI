@@ -79,8 +79,9 @@ python audit_data_quality.py
 # MEGA AUDIT exhaustivo (12 dimensiones) -> mega_audit_report.md
 python mega_audit.py
 
-# Suite de pruebas (sin pytest; salida 0/1 para CI gate)
+# Suite de pruebas (sin pytest; salida 0/1; corre como GATE de CI antes del commit)
 python tests/test_parsers.py          # 12 casos · funciones de parseo/clasificación
+python tests/test_extraction.py       # 6 casos · extracción OFFLINE sobre fixtures HTML (sin red)
 python tests/test_panel_integrity.py  # 9 invariantes duras del panel (contrato de datos)
 
 # Audit MLOps de madurez de ingeniería -> mlops_audit_report.md (estático, no regenera)

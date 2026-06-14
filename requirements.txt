@@ -1,5 +1,8 @@
-beautifulsoup4>=4.12.2
-matplotlib>=3.9.0
-pandas>=2.2.2
-requests>=2.31.0
-tqdm>=4.66.1
+# Pinned to the versions validated in development (Python 3.14, pandas 3.x).
+# The GitHub Action uses the same Python (see .github/workflows/update_graphs.yml)
+# so CI reproduces dev exactly. Bump deliberately, re-run tests/, then commit.
+beautifulsoup4==4.14.3
+matplotlib==3.10.8
+pandas==3.0.0
+requests==2.32.5
+tqdm==4.67.3

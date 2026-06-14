@@ -19,7 +19,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: '3.14'   # match the dev environment (pandas 3.x) for reproducibility
 
     - name: Install dependencies
       run: |
@@ -34,6 +34,12 @@ jobs:
 
     - name: Build consolidated long panel
       run: python build_panel.py
+
+    - name: Quality gate — tests must pass before anything is committed
+      run: |
+        python tests/test_parsers.py          # pure parsing/classification functions
+        python tests/test_extraction.py       # offline extraction over HTML fixtures
+        python tests/test_panel_integrity.py  # hard invariants of the freshly built panel
 
     - name: Run employment-based visualization script
       run: python visualize_visa_wait_times.py

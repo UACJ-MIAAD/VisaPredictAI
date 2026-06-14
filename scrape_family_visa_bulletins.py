@@ -5,56 +5,22 @@ from tqdm import tqdm
 
 from visa_common import (
     SITE_ROOT, SCRAPER_COUNTRIES,
-    extract_datetime_from_link, get_soup, extract_month_links,
+    extract_datetime_from_link, get_soup, extract_month_links, parse_tables,
     string_to_datetime, classify_status, _norm_label,
 )
 
 
+def is_family_section(rows) -> bool:
+    """A table is the family section if a row contains the 'family' substring
+    (the header is 'family' / 'family- sponsored', sometimes concatenated as
+    'familyall chargeability...' in 2007-2008). Employment and diversity-visa
+    tables never contain it."""
+    return any('family' in row.get_text(strip=True).lower() for row in rows)
+
+
 def extract_tables(link: str) -> List[pd.DataFrame]:
-    year_month = extract_datetime_from_link(link)
-    soup = get_soup(SITE_ROOT + link)
-
-    tables = soup.find_all('table')
-
-    dfs = []
-    family_table_count = 0
-
-    for table in tables:
-        rows = table.find_all('tr')
-        # Detect the family section by the 'family' substring (the header is
-        # 'family' / 'family- sponsored', sometimes concatenated with the next
-        # cell as 'familyall chargeability...' in 2007-2008). The employment and
-        # diversity-visa tables never contain it.
-        if any('family' in row.get_text(strip=True).lower() for row in rows):
-            family_table_count += 1
-            table_type = "final_action" if family_table_count == 1 else "dates_for_filing"
-
-            table_data = []
-            for row in rows:
-                th_cols = row.find_all('th')
-                td_cols = row.find_all('td')
-                all_cols = th_cols + td_cols
-                cols = [ele.text.strip() for ele in all_cols]
-                table_data.append(cols)
-
-            if len(table_data[0]) == 1:
-                columns = table_data[1]
-                table_body = table_data[2:]
-            else:
-                columns = table_data[0]
-                table_body = table_data[1:]
-
-            df = pd.DataFrame(table_body, columns=columns)
-            df['visa_bulletin_date'] = year_month
-            df['table_type'] = table_type
-            df.columns = df.columns.str.replace('\n', '').str.replace('- ', '-')
-            df.columns = df.columns.str.lower()
-            dfs.append(df)
-
-            if family_table_count >= 2:
-                break
-
-    return dfs
+    return parse_tables(get_soup(SITE_ROOT + link),
+                        extract_datetime_from_link(link), is_family_section)
 
 def classify_family_category(raw) -> Union[None, str]:
     """Map a raw 'Family-Sponsored' row label to a canonical level code,
@@ -105,7 +71,7 @@ def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataF
         country_df = pd.concat(country_data, axis=0, ignore_index=True)
 
         country_df = country_df[country_df['visa_bulletin_date'].notna()]
-        # Preserve the raw published cell and its C/F/U/NA regime BEFORE the
+        # Preserve the raw published cell and its C/F/U/UNK regime BEFORE the
         # cell is flattened into a date (H1 fix: keep the annotation).
         country_df['raw_value'] = country_df['final_action_dates']
         country_df['status'] = country_df['final_action_dates'].apply(classify_status)

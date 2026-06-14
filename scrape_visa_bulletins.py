@@ -6,65 +6,21 @@ from tqdm import tqdm
 
 from visa_common import (
     SITE_ROOT, SCRAPER_COUNTRIES,
-    extract_datetime_from_link, get_soup, extract_month_links,
+    extract_datetime_from_link, get_soup, extract_month_links, parse_tables,
     string_to_datetime, classify_status, _norm_label,
 )
 
 
+def is_employment_section(rows) -> bool:
+    """A table is the employment section if a row mentions 'employment-based',
+    tolerating spacing drift ('employment- based', 'employment based')."""
+    return any(re.search(r'employment[\s-]*based', row.get_text(strip=True).lower())
+               for row in rows)
+
+
 def extract_tables(link: str) -> List[pd.DataFrame]:
-    year_month = extract_datetime_from_link(link)
-    soup = get_soup(SITE_ROOT + link)
-
-    # Find all table elements
-    tables = soup.find_all('table')
-
-    dfs = []  # List to hold DataFrames
-    employment_table_count = 0  # 1st employment table = FAD, 2nd = DFF
-
-    for table in tables:
-        rows = table.find_all('tr')
-        # Detect the employment section tolerating spacing drift in the header
-        # ('employment-based', 'employment- based', 'employment based').
-        if any(re.search(r'employment[\s-]*based', row.get_text(strip=True).lower())
-               for row in rows):
-            # On a bulletin page the employment section lists Final Action Dates
-            # first and Dates for Filing second (DFF tables exist only from
-            # Oct 2015 on; earlier months have a single FAD table).
-            employment_table_count += 1
-            table_type = "final_action" if employment_table_count == 1 else "dates_for_filing"
-
-            table_data = []
-            for row in rows:
-                th_cols = row.find_all('th')
-                td_cols = row.find_all('td')
-
-                # Combine the th and td columns, th first
-                all_cols = th_cols + td_cols
-
-                # Extract text from each column
-                cols = [ele.text.strip() for ele in all_cols]
-                table_data.append(cols)
-
-            # If the first row only has one column, it is a spanning header, remove it
-            if len(table_data[0]) == 1:
-                columns = table_data[1]
-                table_body = table_data[2:]
-            else:
-                columns = table_data[0]
-                table_body = table_data[1:]
-
-            # Convert the table_data into a DataFrame, treating the first row as headers
-            df = pd.DataFrame(table_body, columns=columns)
-            df['visa_bulletin_date'] = year_month  # Add a column for the year_month
-            df['table_type'] = table_type
-            df.columns = df.columns.str.replace('\n', '').str.replace('- ', '-')
-            df.columns = df.columns.str.lower()
-            dfs.append(df)  # Append the DataFrame to the list
-
-            if employment_table_count >= 2:
-                break  # FAD + DFF captured
-
-    return dfs
+    return parse_tables(get_soup(SITE_ROOT + link),
+                        extract_datetime_from_link(link), is_employment_section)
 
 def classify_eb_category(raw) -> Union[None, str]:
     """Map a raw 'Employment-based' row label to a canonical category code,
@@ -160,7 +116,7 @@ def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataF
         country_df = pd.concat(country_data, axis=0, ignore_index=True)
 
         country_df = country_df[country_df['visa_bulletin_date'].notna()]
-        # Preserve the raw published cell and its C/F/U/NA regime BEFORE the
+        # Preserve the raw published cell and its C/F/U/UNK regime BEFORE the
         # cell is flattened into a date (H1 fix: keep the annotation).
         country_df['raw_value'] = country_df['final_action_dates']
         country_df['status'] = country_df['final_action_dates'].apply(classify_status)

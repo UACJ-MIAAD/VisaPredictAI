@@ -127,3 +127,49 @@ def norm_label(s) -> str:
 
 # Backwards-compatible alias (both scrapers historically used the private name).
 _norm_label = norm_label
+
+
+# ---- table parsing (pure: soup -> dataframes; testable offline) ---------
+def parse_tables(soup: BeautifulSoup, year_month, section_matcher) -> List[pd.DataFrame]:
+    """Parse the preference tables a ``section_matcher(rows) -> bool`` selects.
+
+    Decoupled from fetching so it can be unit-tested with saved HTML fixtures
+    (no network). The first matching table is tagged ``final_action`` and the
+    second ``dates_for_filing`` (DFF tables exist only from Oct 2015 on; earlier
+    months have a single FAD table). ``section_matcher`` is what makes this
+    open to new sections (employment, family, …) without editing the parser.
+    """
+    dfs = []
+    table_count = 0
+    for table in soup.find_all("table"):
+        rows = table.find_all("tr")
+        if not section_matcher(rows):
+            continue
+        table_count += 1
+        table_type = "final_action" if table_count == 1 else "dates_for_filing"
+
+        table_data = []
+        for row in rows:
+            th_cols = row.find_all("th")
+            td_cols = row.find_all("td")
+            cols = [ele.text.strip() for ele in th_cols + td_cols]
+            table_data.append(cols)
+
+        # A single-cell first row is a spanning header; drop it.
+        if len(table_data[0]) == 1:
+            columns = table_data[1]
+            table_body = table_data[2:]
+        else:
+            columns = table_data[0]
+            table_body = table_data[1:]
+
+        df = pd.DataFrame(table_body, columns=columns)
+        df["visa_bulletin_date"] = year_month
+        df["table_type"] = table_type
+        df.columns = df.columns.str.replace("\n", "").str.replace("- ", "-")
+        df.columns = df.columns.str.lower()
+        dfs.append(df)
+
+        if table_count >= 2:
+            break
+    return dfs
