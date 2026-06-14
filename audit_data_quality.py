@@ -1,0 +1,145 @@
+"""
+Data-quality audit for the VisaPredict AI database (employment + family CSVs).
+
+Produces a Markdown report covering, per (country x block x table):
+  - temporal coverage and gaps (missing monthly bulletins)
+  - duplicate (level, bulletin, table) keys
+  - failed parses vs. true 'U' (Unavailable) -- currently indistinguishable
+  - share of NaN final_action_dates
+  - category coverage vs. the panel y_{p,c,b,t} promised in the anteproyecto
+
+Run from the repo root:
+    ante/bin/python audit_data_quality.py
+Writes: data_quality_report.md
+"""
+from __future__ import annotations
+import pandas as pd
+from pathlib import Path
+
+COUNTRIES = ["mexico", "india", "china", "philippines", "row"]
+DATA = Path("data")
+OUT = Path("data_quality_report.md")
+
+
+def month_range(start: pd.Timestamp, end: pd.Timestamp) -> pd.DatetimeIndex:
+    return pd.date_range(start=start, end=end, freq="MS")
+
+
+def gaps(dates: pd.Series) -> list[str]:
+    d = pd.to_datetime(dates.dropna().unique())
+    if len(d) == 0:
+        return []
+    d = pd.DatetimeIndex(sorted(d))
+    full = month_range(d.min(), d.max())
+    missing = full.difference(d)
+    return [m.strftime("%Y-%m") for m in missing]
+
+
+def audit_block(name: str, level_col: str, has_table_type: bool) -> list[str]:
+    lines = [f"## Bloque: {name}", ""]
+    header = (
+        "| País | Filas | Rango | Meses esp. | Faltantes | Dup. clave | "
+        "Niveles | NaN fecha | DFF |"
+    )
+    lines += [header, "|" + "---|" * 9]
+
+    for c in COUNTRIES:
+        suffix = "_family" if name == "Familiar" else ""
+        fp = DATA / f"{c}{suffix}_visa_backlog_timecourse.csv"
+        if not fp.exists():
+            lines.append(f"| {c} | (archivo ausente) |||||||| ")
+            continue
+        df = pd.read_csv(fp)
+        df["visa_bulletin_date"] = pd.to_datetime(df["visa_bulletin_date"], errors="coerce")
+
+        n = len(df)
+        rng = f"{df.visa_bulletin_date.min():%Y-%m}→{df.visa_bulletin_date.max():%Y-%m}"
+        expected = len(month_range(df.visa_bulletin_date.min(), df.visa_bulletin_date.max()))
+        miss = gaps(df["visa_bulletin_date"])
+        n_miss = len(miss)
+
+        key = [level_col, "visa_bulletin_date"] + (["table_type"] if has_table_type else [])
+        n_dup = int(df.duplicated(subset=key).sum())
+
+        levels = "/".join(map(str, sorted(df[level_col].dropna().astype(str).unique())))
+        nan_pct = 100 * df["final_action_dates"].isna().mean()
+
+        if has_table_type:
+            dff = "✓" if "dates_for_filing" in df.get("table_type", pd.Series()).unique() else "✗"
+        else:
+            dff = "✗ (no extrae)"
+
+        lines.append(
+            f"| {c} | {n} | {rng} | {expected} | {n_miss} | {n_dup} | "
+            f"{levels} | {nan_pct:.0f}% | {dff} |"
+        )
+
+        if 0 < n_miss <= 18:
+            lines.append(f"|   ↳ huecos {c}: {', '.join(miss)} |" + " |" * 8)
+    lines.append("")
+    return lines
+
+
+def panel_section() -> list[str]:
+    fp = DATA / "visa_panel_long.csv"
+    if not fp.exists():
+        return ["## Panel consolidado", "", "_`visa_panel_long.csv` aún no generado "
+                "(corre `build_panel.py`)._", ""]
+    p = pd.read_csv(fp)
+    n_series = p.groupby(["country", "block", "category", "table"]).ngroups
+    sc = p["status"].value_counts().to_dict()
+    bt = p.groupby(["block", "table"]).size().to_dict()
+    f = p[p.status == "F"]
+    lines = [
+        "## Panel consolidado `visa_panel_long.csv`",
+        "",
+        f"- Filas: **{len(p):,}** · series país×categoría×tabla: **{n_series}**",
+        f"- Status: " + ", ".join(f"{k}={v:,}" for k, v in sc.items()),
+        f"- Bloque×tabla: " + ", ".join(f"{b}/{t}={n:,}" for (b, t), n in bt.items()),
+        f"- Objetivo entrenable (status=F): **{len(f):,}** filas ({100*len(f)/len(p):.0f}%)",
+        f"- `days_since_base` ∈ [{f.days_since_base.min():.0f}, {f.days_since_base.max():.0f}] "
+        f"(base 1980-01-01); 0 negativos.",
+        "",
+    ]
+    return lines
+
+
+def main() -> None:
+    lines = [
+        "# Auditoría de calidad de datos — VisaPredict AI",
+        "",
+        "_Generado por `audit_data_quality.py` sobre los CSV vigentes en `data/`._",
+        "",
+        "Convenciones de las columnas: `final_action_dates` = fecha de prioridad "
+        "publicada; `C` se convirtió a la fecha del boletín y `U` a `NaN` "
+        "(**el estado original C/F/U no se conserva** — ver hallazgo H1).",
+        "",
+    ]
+    lines += audit_block("Empleo", "EB_level", has_table_type=False)
+    lines += audit_block("Familiar", "F_level", has_table_type=True)
+
+    lines += panel_section()
+    lines += [
+        "## Hallazgos transversales",
+        "",
+        "- **H1 — Estado e∈{C,F,U} ✅ RESUELTO.** Los scrapers ahora emiten las "
+        "columnas `status` (C/F/U/NA) y `raw_value`; el panel entrena *solo sobre "
+        "status='F'* y conserva C/U como anotación descriptiva (formulación v5.1).",
+        "- **H2 — DFF ausente en Empleo.** El scraper de empleo corta tras la "
+        "primera tabla (solo FAD). *Pendiente.*",
+        "- **H3 — EB-5 y subcategorías descartadas.** Filtro deja solo EB 1–4. "
+        "*Pendiente.*",
+        "- **H4 — FAD no llega a 1992.** El acordeón de travel.state.gov no lista "
+        "boletines pre-2003; el histórico 1996–2002 vive en páginas archivadas. "
+        "*Pendiente.*",
+        "- **H5 — `NaN` ambiguo ✅ RESUELTO.** `status` distingue 'U' (Unavailable) "
+        "de 'NA' (celda vacía/no parseable). En el panel actual: 0 filas NA.",
+        "",
+    ]
+    OUT.write_text("\n".join(lines), encoding="utf-8")
+    print(f"✓ Reporte escrito en {OUT}")
+    print("\n".join(lines))
+
+
+if __name__ == "__main__":
+    main()

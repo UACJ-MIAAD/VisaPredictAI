@@ -32,6 +32,9 @@ jobs:
     - name: Run family-based scraping script
       run: python scrape_family_visa_bulletins.py
 
+    - name: Build consolidated long panel
+      run: python build_panel.py
+
     - name: Run employment-based visualization script
       run: python visualize_visa_wait_times.py
 
@@ -42,10 +45,12 @@ jobs:
       run: |
         git config --local user.email "168046724+jrebull@users.noreply.github.com"
         git config --local user.name "Javier Rebull"
-        # Check for changes
-        if git diff --exit-code; then
+        # Stage everything (incl. the new long panel, which is untracked the
+        # first time and would be missed by `git commit -am`).
+        git add -A
+        if git diff --cached --quiet; then
           echo "No changes to commit"
         else
-          git commit -am "Update graphs with latest data"
+          git commit -m "Update graphs and consolidated panel with latest data"
           git push
         fi

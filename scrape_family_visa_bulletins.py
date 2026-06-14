@@ -122,6 +122,34 @@ def string_to_datetime(date_str: str, bulletin_date: datetime) -> Union[None, da
         return None
 
 
+def classify_status(date_str) -> str:
+    """Annotate the published cell as its visa-bulletin regime:
+        'F'  a specific final-action / dates-for-filing date is published
+        'C'  Current  -- no backlog this month
+        'U'  Unavailable -- no numbers available this month
+        'NA' empty or unparseable cell
+
+    Preserves the regime annotation that is otherwise lost when 'C' is mapped
+    to the bulletin date and 'U' to NaN. Per the VisaPredict AI v5.1
+    formulation, only rows with status 'F' are a prediction target; 'C'/'U'
+    are kept as descriptive annotation.
+    """
+    if pd.isna(date_str):
+        return 'NA'
+    s = str(date_str).strip().upper()
+    if s == '':
+        return 'NA'
+    if s == 'C':
+        return 'C'
+    if s == 'U':
+        return 'U'
+    try:
+        datetime.strptime(str(date_str).strip(), '%d%b%y')
+        return 'F'
+    except ValueError:
+        return 'NA'
+
+
 def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataFrame:
         country_data = []
         for df in all_data:
@@ -149,6 +177,10 @@ def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataF
         country_df = pd.concat(country_data, axis=0, ignore_index=True)
 
         country_df = country_df[country_df['visa_bulletin_date'].notna()]
+        # Preserve the raw published cell and its C/F/U/NA regime BEFORE the
+        # cell is flattened into a date (H1 fix: keep the annotation).
+        country_df['raw_value'] = country_df['final_action_dates']
+        country_df['status'] = country_df['final_action_dates'].apply(classify_status)
         country_df['final_action_dates'] = country_df.apply(lambda row: string_to_datetime(row['final_action_dates'], row['visa_bulletin_date']), axis=1)
         country_df['visa_wait_time'] = country_df.apply(
             lambda row: (row['visa_bulletin_date'] - row['final_action_dates']).days / 365.25

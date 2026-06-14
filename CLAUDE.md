@@ -61,12 +61,22 @@ source ante/bin/activate
 # Instalar dependencias
 pip install -r requirements.txt
 
-# Ejecutar scraper (genera CSVs en data/, ~2 min)
-python scrape_visa_bulletins.py
+# Ejecutar scrapers (genera CSVs por país en data/, ~2 min c/u)
+python scrape_visa_bulletins.py          # empleo (EB 1-4, FAD)
+python scrape_family_visa_bulletins.py   # familiar (F1-F4, FAD+DFF)
+
+# Consolidar el panel largo y_{p,c,b,t} -> data/visa_panel_long.csv
+python build_panel.py
+
+# Auditoría de calidad -> data_quality_report.md
+python audit_data_quality.py
 
 # Generar gráficas (genera PNGs en figures/)
 python visualize_visa_wait_times.py
 ```
+
+> El GitHub Action (`update_graphs.yml`) corre los 2 scrapers → `build_panel.py`
+> → visualizaciones, y commitea diariamente (incluye el panel nuevo vía `git add -A`).
 
 ## Contexto del scraping
 
@@ -80,19 +90,53 @@ El scraper extrae tablas **Employment-Based** del Visa Bulletin mensual publicad
 - **Resto del mundo (RoW):** "All chargeability areas except those listed"
 - **Rango temporal:** Desde Oct 2007 hasta el boletín más reciente
 
-### Estructura de los CSVs
+### Estructura de los CSVs por país
 
 | Columna              | Tipo     | Descripción                                           |
 |----------------------|----------|-------------------------------------------------------|
-| `EB_level`           | int (1-4)| Nivel de visa employment-based                        |
-| `final_action_dates` | datetime | Fecha de acción final publicada en el boletín         |
+| `EB_level`/`F_level` | str      | Categoría (empleo 1-4 / familiar 1,2A,2B,3,4)         |
+| `final_action_dates` | datetime | Fecha publicada; `C`→fecha del boletín, `U`→NaN (legado, no romper visualizadores) |
 | `visa_bulletin_date` | datetime | Fecha del boletín mensual                             |
-| `visa_wait_time`     | float    | Tiempo de espera calculado en **años** (bulletin_date - final_action_date) |
+| `raw_value`          | str      | **Celda original** tal cual se publicó (`01MAY16`, `C`, `U`) |
+| `status`             | str      | **Régimen e∈{C,F,U,NA}** — ver abajo                  |
+| `table_type`         | str      | Solo familiar: `final_action` / `dates_for_filing`    |
+| `visa_wait_time`     | float    | Tiempo de espera en **años** (legado)                 |
 
-### Valores especiales
+### Columna `status` (anotación de régimen — fix H1)
 
-- `C` (Current): sin backlog, se convierte a la fecha del boletín (wait_time = 0)
-- `U` (Unavailable): sin visas disponibles, se convierte a `NaN`
+Preserva el régimen que se perdía al aplanar `C`→fecha y `U`→NaN. La emite
+`classify_status()` en ambos scrapers:
+
+- `F` — se publicó una **fecha específica** (único objetivo predictivo, v5.1).
+- `C` — *Current*, sin backlog ese mes (anotación descriptiva, no objetivo).
+- `U` — *Unavailable*, sin números ese mes (anotación descriptiva).
+- `NA` — celda vacía o no parseable (distingue 'sin dato' de 'Unavailable').
+
+### Panel consolidado `data/visa_panel_long.csv` (objetivo y_{p,c,b,t})
+
+Generado por `build_panel.py` a partir de los 10 CSV por país. Esquema largo:
+
+| Columna | Descripción |
+|---|---|
+| `country` | mexico, india, china, philippines, **all_chargeability** (= `row`) |
+| `block` | `employment` / `family` |
+| `category` | EB1..EB4 / F1,F2A,F2B,F3,F4 |
+| `table` | `FAD` / `DFF` |
+| `bulletin_date` | mes del boletín (t) |
+| `status` | C/F/U/NA |
+| `priority_date` | fecha de prioridad **solo si status='F'** (NaT en C/U/NA) |
+| `days_since_base` | **variable dependiente** = días desde `BASE=1980-01-01`, **solo status='F'** |
+| `raw_value` | celda cruda |
+
+Snapshot actual: **12,365 filas · 70 series · 78% entrenable (status F)** · rango
+2003-10→2026-06 · `days_since_base ∈ [1400, 16854]`, 0 negativos.
+
+### Pendientes de cobertura (post-fix H1, ver `data_quality_report.md`)
+
+- **H2** DFF de empleo (el scraper de empleo solo extrae FAD).
+- **H3** EB-5 y subcategorías (filtro deja solo EB 1-4).
+- **H4** FAD pre-2003 hacia 1992 (boletines archivados con otra URL).
+- Huecos de meses dispersos (~10% empleo) y RoW empleo truncado a 2016.
 
 ## Objetivo: VisaPredict AI
 
