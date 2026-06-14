@@ -1,13 +1,19 @@
-from typing import List, Union
 import re
 
 import pandas as pd
 from tqdm import tqdm
 
 from visa_common import (
-    SITE_ROOT, SCRAPER_COUNTRIES, MAX_FETCH_FAILURES,
-    extract_datetime_from_link, get_soup, extract_month_links, parse_tables,
-    string_to_datetime, classify_status, _norm_label,
+    MAX_FETCH_FAILURES,
+    SCRAPER_COUNTRIES,
+    SITE_ROOT,
+    _norm_label,
+    classify_status,
+    extract_datetime_from_link,
+    extract_month_links,
+    get_soup,
+    parse_tables,
+    string_to_datetime,
 )
 
 
@@ -18,11 +24,11 @@ def is_employment_section(rows) -> bool:
                for row in rows)
 
 
-def extract_tables(link: str) -> List[pd.DataFrame]:
+def extract_tables(link: str) -> list[pd.DataFrame]:
     return parse_tables(get_soup(SITE_ROOT + link),
                         extract_datetime_from_link(link), is_employment_section)
 
-def classify_eb_category(raw) -> Union[None, str]:
+def classify_eb_category(raw) -> None | str:
     """Map a raw 'Employment-based' row label to a canonical category code,
     absorbing 20+ years of label drift. Returns None for rows that are not an
     EB-1..EB-5 preference line (e.g. Schedule A, footnotes).
@@ -83,7 +89,7 @@ def classify_eb_category(raw) -> Union[None, str]:
     # Schedule A workers and anything else: outside EB-1..5 scope
     return None
 
-def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataFrame:
+def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataFrame:
         # 'row' (Rest of World) lives in the "all chargeability areas except
         # those listed" column; match 'except those listed', which is stable
         # even when older bulletins split 'chargeability' as 'charge ability'.
@@ -125,7 +131,7 @@ def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataF
         country_df['visa_wait_time'] = country_df.apply(
             lambda row: (row['visa_bulletin_date'] - row['final_action_dates']).days / 365.25
             if pd.notna(row['final_action_dates']) and pd.notna(row['visa_bulletin_date']) else None, axis=1)
-        
+
         # Map the raw 'Employment-based' label to a canonical category code
         # (EB1..EB5 + subcategories); drop rows that are not an EB preference (H3).
         country_df['EB_level'] = country_df['EB_level'].apply(classify_eb_category)
@@ -141,11 +147,11 @@ def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataF
 
 def main():
     month_links = extract_month_links()
-    
+
     all_data = []
     failed = []
-    for i, link in tqdm(enumerate(month_links), total=len(month_links),
-                        desc="Extracting all employment-based visa bulletin tables"):
+    for link in tqdm(month_links,
+                     desc="Extracting all employment-based visa bulletin tables"):
         try:
             table_data = extract_tables(link)
             all_data.extend(table_data)
@@ -162,7 +168,7 @@ def main():
                 f"para no publicar un panel degradado.")
 
     countries = SCRAPER_COUNTRIES
-    for country in tqdm(countries, desc=f"Extracting data for each country and computing backlogs"):
+    for country in tqdm(countries, desc="Extracting data for each country and computing backlogs"):
         country_df = extract_country_data(country, all_data)
         # Deterministic order (newest first, then table then category): a fully
         # specifying key, so a transient dropped month cannot cascade-reorder the

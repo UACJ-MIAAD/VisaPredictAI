@@ -9,8 +9,8 @@ historical quirk so a future refactor can't silently regress it.
     ante/bin/python tests/test_extraction.py
 """
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 from bs4 import BeautifulSoup
 
@@ -18,9 +18,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 FIX = Path(__file__).resolve().parent / "fixtures"
 
-import scrape_visa_bulletins as emp          # noqa: E402
-import scrape_family_visa_bulletins as fam   # noqa: E402
-from visa_common import parse_tables          # noqa: E402
+import scrape_family_visa_bulletins as fam  # noqa: E402
+import scrape_visa_bulletins as emp  # noqa: E402
+from visa_common import parse_tables  # noqa: E402
 
 VALID_STATUS = {"C", "F", "U", "UNK"}
 
@@ -90,10 +90,8 @@ def test_status_domain_offline():
         d = _emp(name, ym)
         bad = set(d.status) - VALID_STATUS
         assert not bad, f"{name}: estados inválidos {bad}"
-        # priority_date present exactly when status == 'F'
-        leak = (d.status.ne("F") & d.final_action_dates.notna()).sum()
-        # note: 'C' is mapped to the bulletin date by design in the legacy col,
-        # so we only check that 'F' rows always have a date.
+        # every 'F' row must carry a parsed date ('C' maps to the bulletin date
+        # by design in the legacy column, so we don't assert on non-F rows here).
         miss = (d.status.eq("F") & d.final_action_dates.isna()).sum()
         assert miss == 0, f"{name}: {miss} filas F sin fecha"
 

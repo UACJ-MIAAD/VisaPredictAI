@@ -1,8 +1,8 @@
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import pandas as pd
 from datetime import datetime
 
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
+import pandas as pd
 
 # UACJ / MIAAD institutional colors
 UACJ_AZUL = '#003CA6'
@@ -36,7 +36,7 @@ for country in countries:
     fig.suptitle(f'Tiempos de espera de visa familiar — {nombre}',
                  fontsize=14, fontweight='bold', color=UACJ_NEGRO)
 
-    for i, (level, label) in enumerate(zip(f_levels, f_labels)):
+    for i, (level, label) in enumerate(zip(f_levels, f_labels, strict=False)):
         ax = axs[i // 2, i % 2]
         level_data = df[df['F_level'] == level]
 

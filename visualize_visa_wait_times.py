@@ -1,8 +1,8 @@
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import pandas as pd
 from datetime import datetime
 
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
+import pandas as pd
 
 # UACJ / MIAAD institutional colors
 UACJ_AZUL = '#003CA6'
@@ -39,7 +39,7 @@ for country in countries:
     # now also carries Dates for Filing rows (table_type), which must be excluded.
     fad = df[df['table_type'] == 'final_action'] if 'table_type' in df.columns else df
 
-    for i, (level, label) in enumerate(zip(eb_levels, eb_labels)):
+    for i, (level, label) in enumerate(zip(eb_levels, eb_labels, strict=False)):
         ax = axs[i // 2, i % 2]
         data = fad[fad['EB_level'] == level]
 

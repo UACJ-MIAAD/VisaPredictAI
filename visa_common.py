@@ -6,14 +6,13 @@ and ``scrape_family_visa_bulletins.py``. Each scraper now imports from here and
 keeps only what genuinely differs (section detection, category mapping, output
 columns).
 """
-from typing import List, Union
 import re
 import time
 from datetime import datetime
 
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
 
 # ---- configuration (single source of truth) ----------------------------
 BASE_URL = "https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html"
@@ -38,7 +37,7 @@ MONTH_MAP = {
 
 
 # ---- link discovery -----------------------------------------------------
-def extract_datetime_from_link(link: str) -> Union[None, datetime]:
+def extract_datetime_from_link(link: str) -> None | datetime:
     """Parse 'visa-bulletin-for-<month>-<year>.html' into a datetime (day=1)."""
     match = re.search(r"visa-bulletin-for-(\w+)-(\d{4})\.html$", link)
     if not match:
@@ -68,7 +67,7 @@ def get_soup(url: str, retries: int = MAX_RETRIES) -> BeautifulSoup:
     raise last
 
 
-def extract_month_links() -> List[str]:
+def extract_month_links() -> list[str]:
     """Return every monthly-bulletin href listed in the page accordion."""
     soup = get_soup(BASE_URL)
     month_links = []
@@ -81,7 +80,7 @@ def extract_month_links() -> List[str]:
 
 
 # ---- cell parsing / annotation -----------------------------------------
-def string_to_datetime(date_str: str, bulletin_date: datetime) -> Union[None, datetime]:
+def string_to_datetime(date_str: str, bulletin_date: datetime) -> None | datetime:
     """Convert a published cell to a date. 'C' -> bulletin date (legacy
     behavior kept for the wait-time column); 'U'/empty/unparseable -> None."""
     if date_str == "C":
@@ -135,7 +134,7 @@ _norm_label = norm_label
 
 
 # ---- table parsing (pure: soup -> dataframes; testable offline) ---------
-def parse_tables(soup: BeautifulSoup, year_month, section_matcher) -> List[pd.DataFrame]:
+def parse_tables(soup: BeautifulSoup, year_month, section_matcher) -> list[pd.DataFrame]:
     """Parse the preference tables a ``section_matcher(rows) -> bool`` selects.
 
     Decoupled from fetching so it can be unit-tested with saved HTML fixtures

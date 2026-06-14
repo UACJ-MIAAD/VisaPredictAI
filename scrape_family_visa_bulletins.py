@@ -1,12 +1,18 @@
-from typing import List, Union
 
 import pandas as pd
 from tqdm import tqdm
 
 from visa_common import (
-    SITE_ROOT, SCRAPER_COUNTRIES, MAX_FETCH_FAILURES,
-    extract_datetime_from_link, get_soup, extract_month_links, parse_tables,
-    string_to_datetime, classify_status, _norm_label,
+    MAX_FETCH_FAILURES,
+    SCRAPER_COUNTRIES,
+    SITE_ROOT,
+    _norm_label,
+    classify_status,
+    extract_datetime_from_link,
+    extract_month_links,
+    get_soup,
+    parse_tables,
+    string_to_datetime,
 )
 
 
@@ -18,11 +24,11 @@ def is_family_section(rows) -> bool:
     return any('family' in row.get_text(strip=True).lower() for row in rows)
 
 
-def extract_tables(link: str) -> List[pd.DataFrame]:
+def extract_tables(link: str) -> list[pd.DataFrame]:
     return parse_tables(get_soup(SITE_ROOT + link),
                         extract_datetime_from_link(link), is_family_section)
 
-def classify_family_category(raw) -> Union[None, str]:
+def classify_family_category(raw) -> None | str:
     """Map a raw 'Family-Sponsored' row label to a canonical level code,
     absorbing label drift ('1st'->F1 in 2006-2011, 'F1' from 2011 on, and the
     '*' footnote variants). Returns None for non-category rows (e.g. the
@@ -41,7 +47,7 @@ def classify_family_category(raw) -> Union[None, str]:
         return '4'
     return None
 
-def extract_country_data(country: str, all_data: List[pd.DataFrame]) -> pd.DataFrame:
+def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataFrame:
         # 'row' (Rest of World) lives in the "all chargeability areas except
         # those listed" column; match 'except those listed', which is stable
         # even when older bulletins split 'chargeability' as 'charge ability'.
@@ -97,8 +103,8 @@ def main():
 
     all_data = []
     failed = []
-    for i, link in tqdm(enumerate(month_links), total=len(month_links),
-                        desc="Extracting all family-sponsored visa bulletin tables"):
+    for link in tqdm(month_links,
+                     desc="Extracting all family-sponsored visa bulletin tables"):
         try:
             table_data = extract_tables(link)
             all_data.extend(table_data)
@@ -115,7 +121,7 @@ def main():
                 f"para no publicar un panel degradado.")
 
     countries = SCRAPER_COUNTRIES
-    for country in tqdm(countries, desc=f"Extracting data for each country and computing backlogs"):
+    for country in tqdm(countries, desc="Extracting data for each country and computing backlogs"):
         country_df = extract_country_data(country, all_data)
         # Deterministic order (newest first, then table then category): a fully
         # specifying key, so a transient dropped month cannot cascade-reorder the

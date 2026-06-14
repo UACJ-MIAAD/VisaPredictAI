@@ -1,0 +1,30 @@
+[project]
+name = "visa-bulletin-scraping"
+version = "1.0.0"
+description = "Scraper and longitudinal panel of the U.S. Visa Bulletin (VisaPredict AI · MIAAD/UACJ)."
+requires-python = ">=3.14"
+readme = "README.md"
+dependencies = [
+    "beautifulsoup4==4.14.3",
+    "matplotlib==3.10.8",
+    "pandas==3.0.0",
+    "requests==2.32.5",
+    "tqdm==4.67.3",
+]
+
+[project.optional-dependencies]
+dev = ["ruff==0.15.17"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+extend-exclude = ["ante", "data", "figures", "tests/fixtures"]
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I import-sort, UP pyupgrade, B bugbear.
+select = ["E4", "E7", "E9", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Audit/analysis scripts favor dense one-liners and f-strings for report text.
+"mega_audit.py" = ["E741"]
+"audit_data_quality.py" = ["E741"]

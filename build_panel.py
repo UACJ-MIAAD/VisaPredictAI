@@ -18,8 +18,10 @@ Run from the repo root (after the scrapers have written `status`/`raw_value`):
 Writes: data/visa_panel_long.csv
 """
 from __future__ import annotations
-import pandas as pd
+
 from pathlib import Path
+
+import pandas as pd
 
 DATA = Path("data")
 OUT = DATA / "visa_panel_long.csv"

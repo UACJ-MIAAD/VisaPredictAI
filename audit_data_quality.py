@@ -13,8 +13,10 @@ Run from the repo root:
 Writes: data_quality_report.md
 """
 from __future__ import annotations
-import pandas as pd
+
 from pathlib import Path
+
+import pandas as pd
 
 COUNTRIES = ["mexico", "india", "china", "philippines", "row"]
 DATA = Path("data")
@@ -95,8 +97,8 @@ def panel_section() -> list[str]:
         "## Panel consolidado `visa_panel_long.csv`",
         "",
         f"- Filas: **{len(p):,}** · series país×categoría×tabla: **{n_series}**",
-        f"- Status: " + ", ".join(f"{k}={v:,}" for k, v in sc.items()),
-        f"- Bloque×tabla: " + ", ".join(f"{b}/{t}={n:,}" for (b, t), n in bt.items()),
+        "- Status: " + ", ".join(f"{k}={v:,}" for k, v in sc.items()),
+        "- Bloque×tabla: " + ", ".join(f"{b}/{t}={n:,}" for (b, t), n in bt.items()),
         f"- Objetivo entrenable (status=F): **{len(f):,}** filas ({100*len(f)/len(p):.0f}%)",
         f"- `days_since_base` ∈ [{f.days_since_base.min():.0f}, {f.days_since_base.max():.0f}] "
         f"(base 1975-01-01); 0 negativos.",

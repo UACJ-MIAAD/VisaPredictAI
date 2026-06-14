@@ -1,0 +1,17 @@
+# Local quality gate: ruff lint + the fast offline tests before each commit.
+# Install once with:  pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.17
+    hooks:
+      - id: ruff
+        args: [--fix]
+
+  - repo: local
+    hooks:
+      - id: pipeline-tests
+        name: pipeline tests (parsers + offline extraction)
+        entry: bash -c 'ante/bin/python tests/test_parsers.py && ante/bin/python tests/test_extraction.py'
+        language: system
+        pass_filenames: false
+        always_run: true

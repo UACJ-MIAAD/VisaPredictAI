@@ -1,0 +1,37 @@
+name: CI
+
+# Validates every code change (separate from the daily data-refresh cron):
+# lint + the full offline test suite. The data-refresh workflow
+# (update_graphs.yml) runs the same tests as a gate before committing data.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff==0.15.17
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Tests (pure + offline fixtures + panel contract)
+        run: |
+          python tests/test_parsers.py
+          python tests/test_extraction.py
+          python tests/test_panel_integrity.py

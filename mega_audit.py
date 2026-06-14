@@ -19,9 +19,10 @@ Dimensions:
 Run: ante/bin/python mega_audit.py
 """
 from __future__ import annotations
-import pandas as pd
-import numpy as np
+
 from pathlib import Path
+
+import pandas as pd
 
 DATA = Path("data")
 OUT = Path("mega_audit_report.md")
