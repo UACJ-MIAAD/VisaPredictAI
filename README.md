@@ -18,140 +18,102 @@
 
 ---
 
-Herramienta de web scraping para extraer datos históricos del [Visa Bulletin](https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html) del Departamento de Estado de EE.UU. Este repositorio forma parte del proyecto de tesis **VisaPredict AI**, que busca predecir fechas de boletines de visa de inmigración mediante Machine Learning.
+Pipeline de extracción, anotación, consolidación y auditoría de los datos históricos del [Visa Bulletin](https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html) del Departamento de Estado de EE.UU. Es el componente de datos (Objetivo 1) del proyecto de tesis **VisaPredict AI**, que busca predecir fechas de prioridad de inmigración mediante Machine Learning.
 
 ## Objetivo
 
-Recopilar y estructurar los datos históricos del Visa Bulletin (disponibles desde 1982) para su uso en modelos predictivos de series de tiempo. El scraping extrae las **Priority Dates** publicadas mensualmente, que determinan cuándo un solicitante puede avanzar en su proceso migratorio.
+Construir un **panel multiserie** $y_{p,c,b,t}$ (país × categoría × tabla × mes) con las fechas de prioridad publicadas, listo para modelado de series de tiempo. El pipeline se ejecuta a diario vía GitHub Action.
+
+- **5 países o áreas de cargabilidad:** México, India, China, Filipinas y *All Chargeability Areas Except Those Listed* (RoW).
+- **Categorías:** Family-Sponsored (F1, F2A, F2B, F3, F4) y Employment-Based (EB-1 a EB-5 con subcategorías, 16 códigos canónicos).
+- **Dos tablas evaluadas por separado:** *Final Action Dates* (FAD) y *Dates for Filing* (DFF).
+- **Cobertura:** serie mensual homogénea desde **diciembre de 2001** hasta el presente (~290 observaciones por serie). Los boletines previos a 2001 existen solo en fuentes de archivo/estadística.
 
 ## Qué es el Visa Bulletin
 
-El Visa Bulletin es un boletín mensual publicado por el Bureau of Consular Affairs del Departamento de Estado de EE.UU. Contiene dos tablas principales por categoría:
+Boletín mensual del Bureau of Consular Affairs con dos tablas por categoría:
 
-- **Tabla A -- Final Action Dates:** Fecha a partir de la cual una visa puede ser emitida o se puede adjudicar el ajuste de estatus.
-- **Tabla B -- Dates for Filing:** Fecha a partir de la cual un solicitante puede presentar su aplicación.
+- **Tabla A -- Final Action Dates (FAD):** fecha a partir de la cual se puede adjudicar la residencia.
+- **Tabla B -- Dates for Filing (DFF):** fecha a partir de la cual se puede iniciar el trámite (disponible desde oct-2015).
 
-Cada tabla reporta fechas de prioridad para dos tipos de categorías:
-
-### Family-Sponsored (Patrocinio Familiar)
-
-| Categoría | Descripción |
-|-----------|-------------|
-| F1 | Hijos solteros adultos de ciudadanos estadounidenses |
-| F2A | Cónyuges e hijos menores de residentes permanentes |
-| F2B | Hijos solteros adultos (21+) de residentes permanentes |
-| F3 | Hijos casados de ciudadanos estadounidenses |
-| F4 | Hermanos de ciudadanos estadounidenses adultos |
-
-### Employment-Based (Basado en Empleo)
-
-| Categoría | Descripción |
-|-----------|-------------|
-| EB-1 | Trabajadores con prioridad (habilidades extraordinarias) |
-| EB-2 | Profesionales con grado avanzado |
-| EB-3 | Trabajadores calificados y profesionales |
-| EB-4 | Inmigrantes especiales |
-| EB-5 | Inversionistas |
-
-### Países con límites especiales
-
-Debido a la alta demanda, algunos países tienen fechas de prioridad separadas: **China (mainland)**, **India**, **México** y **Filipinas**. El resto se agrupa como **ROW** (Rest of World).
-
-## Estructura del Repositorio
+## Estructura del repositorio
 
 ```
 VisaBulletinScraping/
-├── scrape_visa_bulletins.py            # Scraper para categorías Employment-Based
-├── scrape_family_visa_bulletins.py     # Scraper para categorías Family-Sponsored
-├── visualize_visa_wait_times.py        # Gráficas para Employment-Based
-├── visualize_family_wait_times.py      # Gráficas para Family-Sponsored
-├── requirements.txt                    # Dependencias de Python
-├── data/                               # CSVs generados por los scrapers
-│   ├── {country}_visa_backlog_timecourse.csv          # Datos EB
-│   └── {country}_family_visa_backlog_timecourse.csv   # Datos Family
-└── figures/                            # Gráficas generadas
+├── visa_common.py                      # helpers compartidos (fetch, parse, estado) — fuente única
+├── config.py                           # constantes (países canónicos, epoch, paleta)
+├── scrape_visa_bulletins.py            # scraper Employment-Based (FAD + DFF)
+├── scrape_family_visa_bulletins.py     # scraper Family-Sponsored (FAD + DFF)
+├── build_panel.py                      # consolida los 10 CSV en el panel largo
+├── audit_data_quality.py · mega_audit.py   # auditorías de calidad de datos
+├── visualize_*.py                      # gráficas (artefactos no versionados)
+├── tests/                              # pytest: parsers · extracción offline · contrato del panel
+├── data/                               # CSVs por país + visa_panel_long.csv (versionados)
+├── Makefile · pyproject.toml           # one-command ops + config ruff/mypy/pytest
+└── .github/workflows/                  # ci.yml (lint+type+test) · update_graphs.yml (cron diario)
 ```
 
 ## Requisitos
 
-- Python 3.10+
-- macOS / Linux / Windows
+- Python 3.14 (las dependencias están pin-eadas en `requirements.txt` para reproducibilidad dev↔CI).
 
-### Dependencias
-
-```
-pandas>=2.2.2
-matplotlib>=3.9.0
-beautifulsoup4>=4.12.2
-requests>=2.31.0
-tqdm>=4.66.1
-```
-
-## Instalación y Uso
+## Instalación y uso
 
 ```bash
-# 1. Clonar el repositorio
 git clone https://github.com/UACJ-MIAAD/VisaBulletinScraping.git
 cd VisaBulletinScraping
+python -m venv ante && source ante/bin/activate   # ante\Scripts\activate en Windows
+make install            # dependencias + herramientas dev
 
-# 2. Crear y activar ambiente virtual
-python -m venv ante
-source ante/bin/activate        # macOS/Linux
-# ante\Scripts\activate         # Windows
-
-# 3. Instalar dependencias
-pip install -r requirements.txt
-
-# 4. Ejecutar scrapers
-python scrape_visa_bulletins.py           # Employment-Based (~2 min)
-python scrape_family_visa_bulletins.py    # Family-Sponsored (~2 min)
-
-# 5. Generar visualizaciones
-python visualize_visa_wait_times.py
-python visualize_family_wait_times.py
+# pipeline de un comando
+make scrape             # ambos scrapers (~4 min, red)
+make panel              # consolida data/visa_panel_long.csv
+make test               # pytest (parsers + extracción offline + contrato del panel)
+make check              # ruff + mypy + pytest
+make figures            # gráficas (no versionadas)
 ```
 
-## Datos de Salida
+## Datos de salida
 
-### CSVs Employment-Based
-
-| Columna | Descripción |
-|---------|-------------|
-| `EB_level` | Categoría (1, 2, 3, 4, 5) |
-| `final_action_dates` | Fecha de acción final publicada |
-| `visa_bulletin_date` | Fecha del boletín mensual |
-| `visa_wait_time` | Tiempo de espera calculado (días) |
-
-### CSVs Family-Sponsored
+### CSVs por país (`data/{country}[_family]_visa_backlog_timecourse.csv`)
 
 | Columna | Descripción |
-|---------|-------------|
-| `F_level` | Categoría (1, 2A, 2B, 3, 4) |
-| `final_action_dates` | Fecha de acción final publicada |
-| `visa_bulletin_date` | Fecha del boletín mensual |
-| `visa_wait_time` | Tiempo de espera calculado (días) |
-| `table_type` | `final_action` (Tabla A) o `dates_for_filing` (Tabla B) |
+|---|---|
+| `EB_level` / `F_level` | Categoría: empleo = código canónico (`EB1`…`EB5_RURAL`); familiar = `1`, `2A`, `2B`, `3`, `4` |
+| `priority_date` | Fecha de prioridad publicada (parseada) |
+| `visa_bulletin_date` | Mes del boletín |
+| `table_type` | `final_action` (FAD) o `dates_for_filing` (DFF) |
+| `raw_value` | Celda original tal cual se publicó (`01MAY16`, `C`, `U`) |
+| `status` | Régimen administrativo: `F`/`C`/`U`/`UNK` (ver abajo) |
+| `visa_wait_time` | Tiempo de espera calculado (años, legado) |
 
-### Valores Especiales
+### Panel consolidado (`data/visa_panel_long.csv`)
 
-- **C (Current):** La categoría está al día; `wait_time = 0`
-- **U (Unavailable):** No hay visas disponibles; `wait_time = NaN`
+Formato largo con la variable dependiente: `country`, `block`, `category`, `table`, `bulletin_date`, `status`, `priority_date`, **`days_since_base`** (días desde 1975-01-01, solo cuando `status='F'`), `raw_value`.
 
-## Visualizaciones
+### Estado administrativo (`status`)
 
-Los scripts de visualización generan gráficas por país en `figures/`, mostrando la evolución histórica de los tiempos de espera por categoría de preferencia. Las figuras **no se versionan** (son artefactos generados); regenéralas con `make figures`.
+- **`F`** -- se publicó una fecha específica (único objetivo predictivo).
+- **`C`** -- *Current*, sin backlog ese mes (anotación descriptiva).
+- **`U`** -- *Unavailable*, sin números ese mes (anotación descriptiva).
+- **`UNK`** -- celda vacía o no parseable.
 
-## Fuente de Datos
+## Calidad y reproducibilidad
 
-Todos los datos se extraen directamente del sitio oficial del Departamento de Estado:
+- **Tests** (`pytest`, gate de cobertura) sobre las funciones de parseo, la extracción offline (fixtures HTML) y el contrato del panel.
+- **CI** (`ci.yml`): `ruff` (lint + format) + `mypy` + tests en cada push/PR.
+- **Action diaria** (`update_graphs.yml`): scrape → panel → gate de tests → commit; abre un issue si falla.
+- **Auditorías** programáticas de calidad de datos (`mega_audit.py`, 12 dimensiones).
+
+## Fuente de datos
 
 - **URL:** https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html
-- **Formato de fechas:** DD-MMM-YY (día-mes-año)
-- **Años fiscales disponibles:** Desde 1982 hasta el presente
+- **Formato de fechas:** `DD-MMM-YY`
+- **Cobertura del pipeline:** serie mensual continua desde diciembre de 2001 hasta el boletín más reciente (98.3 % de los meses; los ausentes existen solo en el archivo legacy de Wayback).
 
-## Contexto Académico
+## Contexto académico
 
-Este repositorio es el componente de adquisición de datos del proyecto de tesis **"VisaPredict AI"**, desarrollado como parte de la Maestría en Inteligencia Artificial y Analítica de Datos (MIAAD) en la Universidad Autónoma de Ciudad Juárez (UACJ).
+Componente de adquisición de datos del proyecto de tesis **"VisaPredict AI"** (MIAAD, UACJ).
 
 | | |
 |---|---|
@@ -161,11 +123,7 @@ Este repositorio es el componente de adquisición de datos del proyecto de tesis
 
 ## Licencia
 
-Este proyecto es para fines académicos y de investigación.
-
-## Créditos
-
-Basado en el repositorio original [visa_dates](https://github.com/DavidBellamy/visa_dates) de David Bellamy, extendido con soporte para categorías Family-Sponsored y extracción de ambas tablas (A y B).
+Para fines académicos y de investigación.
 
 ---
 
