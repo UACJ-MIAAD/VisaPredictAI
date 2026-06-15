@@ -19,3 +19,6 @@ htmlcov/
 *.egg-info/
 build/
 dist/
+
+# Internal AI/context notes — not part of the public deliverable.
+CLAUDE.md
