@@ -6,6 +6,7 @@ and ``scrape_family_visa_bulletins.py``. Each scraper now imports from here and
 keeps only what genuinely differs (section detection, category mapping, output
 columns).
 """
+
 import re
 import time
 from datetime import datetime
@@ -30,9 +31,18 @@ MAX_RETRIES = 4
 MAX_FETCH_FAILURES = 10
 
 MONTH_MAP = {
-    "january": 1, "february": 2, "march": 3, "april": 4,
-    "may": 5, "june": 6, "july": 7, "august": 8,
-    "september": 9, "october": 10, "november": 11, "december": 12,
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
 }
 
 
@@ -188,10 +198,13 @@ def annotate_dates(df: pd.DataFrame, value_col: str) -> pd.DataFrame:
     df = df.copy()
     df["raw_value"] = df[value_col]
     df["status"] = df[value_col].apply(classify_status)
-    df[value_col] = df.apply(
-        lambda r: string_to_datetime(r[value_col], r["visa_bulletin_date"]), axis=1)
+    df[value_col] = df.apply(lambda r: string_to_datetime(r[value_col], r["visa_bulletin_date"]), axis=1)
     df["visa_wait_time"] = df.apply(
-        lambda r: (r["visa_bulletin_date"] - r[value_col]).days / 365.25
-        if pd.notna(r[value_col]) and pd.notna(r["visa_bulletin_date"]) else None,
-        axis=1)
+        lambda r: (
+            (r["visa_bulletin_date"] - r[value_col]).days / 365.25
+            if pd.notna(r[value_col]) and pd.notna(r["visa_bulletin_date"])
+            else None
+        ),
+        axis=1,
+    )
     return df

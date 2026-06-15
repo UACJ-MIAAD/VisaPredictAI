@@ -8,6 +8,7 @@ historical quirk so a future refactor can't silently regress it.
 
     ante/bin/python tests/test_extraction.py
 """
+
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -83,10 +84,12 @@ def test_subcategories_present():
 
 # --- status annotation domain across all fixtures (H1/H5) ----------------
 def test_status_domain_offline():
-    for name, ym in [("vb_2002_06.html", (2002, 6, 1)),
-                     ("vb_2007_06.html", (2007, 6, 1)),
-                     ("vb_2020_06.html", (2020, 6, 1)),
-                     ("vb_2022_06.html", (2022, 6, 1))]:
+    for name, ym in [
+        ("vb_2002_06.html", (2002, 6, 1)),
+        ("vb_2007_06.html", (2007, 6, 1)),
+        ("vb_2020_06.html", (2020, 6, 1)),
+        ("vb_2022_06.html", (2022, 6, 1)),
+    ]:
         d = _emp(name, ym)
         bad = set(d.status) - VALID_STATUS
         assert not bad, f"{name}: estados inválidos {bad}"
@@ -97,8 +100,7 @@ def test_status_domain_offline():
 
 
 def _run():
-    fns = [v for k, v in sorted(globals().items())
-           if k.startswith("test_") and callable(v)]
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = failed = 0
     for fn in fns:
         try:
@@ -107,8 +109,7 @@ def _run():
         except AssertionError as e:
             failed += 1
             print(f"  ✗ {fn.__name__}: {e}")
-    print(f"\n{passed}/{passed + failed} pruebas de extracción OK" +
-          (" ✓" if not failed else f"  ({failed} FALLAN)"))
+    print(f"\n{passed}/{passed + failed} pruebas de extracción OK" + (" ✓" if not failed else f"  ({failed} FALLAN)"))
     return failed == 0
 
 

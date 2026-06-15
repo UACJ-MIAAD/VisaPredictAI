@@ -36,9 +36,7 @@ audit:
 	$(PY) mega_audit.py
 
 test:
-	$(PY) tests/test_parsers.py
-	$(PY) tests/test_extraction.py
-	$(PY) tests/test_panel_integrity.py
+	$(PY) -m pytest
 
 lint:
 	$(PY) -m ruff check .

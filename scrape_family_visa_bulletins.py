@@ -1,4 +1,3 @@
-
 import pandas as pd
 from tqdm import tqdm
 
@@ -20,12 +19,12 @@ def is_family_section(rows) -> bool:
     (the header is 'family' / 'family- sponsored', sometimes concatenated as
     'familyall chargeability...' in 2007-2008). Employment and diversity-visa
     tables never contain it."""
-    return any('family' in row.get_text(strip=True).lower() for row in rows)
+    return any("family" in row.get_text(strip=True).lower() for row in rows)
 
 
 def extract_tables(link: str) -> list[pd.DataFrame]:
-    return parse_tables(get_soup(SITE_ROOT + link),
-                        extract_datetime_from_link(link), is_family_section)
+    return parse_tables(get_soup(SITE_ROOT + link), extract_datetime_from_link(link), is_family_section)
+
 
 def classify_family_category(raw) -> None | str:
     """Map a raw 'Family-Sponsored' row label to a canonical level code,
@@ -34,70 +33,70 @@ def classify_family_category(raw) -> None | str:
     'family' spanning header). Codes match the legacy values: 1, 2A, 2B, 3, 4.
     """
     s = _norm_label(raw)
-    if s in ('1st', 'f1'):
-        return '1'
-    if s in ('2a', '2a*', '2nd-a', '2nda', 'f2a', 'f2a*'):
-        return '2A'
-    if s in ('2b', '2b*', '2nd-b', '2ndb', 'f2b', 'f2b*'):
-        return '2B'
-    if s in ('3rd', 'f3'):
-        return '3'
-    if s in ('4th', 'f4'):
-        return '4'
+    if s in ("1st", "f1"):
+        return "1"
+    if s in ("2a", "2a*", "2nd-a", "2nda", "f2a", "f2a*"):
+        return "2A"
+    if s in ("2b", "2b*", "2nd-b", "2ndb", "f2b", "f2b*"):
+        return "2B"
+    if s in ("3rd", "f3"):
+        return "3"
+    if s in ("4th", "f4"):
+        return "4"
     return None
 
+
 def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataFrame:
-        # 'row' (Rest of World) lives in the "all chargeability areas except
-        # those listed" column; match 'except those listed', which is stable
-        # even when older bulletins split 'chargeability' as 'charge ability'.
-        search_country = 'except those listed' if country == 'row' else country
+    # 'row' (Rest of World) lives in the "all chargeability areas except
+    # those listed" column; match 'except those listed', which is stable
+    # even when older bulletins split 'chargeability' as 'charge ability'.
+    search_country = "except those listed" if country == "row" else country
 
-        country_data = []
-        for df in all_data:
-            norm = {col: _norm_label(col) for col in df.columns}
+    country_data = []
+    for df in all_data:
+        norm = {col: _norm_label(col) for col in df.columns}
 
-            # The family-category column is always column 0 (header is
-            # 'family- sponsored', 'family', or '' across the years).
-            cat_col = df.columns[0]
-            country_col = next((c for c in df.columns if search_country in norm[c]), None)
-            if country_col is None or country_col == cat_col:
-                continue
+        # The family-category column is always column 0 (header is
+        # 'family- sponsored', 'family', or '' across the years).
+        cat_col = df.columns[0]
+        country_col = next((c for c in df.columns if search_country in norm[c]), None)
+        if country_col is None or country_col == cat_col:
+            continue
 
-            try:
-                sub = df[[cat_col, country_col, 'visa_bulletin_date', 'table_type']].copy()
-            except KeyError:
-                continue
-            sub.columns = ['F_level', 'priority_date', 'visa_bulletin_date', 'table_type']
-            country_data.append(sub)
+        try:
+            sub = df[[cat_col, country_col, "visa_bulletin_date", "table_type"]].copy()
+        except KeyError:
+            continue
+        sub.columns = ["F_level", "priority_date", "visa_bulletin_date", "table_type"]
+        country_data.append(sub)
 
-        if not country_data:
-            return pd.DataFrame(columns=['F_level', 'priority_date', 'visa_bulletin_date', 'visa_wait_time', 'table_type'])
+    if not country_data:
+        return pd.DataFrame(columns=["F_level", "priority_date", "visa_bulletin_date", "visa_wait_time", "table_type"])
 
-        country_df = pd.concat(country_data, axis=0, ignore_index=True)
-        country_df = country_df[country_df['visa_bulletin_date'].notna()]
+    country_df = pd.concat(country_data, axis=0, ignore_index=True)
+    country_df = country_df[country_df["visa_bulletin_date"].notna()]
 
-        # raw_value / status / parse priority_date / visa_wait_time (H1 annotation).
-        country_df = annotate_dates(country_df, 'priority_date')
+    # raw_value / status / parse priority_date / visa_wait_time (H1 annotation).
+    country_df = annotate_dates(country_df, "priority_date")
 
-        # Map the raw 'Family-Sponsored' label to a canonical level code
-        # (1, 2A, 2B, 3, 4); drop rows that are not a family category.
-        country_df['F_level'] = country_df['F_level'].apply(classify_family_category)
-        country_df = country_df[country_df['F_level'].notna()]
+    # Map the raw 'Family-Sponsored' label to a canonical level code
+    # (1, 2A, 2B, 3, 4); drop rows that are not a family category.
+    country_df["F_level"] = country_df["F_level"].apply(classify_family_category)
+    country_df = country_df[country_df["F_level"].notna()]
 
-        # Keep a unique (level, month, table) key (guards against any label
-        # transition putting the same category twice in one bulletin).
-        country_df = country_df.drop_duplicates(
-            subset=['F_level', 'visa_bulletin_date', 'table_type'], keep='first')
+    # Keep a unique (level, month, table) key (guards against any label
+    # transition putting the same category twice in one bulletin).
+    country_df = country_df.drop_duplicates(subset=["F_level", "visa_bulletin_date", "table_type"], keep="first")
 
-        return country_df
+    return country_df
+
 
 def main():
     month_links = extract_month_links()
 
     all_data = []
     failed = []
-    for link in tqdm(month_links,
-                     desc="Extracting all family-sponsored visa bulletin tables"):
+    for link in tqdm(month_links, desc="Extracting all family-sponsored visa bulletin tables"):
         try:
             table_data = extract_tables(link)
             all_data.extend(table_data)
@@ -111,7 +110,8 @@ def main():
             raise SystemExit(
                 f"{len(failed)} boletines fallaron (> {MAX_FETCH_FAILURES}): probable "
                 f"problema de la fuente, no un blip transitorio. Se aborta sin escribir "
-                f"para no publicar un panel degradado.")
+                f"para no publicar un panel degradado."
+            )
 
     countries = SCRAPER_COUNTRIES
     for country in tqdm(countries, desc="Extracting data for each country and computing backlogs"):
@@ -120,9 +120,9 @@ def main():
         # specifying key, so a transient dropped month cannot cascade-reorder the
         # rest via an unstable sort.
         country_df = country_df.sort_values(
-            by=['visa_bulletin_date', 'table_type', 'F_level'],
-            ascending=[False, True, True])
-        country_df.to_csv(f'data/{country}_family_visa_backlog_timecourse.csv', index=False)
+            by=["visa_bulletin_date", "table_type", "F_level"], ascending=[False, True, True]
+        )
+        country_df.to_csv(f"data/{country}_family_visa_backlog_timecourse.csv", index=False)
 
 
 if __name__ == "__main__":

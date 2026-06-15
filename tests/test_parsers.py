@@ -7,6 +7,7 @@ These are the pure functions the whole panel depends on.
 Runs with pytest *or* as a plain script (no pytest required):
     ante/bin/python tests/test_parsers.py
 """
+
 import sys
 from pathlib import Path
 
@@ -115,8 +116,7 @@ def test_norm_label():
 
 
 def _run():
-    fns = [v for k, v in sorted(globals().items())
-           if k.startswith("test_") and callable(v)]
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = failed = 0
     for fn in fns:
         try:
@@ -125,8 +125,7 @@ def _run():
         except AssertionError as e:
             failed += 1
             print(f"  ✗ {fn.__name__}: {e}")
-    print(f"\n{passed}/{passed + failed} pruebas OK" +
-          (" ✓" if not failed else f"  ({failed} FALLAN)"))
+    print(f"\n{passed}/{passed + failed} pruebas OK" + (" ✓" if not failed else f"  ({failed} FALLAN)"))
     return failed == 0
 
 

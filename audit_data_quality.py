@@ -12,6 +12,7 @@ Run from the repo root:
     ante/bin/python audit_data_quality.py
 Writes: data_quality_report.md
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -41,10 +42,7 @@ def gaps(dates: pd.Series) -> list[str]:
 
 def audit_block(name: str, level_col: str, has_table_type: bool) -> list[str]:
     lines = [f"## Bloque: {name}", ""]
-    header = (
-        "| País | Filas | Rango | Meses esp. | Faltantes | Dup. clave | "
-        "Niveles | NaN fecha | DFF |"
-    )
+    header = "| País | Filas | Rango | Meses esp. | Faltantes | Dup. clave | Niveles | NaN fecha | DFF |"
     lines += [header, "|" + "---|" * 9]
 
     for c in COUNTRIES:
@@ -74,10 +72,7 @@ def audit_block(name: str, level_col: str, has_table_type: bool) -> list[str]:
         else:
             dff = "✗ (no extrae)"
 
-        lines.append(
-            f"| {c} | {n} | {rng} | {expected} | {n_miss} | {n_dup} | "
-            f"{levels} | {nan_pct:.0f}% | {dff} |"
-        )
+        lines.append(f"| {c} | {n} | {rng} | {expected} | {n_miss} | {n_dup} | {levels} | {nan_pct:.0f}% | {dff} |")
 
         if 0 < n_miss <= 18:
             lines.append(f"|   ↳ huecos {c}: {', '.join(miss)} |" + " |" * 8)
@@ -88,8 +83,7 @@ def audit_block(name: str, level_col: str, has_table_type: bool) -> list[str]:
 def panel_section() -> list[str]:
     fp = DATA / "visa_panel_long.csv"
     if not fp.exists():
-        return ["## Panel consolidado", "", "_`visa_panel_long.csv` aún no generado "
-                "(corre `build_panel.py`)._", ""]
+        return ["## Panel consolidado", "", "_`visa_panel_long.csv` aún no generado (corre `build_panel.py`)._", ""]
     p = pd.read_csv(fp)
     n_series = p.groupby(["country", "block", "category", "table"]).ngroups
     sc = p["status"].value_counts().to_dict()
@@ -101,7 +95,7 @@ def panel_section() -> list[str]:
         f"- Filas: **{len(p):,}** · series país×categoría×tabla: **{n_series}**",
         "- Status: " + ", ".join(f"{k}={v:,}" for k, v in sc.items()),
         "- Bloque×tabla: " + ", ".join(f"{b}/{t}={n:,}" for (b, t), n in bt.items()),
-        f"- Objetivo entrenable (status=F): **{len(f):,}** filas ({100*len(f)/len(p):.0f}%)",
+        f"- Objetivo entrenable (status=F): **{len(f):,}** filas ({100 * len(f) / len(p):.0f}%)",
         f"- `days_since_base` ∈ [{f.days_since_base.min():.0f}, {f.days_since_base.max():.0f}] "
         f"(base 1975-01-01); 0 negativos.",
         "",

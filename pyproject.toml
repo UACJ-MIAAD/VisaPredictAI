@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["ruff==0.15.17", "mypy==2.1.0"]
+dev = ["ruff==0.15.17", "mypy==2.1.0", "pytest==9.1.0", "pytest-cov==7.1.0"]
 
 [tool.ruff]
 line-length = 120
@@ -33,3 +33,20 @@ select = ["E4", "E7", "E9", "F", "W", "I", "UP", "B"]
 python_version = "3.14"
 ignore_missing_imports = true   # no pandas/bs4 stubs installed
 exclude = ['ante', 'tests/fixtures']
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "-q",
+    "--cov=visa_common",
+    "--cov=scrape_visa_bulletins",
+    "--cov=scrape_family_visa_bulletins",
+    "--cov-report=term-missing",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+# Executable coverage floor on the parsing modules (current ~70%). Set with
+# margin so minor churn doesn't break CI, but erosion below it is blocked.
+fail_under = 65

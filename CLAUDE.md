@@ -60,7 +60,7 @@ visa_dates/
 ## Tooling MLOps (mejores prácticas)
 
 - **Dependencias pin-eadas** (`requirements.txt` + `pyproject.toml`): versiones exactas validadas en dev (pandas 3.0.0, py3.14); el Action usa el mismo Python → CI reproduce dev.
-- **`ruff`** (lint + import-sort + pyupgrade + bugbear) + **`mypy`** (`--ignore-missing-imports`) configurados en `pyproject.toml`. `make check` = lint + typecheck + test; ambos deben pasar limpio.
+- **`ruff`** (lint + **format**) + **`mypy`** + **`pytest` con coverage gate (`fail_under=65`)** configurados en `pyproject.toml`. `make check` = lint + format-check + typecheck + test. Los tests corren vía `pytest` (con cobertura) **y** como scripts planos (`python tests/x.py`, salida 0/1) — el Action diario usa los planos (sin dep de pytest); CI y `make test` usan pytest. **Prácticas adaptadas de EpiForecast-MX** (14-jun-2026): pytest+coverage, `ruff format`, pre-commit endurecido (`check-added-large-files`, eof, yaml/toml, debug-statements), `.python-version`, CI con `concurrency`+cache.
 - **Dos workflows de GitHub Actions:** `ci.yml` (lint + tests en cada push/PR a `main`) y `update_graphs.yml` (cron diario: scrape→panel→**gate de tests**→figuras→commit; abre issue `scrape-failure` en fallo).
 - **`Makefile`**: `make install|scrape|panel|test|lint|figures|audit|all` (un comando). Override: `make test PY=python`.
 - **`.pre-commit-config.yaml`**: ruff + tests rápidos antes de cada commit (`pre-commit install`).

@@ -17,6 +17,7 @@ Run from the repo root (after the scrapers have written `status`/`raw_value`):
     ante/bin/python build_panel.py
 Writes: data/visa_panel_long.csv
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -31,8 +32,15 @@ from config import PANEL_PATH as OUT
 BASE = pd.Timestamp(BASE_EPOCH)
 
 PANEL_COLS = [
-    "country", "block", "category", "table",
-    "bulletin_date", "status", "priority_date", "days_since_base", "raw_value",
+    "country",
+    "block",
+    "category",
+    "table",
+    "bulletin_date",
+    "status",
+    "priority_date",
+    "days_since_base",
+    "raw_value",
 ]
 
 
@@ -91,9 +99,9 @@ def main() -> None:
     panel.loc[not_f, "priority_date"] = pd.NaT
     panel["days_since_base"] = (panel["priority_date"] - BASE).dt.days
 
-    panel = panel[PANEL_COLS].sort_values(
-        ["country", "block", "category", "table", "bulletin_date"]
-    ).reset_index(drop=True)
+    panel = (
+        panel[PANEL_COLS].sort_values(["country", "block", "category", "table", "bulletin_date"]).reset_index(drop=True)
+    )
 
     # Defensive: the same canonical category can appear twice in one bulletin
     # during a label transition (e.g. the May-2022 EB-5 'Unreserved' split).
@@ -117,10 +125,11 @@ def main() -> None:
     print("\n  filas por bloque × tabla:")
     print(panel.groupby(["block", "table"]).size().to_string())
     f = panel[panel.status == "F"]
-    print(f"\n  objetivo entrenable (status F): {len(f):,} filas "
-          f"({100*len(f)/len(panel):.0f}% del panel)")
-    print(f"  days_since_base rango: [{f.days_since_base.min():.0f}, {f.days_since_base.max():.0f}] "
-          f"(base = {BASE:%Y-%m-%d})")
+    print(f"\n  objetivo entrenable (status F): {len(f):,} filas ({100 * len(f) / len(panel):.0f}% del panel)")
+    print(
+        f"  days_since_base rango: [{f.days_since_base.min():.0f}, {f.days_since_base.max():.0f}] "
+        f"(base = {BASE:%Y-%m-%d})"
+    )
 
 
 if __name__ == "__main__":

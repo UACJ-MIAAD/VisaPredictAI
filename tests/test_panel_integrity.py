@@ -6,6 +6,7 @@ scraper or in build_panel.py fails loudly. Suitable as a CI quality gate
 
     ante/bin/python tests/test_panel_integrity.py
 """
+
 import sys
 from pathlib import Path
 
@@ -14,8 +15,17 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "data" / "visa_panel_long.csv"
 
-EXPECTED_COLS = ["country", "block", "category", "table", "bulletin_date",
-                 "status", "priority_date", "days_since_base", "raw_value"]
+EXPECTED_COLS = [
+    "country",
+    "block",
+    "category",
+    "table",
+    "bulletin_date",
+    "status",
+    "priority_date",
+    "days_since_base",
+    "raw_value",
+]
 VALID_STATUS = {"C", "F", "U", "UNK"}
 KEY = ["country", "block", "category", "table", "bulletin_date"]
 # Floor of the official online source (deep_missing_search.py).
@@ -63,8 +73,7 @@ def test_no_negative_days():
 
 def test_bulletin_floor():
     p = _panel()
-    assert p.bulletin_date.min() >= MIN_BULLETIN, \
-        f"boletín anterior al piso esperado: {p.bulletin_date.min()}"
+    assert p.bulletin_date.min() >= MIN_BULLETIN, f"boletín anterior al piso esperado: {p.bulletin_date.min()}"
 
 
 def test_priority_not_in_future():
@@ -86,8 +95,7 @@ def _run():
     if not PANEL.exists():
         print(f"✗ no existe {PANEL}; corre build_panel.py primero")
         return False
-    fns = [v for k, v in sorted(globals().items())
-           if k.startswith("test_") and callable(v)]
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = failed = 0
     for fn in fns:
         try:
@@ -96,8 +104,7 @@ def _run():
         except AssertionError as e:
             failed += 1
             print(f"  ✗ {fn.__name__}: {e}")
-    print(f"\n{passed}/{passed + failed} invariantes OK" +
-          (" ✓" if not failed else f"  ({failed} FALLAN)"))
+    print(f"\n{passed}/{passed + failed} invariantes OK" + (" ✓" if not failed else f"  ({failed} FALLAN)"))
     return failed == 0
 
 

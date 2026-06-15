@@ -1,12 +1,28 @@
-# Local quality gate: ruff lint + the fast offline tests before each commit.
-# Install once with:  pre-commit install
+# Local quality gate before each commit. Install once with: pre-commit install
+# Run on everything with: pre-commit run --all-files
 repos:
+  # ── ruff: lint + format ──────────────────────────────────────────
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.17
     hooks:
       - id: ruff
-        args: [--fix]
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
 
+  # ── general hygiene ──────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files     # guards against accidental big files
+        args: [--maxkb=3000]            # the long panel is ~2.1 MB; figures are gitignored
+      - id: debug-statements
+
+  # ── fast offline tests ───────────────────────────────────────────
   - repo: local
     hooks:
       - id: pipeline-tests

@@ -5,6 +5,7 @@ Scraping-specific constants (URLs, retry, scraper country order) live in
 ``visa_common.py``; this module holds only the data-product configuration and
 has no heavy imports, so build_panel/audits don't pull in requests/bs4.
 """
+
 from pathlib import Path
 
 DATA_DIR = Path("data")

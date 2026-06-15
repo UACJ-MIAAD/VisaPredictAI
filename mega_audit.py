@@ -18,6 +18,7 @@ Dimensions:
 
 Run: ante/bin/python mega_audit.py
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -31,7 +32,7 @@ from config import PANEL_PATH as PANEL
 
 OUT = Path("mega_audit_report.md")
 
-L: list[str] = []                  # report lines
+L: list[str] = []  # report lines
 FLAGS: list[tuple[str, str]] = []  # (severity, message)
 
 
@@ -55,8 +56,17 @@ def sec(n, title):
 # ---------------------------------------------------------------- 1. schema
 def d1_schema(p):
     sec(1, "Esquema & dtypes")
-    exp = ["country", "block", "category", "table", "bulletin_date", "status",
-           "priority_date", "days_since_base", "raw_value"]
+    exp = [
+        "country",
+        "block",
+        "category",
+        "table",
+        "bulletin_date",
+        "status",
+        "priority_date",
+        "days_since_base",
+        "raw_value",
+    ]
     miss = [c for c in exp if c not in p.columns]
     add(f"- Panel columnas: `{list(p.columns)}`")
     add(f"- Faltantes vs esperadas: {miss or 'ninguna ✓'}")
@@ -72,7 +82,9 @@ def d1_schema(p):
             mm = need - set(df.columns)
             if mm:
                 flag("CRIT", f"{fp.name} sin {mm}")
-    add(f"  {'✓ todas las fuentes con columnas requeridas' if not any(f[0]=='CRIT' for f in FLAGS) else '✗ ver flags'}")
+    add(
+        f"  {'✓ todas las fuentes con columnas requeridas' if not any(f[0] == 'CRIT' for f in FLAGS) else '✗ ver flags'}"
+    )
 
 
 # ------------------------------------------------------- 2. completeness
@@ -83,7 +95,7 @@ def d2_completeness(p):
     allm = [str(m) for m in months]
     absent = [m for m in allm if m not in present]
     add(f"- Span: **{allm[0]} → {allm[-1]}** ({len(allm)} meses)")
-    add(f"- Meses con ≥1 fila en el panel: **{len(present)}** ({100*len(present)/len(allm):.1f}%)")
+    add(f"- Meses con ≥1 fila en el panel: **{len(present)}** ({100 * len(present) / len(allm):.1f}%)")
     add(f"- Meses sin ninguna fila: {absent or 'ninguno'}")
     add(f"- Muertos confirmados (404 + Wayback-only): `{DEAD_MONTHS}`")
     unexpected = [m for m in absent if m not in DEAD_MONTHS]
@@ -103,12 +115,20 @@ def series_table(p):
         per = d.bulletin_date.dt.to_period("M")
         span = pd.period_range(per.min(), per.max(), freq="M")
         gaps = len(set(span) - set(per))
-        rows.append({
-            "country": key[0], "block": key[1], "category": key[2], "table": key[3],
-            "n": len(d), "n_F": int((d.status == "F").sum()),
-            "start": str(per.min()), "end": str(per.max()),
-            "span": len(span), "gaps": gaps,
-        })
+        rows.append(
+            {
+                "country": key[0],
+                "block": key[1],
+                "category": key[2],
+                "table": key[3],
+                "n": len(d),
+                "n_F": int((d.status == "F").sum()),
+                "start": str(per.min()),
+                "end": str(per.max()),
+                "span": len(span),
+                "gaps": gaps,
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -117,8 +137,7 @@ def d3_inventory(inv):
     add(f"- Total series: **{len(inv)}**")
     add(f"- Filas: **{inv.n.sum():,}** · filas status=F: **{inv.n_F.sum():,}**")
     add("- Por bloque×tabla:")
-    bt = inv.groupby(["block", "table"]).agg(series=("n", "size"), filas=("n", "sum"),
-                                             F=("n_F", "sum")).reset_index()
+    bt = inv.groupby(["block", "table"]).agg(series=("n", "size"), filas=("n", "sum"), F=("n_F", "sum")).reset_index()
     add("", "| bloque | tabla | series | filas | F |", "|---|---|--:|--:|--:|")
     for _, r in bt.iterrows():
         add(f"| {r.block} | {r.table} | {r.series} | {r.filas:,} | {r.F:,} |")
@@ -136,7 +155,7 @@ def d4_status(p):
     add("| status | filas | % |", "|---|--:|--:|")
     for s in ["F", "C", "U", "UNK"]:
         n = int(vc.get(s, 0))
-        add(f"| {s} | {n:,} | {100*n/len(p):.1f}% |")
+        add(f"| {s} | {n:,} | {100 * n / len(p):.1f}% |")
     na = int(vc.get("UNK", 0))
     if na > 0:
         flag("WARN", f"{na} filas status=UNK (celdas no parseadas)")
@@ -144,7 +163,7 @@ def d4_status(p):
     add("", "| bloque | tabla | F | total | %F |", "|---|---|--:|--:|--:|")
     for (b, t), d in p.groupby(["block", "table"]):
         f = int((d.status == "F").sum())
-        add(f"| {b} | {t} | {f:,} | {len(d):,} | {100*f/len(d):.0f}% |")
+        add(f"| {b} | {t} | {f:,} | {len(d):,} | {100 * f / len(d):.0f}% |")
 
 
 # ------------------------------------------------------- 6. uniqueness
@@ -152,7 +171,7 @@ def d6_keys(p):
     sec(6, "Unicidad de clave")
     k = ["country", "block", "category", "table", "bulletin_date"]
     dup = int(p.duplicated(subset=k).sum())
-    add(f"- Claves (país,bloque,cat,tabla,mes) duplicadas: **{dup}** {'✓' if dup==0 else '✗'}")
+    add(f"- Claves (país,bloque,cat,tabla,mes) duplicadas: **{dup}** {'✓' if dup == 0 else '✗'}")
     if dup:
         flag("CRIT", f"{dup} claves duplicadas en panel")
 
@@ -162,13 +181,13 @@ def d7_validity(p):
     sec(7, "Validez de fechas")
     f = p[p.status == "F"]
     neg = int((p.days_since_base < 0).sum())
-    add(f"- `days_since_base` negativos: **{neg}** {'✓' if neg==0 else '✗'}")
+    add(f"- `days_since_base` negativos: **{neg}** {'✓' if neg == 0 else '✗'}")
     if neg:
         flag("CRIT", f"{neg} days_since_base negativos")
     # priority within plausible year range
     yr = f.priority_date.dt.year
     bad_yr = f[(yr < 1975) | (yr > 2026)]
-    add(f"- priority_date fuera de [1975,2026]: **{len(bad_yr)}** {'✓' if len(bad_yr)==0 else '✗'}")
+    add(f"- priority_date fuera de [1975,2026]: **{len(bad_yr)}** {'✓' if len(bad_yr) == 0 else '✗'}")
     # priority should not exceed the bulletin month (final action can't be in the future)
     future = f[f.priority_date > f.bulletin_date]
     add(f"- priority_date > bulletin_date (fecha futura): **{len(future)}**")
@@ -178,7 +197,9 @@ def d7_validity(p):
         add("", "  Ejemplos:", "")
         add("  | país | cat | tabla | boletín | priority | raw |", "  |---|---|---|---|---|---|")
         for _, r in ex.iterrows():
-            add(f"  | {r.country} | {r.category} | {r.table} | {r.bulletin_date:%Y-%m} | {r.priority_date:%Y-%m-%d} | {r.raw_value} |")
+            add(
+                f"  | {r.country} | {r.category} | {r.table} | {r.bulletin_date:%Y-%m} | {r.priority_date:%Y-%m-%d} | {r.raw_value} |"
+            )
     # priority/status/raw consistency: every F has a parseable raw, every C/U has matching raw
     badC = int(((p.status == "C") & (p.raw_value.astype(str).str.upper() != "C")).sum())
     badU = int(((p.status == "U") & (p.raw_value.astype(str).str.upper() != "U")).sum())
@@ -189,20 +210,28 @@ def d7_validity(p):
 def d8_dff_fad(p):
     sec(8, "Coherencia DFF vs FAD (DFF debe ser ≥ avanzada que FAD)")
     f = p[p.status == "F"]
-    piv = f.pivot_table(index=["country", "block", "category", "bulletin_date"],
-                        columns="table", values="priority_date", aggfunc="first")
+    piv = f.pivot_table(
+        index=["country", "block", "category", "bulletin_date"],
+        columns="table",
+        values="priority_date",
+        aggfunc="first",
+    )
     both = piv.dropna(subset=["FAD", "DFF"])
     viol = both[both["DFF"] < both["FAD"]]
     add(f"- Pares (mismo país/cat/mes) con FAD y DFF: **{len(both):,}**")
-    add(f"- Violaciones DFF < FAD: **{len(viol)}** ({100*len(viol)/max(len(both),1):.2f}%)")
-    add("- _Interpretación: inversiones reales de pocos días publicadas por el "
-        "Depto. de Estado (los `raw_value` parsean bien), NO errores de parseo._")
+    add(f"- Violaciones DFF < FAD: **{len(viol)}** ({100 * len(viol) / max(len(both), 1):.2f}%)")
+    add(
+        "- _Interpretación: inversiones reales de pocos días publicadas por el "
+        "Depto. de Estado (los `raw_value` parsean bien), NO errores de parseo._"
+    )
     if len(viol):
         flag("INFO", f"{len(viol)} pares con DFF anterior a FAD (revisar)")
         ex = viol.reset_index().head(6)
         add("", "  | país | bloque | cat | mes | FAD | DFF |", "  |---|---|---|---|---|---|")
         for _, r in ex.iterrows():
-            add(f"  | {r.country} | {r.block} | {r.category} | {r.bulletin_date:%Y-%m} | {r['FAD']:%Y-%m-%d} | {r['DFF']:%Y-%m-%d} |")
+            add(
+                f"  | {r.country} | {r.block} | {r.category} | {r.bulletin_date:%Y-%m} | {r['FAD']:%Y-%m-%d} | {r['DFF']:%Y-%m-%d} |"
+            )
 
 
 # ------------------------------------------------------- 9. jumps
@@ -215,19 +244,22 @@ def d9_jumps(p, thresh_years=8):
         dd = d.priority_date.diff().dt.days / 365.25
         big = d[abs(dd) > thresh_years]
         for idx in big.index:
-            anomalies.append((key, d.loc[idx, "bulletin_date"], dd.loc[idx],
-                              d.loc[idx, "priority_date"], d.loc[idx, "raw_value"]))
-    add(f"- Saltos |Δ| > {thresh_years} años: **{len(anomalies)}** "
-        f"(candidatos a error de parseo o retrogresión fuerte)")
-    add("- _Interpretación: los revisados son reales — transición EB-4 dic-2022 "
+            anomalies.append(
+                (key, d.loc[idx, "bulletin_date"], dd.loc[idx], d.loc[idx, "priority_date"], d.loc[idx, "raw_value"])
+            )
+    add(
+        f"- Saltos |Δ| > {thresh_years} años: **{len(anomalies)}** (candidatos a error de parseo o retrogresión fuerte)"
+    )
+    add(
+        "- _Interpretación: los revisados son reales — transición EB-4 dic-2022 "
         "(`22JUN22`) y backlogs México F1/F3 de los 80s (`01JAN81`); el parseo de "
         "año de 2 dígitos es correcto (69-99→19xx, 00-68→20xx). El modelo deberá "
-        "tolerar retrogresiones._")
+        "tolerar retrogresiones._"
+    )
     if anomalies:
         flag("INFO", f"{len(anomalies)} saltos grandes mes-a-mes")
-        add("", "  | país | cat | tabla | mes | Δaños | priority | raw |",
-            "  |---|---|---|---|--:|---|---|")
-        for (key, bm, dy, pdte, raw) in sorted(anomalies, key=lambda x: -abs(x[2]))[:15]:
+        add("", "  | país | cat | tabla | mes | Δaños | priority | raw |", "  |---|---|---|---|--:|---|---|")
+        for key, bm, dy, pdte, raw in sorted(anomalies, key=lambda x: -abs(x[2]))[:15]:
             add(f"  | {key[0]} | {key[2]} | {key[3]} | {bm:%Y-%m} | {dy:+.1f} | {pdte:%Y-%m-%d} | {raw} |")
 
 
@@ -251,8 +283,7 @@ def d10_reconcile(p):
 # ------------------------------------------------------- 11. coverage matrix
 def d11_matrix(inv):
     sec(11, "Matriz de cobertura categoría × país (nº de tablas con datos)")
-    m = inv.pivot_table(index="category", columns="country", values="table",
-                        aggfunc="count", fill_value=0)
+    m = inv.pivot_table(index="category", columns="country", values="table", aggfunc="count", fill_value=0)
     add("", "| categoría | " + " | ".join(m.columns) + " |")
     add("|---|" + "---|" * len(m.columns))
     for cat, r in m.iterrows():
@@ -265,17 +296,21 @@ def d12_train(inv):
     for thr in [24, 60, 120]:
         n = int((inv.n_F >= thr).sum())
         add(f"- Series con ≥ {thr} observaciones F: **{n}** / {len(inv)}")
-    add("", "- Las series con n_F bajo (EB-5 set-asides, categorías sin columna "
+    add(
+        "",
+        "- Las series con n_F bajo (EB-5 set-asides, categorías sin columna "
         "histórica) son cobertura **estructural**; el filtro evaluable/piloto "
-        "del anteproyecto las descarta para modelado.")
+        "del anteproyecto las descarta para modelado.",
+    )
 
 
 def main():
     p = load_panel()
-    add("# MEGA AUDIT — VisaPredict AI panel",
+    add(
+        "# MEGA AUDIT — VisaPredict AI panel",
         "",
-        "_Auditoría exhaustiva generada por `mega_audit.py` sobre "
-        "`data/visa_panel_long.csv` y las 10 fuentes._")
+        "_Auditoría exhaustiva generada por `mega_audit.py` sobre `data/visa_panel_long.csv` y las 10 fuentes._",
+    )
     inv = series_table(p)
     d1_schema(p)
     d2_completeness(p)
