@@ -4,16 +4,16 @@
 
 Este repositorio extrae datos históricos del **Visa Bulletin** del Departamento de Estado de EE.UU. mediante web scraping. Sirve como la base de datos para la tesis **"VisaPredict AI"** — predicción de fechas de boletines de visa con Machine Learning.
 
-- **Autor:** Sly (Haowei)
+- **Autor:** Javier Rebull (al263483)
 - **Programa:** Maestría en Inteligencia Artificial y Analítica de Datos (MIAAD), UACJ
 - **Asesor:** Dr. Vicente García Jiménez
-- **Repo base (fork):** https://github.com/DavidBellamy/visa_dates
+- **Repositorio:** https://github.com/UACJ-MIAAD/VisaBulletinScraping (ya **no** usa nada del fork original; créditos retirados 14-jun-2026)
 - **Fuente de datos:** https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html
 
 ## Estructura del repositorio
 
 ```
-visa_dates/
+VisaBulletinScraping/
 ├── CLAUDE.md                          # Este archivo (contexto para Claude Code)
 ├── README.md                          # Documentación original del repo
 ├── requirements.txt                   # Dependencias Python
@@ -38,14 +38,14 @@ visa_dates/
 │   └── RoW_visa_wait_times.png
 ├── ante/                              # Ambiente virtual Python (no versionar)
 └── .github/workflows/
-    └── update_graphs.yml              # GitHub Action: scraping diario a medianoche
+    └── update_graphs.yml — Action diaria (scrape→panel→gate→commit; ci.yml = lint+test en push)
 ```
 
 ## Stack técnico
 
 - **Python:** 3.14 (macOS Apple Silicon)
 - **Ambiente virtual:** `ante` (activar con `source ante/bin/activate`)
-- **Ubicación local:** `/Users/haowei/Documents/Anteproyecto/visa_dates`
+- **Ubicación local:** `/Users/haowei/Documents/Anteproyecto/VisaBulletinScraping`
 
 ### Dependencias (requirements.txt)
 
