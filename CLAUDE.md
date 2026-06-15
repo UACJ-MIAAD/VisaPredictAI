@@ -64,6 +64,7 @@ visa_dates/
 - **Dos workflows de GitHub Actions:** `ci.yml` (lint + tests en cada push/PR a `main`) y `update_graphs.yml` (cron diario: scrape→panel→**gate de tests**→figuras→commit; abre issue `scrape-failure` en fallo).
 - **`Makefile`**: `make install|scrape|panel|test|lint|figures|audit|all` (un comando). Override: `make test PY=python`.
 - **`.pre-commit-config.yaml`**: ruff + tests rápidos antes de cada commit (`pre-commit install`).
+- **DVC** inicializado pero **NO versiona los CSV abiertos** (son el entregable, se quedan en git; `.dvcignore` los protege). Reservado para artefactos de modelo/binarios grandes del **próximo semestre** (como EpiForecast usa `models.dvc`/checkpoints). Ver `DVC.md`.
 - **`tests/`** corre sin pytest (salida 0/1): `test_parsers` (12) + `test_extraction` (6, offline sobre fixtures) + `test_panel_integrity` (9 invariantes/contrato).
 
 ## Comandos clave

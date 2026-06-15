@@ -1,0 +1,7 @@
+# Patterns DVC must ignore. Learn more: https://dvc.org/doc/user-guide/dvcignore
+#
+# GUARDRAIL: the open-data CSVs are the project's deliverable and stay versioned
+# in git (directly downloadable, no DVC/S3 needed). Keep them out of DVC so a
+# stray `dvc add data/` never moves them out of git.
+data/*.csv
+data/**/*.csv
