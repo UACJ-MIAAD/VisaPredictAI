@@ -81,10 +81,17 @@ que el CSV) uniendo el hecho con sus dimensiones. Es lo que consume el modelado.
 
 DV se publica como un **número de rango** regional, no una fecha, así que vive en
 su propio hecho `fact_dv_rank` (no contamina el panel de fechas). Fuente:
-`data/raw/dv_visa_rank_timecourse.csv` (1,548 filas · 6 regiones · 258 meses,
-2004-07→2026-06). **Floor**: el formato tabular moderno; los boletines 2001-2004
-empacaban DV en una sola celda (formato blob) y quedan fuera de alcance, igual que
-la *advance notification* (segunda tabla DV, un mes futuro — trabajo futuro).
+`data/raw/dv_visa_rank_timecourse.csv` (**1,605 filas · 6 regiones · 268 meses,
+2001-12→2026-06** — el mismo piso temporal que el panel). El parser maneja **dos
+formatos**: el tabular moderno y, como fallback, el **blob de una sola celda**
+2001-2004 (`AFRICA: AF 21,400 …`, ver `extract_dv_blob`). Fuera de alcance: la
+*advance notification* (la 2ª tabla DV es un mes futuro, no FAD/DFF — sería otra
+serie con mes-objetivo distinto).
+
+> **Schedule A.** No se modela porque **no es una categoría con fecha propia**: no
+> aparece como fila con corte en ningún boletín (verificado 2002/2007/2020); es un
+> mecanismo de certificación laboral contabilizado dentro de EB-3. `classify_eb_category`
+> solo descarta el header "Employment-Based", no filas Schedule A.
 
 ### `dim_region`
 | Columna | Tipo | Notas |

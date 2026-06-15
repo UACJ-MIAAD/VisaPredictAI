@@ -22,17 +22,20 @@ DV publica cortes de **rango** por región (`AFRICA`, `ASIA`, `EUROPE`,
 de país. Como el valor es entero y no fecha, **DV no cabe** en
 `priority_date`/`days_since_base` → exige generalizar el modelo.
 
-## FASE 1 — Completitud de categorías  ◀ EN CURSO
+## FASE 1 — Completitud de categorías  ✅ COMPLETA
 
 1. **✅ Diversity Visa modelada** — `scrape_dv_visa_bulletins.py` →
-   `data/raw/dv_visa_rank_timecourse.csv` (1,548 filas · 6 regiones · 258 meses,
-   2004-07→2026-06) cargado en el hecho separado **`fact_dv_rank`** (grano: región ×
-   mes; `rank_cutoff` INTEGER + `status`) con su **`dim_region`** y vista
-   `v_dv_long`. Bajo constraints PK/FK/CHECK. Extracción robusta a 3 eras de formato.
+   `data/raw/dv_visa_rank_timecourse.csv` (**1,605 filas · 6 regiones · 268 meses,
+   2001-12→2026-06**, el mismo piso que el panel) cargado en el hecho separado
+   **`fact_dv_rank`** + **`dim_region`** + vista `v_dv_long`, bajo PK/FK/CHECK.
 2. **✅ `dim_region`** (6 regiones) — separada de `dim_area`.
-3. **⏳ Decisión Schedule A**: pendiente (incluir como categoría o documentar exclusión).
-4. **⏳ Auditoría de taxonomía** + recuperar el formato blob DV 2001-2004 y la
-   *advance notification* (segunda tabla DV) — pendientes / trabajo futuro.
+3. **✅ Decisión Schedule A**: **excluida con evidencia** — no es una categoría con
+   fecha propia (no aparece como fila con corte en 2002/2007/2020; es certificación
+   laboral dentro de EB-3). Documentado en `docs/data_dictionary.md`.
+4. **✅ Cobertura completa + auditoría de taxonomía**: el **formato blob 2001-2004
+   recuperado** (`extract_dv_blob`) lleva DV al piso del proyecto; `test_category_taxonomy_complete`
+   fija la taxonomía (21 cats + 6 regiones). **Fuera de alcance documentado**: la
+   *advance notification* (2ª tabla DV = mes futuro, otra serie).
 
 ## FASE 2 — Modelo dimensional supremo
 

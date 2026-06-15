@@ -45,6 +45,10 @@ def _dv(name, ym):
     return dv.extract_dv_data(parse_tables(_soup(name), datetime(*ym), dv.is_dv_section))
 
 
+def _dv_blob(name, ym):
+    return dv.extract_dv_blob(_soup(name), datetime(*ym))
+
+
 DV_REGIONS = {"africa", "asia", "europe", "north_america", "oceania", "south_america_caribbean"}
 
 
@@ -120,6 +124,13 @@ def test_dv_2020_current():
     assert set(d.region) == DV_REGIONS
     assert set(d.status) == {"C"}, "DV jun-2020 estaba CURRENT"
     assert d.rank_cutoff.isna().all(), "CURRENT no lleva rango"
+
+
+def test_dv_2002_blob():
+    # 2001-2004 single-cell format: "AFRICA:  AF 21,400 ASIA:  AS 9,500 …".
+    d = _dv_blob("vb_2002_06.html", (2002, 6, 1))
+    assert set(d.region) == DV_REGIONS, f"blob 2002 no recuperó las 6 regiones: {set(d.region)}"
+    assert set(d.status) == {"F"} and (d.rank_cutoff > 0).all(), "rangos del blob 2002 deben ser F positivos"
 
 
 def test_dv_status_domain_and_rank_iff_F():

@@ -4,7 +4,9 @@ Visa Bulletin and write data/raw/dv_visa_rank_timecourse.csv.
 DV is the category family the employment/family scrapers ignore. Its published
 value is a regional RANK NUMBER (e.g. "AFRICA 55,000"), not a priority date, so
 it cannot live in the date panel y_{p,c,b,t}; it is its own dataset, loaded into
-the fact_dv_rank star table. Six regions x {FAD, DFF} x month.
+the fact_dv_rank star table (grain: 6 regions x bulletin month). The structured
+table format is parsed first; the 2001-2004 single-cell "blob" format is the
+fallback (see extract_dv_blob).
 
     ante/bin/python scrape_dv_visa_bulletins.py
 """
@@ -39,6 +41,17 @@ REGION_SLUGS = {
     "oceania": "oceania",
     "south america": "south_america_caribbean",
 }
+
+# slug -> 2-letter region code, for the 2001-2004 "blob" format where a whole
+# month's DV ranks live in one cell ("AFRICA:  AF 21,400 ASIA:  AS 9,500 …").
+REGION_CODES = [
+    ("africa", "AF"),
+    ("asia", "AS"),
+    ("europe", "EU"),
+    ("north_america", "NA"),
+    ("oceania", "OC"),
+    ("south_america_caribbean", "SA"),
+]
 
 
 def is_dv_section(rows) -> bool:
@@ -146,14 +159,61 @@ def extract_dv_data(all_tables: list[pd.DataFrame]) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 
+def extract_dv_blob(soup, year_month) -> pd.DataFrame:
+    """Recover the 2001-2004 single-cell DV format ("AFRICA:  AF 21,400 …").
+
+    Used only as a fallback when the structured-table parser finds nothing. The
+    whole month is one cell, so we locate that cell (region names + codes) and
+    anchor on each unique 2-letter code, taking the number that follows. Requires
+    >=4 regions to count as a real DV blob (avoids false positives).
+    """
+    blob = None
+    for table in soup.find_all("table"):
+        txt = table.get_text(" ", strip=True)
+        if (
+            "africa" in txt.lower()
+            and "asia" in txt.lower()
+            and re.search(r"\bAF\b", txt)
+            and re.search(r"\bOC\b", txt)
+        ):
+            blob = txt
+            break
+    if blob is None:
+        return pd.DataFrame()
+
+    out = []
+    for slug, code in REGION_CODES:
+        m = re.search(rf"\b{code}\s+([\d,]+|CURRENT|U)\b", blob)
+        if not m:
+            continue
+        status, rank = classify_dv_rank(m.group(1))
+        out.append(
+            {
+                "region": slug,
+                "rank_cutoff": rank,
+                "status": status,
+                "raw_value": m.group(1).strip(),
+                "exceptions": "",
+                "visa_bulletin_date": year_month,
+            }
+        )
+    return pd.DataFrame(out) if len(out) >= 4 else pd.DataFrame()
+
+
 def main() -> None:
     month_links = extract_month_links()
 
-    all_tables: list[pd.DataFrame] = []
+    frames = []
     failed = []
     for link in tqdm(month_links, desc="Extracting all diversity-visa bulletin tables"):
         try:
-            all_tables.extend(parse_tables(get_soup(SITE_ROOT + link), extract_datetime_from_link(link), is_dv_section))
+            soup = get_soup(SITE_ROOT + link)
+            ym = extract_datetime_from_link(link)
+            rows = extract_dv_data(parse_tables(soup, ym, is_dv_section))
+            if rows.empty:  # 2001-2004 single-cell ("blob") format
+                rows = extract_dv_blob(soup, ym)
+            if not rows.empty:
+                frames.append(rows)
         except Exception as exc:
             failed.append((link, str(exc)[:60]))
     if failed:
@@ -166,7 +226,7 @@ def main() -> None:
                 f"problema de la fuente, no un blip transitorio. Se aborta sin escribir."
             )
 
-    df = extract_dv_data(all_tables)
+    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     df = df[df["visa_bulletin_date"].notna()]
     # Deterministic order (newest first) and a unique (region, month) key.
     df = df.drop_duplicates(subset=["region", "visa_bulletin_date"], keep="first")

@@ -104,6 +104,18 @@ def test_dv_loaded():
     assert con.execute("SELECT count(*) FROM fact_dv_rank").fetchone()[0] == len(dv)
 
 
+def test_category_taxonomy_complete():
+    # Pins the captured category taxonomy so a parser regression that silently
+    # drops a category family fails the gate.
+    con, _, _ = _loaded()
+    codes = {r[0] for r in con.execute("SELECT code FROM dim_category").fetchall()}
+    assert {"F1", "F2A", "F2B", "F3", "F4"} <= codes, "faltan categorías familiares"
+    assert {"EB1", "EB2", "EB3", "EB4", "EB5"} <= codes, "faltan EB base"
+    assert {"EB5_RURAL", "EB5_HIGHUNEMP", "EB5_INFRA"} <= codes, "faltan set-asides EB-5 post-2022"
+    regions = {r[0] for r in con.execute("SELECT slug FROM dim_region").fetchall()}
+    assert regions == {"africa", "asia", "europe", "north_america", "oceania", "south_america_caribbean"}
+
+
 def test_dv_rank_defined_iff_F():
     con, _, _ = _loaded()
     bad = con.execute("SELECT count(*) FROM fact_dv_rank WHERE (status = 'F') != (rank_cutoff IS NOT NULL)").fetchone()[
