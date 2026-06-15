@@ -5,3 +5,11 @@ __pycache__/
 
 # Generated figures: regenerate with `make figures` (not versioned -- avoids binary git bloat)
 figures/
+
+# Tooling caches / coverage artifacts
+.coverage
+.coverage.*
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
