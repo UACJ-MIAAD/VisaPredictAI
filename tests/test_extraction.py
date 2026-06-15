@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 FIX = Path(__file__).resolve().parent / "fixtures"
 
+import scrape_dv_visa_bulletins as dv  # noqa: E402
 import scrape_family_visa_bulletins as fam  # noqa: E402
 import scrape_visa_bulletins as emp  # noqa: E402
 from visa_common import parse_tables  # noqa: E402
@@ -38,6 +39,13 @@ def _emp(name, ym, country="mexico"):
 def _fam(name, ym, country="mexico"):
     tables = parse_tables(_soup(name), datetime(*ym), fam.is_family_section)
     return fam.extract_country_data(country, [t.copy() for t in tables])
+
+
+def _dv(name, ym):
+    return dv.extract_dv_data(parse_tables(_soup(name), datetime(*ym), dv.is_dv_section))
+
+
+DV_REGIONS = {"africa", "asia", "europe", "north_america", "oceania", "south_america_caribbean"}
 
 
 # --- 2002-06: empty-name category column (col 0) + RoW recovery (H4) -----
@@ -97,6 +105,33 @@ def test_status_domain_offline():
         # by design in the legacy column, so we don't assert on non-F rows here).
         miss = (d.status.eq("F") & d.priority_date.isna()).sum()
         assert miss == 0, f"{name}: {miss} filas F sin fecha"
+
+
+# --- Diversity Visa: 6 regions, rank cut-offs (F) vs CURRENT (C) ----------
+def test_dv_2007_ranks():
+    d = _dv("vb_2007_06.html", (2007, 6, 1))
+    assert set(d.region) == DV_REGIONS, f"regiones DV 2007: {set(d.region)}"
+    assert set(d.status) == {"F"}, "DV jun-2007 son cortes específicos (F)"
+    assert (d.rank_cutoff > 0).all(), "rangos DV 2007 deben ser positivos"
+
+
+def test_dv_2020_current():
+    d = _dv("vb_2020_06.html", (2020, 6, 1))
+    assert set(d.region) == DV_REGIONS
+    assert set(d.status) == {"C"}, "DV jun-2020 estaba CURRENT"
+    assert d.rank_cutoff.isna().all(), "CURRENT no lleva rango"
+
+
+def test_dv_status_domain_and_rank_iff_F():
+    for name, ym in [
+        ("vb_2007_06.html", (2007, 6, 1)),
+        ("vb_2020_06.html", (2020, 6, 1)),
+        ("vb_2022_06.html", (2022, 6, 1)),
+    ]:
+        d = _dv(name, ym)
+        assert set(d.status) <= VALID_STATUS, f"{name}: estado DV inválido"
+        mismatch = int((d.status.eq("F") != d.rank_cutoff.notna()).sum())
+        assert mismatch == 0, f"{name}: {mismatch} filas DV con rank/F inconsistente"
 
 
 def _run():

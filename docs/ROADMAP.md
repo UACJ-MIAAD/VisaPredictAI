@@ -24,13 +24,15 @@ de país. Como el valor es entero y no fecha, **DV no cabe** en
 
 ## FASE 1 — Completitud de categorías  ◀ EN CURSO
 
-1. **Modelar Diversity Visa** con un **hecho separado `fact_dv_rank`** (grano:
-   región × mes; medida `rank_cutoff` INTEGER + `status` C/F/U). Mantiene limpio el
-   hecho de fechas.
-2. **`dim_region`** (6 regiones DV) — separada de `dim_area` (países).
-3. **Decisión Schedule A**: incluir como categoría o documentar la exclusión.
-4. **Auditoría de taxonomía**: cruzar las categorías actuales contra la estructura
-   oficial mes a mes; detectar subcategorías perdidas por la deriva de 20 años.
+1. **✅ Diversity Visa modelada** — `scrape_dv_visa_bulletins.py` →
+   `data/raw/dv_visa_rank_timecourse.csv` (1,548 filas · 6 regiones · 258 meses,
+   2004-07→2026-06) cargado en el hecho separado **`fact_dv_rank`** (grano: región ×
+   mes; `rank_cutoff` INTEGER + `status`) con su **`dim_region`** y vista
+   `v_dv_long`. Bajo constraints PK/FK/CHECK. Extracción robusta a 3 eras de formato.
+2. **✅ `dim_region`** (6 regiones) — separada de `dim_area`.
+3. **⏳ Decisión Schedule A**: pendiente (incluir como categoría o documentar exclusión).
+4. **⏳ Auditoría de taxonomía** + recuperar el formato blob DV 2001-2004 y la
+   *advance notification* (segunda tabla DV) — pendientes / trabajo futuro.
 
 ## FASE 2 — Modelo dimensional supremo
 

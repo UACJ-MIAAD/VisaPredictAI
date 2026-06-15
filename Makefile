@@ -23,6 +23,7 @@ install:
 scrape:
 	$(PY) scrape_visa_bulletins.py
 	$(PY) scrape_family_visa_bulletins.py
+	$(PY) scrape_dv_visa_bulletins.py
 
 panel:
 	$(PY) build_panel.py

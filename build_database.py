@@ -18,7 +18,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from config import DUCKDB_PATH, PANEL_PATH, PARQUET_PATH
+from config import DUCKDB_PATH, DV_RANK_PATH, PANEL_PATH, PARQUET_PATH
 
 logger = logging.getLogger(__name__)
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
@@ -32,6 +32,14 @@ AREA_NAMES = {
     "all_chargeability": "All Chargeability Areas Except Those Listed",
 }
 TABLE_NAMES = {"FAD": "Final Action Dates", "DFF": "Dates for Filing"}
+REGION_NAMES = {
+    "africa": "Africa",
+    "asia": "Asia",
+    "europe": "Europe",
+    "north_america": "North America (Bahamas)",
+    "oceania": "Oceania",
+    "south_america_caribbean": "South America and the Caribbean",
+}
 
 
 def _statements(sql: str):
@@ -47,11 +55,35 @@ def _statements(sql: str):
             yield stmt
 
 
-def build(con: duckdb.DuckDBPyConnection, panel: pd.DataFrame) -> None:
-    """Create the star schema on ``con`` and load it from the long ``panel``.
+def _load_dv(con: duckdb.DuckDBPyConnection, dv: pd.DataFrame, dim_date: pd.DataFrame) -> None:
+    """Load the Diversity-Visa region dimension and rank fact (region x month)."""
+    d = dv.copy()
+    d["bulletin_date"] = pd.to_datetime(d["visa_bulletin_date"])
+    d["rank_cutoff"] = d["rank_cutoff"].astype("Int64")
 
-    The fact rows are inserted under the live PK/FK/CHECK constraints, so a panel
-    that violates the contract raises here instead of producing a bad database.
+    regions = sorted(d["region"].unique())
+    dim_region = pd.DataFrame({"region_id": range(1, len(regions) + 1), "slug": regions})
+    dim_region["name"] = dim_region["slug"].map(lambda s: REGION_NAMES.get(s, s))
+
+    fact = d.merge(dim_region[["region_id", "slug"]], left_on="region", right_on="slug", validate="m:1").merge(
+        dim_date[["date_id", "bulletin_date"]], on="bulletin_date", validate="m:1"
+    )[["region_id", "date_id", "status", "rank_cutoff", "raw_value", "exceptions"]]
+
+    con.register("v_dim_region", dim_region)
+    con.register("v_fact_dv", fact)
+    con.execute("INSERT INTO dim_region SELECT region_id, slug, name FROM v_dim_region")
+    con.execute(
+        "INSERT INTO fact_dv_rank SELECT region_id, date_id, status, "
+        "CAST(rank_cutoff AS INTEGER), raw_value, exceptions FROM v_fact_dv"
+    )
+
+
+def build(con: duckdb.DuckDBPyConnection, panel: pd.DataFrame, dv: pd.DataFrame | None = None) -> None:
+    """Create the star schema on ``con`` and load it from the long ``panel`` and
+    the optional Diversity-Visa ``dv`` rank frame.
+
+    Rows are inserted under the live PK/FK/CHECK constraints, so data that
+    violates the contract raises here instead of producing a bad database.
     """
     df = panel.copy()
     df["bulletin_date"] = pd.to_datetime(df["bulletin_date"])
@@ -75,8 +107,11 @@ def build(con: duckdb.DuckDBPyConnection, panel: pd.DataFrame) -> None:
     dim_table = pd.DataFrame({"table_id": range(1, len(tables) + 1), "code": tables})
     dim_table["name"] = dim_table["code"].map(lambda c: TABLE_NAMES.get(c, c))
 
-    # dim_date
-    dates = pd.to_datetime(sorted(df["bulletin_date"].unique()))
+    # dim_date — union of every bulletin month across the panel and DV.
+    all_dates = set(df["bulletin_date"].unique())
+    if dv is not None:
+        all_dates |= set(pd.to_datetime(dv["visa_bulletin_date"]).unique())
+    dates = pd.to_datetime(sorted(all_dates))
     dim_date = pd.DataFrame({"date_id": range(1, len(dates) + 1), "bulletin_date": dates})
     dim_date["year"] = dim_date["bulletin_date"].dt.year
     dim_date["month"] = dim_date["bulletin_date"].dt.month
@@ -112,16 +147,23 @@ def build(con: duckdb.DuckDBPyConnection, panel: pd.DataFrame) -> None:
         "CAST(priority_date AS DATE), CAST(days_since_base AS INTEGER), raw_value FROM v_fact"
     )
 
+    if dv is not None:
+        _load_dv(con, dv, dim_date)
+
 
 def main() -> None:
     df = pd.read_csv(PANEL_PATH, parse_dates=["bulletin_date", "priority_date"])
+    dv = pd.read_csv(DV_RANK_PATH, parse_dates=["visa_bulletin_date"]) if DV_RANK_PATH.exists() else None
     DUCKDB_PATH.parent.mkdir(parents=True, exist_ok=True)
     DUCKDB_PATH.unlink(missing_ok=True)  # clean rebuild (DuckDB would append otherwise)
     con = duckdb.connect(str(DUCKDB_PATH))
     try:
-        build(con, df)
+        build(con, df, dv)
         con.execute(f"COPY (SELECT * FROM v_panel_long) TO '{PARQUET_PATH.as_posix()}' (FORMAT parquet)")
-        for tbl in ("dim_area", "dim_category", "dim_table", "dim_date", "fact_priority"):
+        tables = ["dim_area", "dim_category", "dim_table", "dim_date", "fact_priority"]
+        if dv is not None:
+            tables += ["dim_region", "fact_dv_rank"]
+        for tbl in tables:
             row = con.execute(f"SELECT count(*) FROM {tbl}").fetchone()
             n = row[0] if row else 0
             logger.info(f"  {tbl:14s}: {n:>6,} filas")

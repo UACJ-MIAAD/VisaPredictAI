@@ -15,6 +15,8 @@ DATA_DIR = Path("data")
 RAW_DIR = DATA_DIR / "raw"
 PROCESSED_DIR = DATA_DIR / "processed"
 PANEL_PATH = PROCESSED_DIR / "visa_panel_long.csv"
+# Diversity Visa regional rank cut-offs (separate dataset: rank, not date).
+DV_RANK_PATH = RAW_DIR / "dv_visa_rank_timecourse.csv"
 # Normalized star-schema database + typed columnar export, both regenerated from
 # PANEL_PATH by build_database.py (gitignored; the CSV is the versioned artifact).
 DUCKDB_PATH = PROCESSED_DIR / "visapredict.duckdb"

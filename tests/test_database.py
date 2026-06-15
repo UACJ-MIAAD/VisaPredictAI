@@ -17,14 +17,15 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from build_database import SCHEMA_PATH, _statements, build  # noqa: E402
-from config import PANEL_PATH  # noqa: E402
+from config import DV_RANK_PATH, PANEL_PATH  # noqa: E402
 
 
 def _loaded():
     con = duckdb.connect(":memory:")
     df = pd.read_csv(PANEL_PATH, parse_dates=["bulletin_date", "priority_date"])
-    build(con, df)
-    return con, df
+    dv = pd.read_csv(DV_RANK_PATH, parse_dates=["visa_bulletin_date"])
+    build(con, df, dv)
+    return con, df, dv
 
 
 def _empty_schema():
@@ -35,23 +36,24 @@ def _empty_schema():
     con.execute("INSERT INTO dim_category VALUES (1, 'employment', 'EB1')")
     con.execute("INSERT INTO dim_table VALUES (1, 'FAD', 'Final Action Dates')")
     con.execute("INSERT INTO dim_date VALUES (1, DATE '2020-01-01', 2020, 1, 2020)")
+    con.execute("INSERT INTO dim_region VALUES (1, 'africa', 'Africa')")
     return con
 
 
 def test_dimensions_loaded():
-    con, _ = _loaded()
+    con, _, _ = _loaded()
     assert con.execute("SELECT count(*) FROM dim_table").fetchone()[0] == 2
     # exactly one residual group ("All Chargeability"), never treated as a country
     assert con.execute("SELECT count(*) FROM dim_area WHERE is_residual_group").fetchone()[0] == 1
 
 
 def test_fact_rowcount_matches_panel():
-    con, df = _loaded()
+    con, df, _ = _loaded()
     assert con.execute("SELECT count(*) FROM fact_priority").fetchone()[0] == len(df)
 
 
 def test_view_reproduces_panel_losslessly():
-    con, _ = _loaded()
+    con, _, _ = _loaded()
     con.execute(f"CREATE TEMP TABLE csv AS SELECT * FROM read_csv_auto('{PANEL_PATH.as_posix()}')")
     cols = 'country,block,category,"table",bulletin_date,status,priority_date,days_since_base,raw_value'
     only_view = con.execute(
@@ -64,7 +66,7 @@ def test_view_reproduces_panel_losslessly():
 
 
 def test_priority_date_not_after_bulletin():
-    con, _ = _loaded()
+    con, _, _ = _loaded()
     viol = con.execute(
         "SELECT count(*) FROM fact_priority f JOIN dim_date d USING (date_id) WHERE f.priority_date > d.bulletin_date"
     ).fetchone()[0]
@@ -91,3 +93,42 @@ def test_constraints_reject_bad_rows(bad_row):
     con = _empty_schema()
     with pytest.raises(duckdb.ConstraintException):
         con.execute(f"INSERT INTO fact_priority VALUES {bad_row}")
+
+
+# ─────────────────────────── Diversity Visa (DV) ───────────────────────────
+
+
+def test_dv_loaded():
+    con, _, dv = _loaded()
+    assert con.execute("SELECT count(*) FROM dim_region").fetchone()[0] == 6
+    assert con.execute("SELECT count(*) FROM fact_dv_rank").fetchone()[0] == len(dv)
+
+
+def test_dv_rank_defined_iff_F():
+    con, _, _ = _loaded()
+    bad = con.execute("SELECT count(*) FROM fact_dv_rank WHERE (status = 'F') != (rank_cutoff IS NOT NULL)").fetchone()[
+        0
+    ]
+    assert bad == 0
+
+
+def test_valid_dv_row_inserts():
+    con = _empty_schema()
+    con.execute("INSERT INTO fact_dv_rank VALUES (1, 1, 'F', 25000, '25,000', NULL)")
+    assert con.execute("SELECT count(*) FROM fact_dv_rank").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize(
+    "bad_row",
+    [
+        "(1, 1, 'BAD', NULL, 'x', NULL)",  # status outside the domain
+        "(1, 1, 'C', 5, 'x', NULL)",  # rank_cutoff set but status != 'F'
+        "(1, 1, 'F', NULL, 'x', NULL)",  # status 'F' without a rank
+        "(1, 1, 'F', -3, 'x', NULL)",  # negative rank
+        "(9, 1, 'C', NULL, 'x', NULL)",  # FK to a nonexistent region
+    ],
+)
+def test_dv_constraints_reject_bad_rows(bad_row):
+    con = _empty_schema()
+    with pytest.raises(duckdb.ConstraintException):
+        con.execute(f"INSERT INTO fact_dv_rank VALUES {bad_row}")

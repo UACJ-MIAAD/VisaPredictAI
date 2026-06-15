@@ -77,6 +77,33 @@ es nula y la celda se conserva como anotación descriptiva (formulación v5.1).
 Reconstruye **sin pérdida** el panel tidy `y_{p,c,b,t}` (mismas columnas y orden
 que el CSV) uniendo el hecho con sus dimensiones. Es lo que consume el modelado.
 
+## Diversity Visa (DV)
+
+DV se publica como un **número de rango** regional, no una fecha, así que vive en
+su propio hecho `fact_dv_rank` (no contamina el panel de fechas). Fuente:
+`data/raw/dv_visa_rank_timecourse.csv` (1,548 filas · 6 regiones · 258 meses,
+2004-07→2026-06). **Floor**: el formato tabular moderno; los boletines 2001-2004
+empacaban DV en una sola celda (formato blob) y quedan fuera de alcance, igual que
+la *advance notification* (segunda tabla DV, un mes futuro — trabajo futuro).
+
+### `dim_region`
+| Columna | Tipo | Notas |
+|---|---|---|
+| `region_id` | INTEGER PK | surrogate |
+| `slug` | VARCHAR UNIQUE | `africa`,`asia`,`europe`,`north_america`,`oceania`,`south_america_caribbean` |
+| `name` | VARCHAR | nombre legible |
+
+### `fact_dv_rank` (grano: región × mes)
+| Columna | Tipo | Notas |
+|---|---|---|
+| `region_id`,`date_id` | INTEGER FK | **PK compuesta** |
+| `status` | VARCHAR | `C`/`F`/`U`/`UNK` (CHECK) |
+| `rank_cutoff` | INTEGER | número de rango; **no nulo solo si `F`** (CHECK), ≥ 0 |
+| `raw_value` | VARCHAR | celda original (`55,000`, `CURRENT`) |
+| `exceptions` | VARCHAR | cortes por país (`Except: Egypt 30,000`) |
+
+Vista `v_dv_long` = `fact_dv_rank ⨝ dim_region ⨝ dim_date`.
+
 ## Uso
 
 ```bash

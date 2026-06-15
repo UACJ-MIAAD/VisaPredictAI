@@ -33,6 +33,9 @@ jobs:
     - name: Run family-based scraping script
       run: python scrape_family_visa_bulletins.py
 
+    - name: Run diversity-visa scraping script
+      run: python scrape_dv_visa_bulletins.py
+
     - name: Build consolidated long panel
       run: python build_panel.py
 

@@ -26,6 +26,7 @@ Construir un **panel multiserie** $y_{p,c,b,t}$ (país × categoría × tabla ×
 
 - **5 países o áreas de cargabilidad:** México, India, China, Filipinas y *All Chargeability Areas Except Those Listed* (RoW).
 - **Categorías:** Family-Sponsored (F1, F2A, F2B, F3, F4) y Employment-Based (EB-1 a EB-5 con subcategorías, 16 códigos canónicos).
+- **Diversity Visa (DV):** cortes de rango por 6 regiones (dataset aparte `fact_dv_rank`, valor = número de rango, no fecha).
 - **Dos tablas evaluadas por separado:** *Final Action Dates* (FAD) y *Dates for Filing* (DFF).
 - **Cobertura:** serie mensual homogénea desde **diciembre de 2001** hasta el presente (~290 observaciones por serie). Los boletines previos a 2001 existen solo en fuentes de archivo/estadística.
 
@@ -44,6 +45,7 @@ VisaPredictAI/
 ├── config.py                           # constantes (países canónicos, epoch, paleta)
 ├── scrape_visa_bulletins.py            # scraper Employment-Based (FAD + DFF)
 ├── scrape_family_visa_bulletins.py     # scraper Family-Sponsored (FAD + DFF)
+├── scrape_dv_visa_bulletins.py         # scraper Diversity Visa (rango regional)
 ├── build_panel.py                      # consolida los 10 CSV en el panel largo
 ├── build_database.py · schema.sql      # carga el esquema estrella DuckDB + Parquet
 ├── audit_data_quality.py · mega_audit.py   # auditorías de calidad de datos

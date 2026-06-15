@@ -89,3 +89,41 @@ JOIN dim_area     a ON a.area_id     = f.area_id
 JOIN dim_category c ON c.category_id = f.category_id
 JOIN dim_table    t ON t.table_id    = f.table_id
 JOIN dim_date     d ON d.date_id     = f.date_id;
+
+-- ─────────────────────────── DIVERSITY VISA (DV) ───────────────────────────
+
+-- DV is published as a regional RANK NUMBER, not a priority date, so it gets its
+-- own dimension + fact instead of polluting the date panel. There is no
+-- Final-Action/Dates-for-Filing split for DV (the second chart a bulletin prints
+-- is an advance notification of a future month — out of scope for now), so the
+-- grain here is simply region x bulletin month.
+
+CREATE TABLE dim_region (
+    region_id  INTEGER  PRIMARY KEY,
+    slug       VARCHAR  NOT NULL UNIQUE,
+    name       VARCHAR  NOT NULL
+);
+
+CREATE TABLE fact_dv_rank (
+    region_id    INTEGER  NOT NULL REFERENCES dim_region(region_id),
+    date_id      INTEGER  NOT NULL REFERENCES dim_date(date_id),
+    status       VARCHAR  NOT NULL CHECK (status IN ('C', 'F', 'U', 'UNK')),
+    rank_cutoff  INTEGER  CHECK (rank_cutoff IS NULL OR rank_cutoff >= 0),
+    raw_value    VARCHAR,
+    exceptions   VARCHAR,
+    PRIMARY KEY (region_id, date_id),
+    -- The rank cut-off is defined IFF a specific number is published (status 'F').
+    CHECK ((status = 'F') = (rank_cutoff IS NOT NULL))
+);
+
+CREATE VIEW v_dv_long AS
+SELECT
+    r.slug          AS region,
+    d.bulletin_date AS bulletin_date,
+    f.status        AS status,
+    f.rank_cutoff   AS rank_cutoff,
+    f.raw_value     AS raw_value,
+    f.exceptions    AS exceptions
+FROM fact_dv_rank f
+JOIN dim_region r ON r.region_id = f.region_id
+JOIN dim_date   d ON d.date_id   = f.date_id;

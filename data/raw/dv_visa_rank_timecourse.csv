@@ -1,0 +1,2144 @@
+region,rank_cutoff,status,raw_value,exceptions,visa_bulletin_date
+africa,55000.0,F,"55,000","Except:  Algeria    37,000
+              Egypt       30,000",2026-06-01
+asia,35000.0,F,"35,000","Except:  Nepal        11,000",2026-06-01
+europe,20000.0,F,"20,000",,2026-06-01
+north_america,50.0,F,50,,2026-06-01
+oceania,1500.0,F,"1,500",,2026-06-01
+south_america_caribbean,3000.0,F,"3,000",,2026-06-01
+africa,55000.0,F,"55,000","Except:  Algeria    37,000
+              Egypt       30,000",2026-05-01
+asia,35000.0,F,"35,000","Except:  Nepal        10,000",2026-05-01
+europe,20000.0,F,"20,000",,2026-05-01
+north_america,50.0,F,50,,2026-05-01
+oceania,1500.0,F,"1,500",,2026-05-01
+south_america_caribbean,3000.0,F,"3,000",,2026-05-01
+africa,55000.0,F,"55,000","Except:  Algeria    37,000
+              Egypt       30,000",2026-04-01
+asia,35000.0,F,"35,000","Except:  Nepal        10,000",2026-04-01
+europe,20000.0,F,"20,000",,2026-04-01
+north_america,50.0,F,50,,2026-04-01
+oceania,1500.0,F,"1,500",,2026-04-01
+south_america_caribbean,3000.0,F,"3,000",,2026-04-01
+africa,45000.0,F,"45,000","Except:  Algeria    37,000
+              Egypt       22,250",2026-03-01
+asia,30000.0,F,"30,000","Except:  Nepal        6,500",2026-03-01
+europe,11000.0,F,"11,000",,2026-03-01
+north_america,30.0,F,30,,2026-03-01
+oceania,1200.0,F,"1,200",,2026-03-01
+south_america_caribbean,2100.0,F,"2,100",,2026-03-01
+africa,45000.0,F,"45,000","Except:  Algeria    37,000
+              Egypt        21,000",2026-02-01
+asia,30000.0,F,"30,000","Except:  Nepal  6,500",2026-02-01
+europe,11000.0,F,"11,000",,2026-02-01
+north_america,25.0,F,25,,2026-02-01
+oceania,1175.0,F,"1,175",,2026-02-01
+south_america_caribbean,2000.0,F,"2,000",,2026-02-01
+africa,35000.0,F,"35,000","Except:  Algeria    20,000
+              Egypt        16,000",2026-01-01
+asia,15000.0,F,"15,000","Except:  Nepal  6,000",2026-01-01
+europe,8500.0,F,"8,500",,2026-01-01
+north_america,20.0,F,20,,2026-01-01
+oceania,1100.0,F,"1,100",,2026-01-01
+south_america_caribbean,1850.0,F,"1,850",,2026-01-01
+africa,17500.0,F,"17,500","Except:  Algeria    17,250
+              Egypt        16,000",2025-12-01
+asia,10000.0,F,"10,000","Except:  Nepal  6,000",2025-12-01
+europe,7750.0,F,"7,750",,2025-12-01
+north_america,20.0,F,20,,2025-12-01
+oceania,1100.0,F,"1,100",,2025-12-01
+south_america_caribbean,1850.0,F,"1,850",,2025-12-01
+africa,17500.0,F,"17,500","Except:  Algeria    14,500
+              Egypt        16,000",2025-11-01
+asia,10000.0,F,"10,000","Except:  Nepal  6,000",2025-11-01
+europe,7750.0,F,"7,750",,2025-11-01
+north_america,20.0,F,20,,2025-11-01
+oceania,1100.0,F,"1,100",,2025-11-01
+south_america_caribbean,1850.0,F,"1,850",,2025-11-01
+africa,17500.0,F,"17,500","Except:  Algeria    14,500
+              Egypt        16,000",2025-10-01
+asia,10000.0,F,"10,000","Except:  Nepal  6,000",2025-10-01
+europe,7750.0,F,"7,750",,2025-10-01
+north_america,20.0,F,20,,2025-10-01
+oceania,1100.0,F,"1,100",,2025-10-01
+south_america_caribbean,1850.0,F,"1,850",,2025-10-01
+africa,58500.0,F,"58,500","Except:  Algeria    54,500
+              Egypt        52,000
+              Morocco   40,500",2025-09-01
+asia,14500.0,F,"14,500","Except:  Iran     11,000
+              Nepal  14,450",2025-09-01
+europe,23000.0,F,"23,000","Except:  Russia            22,950
+               Uzbekistan    15,000",2025-09-01
+north_america,,C,Current,,2025-09-01
+oceania,1775.0,F,"1,775",,2025-09-01
+south_america_caribbean,2825.0,F,"2,825",,2025-09-01
+africa,50000.0,F,"50,000","Except:  Algeria    49,950
+              Egypt        43,250
+              Morocco   40,500",2025-08-01
+asia,11000.0,F,"11,000","Except:  Iran     10,650
+              Nepal  10,650",2025-08-01
+europe,22000.0,F,"22,000","Except:  Russia            21,950
+               Uzbekistan    13,000",2025-08-01
+north_america,,C,Current,,2025-08-01
+oceania,1700.0,F,"1,700",,2025-08-01
+south_america_caribbean,2600.0,F,"2,600",,2025-08-01
+africa,45000.0,F,"45,000","Except:  Algeria    44,950
+              Egypt        40,000
+              Morocco   34,500",2025-07-01
+asia,9000.0,F,"9,000","Except:  Iran     8,950
+              Nepal  8,950",2025-07-01
+europe,19000.0,F,"19,000","Except:  Russia            18,950
+               Uzbekistan    12,000",2025-07-01
+north_america,20.0,F,20,,2025-07-01
+oceania,1650.0,F,"1,650",,2025-07-01
+south_america_caribbean,2450.0,F,"2,450",,2025-07-01
+africa,42500.0,F,"42,500","Except:  Algeria    42,250
+              Egypt        36,250
+              Morocco   30,000",2025-06-01
+asia,8250.0,F,"8,250","Except:  Iran     8,000
+              Nepal  8,000",2025-06-01
+europe,17500.0,F,"17,500","Except:  Russia            17,450
+               Uzbekistan    10,250",2025-06-01
+north_america,20.0,F,20,,2025-06-01
+oceania,1550.0,F,"1,550",,2025-06-01
+south_america_caribbean,2300.0,F,"2,300",,2025-06-01
+africa,35000.0,F,"35,000","Except:  Algeria    34,500
+              Egypt        32,500
+              Morocco   30,000",2025-05-01
+asia,6500.0,F,"6,500","Except:  Iran     6,450
+              Nepal  6,450",2025-05-01
+europe,16000.0,F,"16,000","Except:  Russia            15,950
+               Uzbekistan    9,000",2025-05-01
+north_america,20.0,F,20,,2025-05-01
+oceania,1550.0,F,"1,550",,2025-05-01
+south_america_caribbean,2250.0,F,"2,250",,2025-05-01
+africa,30000.0,F,"30,000","Except:  Algeria    29,950
+              Egypt        27,950
+              Morocco   27,950",2025-04-01
+asia,6000.0,F,"6,000","Except:  Iran     5,950
+              Nepal  5,950",2025-04-01
+europe,16000.0,F,"16,000","Except:  Russia            15,950
+               Uzbekistan    7,750",2025-04-01
+north_america,20.0,F,20,,2025-04-01
+oceania,1500.0,F,"1,500",,2025-04-01
+south_america_caribbean,2200.0,F,"2,200",,2025-04-01
+africa,25000.0,F,"25,000","Except:  Algeria    24,500
+              Egypt        23,000
+              Morocco   22,000",2025-03-01
+asia,6000.0,F,"6,000","Except:  Iran     5,400
+              Nepal  4,500",2025-03-01
+europe,13000.0,F,"13,000","Except:  Russia            12,950
+               Uzbekistan    7,750",2025-03-01
+north_america,20.0,F,20,,2025-03-01
+oceania,1125.0,F,"1,125",,2025-03-01
+south_america_caribbean,1800.0,F,"1,800",,2025-03-01
+africa,22500.0,F,"22,500","Except:  Algeria    22,000
+              Egypt        22,000
+              Morocco   22,000",2025-02-01
+asia,5500.0,F,"5,500","Except:  Iran     5,400
+              Nepal  3,500",2025-02-01
+europe,12000.0,F,"12,000","Except:  Russia            11,750
+               Uzbekistan    7,750",2025-02-01
+north_america,20.0,F,20,,2025-02-01
+oceania,1100.0,F,"1,100",,2025-02-01
+south_america_caribbean,1750.0,F,"1,750",,2025-02-01
+africa,22500.0,F,"22,500","Except:  Algeria    22,000
+              Egypt        22,000
+              Morocco   22,000",2025-01-01
+asia,5500.0,F,"5,500","Except:  Iran     5,400
+              Nepal  3,500",2025-01-01
+europe,12000.0,F,"12,000","Except:  Russia            11,750
+               Uzbekistan    7,750",2025-01-01
+north_america,20.0,F,20,,2025-01-01
+oceania,1100.0,F,"1,100",,2025-01-01
+south_america_caribbean,1750.0,F,"1,750",,2025-01-01
+africa,15000.0,F,"15,000","Except:  Algeria    10,000
+              Egypt        10,000
+              Morocco   10,000",2024-12-01
+asia,3000.0,F,"3,000","Except:  Iran     2,950
+              Nepal  2,950",2024-12-01
+europe,6000.0,F,"6,000","Except:  Russia           5,950
+               Uzbekistan    4,900",2024-12-01
+north_america,2.0,F,2,,2024-12-01
+oceania,550.0,F,550,,2024-12-01
+south_america_caribbean,825.0,F,825,,2024-12-01
+africa,15000.0,F,"15,000","Except:  Algeria    6,500
+              Egypt        8,250
+              Morocco   8,250",2024-11-01
+asia,3000.0,F,"3,000","Except:  Iran     2,950
+              Nepal  2,950",2024-11-01
+europe,6000.0,F,"6,000","Except:  Russia           5,950
+               Uzbekistan    4,900",2024-11-01
+north_america,2.0,F,2,,2024-11-01
+oceania,500.0,F,500,,2024-11-01
+south_america_caribbean,825.0,F,825,,2024-11-01
+africa,15000.0,F,"15,000","Except:  Algeria    6,500
+              Egypt        8,250
+              Morocco   8,250",2024-10-01
+asia,3000.0,F,"3,000","Except:  Iran     2,950
+              Nepal  2,950",2024-10-01
+europe,6000.0,F,"6,000","Except:  Russia           5,950
+               Uzbekistan    4,900",2024-10-01
+north_america,2.0,F,2,,2024-10-01
+oceania,500.0,F,500,,2024-10-01
+south_america_caribbean,825.0,F,825,,2024-10-01
+africa,,C,Current,"Except:  Algeria    108,500
+              Egypt        57,000
+              Morocco   70,000",2024-09-01
+asia,27500.0,F,"27,500","Except:  Iran     22,000
+              Nepal  13,000",2024-09-01
+europe,50000.0,F,"50,000","Except:  Russia           49,500
+               Uzbekistan    17,000",2024-09-01
+north_america,,C,Current,,2024-09-01
+oceania,2700.0,F,"2,700",,2024-09-01
+south_america_caribbean,5000.0,F,"5,000",,2024-09-01
+africa,75000.0,F,"75,000","Except:  Algeria     74,900
+              Egypt        50,000
+              Morocco   70,000",2024-08-01
+asia,15000.0,F,"15,000","Except:  Iran     14,500
+              Nepal  12,000",2024-08-01
+europe,30000.0,F,"30,000","Except:  Russia          29,500
+               Uzbekistan    12,500",2024-08-01
+north_america,20.0,F,20,,2024-08-01
+oceania,2000.0,F,"2,000",,2024-08-01
+south_america_caribbean,3150.0,F,"3,150",,2024-08-01
+africa,67500.0,F,"67,500","Except:  Algeria     67,250
+              Egypt        40,000
+              Morocco   52,000",2024-07-01
+asia,13000.0,F,"13,000","Except:  Iran     10,250
+              Nepal  10,250",2024-07-01
+europe,27500.0,F,"27,500","Except:  Russia          24,750
+               Uzbekistan    12,000",2024-07-01
+north_america,20.0,F,20,,2024-07-01
+oceania,2000.0,F,"2,000",,2024-07-01
+south_america_caribbean,3000.0,F,"3,000",,2024-07-01
+africa,57000.0,F,"57,000","Except:  Algeria     56,950
+              Egypt        32,000
+              Morocco   41,500",2024-06-01
+asia,9000.0,F,"9,000","Except:  Iran     8,500
+              Nepal  8,500",2024-06-01
+europe,21000.0,F,"21,000","Except:  Russia          20,240
+               Uzbekistan    9,000",2024-06-01
+north_america,15.0,F,15,,2024-06-01
+oceania,1850.0,F,"1,850",,2024-06-01
+south_america_caribbean,2750.0,F,"2,750",,2024-06-01
+africa,52000.0,F,"52,000","Except:  Algeria     51,000
+              Egypt        32,000
+              Morocco   35,000",2024-05-01
+asia,8000.0,F,"8,000","Except:  Iran     7,100
+              Nepal  7,100",2024-05-01
+europe,18000.0,F,"18,000","Except:  Russia          17,750
+               Uzbekistan    8,000",2024-05-01
+north_america,15.0,F,15,,2024-05-01
+oceania,1650.0,F,"1,650",,2024-05-01
+south_america_caribbean,2600.0,F,"2,600",,2024-05-01
+africa,45000.0,F,"45,000","Except:  Algeria     42,000
+              Egypt        30,000
+              Morocco   35,000",2024-04-01
+asia,7200.0,F,"7,200","Except:  Iran     7,000
+              Nepal  6,000",2024-04-01
+europe,17500.0,F,"17,500","Except:  Russia          17,400
+               Uzbekistan    7,000",2024-04-01
+north_america,13.0,F,13,,2024-04-01
+oceania,1250.0,F,"1,250",,2024-04-01
+south_america_caribbean,2400.0,F,"2,400",,2024-04-01
+africa,40000.0,F,"40,000","Except:  Algeria     35,000
+              Egypt        25,000
+              Morocco   27,500",2024-03-01
+asia,7000.0,F,"7,000","Except:  Iran     6,750
+              Nepal  5,000",2024-03-01
+europe,16000.0,F,"16,000","Except:  Russia          15,500
+               Uzbekistan    5,750",2024-03-01
+north_america,13.0,F,13,,2024-03-01
+oceania,1200.0,F,"1,200",,2024-03-01
+south_america_caribbean,2200.0,F,"2,200",,2024-03-01
+africa,26500.0,F,"26,500","Except:  Algeria     26,000
+              Egypt        25,000
+              Morocco   25,000",2024-02-01
+asia,5500.0,F,"5,500","Except:  Iran     5,450
+              Nepal  4,500",2024-02-01
+europe,13500.0,F,"13,500","Except:  Russia          13,250
+               Uzbekistan    5,500",2024-02-01
+north_america,5.0,F,5,,2024-02-01
+oceania,875.0,F,875,,2024-02-01
+south_america_caribbean,1600.0,F,"1,600",,2024-02-01
+africa,22000.0,F,"22,000","Except:  Algeria     15,000
+              Egypt        15,000
+              Morocco   20,000",2024-01-01
+asia,5500.0,F,"5,500","Except:  Iran     5,450
+              Nepal  3,000",2024-01-01
+europe,12000.0,F,"12,000","Except:  Russia          11,500
+               Uzbekistan    4,750",2024-01-01
+north_america,5.0,F,5,,2024-01-01
+oceania,650.0,F,650,,2024-01-01
+south_america_caribbean,1000.0,F,"1,000",,2024-01-01
+africa,11000.0,F,"11,000","Except:  Algeria     10,500
+              Egypt        10,000
+              Morocco   10,000",2023-12-01
+asia,3000.0,F,"3,000","Except:  Iran     2,800
+              Nepal  2,500",2023-12-01
+europe,6000.0,F,"6,000","Except:  Russia          5,900
+               Uzbekistan  3,000",2023-12-01
+north_america,5.0,F,5,,2023-12-01
+oceania,450.0,F,450,,2023-12-01
+south_america_caribbean,600.0,F,600,,2023-12-01
+africa,10000.0,F,"10,000","Except:  Algeria     7,500
+              Egypt        5,500
+              Morocco   5,600",2023-11-01
+asia,2300.0,F,"2,300","Except:  Iran     2,200
+              Nepal  1,300",2023-11-01
+europe,5000.0,F,"5,000","Except:  Russia          4,750
+               Uzbekistan  1,250",2023-11-01
+north_america,2.0,F,2,,2023-11-01
+oceania,300.0,F,300,,2023-11-01
+south_america_caribbean,500.0,F,500,,2023-11-01
+africa,10000.0,F,"10,000","Except:  Algeria     7,500
+              Egypt        5,500
+              Morocco   5,600",2023-10-01
+asia,2000.0,F,"2,000","Except:  Iran     1,750
+              Nepal  1,300",2023-10-01
+europe,4500.0,F,"4,500","Except:  Russia         4,400
+               Uzbekistan  1,250",2023-10-01
+north_america,2.0,F,2,,2023-10-01
+oceania,225.0,F,225,,2023-10-01
+south_america_caribbean,375.0,F,375,,2023-10-01
+africa,,C,Current,"Except:  Algeria     45,000
+              Egypt        43,200
+              Morocco   63,400",2023-09-01
+asia,21000.0,F,"21,000","Except:  Iran     16,000
+              Nepal  21,000",2023-09-01
+europe,32000.0,F,"32,000","Except:  Russia         32,000
+               Uzbekistan  17,000",2023-09-01
+north_america,,C,Current,,2023-09-01
+oceania,2500.0,F,"2,500",,2023-09-01
+south_america_caribbean,3150.0,F,"3,150",,2023-09-01
+africa,63500.0,F,"63,500","Except:  Algeria     45,000
+              Egypt        43,200
+              Morocco   63,400",2023-08-01
+asia,21000.0,F,"21,000","Except:  Iran     14,000
+              Nepal  20,500",2023-08-01
+europe,32000.0,F,"32,000","Except:  Russia         32,000
+               Uzbekistan  15,000",2023-08-01
+north_america,,C,Current,,2023-08-01
+oceania,1650.0,F,"1,650",,2023-08-01
+south_america_caribbean,2900.0,F,"2,900",,2023-08-01
+africa,63500.0,F,"63,500","Except:  Algeria     40,000
+              Egypt         43,200
+              Morocco   63,000",2023-07-01
+asia,21000.0,F,"21,000","Except:  Iran     12,500
+              Nepal  19,400",2023-07-01
+europe,32000.0,F,"32,000","Except:  Russia        32,000
+               Uzbekistan  15,000",2023-07-01
+north_america,,C,Current,,2023-07-01
+oceania,1650.0,F,"1,650",,2023-07-01
+south_america_caribbean,2900.0,F,"2,900",,2023-07-01
+africa,63500.0,F,"63,500","Except:  Algeria     35,900
+              Egypt         30,000
+              Morocco   55,000",2023-06-01
+asia,18750.0,F,"18,750","Except:  Iran     10,000
+              Nepal  17,775",2023-06-01
+europe,30000.0,F,"30,000","Except:  Russia        29,350
+               Uzbekistan  12,500",2023-06-01
+north_america,15.0,F,15,,2023-06-01
+oceania,1550.0,F,"1,550",,2023-06-01
+south_america_caribbean,2740.0,F,"2,740",,2023-06-01
+africa,60000.0,F,"60,000","Except:  Algeria     35,900
+              Egypt         18,650
+              Morocco   45,600",2023-05-01
+asia,18750.0,F,"18,750","Except:  Iran     6,000
+              Nepal  17,775",2023-05-01
+europe,30000.0,F,"30,000","Except:  Russia        29,350
+               Uzbekistan  10,140",2023-05-01
+north_america,15.0,F,15,,2023-05-01
+oceania,1450.0,F,"1,450",,2023-05-01
+south_america_caribbean,2400.0,F,"2,400",,2023-05-01
+africa,50000.0,F,"50,000","Except:  Algeria     27,550
+              Egypt         16,150
+              Morocco   31,725",2023-04-01
+asia,18750.0,F,"18,750","Except:  Iran     5,500
+              Nepal  12,600",2023-04-01
+europe,30000.0,F,"30,000","Except:  Russia        25,750
+               Uzbekistan  8,500",2023-04-01
+north_america,13.0,F,13,,2023-04-01
+oceania,1150.0,F,"1,150",,2023-04-01
+south_america_caribbean,2250.0,F,"2,250",,2023-04-01
+africa,45000.0,F,"45,000","Except:  Algeria     18,425
+              Egypt         16,150
+              Morocco   31,725",2023-03-01
+asia,18750.0,F,"18,750","Except:  Iran     5,500
+              Nepal  8,025",2023-03-01
+europe,26000.0,F,"26,000","Except:  Russia        14,660
+               Uzbekistan  8,500",2023-03-01
+north_america,13.0,F,13,,2023-03-01
+oceania,1100.0,F,"1,100",,2023-03-01
+south_america_caribbean,2100.0,F,"2,100",,2023-03-01
+africa,35000.0,F,"35,000","Except:  Algeria     18,425
+              Egypt         16,150
+              Morocco   31,725",2023-02-01
+asia,15500.0,F,"15,500","Except:  Iran     5,500
+              Nepal  7,000",2023-02-01
+europe,15000.0,F,"15,000","Except:  Russia        12,000
+               Uzbekistan  8,500",2023-02-01
+north_america,5.0,F,5,,2023-02-01
+oceania,1100.0,F,"1,100",,2023-02-01
+south_america_caribbean,2100.0,F,"2,100",,2023-02-01
+africa,20000.0,F,"20,000","Except:  Algeria     11,000
+              Egypt          7,000
+              Morocco   12,000",2023-01-01
+asia,9000.0,F,"9,000","Except:  Iran     5,500
+              Nepal  5,500",2023-01-01
+europe,15000.0,F,"15,000","Except:  Russia        12,000
+               Uzbekistan  8,500",2023-01-01
+north_america,5.0,F,5,,2023-01-01
+oceania,650.0,F,650,,2023-01-01
+south_america_caribbean,1200.0,F,"1,200",,2023-01-01
+africa,9000.0,F,"9,000","Except:  Algeria     8,500
+              Egypt        3,000
+              Morocco   8,500",2022-12-01
+asia,3300.0,F,"3,300","Except:  Iran     3,000
+              Nepal  1,700",2022-12-01
+europe,6100.0,F,"6,100","Except:  Russia          6,000
+               Uzbekistan  6,000",2022-12-01
+north_america,5.0,F,5,,2022-12-01
+oceania,400.0,F,400,,2022-12-01
+south_america_caribbean,575.0,F,575,,2022-12-01
+africa,5700.0,F,"5,700","Except:  Algeria     5,600
+              Egypt        1,700
+              Morocco   5,600",2022-11-01
+asia,2800.0,F,"2,800","Except:  Iran     2,500
+              Nepal  1,450",2022-11-01
+europe,5700.0,F,"5,700","Except:  Russia          5,600
+               Uzbekistan  5,600",2022-11-01
+north_america,4.0,F,4,,2022-11-01
+oceania,375.0,F,375,,2022-11-01
+south_america_caribbean,500.0,F,500,,2022-11-01
+africa,5700.0,F,"5,700","Except:  Algeria     5,600
+              Egypt       1,700
+              Morocco   5,600",2022-10-01
+asia,2800.0,F,"2,800","Except:  Iran     2,500
+              Nepal  1,450",2022-10-01
+europe,5700.0,F,"5,700","Except:  Russia          5,600
+               Uzbekistan  5,600",2022-10-01
+north_america,4.0,F,4,,2022-10-01
+oceania,375.0,F,375,,2022-10-01
+south_america_caribbean,500.0,F,500,,2022-10-01
+africa,,C,Current,,2022-09-01
+asia,,C,Current,,2022-09-01
+europe,,C,Current,,2022-09-01
+north_america,,C,Current,,2022-09-01
+oceania,,C,Current,,2022-09-01
+south_america_caribbean,,C,Current,,2022-09-01
+africa,,C,Current,,2022-08-01
+asia,,C,Current,,2022-08-01
+europe,,C,Current,,2022-08-01
+north_america,,C,Current,,2022-08-01
+oceania,,C,Current,,2022-08-01
+south_america_caribbean,,C,Current,,2022-08-01
+africa,,C,Current,"Except: Egypt   13,000",2022-07-01
+asia,,C,Current,"Except: Nepal   6,300",2022-07-01
+europe,,C,Current,,2022-07-01
+north_america,10.0,F,10,,2022-07-01
+oceania,,C,Current,,2022-07-01
+south_america_caribbean,,C,Current,,2022-07-01
+africa,,C,Current,"Except: Egypt   13,000",2022-06-01
+asia,,C,Current,"Except: Nepal   5,700",2022-06-01
+europe,,C,Current,,2022-06-01
+north_america,10.0,F,10,,2022-06-01
+oceania,,C,Current,,2022-06-01
+south_america_caribbean,,C,Current,,2022-06-01
+africa,63800.0,F,"63,800","Except: Egypt   13,000",2022-05-01
+asia,30000.0,F,"30,000","Except: Iran       8,500
+              Nepal   4,800",2022-05-01
+europe,27000.0,F,"27,000",,2022-05-01
+north_america,10.0,F,10,,2022-05-01
+oceania,1200.0,F,"1,200",,2022-05-01
+south_america_caribbean,1300.0,F,"1,300",,2022-05-01
+africa,50000.0,F,"50,000","Except: Egypt   12,500",2022-04-01
+asia,17000.0,F,"17,000","Except: Iran       6,100
+              Nepal   4,350",2022-04-01
+europe,27000.0,F,"27,000",,2022-04-01
+north_america,10.0,F,10,,2022-04-01
+oceania,1200.0,F,"1,200",,2022-04-01
+south_america_caribbean,1300.0,F,"1,300",,2022-04-01
+africa,21000.0,F,"21,000","Except: Egypt   11,000",2022-03-01
+asia,8300.0,F,"8,300","Except: Iran       6,000
+              Nepal   4,200",2022-03-01
+europe,13500.0,F,"13,500",,2022-03-01
+north_america,8.0,F,8,,2022-03-01
+oceania,850.0,F,850,,2022-03-01
+south_america_caribbean,1200.0,F,"1,200",,2022-03-01
+africa,20000.0,F,"20,000","Except: Egypt   11,000",2022-02-01
+asia,8000.0,F,"8,000","Except: Iran       6,000
+              Nepal   4,200",2022-02-01
+europe,13000.0,F,"13,000",,2022-02-01
+north_america,8.0,F,8,,2022-02-01
+oceania,850.0,F,850,,2022-02-01
+south_america_caribbean,1200.0,F,"1,200",,2022-02-01
+africa,13500.0,F,"13,500","Except: Egypt   8,000",2022-01-01
+asia,6000.0,F,"6,000","Except: Iran       4,000
+              Nepal   3,200",2022-01-01
+europe,10000.0,F,"10,000",,2022-01-01
+north_america,6.0,F,6,,2022-01-01
+oceania,650.0,F,650,,2022-01-01
+south_america_caribbean,900.0,F,900,,2022-01-01
+africa,7000.0,F,"7,000","Except: Egypt   4,700",2021-12-01
+asia,4000.0,F,"4,000","Except: Iran       2,150
+              Nepal   2,200",2021-12-01
+europe,7300.0,F,"7,300",,2021-12-01
+north_america,5.0,F,5,,2021-12-01
+oceania,450.0,F,450,,2021-12-01
+south_america_caribbean,625.0,F,625,,2021-12-01
+africa,5300.0,F,"5,300","Except: Egypt   3,000",2021-11-01
+asia,2700.0,F,"2,700","Except: Iran       1,450
+              Nepal   1,700",2021-11-01
+europe,5300.0,F,"5,300",,2021-11-01
+north_america,4.0,F,4,,2021-11-01
+oceania,375.0,F,375,,2021-11-01
+south_america_caribbean,500.0,F,500,,2021-11-01
+africa,2675.0,F,"2,675","Except: Egypt   1,850",2021-10-01
+asia,1400.0,F,"1,400","Except: Iran       800
+              Nepal   900",2021-10-01
+europe,2300.0,F,"2,300",,2021-10-01
+north_america,3.0,F,3,,2021-10-01
+oceania,190.0,F,190,,2021-10-01
+south_america_caribbean,275.0,F,275,,2021-10-01
+africa,,C,CURRENT,,2021-09-01
+asia,,C,CURRENT,,2021-09-01
+europe,,C,CURRENT,,2021-09-01
+north_america,,C,CURRENT,,2021-09-01
+oceania,,C,CURRENT,,2021-09-01
+south_america_caribbean,,C,CURRENT,,2021-09-01
+africa,,C,CURRENT,,2021-08-01
+asia,,C,CURRENT,,2021-08-01
+europe,,C,CURRENT,,2021-08-01
+north_america,,C,CURRENT,,2021-08-01
+oceania,,C,CURRENT,,2021-08-01
+south_america_caribbean,,C,CURRENT,,2021-08-01
+africa,,C,CURRENT,,2021-07-01
+asia,,C,CURRENT,,2021-07-01
+europe,,C,CURRENT,,2021-07-01
+north_america,,C,CURRENT,,2021-07-01
+oceania,,C,CURRENT,,2021-07-01
+south_america_caribbean,,C,CURRENT,,2021-07-01
+africa,,C,CURRENT,"Except: Egypt   18,900",2021-06-01
+asia,,C,CURRENT,"Except: Iran       6,400
+              Nepal   6,400",2021-06-01
+europe,,C,CURRENT,,2021-06-01
+north_america,,C,CURRENT,,2021-06-01
+oceania,,C,CURRENT,,2021-06-01
+south_america_caribbean,,C,CURRENT,,2021-06-01
+africa,34000.0,F,"34,000","Except: Egypt   17,000",2021-05-01
+asia,13000.0,F,"13,000","Except: Iran       6,000
+              Nepal   5,100",2021-05-01
+europe,18000.0,F,"18,000",,2021-05-01
+north_america,8.0,F,8,,2021-05-01
+oceania,1400.0,F,"1,400",,2021-05-01
+south_america_caribbean,1650.0,F,"1,650",,2021-05-01
+africa,22000.0,F,"22,000","Except: Egypt   13,000",2021-04-01
+asia,9000.0,F,"9,000","Except: Iran       4,700
+              Nepal   4,500",2021-04-01
+europe,12000.0,F,"12,000",,2021-04-01
+north_america,7.0,F,7,,2021-04-01
+oceania,1100.0,F,"1,100",,2021-04-01
+south_america_caribbean,1400.0,F,"1,400",,2021-04-01
+africa,14000.0,F,"14,000","Except: Egypt   10,000",2021-03-01
+asia,6200.0,F,"6,200","Except: Iran       3,800
+              Nepal   4,200",2021-03-01
+europe,9400.0,F,"9,400",,2021-03-01
+north_america,6.0,F,6,,2021-03-01
+oceania,900.0,F,900,,2021-03-01
+south_america_caribbean,1175.0,F,"1,175",,2021-03-01
+africa,12000.0,F,"12,000","Except: Egypt   7,200",2021-02-01
+asia,5000.0,F,"5,000","Except: Iran       3,000
+              Nepal   3,950",2021-02-01
+europe,8200.0,F,"8,200",,2021-02-01
+north_america,5.0,F,5,,2021-02-01
+oceania,725.0,F,725,,2021-02-01
+south_america_caribbean,875.0,F,875,,2021-02-01
+africa,10500.0,F,"10,500","Except: Egypt   6,000",2021-01-01
+asia,4300.0,F,"4,300","Except: Iran       2,400
+              Nepal   2,825",2021-01-01
+europe,7500.0,F,"7,500",,2021-01-01
+north_america,4.0,F,4,,2021-01-01
+oceania,600.0,F,600,,2021-01-01
+south_america_caribbean,750.0,F,750,,2021-01-01
+africa,7000.0,F,"7,000","Except: Egypt   4,000",2020-12-01
+asia,3500.0,F,"3,500","Except: Iran       1,600
+              Nepal   2,750",2020-12-01
+europe,6000.0,F,"6,000",,2020-12-01
+north_america,4.0,F,4,,2020-12-01
+oceania,450.0,F,450,,2020-12-01
+south_america_caribbean,550.0,F,550,,2020-12-01
+africa,5100.0,F,"5,100","Except: Egypt   3,300",2020-11-01
+asia,2800.0,F,"2,800","Except: Iran       1,300
+              Nepal   2,700",2020-11-01
+europe,4800.0,F,"4,800",,2020-11-01
+north_america,3.0,F,3,,2020-11-01
+oceania,350.0,F,350,,2020-11-01
+south_america_caribbean,475.0,F,475,,2020-11-01
+africa,2900.0,F,"2,900","Except: Egypt   2,700",2020-10-01
+asia,1600.0,F,"1,600","Except: Iran       1,000
+              Nepal   1,050",2020-10-01
+europe,2500.0,F,"2,500",,2020-10-01
+north_america,2.0,F,2,,2020-10-01
+oceania,250.0,F,250,,2020-10-01
+south_america_caribbean,350.0,F,350,,2020-10-01
+africa,,C,CURRENT,,2020-09-01
+asia,,C,CURRENT,,2020-09-01
+europe,,C,CURRENT,,2020-09-01
+north_america,,C,CURRENT,,2020-09-01
+oceania,,C,CURRENT,,2020-09-01
+south_america_caribbean,,C,CURRENT,,2020-09-01
+africa,,C,CURRENT,,2020-08-01
+asia,,C,CURRENT,,2020-08-01
+europe,,C,CURRENT,,2020-08-01
+north_america,,C,CURRENT,,2020-08-01
+oceania,,C,CURRENT,,2020-08-01
+south_america_caribbean,,C,CURRENT,,2020-08-01
+africa,,C,CURRENT,"Except:  Egypt  42,000",2020-07-01
+asia,,C,CURRENT,"Except:  Nepal  13,500",2020-07-01
+europe,,C,CURRENT,,2020-07-01
+north_america,,C,CURRENT,,2020-07-01
+oceania,,C,CURRENT,,2020-07-01
+south_america_caribbean,,C,CURRENT,,2020-07-01
+africa,,C,CURRENT,"Except:  Egypt  42,000",2020-06-01
+asia,,C,CURRENT,"Except:  Nepal  13,500",2020-06-01
+europe,,C,CURRENT,,2020-06-01
+north_america,,C,CURRENT,,2020-06-01
+oceania,,C,CURRENT,,2020-06-01
+south_america_caribbean,,C,CURRENT,,2020-06-01
+africa,45175.0,F,"45,175","Except:  Egypt  39,000",2020-05-01
+asia,18450.0,F,"18,450","Except:  Iran      11,550
+              Nepal   11,700",2020-05-01
+europe,30000.0,F,"30,000",,2020-05-01
+north_america,17.0,F,17,,2020-05-01
+oceania,2150.0,F,"2,150",,2020-05-01
+south_america_caribbean,1875.0,F,"1,875",,2020-05-01
+africa,41000.0,F,"41,000","Except:  Egypt  30,700",2020-04-01
+asia,15800.0,F,"15,800","Except:  Iran       9,800
+              Nepal  10,500",2020-04-01
+europe,21200.0,F,"21,200",,2020-04-01
+north_america,16.0,F,16,,2020-04-01
+oceania,1975.0,F,"1,975",,2020-04-01
+south_america_caribbean,1560.0,F,"1,560",,2020-04-01
+africa,31500.0,F,"31,500","Except:  Egypt  22,000",2020-03-01
+asia,12500.0,F,"12,500","Except:  Iran     7,600
+              Nepal  8,800",2020-03-01
+europe,21000.0,F,"21,000",,2020-03-01
+north_america,9.0,F,9,,2020-03-01
+oceania,1625.0,F,"1,625",,2020-03-01
+south_america_caribbean,1300.0,F,"1,300",,2020-03-01
+africa,25000.0,F,"25,000","Except:  Egypt  16,000",2020-02-01
+asia,12000.0,F,"12,000","Except:  Iran     6,500
+              Nepal  7,575",2020-02-01
+europe,14000.0,F,"14,000",,2020-02-01
+north_america,8.0,F,8,,2020-02-01
+oceania,1350.0,F,"1,350",,2020-02-01
+south_america_caribbean,1150.0,F,"1,150",,2020-02-01
+africa,19000.0,F,"19,000","Except:  Egypt  10,000",2020-01-01
+asia,8200.0,F,"8,200","Except:  Iran     5,100
+              Nepal  6,500",2020-01-01
+europe,10300.0,F,"10,300",,2020-01-01
+north_america,8.0,F,8,,2020-01-01
+oceania,1200.0,F,"1,200",,2020-01-01
+south_america_caribbean,1075.0,F,"1,075",,2020-01-01
+africa,12000.0,F,"12,000","Except:  Egypt  6,000",2019-12-01
+asia,6000.0,F,"6,000","Except:  Iran     3,000
+              Nepal  5,000",2019-12-01
+europe,8600.0,F,"8,600",,2019-12-01
+north_america,7.0,F,7,,2019-12-01
+oceania,800.0,F,800,,2019-12-01
+south_america_caribbean,850.0,F,850,,2019-12-01
+africa,5600.0,F,"5,600","Except:  Egypt  3,000",2019-11-01
+asia,3500.0,F,"3,500","Except:  Iran     1,450
+              Nepal  3,100",2019-11-01
+europe,6000.0,F,"6,000",,2019-11-01
+north_america,4.0,F,4,,2019-11-01
+oceania,400.0,F,400,,2019-11-01
+south_america_caribbean,600.0,F,600,,2019-11-01
+africa,2500.0,F,"2,500","Except:  Egypt  1,500",2019-10-01
+asia,1300.0,F,"1,300","Except:  Iran       750
+             Nepal  1,000",2019-10-01
+europe,2100.0,F,"2,100",,2019-10-01
+north_america,2.0,F,2,,2019-10-01
+oceania,175.0,F,175,,2019-10-01
+south_america_caribbean,225.0,F,225,,2019-10-01
+africa,,C,CURRENT,,2019-09-01
+asia,,C,CURRENT,,2019-09-01
+europe,,C,CURRENT,,2019-09-01
+north_america,,C,CURRENT,,2019-09-01
+oceania,,C,CURRENT,,2019-09-01
+south_america_caribbean,,C,CURRENT,,2019-09-01
+africa,,C,CURRENT,,2019-08-01
+asia,,C,CURRENT,,2019-08-01
+europe,,C,CURRENT,,2019-08-01
+north_america,,C,CURRENT,,2019-08-01
+oceania,,C,CURRENT,,2019-08-01
+south_america_caribbean,,C,CURRENT,,2019-08-01
+africa,,C,CURRENT,"Except:  Egypt  23,400",2019-07-01
+asia,,C,CURRENT,"Except:  Nepal  6,275",2019-07-01
+europe,,C,CURRENT,,2019-07-01
+north_america,,C,CURRENT,,2019-07-01
+oceania,,C,CURRENT,,2019-07-01
+south_america_caribbean,,C,CURRENT,,2019-07-01
+africa,37200.0,F,"37,200","Except:  Egypt  21,110",2019-06-01
+asia,10000.0,F,"10,000","Except:  Nepal  5,775",2019-06-01
+europe,26800.0,F,"26,800",,2019-06-01
+north_america,14.0,F,14,,2019-06-01
+oceania,1025.0,F,"1,025",,2019-06-01
+south_america_caribbean,1150.0,F,"1,150",,2019-06-01
+africa,24500.0,F,"24,500","Except:  Egypt  18,400",2019-05-01
+asia,7800.0,F,"7,800","Except:  Nepal  4,925",2019-05-01
+europe,21900.0,F,"21,900",,2019-05-01
+north_america,13.0,F,13,,2019-05-01
+oceania,900.0,F,900,,2019-05-01
+south_america_caribbean,900.0,F,900,,2019-05-01
+africa,18900.0,F,"18,900","Except:  Egypt  15,100",2019-04-01
+asia,6400.0,F,"6,400","Except:  Nepal  4,200",2019-04-01
+europe,18500.0,F,"18,500",,2019-04-01
+north_america,12.0,F,12,,2019-04-01
+oceania,725.0,F,725,,2019-04-01
+south_america_caribbean,875.0,F,875,,2019-04-01
+africa,15300.0,F,"15,300","Except:  Egypt  12,600",2019-03-01
+asia,5000.0,F,"5,000","Except:  Iran    4,600
+             Nepal  3,400",2019-03-01
+europe,13500.0,F,"13,500",,2019-03-01
+north_america,12.0,F,12,,2019-03-01
+oceania,550.0,F,550,,2019-03-01
+south_america_caribbean,750.0,F,750,,2019-03-01
+africa,13800.0,F,"13,800","Except:  Egypt  9,500",2019-02-01
+asia,4400.0,F,"4,400","Except:  Iran    3,400
+             Nepal  2,800",2019-02-01
+europe,10000.0,F,"10,000",,2019-02-01
+north_america,12.0,F,12,,2019-02-01
+oceania,450.0,F,450,,2019-02-01
+south_america_caribbean,625.0,F,625,,2019-02-01
+africa,13100.0,F,"13,100","Except:  Egypt  8,300",2019-01-01
+asia,3800.0,F,"3,800","Except:  Iran    2,900
+             Nepal  2,150",2019-01-01
+europe,8800.0,F,"8,800",,2019-01-01
+north_america,12.0,F,12,,2019-01-01
+oceania,350.0,F,350,,2019-01-01
+south_america_caribbean,550.0,F,550,,2019-01-01
+africa,9800.0,F,"9,800","Except:  Egypt  6,200",2018-12-01
+asia,2900.0,F,"2,900","Except:  Iran    2,200
+             Nepal  1,500",2018-12-01
+europe,6600.0,F,"6,600",,2018-12-01
+north_america,11.0,F,11,,2018-12-01
+oceania,290.0,F,290,,2018-12-01
+south_america_caribbean,475.0,F,475,,2018-12-01
+africa,6400.0,F,"6,400","Except:  Egypt  4,000",2018-11-01
+asia,1600.0,F,"1,600","Except:  Iran    1,550
+             Nepal  1,100",2018-11-01
+europe,4400.0,F,"4,400",,2018-11-01
+north_america,9.0,F,9,,2018-11-01
+oceania,200.0,F,200,,2018-11-01
+south_america_caribbean,355.0,F,355,,2018-11-01
+africa,2750.0,F,"2,750","Except:  Egypt  1,900",2018-10-01
+asia,1000.0,F,"1,000","Except:  Iran    800
+             Nepal  600",2018-10-01
+europe,2000.0,F,"2,000",,2018-10-01
+north_america,4.0,F,4,,2018-10-01
+oceania,100.0,F,100,,2018-10-01
+south_america_caribbean,150.0,F,150,,2018-10-01
+africa,39500.0,F,"39,500",,2018-09-01
+asia,,C,CURRENT,,2018-09-01
+europe,25775.0,F,"25,775",,2018-09-01
+north_america,,C,CURRENT,,2018-09-01
+oceania,1450.0,F,"1,450",,2018-09-01
+south_america_caribbean,1715.0,F,"1,715",,2018-09-01
+africa,,C,CURRENT,"Except:
+Egypt:      21,325",2018-08-01
+asia,,C,CURRENT,"Except:
+Nepal:       6,950",2018-08-01
+europe,23325.0,F,"23,325",,2018-08-01
+north_america,,C,CURRENT,,2018-08-01
+oceania,1400.0,F,"1,400",,2018-08-01
+south_america_caribbean,1585.0,F,"1,585",,2018-08-01
+africa,38000.0,F,"38,000","Except:
+Egypt:      19,700",2018-07-01
+asia,10500.0,F,"10,500","Except:
+Nepal:       6,325",2018-07-01
+europe,21900.0,F,"21,900",,2018-07-01
+north_america,18.0,F,18,,2018-07-01
+oceania,1200.0,F,"1,200",,2018-07-01
+south_america_caribbean,1425.0,F,"1,425",,2018-07-01
+africa,28300.0,F,"28,300","Except:
+Egypt:      18,150
+Ethiopia:  26,000",2018-06-01
+asia,7800.0,F,"7,800","Except:
+Nepal:     5,900",2018-06-01
+europe,20300.0,F,"20,300",,2018-06-01
+north_america,16.0,F,16,,2018-06-01
+oceania,1100.0,F,"1,100",,2018-06-01
+south_america_caribbean,1275.0,F,"1,275",,2018-06-01
+africa,24800.0,F,"24,800","Except:
+Egypt:      16,400
+Ethiopia:  23,600",2018-05-01
+asia,6425.0,F,"6,425","Except:
+Nepal:     5,300",2018-05-01
+europe,18050.0,F,"18,050",,2018-05-01
+north_america,14.0,F,14,,2018-05-01
+oceania,1025.0,F,"1,025",,2018-05-01
+south_america_caribbean,1100.0,F,"1,100",,2018-05-01
+africa,21100.0,F,"21,100","Except:
+Egypt:      14,500
+Ethiopia:  20,100",2018-04-01
+asia,5300.0,F,"5,300","Except:
+Nepal:     4,550",2018-04-01
+europe,15950.0,F,"15,950",,2018-04-01
+north_america,10.0,F,10,,2018-04-01
+oceania,875.0,F,875,,2018-04-01
+south_america_caribbean,925.0,F,925,,2018-04-01
+africa,17700.0,F,"17,700","Except:
+Egypt:      12,400
+Ethiopia:  16,600",2018-03-01
+asia,4400.0,F,"4,400","Except:
+Nepal:     3,875",2018-03-01
+europe,13800.0,F,"13,800",,2018-03-01
+north_america,8.0,F,8,,2018-03-01
+oceania,800.0,F,800,,2018-03-01
+south_america_caribbean,800.0,F,800,,2018-03-01
+africa,14300.0,F,"14,300","Except:
+Egypt:      10,300
+Ethiopia:  13,500",2018-02-01
+asia,4050.0,F,"4,050","Except:
+Iran:        3,700
+Nepal:     3,225",2018-02-01
+europe,10700.0,F,"10,700",,2018-02-01
+north_america,6.0,F,6,,2018-02-01
+oceania,615.0,F,615,,2018-02-01
+south_america_caribbean,625.0,F,625,,2018-02-01
+africa,13000.0,F,"13,000","Except:
+Egypt:      8,300
+Ethiopia:  9,200",2018-01-01
+asia,3400.0,F,"3,400","Except:
+Iran:        2,800
+Nepal:     2,650",2018-01-01
+europe,8200.0,F,"8,200",,2018-01-01
+north_america,5.0,F,5,,2018-01-01
+oceania,475.0,F,475,,2018-01-01
+south_america_caribbean,500.0,F,500,,2018-01-01
+africa,10000.0,F,"10,000","Except:
+Egypt:     6,200
+Ethiopia:  6,300",2017-12-01
+asia,2500.0,F,"2,500","Except:
+Iran:       2,100
+Nepal:     2,000",2017-12-01
+europe,6000.0,F,"6,000",,2017-12-01
+north_america,4.0,F,4,,2017-12-01
+oceania,400.0,F,400,,2017-12-01
+south_america_caribbean,425.0,F,425,,2017-12-01
+africa,8600.0,F,"8,600","Except:
+Egypt:     4,400
+Ethiopia:  4,700",2017-11-01
+asia,1750.0,F,"1,750","Except:
+Iran:       1,450
+Nepal:     1,400",2017-11-01
+europe,4500.0,F,"4,500",,2017-11-01
+north_america,3.0,F,3,,2017-11-01
+oceania,315.0,F,315,,2017-11-01
+south_america_caribbean,325.0,F,325,,2017-11-01
+africa,8500.0,F,"8,500","Except:
+Egypt:     2,350
+Ethiopia:  2,100",2017-10-01
+asia,1200.0,F,"1,200","Except:
+Iran:       750
+Nepal:     750",2017-10-01
+europe,2600.0,F,"2,600",,2017-10-01
+north_america,2.0,F,2,,2017-10-01
+oceania,185.0,F,185,,2017-10-01
+south_america_caribbean,190.0,F,190,,2017-10-01
+africa,,C,CURRENT,"Except:
+Egypt:     36,500",2017-09-01
+asia,,C,CURRENT,"Except:
+Nepal:     7,450",2017-09-01
+europe,,C,CURRENT,,2017-09-01
+north_america,,C,CURRENT,,2017-09-01
+oceania,,C,CURRENT,,2017-09-01
+south_america_caribbean,,C,CURRENT,,2017-09-01
+africa,,C,CURRENT,"Except:
+Egypt:     30,600",2017-08-01
+asia,,C,CURRENT,"Except:
+Nepal:     7,075",2017-08-01
+europe,,C,CURRENT,"Except:
+Uzbekistan  13,300",2017-08-01
+north_america,,C,CURRENT,,2017-08-01
+oceania,,C,CURRENT,,2017-08-01
+south_america_caribbean,,C,CURRENT,,2017-08-01
+africa,,C,CURRENT,"Except:
+Egypt:     28,290",2017-07-01
+asia,,C,CURRENT,"Except:
+Nepal:     6,400",2017-07-01
+europe,,C,CURRENT,,2017-07-01
+north_america,,C,CURRENT,,2017-07-01
+oceania,,C,CURRENT,,2017-07-01
+south_america_caribbean,,C,CURRENT,,2017-07-01
+africa,,C,CURRENT,"Except:
+Egypt:     26,250
+Ethiopia:  34,700",2017-06-01
+asia,,C,CURRENT,"Except:
+Iran:       7,300
+Nepal:     5,875",2017-06-01
+europe,,C,CURRENT,,2017-06-01
+north_america,,C,CURRENT,,2017-06-01
+oceania,,C,CURRENT,,2017-06-01
+south_america_caribbean,,C,CURRENT,,2017-06-01
+africa,,C,CURRENT,"Except:
+Egypt:     24,500
+Ethiopia:  29,100",2017-05-01
+asia,,C,CURRENT,"Except:
+Iran:       6,300
+Nepal:     5,300",2017-05-01
+europe,,C,CURRENT,,2017-05-01
+north_america,,C,CURRENT,,2017-05-01
+oceania,,C,CURRENT,,2017-05-01
+south_america_caribbean,,C,CURRENT,,2017-05-01
+africa,34900.0,F,"34,900","Except:
+Egypt:     21,800
+Ethiopia:  24,500",2017-04-01
+asia,5500.0,F,"5,500","Except:
+Iran:       5,300
+Nepal:     4,575",2017-04-01
+europe,22100.0,F,"22,100",,2017-04-01
+north_america,10.0,F,10,,2017-04-01
+oceania,850.0,F,850,,2017-04-01
+south_america_caribbean,900.0,F,900,,2017-04-01
+africa,28700.0,F,"28,700","Except:
+Egypt:     18,800
+Ethiopia:  19,200",2017-03-01
+asia,4700.0,F,"4,700","Except:
+Iran:       4,600
+Nepal:     3,850",2017-03-01
+europe,19300.0,F,"19,300",,2017-03-01
+north_america,7.0,F,7,,2017-03-01
+oceania,800.0,F,800,,2017-03-01
+south_america_caribbean,875.0,F,875,,2017-03-01
+africa,28700.0,F,"28,700","Except:
+Egypt:     16,000
+Ethiopia:  17,500",2017-02-01
+asia,4700.0,F,"4,700","Except:
+Iran:       3,950
+Nepal:     3,150",2017-02-01
+europe,18000.0,F,"18,000",,2017-02-01
+north_america,6.0,F,6,,2017-02-01
+oceania,725.0,F,725,,2017-02-01
+south_america_caribbean,825.0,F,825,,2017-02-01
+africa,25800.0,F,"25,800","Except:
+Egypt:     12,700
+Ethiopia:  14,700",2017-01-01
+asia,4000.0,F,"4,000","Except:
+Iran:       3,600
+Nepal:     2,750",2017-01-01
+europe,15900.0,F,"15,900",,2017-01-01
+north_america,6.0,F,6,,2017-01-01
+oceania,650.0,F,650,,2017-01-01
+south_america_caribbean,775.0,F,775,,2017-01-01
+africa,20400.0,F,"20,400","Except:
+Egypt:     8,700
+Ethiopia:  9,000",2016-12-01
+asia,3500.0,F,"3,500","Except:
+Iran:       3,200
+Nepal:     2,200",2016-12-01
+europe,14000.0,F,"14,000",,2016-12-01
+north_america,5.0,F,5,,2016-12-01
+oceania,525.0,F,525,,2016-12-01
+south_america_caribbean,650.0,F,650,,2016-12-01
+africa,13500.0,F,"13,500","Except:
+Egypt:     7,500
+Ethiopia:  7,500",2016-11-01
+asia,3000.0,F,"3,000","Except:
+Nepal:     2,000",2016-11-01
+europe,13000.0,F,"13,000",,2016-11-01
+north_america,3.0,F,3,,2016-11-01
+oceania,475.0,F,475,,2016-11-01
+south_america_caribbean,575.0,F,575,,2016-11-01
+africa,8000.0,F,"8,000","Except:
+Egypt:     6,000
+Ethiopia:  6,000",2016-10-01
+asia,2100.0,F,"2,100","Except:
+Nepal:     1,900",2016-10-01
+europe,8500.0,F,"8,500",,2016-10-01
+north_america,2.0,F,2,,2016-10-01
+oceania,300.0,F,300,,2016-10-01
+south_america_caribbean,400.0,F,400,,2016-10-01
+africa,,C,CURRENT,,2016-09-01
+asia,,C,CURRENT,,2016-09-01
+europe,,C,CURRENT,,2016-09-01
+north_america,,C,CURRENT,,2016-09-01
+oceania,,C,CURRENT,,2016-09-01
+south_america_caribbean,,C,CURRENT,,2016-09-01
+africa,,C,CURRENT,,2016-08-01
+asia,,C,CURRENT,"Except:
+Nepal:      7,100",2016-08-01
+europe,,C,CURRENT,,2016-08-01
+north_america,,C,CURRENT,,2016-08-01
+oceania,,C,CURRENT,,2016-08-01
+south_america_caribbean,,C,CURRENT,,2016-08-01
+africa,43825.0,F,"43,825",,2016-07-01
+asia,10550.0,F,"10,550","Except:
+Nepal:      6,725",2016-07-01
+europe,,C,CURRENT,,2016-07-01
+north_america,,C,CURRENT,,2016-07-01
+oceania,,C,CURRENT,,2016-07-01
+south_america_caribbean,,C,CURRENT,,2016-07-01
+africa,34400.0,F,"34,400",,2016-06-01
+asia,8000.0,F,"8,000","Except:
+Nepal:      6,200",2016-06-01
+europe,34000.0,F,"34,000",,2016-06-01
+north_america,10.0,F,10,,2016-06-01
+oceania,1100.0,F,"1,100",,2016-06-01
+south_america_caribbean,1175.0,F,"1,175",,2016-06-01
+africa,28300.0,F,"28,300",,2016-05-01
+asia,6850.0,F,"6,850","Except:
+Nepal:      5,525",2016-05-01
+europe,28000.0,F,"28,000",,2016-05-01
+north_america,6.0,F,6,,2016-05-01
+oceania,1050.0,F,"1,050",,2016-05-01
+south_america_caribbean,1020.0,F,"1,020",,2016-05-01
+africa,23800.0,F,"23,800",,2016-04-01
+asia,5800.0,F,"5,800","Except:
+Nepal:      5,100",2016-04-01
+europe,24500.0,F,"24,500",,2016-04-01
+north_america,6.0,F,6,,2016-04-01
+oceania,950.0,F,950,,2016-04-01
+south_america_caribbean,925.0,F,925,,2016-04-01
+africa,18700.0,F,"18,700",,2016-03-01
+asia,4900.0,F,"4,900","Except:
+Nepal:      4,350",2016-03-01
+europe,20800.0,F,"20,800",,2016-03-01
+north_america,5.0,F,5,,2016-03-01
+oceania,850.0,F,850,,2016-03-01
+south_america_caribbean,800.0,F,800,,2016-03-01
+africa,17200.0,F,"17,200","Except:
+Ethiopia:  16,100",2016-02-01
+asia,4500.0,F,"4,500","Except:
+Nepal:      3,700",2016-02-01
+europe,19100.0,F,"19,100",,2016-02-01
+north_america,5.0,F,5,,2016-02-01
+oceania,750.0,F,750,,2016-02-01
+south_america_caribbean,750.0,F,750,,2016-02-01
+africa,15500.0,F,"15,500","Except:
+Ethiopia:  13,800",2016-01-01
+asia,4150.0,F,"4,150","Except:
+Nepal:      2,925",2016-01-01
+europe,16425.0,F,"16,425",,2016-01-01
+north_america,3.0,F,3,,2016-01-01
+oceania,615.0,F,615,,2016-01-01
+south_america_caribbean,650.0,F,650,,2016-01-01
+africa,14500.0,F,"14,500","Except:
+Egypt:     13,000
+Ethiopia:  12,200",2015-12-01
+asia,3600.0,F,"3,600","Except:
+Nepal:      2,550",2015-12-01
+europe,14000.0,F,"14,000",,2015-12-01
+north_america,3.0,F,3,,2015-12-01
+oceania,525.0,F,525,,2015-12-01
+south_america_caribbean,625.0,F,625,,2015-12-01
+africa,13000.0,F,"13,000","Except:
+Egypt:     10,450
+Ethiopia:   9,800",2015-11-01
+asia,3100.0,F,"3,100","Except:
+Nepal:      2,450",2015-11-01
+europe,12500.0,F,"12,500",,2015-11-01
+north_america,3.0,F,3,,2015-11-01
+oceania,400.0,F,400,,2015-11-01
+south_america_caribbean,600.0,F,600,,2015-11-01
+africa,9100.0,F,"9,100","Except:
+Egypt:     8,000
+Ethiopia:  8,000",2015-10-01
+asia,2800.0,F,"2,800","Except:
+Nepal:      2,400",2015-10-01
+europe,9150.0,F,"9,150",,2015-10-01
+north_america,2.0,F,2,,2015-10-01
+oceania,275.0,F,275,,2015-10-01
+south_america_caribbean,475.0,F,475,,2015-10-01
+africa,50000.0,F,"50,000",,2015-09-01
+asia,7650.0,F,"7,650","Except:
+Nepal:      7,150",2015-09-01
+europe,43050.0,F,"43,050",,2015-09-01
+north_america,8.0,F,8,,2015-09-01
+oceania,1490.0,F,"1,490",,2015-09-01
+south_america_caribbean,1350.0,F,"1,350",,2015-09-01
+africa,44250.0,F,"44,250","Except:
+Egypt:    28,700",2015-08-01
+asia,7650.0,F,"7,650","Except:
+Nepal:      7,150",2015-08-01
+europe,39750.0,F,"39,750",,2015-08-01
+north_america,8.0,F,8,,2015-08-01
+oceania,1325.0,F,"1,325",,2015-08-01
+south_america_caribbean,1350.0,F,"1,350",,2015-08-01
+africa,36500.0,F,"36,500","Except:
+Egypt:    27,100",2015-07-01
+asia,6850.0,F,"6,850","Except:
+Nepal:      6,475",2015-07-01
+europe,35700.0,F,"35,700",,2015-07-01
+north_america,7.0,F,7,,2015-07-01
+oceania,1250.0,F,"1,250",,2015-07-01
+south_america_caribbean,1175.0,F,"1,175",,2015-07-01
+africa,34150.0,F,"34,150","Except:
+Egypt:    24,675
+Ethiopia: 30,000",2015-06-01
+asia,5950.0,F,"5,950",,2015-06-01
+europe,34125.0,F,"34,125",,2015-06-01
+north_america,6.0,F,6,,2015-06-01
+oceania,1175.0,F,"1,175",,2015-06-01
+south_america_caribbean,1075.0,F,"1,075",,2015-06-01
+africa,32700.0,F,"32,700","Except:
+Egypt:    20,900
+Ethiopia: 25,750",2015-05-01
+asia,5275.0,F,"5,275",,2015-05-01
+europe,30300.0,F,"30,300",,2015-05-01
+north_america,6.0,F,6,,2015-05-01
+oceania,1075.0,F,"1,075",,2015-05-01
+south_america_caribbean,1025.0,F,"1,025",,2015-05-01
+africa,30700.0,F,"30,700","Except:
+Egypt:    18,200
+Ethiopia: 22,550",2015-04-01
+asia,4725.0,F,"4,725",,2015-04-01
+europe,28450.0,F,"28,450",,2015-04-01
+north_america,6.0,F,6,,2015-04-01
+oceania,975.0,F,975,,2015-04-01
+south_america_caribbean,1025.0,F,"1,025",,2015-04-01
+africa,27800.0,F,"27,800","Except:
+Egypt:    15,700
+Ethiopia: 18,900",2015-03-01
+asia,4300.0,F,"4,300",,2015-03-01
+europe,24000.0,F,"24,000",,2015-03-01
+north_america,6.0,F,6,,2015-03-01
+oceania,875.0,F,875,,2015-03-01
+south_america_caribbean,925.0,F,925,,2015-03-01
+africa,26000.0,F,"26,000","Except:
+Egypt:    12,000
+Ethiopia: 15,500",2015-02-01
+asia,3825.0,F,"3,825",,2015-02-01
+europe,20500.0,F,"20,500",,2015-02-01
+north_america,5.0,F,5,,2015-02-01
+oceania,775.0,F,775,,2015-02-01
+south_america_caribbean,875.0,F,875,,2015-02-01
+africa,21000.0,F,"21,000","Except:
+Egypt:     9,000
+Ethiopia: 12,000",2015-01-01
+asia,3250.0,F,"3,250",,2015-01-01
+europe,16000.0,F,"16,000",,2015-01-01
+north_america,3.0,F,3,,2015-01-01
+oceania,700.0,F,700,,2015-01-01
+south_america_caribbean,825.0,F,825,,2015-01-01
+africa,17000.0,F,"17,000","Except:
+Egypt:     7,500
+Ethiopia:  9,000",2014-12-01
+asia,3200.0,F,"3,200",,2014-12-01
+europe,11600.0,F,"11,600",,2014-12-01
+north_america,3.0,F,3,,2014-12-01
+oceania,650.0,F,650,,2014-12-01
+south_america_caribbean,725.0,F,725,,2014-12-01
+africa,14200.0,F,"14,200","Except:
+Egypt:     6,800
+Ethiopia:  7,800",2014-11-01
+asia,2950.0,F,"2,950",,2014-11-01
+europe,9900.0,F,"9,900",,2014-11-01
+north_america,3.0,F,3,,2014-11-01
+oceania,500.0,F,500,,2014-11-01
+south_america_caribbean,650.0,F,650,,2014-11-01
+africa,8000.0,F,"8,000","Except:
+Egypt:     6,000
+Ethiopia:  7,000",2014-10-01
+asia,2500.0,F,"2,500",,2014-10-01
+europe,8500.0,F,"8,500",,2014-10-01
+north_america,3.0,F,3,,2014-10-01
+oceania,400.0,F,400,,2014-10-01
+south_america_caribbean,550.0,F,550,,2014-10-01
+africa,81100.0,F,"81,100","Except:
+Egypt:    32,250",2014-09-01
+asia,13350.0,F,"13,350","Except:
+Nepal:      9,500",2014-09-01
+europe,40150.0,F,"40,150",,2014-09-01
+north_america,,C,CURRENT,,2014-09-01
+oceania,1450.0,F,"1,450",,2014-09-01
+south_america_caribbean,1750.0,F,"1,750",,2014-09-01
+africa,69300.0,F,"69,300","Except:
+Egypt:    32,250
+Nigeria:   25,000",2014-08-01
+asia,12700.0,F,"12,700","Except:
+Nepal:      9,500",2014-08-01
+europe,40150.0,F,"40,150",,2014-08-01
+north_america,,C,CURRENT,,2014-08-01
+oceania,1450.0,F,"1,450",,2014-08-01
+south_america_caribbean,1750.0,F,"1,750",,2014-08-01
+africa,56300.0,F,"56,300","Except:
+Egypt:    30,900
+Nigeria:   17,400",2014-07-01
+asia,8900.0,F,"8,900",,2014-07-01
+europe,36300.0,F,"36,300",,2014-07-01
+north_america,,C,CURRENT,,2014-07-01
+oceania,1300.0,F,"1,300",,2014-07-01
+south_america_caribbean,1550.0,F,"1,550",,2014-07-01
+africa,45600.0,F,"45,600","Except:
+Egypt:    28,200
+Nigeria:   15,300",2014-06-01
+asia,7425.0,F,"7,425",,2014-06-01
+europe,32950.0,F,"32,950","Except: Uzbekistan  17,500",2014-06-01
+north_america,18.0,F,18,,2014-06-01
+oceania,1185.0,F,"1,185",,2014-06-01
+south_america_caribbean,1425.0,F,"1,425",,2014-06-01
+africa,37900.0,F,"37,900","Except:
+Egypt:    25,900
+Nigeria:   13,500",2014-05-01
+asia,6500.0,F,"6,500",,2014-05-01
+europe,30700.0,F,"30,700","Except: Uzbekistan  16,350",2014-05-01
+north_america,15.0,F,15,,2014-05-01
+oceania,1100.0,F,"1,100",,2014-05-01
+south_america_caribbean,1325.0,F,"1,325",,2014-05-01
+africa,30000.0,F,"30,000","Except:
+Egypt:    22,850
+Nigeria:   11,600",2014-04-01
+asia,5350.0,F,"5,350",,2014-04-01
+europe,25400.0,F,"25,400","Except: Uzbekistan  14,750",2014-04-01
+north_america,14.0,F,14,,2014-04-01
+oceania,900.0,F,900,,2014-04-01
+south_america_caribbean,1140.0,F,"1,140",,2014-04-01
+africa,25000.0,F,"25,000","Except:
+Egypt:    18,300
+Ethiopia:  24,700
+Nigeria:    9,400",2014-03-01
+asia,4325.0,F,"4,325",,2014-03-01
+europe,20050.0,F,"20,050","Except: Uzbekistan  13,900",2014-03-01
+north_america,8.0,F,8,,2014-03-01
+oceania,800.0,F,800,,2014-03-01
+south_america_caribbean,985.0,F,985,,2014-03-01
+africa,21750.0,F,"21,750","Except:
+Egypt:      15,850
+Ethiopia:  19,000
+Nigeria:      8,700",2014-02-01
+asia,3700.0,F,"3,700",,2014-02-01
+europe,16700.0,F,"16,700","Except: Uzbekistan  13,900",2014-02-01
+north_america,7.0,F,7,,2014-02-01
+oceania,650.0,F,650,,2014-02-01
+south_america_caribbean,850.0,F,850,,2014-02-01
+africa,19400.0,F,"19,400","Except:
+Egypt:      11,700
+Ethiopia:  13,000
+Nigeria:     8,000",2014-01-01
+asia,3000.0,F,"3,000",,2014-01-01
+europe,13200.0,F,"13,200",,2014-01-01
+north_america,6.0,F,6,,2014-01-01
+oceania,550.0,F,550,,2014-01-01
+south_america_caribbean,700.0,F,700,,2014-01-01
+africa,17900.0,F,"17,900","Except:
+Egypt:     9,050
+Ethiopia:  11,000
+Nigeria:    8,000",2013-12-01
+asia,2650.0,F,"2,650",,2013-12-01
+europe,12500.0,F,"12,500",,2013-12-01
+north_america,4.0,F,4,,2013-12-01
+oceania,450.0,F,450,,2013-12-01
+south_america_caribbean,675.0,F,675,,2013-12-01
+africa,13000.0,F,"13,000","Except:
+Egypt:     7,300
+Ethiopia:  7,300
+Nigeria:   7,500",2013-11-01
+asia,2500.0,F,"2,500",,2013-11-01
+europe,9800.0,F,"9,800",,2013-11-01
+north_america,4.0,F,4,,2013-11-01
+oceania,375.0,F,375,,2013-11-01
+south_america_caribbean,600.0,F,600,,2013-11-01
+africa,7500.0,F,"7,500","Except:
+Egypt:     5,000
+Ethiopia:  5,000
+Nigeria:   5,500",2013-10-01
+asia,1800.0,F,"1,800",,2013-10-01
+europe,8000.0,F,"8,000",,2013-10-01
+north_america,3.0,F,3,,2013-10-01
+oceania,300.0,F,300,,2013-10-01
+south_america_caribbean,500.0,F,500,,2013-10-01
+africa,,C,CURRENT,,2013-09-01
+asia,,C,CURRENT,,2013-09-01
+europe,,C,CURRENT,,2013-09-01
+north_america,,C,CURRENT,,2013-09-01
+oceania,,C,CURRENT,,2013-09-01
+south_america_caribbean,,C,CURRENT,,2013-09-01
+africa,81200.0,F,"81,200","Except: 
+Nigeria    19,800",2013-08-01
+asia,,C,CURRENT,,2013-08-01
+europe,,C,CURRENT,"Except: Uzbekistan   19,000",2013-08-01
+north_america,3.0,F,3,,2013-08-01
+oceania,1600.0,F,"1,600",,2013-08-01
+south_america_caribbean,,C,CURRENT,,2013-08-01
+africa,66700.0,F,"66,700","Except: 
+Egypt     50,000
+Ethiopia  50,000
+Nigeria    17,775",2013-07-01
+asia,9850.0,F,"9,850",,2013-07-01
+europe,33000.0,F,"33,000","Except: Uzbekistan   16,850",2013-07-01
+north_america,3.0,F,3,,2013-07-01
+oceania,1450.0,F,"1,450",,2013-07-01
+south_america_caribbean,1500.0,F,"1,500",,2013-07-01
+africa,56000.0,F,"56,000","Except: 
+Egypt     25,000
+Ethiopia  36,000
+Nigeria    17,000",2013-06-01
+asia,8900.0,F,"8,900",,2013-06-01
+europe,31000.0,F,"31,000","Except: Uzbekistan   15,800",2013-06-01
+north_america,3.0,F,3,,2013-06-01
+oceania,1275.0,F,"1,275",,2013-06-01
+south_america_caribbean,1300.0,F,"1,300",,2013-06-01
+africa,43400.0,F,"43,400","Except: 
+Egypt     23,500
+Ethiopia  32,900
+Nigeria    17,000",2013-05-01
+asia,7850.0,F,"7,850",,2013-05-01
+europe,27500.0,F,"27,500","Except: Uzbekistan   13,700",2013-05-01
+north_america,3.0,F,3,,2013-05-01
+oceania,1115.0,F,"1,115",,2013-05-01
+south_america_caribbean,1200.0,F,"1,200",,2013-05-01
+africa,33500.0,F,"33,500","Except: 
+Egypt     19,175
+Ethiopia  29,700
+Nigeria    14,500",2013-04-01
+asia,6525.0,F,"6,525",,2013-04-01
+europe,22850.0,F,"22,850","Except: Uzbekistan   13,400",2013-04-01
+north_america,3.0,F,3,,2013-04-01
+oceania,1000.0,F,"1,000",,2013-04-01
+south_america_caribbean,1075.0,F,"1,075",,2013-04-01
+africa,25850.0,F,"25,850","Except: 
+Egypt     15,600
+Ethiopia  24,400
+Nigeria    12,150",2013-03-01
+asia,5200.0,F,"5,200",,2013-03-01
+europe,16200.0,F,"16,200","Except: Uzbekistan   13,400",2013-03-01
+north_america,3.0,F,3,,2013-03-01
+oceania,850.0,F,850,,2013-03-01
+south_america_caribbean,900.0,F,900,,2013-03-01
+africa,22000.0,F,"22,000","Except: 
+Egypt     13,000
+Ethiopia  20,400
+Nigeria    11,000",2013-02-01
+asia,4300.0,F,"4,300",,2013-02-01
+europe,13400.0,F,"13,400",,2013-02-01
+north_america,3.0,F,3,,2013-02-01
+oceania,725.0,F,725,,2013-02-01
+south_america_caribbean,775.0,F,775,,2013-02-01
+africa,18100.0,F,"18,100","Except: 
+Egypt      10,900
+Ethiopia   16,700
+Nigeria    10,000",2013-01-01
+asia,3400.0,F,"3,400",,2013-01-01
+europe,10950.0,F,"10,950",,2013-01-01
+north_america,2.0,F,2,,2013-01-01
+oceania,600.0,F,600,,2013-01-01
+south_america_caribbean,750.0,F,750,,2013-01-01
+africa,15500.0,F,"15,500","Except: 
+Egypt       8,300
+Ethiopia  14,800
+Nigeria    10,000",2012-12-01
+asia,2700.0,F,"2,700",,2012-12-01
+europe,9250.0,F,"9,250",,2012-12-01
+north_america,2.0,F,2,,2012-12-01
+oceania,500.0,F,500,,2012-12-01
+south_america_caribbean,700.0,F,700,,2012-12-01
+africa,13900.0,F,"13,900","Except: 
+Egypt      6,600
+Ethiopia   9,100
+Nigeria     8,500",2012-11-01
+asia,2350.0,F,"2,350",,2012-11-01
+europe,7000.0,F,"7,000",,2012-11-01
+north_america,2.0,F,2,,2012-11-01
+oceania,400.0,F,400,,2012-11-01
+south_america_caribbean,500.0,F,500,,2012-11-01
+africa,,C,CURRENT,,2012-08-01
+asia,,C,CURRENT,,2012-08-01
+europe,,C,CURRENT,,2012-08-01
+north_america,,C,CURRENT,,2012-08-01
+oceania,,C,CURRENT,,2012-08-01
+south_america_caribbean,,C,CURRENT,,2012-08-01
+africa,,C,CURRENT,,2012-07-01
+asia,,C,CURRENT,,2012-07-01
+europe,,C,CURRENT,"Except: Uzbekistan  17,700",2012-07-01
+north_america,,C,CURRENT,,2012-07-01
+oceania,,C,CURRENT,,2012-07-01
+south_america_caribbean,,C,CURRENT,,2012-07-01
+africa,,C,CURRENT,,2012-06-01
+asia,,C,CURRENT,,2012-06-01
+europe,,C,CURRENT,"Except: Uzbekistan  17,050",2012-06-01
+north_america,,C,CURRENT,,2012-06-01
+oceania,,C,CURRENT,,2012-06-01
+south_america_caribbean,,C,CURRENT,,2012-06-01
+africa,50000.0,F,"50,000","Except: Egypt  33,000
+Ethiopia  33,000
+Nigeria 25,000",2012-05-01
+asia,40500.0,F,"40,500",,2012-05-01
+europe,40000.0,F,"40,000","Except: Uzbekistan 16,500",2012-05-01
+north_america,10.0,F,10,,2012-05-01
+oceania,1150.0,F,"1,150",,2012-05-01
+south_america_caribbean,1150.0,F,"1,150",,2012-05-01
+africa,39000.0,F,"39,000","Except: Egypt  29,500
+Ethiopia  29,500
+Nigeria 20,000",2012-04-01
+asia,32600.0,F,"32,600",,2012-04-01
+europe,32000.0,F,"32,000","Except: Uzbekistan 16,500",2012-04-01
+north_america,9.0,F,9,,2012-04-01
+oceania,1000.0,F,"1,000",,2012-04-01
+south_america_caribbean,1000.0,F,"1,000",,2012-04-01
+africa,35800.0,F,"35,800","Except: Egypt  26,000
+Ethiopia  26,000
+Nigeria 17,500",2012-03-01
+asia,27000.0,F,"27,000",,2012-03-01
+europe,26500.0,F,"26,500","Except: Uzbekistan 16,500",2012-03-01
+north_america,7.0,F,7,,2012-03-01
+oceania,925.0,F,925,,2012-03-01
+south_america_caribbean,925.0,F,925,,2012-03-01
+africa,32000.0,F,"32,000","Except: Egypt  21,000
+Ethiopia  21,500
+Nigeria 16,000",2012-02-01
+asia,23900.0,F,"23,900",,2012-02-01
+europe,22000.0,F,"22,000","Except: Uzbekistan 16,500",2012-02-01
+north_america,7.0,F,7,,2012-02-01
+oceania,775.0,F,775,,2012-02-01
+south_america_caribbean,775.0,F,775,,2012-02-01
+africa,24700.0,F,"24,700","Except: Egypt 16,800
+Ethiopia 16,800
+Nigeria 14,500",2012-01-01
+asia,18500.0,F,"18,500",,2012-01-01
+europe,16500.0,F,"16,500",,2012-01-01
+north_america,6.0,F,6,,2012-01-01
+oceania,650.0,F,650,,2012-01-01
+south_america_caribbean,675.0,F,675,,2012-01-01
+africa,18500.0,F,"18,500","Except: Egypt 12,700
+Ethiopia  13,500
+Nigeria 12,000",2011-12-01
+asia,15000.0,F,"15,000",,2011-12-01
+europe,13500.0,F,"13,500",,2011-12-01
+north_america,5.0,F,5,,2011-12-01
+oceania,575.0,F,575,,2011-12-01
+south_america_caribbean,600.0,F,600,,2011-12-01
+africa,13000.0,F,"13,000","Except: Egypt 8,000
+Ethiopia 10,000
+Nigeria 10,000",2011-11-01
+asia,10000.0,F,"10,000",,2011-11-01
+europe,11000.0,F,"11,000",,2011-11-01
+north_america,4.0,F,4,,2011-11-01
+oceania,500.0,F,500,,2011-11-01
+south_america_caribbean,550.0,F,550,,2011-11-01
+africa,8500.0,F,"8,500","Except: Egypt 5,000
+Ethiopia 7,000
+Nigeria 7,000",2011-10-01
+asia,8000.0,F,"8,000",,2011-10-01
+europe,8500.0,F,"8,500",,2011-10-01
+north_america,3.0,F,3,,2011-10-01
+oceania,300.0,F,300,,2011-10-01
+south_america_caribbean,400.0,F,400,,2011-10-01
+africa,,C,CURRENT,"Except: Ethiopia 32,700",2011-09-01
+asia,,C,CURRENT,,2011-09-01
+europe,,C,CURRENT,Except: Uzbekistan  UNAVAILABLE,2011-09-01
+north_america,,C,CURRENT,,2011-09-01
+oceania,,C,CURRENT,,2011-09-01
+south_america_caribbean,,C,CURRENT,,2011-09-01
+africa,71800.0,F,"71,800",,2011-08-01
+asia,39750.0,F,"39,750",,2011-08-01
+europe,,C,CURRENT,,2011-08-01
+north_america,,C,CURRENT,,2011-08-01
+oceania,,C,CURRENT,,2011-08-01
+south_america_caribbean,,C,CURRENT,,2011-08-01
+africa,57600.0,F,"57,600",,2011-07-01
+asia,33775.0,F,"33,775",,2011-07-01
+europe,33000.0,F,"33,000",,2011-07-01
+north_america,12.0,F,12,,2011-07-01
+oceania,1400.0,F,"1,400",,2011-07-01
+south_america_caribbean,1400.0,F,"1,400",,2011-07-01
+africa,49300.0,F,"49,300","Except: Egypt 34,300
+Ethiopia 28,525
+Nigeria 17,150",2011-06-01
+asia,28600.0,F,"28,600",,2011-06-01
+europe,29450.0,F,"29,450","Except: Uzbekistan 27,800",2011-06-01
+north_america,12.0,F,12,,2011-06-01
+oceania,1300.0,F,"1,300",,2011-06-01
+south_america_caribbean,1300.0,F,"1,300",,2011-06-01
+africa,42000.0,F,"42,000","Except: Egypt 31,200
+Ethiopia 26,200
+Nigeria 15,450",2011-05-01
+asia,23500.0,F,"23,500",,2011-05-01
+europe,27800.0,F,"27,800",,2011-05-01
+north_america,12.0,F,12,,2011-05-01
+oceania,1175.0,F,"1,175",,2011-05-01
+south_america_caribbean,1150.0,F,"1,150",,2011-05-01
+africa,35450.0,F,"35,450","Except: Egypt 27,600
+Ethiopia 22,150
+Nigeria 14,100",2011-04-01
+asia,19250.0,F,"19,250","Except: Bangladesh 18,350",2011-04-01
+europe,23200.0,F,"23,200",,2011-04-01
+north_america,8.0,F,8,,2011-04-01
+oceania,1000.0,F,"1,000",,2011-04-01
+south_america_caribbean,1075.0,F,"1,075",,2011-04-01
+africa,31950.0,F,"31,950","Except: Egypt 24,275
+Ethiopia 18,650
+Nigeria 13,100",2011-03-01
+asia,17200.0,F,"17,200",,2011-03-01
+europe,20450.0,F,"20,450",,2011-03-01
+north_america,7.0,F,7,,2011-03-01
+oceania,900.0,F,900,,2011-03-01
+south_america_caribbean,1025.0,F,"1,025",,2011-03-01
+africa,26100.0,F,"26,100","Except: Egypt 20,200
+Ethiopia 15,000
+Nigeria 12,100",2011-02-01
+asia,14850.0,F,"14,850",,2011-02-01
+europe,17600.0,F,"17,600",,2011-02-01
+north_america,7.0,F,7,,2011-02-01
+oceania,810.0,F,810,,2011-02-01
+south_america_caribbean,900.0,F,900,,2011-02-01
+africa,20900.0,F,"20,900","Except: Egypt 16,000
+Ethiopia 13,200
+Nigeria 12,100",2011-01-01
+asia,13300.0,F,"13,300",,2011-01-01
+europe,15400.0,F,"15,400",,2011-01-01
+north_america,6.0,F,6,,2011-01-01
+oceania,775.0,F,775,,2011-01-01
+south_america_caribbean,900.0,F,900,,2011-01-01
+africa,15650.0,F,"15,650","Except:
+Egypt 12,600
+Ethiopia  12,250
+Nigeria 10,850",2010-12-01
+asia,11600.0,F,"11,600",,2010-12-01
+europe,13600.0,F,"13,600",,2010-12-01
+north_america,4.0,F,4,,2010-12-01
+oceania,700.0,F,700,,2010-12-01
+south_america_caribbean,675.0,F,675,,2010-12-01
+africa,12000.0,F,"12,000","Except: Egypt  9,300
+Ethiopia  11,000
+Nigeria 10,000",2010-11-01
+asia,10750.0,F,"10,750",,2010-11-01
+europe,12500.0,F,"12,500",,2010-11-01
+north_america,2.0,F,2,,2010-11-01
+oceania,650.0,F,650,,2010-11-01
+south_america_caribbean,675.0,F,675,,2010-11-01
+africa,9000.0,F,"9,000","Except: Egypt  5,550
+Ethiopia  7,450
+Nigeria 7,450",2010-10-01
+asia,9000.0,F,"9,000",,2010-10-01
+europe,9600.0,F,"9,600",,2010-10-01
+north_america,1.0,F,1,,2010-10-01
+oceania,350.0,F,350,,2010-10-01
+south_america_caribbean,450.0,F,450,,2010-10-01
+africa,,C,CURRENT,"Except:
+Ethiopia: 26,350",2010-09-01
+asia,,C,CURRENT,,2010-09-01
+europe,,C,CURRENT,,2010-09-01
+north_america,,C,CURRENT,,2010-09-01
+oceania,,C,CURRENT,,2010-09-01
+south_america_caribbean,,C,CURRENT,,2010-09-01
+africa,64300.0,F,"64,300","Except:
+Egypt: 26,000
+Ethiopia: 25,625
+Nigeria: 22,000",2010-08-01
+asia,28700.0,F,"28,700",,2010-08-01
+europe,,C,CURRENT,,2010-08-01
+north_america,5.0,F,5,,2010-08-01
+oceania,,C,CURRENT,,2010-08-01
+south_america_caribbean,,C,CURRENT,,2010-08-01
+africa,54100.0,F,"54,100","Except:
+Egypt: 24,500
+Ethiopia: 25,100
+Nigeria: 18,850",2010-07-01
+asia,23500.0,F,"23,500",,2010-07-01
+europe,32000.0,F,"32,000",,2010-07-01
+north_america,5.0,F,5,,2010-07-01
+oceania,1300.0,F,"1,300",,2010-07-01
+south_america_caribbean,1500.0,F,"1,500",,2010-07-01
+africa,45600.0,F,"45,600","Except:
+Egypt: 24,200
+Ethiopia: 25,100
+Nigeria: 17,500",2010-06-01
+asia,19550.0,F,"19,550",,2010-06-01
+europe,31000.0,F,"31,000",,2010-06-01
+north_america,4.0,F,4,,2010-06-01
+oceania,1175.0,F,"1,175",,2010-06-01
+south_america_caribbean,1300.0,F,"1,300",,2010-06-01
+africa,39200.0,F,"39,200","Except:
+Egypt: 23,600
+Ethiopia: 22,500
+Nigeria: 16,200",2010-05-01
+asia,16400.0,F,"16,400",,2010-05-01
+europe,29250.0,F,"29,250",,2010-05-01
+north_america,4.0,F,4,,2010-05-01
+oceania,1100.0,F,"1,100",,2010-05-01
+south_america_caribbean,1200.0,F,"1,200",,2010-05-01
+africa,31700.0,F,"31,700","Except:
+Egypt: 20,800
+Ethiopia: 19,300
+Nigeria: 14,600",2010-04-01
+asia,13600.0,F,"13,600",,2010-04-01
+europe,26300.0,F,"26,300",,2010-04-01
+north_america,4.0,F,4,,2010-04-01
+oceania,1000.0,F,"1,000",,2010-04-01
+south_america_caribbean,1000.0,F,"1,000",,2010-04-01
+africa,29600.0,F,"29,600","Except:
+Egypt: 18,000
+Ethiopia: 16,950
+Nigeria: 14,350",2010-03-01
+asia,12000.0,F,"12,000",,2010-03-01
+europe,24700.0,F,"24,700",,2010-03-01
+north_america,4.0,F,4,,2010-03-01
+oceania,880.0,F,880,,2010-03-01
+south_america_caribbean,985.0,F,985,,2010-03-01
+africa,27500.0,F,"27,500","Except:
+Egypt: 15,600
+Ethiopia: 14,700
+Nigeria: 14,000",2010-02-01
+asia,10550.0,F,"10,550",,2010-02-01
+europe,22400.0,F,"22,400",,2010-02-01
+north_america,4.0,F,4,,2010-02-01
+oceania,870.0,F,870,,2010-02-01
+south_america_caribbean,950.0,F,950,,2010-02-01
+africa,23400.0,F,"23,400","Except:
+Egypt: 12,300
+Ethiopia: 12,475
+Nigeria: 12,900",2010-01-01
+asia,9475.0,F,"9,475",,2010-01-01
+europe,19750.0,F,"19,750",,2010-01-01
+north_america,4.0,F,4,,2010-01-01
+oceania,775.0,F,775,,2010-01-01
+south_america_caribbean,925.0,F,925,,2010-01-01
+africa,17800.0,F,"17,800","Except:
+Egypt: 9,100
+Ethiopia: 9,000
+Nigeria: 10,400",2009-12-01
+asia,8250.0,F,"8,250",,2009-12-01
+europe,12400.0,F,"12,400",,2009-12-01
+north_america,3.0,F,3,,2009-12-01
+oceania,675.0,F,675,,2009-12-01
+south_america_caribbean,725.0,F,725,,2009-12-01
+africa,64300.0,F,"64,300","Except:
+Egypt: 22,750
+Ethiopia: 22,800
+Nigeria: 15,650",2009-08-01
+asia,,C,Current,,2009-08-01
+europe,,C,Current,,2009-08-01
+north_america,,C,Current,,2009-08-01
+oceania,,C,Current,,2009-08-01
+south_america_caribbean,,C,Current,,2009-08-01
+africa,48700.0,F,"48,700","Except: Egypt 21,600
+Ethiopia 21,100
+Nigeria 14,400",2009-07-01
+asia,,C,CURRENT,,2009-07-01
+europe,,C,CURRENT,,2009-07-01
+north_america,,C,CURRENT,,2009-07-01
+oceania,,C,CURRENT,,2009-07-01
+south_america_caribbean,,C,CURRENT,,2009-07-01
+africa,39600.0,F,"39,600","Except:
+Egypt 20,650
+Ethiopia 19,500
+Nigeria 12,750",2009-06-01
+asia,30350.0,F,"30,350",,2009-06-01
+europe,28000.0,F,"28,000",,2009-06-01
+north_america,15.0,F,15,,2009-06-01
+oceania,930.0,F,930,,2009-06-01
+south_america_caribbean,1100.0,F,"1,100",,2009-06-01
+africa,32400.0,F,"32,400","Except:
+Egypt 19,150
+Ethiopia 17,750
+Nigeria 11,550",2009-05-01
+asia,22800.0,F,"22,800",,2009-05-01
+europe,24900.0,F,"24,900",,2009-05-01
+north_america,10.0,F,10,,2009-05-01
+oceania,825.0,F,825,,2009-05-01
+south_america_caribbean,1000.0,F,"1,000",,2009-05-01
+africa,26900.0,F,"26,900","Except:
+Egypt 17,400
+Ethiopia 15,700
+Nigeria 9,900",2009-04-01
+asia,17400.0,F,"17,400","Except:
+Bangladesh  11,000",2009-04-01
+europe,20800.0,F,"20,800",,2009-04-01
+north_america,7.0,F,7,,2009-04-01
+oceania,715.0,F,715,,2009-04-01
+south_america_caribbean,900.0,F,900,,2009-04-01
+africa,23300.0,F,"23,300","Except:
+Egypt 13,300
+Ethiopia 11,650
+Nigeria 9,500",2009-02-01
+asia,11000.0,F,"11,000","Except: 
+Bangladesh 9,550",2009-02-01
+europe,17100.0,F,"17,100",,2009-02-01
+north_america,5.0,F,5,,2009-02-01
+oceania,575.0,F,575,,2009-02-01
+south_america_caribbean,800.0,F,800,,2009-02-01
+africa,18300.0,F,"18,300","Except:
+Egypt  10,800
+Ethiopia 10,000
+Nigeria 8,400",2009-01-01
+asia,8300.0,F,"8,300",,2009-01-01
+europe,15400.0,F,"15,400",,2009-01-01
+north_america,4.0,F,4,,2009-01-01
+oceania,480.0,F,480,,2009-01-01
+south_america_caribbean,790.0,F,790,,2009-01-01
+africa,15100.0,F,"15,100","Except:
+Egypt 8,700
+Ethiopia7,900
+Nigeria 6,700",2008-12-01
+asia,6850.0,F,"6,850",,2008-12-01
+europe,12900.0,F,"12,900",,2008-12-01
+north_america,4.0,F,4,,2008-12-01
+oceania,440.0,F,440,,2008-12-01
+south_america_caribbean,750.0,F,750,,2008-12-01
+africa,12500.0,F,"12,500","Except:
+Egypt  5,900
+Ethiopia 6,300
+Nigeria 6,000",2008-11-01
+asia,5300.0,F,"5,300",,2008-11-01
+europe,11000.0,F,"11,000",,2008-11-01
+north_america,3.0,F,3,,2008-11-01
+oceania,325.0,F,325,,2008-11-01
+south_america_caribbean,550.0,F,550,,2008-11-01
+africa,6900.0,F,"6,900","Except:
+Egypt  3,100
+Ethiopia 3,600
+Nigeria 3,350",2008-10-01
+asia,2900.0,F,"2,900",,2008-10-01
+europe,6600.0,F,"6,600",,2008-10-01
+north_america,2.0,F,2,,2008-10-01
+oceania,200.0,F,200,,2008-10-01
+south_america_caribbean,375.0,F,375,,2008-10-01
+africa,62300.0,F,"62,300",,2008-09-01
+asia,,C,CURRENT,,2008-09-01
+europe,,C,CURRENT,,2008-09-01
+north_america,,C,CURRENT,,2008-09-01
+oceania,,C,CURRENT,,2008-09-01
+south_america_caribbean,,C,CURRENT,,2008-09-01
+africa,47000.0,F,"47,000","Except:
+Egypt:
+31,000
+Ethiopia:
+22,800
+Nigeria:
+16,600",2008-08-01
+asia,,C,CURRENT,,2008-08-01
+europe,,C,CURRENT,,2008-08-01
+north_america,,C,CURRENT,,2008-08-01
+oceania,,C,CURRENT,,2008-08-01
+south_america_caribbean,,C,CURRENT,,2008-08-01
+africa,38050.0,F,"38,050","Except:
+Egypt:
+25,000
+Ethiopia:
+19,800
+Nigeria:
+14,650",2008-07-01
+asia,13400.0,F,"13,400",,2008-07-01
+europe,29000.0,F,"29,000",,2008-07-01
+north_america,13.0,F,13,,2008-07-01
+oceania,1650.0,F,"1,650",,2008-07-01
+south_america_caribbean,,C,Current,,2008-07-01
+africa,32000.0,F,"32,000","Except:
+Egypt:
+22,000
+Ethiopia:
+17,750
+Nigeria:
+13,000",2008-06-01
+asia,11900.0,F,"11,900",,2008-06-01
+europe,26000.0,F,"26,000",,2008-06-01
+north_america,12.0,F,12,,2008-06-01
+oceania,1500.0,F,"1,500",,2008-06-01
+south_america_caribbean,1700.0,F,"1,700",,2008-06-01
+africa,26700.0,F,"26,700","Except:
+Egypt:
+20,500
+Ethiopia:
+16,000
+Nigeria:
+11,600",2008-05-01
+asia,10500.0,F,"10,500",,2008-05-01
+europe,23500.0,F,"23,500",,2008-05-01
+north_america,12.0,F,12,,2008-05-01
+oceania,1400.0,F,"1,400",,2008-05-01
+south_america_caribbean,1550.0,F,"1,550",,2008-05-01
+africa,21500.0,F,"21,500","Except:
+Egypt:
+17,900
+Ethiopia:
+14,150
+Nigeria:
+9,900",2008-04-01
+asia,9100.0,F,"9,100",,2008-04-01
+europe,20625.0,F,"20,625",,2008-04-01
+north_america,11.0,F,11,,2008-04-01
+oceania,1200.0,F,"1,200",,2008-04-01
+south_america_caribbean,1425.0,F,"1,425",,2008-04-01
+africa,18500.0,F,"18,500","Except:
+Egypt:
+15,700
+Ethiopia:
+12,100
+Nigeria:
+8,750",2008-03-01
+asia,7875.0,F,"7,875",,2008-03-01
+europe,17600.0,F,"17,600",,2008-03-01
+north_america,8.0,F,8,,2008-03-01
+oceania,1025.0,F,"1,025",,2008-03-01
+south_america_caribbean,1350.0,F,"1,350",,2008-03-01
+africa,16200.0,F,"16,200","Except:
+Egypt:
+13,300
+Ethiopia:
+10,200
+Nigeria:
+7,700",2008-02-01
+asia,6900.0,F,"6,900",,2008-02-01
+europe,15300.0,F,"15,300",,2008-02-01
+north_america,5.0,F,5,,2008-02-01
+oceania,850.0,F,850,,2008-02-01
+south_america_caribbean,1175.0,F,"1,175",,2008-02-01
+africa,13100.0,F,"13,100","Except:
+Egypt:
+11,000
+Ethiopia:
+8,600
+Nigeria:
+7,200",2008-01-01
+asia,6100.0,F,"6,100",,2008-01-01
+europe,13600.0,F,"13,600",,2008-01-01
+north_america,3.0,F,3,,2008-01-01
+oceania,775.0,F,775,,2008-01-01
+south_america_caribbean,1075.0,F,"1,075",,2008-01-01
+africa,11100.0,F,"11,100","Except:
+Egypt:
+8,400
+Ethiopia:
+6,950
+Nigeria:
+6,900",2007-12-01
+asia,4750.0,F,"4,750",,2007-12-01
+europe,11100.0,F,"11,100",,2007-12-01
+north_america,3.0,F,3,,2007-12-01
+oceania,675.0,F,675,,2007-12-01
+south_america_caribbean,900.0,F,900,,2007-12-01
+africa,10000.0,F,"10,000","Except:
+Egypt:
+6,000
+Ethiopia:
+5,000
+Nigeria:
+6,300",2007-11-01
+asia,3500.0,F,"3,500",,2007-11-01
+europe,9200.0,F,"9,200",,2007-11-01
+north_america,3.0,F,3,,2007-11-01
+oceania,500.0,F,500,,2007-11-01
+south_america_caribbean,700.0,F,700,,2007-11-01
+africa,6700.0,F,"6,700","Except:
+Egypt:
+3,400
+Ethiopia:
+2,900
+Nigeria:
+4,700",2007-10-01
+asia,2100.0,F,"2,100",,2007-10-01
+europe,5800.0,F,"5,800",,2007-10-01
+north_america,2.0,F,2,,2007-10-01
+oceania,300.0,F,300,,2007-10-01
+south_america_caribbean,400.0,F,400,,2007-10-01
+africa,,C,CURRENT,"Except:
+Egypt 23,900
+Ethiopia 16,000
+Nigeria 20,700",2007-09-01
+asia,,C,CURRENT,,2007-09-01
+europe,,C,CURRENT,,2007-09-01
+north_america,,C,CURRENT,,2007-09-01
+oceania,,C,CURRENT,,2007-09-01
+south_america_caribbean,,C,CURRENT,,2007-09-01
+africa,,C,CURRENT,"Except:
+Egypt 22,600
+Ethiopia 16,000
+Nigeria 18,700",2007-08-01
+asia,,C,CURRENT,"Except:
+Bangladesh 8,150",2007-08-01
+europe,,C,CURRENT,"Except:
+Ukraine 13,700",2007-08-01
+north_america,,C,CURRENT,,2007-08-01
+oceania,,C,CURRENT,,2007-08-01
+south_america_caribbean,,C,CURRENT,,2007-08-01
+africa,35500.0,F,"35,500","Except:
+Egypt 22,600
+Ethiopia 22,900
+Nigeria 16,150",2007-07-01
+asia,7750.0,F,"7,750",,2007-07-01
+europe,23000.0,F,"23,000","Except:
+Ukraine 13,000",2007-07-01
+north_america,12.0,F,12,,2007-07-01
+oceania,1800.0,F,"1,800",,2007-07-01
+south_america_caribbean,2500.0,F,"2,500",,2007-07-01
+africa,27000.0,F,"27,000","Except:
+Egypt 21,800
+Ethiopia 18,900
+Nigeria 14,600",2007-06-01
+asia,6800.0,F,"6,800",,2007-06-01
+europe,19000.0,F,"19,000","Except:
+Ukraine 11,850",2007-06-01
+north_america,7.0,F,7,,2007-06-01
+oceania,1100.0,F,"1,100",,2007-06-01
+south_america_caribbean,1750.0,F,"1,750",,2007-06-01
+africa,20550.0,F,"20,550","Except:
+Ethiopia 17,100
+Nigeria 12,375",2007-05-01
+asia,5825.0,F,"5,825",,2007-05-01
+europe,16000.0,F,"16,000","Except:
+Ukraine 11,100",2007-05-01
+north_america,7.0,F,7,,2007-05-01
+oceania,900.0,F,900,,2007-05-01
+south_america_caribbean,1450.0,F,"1,450",,2007-05-01
+africa,17700.0,F,"17,700","Except:
+Ethiopia 15,400
+Nigeria 10,750",2007-04-01
+asia,5125.0,F,"5,125",,2007-04-01
+europe,15100.0,F,"15,100","Except:
+Ukraine 10,700",2007-04-01
+north_america,7.0,F,7,,2007-04-01
+oceania,825.0,F,825,,2007-04-01
+south_america_caribbean,1240.0,F,"1,240",,2007-04-01
+africa,15250.0,F,"15,250","Except:
+Ethiopia 13,300
+Nigeria 9,125",2007-03-01
+asia,4450.0,F,"4,450",,2007-03-01
+europe,13175.0,F,"13,175","Except:
+Ukraine 10,400",2007-03-01
+north_america,7.0,F,7,,2007-03-01
+oceania,700.0,F,700,,2007-03-01
+south_america_caribbean,1010.0,F,"1,010",,2007-03-01
+africa,11850.0,F,"11,850","Except:
+Ethiopia 10,800
+Nigeria 7,600",2007-02-01
+asia,3800.0,F,"3,800",,2007-02-01
+europe,10400.0,F,"10,400",,2007-02-01
+north_america,7.0,F,7,,2007-02-01
+oceania,550.0,F,550,,2007-02-01
+south_america_caribbean,825.0,F,825,,2007-02-01
+africa,11300.0,F,"11,300","Except:
+Egypt 10,900
+Ethiopia 9,000
+Nigeria 7,000",2007-01-01
+asia,3800.0,F,"3,800",,2007-01-01
+europe,9900.0,F,"9,900",,2007-01-01
+north_america,7.0,F,7,,2007-01-01
+oceania,460.0,F,460,,2007-01-01
+south_america_caribbean,700.0,F,700,,2007-01-01
+africa,10300.0,F,"10,300","Except:
+Egypt 7,700
+Ethiopia 7,300
+Nigeria 5,900",2006-12-01
+asia,3500.0,F,"3,500",,2006-12-01
+europe,7700.0,F,"7,700",,2006-12-01
+north_america,7.0,F,7,,2006-12-01
+oceania,375.0,F,375,,2006-12-01
+south_america_caribbean,525.0,F,525,,2006-12-01
+africa,8500.0,F,"8,500","Except:
+Egypt 5,600
+Ethiopia 5,600
+Nigeria 4,300",2006-11-01
+asia,2600.0,F,"2,600",,2006-11-01
+europe,5700.0,F,"5,700",,2006-11-01
+north_america,6.0,F,6,,2006-11-01
+oceania,280.0,F,280,,2006-11-01
+south_america_caribbean,350.0,F,350,,2006-11-01
+africa,5700.0,F,"5,700","Except: 
+Egypt 3,100
+Ethiopia 3,500
+Nigeria 2,700",2006-10-01
+asia,1550.0,F,"1,550",,2006-10-01
+europe,3450.0,F,"3,450",,2006-10-01
+north_america,4.0,F,4,,2006-10-01
+oceania,150.0,F,150,,2006-10-01
+south_america_caribbean,225.0,F,225,,2006-10-01
+africa,,C,Current,"Except:
+Egypt
+24,300
+Ethiopia
+25,300",2006-09-01
+asia,,C,Current,,2006-09-01
+europe,,C,Current,,2006-09-01
+north_america,,C,Current,,2006-09-01
+oceania,,C,Current,,2006-09-01
+south_america_caribbean,,C,Current,,2006-09-01
+africa,33900.0,F,"33,900","Except:
+Ethiopia 24,100
+Nigeria 16,000",2006-08-01
+asia,7700.0,F,"7,700",,2006-08-01
+europe,16000.0,F,"16,000",,2006-08-01
+north_america,15.0,F,15,,2006-08-01
+oceania,1115.0,F,"1,115",,2006-08-01
+south_america_caribbean,1900.0,F,"1,900",,2006-08-01
+africa,27850.0,F,"AF   27,850","Except
+Ethiopia: 22,800
+Nigeria: 14,675",2006-07-01
+asia,7225.0,F,"AS    7,225",,2006-07-01
+europe,15250.0,F,"EU   15,250",,2006-07-01
+north_america,13.0,F,NA       13,,2006-07-01
+oceania,930.0,F,OC      930,,2006-07-01
+south_america_caribbean,1610.0,F,"SA    1,610",,2006-07-01
+africa,23500.0,F,"AF   23,500","Except: Ethiopia 20,400
+Nigeria  13,400",2006-06-01
+asia,6700.0,F,"AS    6,700",,2006-06-01
+europe,14200.0,F,"EU   14,200",,2006-06-01
+north_america,12.0,F,NA   12,,2006-06-01
+oceania,830.0,F,OC   830,,2006-06-01
+south_america_caribbean,1375.0,F,"SA   1,375",,2006-06-01
+africa,20400.0,F,"20,400","Except:
+Ethiopia 18,950
+Nigeria 12,350",2006-05-01
+asia,6100.0,F,"6,100",,2006-05-01
+europe,12850.0,F,"12,850",,2006-05-01
+north_america,10.0,F,10,,2006-05-01
+oceania,735.0,F,735,,2006-05-01
+south_america_caribbean,1175.0,F,"1,175",,2006-05-01
+africa,16950.0,F,"16,950","Except:
+Nigeria 10,900",2006-04-01
+asia,5350.0,F,"5,350",,2006-04-01
+europe,11225.0,F,"11,225",,2006-04-01
+north_america,8.0,F,8,,2006-04-01
+oceania,610.0,F,610,,2006-04-01
+south_america_caribbean,975.0,F,975,,2006-04-01
+africa,14200.0,F,"14,200","Except:
+Nigeria 9,550",2006-03-01
+asia,4700.0,F,"4,700",,2006-03-01
+europe,9850.0,F,"9,850",,2006-03-01
+north_america,7.0,F,7,,2006-03-01
+oceania,500.0,F,500,,2006-03-01
+south_america_caribbean,820.0,F,820,,2006-03-01
+africa,11600.0,F,"11,600","Except:
+Nigeria 8,150",2006-02-01
+asia,3900.0,F,"3,900",,2006-02-01
+europe,8300.0,F,"8,300",,2006-02-01
+north_america,6.0,F,6,,2006-02-01
+oceania,400.0,F,400,,2006-02-01
+south_america_caribbean,700.0,F,700,,2006-02-01
+africa,9000.0,F,"9,000","Except:
+Nigeria 6,400",2006-01-01
+asia,3100.0,F,"3,100","Except: Bangladesh 3,025",2006-01-01
+europe,6800.0,F,"6,800",,2006-01-01
+north_america,6.0,F,6,,2006-01-01
+oceania,330.0,F,330,,2006-01-01
+south_america_caribbean,550.0,F,550,,2006-01-01
+africa,7500.0,F,"7,500","Except: Ethiopia 6,800
+Nigeria 5,400",2005-12-01
+asia,2500.0,F,"2,500","Except: Bangladesh 2,300",2005-12-01
+europe,5500.0,F,"5,500",,2005-12-01
+north_america,5.0,F,5,,2005-12-01
+oceania,270.0,F,270,,2005-12-01
+south_america_caribbean,400.0,F,400,,2005-12-01
+africa,6000.0,F,"6,000","Except: Ethiopia 4,600
+Nigeria 3,700",2005-11-01
+asia,1700.0,F,"1,700","Except: Bangladesh 1,650",2005-11-01
+europe,3900.0,F,"3,900",,2005-11-01
+north_america,5.0,F,5,,2005-11-01
+oceania,200.0,F,200,,2005-11-01
+south_america_caribbean,275.0,F,275,,2005-11-01
+africa,6000.0,F,"6,000",,2005-10-01
+asia,1000.0,F,"1,000",,2005-10-01
+europe,3000.0,F,"3,000",,2005-10-01
+north_america,4.0,F,4,,2005-10-01
+oceania,140.0,F,140,,2005-10-01
+south_america_caribbean,135.0,F,135,,2005-10-01
+africa,46700.0,F,"46,700","Except:
+Ethiopia 32,500",2005-09-01
+asia,11400.0,F,"11,400","Except:
+Bangladesh 8,850",2005-09-01
+europe,20500.0,F,"20,500","Except:
+Ukraine 18,150",2005-09-01
+north_america,13.0,F,13,,2005-09-01
+oceania,,C,CURRENT,,2005-09-01
+south_america_caribbean,2755.0,F,"2,755",,2005-09-01
+africa,39500.0,F,"39,500","Except:
+Ethiopia 30,100",2005-08-01
+asia,10200.0,F,"10,200","Except:
+Bangladesh 7,820",2005-08-01
+europe,20500.0,F,"20,500","Except:
+Ukraine 15,100",2005-08-01
+north_america,13.0,F,13,,2005-08-01
+oceania,1275.0,F,"1,275",,2005-08-01
+south_america_caribbean,2300.0,F,"2,300",,2005-08-01
+africa,32800.0,F,"32,800","Except:
+Ethiopia 29,400
+Nigeria 23,300",2005-07-01
+asia,9200.0,F,"9,200","Except:
+Bangladesh 6,700",2005-07-01
+europe,20500.0,F,"20,500","Except:
+Ukraine 10,800",2005-07-01
+north_america,13.0,F,13,,2005-07-01
+oceania,1180.0,F,"1,180",,2005-07-01
+south_america_caribbean,1800.0,F,"1,800",,2005-07-01
+africa,28450.0,F,"28,450","Except: Nigeria  21,400",2005-06-01
+asia,7900.0,F,"7,900","Except: Bangladesh  5,975",2005-06-01
+europe,20500.0,F,"20,500","Except: Poland    20,000
+              Ukraine     5,570",2005-06-01
+north_america,13.0,F,13,,2005-06-01
+oceania,1000.0,F,"1,000",,2005-06-01
+south_america_caribbean,1775.0,F,"1,775",,2005-06-01
+africa,27700.0,F,"27,700","Except: Nigeria 21,300",2005-05-01
+asia,7250.0,F,"7,250","Except: Bangladesh 5,400",2005-05-01
+europe,20000.0,F,"20,000",,2005-05-01
+north_america,13.0,F,13,,2005-05-01
+oceania,900.0,F,900,,2005-05-01
+south_america_caribbean,1600.0,F,"1,600",,2005-05-01
+africa,25100.0,F,"25,100","Except: Nigeria 19,700",2005-04-01
+asia,7000.0,F,"7,000","Except: Bangladesh 5,300",2005-04-01
+europe,18200.0,F,"18,200",,2005-04-01
+north_america,13.0,F,13,,2005-04-01
+oceania,775.0,F,775,,2005-04-01
+south_america_caribbean,1450.0,F,"1,450",,2005-04-01
+africa,22800.0,F,"22,800","Except: Nigeria 17,600",2005-03-01
+asia,5900.0,F,"5,900","Except: Bangladesh 4,700",2005-03-01
+europe,17150.0,F,"17,150",,2005-03-01
+north_america,13.0,F,13,,2005-03-01
+oceania,650.0,F,650,,2005-03-01
+south_america_caribbean,1300.0,F,"1,300",,2005-03-01
+africa,20225.0,F,"20,225","Except: Nigeria 17,600",2005-02-01
+asia,5700.0,F,"5,700","Except: Bangladesh 4,700",2005-02-01
+europe,16600.0,F,"16,600",,2005-02-01
+north_america,13.0,F,13,,2005-02-01
+oceania,535.0,F,535,,2005-02-01
+south_america_caribbean,1125.0,F,"1,125",,2005-02-01
+africa,17400.0,F,"17,400","Except: Nigeria 14,600",2005-01-01
+asia,5100.0,F,"5,100","Except: Bangladesh 4,300",2005-01-01
+europe,14900.0,F,"14,900",,2005-01-01
+north_america,11.0,F,11,,2005-01-01
+oceania,460.0,F,460,,2005-01-01
+south_america_caribbean,875.0,F,875,,2005-01-01
+africa,14000.0,F,"14,000","Except: Nigeria 11,300",2004-12-01
+asia,5000.0,F,"5,000","Except: Bangladesh 4,300",2004-12-01
+europe,13000.0,F,"13,000",,2004-12-01
+north_america,10.0,F,10,,2004-12-01
+oceania,330.0,F,330,,2004-12-01
+south_america_caribbean,640.0,F,640,,2004-12-01
+africa,10300.0,F,"10,300","Except: Nigeria 9,900",2004-11-01
+asia,4300.0,F,"4,300",,2004-11-01
+europe,10850.0,F,"10,850",,2004-11-01
+north_america,8.0,F,8,,2004-11-01
+oceania,250.0,F,250,,2004-11-01
+south_america_caribbean,450.0,F,450,,2004-11-01
+africa,9900.0,F,"9,900",,2004-10-01
+asia,9600.0,F,"9,600",,2004-10-01
+europe,10850.0,F,"10,850",,2004-10-01
+north_america,5.0,F,5,,2004-10-01
+oceania,150.0,F,150,,2004-10-01
+south_america_caribbean,300.0,F,300,,2004-10-01
+africa,35450.0,F,"35,450","Except: Ethiopia 31,600
+Ghana 27,600
+Nigeria 18,600",2004-09-01
+asia,16300.0,F,"16,300",,2004-09-01
+europe,28700.0,F,"28,700",,2004-09-01
+north_america,15.0,F,15,,2004-09-01
+oceania,,C,CURRENT,,2004-09-01
+south_america_caribbean,,C,CURRENT,,2004-09-01
+africa,34300.0,F,"34,300","Except: Ethiopia 30,500
+Ghana 22,000
+Nigeria 17,900",2004-08-01
+asia,13600.0,F,"13,600",,2004-08-01
+europe,25900.0,F,"25,900",,2004-08-01
+north_america,15.0,F,15,,2004-08-01
+oceania,,C,CURRENT,,2004-08-01
+south_america_caribbean,2175.0,F,"2,175",,2004-08-01
+africa,32500.0,F,"32,500","Except: Ethiopia 29,850
+Ghana 17,500
+Nigeria 17,250",2004-07-01
+asia,13400.0,F,"13,400",,2004-07-01
+europe,23350.0,F,"23,350","Except: Ukraine 11,400",2004-07-01
+north_america,15.0,F,15,,2004-07-01
+oceania,1000.0,F,"1,000",,2004-07-01
+south_america_caribbean,1925.0,F,"1,925",,2004-07-01
