@@ -16,7 +16,15 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.csv"
 
-from config import DEAD_MONTHS  # noqa: E402
+from config import DEAD_MONTHS, DV_RANK_PATH  # noqa: E402
+
+# Diversity-Visa coverage floors. DV is network-scraped and its early (blob) era
+# is partial, so the gate uses FLOORS (>=) that pin the established good state and
+# fail on real degradation, tolerating transient ±1-2 month scrape variation.
+DV_FLOOR = pd.Timestamp("2001-12-01")
+DV_MIN_ROWS = 1550
+DV_MIN_MONTHS = 255
+DV_MIN_COMPLETE_MONTHS = 255  # months carrying all 6 DV regions
 
 EXPECTED_COLS = [
     "country",
@@ -131,6 +139,20 @@ def test_no_missing_months_per_block_table():
         if gaps:
             offenders[f"{block}/{table}"] = gaps
     assert not offenders, f"meses ausentes dentro del span de un (bloque,tabla): {offenders}"
+
+
+def test_dv_coverage_floor():
+    # Diversity Visa has its own completeness gate (the panel's gates don't see
+    # it). Floors pin the established coverage so the daily Action aborts if a
+    # scrape silently degrades DV — the gap the brutal audit found.
+    dv = pd.read_csv(DV_RANK_PATH, parse_dates=["visa_bulletin_date"])
+    assert len(dv) >= DV_MIN_ROWS, f"DV degradado: {len(dv)} filas < {DV_MIN_ROWS}"
+    assert set(dv.status.unique()) <= VALID_STATUS, f"estado DV inválido: {set(dv.status.unique())}"
+    months = dv["visa_bulletin_date"].dt.to_period("M")
+    assert months.min() <= DV_FLOOR.to_period("M"), f"DV perdió el piso {DV_FLOOR.date()}: {months.min()}"
+    assert months.nunique() >= DV_MIN_MONTHS, f"cobertura DV cayó a {months.nunique()} meses"
+    complete = int((dv.groupby("visa_bulletin_date").region.nunique() == 6).sum())
+    assert complete >= DV_MIN_COMPLETE_MONTHS, f"meses DV con 6 regiones cayó a {complete}"
 
 
 def _run():

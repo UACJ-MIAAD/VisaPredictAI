@@ -101,7 +101,7 @@
     <rect x="910" y="250" width="210" height="140" rx="12" fill="#FFFDF0" stroke="#E6BD00" stroke-width="2"/>
     <path d="M922 250 h186 a12 12 0 0 1 12 12 v18 h-210 v-18 a12 12 0 0 1 12 -12 Z" fill="#E6BD00"/>
     <text x="1015" y="271" text-anchor="middle" font-size="13.5" font-weight="700" fill="#231F20">fact_dv_rank</text>
-    <text x="924" y="300" font-size="10.5" fill="#3a3a3a"><tspan font-style="italic" fill="#1955BF">region·date</tspan><tspan> PK/FK</tspan><tspan x="924" dy="15" font-style="italic" fill="#1955BF">status</tspan><tspan> FK</tspan><tspan x="924" dy="15" font-weight="700" fill="#003CA6">rank_cutoff  (iff F)</tspan><tspan x="924" dy="15">exceptions (per-country)</tspan><tspan x="924" dy="15" font-style="italic" fill="#777">Diversity Visa · 1,605 filas</tspan></text>
+    <text x="924" y="300" font-size="10.5" fill="#3a3a3a"><tspan font-style="italic" fill="#1955BF">region·date</tspan><tspan> PK/FK</tspan><tspan x="924" dy="15" font-style="italic" fill="#1955BF">status</tspan><tspan> FK</tspan><tspan x="924" dy="15" font-weight="700" fill="#003CA6">rank_cutoff  (iff F)</tspan><tspan x="924" dy="15">exceptions (per-country)</tspan><tspan x="924" dy="15" font-style="italic" fill="#777">Diversity Visa · ≈1,600 filas</tspan></text>
   </g>
 
   <!-- dim_region -->

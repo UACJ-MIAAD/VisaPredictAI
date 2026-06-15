@@ -118,12 +118,18 @@ que el CSV) uniendo el hecho con sus dimensiones. Es lo que consume el modelado.
 
 DV se publica como un **número de rango** regional, no una fecha, así que vive en
 su propio hecho `fact_dv_rank` (no contamina el panel de fechas). Fuente:
-`data/raw/dv_visa_rank_timecourse.csv` (**1,605 filas · 6 regiones · 268 meses,
-2001-12→2026-06** — el mismo piso temporal que el panel). El parser maneja **dos
-formatos**: el tabular moderno y, como fallback, el **blob de una sola celda**
-2001-2004 (`AFRICA: AF 21,400 …`, ver `extract_dv_blob`). Fuera de alcance: la
-*advance notification* (la 2ª tabla DV es un mes futuro, no FAD/DFF — sería otra
-serie con mes-objetivo distinto).
+`data/raw/dv_visa_rank_timecourse.csv` (**≈1,610 filas · 6 regiones · ≈269 meses**;
+el conteo varía ±transitorio entre scrapes). El parser maneja **dos formatos**: el
+tabular moderno (cobertura sólida) y, como fallback, el **blob de una sola celda**
+(`AFRICA: AF 21,400 …`, ver `extract_dv_blob`).
+
+> **Cobertura honesta (hallazgos del audit).** El span llega a **2001-12** (el piso
+> del proyecto), pero la era **2002-2003 es PARCIAL**: ~11 meses recuperados, **~20
+> faltantes** porque publican DV en HTML **no-tabular** (sin `<table>`), aún no
+> parseado — trabajo futuro. **2 meses** (2002-05, 2004-05) traen <6 regiones. Estos
+> huecos ya **no son silenciosos**: `test_dv_coverage_floor` (gate del cron) exige
+> pisos de filas/meses/meses-completos y aborta si DV se degrada. Fuera de alcance:
+> la *advance notification* (2ª tabla DV = mes futuro, no FAD/DFF).
 
 > **Schedule A.** No se modela porque **no es una categoría con fecha propia**: no
 > aparece como fila con corte en ningún boletín (verificado 2002/2007/2020); es un
@@ -157,7 +163,9 @@ Vista `v_dv_long` = `fact_dv_rank ⨝ dim_region ⨝ dim_date`.
 - **`etl_run`** — auditoría de carga: una fila por *build* (`built_at_utc`,
   `schema_version`, conteos de hechos, `n_trainable_f`, **`pct_trainable`**,
   `panel_floor`/`panel_ceiling`). Provenance a nivel build (la BD se reconstruye
-  entera, así que un `run_id` por fila sería uniforme y sin señal).
+  entera, así que un `run_id` por fila sería uniforme y sin señal). Nota: el
+  `built_at_utc` hace el `.duckdb` no-byte-reproducible **por diseño**; el
+  **contenido sí es determinista** (verificado: dos builds → tablas idénticas).
 - **Estrategia de calidad:** el contrato se **rechaza en el esquema** (PK/FK/CHECK)
   y se **verifica en CI** (pytest); el dato entra ya limpio del gate de
   `build_panel`. Por eso **no hay tabla `quarantine`** (estaría vacía) ni scripts

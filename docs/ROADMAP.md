@@ -32,10 +32,13 @@ de país. Como el valor es entero y no fecha, **DV no cabe** en
 3. **✅ Decisión Schedule A**: **excluida con evidencia** — no es una categoría con
    fecha propia (no aparece como fila con corte en 2002/2007/2020; es certificación
    laboral dentro de EB-3). Documentado en `docs/data_dictionary.md`.
-4. **✅ Cobertura completa + auditoría de taxonomía**: el **formato blob 2001-2004
-   recuperado** (`extract_dv_blob`) lleva DV al piso del proyecto; `test_category_taxonomy_complete`
-   fija la taxonomía (21 cats + 6 regiones). **Fuera de alcance documentado**: la
-   *advance notification* (2ª tabla DV = mes futuro, otra serie).
+4. **✅ Cobertura + auditoría de taxonomía**: el **formato blob recuperado
+   PARCIALMENTE** (`extract_dv_blob`) lleva el piso DV a 2001-12, pero 2002-2003 es
+   parcial (~20 meses en HTML no-tabular, pendientes). `test_category_taxonomy_complete`
+   fija la taxonomía (21 cats + 6 regiones) y **`test_dv_coverage_floor`** (gate del
+   cron) protege la cobertura DV contra degradación silenciosa. **Fuera de alcance
+   documentado**: la *advance notification* (2ª tabla DV = mes futuro) y el HTML
+   no-tabular 2002-2003.
 
 ## FASE 2 — Modelo dimensional supremo  ✅ COMPLETA
 

@@ -145,7 +145,7 @@ def extract_dv_data(all_tables: list[pd.DataFrame]) -> pd.DataFrame:
             status, rank = classify_dv_rank(r.iloc[value_idx])
             exc = ""
             if exc_idx is not None and pd.notna(r.iloc[exc_idx]):
-                exc = str(r.iloc[exc_idx]).strip()
+                exc = re.sub(r"\s+", " ", str(r.iloc[exc_idx])).strip()
             out.append(
                 {
                     "region": slug,
