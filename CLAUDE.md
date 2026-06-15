@@ -104,7 +104,8 @@ python visualize_visa_wait_times.py
 ```
 
 > El GitHub Action (`update_graphs.yml`) corre los 2 scrapers → `build_panel.py`
-> → visualizaciones, y commitea diariamente (incluye el panel nuevo vía `git add -A`).
+> → **gate de tests** → commit diario (vía `git add -A`; abre issue en fallo). Las
+> figuras **ya no se generan ni versionan** en el Action (regenerar con `make figures`).
 
 ## Contexto del scraping
 
