@@ -117,6 +117,28 @@ JOIN dim_category c ON c.category_id = f.category_id
 WHERE f.status = 'F'
 GROUP BY c.block, c.preference_level;
 
+-- ─────────────────────────── CATEGORY ALIAS BRIDGE ───────────────────────────
+
+-- Lineage of 20 years of label drift, lifted OUT of the classify_*() code into
+-- data: every raw category label as the bulletin actually published it, mapped
+-- to its canonical category, with the window of months it was observed. Makes
+-- the normalization auditable ("which spellings became EB5_RC, and when?").
+CREATE TABLE dim_category_alias (
+    alias_id     INTEGER  PRIMARY KEY,
+    category_id  INTEGER  NOT NULL REFERENCES dim_category(category_id),
+    raw_label    VARCHAR  NOT NULL,
+    valid_from   DATE     NOT NULL,
+    valid_to     DATE     NOT NULL,
+    n_months     INTEGER  NOT NULL CHECK (n_months > 0),
+    UNIQUE (category_id, raw_label),
+    CHECK (valid_from <= valid_to)
+);
+
+CREATE VIEW v_category_alias AS
+SELECT c.block AS block, c.code AS canonical, x.raw_label, x.valid_from, x.valid_to, x.n_months
+FROM dim_category_alias x
+JOIN dim_category c ON c.category_id = x.category_id;
+
 -- ─────────────────────────── DIVERSITY VISA (DV) ───────────────────────────
 
 -- DV is published as a regional RANK NUMBER, not a priority date, so it gets its

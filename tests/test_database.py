@@ -187,3 +187,36 @@ def test_status_fk_rejects_unknown():
     con.execute("DELETE FROM dim_status WHERE status='C'")  # remove a status
     with pytest.raises(duckdb.ConstraintException):  # fact referencing it now fails the FK
         con.execute("INSERT INTO fact_priority VALUES (1, 1, 1, 1, 'C', NULL, NULL, 'x')")
+
+
+# ─────────────────────────── Phase 2: category-alias lineage bridge ─────────
+
+
+def test_alias_bridge_documents_drift():
+    con, _, _ = _loaded()
+    n = con.execute("SELECT count(*) FROM dim_category_alias").fetchone()[0]
+    assert n > 21, "debe haber más alias que categorías (deriva de etiquetas)"
+    # a category that drifted across many published spellings
+    tea = con.execute("SELECT count(*) FROM v_category_alias WHERE canonical = 'EB5_TEA'").fetchone()[0]
+    assert tea >= 2, "EB5_TEA debería tener varias etiquetas crudas observadas"
+    # every alias resolves to a real canonical (the join loses nothing)
+    orphans = con.execute(
+        "SELECT count(*) FROM dim_category_alias x LEFT JOIN dim_category c USING (category_id) WHERE c.code IS NULL"
+    ).fetchone()[0]
+    assert orphans == 0
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "(2, 99, 'x', DATE '2001-12-01', DATE '2002-01-01', 1)",  # FK to a nonexistent category
+        "(2, 1, 'y', DATE '2020-01-01', DATE '2001-12-01', 1)",  # valid_from > valid_to
+        "(2, 1, 'z', DATE '2001-12-01', DATE '2002-01-01', 0)",  # n_months not > 0
+        "(2, 1, '1st', DATE '2001-12-01', DATE '2002-01-01', 1)",  # duplicate (category_id, raw_label)
+    ],
+)
+def test_alias_constraints_reject_bad_rows(bad):
+    con = _empty_schema()
+    con.execute("INSERT INTO dim_category_alias VALUES (1, 1, '1st', DATE '2001-12-01', DATE '2020-01-01', 50)")
+    with pytest.raises(duckdb.ConstraintException):
+        con.execute(f"INSERT INTO dim_category_alias VALUES {bad}")

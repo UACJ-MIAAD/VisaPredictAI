@@ -73,6 +73,25 @@ es nula y la celda se conserva como anotación descriptiva (formulación v5.1).
 entrenables (`status='F'`) por `block × preference_level`, plegando las
 subcategorías a su preferencia (todas las `EB5_*` cuentan bajo EB-5).
 
+### `dim_category_alias` — bridge de linaje (deriva de etiquetas)
+
+Saca a **datos auditables** los 20 años de deriva de etiquetas que antes vivían
+enterrados en `classify_*()`: cada etiqueta cruda tal como el boletín la publicó,
+mapeada a su categoría canónica, con la ventana de meses en que se observó. Se
+construye desde la columna `raw_category` de los CSV crudos. **48 alias** sobre 21
+categorías (p. ej. `EB5_TEA` tuvo 7 grafías distintas 2001-2015).
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `alias_id` | INTEGER PK | surrogate |
+| `category_id` | INTEGER FK | → `dim_category` |
+| `raw_label` | VARCHAR | etiqueta publicada (whitespace colapsado) · UNIQUE(`category_id`,`raw_label`) |
+| `valid_from` / `valid_to` | DATE | primer/último mes observado (CHECK `from ≤ to`) |
+| `n_months` | INTEGER | meses en que apareció (CHECK > 0) |
+
+Vista `v_category_alias` une el bridge con `dim_category` (expone `block` +
+`canonical`). Responde "¿qué grafías se volvieron `EB5_RC`, y cuándo?".
+
 ## Hecho: `fact_priority`
 | Columna | Tipo | Notas |
 |---|---|---|

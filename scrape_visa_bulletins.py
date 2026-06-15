@@ -135,6 +135,7 @@ def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataF
                 "raw_value",
                 "status",
                 "visa_wait_time",
+                "raw_category",
             ]
         )
 
@@ -143,6 +144,10 @@ def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataF
 
     # raw_value / status / parse priority_date / visa_wait_time (H1 annotation).
     country_df = annotate_dates(country_df, "priority_date")
+
+    # Preserve the raw published label before normalizing it, so
+    # dim_category_alias can document 20 years of label drift (lineage).
+    country_df["raw_category"] = country_df["EB_level"].astype(str).str.strip()
 
     # Map the raw 'Employment-based' label to a canonical category code
     # (EB1..EB5 + subcategories); drop rows that are not an EB preference (H3).

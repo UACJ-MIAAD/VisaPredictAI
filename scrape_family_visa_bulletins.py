@@ -83,13 +83,19 @@ def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataF
         country_data.append(sub)
 
     if not country_data:
-        return pd.DataFrame(columns=["F_level", "priority_date", "visa_bulletin_date", "visa_wait_time", "table_type"])
+        return pd.DataFrame(
+            columns=["F_level", "priority_date", "visa_bulletin_date", "visa_wait_time", "table_type", "raw_category"]
+        )
 
     country_df = pd.concat(country_data, axis=0, ignore_index=True)
     country_df = country_df[country_df["visa_bulletin_date"].notna()]
 
     # raw_value / status / parse priority_date / visa_wait_time (H1 annotation).
     country_df = annotate_dates(country_df, "priority_date")
+
+    # Preserve the raw published label before normalizing it, so
+    # dim_category_alias can document 20 years of label drift (lineage).
+    country_df["raw_category"] = country_df["F_level"].astype(str).str.strip()
 
     # Map the raw 'Family-Sponsored' label to a canonical level code
     # (1, 2A, 2B, 3, 4); drop rows that are not a family category.

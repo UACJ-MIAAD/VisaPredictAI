@@ -19,7 +19,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from config import DUCKDB_PATH, DV_RANK_PATH, PANEL_PATH, PARQUET_PATH
+from config import DUCKDB_PATH, DV_RANK_PATH, PANEL_PATH, PARQUET_PATH, RAW_DIR
 
 logger = logging.getLogger(__name__)
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
@@ -120,6 +120,49 @@ def _load_dv(con: duckdb.DuckDBPyConnection, dv: pd.DataFrame, dim_date: pd.Data
     )
 
 
+def _load_aliases(con: duckdb.DuckDBPyConnection, dim_category: pd.DataFrame) -> None:
+    """Build dim_category_alias from the raw per-country CSVs: every published
+    label -> canonical category, with the window of months it appeared. Skips
+    silently if the raw CSVs predate the ``raw_category`` lineage column."""
+    frames = []
+    for fp in sorted(RAW_DIR.glob("*_visa_backlog_timecourse.csv")):
+        d = pd.read_csv(fp)
+        if "raw_category" not in d.columns:
+            continue
+        if "F_level" in d.columns:
+            d["code"] = "F" + d["F_level"].astype(str)
+            d["block"] = "family"
+        else:
+            d["code"] = d["EB_level"].astype(str)
+            d["block"] = "employment"
+        d["bulletin_date"] = pd.to_datetime(d["visa_bulletin_date"])
+        d["raw_label"] = d["raw_category"].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
+        frames.append(d[["block", "code", "raw_label", "bulletin_date"]])
+    if not frames:
+        return
+
+    agg = (
+        pd.concat(frames, ignore_index=True)
+        .groupby(["block", "code", "raw_label"])
+        .agg(
+            valid_from=("bulletin_date", "min"),
+            valid_to=("bulletin_date", "max"),
+            n_months=("bulletin_date", "nunique"),
+        )
+        .reset_index()
+        .merge(dim_category[["category_id", "block", "code"]], on=["block", "code"], validate="m:1")
+        .sort_values(["category_id", "raw_label"])
+        .reset_index(drop=True)
+    )
+    agg.insert(0, "alias_id", range(1, len(agg) + 1))
+
+    con.register("v_dim_alias", agg)
+    con.execute(
+        "INSERT INTO dim_category_alias SELECT alias_id, category_id, raw_label, "
+        "CAST(valid_from AS DATE), CAST(valid_to AS DATE), n_months FROM v_dim_alias"
+    )
+
+
 def build(con: duckdb.DuckDBPyConnection, panel: pd.DataFrame, dv: pd.DataFrame | None = None) -> None:
     """Create the star schema on ``con`` and load it from the long ``panel`` and
     the optional Diversity-Visa ``dv`` rank frame.
@@ -204,6 +247,7 @@ def build(con: duckdb.DuckDBPyConnection, panel: pd.DataFrame, dv: pd.DataFrame 
         "CAST(priority_date AS DATE), CAST(days_since_base AS INTEGER), raw_value FROM v_fact"
     )
 
+    _load_aliases(con, dim_category)
     if dv is not None:
         _load_dv(con, dv, dim_date)
 
@@ -217,7 +261,15 @@ def main() -> None:
     try:
         build(con, df, dv)
         con.execute(f"COPY (SELECT * FROM v_panel_long) TO '{PARQUET_PATH.as_posix()}' (FORMAT parquet)")
-        tables = ["dim_area", "dim_category", "dim_status", "dim_table", "dim_date", "fact_priority"]
+        tables = [
+            "dim_area",
+            "dim_category",
+            "dim_category_alias",
+            "dim_status",
+            "dim_table",
+            "dim_date",
+            "fact_priority",
+        ]
         if dv is not None:
             tables += ["dim_region", "fact_dv_rank"]
         for tbl in tables:
