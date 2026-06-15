@@ -110,6 +110,29 @@ def test_no_unexpected_missing_months():
     assert not missing, f"meses ausentes no explicados (solo se esperan los muertos): {sorted(missing)}"
 
 
+def test_no_missing_months_per_block_table():
+    # Finer-grained companion to test_no_unexpected_missing_months. The union
+    # gate above only checks a month exists in *some* block, so a transient
+    # single-block loss slips through: e.g. employment 2007-12 hits a redirect
+    # loop and fails all retries, yet family still carries 2007-12, so the union
+    # stays complete and the ~40 dropped employment rows commit silently. Check
+    # completeness within each (block, table) over ITS OWN span instead, so an
+    # employment-only gap fails the gate and the daily Action aborts. Per-series
+    # is intentionally NOT used: many EB-5 series are legitimately short or
+    # discontinuous (category-regime changes), which would make it flap.
+    p = _panel()
+    dead = set(DEAD_MONTHS)
+    offenders = {}
+    for (block, table), g in p.groupby(["block", "table"]):
+        per = g.bulletin_date.dt.to_period("M")
+        full = {str(m) for m in pd.period_range(per.min(), per.max(), freq="M")}
+        present = {str(m) for m in per.unique()}
+        gaps = sorted(full - present - dead)
+        if gaps:
+            offenders[f"{block}/{table}"] = gaps
+    assert not offenders, f"meses ausentes dentro del span de un (bloque,tabla): {offenders}"
+
+
 def _run():
     if not PANEL.exists():
         print(f"✗ no existe {PANEL}; corre build_panel.py primero")

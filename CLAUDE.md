@@ -21,7 +21,7 @@ VisaPredictAI/
 ├── scrape_visa_bulletins.py           # scraper empleo (importa de visa_common; ~2 min)
 ├── scrape_family_visa_bulletins.py    # scraper familiar (importa de visa_common)
 ├── build_panel.py · audit_data_quality.py · mega_audit.py  # consolidación + auditorías
-├── tests/                             # test_parsers.py (12) · test_panel_integrity.py (10 invariantes)
+├── tests/                             # test_parsers.py (12) · test_panel_integrity.py (11 invariantes)
 ├── *_audit_report.md                  # data_quality · mega · mlops · solid_clean
 ├── visualize_visa_wait_times.py       # Generación de gráficas por país
 ├── data/                              # CSVs generados por el scraper
@@ -65,7 +65,7 @@ VisaPredictAI/
 - **`Makefile`**: `make install|scrape|panel|test|lint|figures|audit|all` (un comando). Override: `make test PY=python`.
 - **`.pre-commit-config.yaml`**: ruff + tests rápidos antes de cada commit (`pre-commit install`).
 - **DVC** inicializado pero **NO versiona los CSV abiertos** (son el entregable, se quedan en git; `.dvcignore` los protege). Reservado para artefactos de modelo/binarios grandes del **próximo semestre** (como EpiForecast usa `models.dvc`/checkpoints). Ver `DVC.md`.
-- **`tests/`** corre sin pytest (salida 0/1): `test_parsers` (12) + `test_extraction` (6, offline sobre fixtures) + `test_panel_integrity` (10 invariantes/contrato, incl. completitud de meses).
+- **`tests/`** corre sin pytest (salida 0/1): `test_parsers` (12) + `test_extraction` (6, offline sobre fixtures) + `test_panel_integrity` (11 invariantes/contrato, incl. completitud de meses a nivel mes-unión **y** por (bloque,tabla)).
 
 ## Comandos clave
 
@@ -95,7 +95,7 @@ python mega_audit.py
 # Suite de pruebas (sin pytest; salida 0/1; corre como GATE de CI antes del commit)
 python tests/test_parsers.py          # 12 casos · funciones de parseo/clasificación
 python tests/test_extraction.py       # 6 casos · extracción OFFLINE sobre fixtures HTML (sin red)
-python tests/test_panel_integrity.py  # 10 invariantes duras del panel (contrato + completitud de meses)
+python tests/test_panel_integrity.py  # 11 invariantes duras del panel (contrato + completitud de meses unión y por bloque/tabla)
 
 # Audit MLOps de madurez de ingeniería -> mlops_audit_report.md (estático, no regenera)
 
