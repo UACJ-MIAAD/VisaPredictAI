@@ -13,7 +13,10 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 PANEL = ROOT / "data" / "visa_panel_long.csv"
+
+from config import DEAD_MONTHS  # noqa: E402
 
 EXPECTED_COLS = [
     "country",
@@ -89,6 +92,22 @@ def test_min_rows():
     # the panel. Current build ~27k; alert if it falls below 20k.
     p = _panel()
     assert len(p) >= 20_000, f"panel demasiado pequeño ({len(p)} filas) — posible regresión"
+
+
+def test_no_unexpected_missing_months():
+    # F1 fix: a chronically flaky month (e.g. 2007-12 hits a redirect loop and
+    # fails all retries) must NOT drop silently from the daily commit. The
+    # row-count gate above is too loose to notice ~65 missing rows, so check
+    # month completeness exactly: every month in the panel's own span must be
+    # present, except the months that are genuinely absent from the source
+    # (404 + Wayback-only). Any other gap fails the gate, so the daily Action
+    # aborts (does not commit) and the issue-on-failure step alerts.
+    p = _panel()
+    per = p.bulletin_date.dt.to_period("M")
+    full = {str(m) for m in pd.period_range(per.min(), per.max(), freq="M")}
+    present = {str(m) for m in per.unique()}
+    missing = full - present - set(DEAD_MONTHS)
+    assert not missing, f"meses ausentes no explicados (solo se esperan los muertos): {sorted(missing)}"
 
 
 def _run():

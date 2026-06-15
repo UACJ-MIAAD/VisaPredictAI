@@ -23,7 +23,7 @@ SITE_ROOT = "https://travel.state.gov/"
 SCRAPER_COUNTRIES = ["india", "china", "mexico", "philippines", "row"]
 DATE_FMT = "%d%b%y"
 REQUEST_TIMEOUT = 30
-MAX_RETRIES = 4
+MAX_RETRIES = 6  # a couple of months (e.g. 2007-12) hit an intermittent redirect loop
 # A handful of months can fail transiently (a redirect loop, a 5xx); the run
 # proceeds and the failure-reporter logs them. But if MORE than this many fail,
 # something is structurally wrong with the source (site redesign, outage) and
