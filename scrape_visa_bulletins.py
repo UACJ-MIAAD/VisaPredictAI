@@ -1,3 +1,10 @@
+"""Scrape the Employment-Based tables (FAD + DFF) from every monthly U.S. Visa
+Bulletin and write one CSV per country to ``data/raw/``.
+
+Run from the repo root:
+    ante/bin/python scrape_visa_bulletins.py
+"""
+
 import re
 
 import pandas as pd

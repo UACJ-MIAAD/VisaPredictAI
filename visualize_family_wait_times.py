@@ -1,3 +1,6 @@
+"""Plot family-sponsored visa wait times per country from ``data/raw/`` into
+publication-ready PNGs under ``figures/`` (not versioned; regenerate on demand)."""
+
 from datetime import datetime
 
 import matplotlib.dates as mdates

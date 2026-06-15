@@ -1,3 +1,10 @@
+"""Scrape the Family-Sponsored tables (FAD + DFF) from every monthly U.S. Visa
+Bulletin and write one CSV per country to ``data/raw/``.
+
+Run from the repo root:
+    ante/bin/python scrape_family_visa_bulletins.py
+"""
+
 import pandas as pd
 from tqdm import tqdm
 
