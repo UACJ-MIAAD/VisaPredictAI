@@ -104,18 +104,32 @@ Formato largo con la variable dependiente: `country`, `block`, `category`, `tabl
 - **`U`** -- *Unavailable*, sin números ese mes (anotación descriptiva).
 - **`UNK`** -- celda vacía o no parseable.
 
-### Modelo de datos (esquema estrella)
+### Modelo de datos (almacén estrella en DuckDB)
 
 El CSV plano es el entregable abierto, pero `make db` lo carga además en un
-**esquema estrella** normalizado en **DuckDB** (`data/processed/visapredict.duckdb`)
-con un hecho `fact_priority` (grano: área × categoría × tabla × mes) y cuatro
-dimensiones (`dim_area`, `dim_category`, `dim_table`, `dim_date`). Las invariantes
-del panel se declaran como **constraints** del esquema (`PK`/`FK`/`CHECK`), de modo
-que la base **rechaza en la carga** cualquier fila que viole el contrato. La vista
-`v_panel_long` reconstruye el panel tidy sin pérdida, y se exporta un `Parquet`
-tipado. La definición está en [`schema.sql`](schema.sql), se documenta en
-[`docs/data_dictionary.md`](docs/data_dictionary.md) y se visualiza en el
-[**diagrama ER**](docs/er_diagram.md). La BD y el Parquet son **regenerables**
+**almacén dimensional en estrella** sobre **DuckDB** (`data/processed/visapredict.duckdb`).
+Las invariantes del panel se declaran como **constraints** del esquema (`PK`/`FK`/`CHECK`),
+así la base **rechaza en la carga** cualquier fila que viole el contrato.
+
+**11 tablas** + 6 vistas/marts:
+
+- **7 dimensiones** — `dim_area`, `dim_category` (con jerarquía `parent_code`/`preference_level`/`ina_basis`),
+  `dim_table`, `dim_date` (con `quarter`), `dim_status` (conforme), `dim_region`, y
+  `dim_category_alias` (**bridge de linaje**: cada etiqueta publicada → categoría canónica
+  con su ventana de validez).
+- **2 hechos** — `fact_priority` (grano área × categoría × tabla × mes; la variable
+  dependiente `days_since_base`) y `fact_dv_rank` (**Diversity Visa**: número de rango por
+  región × mes, dataset separado, no objetivo predictivo). `dim_date` y `dim_status` son
+  **dimensiones conformes** (ambos hechos las comparten).
+- **2 de gobernanza** — `schema_version` y `etl_run` (provenance + score de calidad por build).
+- **Vistas/marts** — `v_panel_long`/`v_dv_long` (reconstrucción tidy sin pérdida),
+  `v_category_alias`, `v_trainable_by_preference`, y los marts de modelado
+  **`mart_training_F`** y **`mart_series_summary`**. Export `Parquet` tipado.
+
+Definición en [`schema.sql`](schema.sql), catálogo en
+[`docs/data_dictionary.md`](docs/data_dictionary.md), **diagrama ER** en
+[`docs/er_diagram.md`](docs/er_diagram.md) (Mermaid + [`docs/schema_er.svg`](docs/schema_er.svg)),
+y el plan en [`docs/ROADMAP.md`](docs/ROADMAP.md). La BD y el Parquet son **regenerables**
 (gitignored); el CSV es la fuente versionada.
 
 ## Calidad y reproducibilidad
