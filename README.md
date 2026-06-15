@@ -45,12 +45,13 @@ VisaPredictAI/
 ├── scrape_visa_bulletins.py            # scraper Employment-Based (FAD + DFF)
 ├── scrape_family_visa_bulletins.py     # scraper Family-Sponsored (FAD + DFF)
 ├── build_panel.py                      # consolida los 10 CSV en el panel largo
+├── build_database.py · schema.sql      # carga el esquema estrella DuckDB + Parquet
 ├── audit_data_quality.py · mega_audit.py   # auditorías de calidad de datos
 ├── visualize_*.py                      # gráficas (artefactos no versionados)
-├── tests/                              # pytest: parsers · extracción offline · contrato del panel
+├── tests/                              # pytest: parsers · extracción offline · contrato del panel + BD
 ├── data/raw/                           # CSVs por país scrapeados (fuente, versionados)
-├── data/processed/                     # visa_panel_long.csv (panel derivado, versionado)
-├── reports/ · docs/                    # auditorías generadas (*_report.md) · DVC.md
+├── data/processed/                     # visa_panel_long.csv (panel) + .duckdb/.parquet regenerables
+├── reports/ · docs/                    # auditorías generadas · DVC.md · data_dictionary.md
 ├── Makefile · pyproject.toml           # one-command ops + config ruff/mypy/pytest
 └── .github/workflows/                  # ci.yml (lint+type+test) · update_graphs.yml (cron diario)
 ```
@@ -70,7 +71,8 @@ make install            # dependencias + herramientas dev
 # pipeline de un comando
 make scrape             # ambos scrapers (~4 min, red)
 make panel              # consolida data/processed/visa_panel_long.csv
-make test               # pytest (parsers + extracción offline + contrato del panel)
+make db                 # carga el esquema estrella DuckDB + export Parquet
+make test               # pytest (parsers + extracción offline + contrato del panel + BD)
 make check              # ruff + mypy + pytest
 make figures            # gráficas (no versionadas)
 ```
@@ -99,6 +101,19 @@ Formato largo con la variable dependiente: `country`, `block`, `category`, `tabl
 - **`C`** -- *Current*, sin backlog ese mes (anotación descriptiva).
 - **`U`** -- *Unavailable*, sin números ese mes (anotación descriptiva).
 - **`UNK`** -- celda vacía o no parseable.
+
+### Modelo de datos (esquema estrella)
+
+El CSV plano es el entregable abierto, pero `make db` lo carga además en un
+**esquema estrella** normalizado en **DuckDB** (`data/processed/visapredict.duckdb`)
+con un hecho `fact_priority` (grano: área × categoría × tabla × mes) y cuatro
+dimensiones (`dim_area`, `dim_category`, `dim_table`, `dim_date`). Las invariantes
+del panel se declaran como **constraints** del esquema (`PK`/`FK`/`CHECK`), de modo
+que la base **rechaza en la carga** cualquier fila que viole el contrato. La vista
+`v_panel_long` reconstruye el panel tidy sin pérdida, y se exporta un `Parquet`
+tipado. La definición está en [`schema.sql`](schema.sql) y se documenta en
+[`docs/data_dictionary.md`](docs/data_dictionary.md). La BD y el Parquet son
+**regenerables** (gitignored); el CSV es la fuente versionada.
 
 ## Calidad y reproducibilidad
 

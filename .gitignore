@@ -22,3 +22,8 @@ dist/
 
 # Internal AI/context notes — not part of the public deliverable.
 CLAUDE.md
+
+# Regenerated star-schema DB and typed export (open CSV is the versioned source;
+# rebuild with `make db`). Kept out of git to avoid binary bloat.
+data/processed/*.duckdb
+data/processed/*.parquet

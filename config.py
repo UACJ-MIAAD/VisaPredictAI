@@ -15,6 +15,10 @@ DATA_DIR = Path("data")
 RAW_DIR = DATA_DIR / "raw"
 PROCESSED_DIR = DATA_DIR / "processed"
 PANEL_PATH = PROCESSED_DIR / "visa_panel_long.csv"
+# Normalized star-schema database + typed columnar export, both regenerated from
+# PANEL_PATH by build_database.py (gitignored; the CSV is the versioned artifact).
+DUCKDB_PATH = PROCESSED_DIR / "visapredict.duckdb"
+PARQUET_PATH = PROCESSED_DIR / "visa_panel_long.parquet"
 
 # Dependent-variable epoch (string; build_panel wraps it in pd.Timestamp).
 # Chosen before the earliest observed priority date (1979-11, Philippines F4).

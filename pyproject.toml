@@ -18,7 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 # Single source of truth for the dev toolchain — Makefile and CI install via
 # `pip install -e .[dev]`, so a version bump happens here and nowhere else.
-dev = ["ruff==0.15.17", "mypy==2.1.0", "pytest==9.1.0", "pytest-cov==7.1.0"]
+dev = ["ruff==0.15.17", "mypy==2.1.0", "pytest==9.1.0", "pytest-cov==7.1.0", "duckdb==1.5.3"]
 
 [build-system]
 requires = ["setuptools>=77"]

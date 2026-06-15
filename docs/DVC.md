@@ -13,6 +13,11 @@ de git y **rompería esa accesibilidad**. El `.dvcignore` (`data/**/*.csv`) los 
 explícitamente para que un `dvc add data/` accidental nunca los mueva. El *bloat* histórico de git venía de
 las **figuras binarias**, ya resueltas (gitignored; regenerar con `make figures`).
 
+Los binarios derivados del panel —**`visapredict.duckdb`** (esquema estrella) y
+**`visa_panel_long.parquet`**— también quedan **gitignored**: se reconstruyen byte
+a byte desde el CSV con `make db`, así que versionarlos solo añadiría *bloat* sin
+ganar reproducibilidad. El CSV abierto sigue siendo la fuente de verdad.
+
 ## Para qué se reserva DVC (próximo semestre, modelado)
 
 DVC es la herramienta correcta para los artefactos que llegarán con la fase de
