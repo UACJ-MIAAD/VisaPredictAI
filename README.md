@@ -2,7 +2,7 @@
   <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/Escudo_UACJ.svg/500px-Escudo_UACJ.svg.png" alt="UACJ" width="150">
 </p>
 
-<h1 align="center" style="color:#003CA6;">VisaBulletinScraping</h1>
+<h1 align="center" style="color:#003CA6;">VisaPredictAI</h1>
 
 <p align="center">
   <strong>Maestría en Inteligencia Artificial y Analítica de Datos (MIAAD)</strong><br>
@@ -39,7 +39,7 @@ Boletín mensual del Bureau of Consular Affairs con dos tablas por categoría:
 ## Estructura del repositorio
 
 ```
-VisaBulletinScraping/
+VisaPredictAI/
 ├── visa_common.py                      # helpers compartidos (fetch, parse, estado) — fuente única
 ├── config.py                           # constantes (países canónicos, epoch, paleta)
 ├── scrape_visa_bulletins.py            # scraper Employment-Based (FAD + DFF)
@@ -60,8 +60,8 @@ VisaBulletinScraping/
 ## Instalación y uso
 
 ```bash
-git clone https://github.com/UACJ-MIAAD/VisaBulletinScraping.git
-cd VisaBulletinScraping
+git clone https://github.com/UACJ-MIAAD/VisaPredictAI.git
+cd VisaPredictAI
 python -m venv ante && source ante/bin/activate   # ante\Scripts\activate en Windows
 make install            # dependencias + herramientas dev
 

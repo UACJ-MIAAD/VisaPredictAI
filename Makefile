@@ -1,4 +1,4 @@
-# One-command operations for the VisaBulletinScraping pipeline.
+# One-command operations for the VisaPredictAI pipeline.
 # Override the interpreter with: make test PY=python
 PY ?= ante/bin/python
 

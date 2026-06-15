@@ -1,4 +1,4 @@
-# AUDITORÍA SOLID & CLEAN CODE — VisaBulletinScraping
+# AUDITORÍA SOLID & CLEAN CODE — VisaPredictAI
 
 _Revisión de diseño y limpieza de los scripts Python del pipeline. Severidad:_
 _🔴 estructural · 🟡 importante · 🔵 mejora. Cada hallazgo con archivo y el porqué._

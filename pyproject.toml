@@ -1,5 +1,5 @@
 [project]
-name = "visa-bulletin-scraping"
+name = "visapredictai"
 version = "1.0.0"
 description = "Scraper and longitudinal panel of the U.S. Visa Bulletin (VisaPredict AI · MIAAD/UACJ)."
 requires-python = ">=3.14"

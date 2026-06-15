@@ -1,4 +1,4 @@
-# AUDITORÍA MLOps — VisaBulletinScraping
+# AUDITORÍA MLOps — VisaPredictAI
 
 _Evaluación de madurez de ingeniería del pipeline de datos del proyecto VisaPredict&nbsp;AI._
 _Etapa del proyecto: **ingeniería de datos completada** (Objetivo&nbsp;1); el modelado entra el próximo semestre. Este audit evalúa la disciplina MLOps alrededor del pipeline de datos y su preparación para la fase de modelado._

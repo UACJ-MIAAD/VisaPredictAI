@@ -7,13 +7,13 @@ Este repositorio extrae datos históricos del **Visa Bulletin** del Departamento
 - **Autor:** Javier Rebull (al263483)
 - **Programa:** Maestría en Inteligencia Artificial y Analítica de Datos (MIAAD), UACJ
 - **Asesor:** Dr. Vicente García Jiménez
-- **Repositorio:** https://github.com/UACJ-MIAAD/VisaBulletinScraping (ya **no** usa nada del fork original; créditos retirados 14-jun-2026)
+- **Repositorio:** https://github.com/UACJ-MIAAD/VisaPredictAI (renombrado 15-jun-2026 desde `VisaBulletinScraping`; ya **no** usa nada del fork original; créditos retirados 14-jun-2026)
 - **Fuente de datos:** https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html
 
 ## Estructura del repositorio
 
 ```
-VisaBulletinScraping/
+VisaPredictAI/
 ├── CLAUDE.md                          # Este archivo (contexto para Claude Code)
 ├── README.md                          # Documentación original del repo
 ├── requirements.txt                   # Dependencias Python
@@ -45,7 +45,7 @@ VisaBulletinScraping/
 
 - **Python:** 3.14 (macOS Apple Silicon)
 - **Ambiente virtual:** `ante` (activar con `source ante/bin/activate`)
-- **Ubicación local:** `/Users/haowei/Documents/Anteproyecto/VisaBulletinScraping`
+- **Ubicación local:** `/Users/haowei/Documents/Anteproyecto/VisaPredictAI`
 
 ### Dependencias (requirements.txt)
 
@@ -220,4 +220,4 @@ Construir modelos predictivos para forecasting de fechas del Visa Bulletin, con 
 - El GitHub Action (`update_graphs.yml`) corre diariamente y auto-commitea si hay cambios.
 - Al agregar nuevas dependencias, actualizar `requirements.txt`.
 - Para análisis exploratorio o modelado, crear scripts/notebooks nuevos en la raíz o en un directorio dedicado (ej. `notebooks/`, `models/`).
-- El repo original es de David Bellamy; este fork es la base de datos para la tesis de Sly.
+- Este repositorio es el componente de datos (Objetivo 1) de la tesis VisaPredict AI; ya no usa código del fork original (créditos retirados 14-jun-2026).
