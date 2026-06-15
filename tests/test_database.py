@@ -16,7 +16,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from build_database import SCHEMA_PATH, _statements, build  # noqa: E402
+from build_database import SCHEMA_PATH, SCHEMA_VERSION, _statements, build  # noqa: E402
 from config import DV_RANK_PATH, PANEL_PATH  # noqa: E402
 
 
@@ -220,3 +220,32 @@ def test_alias_constraints_reject_bad_rows(bad):
     con.execute("INSERT INTO dim_category_alias VALUES (1, 1, '1st', DATE '2001-12-01', DATE '2020-01-01', 50)")
     with pytest.raises(duckdb.ConstraintException):
         con.execute(f"INSERT INTO dim_category_alias VALUES {bad}")
+
+
+# ─────────────────────────── Phase 3: governance & marts ───────────────────
+
+
+def test_governance_etl_run():
+    con, _, _ = _loaded()
+    assert con.execute("SELECT version FROM schema_version").fetchone()[0] == SCHEMA_VERSION
+    n_fp, n_f, pct = con.execute("SELECT n_fact_priority, n_trainable_f, pct_trainable FROM etl_run").fetchone()
+    assert n_fp == con.execute("SELECT count(*) FROM fact_priority").fetchone()[0]
+    assert 0 <= pct <= 1 and n_f <= n_fp
+
+
+def test_mart_training_f_is_clean():
+    con, _, _ = _loaded()
+    n = con.execute("SELECT count(*) FROM mart_training_F").fetchone()[0]
+    assert n == con.execute("SELECT count(*) FROM fact_priority WHERE status='F'").fetchone()[0]
+    # the dependent variable is never null in the training mart
+    nulls = con.execute("SELECT count(*) FROM mart_training_F WHERE days_since_base IS NULL").fetchone()[0]
+    assert nulls == 0
+
+
+def test_mart_series_summary_covers_every_series():
+    con, _, _ = _loaded()
+    n_series = con.execute("SELECT count(*) FROM mart_series_summary").fetchone()[0]
+    direct = con.execute(
+        "SELECT count(*) FROM (SELECT DISTINCT area_id, category_id, table_id FROM fact_priority)"
+    ).fetchone()[0]
+    assert n_series == direct

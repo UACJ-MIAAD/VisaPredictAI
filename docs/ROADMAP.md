@@ -54,17 +54,20 @@ de país. Como el valor es entero y no fecha, **DV no cabe** en
 9. **➖ `dim_area` enriquecida**: omitida — valor marginal bajo (ya tiene
    `is_residual_group`); se reevaluará si el modelado lo pide.
 
-## FASE 3 — Gobernanza, calidad y linaje
+## FASE 3 — Gobernanza, calidad y linaje  ✅ COMPLETA
 
-10. **Arquitectura medallón** formalizada: raw (bronze) → panel tipado (silver) →
+10. **✅ Arquitectura medallón** documentada: raw (bronze) → panel tipado (silver) →
     estrella + marts (gold).
-11. **`etl_run`** (auditoría de carga: run_id, timestamp, commit, URL, filas
-    cargadas/rechazadas) → provenance a nivel fila.
-12. **Framework de calidad**: expectativas declarativas + score por carga + tabla
-    `quarantine` para filas que violan el contrato (en vez de abortar todo).
-13. **Versionado de esquema + migraciones** (`schema_version`).
-14. **Capa semántica / marts**: `mart_training_F`, `mart_evaluable_series`,
-    `mart_<país>_<bloque>`.
+11. **✅ `etl_run`** — auditoría de carga a nivel build (`built_at_utc`,
+    `schema_version`, conteos, `pct_trainable`, floor/ceiling). Row-level run_id
+    omitido (la BD se reconstruye entera → sería uniforme, sin señal).
+12. **✅ Calidad** vía score en `etl_run` + rechazo en el esquema (PK/FK/CHECK) +
+    gate de CI. **Sin `quarantine`** a conciencia: el dato entra limpio del gate de
+    `build_panel`, así que la tabla estaría vacía.
+13. **✅ `schema_version`**. Migraciones in-situ omitidas: la BD es **regenerable**
+    (`make db`), no se migra en el lugar.
+14. **✅ Marts gold**: `mart_training_F` (set de entrenamiento limpio) y
+    `mart_series_summary` (resumen por serie para filtrar evaluables).
 
 ## FASE 4 — Documentación
 

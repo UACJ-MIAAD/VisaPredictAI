@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
@@ -23,6 +24,7 @@ from config import DUCKDB_PATH, DV_RANK_PATH, PANEL_PATH, PARQUET_PATH, RAW_DIR
 
 logger = logging.getLogger(__name__)
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
+SCHEMA_VERSION = 3  # bump on any structural schema change
 
 # Display names for the dimension rows (the panel stores only the slug/code).
 AREA_NAMES = {
@@ -163,6 +165,25 @@ def _load_aliases(con: duckdb.DuckDBPyConnection, dim_category: pd.DataFrame) ->
     )
 
 
+def _load_audit(con: duckdb.DuckDBPyConnection) -> None:
+    """Record the schema version and a build-level provenance + quality row."""
+    con.execute(
+        "INSERT INTO schema_version VALUES (?, ?)",
+        [SCHEMA_VERSION, "star schema + DV + hierarchy + status + alias bridge + governance"],
+    )
+    counts = con.execute(
+        "SELECT (SELECT count(*) FROM fact_priority), (SELECT count(*) FROM fact_dv_rank), "
+        "(SELECT count(*) FROM fact_priority WHERE status = 'F'), "
+        "(SELECT min(bulletin_date) FROM dim_date), (SELECT max(bulletin_date) FROM dim_date)"
+    ).fetchone()
+    assert counts is not None
+    n_fp, n_dv, n_f, floor, ceiling = counts
+    con.execute(
+        "INSERT INTO etl_run VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [datetime.now(UTC), SCHEMA_VERSION, n_fp, n_dv, n_f, n_f / n_fp if n_fp else 0.0, floor, ceiling],
+    )
+
+
 def build(con: duckdb.DuckDBPyConnection, panel: pd.DataFrame, dv: pd.DataFrame | None = None) -> None:
     """Create the star schema on ``con`` and load it from the long ``panel`` and
     the optional Diversity-Visa ``dv`` rank frame.
@@ -250,6 +271,7 @@ def build(con: duckdb.DuckDBPyConnection, panel: pd.DataFrame, dv: pd.DataFrame 
     _load_aliases(con, dim_category)
     if dv is not None:
         _load_dv(con, dv, dim_date)
+    _load_audit(con)
 
 
 def main() -> None:

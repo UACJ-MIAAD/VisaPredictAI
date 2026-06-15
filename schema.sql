@@ -176,3 +176,61 @@ SELECT
 FROM fact_dv_rank f
 JOIN dim_region r ON r.region_id = f.region_id
 JOIN dim_date   d ON d.date_id   = f.date_id;
+
+-- ─────────────────────────── GOVERNANCE & PROVENANCE ───────────────────────
+
+-- Structural schema version; bump on any change so consumers/migrations detect
+-- drift. (One row.)
+CREATE TABLE schema_version (
+    version      INTEGER  NOT NULL,
+    description  VARCHAR  NOT NULL
+);
+
+-- Load audit / provenance + per-build data-quality summary. The database is
+-- rebuilt wholesale, so provenance is at the BUILD level (one row per build),
+-- not per fact row — row-level run_id would be uniform and add no signal.
+CREATE TABLE etl_run (
+    run_id           INTEGER    PRIMARY KEY,
+    built_at_utc     TIMESTAMP  NOT NULL,
+    schema_version   INTEGER    NOT NULL,
+    n_fact_priority  INTEGER    NOT NULL,
+    n_fact_dv        INTEGER    NOT NULL,
+    n_trainable_f    INTEGER    NOT NULL,
+    pct_trainable    DOUBLE     NOT NULL CHECK (pct_trainable BETWEEN 0 AND 1),
+    panel_floor      DATE       NOT NULL,
+    panel_ceiling    DATE       NOT NULL
+);
+
+-- ─────────────────────────── GOLD MARTS (modeling) ───────────────────────────
+
+-- The clean training set: only trainable ('F') observations with the dependent
+-- variable and useful time features. This is what the modeling stage consumes.
+CREATE VIEW mart_training_F AS
+SELECT
+    a.slug AS country, c.block AS block, c.code AS category, t.code AS "table",
+    d.bulletin_date AS bulletin_date, d.year AS year, d.month AS month, d.quarter AS quarter,
+    c.preference_level AS preference_level,
+    f.priority_date AS priority_date, f.days_since_base AS days_since_base
+FROM fact_priority f
+JOIN dim_area     a ON a.area_id     = f.area_id
+JOIN dim_category c ON c.category_id = f.category_id
+JOIN dim_table    t ON t.table_id    = f.table_id
+JOIN dim_date     d ON d.date_id     = f.date_id
+WHERE f.status = 'F';
+
+-- Per-series summary so the modeling stage can select "evaluable" series
+-- (enough trainable points, long enough span, some variability).
+CREATE VIEW mart_series_summary AS
+SELECT
+    a.slug AS country, c.block AS block, c.code AS category, t.code AS "table",
+    count(*) AS n_obs,
+    count(*) FILTER (WHERE f.status = 'F') AS n_trainable,
+    min(d.bulletin_date) AS first_month,
+    max(d.bulletin_date) AS last_month,
+    count(DISTINCT f.status) AS n_regimes
+FROM fact_priority f
+JOIN dim_area     a ON a.area_id     = f.area_id
+JOIN dim_category c ON c.category_id = f.category_id
+JOIN dim_table    t ON t.table_id    = f.table_id
+JOIN dim_date     d ON d.date_id     = f.date_id
+GROUP BY a.slug, c.block, c.code, t.code;

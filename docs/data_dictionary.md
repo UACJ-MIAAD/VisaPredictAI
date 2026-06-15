@@ -147,6 +147,28 @@ serie con mes-objetivo distinto).
 
 Vista `v_dv_long` = `fact_dv_rank ⨝ dim_region ⨝ dim_date`.
 
+## Gobernanza, calidad y marts
+
+**Arquitectura medallón:** `data/raw/` (bronze, fuente cruda) → `visa_panel_long.csv`
+(silver, panel tipado) → esquema estrella + marts (gold).
+
+- **`schema_version`** — versión estructural del esquema (bump en cada cambio).
+- **`etl_run`** — auditoría de carga: una fila por *build* (`built_at_utc`,
+  `schema_version`, conteos de hechos, `n_trainable_f`, **`pct_trainable`**,
+  `panel_floor`/`panel_ceiling`). Provenance a nivel build (la BD se reconstruye
+  entera, así que un `run_id` por fila sería uniforme y sin señal).
+- **Estrategia de calidad:** el contrato se **rechaza en el esquema** (PK/FK/CHECK)
+  y se **verifica en CI** (pytest); el dato entra ya limpio del gate de
+  `build_panel`. Por eso **no hay tabla `quarantine`** (estaría vacía) ni scripts
+  de migración (la BD es regenerable, no se migra in situ) — decisiones a conciencia.
+
+**Marts gold (para el modelado):**
+- **`mart_training_F`** — el conjunto de entrenamiento limpio: solo observaciones
+  `status='F'` con la variable dependiente `days_since_base` + features de tiempo
+  (`year`/`month`/`quarter`) y `preference_level`.
+- **`mart_series_summary`** — resumen por serie (`n_obs`, `n_trainable`,
+  `first_month`/`last_month`, `n_regimes`) para filtrar series *evaluables*.
+
 ## Uso
 
 ```bash
