@@ -2,7 +2,8 @@
 
 Modelo dimensional (esquema estrella) del panel de fechas de prioridad del
 *U.S. Visa Bulletin*. La definición autoritativa de tablas, tipos y constraints
-vive en [`schema.sql`](../schema.sql); este documento la describe en prosa.
+vive en [`schema.sql`](../schema.sql); este documento la describe en prosa, y el
+[**diagrama ER**](er_diagram.md) la muestra visualmente.
 
 ## Capas
 

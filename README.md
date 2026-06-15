@@ -53,7 +53,7 @@ VisaPredictAI/
 ├── tests/                              # pytest: parsers · extracción offline · contrato del panel + BD
 ├── data/raw/                           # CSVs por país scrapeados (fuente, versionados)
 ├── data/processed/                     # visa_panel_long.csv (panel) + .duckdb/.parquet regenerables
-├── reports/ · docs/                    # auditorías generadas · DVC.md · data_dictionary.md
+├── reports/ · docs/                    # auditorías · data_dictionary · er_diagram · ROADMAP
 ├── Makefile · pyproject.toml           # one-command ops + config ruff/mypy/pytest
 └── .github/workflows/                  # ci.yml (lint+type+test) · update_graphs.yml (cron diario)
 ```
@@ -113,9 +113,10 @@ dimensiones (`dim_area`, `dim_category`, `dim_table`, `dim_date`). Las invariant
 del panel se declaran como **constraints** del esquema (`PK`/`FK`/`CHECK`), de modo
 que la base **rechaza en la carga** cualquier fila que viole el contrato. La vista
 `v_panel_long` reconstruye el panel tidy sin pérdida, y se exporta un `Parquet`
-tipado. La definición está en [`schema.sql`](schema.sql) y se documenta en
-[`docs/data_dictionary.md`](docs/data_dictionary.md). La BD y el Parquet son
-**regenerables** (gitignored); el CSV es la fuente versionada.
+tipado. La definición está en [`schema.sql`](schema.sql), se documenta en
+[`docs/data_dictionary.md`](docs/data_dictionary.md) y se visualiza en el
+[**diagrama ER**](docs/er_diagram.md). La BD y el Parquet son **regenerables**
+(gitignored); el CSV es la fuente versionada.
 
 ## Calidad y reproducibilidad
 

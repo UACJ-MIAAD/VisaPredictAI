@@ -1,0 +1,153 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1360 900" font-family="'DejaVu Sans','Helvetica Neue',Arial,sans-serif">
+  <defs>
+    <filter id="sh" x="-12%" y="-12%" width="124%" height="135%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0b1f4a" flood-opacity="0.18"/>
+    </filter>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#2E7D32"/>
+    </marker>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#f4f6fb"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1360" height="900" fill="url(#bg)"/>
+
+  <!-- title -->
+  <text x="40" y="48" font-size="24" font-weight="700" fill="#003CA6">VisaPredict AI · Almacén de datos</text>
+  <text x="40" y="74" font-size="14" fill="#555559">Esquema estrella · 7 dimensiones · 2 hechos · DuckDB con PK/FK/CHECK · capas medallón raw → panel → gold</text>
+
+  <!-- ══════════ relationship lines (behind the opaque cards) ══════════ -->
+  <g stroke-linecap="round" fill="none">
+    <!-- fact_priority (435,325) → its dimensions (blue) -->
+    <g stroke="#003CA6" stroke-width="2" opacity="0.38">
+      <line x1="435" y1="325" x2="145" y2="162"/>
+      <line x1="435" y1="325" x2="145" y2="302"/>
+      <line x1="435" y1="325" x2="145" y2="444"/>
+    </g>
+    <!-- fact_dv_rank (1015,320) → dim_region (blue) -->
+    <line x1="1015" y1="320" x2="1225" y2="148" stroke="#1955BF" stroke-width="2" opacity="0.42"/>
+    <!-- CONFORMED dimensions (dim_date, dim_status) shared by BOTH facts (gold) -->
+    <g stroke="#E6BD00" stroke-width="3.2" opacity="0.85">
+      <line x1="435" y1="325" x2="725" y2="148"/>
+      <line x1="435" y1="325" x2="725" y2="522"/>
+      <line x1="1015" y1="320" x2="725" y2="148"/>
+      <line x1="1015" y1="320" x2="725" y2="522"/>
+    </g>
+    <!-- alias bridge → dim_category (gray dashed) -->
+    <line x1="145" y1="608" x2="145" y2="302" stroke="#9aa0a6" stroke-width="1.8" stroke-dasharray="5 4"/>
+    <!-- marts fed from fact_priority (green dashed, arrows) -->
+    <g stroke="#2E7D32" stroke-width="1.8" stroke-dasharray="6 4" opacity="0.8">
+      <line x1="435" y1="400" x2="435" y2="740" marker-end="url(#arr)"/>
+      <line x1="470" y1="392" x2="700" y2="740" marker-end="url(#arr)"/>
+    </g>
+  </g>
+
+  <!-- ══════════ cards ══════════ -->
+  <!-- dim_area -->
+  <g filter="url(#sh)">
+    <rect x="40" y="110" width="210" height="104" rx="12" fill="#fff" stroke="#003CA6" stroke-width="1.5"/>
+    <path d="M52 110 h186 a12 12 0 0 1 12 12 v18 h-210 v-18 a12 12 0 0 1 12 -12 Z" fill="#003CA6"/>
+    <text x="145" y="131" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">dim_area</text>
+    <text x="54" y="160" font-size="10.5" fill="#3a3a3a"><tspan font-weight="700" fill="#003CA6">area_id</tspan><tspan> PK</tspan><tspan x="54" dy="16">slug · name</tspan><tspan x="54" dy="16" font-style="italic" fill="#777">is_residual_group</tspan></text>
+  </g>
+  <!-- dim_category -->
+  <g filter="url(#sh)">
+    <rect x="40" y="250" width="210" height="104" rx="12" fill="#fff" stroke="#003CA6" stroke-width="1.5"/>
+    <path d="M52 250 h186 a12 12 0 0 1 12 12 v18 h-210 v-18 a12 12 0 0 1 12 -12 Z" fill="#003CA6"/>
+    <text x="145" y="271" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">dim_category</text>
+    <text x="54" y="300" font-size="10.5" fill="#3a3a3a"><tspan font-weight="700" fill="#003CA6">category_id</tspan><tspan> PK</tspan><tspan x="54" dy="15">block · code</tspan><tspan x="54" dy="15">parent_code · preference_level</tspan><tspan x="54" dy="15" font-style="italic" fill="#777">is_subcategory · ina_basis</tspan></text>
+  </g>
+  <!-- dim_table -->
+  <g filter="url(#sh)">
+    <rect x="40" y="392" width="210" height="104" rx="12" fill="#fff" stroke="#003CA6" stroke-width="1.5"/>
+    <path d="M52 392 h186 a12 12 0 0 1 12 12 v18 h-210 v-18 a12 12 0 0 1 12 -12 Z" fill="#003CA6"/>
+    <text x="145" y="413" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">dim_table</text>
+    <text x="54" y="442" font-size="10.5" fill="#3a3a3a"><tspan font-weight="700" fill="#003CA6">table_id</tspan><tspan> PK</tspan><tspan x="54" dy="16">code · name</tspan><tspan x="54" dy="16" font-style="italic" fill="#777">FAD / DFF</tspan></text>
+  </g>
+  <!-- dim_category_alias (lineage bridge) -->
+  <g filter="url(#sh)">
+    <rect x="40" y="556" width="210" height="104" rx="12" fill="#fff" stroke="#1955BF" stroke-width="1.5"/>
+    <path d="M52 556 h186 a12 12 0 0 1 12 12 v18 h-210 v-18 a12 12 0 0 1 12 -12 Z" fill="#1955BF"/>
+    <text x="145" y="577" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">dim_category_alias</text>
+    <text x="54" y="606" font-size="10.5" fill="#3a3a3a"><tspan font-weight="700" fill="#1955BF">alias_id</tspan><tspan> PK · </tspan><tspan font-style="italic" fill="#1955BF">category_id</tspan><tspan> FK</tspan><tspan x="54" dy="15">raw_label (as published)</tspan><tspan x="54" dy="15" font-style="italic" fill="#777">valid_from → valid_to · n_months</tspan></text>
+  </g>
+
+  <!-- fact_priority -->
+  <g filter="url(#sh)">
+    <rect x="330" y="250" width="210" height="150" rx="12" fill="#FFFDF0" stroke="#E6BD00" stroke-width="2"/>
+    <path d="M342 250 h186 a12 12 0 0 1 12 12 v18 h-210 v-18 a12 12 0 0 1 12 -12 Z" fill="#E6BD00"/>
+    <text x="435" y="271" text-anchor="middle" font-size="13.5" font-weight="700" fill="#231F20">fact_priority</text>
+    <text x="344" y="300" font-size="10.5" fill="#3a3a3a"><tspan font-style="italic" fill="#1955BF">area·category·table·date</tspan><tspan> PK/FK</tspan><tspan x="344" dy="15" font-style="italic" fill="#1955BF">status</tspan><tspan> FK</tspan><tspan x="344" dy="15">priority_date  (iff F)</tspan><tspan x="344" dy="15" font-weight="700" fill="#003CA6">days_since_base = y  (iff F)</tspan><tspan x="344" dy="15" font-style="italic" fill="#777">raw_value · 27,127 filas</tspan></text>
+  </g>
+
+  <!-- dim_date (CONFORMED) -->
+  <g filter="url(#sh)">
+    <rect x="620" y="96" width="210" height="104" rx="12" fill="#fff" stroke="#FFD600" stroke-width="3"/>
+    <path d="M632 96 h186 a12 12 0 0 1 12 12 v18 h-210 v-18 a12 12 0 0 1 12 -12 Z" fill="#003CA6"/>
+    <text x="725" y="117" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">dim_date</text>
+    <text x="634" y="146" font-size="10.5" fill="#3a3a3a"><tspan font-weight="700" fill="#003CA6">date_id</tspan><tspan> PK · bulletin_date UK</tspan><tspan x="634" dy="16">year · month · quarter</tspan><tspan x="634" dy="16" font-style="italic" fill="#C99A00">◆ dimensión conforme</tspan></text>
+  </g>
+  <!-- dim_status (CONFORMED) -->
+  <g filter="url(#sh)">
+    <rect x="620" y="470" width="210" height="104" rx="12" fill="#fff" stroke="#FFD600" stroke-width="3"/>
+    <path d="M632 470 h186 a12 12 0 0 1 12 12 v18 h-210 v-18 a12 12 0 0 1 12 -12 Z" fill="#003CA6"/>
+    <text x="725" y="491" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">dim_status</text>
+    <text x="634" y="520" font-size="10.5" fill="#3a3a3a"><tspan font-weight="700" fill="#003CA6">status</tspan><tspan> PK · C/F/U/UNK</tspan><tspan x="634" dy="16">label · description</tspan><tspan x="634" dy="16" font-style="italic" fill="#C99A00">◆ conforme · is_predictable=F</tspan></text>
+  </g>
+
+  <!-- fact_dv_rank -->
+  <g filter="url(#sh)">
+    <rect x="910" y="250" width="210" height="140" rx="12" fill="#FFFDF0" stroke="#E6BD00" stroke-width="2"/>
+    <path d="M922 250 h186 a12 12 0 0 1 12 12 v18 h-210 v-18 a12 12 0 0 1 12 -12 Z" fill="#E6BD00"/>
+    <text x="1015" y="271" text-anchor="middle" font-size="13.5" font-weight="700" fill="#231F20">fact_dv_rank</text>
+    <text x="924" y="300" font-size="10.5" fill="#3a3a3a"><tspan font-style="italic" fill="#1955BF">region·date</tspan><tspan> PK/FK</tspan><tspan x="924" dy="15" font-style="italic" fill="#1955BF">status</tspan><tspan> FK</tspan><tspan x="924" dy="15" font-weight="700" fill="#003CA6">rank_cutoff  (iff F)</tspan><tspan x="924" dy="15">exceptions (per-country)</tspan><tspan x="924" dy="15" font-style="italic" fill="#777">Diversity Visa · 1,605 filas</tspan></text>
+  </g>
+
+  <!-- dim_region -->
+  <g filter="url(#sh)">
+    <rect x="1120" y="96" width="210" height="104" rx="12" fill="#fff" stroke="#003CA6" stroke-width="1.5"/>
+    <path d="M1132 96 h186 a12 12 0 0 1 12 12 v18 h-210 v-18 a12 12 0 0 1 12 -12 Z" fill="#003CA6"/>
+    <text x="1225" y="117" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">dim_region</text>
+    <text x="1134" y="146" font-size="10.5" fill="#3a3a3a"><tspan font-weight="700" fill="#003CA6">region_id</tspan><tspan> PK</tspan><tspan x="1134" dy="16">slug · name</tspan><tspan x="1134" dy="16" font-style="italic" fill="#777">6 regiones DV</tspan></text>
+  </g>
+
+  <!-- etl_run (governance) -->
+  <g filter="url(#sh)">
+    <rect x="1120" y="450" width="210" height="120" rx="12" fill="#fff" stroke="#555559" stroke-width="1.5"/>
+    <path d="M1132 450 h186 a12 12 0 0 1 12 12 v18 h-210 v-18 a12 12 0 0 1 12 -12 Z" fill="#555559"/>
+    <text x="1225" y="471" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">etl_run</text>
+    <text x="1134" y="500" font-size="10.5" fill="#3a3a3a"><tspan font-weight="700" fill="#555559">run_id</tspan><tspan> PK · built_at_utc</tspan><tspan x="1134" dy="15">schema_version · conteos</tspan><tspan x="1134" dy="15" font-weight="700" fill="#2E7D32">pct_trainable (calidad)</tspan><tspan x="1134" dy="15" font-style="italic" fill="#777">panel_floor → ceiling</tspan></text>
+  </g>
+  <!-- schema_version (governance) -->
+  <g filter="url(#sh)">
+    <rect x="1120" y="600" width="210" height="74" rx="12" fill="#fff" stroke="#555559" stroke-width="1.5"/>
+    <path d="M1132 600 h186 a12 12 0 0 1 12 12 v18 h-210 v-18 a12 12 0 0 1 12 -12 Z" fill="#555559"/>
+    <text x="1225" y="621" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">schema_version</text>
+    <text x="1134" y="650" font-size="10.5" fill="#3a3a3a"><tspan>version · description</tspan><tspan x="1134" dy="15" font-style="italic" fill="#777">drift / migraciones</tspan></text>
+  </g>
+
+  <!-- marts (gold layer) -->
+  <g filter="url(#sh)">
+    <rect x="330" y="740" width="210" height="80" rx="12" fill="#fff" stroke="#2E7D32" stroke-width="1.5"/>
+    <path d="M342 740 h186 a12 12 0 0 1 12 12 v18 h-210 v-18 a12 12 0 0 1 12 -12 Z" fill="#2E7D32"/>
+    <text x="435" y="761" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">mart_training_F</text>
+    <text x="344" y="790" font-size="10.5" fill="#3a3a3a"><tspan font-style="italic">solo status=F + y + features</tspan><tspan x="344" dy="15" font-weight="700" fill="#2E7D32">15,662 filas · listo para modelar</tspan></text>
+  </g>
+  <g filter="url(#sh)">
+    <rect x="620" y="740" width="210" height="80" rx="12" fill="#fff" stroke="#2E7D32" stroke-width="1.5"/>
+    <path d="M632 740 h186 a12 12 0 0 1 12 12 v18 h-210 v-18 a12 12 0 0 1 12 -12 Z" fill="#2E7D32"/>
+    <text x="725" y="761" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">mart_series_summary</text>
+    <text x="634" y="790" font-size="10.5" fill="#3a3a3a"><tspan font-style="italic">por serie: obs · trainable · span</tspan><tspan x="634" dy="15" font-weight="700" fill="#2E7D32">194 series · filtro evaluable</tspan></text>
+  </g>
+
+  <!-- legend -->
+  <g font-size="11.5" fill="#3a3a3a">
+    <rect x="40" y="846" width="16" height="12" rx="2" fill="#003CA6"/><text x="62" y="856">Dimensión</text>
+    <rect x="150" y="846" width="16" height="12" rx="2" fill="#E6BD00"/><text x="172" y="856">Hecho</text>
+    <rect x="232" y="846" width="16" height="12" rx="2" fill="#2E7D32"/><text x="254" y="856">Mart (gold)</text>
+    <rect x="346" y="846" width="16" height="12" rx="2" fill="#555559"/><text x="368" y="856">Gobernanza</text>
+    <rect x="466" y="846" width="16" height="12" rx="2" fill="#fff" stroke="#FFD600" stroke-width="3"/><text x="488" y="856">Dimensión conforme (compartida)</text>
+    <line x1="760" y1="852" x2="800" y2="852" stroke="#2E7D32" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#arr)"/><text x="806" y="856">alimenta los marts</text>
+  </g>
+</svg>

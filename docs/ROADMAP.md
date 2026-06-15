@@ -69,9 +69,21 @@ de país. Como el valor es entero y no fecha, **DV no cabe** en
 14. **✅ Marts gold**: `mart_training_F` (set de entrenamiento limpio) y
     `mart_series_summary` (resumen por serie para filtrar evaluables).
 
-## FASE 4 — Documentación
+## FASE 4 — Documentación  ✅ COMPLETA
 
-15. Diagrama ER + catálogo + manifiesto con checksums de los outputs gold.
+15. **✅ Diagrama ER + catálogo.** ER en [`docs/er_diagram.md`](er_diagram.md):
+    Mermaid renderizado nativo en GitHub (todas las columnas + cardinalidad) +
+    **hero SVG** [`docs/schema_er.svg`](schema_er.svg) (estrella, paleta UACJ,
+    dimensiones conformes resaltadas, medallón). Catálogo = [`data_dictionary.md`](data_dictionary.md).
+    (Manifiesto con checksums omitido: los outputs gold son regenerables/gitignored;
+    el CSV versionado y `etl_run` ya dan trazabilidad.)
+
+---
+
+**Roadmap completo: Fases 1–4 ✅.** La base de datos quedó de nivel supremo:
+todas las categorías (incl. Diversity Visa), modelo dimensional con jerarquía +
+linaje + dimensiones conformes, gobernanza + marts de modelado, y documentación
+con ER + catálogo.
 
 ## Roadmap priorizado
 
