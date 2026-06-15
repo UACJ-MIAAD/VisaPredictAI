@@ -5,6 +5,8 @@ Run from the repo root:
     ante/bin/python scrape_family_visa_bulletins.py
 """
 
+import logging
+
 import pandas as pd
 from tqdm import tqdm
 
@@ -20,6 +22,8 @@ from visa_common import (
     get_soup,
     parse_tables,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def is_family_section(rows) -> bool:
@@ -111,9 +115,9 @@ def main():
         except Exception as exc:
             failed.append((link, str(exc)[:60]))
     if failed:
-        print(f"\n⚠️  {len(failed)} boletines fallaron tras reintentos (meses perdidos):")
+        logger.warning("%d boletines fallaron tras reintentos (meses perdidos):", len(failed))
         for link, err in failed:
-            print(f"   {link.split('/')[-1]}  {err}")
+            logger.warning("   %s  %s", link.split("/")[-1], err)
         if len(failed) > MAX_FETCH_FAILURES:
             raise SystemExit(
                 f"{len(failed)} boletines fallaron (> {MAX_FETCH_FAILURES}): probable "
@@ -135,4 +139,5 @@ def main():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     main()

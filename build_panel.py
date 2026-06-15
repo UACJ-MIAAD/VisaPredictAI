@@ -20,6 +20,7 @@ Writes: data/processed/visa_panel_long.csv
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -29,6 +30,7 @@ from config import CANONICAL_COUNTRY as COUNTRIES
 from config import PANEL_PATH as OUT
 from config import RAW_DIR as RAW
 
+logger = logging.getLogger(__name__)
 BASE = pd.Timestamp(BASE_EPOCH)
 
 PANEL_COLS = [
@@ -109,7 +111,7 @@ def main() -> None:
     key = ["country", "block", "category", "table", "bulletin_date"]
     dup = panel.duplicated(subset=key, keep="first")
     if dup.any():
-        print(f"  aviso: {int(dup.sum())} filas duplicadas por clave colapsadas (keep=first)")
+        logger.warning("%d filas duplicadas por clave colapsadas (keep=first)", int(dup.sum()))
         panel = panel[~dup].reset_index(drop=True)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
@@ -117,21 +119,20 @@ def main() -> None:
 
     # ---- summary -----------------------------------------------------------
     n_series = panel.groupby(["country", "block", "category", "table"]).ngroups
-    print(f"✓ Panel escrito en {OUT}")
-    print(f"  filas totales      : {len(panel):,}")
-    print(f"  series (p×c×b)      : {n_series}")
-    print(f"  rango temporal      : {panel.bulletin_date.min():%Y-%m} → {panel.bulletin_date.max():%Y-%m}")
-    print("\n  filas por status:")
-    print(panel["status"].value_counts().to_string())
-    print("\n  filas por bloque × tabla:")
-    print(panel.groupby(["block", "table"]).size().to_string())
     f = panel[panel.status == "F"]
-    print(f"\n  objetivo entrenable (status F): {len(f):,} filas ({100 * len(f) / len(panel):.0f}% del panel)")
-    print(
+    logger.info(f"Panel escrito en {OUT}")
+    logger.info(f"  filas totales      : {len(panel):,}")
+    logger.info(f"  series (p×c×b)      : {n_series}")
+    logger.info(f"  rango temporal      : {panel.bulletin_date.min():%Y-%m} → {panel.bulletin_date.max():%Y-%m}")
+    logger.info(f"  filas por status   : {panel['status'].value_counts().to_dict()}")
+    logger.info(f"  filas por bloque×tabla: {panel.groupby(['block', 'table']).size().to_dict()}")
+    logger.info(f"  objetivo entrenable (status F): {len(f):,} filas ({100 * len(f) / len(panel):.0f}% del panel)")
+    logger.info(
         f"  days_since_base rango: [{f.days_since_base.min():.0f}, {f.days_since_base.max():.0f}] "
         f"(base = {BASE:%Y-%m-%d})"
     )
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     main()
