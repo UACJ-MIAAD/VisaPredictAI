@@ -22,11 +22,18 @@ CREATE TABLE dim_area (
 );
 
 -- Migratory category. block separates employment-based from family-sponsored;
--- code is the canonical label (EB1..EB5_*, F1/F2A/F2B/F3/F4).
+-- code is the canonical label (EB1..EB5_*, F1/F2A/F2B/F3/F4). The hierarchy
+-- columns let consumers roll a subcategory up to its parent preference:
+-- parent_code (EB5_RURAL -> EB5), preference_level (the INA preference 1..5),
+-- is_subcategory, and ina_basis (the statutory citation).
 CREATE TABLE dim_category (
-    category_id  INTEGER  PRIMARY KEY,
-    block        VARCHAR  NOT NULL CHECK (block IN ('employment', 'family')),
-    code         VARCHAR  NOT NULL,
+    category_id       INTEGER  PRIMARY KEY,
+    block             VARCHAR  NOT NULL CHECK (block IN ('employment', 'family')),
+    code              VARCHAR  NOT NULL,
+    parent_code       VARCHAR,
+    preference_level  INTEGER  NOT NULL CHECK (preference_level BETWEEN 1 AND 5),
+    is_subcategory    BOOLEAN  NOT NULL,
+    ina_basis         VARCHAR,
     UNIQUE (block, code)
 );
 
@@ -45,7 +52,18 @@ CREATE TABLE dim_date (
     bulletin_date   DATE     NOT NULL UNIQUE,
     year            INTEGER  NOT NULL,
     month           INTEGER  NOT NULL CHECK (month BETWEEN 1 AND 12),
+    quarter         INTEGER  NOT NULL CHECK (quarter BETWEEN 1 AND 4),
     us_fiscal_year  INTEGER  NOT NULL
+);
+
+-- Administrative regime of a published cell, promoted from a CHECK to a
+-- conformed dimension so its meaning is documented and joinable. is_predictable
+-- marks the only regime that is a modeling target ('F').
+CREATE TABLE dim_status (
+    status          VARCHAR  PRIMARY KEY CHECK (status IN ('C', 'F', 'U', 'UNK')),
+    label           VARCHAR  NOT NULL,
+    description     VARCHAR  NOT NULL,
+    is_predictable  BOOLEAN  NOT NULL
 );
 
 -- ─────────────────────────── FACT ───────────────────────────
@@ -59,7 +77,7 @@ CREATE TABLE fact_priority (
     category_id      INTEGER  NOT NULL REFERENCES dim_category(category_id),
     table_id         INTEGER  NOT NULL REFERENCES dim_table(table_id),
     date_id          INTEGER  NOT NULL REFERENCES dim_date(date_id),
-    status           VARCHAR  NOT NULL CHECK (status IN ('C', 'F', 'U', 'UNK')),
+    status           VARCHAR  NOT NULL REFERENCES dim_status(status) CHECK (status IN ('C', 'F', 'U', 'UNK')),
     priority_date    DATE,
     days_since_base  INTEGER  CHECK (days_since_base IS NULL OR days_since_base >= 0),
     raw_value        VARCHAR,
@@ -90,6 +108,15 @@ JOIN dim_category c ON c.category_id = f.category_id
 JOIN dim_table    t ON t.table_id    = f.table_id
 JOIN dim_date     d ON d.date_id     = f.date_id;
 
+-- Roll-up enabled by the category hierarchy: trainable ('F') observations folded
+-- to block x preference level (so EB5_RURAL, EB5_RC, … all count under EB-5).
+CREATE VIEW v_trainable_by_preference AS
+SELECT c.block AS block, c.preference_level AS preference_level, count(*) AS n_obs
+FROM fact_priority f
+JOIN dim_category c ON c.category_id = f.category_id
+WHERE f.status = 'F'
+GROUP BY c.block, c.preference_level;
+
 -- ─────────────────────────── DIVERSITY VISA (DV) ───────────────────────────
 
 -- DV is published as a regional RANK NUMBER, not a priority date, so it gets its
@@ -107,7 +134,7 @@ CREATE TABLE dim_region (
 CREATE TABLE fact_dv_rank (
     region_id    INTEGER  NOT NULL REFERENCES dim_region(region_id),
     date_id      INTEGER  NOT NULL REFERENCES dim_date(date_id),
-    status       VARCHAR  NOT NULL CHECK (status IN ('C', 'F', 'U', 'UNK')),
+    status       VARCHAR  NOT NULL REFERENCES dim_status(status) CHECK (status IN ('C', 'F', 'U', 'UNK')),
     rank_cutoff  INTEGER  CHECK (rank_cutoff IS NULL OR rank_cutoff >= 0),
     raw_value    VARCHAR,
     exceptions   VARCHAR,

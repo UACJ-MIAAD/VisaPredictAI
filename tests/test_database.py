@@ -33,9 +33,13 @@ def _empty_schema():
     for stmt in _statements(SCHEMA_PATH.read_text(encoding="utf-8")):
         con.execute(stmt)
     con.execute("INSERT INTO dim_area VALUES (1, 'mexico', 'México', false)")
-    con.execute("INSERT INTO dim_category VALUES (1, 'employment', 'EB1')")
+    con.execute("INSERT INTO dim_category VALUES (1, 'employment', 'EB1', NULL, 1, false, 'INA 203(b)(1)')")
+    con.execute(
+        "INSERT INTO dim_status VALUES "
+        "('F','Final','x',true),('C','Current','x',false),('U','Unavailable','x',false),('UNK','Unknown','x',false)"
+    )
     con.execute("INSERT INTO dim_table VALUES (1, 'FAD', 'Final Action Dates')")
-    con.execute("INSERT INTO dim_date VALUES (1, DATE '2020-01-01', 2020, 1, 2020)")
+    con.execute("INSERT INTO dim_date VALUES (1, DATE '2020-01-01', 2020, 1, 1, 2020)")
     con.execute("INSERT INTO dim_region VALUES (1, 'africa', 'Africa')")
     return con
 
@@ -144,3 +148,42 @@ def test_dv_constraints_reject_bad_rows(bad_row):
     con = _empty_schema()
     with pytest.raises(duckdb.ConstraintException):
         con.execute(f"INSERT INTO fact_dv_rank VALUES {bad_row}")
+
+
+# ─────────────────────────── Phase 2: hierarchy & reference dims ───────────
+
+
+def test_category_hierarchy():
+    con, _, _ = _loaded()
+    rows = dict(con.execute("SELECT code, parent_code FROM dim_category").fetchall())
+    assert rows["EB5_RURAL"] == "EB5", "EB5_RURAL debe colgar de EB5"
+    assert rows["EB3_OW"] == "EB3" and rows["EB4_RW"] == "EB4"
+    assert rows["F2A"] == "F2" and rows["EB1"] is None
+    # preference level + subcategory flag
+    pref, sub = con.execute(
+        "SELECT preference_level, is_subcategory FROM dim_category WHERE code='EB5_INFRA'"
+    ).fetchone()
+    assert pref == 5 and sub is True
+    assert con.execute("SELECT preference_level FROM dim_category WHERE code='F4'").fetchone()[0] == 4
+
+
+def test_dim_status_reference():
+    con, _, _ = _loaded()
+    assert con.execute("SELECT count(*) FROM dim_status").fetchone()[0] == 4
+    pred = {r[0] for r in con.execute("SELECT status FROM dim_status WHERE is_predictable").fetchall()}
+    assert pred == {"F"}, "solo 'F' es objetivo predictivo"
+
+
+def test_rollup_matches_fact():
+    # the preference roll-up must account for every trainable ('F') observation
+    con, _, _ = _loaded()
+    rolled = con.execute("SELECT sum(n_obs) FROM v_trainable_by_preference").fetchone()[0]
+    direct = con.execute("SELECT count(*) FROM fact_priority WHERE status='F'").fetchone()[0]
+    assert rolled == direct, f"roll-up {rolled} ≠ F directo {direct}"
+
+
+def test_status_fk_rejects_unknown():
+    con = _empty_schema()
+    con.execute("DELETE FROM dim_status WHERE status='C'")  # remove a status
+    with pytest.raises(duckdb.ConstraintException):  # fact referencing it now fails the FK
+        con.execute("INSERT INTO fact_priority VALUES (1, 1, 1, 1, 'C', NULL, NULL, 'x')")

@@ -34,12 +34,24 @@ es nula y la celda se conserva como anotación descriptiva (formulación v5.1).
 | `name` | VARCHAR | nombre legible |
 | `is_residual_group` | BOOLEAN | `true` solo para *All Chargeability Areas Except Those Listed* (bucket residual, **no** un país) |
 
-### `dim_category` — categoría migratoria
+### `dim_category` — categoría migratoria (con jerarquía)
 | Columna | Tipo | Notas |
 |---|---|---|
 | `category_id` | INTEGER PK | surrogate |
 | `block` | VARCHAR | `employment` / `family` (CHECK) |
 | `code` | VARCHAR | `EB1`..`EB5_*` / `F1`,`F2A`,`F2B`,`F3`,`F4` · UNIQUE(`block`,`code`) |
+| `parent_code` | VARCHAR | preferencia padre para roll-up (`EB5_RURAL`→`EB5`, `F2A`→`F2`); NULL si es top-level |
+| `preference_level` | INTEGER | preferencia INA 1–5 (CHECK) |
+| `is_subcategory` | BOOLEAN | true para `EB3_OW`, `EB4_RW/TRANS`, `EB5_*`, `F2A/F2B` |
+| `ina_basis` | VARCHAR | cita estatutaria (`INA 203(b)(5)`, `INA 203(a)(2)(A)`…) |
+
+### `dim_status` — régimen administrativo (dimensión conformada)
+| Columna | Tipo | Notas |
+|---|---|---|
+| `status` | VARCHAR PK | `C`/`F`/`U`/`UNK` (CHECK); **FK desde ambos hechos** |
+| `label` | VARCHAR | Current / Final / Unavailable / Unknown |
+| `description` | VARCHAR | significado |
+| `is_predictable` | BOOLEAN | true **solo** para `F` (único objetivo de modelado) |
 
 ### `dim_table` — tipo de tabla
 | Columna | Tipo | Notas |
@@ -54,7 +66,12 @@ es nula y la celda se conserva como anotación descriptiva (formulación v5.1).
 | `date_id` | INTEGER PK | surrogate |
 | `bulletin_date` | DATE UNIQUE | primer día del mes del boletín |
 | `year` / `month` | INTEGER | `month` 1–12 (CHECK) |
+| `quarter` | INTEGER | trimestre 1–4 (CHECK) — útil para estacionalidad |
 | `us_fiscal_year` | INTEGER | año fiscal federal (inicia 1-oct); los límites por país se reinician ahí |
+
+**Roll-up:** la vista `v_trainable_by_preference` agrega las observaciones
+entrenables (`status='F'`) por `block × preference_level`, plegando las
+subcategorías a su preferencia (todas las `EB5_*` cuentan bajo EB-5).
 
 ## Hecho: `fact_priority`
 | Columna | Tipo | Notas |

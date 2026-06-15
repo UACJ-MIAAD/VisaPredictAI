@@ -37,16 +37,21 @@ de país. Como el valor es entero y no fecha, **DV no cabe** en
    fija la taxonomía (21 cats + 6 regiones). **Fuera de alcance documentado**: la
    *advance notification* (2ª tabla DV = mes futuro, otra serie).
 
-## FASE 2 — Modelo dimensional supremo
+## FASE 2 — Modelo dimensional supremo  ◀ EN CURSO
 
-5. **Jerarquía de categoría** (`parent_code`, `preference_level`, base INA,
-   `annual_limit`, `percountry_cap_pct`) → roll-ups (sumar todas las EB5).
-6. **Bridge de alias / SCD de etiquetas** (`dim_category_alias`): etiqueta-cruda →
-   código-canónico con `valid_from`/`valid_to`. Saca la normalización de 20 años de
-   deriva del código a una tabla auditable y reversible.
-7. **Dimensiones de referencia**: `dim_status` (significado de C/F/U/UNK).
-8. **`dim_date` enriquecida**: trimestre, secuencia, marca de retrogresión.
-9. **`dim_area` enriquecida**: ISO, oversubscribed, límite per-country, región.
+5. **✅ Jerarquía de categoría** — `dim_category` + `parent_code`,
+   `preference_level`, `is_subcategory`, `ina_basis`; vista `v_trainable_by_preference`
+   hace roll-ups (todas las `EB5_*` bajo EB-5). (`annual_limit`/`percountry_cap`
+   omitidos: cifras estatutarias con matices — riesgo de error > valor.)
+6. **⏳ Bridge de alias / SCD de etiquetas** (`dim_category_alias`): etiqueta-cruda →
+   código-canónico con `valid_from`/`valid_to`. **Pendiente** — requiere capturar la
+   etiqueta cruda en los scrapers (hoy el CSV ya guarda el código canónico).
+7. **✅ `dim_status`** — dimensión conformada (C/F/U/UNK + label + descripción +
+   `is_predictable`), con **FK desde ambos hechos**.
+8. **✅ `dim_date` enriquecida** — `quarter` (estacionalidad). (`bulletin_seq` = `date_id`,
+   redundante; marca de retrogresión = derivable en consulta.)
+9. **⏳ `dim_area` enriquecida**: pendiente — el valor marginal es bajo (ya tiene
+   `is_residual_group`); se evaluará si el modelado lo pide.
 
 ## FASE 3 — Gobernanza, calidad y linaje
 

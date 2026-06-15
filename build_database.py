@@ -13,6 +13,7 @@ Writes: data/processed/visapredict.duckdb · data/processed/visa_panel_long.parq
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import duckdb
@@ -32,6 +33,37 @@ AREA_NAMES = {
     "all_chargeability": "All Chargeability Areas Except Those Listed",
 }
 TABLE_NAMES = {"FAD": "Final Action Dates", "DFF": "Dates for Filing"}
+CATEGORY_META = {
+    # code: (parent_code, preference_level, is_subcategory, ina_basis)
+    "F1": (None, 1, False, "INA 203(a)(1)"),
+    "F2A": ("F2", 2, True, "INA 203(a)(2)(A)"),
+    "F2B": ("F2", 2, True, "INA 203(a)(2)(B)"),
+    "F3": (None, 3, False, "INA 203(a)(3)"),
+    "F4": (None, 4, False, "INA 203(a)(4)"),
+    "EB1": (None, 1, False, "INA 203(b)(1)"),
+    "EB2": (None, 2, False, "INA 203(b)(2)"),
+    "EB3": (None, 3, False, "INA 203(b)(3)"),
+    "EB3_OW": ("EB3", 3, True, "INA 203(b)(3)"),  # Other Workers
+    "EB4": (None, 4, False, "INA 203(b)(4)"),
+    "EB4_RW": ("EB4", 4, True, "INA 203(b)(4)"),  # Certain Religious Workers
+    "EB4_TRANS": ("EB4", 4, True, "INA 203(b)(4)"),  # Iraqi/Afghan Translators
+    "EB5": (None, 5, False, "INA 203(b)(5)"),
+    "EB5_TEA": ("EB5", 5, True, "INA 203(b)(5)"),  # Targeted Employment Area
+    "EB5_PILOT": ("EB5", 5, True, "INA 203(b)(5)"),  # Regional Center Pilot
+    "EB5_RC": ("EB5", 5, True, "INA 203(b)(5)"),  # Regional Center
+    "EB5_NONRC": ("EB5", 5, True, "INA 203(b)(5)"),  # Non-Regional Center
+    "EB5_UNRESERVED": ("EB5", 5, True, "INA 203(b)(5)"),
+    "EB5_RURAL": ("EB5", 5, True, "INA 203(b)(5)(B)(ii)"),  # RIA-2022 set-asides
+    "EB5_HIGHUNEMP": ("EB5", 5, True, "INA 203(b)(5)(B)(ii)"),
+    "EB5_INFRA": ("EB5", 5, True, "INA 203(b)(5)(B)(ii)"),
+}
+# C/F/U/UNK regime, promoted to dim_status. Only 'F' is a modeling target.
+STATUS_META = [
+    ("F", "Final", "Se publicó una fecha o rango específico (único objetivo predictivo).", True),
+    ("C", "Current", "Categoría al día ese mes (sin backlog).", False),
+    ("U", "Unavailable", "Sin números disponibles ese mes.", False),
+    ("UNK", "Unknown", "Celda vacía o no parseable.", False),
+]
 REGION_NAMES = {
     "africa": "Africa",
     "asia": "Asia",
@@ -40,6 +72,16 @@ REGION_NAMES = {
     "oceania": "Oceania",
     "south_america_caribbean": "South America and the Caribbean",
 }
+
+
+def _category_meta(code: str) -> tuple:
+    """(parent_code, preference_level, is_subcategory, ina_basis) for a category
+    code. Falls back to the leading digit if an unseen subcategory ever appears
+    (the taxonomy test still pins the expected set)."""
+    if code in CATEGORY_META:
+        return CATEGORY_META[code]
+    m = re.search(r"\d", code)
+    return (None, int(m.group()) if m else 1, "_" in code, None)
 
 
 def _statements(sql: str):
@@ -97,10 +139,18 @@ def build(con: duckdb.DuckDBPyConnection, panel: pd.DataFrame, dv: pd.DataFrame 
     dim_area["name"] = dim_area["slug"].map(lambda s: AREA_NAMES.get(s, s))
     dim_area["is_residual_group"] = dim_area["slug"] == "all_chargeability"
 
-    # dim_category
+    # dim_category (+ hierarchy: parent_code, preference_level, is_subcategory, ina_basis)
     dim_category = df[["block", "category"]].drop_duplicates().sort_values(["block", "category"]).reset_index(drop=True)
     dim_category.insert(0, "category_id", range(1, len(dim_category) + 1))
     dim_category = dim_category.rename(columns={"category": "code"})
+    meta = dim_category["code"].map(_category_meta)
+    dim_category["parent_code"] = meta.map(lambda t: t[0])
+    dim_category["preference_level"] = meta.map(lambda t: t[1])
+    dim_category["is_subcategory"] = meta.map(lambda t: t[2])
+    dim_category["ina_basis"] = meta.map(lambda t: t[3])
+
+    # dim_status (reference dimension; only 'F' is a modeling target)
+    dim_status = pd.DataFrame(STATUS_META, columns=["status", "label", "description", "is_predictable"])
 
     # dim_table
     tables = sorted(df["table"].unique())
@@ -115,6 +165,7 @@ def build(con: duckdb.DuckDBPyConnection, panel: pd.DataFrame, dv: pd.DataFrame 
     dim_date = pd.DataFrame({"date_id": range(1, len(dates) + 1), "bulletin_date": dates})
     dim_date["year"] = dim_date["bulletin_date"].dt.year
     dim_date["month"] = dim_date["bulletin_date"].dt.month
+    dim_date["quarter"] = dim_date["bulletin_date"].dt.quarter
     # U.S. federal fiscal year starts Oct 1 (per-country limits reset there).
     dim_date["us_fiscal_year"] = dim_date["year"] + (dim_date["month"] >= 10).astype(int)
 
@@ -133,14 +184,20 @@ def build(con: duckdb.DuckDBPyConnection, panel: pd.DataFrame, dv: pd.DataFrame 
     # Load parents before the fact so the FK checks pass.
     con.register("v_dim_area", dim_area)
     con.register("v_dim_category", dim_category)
+    con.register("v_dim_status", dim_status)
     con.register("v_dim_table", dim_table)
     con.register("v_dim_date", dim_date)
     con.register("v_fact", fact)
     con.execute("INSERT INTO dim_area SELECT area_id, slug, name, is_residual_group FROM v_dim_area")
-    con.execute("INSERT INTO dim_category SELECT category_id, block, code FROM v_dim_category")
+    con.execute(
+        "INSERT INTO dim_category SELECT category_id, block, code, parent_code, "
+        "preference_level, is_subcategory, ina_basis FROM v_dim_category"
+    )
+    con.execute("INSERT INTO dim_status SELECT status, label, description, is_predictable FROM v_dim_status")
     con.execute("INSERT INTO dim_table SELECT table_id, code, name FROM v_dim_table")
     con.execute(
-        "INSERT INTO dim_date SELECT date_id, CAST(bulletin_date AS DATE), year, month, us_fiscal_year FROM v_dim_date"
+        "INSERT INTO dim_date SELECT date_id, CAST(bulletin_date AS DATE), year, month, quarter, "
+        "us_fiscal_year FROM v_dim_date"
     )
     con.execute(
         "INSERT INTO fact_priority SELECT area_id, category_id, table_id, date_id, status, "
@@ -160,7 +217,7 @@ def main() -> None:
     try:
         build(con, df, dv)
         con.execute(f"COPY (SELECT * FROM v_panel_long) TO '{PARQUET_PATH.as_posix()}' (FORMAT parquet)")
-        tables = ["dim_area", "dim_category", "dim_table", "dim_date", "fact_priority"]
+        tables = ["dim_area", "dim_category", "dim_status", "dim_table", "dim_date", "fact_priority"]
         if dv is not None:
             tables += ["dim_region", "fact_dv_rank"]
         for tbl in tables:
