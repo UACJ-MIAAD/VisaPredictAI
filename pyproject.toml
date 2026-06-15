@@ -4,6 +4,9 @@ version = "1.0.0"
 description = "Scraper and longitudinal panel of the U.S. Visa Bulletin (VisaPredict AI · MIAAD/UACJ)."
 requires-python = ">=3.14"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Javier Augusto Rebull Saucedo" }]
 dependencies = [
     "beautifulsoup4==4.14.3",
     "matplotlib==3.10.8",
