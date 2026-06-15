@@ -13,3 +13,9 @@ figures/
 .ruff_cache/
 .mypy_cache/
 htmlcov/
+
+# Packaging build artifacts (pip install -e .) — must stay out so the daily
+# Action's `git add -A` never commits them.
+*.egg-info/
+build/
+dist/

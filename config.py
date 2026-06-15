@@ -9,7 +9,12 @@ has no heavy imports, so build_panel/audits don't pull in requests/bs4.
 from pathlib import Path
 
 DATA_DIR = Path("data")
-PANEL_PATH = DATA_DIR / "visa_panel_long.csv"
+# cookiecutter-data-science layout: raw = scraped source CSVs (one per country),
+# processed = the consolidated long panel (derived). Keep them apart so a
+# consumer can tell source from derivative without reading the README.
+RAW_DIR = DATA_DIR / "raw"
+PROCESSED_DIR = DATA_DIR / "processed"
+PANEL_PATH = PROCESSED_DIR / "visa_panel_long.csv"
 
 # Dependent-variable epoch (string; build_panel wraps it in pd.Timestamp).
 # Chosen before the earliest observed priority date (1979-11, Philippines F4).

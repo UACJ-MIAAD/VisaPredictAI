@@ -19,11 +19,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from config import CANONICAL_COUNTRY
-from config import DATA_DIR as DATA
+from config import CANONICAL_COUNTRY, PANEL_PATH
+from config import RAW_DIR as RAW
 
 COUNTRIES = list(CANONICAL_COUNTRY)  # slugs in canonical order
-OUT = Path("data_quality_report.md")
+OUT = Path("reports/data_quality_report.md")
 
 
 def month_range(start: pd.Timestamp, end: pd.Timestamp) -> pd.DatetimeIndex:
@@ -47,7 +47,7 @@ def audit_block(name: str, level_col: str, has_table_type: bool) -> list[str]:
 
     for c in COUNTRIES:
         suffix = "_family" if name == "Familiar" else ""
-        fp = DATA / f"{c}{suffix}_visa_backlog_timecourse.csv"
+        fp = RAW / f"{c}{suffix}_visa_backlog_timecourse.csv"
         if not fp.exists():
             lines.append(f"| {c} | (archivo ausente) |||||||| ")
             continue
@@ -81,7 +81,7 @@ def audit_block(name: str, level_col: str, has_table_type: bool) -> list[str]:
 
 
 def panel_section() -> list[str]:
-    fp = DATA / "visa_panel_long.csv"
+    fp = PANEL_PATH
     if not fp.exists():
         return ["## Panel consolidado", "", "_`visa_panel_long.csv` aún no generado (corre `build_panel.py`)._", ""]
     p = pd.read_csv(fp)
@@ -145,6 +145,7 @@ def main() -> None:
         "la coerción a NaN de pandas. En el panel actual: 1 fila UNK.",
         "",
     ]
+    OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text("\n".join(lines), encoding="utf-8")
     print(f"✓ Reporte escrito en {OUT}")
     print("\n".join(lines))

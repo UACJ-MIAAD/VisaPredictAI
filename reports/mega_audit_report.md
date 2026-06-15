@@ -1,6 +1,6 @@
 # MEGA AUDIT — VisaPredict AI panel
 
-_Auditoría exhaustiva generada por `mega_audit.py` sobre `data/visa_panel_long.csv` y las 10 fuentes._
+_Auditoría exhaustiva generada por `mega_audit.py` sobre `data/processed/visa_panel_long.csv` y las 10 fuentes._
 
 ## 1. Esquema & dtypes
 

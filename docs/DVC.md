@@ -6,11 +6,11 @@ del repo hermano EpiForecast-MX al caso de visas.
 
 ## Decisión: los CSV abiertos se quedan en git
 
-Los CSV por país y el panel (`data/*.csv`) son el **entregable de datos abiertos**
-del proyecto: cualquiera los descarga directamente del repositorio, sin necesitar
-DVC ni credenciales de un remoto S3. Versionarlos con DVC los sacaría de git y
-**rompería esa accesibilidad**. El `.dvcignore` los protege explícitamente para que
-un `dvc add data/` accidental nunca los mueva. El *bloat* histórico de git venía de
+Los CSV por país (`data/raw/`) y el panel (`data/processed/`) son el **entregable de
+datos abiertos** del proyecto: cualquiera los descarga directamente del repositorio,
+sin necesitar DVC ni credenciales de un remoto S3. Versionarlos con DVC los sacaría
+de git y **rompería esa accesibilidad**. El `.dvcignore` (`data/**/*.csv`) los protege
+explícitamente para que un `dvc add data/` accidental nunca los mueva. El *bloat* histórico de git venía de
 las **figuras binarias**, ya resueltas (gitignored; regenerar con `make figures`).
 
 ## Para qué se reserva DVC (próximo semestre, modelado)

@@ -48,14 +48,16 @@ VisaPredictAI/
 ├── audit_data_quality.py · mega_audit.py   # auditorías de calidad de datos
 ├── visualize_*.py                      # gráficas (artefactos no versionados)
 ├── tests/                              # pytest: parsers · extracción offline · contrato del panel
-├── data/                               # CSVs por país + visa_panel_long.csv (versionados)
+├── data/raw/                           # CSVs por país scrapeados (fuente, versionados)
+├── data/processed/                     # visa_panel_long.csv (panel derivado, versionado)
+├── reports/ · docs/                    # auditorías generadas (*_report.md) · DVC.md
 ├── Makefile · pyproject.toml           # one-command ops + config ruff/mypy/pytest
 └── .github/workflows/                  # ci.yml (lint+type+test) · update_graphs.yml (cron diario)
 ```
 
 ## Requisitos
 
-- Python 3.14 (las dependencias están pin-eadas en `requirements.txt` para reproducibilidad dev↔CI).
+- Python 3.14 (las dependencias —runtime y dev— están pin-eadas en `pyproject.toml`, fuente única, para reproducibilidad dev↔CI).
 
 ## Instalación y uso
 
@@ -67,7 +69,7 @@ make install            # dependencias + herramientas dev
 
 # pipeline de un comando
 make scrape             # ambos scrapers (~4 min, red)
-make panel              # consolida data/visa_panel_long.csv
+make panel              # consolida data/processed/visa_panel_long.csv
 make test               # pytest (parsers + extracción offline + contrato del panel)
 make check              # ruff + mypy + pytest
 make figures            # gráficas (no versionadas)
@@ -75,7 +77,7 @@ make figures            # gráficas (no versionadas)
 
 ## Datos de salida
 
-### CSVs por país (`data/{country}[_family]_visa_backlog_timecourse.csv`)
+### CSVs por país (`data/raw/{country}[_family]_visa_backlog_timecourse.csv`)
 
 | Columna | Descripción |
 |---|---|
@@ -87,7 +89,7 @@ make figures            # gráficas (no versionadas)
 | `status` | Régimen administrativo: `F`/`C`/`U`/`UNK` (ver abajo) |
 | `visa_wait_time` | Tiempo de espera calculado (años, legado) |
 
-### Panel consolidado (`data/visa_panel_long.csv`)
+### Panel consolidado (`data/processed/visa_panel_long.csv`)
 
 Formato largo con la variable dependiente: `country`, `block`, `category`, `table`, `bulletin_date`, `status`, `priority_date`, **`days_since_base`** (días desde 1975-01-01, solo cuando `status='F'`), `raw_value`.
 

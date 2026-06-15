@@ -1,4 +1,4 @@
-"""Integrity contract for data/visa_panel_long.csv.
+"""Integrity contract for data/processed/visa_panel_long.csv.
 
 Encodes the mega-audit invariants as hard assertions so a regression in any
 scraper or in build_panel.py fails loudly. Suitable as a CI quality gate
@@ -14,7 +14,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-PANEL = ROOT / "data" / "visa_panel_long.csv"
+PANEL = ROOT / "data" / "processed" / "visa_panel_long.csv"
 
 from config import DEAD_MONTHS  # noqa: E402
 

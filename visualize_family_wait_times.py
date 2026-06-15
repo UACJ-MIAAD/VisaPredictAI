@@ -26,7 +26,7 @@ f_labels = [
 ]
 
 for country in countries:
-    df = pd.read_csv(f"data/{country.lower()}_family_visa_backlog_timecourse.csv")
+    df = pd.read_csv(f"data/raw/{country.lower()}_family_visa_backlog_timecourse.csv")
     df["visa_bulletin_date"] = pd.to_datetime(df["visa_bulletin_date"])
     df["visa_wait_time"] = df["visa_wait_time"].astype(float)
 

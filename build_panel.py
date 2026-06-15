@@ -15,7 +15,7 @@ son objetivo predictivo (formulación v5.1).
 
 Run from the repo root (after the scrapers have written `status`/`raw_value`):
     ante/bin/python build_panel.py
-Writes: data/visa_panel_long.csv
+Writes: data/processed/visa_panel_long.csv
 """
 
 from __future__ import annotations
@@ -26,8 +26,8 @@ import pandas as pd
 
 from config import BASE_EPOCH, TABLE_MAP
 from config import CANONICAL_COUNTRY as COUNTRIES
-from config import DATA_DIR as DATA
 from config import PANEL_PATH as OUT
+from config import RAW_DIR as RAW
 
 BASE = pd.Timestamp(BASE_EPOCH)
 
@@ -56,7 +56,7 @@ def _require(df: pd.DataFrame, fp: Path) -> None:
 def load_employment() -> pd.DataFrame:
     frames = []
     for slug, canon in COUNTRIES.items():
-        fp = DATA / f"{slug}_visa_backlog_timecourse.csv"
+        fp = RAW / f"{slug}_visa_backlog_timecourse.csv"
         df = pd.read_csv(fp)
         _require(df, fp)
         df = df.rename(columns={"visa_bulletin_date": "bulletin_date"})  # priority_date already named
@@ -71,7 +71,7 @@ def load_employment() -> pd.DataFrame:
 def load_family() -> pd.DataFrame:
     frames = []
     for slug, canon in COUNTRIES.items():
-        fp = DATA / f"{slug}_family_visa_backlog_timecourse.csv"
+        fp = RAW / f"{slug}_family_visa_backlog_timecourse.csv"
         df = pd.read_csv(fp)
         _require(df, fp)
         df = df.rename(columns={"visa_bulletin_date": "bulletin_date"})  # priority_date already named
@@ -112,6 +112,7 @@ def main() -> None:
         print(f"  aviso: {int(dup.sum())} filas duplicadas por clave colapsadas (keep=first)")
         panel = panel[~dup].reset_index(drop=True)
 
+    OUT.parent.mkdir(parents=True, exist_ok=True)
     panel.to_csv(OUT, index=False)
 
     # ---- summary -----------------------------------------------------------

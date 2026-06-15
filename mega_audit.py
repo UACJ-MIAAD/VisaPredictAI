@@ -26,11 +26,11 @@ from pathlib import Path
 import pandas as pd
 
 from config import CANONICAL_COUNTRY as COUNTRIES
-from config import DATA_DIR as DATA
 from config import DEAD_MONTHS
 from config import PANEL_PATH as PANEL
+from config import RAW_DIR as RAW
 
-OUT = Path("mega_audit_report.md")
+OUT = Path("reports/mega_audit_report.md")
 
 L: list[str] = []  # report lines
 FLAGS: list[tuple[str, str]] = []  # (severity, message)
@@ -76,7 +76,7 @@ def d1_schema(p):
     add("- CSVs fuente:")
     for slug in COUNTRIES:
         for suf, lvl in [("", "EB_level"), ("_family", "F_level")]:
-            fp = DATA / f"{slug}{suf}_visa_backlog_timecourse.csv"
+            fp = RAW / f"{slug}{suf}_visa_backlog_timecourse.csv"
             df = pd.read_csv(fp)
             need = {lvl, "status", "raw_value", "table_type", "visa_bulletin_date"}
             mm = need - set(df.columns)
@@ -269,7 +269,7 @@ def d10_reconcile(p):
     src_F = 0
     for slug in COUNTRIES:
         for suf in ["", "_family"]:
-            df = pd.read_csv(DATA / f"{slug}{suf}_visa_backlog_timecourse.csv")
+            df = pd.read_csv(RAW / f"{slug}{suf}_visa_backlog_timecourse.csv")
             src_F += int((df.status == "F").sum())
     panel_F = int((p.status == "F").sum())
     add(f"- Filas status=F en las 10 fuentes (suma): **{src_F:,}**")
@@ -309,7 +309,7 @@ def main():
     add(
         "# MEGA AUDIT — VisaPredict AI panel",
         "",
-        "_Auditoría exhaustiva generada por `mega_audit.py` sobre `data/visa_panel_long.csv` y las 10 fuentes._",
+        "_Auditoría exhaustiva generada por `mega_audit.py` sobre `data/processed/visa_panel_long.csv` y las 10 fuentes._",
     )
     inv = series_table(p)
     d1_schema(p)
@@ -335,6 +335,7 @@ def main():
     veredicto = "APTO" if not crit else "REQUIERE ATENCIÓN"
     add("", f"**Estado del panel: {veredicto}**")
 
+    OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text("\n".join(L), encoding="utf-8")
     print(f"✓ {OUT} ({len(L)} líneas)")
     print("\n".join(f"  [{s}] {m}" for s, m in FLAGS) or "  sin flags")

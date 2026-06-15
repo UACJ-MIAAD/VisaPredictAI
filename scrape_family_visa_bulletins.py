@@ -1,6 +1,7 @@
 import pandas as pd
 from tqdm import tqdm
 
+from config import RAW_DIR
 from visa_common import (
     MAX_FETCH_FAILURES,
     SCRAPER_COUNTRIES,
@@ -114,6 +115,7 @@ def main():
             )
 
     countries = SCRAPER_COUNTRIES
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
     for country in tqdm(countries, desc="Extracting data for each country and computing backlogs"):
         country_df = extract_country_data(country, all_data)
         # Deterministic order (newest first, then table then category): a fully
@@ -122,7 +124,7 @@ def main():
         country_df = country_df.sort_values(
             by=["visa_bulletin_date", "table_type", "F_level"], ascending=[False, True, True]
         )
-        country_df.to_csv(f"data/{country}_family_visa_backlog_timecourse.csv", index=False)
+        country_df.to_csv(RAW_DIR / f"{country}_family_visa_backlog_timecourse.csv", index=False)
 
 
 if __name__ == "__main__":

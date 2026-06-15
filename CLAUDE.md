@@ -16,20 +16,20 @@ Este repositorio extrae datos históricos del **Visa Bulletin** del Departamento
 VisaPredictAI/
 ├── CLAUDE.md                          # Este archivo (contexto para Claude Code)
 ├── README.md                          # Documentación original del repo
-├── requirements.txt                   # Dependencias Python
+├── pyproject.toml                     # Deps (runtime+dev) + config ruff/mypy/pytest — fuente única
 ├── visa_common.py                     # ★ helpers compartidos (fetch/links/fecha/estado) — NO duplicar en los scrapers
 ├── scrape_visa_bulletins.py           # scraper empleo (importa de visa_common; ~2 min)
 ├── scrape_family_visa_bulletins.py    # scraper familiar (importa de visa_common)
 ├── build_panel.py · audit_data_quality.py · mega_audit.py  # consolidación + auditorías
 ├── tests/                             # test_parsers.py (12) · test_panel_integrity.py (11 invariantes)
-├── *_audit_report.md                  # data_quality · mega · mlops · solid_clean
+├── reports/                           # *_audit_report.md (data_quality · mega · mlops · solid_clean)
+├── docs/                              # DVC.md y otra documentación
 ├── visualize_visa_wait_times.py       # Generación de gráficas por país
-├── data/                              # CSVs generados por el scraper
-│   ├── china_visa_backlog_timecourse.csv
-│   ├── india_visa_backlog_timecourse.csv
-│   ├── mexico_visa_backlog_timecourse.csv
-│   ├── philippines_visa_backlog_timecourse.csv
-│   └── row_visa_backlog_timecourse.csv
+├── data/
+│   ├── raw/                           # CSVs por país scrapeados (fuente, 10 archivos)
+│   │   ├── china_visa_backlog_timecourse.csv
+│   │   └── ... (india, mexico, philippines, row · empleo + familiar)
+│   └── processed/                     # visa_panel_long.csv (panel derivado y_{p,c,b,t})
 ├── figures/                           # Gráficas PNG generadas
 │   ├── China_visa_wait_times.png
 │   ├── India_visa_wait_times.png
@@ -47,7 +47,7 @@ VisaPredictAI/
 - **Ambiente virtual:** `ante` (activar con `source ante/bin/activate`)
 - **Ubicación local:** `/Users/haowei/Documents/Anteproyecto/VisaPredictAI`
 
-### Dependencias (requirements.txt)
+### Dependencias (pyproject.toml)
 
 | Paquete         | Uso                                        |
 |-----------------|---------------------------------------------|
@@ -59,12 +59,12 @@ VisaPredictAI/
 
 ## Tooling MLOps (mejores prácticas)
 
-- **Dependencias pin-eadas** (`requirements.txt` + `pyproject.toml`): versiones exactas validadas en dev (pandas 3.0.0, py3.14); el Action usa el mismo Python → CI reproduce dev.
+- **Dependencias pin-eadas** (`pyproject.toml`, fuente única — runtime en `[project.dependencies]`, dev en `[project.optional-dependencies].dev`): versiones exactas validadas en dev (pandas 3.0.0, py3.14); CI y cron instalan con `pip install -e .[dev]` / `pip install -e .` → reproducen dev.
 - **`ruff`** (lint + **format**) + **`mypy`** + **`pytest` con coverage gate (`fail_under=65`)** configurados en `pyproject.toml`. `make check` = lint + format-check + typecheck + test. Los tests corren vía `pytest` (con cobertura) **y** como scripts planos (`python tests/x.py`, salida 0/1) — el Action diario usa los planos (sin dep de pytest); CI y `make test` usan pytest. **Prácticas adaptadas de EpiForecast-MX** (14-jun-2026): pytest+coverage, `ruff format`, pre-commit endurecido (`check-added-large-files`, eof, yaml/toml, debug-statements), `.python-version`, CI con `concurrency`+cache.
 - **Dos workflows de GitHub Actions:** `ci.yml` (lint + tests en cada push/PR a `main`) y `update_graphs.yml` (cron diario: scrape→panel→**gate de tests**→figuras→commit; abre issue `scrape-failure` en fallo).
 - **`Makefile`**: `make install|scrape|panel|test|lint|figures|audit|all` (un comando). Override: `make test PY=python`.
 - **`.pre-commit-config.yaml`**: ruff + tests rápidos antes de cada commit (`pre-commit install`).
-- **DVC** inicializado pero **NO versiona los CSV abiertos** (son el entregable, se quedan en git; `.dvcignore` los protege). Reservado para artefactos de modelo/binarios grandes del **próximo semestre** (como EpiForecast usa `models.dvc`/checkpoints). Ver `DVC.md`.
+- **DVC** inicializado pero **NO versiona los CSV abiertos** (son el entregable, se quedan en git; `.dvcignore` los protege). Reservado para artefactos de modelo/binarios grandes del **próximo semestre** (como EpiForecast usa `models.dvc`/checkpoints). Ver `docs/DVC.md`.
 - **`tests/`** corre sin pytest (salida 0/1): `test_parsers` (12) + `test_extraction` (6, offline sobre fixtures) + `test_panel_integrity` (11 invariantes/contrato, incl. completitud de meses a nivel mes-unión **y** por (bloque,tabla)).
 
 ## Comandos clave
@@ -77,19 +77,19 @@ make test        # gate completo · make lint · make panel · make all
 source ante/bin/activate
 
 # Instalar dependencias
-pip install -r requirements.txt
+pip install -e ".[dev]"   # runtime + dev desde pyproject (fuente única)
 
-# Ejecutar scrapers (genera CSVs por país en data/, ~2 min c/u)
+# Ejecutar scrapers (genera CSVs por país en data/raw/, ~2 min c/u)
 python scrape_visa_bulletins.py          # empleo (EB 1-4, FAD+DFF)
 python scrape_family_visa_bulletins.py   # familiar (F1-F4, FAD+DFF)
 
-# Consolidar el panel largo y_{p,c,b,t} -> data/visa_panel_long.csv
+# Consolidar el panel largo y_{p,c,b,t} -> data/processed/visa_panel_long.csv
 python build_panel.py
 
-# Auditoría de calidad -> data_quality_report.md
+# Auditoría de calidad -> reports/data_quality_report.md
 python audit_data_quality.py
 
-# MEGA AUDIT exhaustivo (12 dimensiones) -> mega_audit_report.md
+# MEGA AUDIT exhaustivo (12 dimensiones) -> reports/mega_audit_report.md
 python mega_audit.py
 
 # Suite de pruebas (sin pytest; salida 0/1; corre como GATE de CI antes del commit)
@@ -97,7 +97,7 @@ python tests/test_parsers.py          # 12 casos · funciones de parseo/clasific
 python tests/test_extraction.py       # 6 casos · extracción OFFLINE sobre fixtures HTML (sin red)
 python tests/test_panel_integrity.py  # 11 invariantes duras del panel (contrato + completitud de meses unión y por bloque/tabla)
 
-# Audit MLOps de madurez de ingeniería -> mlops_audit_report.md (estático, no regenera)
+# Audit MLOps de madurez de ingeniería -> reports/mlops_audit_report.md (estático, no regenera)
 
 # Generar gráficas (genera PNGs en figures/)
 python visualize_visa_wait_times.py
@@ -153,7 +153,7 @@ Preserva el régimen que se perdía al aplanar `C`→fecha y `U`→NaN. La emite
 - `U` — *Unavailable*, sin números ese mes (anotación descriptiva).
 - `UNK` — celda vacía o no parseable (distingue 'sin dato' de 'Unavailable'). **Centinela `UNK`, NO `NA`**: el string `"NA"` colisiona con la coerción por defecto de pandas (`read_csv` lo lee como `NaN`) y borraba la anotación; `UNK` es seguro para cualquier consumidor downstream.
 
-### Panel consolidado `data/visa_panel_long.csv` (objetivo y_{p,c,b,t})
+### Panel consolidado `data/processed/visa_panel_long.csv` (objetivo y_{p,c,b,t})
 
 Generado por `build_panel.py` a partir de los 10 CSV por país. Esquema largo:
 
@@ -182,7 +182,7 @@ ya NO descarta un mes en silencio; `main()` reporta cualquier mes perdido). Much
 series EB-5 son cortas/discontinuas por cambios de régimen de categoría: cobertura
 **estructural**; el filtro evaluable/piloto es posterior.
 
-### Pendientes de cobertura (post-mega-audit, ver `mega_audit_report.md`)
+### Pendientes de cobertura (post-mega-audit, ver `reports/mega_audit_report.md`)
 
 - **5 meses muertos** (`2009-03/09/10/11`, `2012-10`): solo en Wayback legacy
   (`bulletin_NNNN.html`); recuperables manualmente, no auto-integrados (1.7%, el
@@ -213,11 +213,11 @@ Construir modelos predictivos para forecasting de fechas del Visa Bulletin, con 
 
 ## Notas para Claude Code
 
-- Los CSVs en `data/` son **generados automáticamente** por `scrape_visa_bulletins.py`. No editarlos a mano; si necesitan cambios, modificar el scraper.
+- Los CSVs en `data/raw/` son **generados automáticamente** por `scrape_visa_bulletins.py`. No editarlos a mano; si necesitan cambios, modificar el scraper.
 - **`visa_common.py` es la única fuente de verdad** de las funciones compartidas (`get_soup`, `extract_month_links`, `extract_datetime_from_link`, `string_to_datetime`, `classify_status`, `_norm_label`) y constantes (`SITE_ROOT`, `SCRAPER_COUNTRIES`). **NO re-duplicarlas** en los scrapers (lo estaban; deduplicadas 14-jun-2026, refactor verificado byte-idéntico). Cada scraper conserva sólo lo que difiere: `extract_tables` (detección de sección), `classify_eb_category`/`classify_family_category`, `extract_country_data`, `main`.
 - El scraper tarda ~2 minutos en ejecutarse porque hace requests HTTP a cada boletín mensual individualmente.
 - Los `NaN` en `visa_wait_time` corresponden a meses donde la categoría estaba `U` (Unavailable).
 - El GitHub Action (`update_graphs.yml`) corre diariamente y auto-commitea si hay cambios.
-- Al agregar nuevas dependencias, actualizar `requirements.txt`.
+- Al agregar nuevas dependencias, actualizar `pyproject.toml` (fuente única: runtime o dev).
 - Para análisis exploratorio o modelado, crear scripts/notebooks nuevos en la raíz o en un directorio dedicado (ej. `notebooks/`, `models/`).
 - Este repositorio es el componente de datos (Objetivo 1) de la tesis VisaPredict AI; ya no usa código del fork original (créditos retirados 14-jun-2026).

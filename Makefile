@@ -5,7 +5,7 @@ PY ?= ante/bin/python
 .PHONY: help install scrape panel figures audit test lint typecheck check all
 
 help:
-	@echo "install  - install pinned dependencies (+ ruff)"
+	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"
 	@echo "scrape   - run both scrapers (network, ~4 min)"
 	@echo "panel    - build the consolidated long panel"
 	@echo "figures  - regenerate the PNG figures"
@@ -17,8 +17,7 @@ help:
 	@echo "all      - scrape -> panel -> test -> figures -> audit"
 
 install:
-	$(PY) -m pip install -r requirements.txt
-	$(PY) -m pip install ruff==0.15.17 mypy==2.1.0
+	$(PY) -m pip install -e ".[dev]"
 
 scrape:
 	$(PY) scrape_visa_bulletins.py
