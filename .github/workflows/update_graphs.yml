@@ -42,6 +42,7 @@ jobs:
         aws-region: us-east-1
 
     - name: Freeze a newly published bulletin, then rebuild only if one arrived
+      id: run
       run: |
         set -eo pipefail
 
@@ -50,6 +51,7 @@ jobs:
         aws s3 sync s3://visapredictai-raw-snapshots/raw-html/ data/snapshots/ --quiet
         python freeze_snapshots.py > /tmp/new_count   # crashes fail the step under set -e
         new=$(cat /tmp/new_count)
+        echo "new=$new" >> "$GITHUB_OUTPUT"   # surfaced to the email step below
 
         if [ "$new" = "0" ]; then
           echo "No new bulletin this run -- nothing to rebuild."
@@ -85,6 +87,28 @@ jobs:
           git commit -m "Add bulletin $(date -u +%Y-%m): refresh panel from frozen HTML"
           git push
         fi
+
+    - name: Email heartbeat via SES (every run -- no-op, new bulletin, or failure)
+      if: always()
+      env:
+        JOB_STATUS: ${{ job.status }}
+        NEW: ${{ steps.run.outputs.new || 'n/d (el job no llegó al conteo)' }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        # Reuses the AWS creds already configured above. The IAM user needs
+        # ses:SendEmail, and the From/To address must be a VERIFIED SES identity
+        # (in sandbox, verifying al263483@... once covers both From and To).
+        cat > /tmp/ses.json <<JSON
+        {
+          "FromEmailAddress": "al263483@alumnos.uacj.mx",
+          "Destination": {"ToAddresses": ["al263483@alumnos.uacj.mx"]},
+          "Content": {"Simple": {
+            "Subject": {"Data": "VisaPredict | corrida $JOB_STATUS — $NEW boletín(es) nuevo(s)"},
+            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nLogs: $RUN_URL"}}
+          }}
+        }
+        JSON
+        aws sesv2 send-email --region us-east-1 --cli-input-json file:///tmp/ses.json
 
     - name: Alert on failure (open or append a tracking issue)
       if: failure()
