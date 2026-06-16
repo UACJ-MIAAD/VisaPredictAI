@@ -83,8 +83,9 @@ CREATE TABLE fact_priority (
     raw_value        VARCHAR,
     PRIMARY KEY (area_id, category_id, table_id, date_id),
     -- The dependent variable and the priority date are defined IFF status='F'.
-    CHECK ((status = 'F') = (days_since_base IS NOT NULL)),
-    CHECK ((status = 'F') = (priority_date  IS NOT NULL))
+    -- Named so a violation reports the exact invariant, not just the table.
+    CONSTRAINT days_iff_F  CHECK ((status = 'F') = (days_since_base IS NOT NULL)),
+    CONSTRAINT pdate_iff_F CHECK ((status = 'F') = (priority_date  IS NOT NULL))
 );
 
 -- ─────────────────────────── PANEL VIEW ───────────────────────────
