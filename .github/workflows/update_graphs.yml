@@ -75,7 +75,10 @@ jobs:
         # 4. Refresh the DuckDB star schema and validate it accepts the new data
         #    (the .duckdb/.parquet stay gitignored -- regenerable with `make db`).
         python build_database.py
-        python -m pytest tests/test_database.py
+        # --cov-fail-under=0: this targeted DB-contract run doesn't import the
+        # scraper modules, so the global 65% coverage gate (pyproject) would
+        # spuriously fail it. The plain-script gate above already covers those.
+        python -m pytest tests/test_database.py --cov-fail-under=0
 
         # 5. Commit the refreshed CSVs/panel (snapshots + DB are gitignored).
         git config --local user.email "168046724+jrebull@users.noreply.github.com"
