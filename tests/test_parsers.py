@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scrape_family_visa_bulletins import classify_family_category  # noqa: E402
 from scrape_visa_bulletins import classify_eb_category  # noqa: E402
-from visa_common import _norm_label, classify_status  # noqa: E402
+from visa_common import classify_status, norm_label  # noqa: E402
 
 
 # ---- classify_status (C/F/U/NA) ----------------------------------------
@@ -107,12 +107,12 @@ def test_family_out_of_scope():
     assert classify_family_category(None) is None
 
 
-# ---- _norm_label -------------------------------------------------------
+# ---- norm_label --------------------------------------------------------
 def test_norm_label():
-    assert _norm_label("Other\nWorkers") == "other workers"
-    assert _norm_label("5th\xa0\xa0Regional") == "5th regional"
-    assert _norm_label("  MiXeD  Case  ") == "mixed case"
-    assert _norm_label(None) == ""
+    assert norm_label("Other\nWorkers") == "other workers"
+    assert norm_label("5th\xa0\xa0Regional") == "5th regional"
+    assert norm_label("  MiXeD  Case  ") == "mixed case"
+    assert norm_label(None) == ""
 
 
 def _run():

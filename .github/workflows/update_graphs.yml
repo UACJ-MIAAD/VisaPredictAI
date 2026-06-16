@@ -27,14 +27,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e .   # runtime deps from pyproject (single source of truth)
 
-    - name: Run employment-based scraping script
-      run: python scrape_visa_bulletins.py
-
-    - name: Run family-based scraping script
-      run: python scrape_family_visa_bulletins.py
-
-    - name: Run diversity-visa scraping script
-      run: python scrape_dv_visa_bulletins.py
+    - name: Scrape all sections (fetch each bulletin once)
+      run: python scrape_all.py
 
     - name: Build consolidated long panel
       run: python build_panel.py

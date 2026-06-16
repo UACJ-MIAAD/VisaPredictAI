@@ -12,15 +12,15 @@ from tqdm import tqdm
 
 from config import RAW_DIR
 from visa_common import (
-    MAX_FETCH_FAILURES,
     SCRAPER_COUNTRIES,
     SITE_ROOT,
-    _norm_label,
     annotate_dates,
     extract_datetime_from_link,
     extract_month_links,
     get_soup,
+    norm_label,
     parse_tables,
+    report_failures,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ def classify_family_category(raw) -> None | str:
     '*' footnote variants). Returns None for non-category rows (e.g. the
     'family' spanning header). Codes match the legacy values: 1, 2A, 2B, 3, 4.
     """
-    s = _norm_label(raw)
+    s = norm_label(raw)
     if s in ("1st", "f1"):
         return "1"
     if s in ("2a", "2a*", "2nd-a", "2nda", "f2a", "f2a*"):
@@ -66,7 +66,7 @@ def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataF
 
     country_data = []
     for df in all_data:
-        norm = {col: _norm_label(col) for col in df.columns}
+        norm = {col: norm_label(col) for col in df.columns}
 
         # The family-category column is always column 0 (header is
         # 'family- sponsored', 'family', or '' across the years).
@@ -77,7 +77,9 @@ def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataF
 
         try:
             sub = df[[cat_col, country_col, "visa_bulletin_date", "table_type"]].copy()
-        except KeyError:
+        except (KeyError, ValueError):
+            # ValueError: a duplicate normalized header makes df[country_col] a
+            # frame, so the column-rename below would mismatch. Skip that table.
             continue
         sub.columns = ["F_level", "priority_date", "visa_bulletin_date", "table_type"]
         country_data.append(sub)
@@ -109,31 +111,11 @@ def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataF
     return country_df
 
 
-def main():
-    month_links = extract_month_links()
-
-    all_data = []
-    failed = []
-    for link in tqdm(month_links, desc="Extracting all family-sponsored visa bulletin tables"):
-        try:
-            table_data = extract_tables(link)
-            all_data.extend(table_data)
-        except Exception as exc:
-            failed.append((link, str(exc)[:60]))
-    if failed:
-        logger.warning("%d boletines fallaron tras reintentos (meses perdidos):", len(failed))
-        for link, err in failed:
-            logger.warning("   %s  %s", link.split("/")[-1], err)
-        if len(failed) > MAX_FETCH_FAILURES:
-            raise SystemExit(
-                f"{len(failed)} boletines fallaron (> {MAX_FETCH_FAILURES}): probable "
-                f"problema de la fuente, no un blip transitorio. Se aborta sin escribir "
-                f"para no publicar un panel degradado."
-            )
-
-    countries = SCRAPER_COUNTRIES
+def write_csvs(all_data: list[pd.DataFrame]) -> None:
+    """Write one family CSV per country from the parsed tables. Shared by this
+    script's main() and the single-fetch scrape_all.py driver."""
     RAW_DIR.mkdir(parents=True, exist_ok=True)
-    for country in tqdm(countries, desc="Extracting data for each country and computing backlogs"):
+    for country in tqdm(SCRAPER_COUNTRIES, desc="Extracting data for each country and computing backlogs"):
         country_df = extract_country_data(country, all_data)
         # Deterministic order (newest first, then table then category): a fully
         # specifying key, so a transient dropped month cannot cascade-reorder the
@@ -142,6 +124,19 @@ def main():
             by=["visa_bulletin_date", "table_type", "F_level"], ascending=[False, True, True]
         )
         country_df.to_csv(RAW_DIR / f"{country}_family_visa_backlog_timecourse.csv", index=False)
+
+
+def main():
+    month_links = extract_month_links()
+    all_data = []
+    failed = []
+    for link in tqdm(month_links, desc="Extracting all family-sponsored visa bulletin tables"):
+        try:
+            all_data.extend(extract_tables(link))
+        except Exception as exc:
+            failed.append((link, str(exc)[:60]))
+    report_failures(failed, logger)
+    write_csvs(all_data)
 
 
 if __name__ == "__main__":

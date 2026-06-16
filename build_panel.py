@@ -101,6 +101,25 @@ def main() -> None:
     panel.loc[not_f, "priority_date"] = pd.NaT
     panel["days_since_base"] = (panel["priority_date"] - BASE).dt.days
 
+    # Base-epoch guard. strptime's 2-digit-year pivot maps '69'..'99' to
+    # 1969..1999, so a genuine 1969-1974 priority date would land before the
+    # t0=1975 epoch and make days_since_base negative — which the DuckDB CHECK
+    # (days_since_base >= 0) rejects deep in the DB load. Fail here instead, with
+    # an actionable message: a date this old means BASE_EPOCH (the thesis t0) must
+    # be revisited, not silently truncated.
+    underflow = panel[(panel.status == "F") & (panel.days_since_base < 0)]
+    if not underflow.empty:
+        worst = underflow.priority_date.min()
+        raise SystemExit(
+            f"{len(underflow)} fechas F anteriores a BASE={BASE:%Y-%m-%d} "
+            f"(la más antigua: {worst:%Y-%m-%d}). Revisar BASE_EPOCH (t0 de la tesis) en config.py."
+        )
+
+    # Integer dtype (nullable): the dependent variable is a day count, not a
+    # float. NaT rows coerce the raw subtraction to float64; Int64 restores the
+    # integer contract so the CSV writes "18262", not "18262.0".
+    panel["days_since_base"] = panel["days_since_base"].astype("Int64")
+
     panel = (
         panel[PANEL_COLS].sort_values(["country", "block", "category", "table", "bulletin_date"]).reset_index(drop=True)
     )

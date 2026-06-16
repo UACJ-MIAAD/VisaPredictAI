@@ -71,6 +71,13 @@ def get_soup(url: str, retries: int = MAX_RETRIES) -> BeautifulSoup:
             response = requests.get(url, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
             return BeautifulSoup(response.text, "html.parser")
+        except requests.HTTPError as exc:
+            # A 4xx is permanent (e.g. a 404 for a month that never existed):
+            # retrying only burns the backoff. Retry 5xx (transient server side).
+            if exc.response is not None and 400 <= exc.response.status_code < 500:
+                raise
+            last = exc
+            time.sleep(2 * (attempt + 1))
         except Exception as exc:
             last = exc
             time.sleep(2 * (attempt + 1))
@@ -87,6 +94,24 @@ def extract_month_links() -> list[str]:
             for link in link_container.find_all("a", href=True):
                 month_links.append(str(link["href"]))
     return month_links
+
+
+def report_failures(failed: list[tuple[str, str]], logger) -> None:
+    """Shared post-loop failure accounting for every scraper: log each month
+    that failed after retries, and abort (without writing) if MORE than
+    MAX_FETCH_FAILURES did — that many failures means the source changed
+    structurally, not a transient blip, so a degraded panel must not ship."""
+    if not failed:
+        return
+    logger.warning("%d boletines fallaron tras reintentos (meses perdidos):", len(failed))
+    for link, err in failed:
+        logger.warning("   %s  %s", link.split("/")[-1], err)
+    if len(failed) > MAX_FETCH_FAILURES:
+        raise SystemExit(
+            f"{len(failed)} boletines fallaron (> {MAX_FETCH_FAILURES}): probable "
+            f"problema de la fuente, no un blip transitorio. Se aborta sin escribir "
+            f"para no publicar un panel degradado."
+        )
 
 
 # ---- cell parsing / annotation -----------------------------------------
@@ -137,10 +162,6 @@ def norm_label(s) -> str:
     if pd.isna(s):
         return ""
     return re.sub(r"\s+", " ", str(s).replace("\xa0", " ")).strip().lower()
-
-
-# Backwards-compatible alias (both scrapers historically used the private name).
-_norm_label = norm_label
 
 
 # ---- table parsing (pure: soup -> dataframes; testable offline) ---------

@@ -19,13 +19,13 @@ from tqdm import tqdm
 
 from config import RAW_DIR
 from visa_common import (
-    MAX_FETCH_FAILURES,
     SITE_ROOT,
     extract_datetime_from_link,
     extract_month_links,
     get_soup,
     norm_label,
     parse_tables,
+    report_failures,
 )
 
 logger = logging.getLogger(__name__)
@@ -200,32 +200,18 @@ def extract_dv_blob(soup, year_month) -> pd.DataFrame:
     return pd.DataFrame(out) if len(out) >= 4 else pd.DataFrame()
 
 
-def main() -> None:
-    month_links = extract_month_links()
+def extract_month_rows(soup, ym) -> pd.DataFrame:
+    """DV rows for one bulletin: the structured table first, the 2001-2004
+    single-cell 'blob' format as fallback. Shared by main() and scrape_all.py."""
+    rows = extract_dv_data(parse_tables(soup, ym, is_dv_section))
+    if rows.empty:  # 2001-2004 single-cell ("blob") format
+        rows = extract_dv_blob(soup, ym)
+    return rows
 
-    frames = []
-    failed = []
-    for link in tqdm(month_links, desc="Extracting all diversity-visa bulletin tables"):
-        try:
-            soup = get_soup(SITE_ROOT + link)
-            ym = extract_datetime_from_link(link)
-            rows = extract_dv_data(parse_tables(soup, ym, is_dv_section))
-            if rows.empty:  # 2001-2004 single-cell ("blob") format
-                rows = extract_dv_blob(soup, ym)
-            if not rows.empty:
-                frames.append(rows)
-        except Exception as exc:
-            failed.append((link, str(exc)[:60]))
-    if failed:
-        logger.warning("%d boletines fallaron tras reintentos (meses perdidos):", len(failed))
-        for link, err in failed:
-            logger.warning("   %s  %s", link.split("/")[-1], err)
-        if len(failed) > MAX_FETCH_FAILURES:
-            raise SystemExit(
-                f"{len(failed)} boletines fallaron (> {MAX_FETCH_FAILURES}): probable "
-                f"problema de la fuente, no un blip transitorio. Se aborta sin escribir."
-            )
 
+def finalize(frames: list[pd.DataFrame]) -> None:
+    """Concatenate the per-month DV frames into the deduped, sorted CSV. Shared
+    by main() and the single-fetch scrape_all.py driver."""
     df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     df = df[df["visa_bulletin_date"].notna()]
     # Deterministic order (newest first) and a unique (region, month) key.
@@ -234,6 +220,21 @@ def main() -> None:
 
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     df.to_csv(RAW_DIR / "dv_visa_rank_timecourse.csv", index=False)
+
+
+def main() -> None:
+    month_links = extract_month_links()
+    frames = []
+    failed = []
+    for link in tqdm(month_links, desc="Extracting all diversity-visa bulletin tables"):
+        try:
+            rows = extract_month_rows(get_soup(SITE_ROOT + link), extract_datetime_from_link(link))
+            if not rows.empty:
+                frames.append(rows)
+        except Exception as exc:
+            failed.append((link, str(exc)[:60]))
+    report_failures(failed, logger)
+    finalize(frames)
 
 
 if __name__ == "__main__":

@@ -48,7 +48,7 @@ VisaPredictAI/
 ├── scrape_dv_visa_bulletins.py         # scraper Diversity Visa (rango regional)
 ├── build_panel.py                      # consolida los 10 CSV en el panel largo
 ├── build_database.py · schema.sql      # carga el esquema estrella DuckDB + Parquet
-├── audit_data_quality.py · mega_audit.py   # auditorías de calidad de datos
+├── mega_audit.py                      # auditoría exhaustiva de calidad de datos
 ├── visualize_*.py                      # gráficas (artefactos no versionados)
 ├── tests/                              # pytest: parsers · extracción offline · contrato del panel + BD
 ├── data/raw/                           # CSVs por país scrapeados (fuente, versionados)
