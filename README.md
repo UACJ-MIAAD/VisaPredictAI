@@ -22,7 +22,9 @@ Pipeline de extracción, anotación, consolidación y auditoría de los datos hi
 
 ## Objetivo
 
-Construir un **panel multiserie** $y_{p,c,b,t}$ (país × categoría × tabla × mes) con las fechas de prioridad publicadas, listo para modelado de series de tiempo. El pipeline se ejecuta a diario vía GitHub Action.
+Construir un **panel multiserie** $y_{p,c,b,t}$ (país × categoría × tabla × mes) con las fechas de prioridad publicadas, listo para modelado de series de tiempo.
+
+Los boletines son **fijos** una vez publicados, así que el pipeline es **incremental y orientado a S3**: el HTML crudo de cada mes se congela una sola vez en un bucket S3 (respaldo inmutable de la fuente, que se pudre), y todo lo demás —CSVs, panel y almacén DuckDB— se reconstruye **offline** desde esos snapshots. Una GitHub Action **semanal** solo va a la web a buscar un boletín **nuevo**; si no hay, es un no-op. Cada corrida notifica por correo (AWS SES).
 
 - **5 países o áreas de cargabilidad:** México, India, China, Filipinas y *All Chargeability Areas Except Those Listed* (RoW).
 - **Categorías:** Family-Sponsored (F1, F2A, F2B, F3, F4) y Employment-Based (EB-1 a EB-5 con subcategorías, 16 códigos canónicos).
@@ -43,20 +45,52 @@ Boletín mensual del Bureau of Consular Affairs con dos tablas por categoría:
 VisaPredictAI/
 ├── visa_common.py                      # helpers compartidos (fetch, parse, estado) — fuente única
 ├── config.py                           # constantes (países canónicos, epoch, paleta)
-├── scrape_visa_bulletins.py            # scraper Employment-Based (FAD + DFF)
-├── scrape_family_visa_bulletins.py     # scraper Family-Sponsored (FAD + DFF)
-├── scrape_dv_visa_bulletins.py         # scraper Diversity Visa (rango regional)
+├── freeze_snapshots.py                 # ★ único que toca la web: congela SOLO el mes nuevo → S3 (skip-if-exists)
+├── scrape_all.py                       # ★ parsea los snapshots OFFLINE → CSVs (sin red)
+├── scrape_visa_bulletins.py            # extractores Employment-Based (FAD + DFF), reusados por scrape_all
+├── scrape_family_visa_bulletins.py     # extractores Family-Sponsored (FAD + DFF)
+├── scrape_dv_visa_bulletins.py         # extractores Diversity Visa (rango regional)
 ├── build_panel.py                      # consolida los 10 CSV en el panel largo
 ├── build_database.py · schema.sql      # carga el esquema estrella DuckDB + Parquet
 ├── mega_audit.py                      # auditoría exhaustiva de calidad de datos
 ├── visualize_*.py                      # gráficas (artefactos no versionados)
 ├── tests/                              # pytest: parsers · extracción offline · contrato del panel + BD
-├── data/raw/                           # CSVs por país scrapeados (fuente, versionados)
+├── data/snapshots/                     # HTML crudo congelado (gitignored; máster en S3)
+├── data/raw/                           # CSVs por país (derivados de los snapshots, versionados)
 ├── data/processed/                     # visa_panel_long.csv (panel) + .duckdb/.parquet regenerables
 ├── reports/ · docs/                    # auditorías · data_dictionary · er_diagram · ROADMAP
 ├── Makefile · pyproject.toml           # one-command ops + config ruff/mypy/pytest
-└── .github/workflows/                  # ci.yml (lint+type+test) · update_graphs.yml (cron diario)
+└── .github/workflows/                  # ci.yml (lint+type+test) · update_graphs.yml (Action semanal S3-driven)
 ```
+
+## Arquitectura del pipeline
+
+```mermaid
+flowchart LR
+    SRC["travel.state.gov<br/>(boletín mensual, fijo)"] -->|"solo el mes nuevo<br/>(skip-if-exists)"| FREEZE[freeze_snapshots.py]
+    FREEZE --> S3[("S3<br/>raw-html/<br/>respaldo inmutable")]
+    S3 -->|sync down| SNAP["data/snapshots/<br/>HTML crudo"]
+    SNAP -->|offline, sin red| SCRAPE[scrape_all.py]
+    SCRAPE --> CSV["data/raw/*.csv"]
+    CSV --> PANEL["build_panel.py<br/>→ visa_panel_long.csv"]
+    PANEL --> DB["build_database.py<br/>→ DuckDB estrella"]
+    PANEL --> GATE{"gate de tests"}
+    GATE -->|verde| COMMIT[commit + push]
+    FREEZE -.->|"heartbeat cada corrida<br/>(no-op o boletín nuevo)"| SES(["correo AWS SES<br/>→ al263483@…"]):::mail
+    classDef mail fill:#fffae6,stroke:#d4a017;
+
+    subgraph WF["GitHub Action semanal (update_graphs.yml)"]
+        FREEZE
+        SCRAPE
+        PANEL
+        DB
+        GATE
+        COMMIT
+        SES
+    end
+```
+
+La única vía de red es `freeze_snapshots.py` trayendo un boletín **nuevo**; el resto reconstruye desde el HTML congelado. Si no hay boletín nuevo, la Action termina en segundos (no-op) y solo manda el correo de heartbeat.
 
 ## Requisitos
 
@@ -71,13 +105,18 @@ python -m venv ante && source ante/bin/activate   # ante\Scripts\activate en Win
 make install            # dependencias + herramientas dev
 
 # pipeline de un comando
-make scrape             # ambos scrapers (~4 min, red)
+make freeze             # congela SOLO boletines nuevos → data/snapshots/ (red; skip-if-exists)
+make scrape             # parsea los snapshots OFFLINE → data/raw/*.csv (sin red)
 make panel              # consolida data/processed/visa_panel_long.csv
 make db                 # carga el esquema estrella DuckDB + export Parquet
 make test               # pytest (parsers + extracción offline + contrato del panel + BD)
 make check              # ruff + mypy + pytest
 make figures            # gráficas (no versionadas)
 ```
+
+> En un clone nuevo, `data/snapshots/` está vacío (los snapshots viven en S3).
+> `make freeze` los regenera desde la web, o si tienes acceso al bucket:
+> `aws s3 sync s3://visapredictai-raw-snapshots/raw-html/ data/snapshots/`.
 
 ## Datos de salida
 
@@ -168,7 +207,8 @@ read-only (el driver de DuckDB lo rechaza).
 
 - **Tests** (`pytest`, gate de cobertura) sobre las funciones de parseo, la extracción offline (fixtures HTML) y el contrato del panel.
 - **CI** (`ci.yml`): `ruff` (lint + format) + `mypy` + tests en cada push/PR.
-- **Action diaria** (`update_graphs.yml`): scrape → panel → gate de tests → commit; abre un issue si falla.
+- **Action semanal** (`update_graphs.yml`): pull de S3 → congela el boletín nuevo (si hay) → reconstruye panel + DuckDB **solo cuando llega uno** → gate → commit. Notifica cada corrida por correo (AWS SES) y abre un issue si falla.
+- **Respaldo inmutable**: el HTML crudo de cada mes se congela en `s3://visapredictai-raw-snapshots/raw-html/` (la fuente oficial pierde boletines viejos; el bucket no).
 - **Auditorías** programáticas de calidad de datos (`mega_audit.py`, 12 dimensiones).
 
 ## Fuente de datos
