@@ -132,6 +132,38 @@ Definición en [`schema.sql`](schema.sql), catálogo en
 y el plan en [`docs/ROADMAP.md`](docs/ROADMAP.md). La BD y el Parquet son **regenerables**
 (gitignored); el CSV es la fuente versionada.
 
+## Cómo consultar la base de datos
+
+La base (`data/processed/visapredict.duckdb`) se puede consultar de varias formas; todas
+leen el mismo archivo. Manual completo en
+[`docs/manual_conexion_duckdb.md`](docs/manual_conexion_duckdb.md) y un set de consultas
+listas en [`docs/example_queries.sql`](docs/example_queries.sql).
+
+> **Regla del candado:** DuckDB permite **un solo escritor** a la vez (varios lectores en
+> solo-lectura sí conviven). Para explorar, abre en **solo-lectura**; cierra cualquier
+> cliente antes de `make db`.
+
+```bash
+# Python — ya en el venv, sin instalar nada extra
+python -c "import duckdb; print(duckdb.connect('data/processed/visapredict.duckdb', read_only=True).execute('SELECT * FROM mart_series_summary LIMIT 10').fetchdf())"
+
+# DuckDB CLI  (brew install duckdb)
+duckdb -readonly data/processed/visapredict.duckdb          # shell SQL interactivo
+duckdb -ui       data/processed/visapredict.duckdb          # interfaz web oficial (navegador)
+
+# Correr todas las consultas de ejemplo de un jalón
+duckdb -readonly data/processed/visapredict.duckdb < docs/example_queries.sql
+```
+
+**Apps de escritorio:** TablePlus o **DBeaver** (Community, gratis) → tipo de conexión
+**DuckDB** → apunta al archivo `.duckdb`. En DBeaver, para solo-lectura usa la propiedad
+`duckdb.read_only=true` (pestaña *Driver properties*), **no** el checkbox genérico de
+read-only (el driver de DuckDB lo rechaza).
+
+**Vistas/marts más útiles para empezar:** `v_panel_long` (panel completo $y_{p,c,b,t}$),
+`mart_training_F` (lo entrenable, estado `F`), `mart_series_summary` (resumen por serie),
+`v_dv_long` (Diversity Visa).
+
 ## Calidad y reproducibilidad
 
 - **Tests** (`pytest`, gate de cobertura) sobre las funciones de parseo, la extracción offline (fixtures HTML) y el contrato del panel.
