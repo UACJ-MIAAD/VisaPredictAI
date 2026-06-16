@@ -92,6 +92,7 @@ jobs:
         pip install -e ".[dev]"        # duckdb + pytest for the DB rebuild/gate
         python scrape_all.py           # parse snapshots -> per-country CSVs (no network)
         python build_panel.py          # -> data/processed/visa_panel_long.csv
+        python build_bulletins_json.py # -> data/processed/bulletins.json (website news feed)
 
         # 3. Quality gate -- nothing is committed unless these pass.
         python tests/test_parsers.py
