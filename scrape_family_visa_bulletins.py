@@ -77,7 +77,7 @@ def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataF
 
         try:
             sub = df[[cat_col, country_col, "visa_bulletin_date", "table_type"]].copy()
-        except (KeyError, ValueError):
+        except KeyError, ValueError:
             # ValueError: a duplicate normalized header makes df[country_col] a
             # frame, so the column-rename below would mismatch. Skip that table.
             continue
