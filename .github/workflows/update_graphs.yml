@@ -96,11 +96,13 @@ jobs:
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         # Reuses the AWS creds already configured above. The IAM user needs
-        # ses:SendEmail, and the From/To address must be a VERIFIED SES identity
-        # (in sandbox, verifying al263483@... once covers both From and To).
+        # ses:SendEmail. From is noreply@visapredictai.com (DKIM-verified domain
+        # we control) so it passes the recipient's SPF/DMARC -- sending From the
+        # uacj address via SES was hard-failing Microsoft 365's SPF and getting
+        # dropped. In sandbox the To (al263483@...) stays a verified identity.
         cat > /tmp/ses.json <<JSON
         {
-          "FromEmailAddress": "al263483@alumnos.uacj.mx",
+          "FromEmailAddress": "VisaPredict CI <noreply@visapredictai.com>",
           "Destination": {"ToAddresses": ["al263483@alumnos.uacj.mx"]},
           "Content": {"Simple": {
             "Subject": {"Data": "VisaPredict | corrida $JOB_STATUS — $NEW boletín(es) nuevo(s)"},
