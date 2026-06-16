@@ -29,6 +29,8 @@ el proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 - Columnas `status` (C/F/U/UNK) y `raw_value`; objetivo entrenable solo sobre
   `status='F'`.
 - Suite de calidad: `pytest` con *coverage gate*, contrato de integridad del panel,
-  auditorías programáticas (`audit_data_quality.py`, `mega_audit.py`).
-- MLOps: CI (`ruff` + `mypy` + tests), cron diario de actualización, pre-commit,
-  DVC reservado para artefactos de modelado, `Makefile`.
+  auditoría programática (`mega_audit.py`).
+- MLOps: CI (`ruff` + `mypy` + tests), Action S3-driven incremental (congela solo
+  el boletín nuevo, reconstruye offline; Lun-Vie 12pm ET), respaldo de HTML crudo
+  en S3, notificación por correo (AWS SES), pre-commit, DVC reservado para
+  artefactos de modelado, `Makefile`.

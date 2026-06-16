@@ -53,7 +53,7 @@ VisaPredictAI/
 ├── build_panel.py                      # consolida los 10 CSV en el panel largo
 ├── build_database.py · schema.sql      # carga el esquema estrella DuckDB + Parquet
 ├── mega_audit.py                      # auditoría exhaustiva de calidad de datos
-├── visualize_*.py                      # gráficas (artefactos no versionados)
+├── visualize_wait_times.py             # gráficas por país (artefactos no versionados)
 ├── tests/                              # pytest: parsers · extracción offline · contrato del panel + BD
 ├── data/snapshots/                     # HTML crudo congelado (gitignored; máster en S3)
 ├── data/raw/                           # CSVs por país (derivados de los snapshots, versionados)

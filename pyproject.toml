@@ -41,7 +41,6 @@ select = ["E4", "E7", "E9", "F", "W", "I", "UP", "B"]
 [tool.ruff.lint.per-file-ignores]
 # Audit/analysis scripts favor dense one-liners and f-strings for report text.
 "mega_audit.py" = ["E741"]
-"audit_data_quality.py" = ["E741"]
 
 [tool.mypy]
 python_version = "3.14"
