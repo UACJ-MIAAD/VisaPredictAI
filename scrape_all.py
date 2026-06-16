@@ -15,41 +15,41 @@ scrapers use.
 
 import logging
 
+from bs4 import BeautifulSoup
 from tqdm import tqdm
 
 import scrape_dv_visa_bulletins as dv
 import scrape_family_visa_bulletins as fam
 import scrape_visa_bulletins as emp
-from visa_common import (
-    SITE_ROOT,
-    extract_datetime_from_link,
-    extract_month_links,
-    get_soup,
-    parse_tables,
-    report_failures,
-)
+from freeze_snapshots import SNAP_DIR
+from visa_common import extract_datetime_from_link, parse_tables, report_failures
 
 logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    month_links = extract_month_links()
+    # Parse the frozen HTML snapshots OFFLINE -- the bulletins are fixed, so the
+    # only live fetch is freeze_snapshots.py grabbing a newly published month.
+    # Same parser + same HTML the live scrape used, so the CSVs are identical.
+    snapshots = sorted(SNAP_DIR.glob("*.html"))
+    if not snapshots:
+        raise SystemExit(f"No snapshots in {SNAP_DIR}/ -- run freeze_snapshots.py (or `aws s3 sync` them down) first")
 
     emp_tables = []
     fam_tables = []
     dv_frames = []
-    failed = []
-    for link in tqdm(month_links, desc="Fetching each bulletin once (employment + family + DV)"):
+    failed = []  # a few old months have malformed tables; drop them like the live scrape did
+    for path in tqdm(snapshots, desc="Parsing frozen bulletins offline (employment + family + DV)"):
         try:
-            soup = get_soup(SITE_ROOT + link)
-            ym = extract_datetime_from_link(link)
+            soup = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
+            ym = extract_datetime_from_link(path.name)
             emp_tables.extend(parse_tables(soup, ym, emp.is_employment_section))
             fam_tables.extend(parse_tables(soup, ym, fam.is_family_section))
             rows = dv.extract_month_rows(soup, ym)
             if not rows.empty:
                 dv_frames.append(rows)
         except Exception as exc:
-            failed.append((link, str(exc)[:60]))
+            failed.append((path.name, str(exc)[:60]))
 
     report_failures(failed, logger)
     emp.write_csvs(emp_tables)

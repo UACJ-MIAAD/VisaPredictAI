@@ -52,6 +52,7 @@ def main() -> None:
         dest.write_text(fetch_text(SITE_ROOT + link), encoding="utf-8")
         new += 1
     logger.info("%d new snapshots; %d total in %s", new, len(list(SNAP_DIR.glob("*.html"))), SNAP_DIR)
+    print(new)  # stdout (logging/tqdm go to stderr) -- the CI step gates rebuild on this count
 
 
 if __name__ == "__main__":

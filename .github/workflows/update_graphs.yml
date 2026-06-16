@@ -1,9 +1,16 @@
-name: Update Graphs
+name: Freeze new bulletin and rebuild
+
+# The monthly Visa Bulletins are FIXED once published, so there is no reason to
+# re-scrape all ~290 every day. This job is S3-driven: it pulls the frozen HTML
+# from S3, fetches ONLY a newly published month (freeze_snapshots.py,
+# skip-if-exists), and rebuilds the CSVs/panel/DuckDB **only when something new
+# arrived**. On a week with no new bulletin it is a cheap no-op. Runs weekly
+# (bulletins come out ~monthly) instead of daily.
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'  # Runs every day at midnight
+    - cron: '0 12 * * 1'  # Mondays 12:00 UTC -- catches a new monthly bulletin within a week
 
 permissions:
   contents: write
@@ -22,25 +29,10 @@ jobs:
       with:
         python-version: '3.14'   # match the dev environment (pandas 3.x) for reproducibility
 
-    - name: Install dependencies
+    - name: Install runtime dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -e .   # runtime deps from pyproject (single source of truth)
-
-    - name: Scrape all sections (fetch each bulletin once)
-      run: python scrape_all.py
-
-    - name: Build consolidated long panel
-      run: python build_panel.py
-
-    - name: Quality gate — tests must pass before anything is committed
-      run: |
-        python tests/test_parsers.py          # pure parsing/classification functions
-        python tests/test_extraction.py       # offline extraction over HTML fixtures
-        python tests/test_panel_integrity.py  # hard invariants of the freshly built panel
-
-    # Figures are no longer versioned (regenerate locally with `make figures`),
-    # so the daily run no longer produces or commits them.
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
@@ -49,25 +41,48 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: us-east-1
 
-    - name: Freeze raw bulletin HTML to S3 (no-op on days with no new bulletin)
+    - name: Freeze a newly published bulletin, then rebuild only if one arrived
       run: |
-        # Pull what's already frozen so skip-if-exists makes freeze fetch ONLY a
-        # newly published month (instead of re-hitting the live site 295 times).
+        set -eo pipefail
+
+        # The frozen HTML in S3 is the source of truth. Pull it down so
+        # freeze's skip-if-exists fetches ONLY a month not already frozen.
         aws s3 sync s3://visapredictai-raw-snapshots/raw-html/ data/snapshots/ --quiet
-        python freeze_snapshots.py
+        python freeze_snapshots.py > /tmp/new_count   # crashes fail the step under set -e
+        new=$(cat /tmp/new_count)
+
+        if [ "$new" = "0" ]; then
+          echo "No new bulletin this run -- nothing to rebuild."
+          exit 0
+        fi
+        echo "$new new bulletin(s) frozen -- backing up and rebuilding."
+
+        # 1. Push the new raw HTML to S3 (immutable backup).
         aws s3 sync data/snapshots/ s3://visapredictai-raw-snapshots/raw-html/
 
-    - name: Commit and push changes
-      run: |
+        # 2. Rebuild CSVs/panel/DuckDB OFFLINE from the frozen snapshots.
+        pip install -e ".[dev]"        # duckdb + pytest for the DB rebuild/gate
+        python scrape_all.py           # parse snapshots -> per-country CSVs (no network)
+        python build_panel.py          # -> data/processed/visa_panel_long.csv
+
+        # 3. Quality gate -- nothing is committed unless these pass.
+        python tests/test_parsers.py
+        python tests/test_extraction.py
+        python tests/test_panel_integrity.py
+
+        # 4. Refresh the DuckDB star schema and validate it accepts the new data
+        #    (the .duckdb/.parquet stay gitignored -- regenerable with `make db`).
+        python build_database.py
+        python -m pytest tests/test_database.py
+
+        # 5. Commit the refreshed CSVs/panel (snapshots + DB are gitignored).
         git config --local user.email "168046724+jrebull@users.noreply.github.com"
         git config --local user.name "Javier Rebull"
-        # Stage everything (incl. the new long panel, which is untracked the
-        # first time and would be missed by `git commit -am`).
         git add -A
         if git diff --cached --quiet; then
-          echo "No changes to commit"
+          echo "New HTML frozen but parsed data unchanged -- nothing to commit."
         else
-          git commit -m "Update graphs and consolidated panel with latest data"
+          git commit -m "Add bulletin $(date -u +%Y-%m): refresh panel from frozen HTML"
           git push
         fi
 
@@ -77,7 +92,7 @@ jobs:
       with:
         script: |
           const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-          const body = `The scheduled **Update Graphs** run failed (gate red, scrape abort, or crash).\nLogs: ${runUrl}`;
+          const body = `The scheduled **Freeze new bulletin and rebuild** run failed (gate red, fetch error, or crash).\nLogs: ${runUrl}`;
           const { data: open } = await github.rest.issues.listForRepo({
             owner: context.repo.owner, repo: context.repo.repo,
             labels: 'scrape-failure', state: 'open',
