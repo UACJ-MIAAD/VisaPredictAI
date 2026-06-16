@@ -1,4 +1,32 @@
 EB_level,priority_date,visa_bulletin_date,table_type,raw_value,status,visa_wait_time,raw_category
+EB1,2023-12-01,2026-07-01 00:00:00,dates_for_filing,01DEC23,F,2.5817932922655715,1st
+EB2,2022-01-01,2026-07-01 00:00:00,dates_for_filing,01JAN22,F,4.4955509924709105,2nd
+EB3,2022-01-01,2026-07-01 00:00:00,dates_for_filing,01JAN22,F,4.4955509924709105,3rd
+EB3_OW,2019-10-01,2026-07-01 00:00:00,dates_for_filing,01OCT19,F,6.74880219028063,Other Workers
+EB4,2023-01-01,2026-07-01 00:00:00,dates_for_filing,01JAN23,F,3.4962354551676933,4th
+EB4_RW,2023-01-01,2026-07-01 00:00:00,dates_for_filing,01JAN23,F,3.4962354551676933,Certain Religious Workers
+EB5_HIGHUNEMP,2026-07-01,2026-07-01 00:00:00,dates_for_filing,C,C,0.0,"5th Set Aside:
+(High Unemployment: NH, RH - 10%)"
+EB5_INFRA,2026-07-01,2026-07-01 00:00:00,dates_for_filing,C,C,0.0,"5th Set Aside:
+(Infrastructure: RI - 2%)"
+EB5_RURAL,2026-07-01,2026-07-01 00:00:00,dates_for_filing,C,C,0.0,"5th Set Aside:
+(Rural: NR, RR - 20%)"
+EB5_UNRESERVED,2017-03-01,2026-07-01 00:00:00,dates_for_filing,01MAR17,F,9.333333333333334,"5th Unreserved
+(including C5, T5, I5, R5)"
+EB1,2023-06-01,2026-07-01 00:00:00,final_action,01JUN23,F,3.082819986310746,1st
+EB2,2021-09-01,2026-07-01 00:00:00,final_action,01SEP21,F,4.829568788501026,2nd
+EB3,2021-12-22,2026-07-01 00:00:00,final_action,22DEC21,F,4.522929500342231,3rd
+EB3_OW,2019-04-01,2026-07-01 00:00:00,final_action,01APR19,F,7.2498288843258045,Other Workers
+EB4,2022-09-15,2026-07-01 00:00:00,final_action,15SEP22,F,3.79192334017796,4th
+EB4_RW,2022-09-15,2026-07-01 00:00:00,final_action,15SEP22,F,3.79192334017796,Certain Religious Workers
+EB5_HIGHUNEMP,2026-07-01,2026-07-01 00:00:00,final_action,C,C,0.0,"5th Set Aside:
+High Unemployment (10%, including NH, RH)"
+EB5_INFRA,2026-07-01,2026-07-01 00:00:00,final_action,C,C,0.0,"5th Set Aside:
+Infrastructure (2%, including RI)"
+EB5_RURAL,2026-07-01,2026-07-01 00:00:00,final_action,C,C,0.0,"5th Set Aside:
+Rural (20%, including NR, RR)"
+EB5_UNRESERVED,2016-12-01,2026-07-01 00:00:00,final_action,01DEC16,F,9.579739904175222,"5th Unreserved
+(including C5, T5, I5, R5, NU, RU)"
 EB1,2023-12-01,2026-06-01 00:00:00,dates_for_filing,01DEC23,F,2.4996577686516086,1st
 EB2,2022-01-01,2026-06-01 00:00:00,dates_for_filing,01JAN22,F,4.413415468856948,2nd
 EB3,2022-01-01,2026-06-01 00:00:00,dates_for_filing,01JAN22,F,4.413415468856948,3rd

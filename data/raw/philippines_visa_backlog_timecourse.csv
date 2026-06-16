@@ -1,4 +1,32 @@
 EB_level,priority_date,visa_bulletin_date,table_type,raw_value,status,visa_wait_time,raw_category
+EB1,2026-07-01,2026-07-01 00:00:00,dates_for_filing,C,C,0.0,1st
+EB2,2026-07-01,2026-07-01 00:00:00,dates_for_filing,C,C,0.0,2nd
+EB3,2024-01-01,2026-07-01 00:00:00,dates_for_filing,01JAN24,F,2.4969199178644765,3rd
+EB3_OW,2022-08-01,2026-07-01 00:00:00,dates_for_filing,01AUG22,F,3.915126625598905,Other Workers
+EB4,2023-01-01,2026-07-01 00:00:00,dates_for_filing,01JAN23,F,3.4962354551676933,4th
+EB4_RW,2023-01-01,2026-07-01 00:00:00,dates_for_filing,01JAN23,F,3.4962354551676933,Certain Religious Workers
+EB5_HIGHUNEMP,2026-07-01,2026-07-01 00:00:00,dates_for_filing,C,C,0.0,"5th Set Aside:
+(High Unemployment: NH, RH - 10%)"
+EB5_INFRA,2026-07-01,2026-07-01 00:00:00,dates_for_filing,C,C,0.0,"5th Set Aside:
+(Infrastructure: RI - 2%)"
+EB5_RURAL,2026-07-01,2026-07-01 00:00:00,dates_for_filing,C,C,0.0,"5th Set Aside:
+(Rural: NR, RR - 20%)"
+EB5_UNRESERVED,2026-07-01,2026-07-01 00:00:00,dates_for_filing,C,C,0.0,"5th Unreserved
+(including C5, T5, I5, R5)"
+EB1,2026-07-01,2026-07-01 00:00:00,final_action,C,C,0.0,1st
+EB2,2026-07-01,2026-07-01 00:00:00,final_action,C,C,0.0,2nd
+EB3,2023-08-01,2026-07-01 00:00:00,final_action,01AUG23,F,2.915811088295688,3rd
+EB3_OW,2021-12-01,2026-07-01 00:00:00,final_action,01DEC21,F,4.5804243668720055,Other Workers
+EB4,2022-09-15,2026-07-01 00:00:00,final_action,15SEP22,F,3.79192334017796,4th
+EB4_RW,2022-09-15,2026-07-01 00:00:00,final_action,15SEP22,F,3.79192334017796,Certain Religious Workers
+EB5_HIGHUNEMP,2026-07-01,2026-07-01 00:00:00,final_action,C,C,0.0,"5th Set Aside:
+High Unemployment (10%, including NH, RH)"
+EB5_INFRA,2026-07-01,2026-07-01 00:00:00,final_action,C,C,0.0,"5th Set Aside:
+Infrastructure (2%, including RI)"
+EB5_RURAL,2026-07-01,2026-07-01 00:00:00,final_action,C,C,0.0,"5th Set Aside:
+Rural (20%, including NR, RR)"
+EB5_UNRESERVED,2026-07-01,2026-07-01 00:00:00,final_action,C,C,0.0,"5th Unreserved
+(including C5, T5, I5, R5, NU, RU)"
 EB1,2026-06-01,2026-06-01 00:00:00,dates_for_filing,C,C,0.0,1st
 EB2,2026-06-01,2026-06-01 00:00:00,dates_for_filing,C,C,0.0,2nd
 EB3,2024-01-01,2026-06-01 00:00:00,dates_for_filing,01JAN24,F,2.414784394250513,3rd
