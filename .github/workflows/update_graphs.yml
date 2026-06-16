@@ -42,6 +42,21 @@ jobs:
     # Figures are no longer versioned (regenerate locally with `make figures`),
     # so the daily run no longer produces or commits them.
 
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+
+    - name: Freeze raw bulletin HTML to S3 (no-op on days with no new bulletin)
+      run: |
+        # Pull what's already frozen so skip-if-exists makes freeze fetch ONLY a
+        # newly published month (instead of re-hitting the live site 295 times).
+        aws s3 sync s3://visapredictai-raw-snapshots/raw-html/ data/snapshots/ --quiet
+        python freeze_snapshots.py
+        aws s3 sync data/snapshots/ s3://visapredictai-raw-snapshots/raw-html/
+
     - name: Commit and push changes
       run: |
         git config --local user.email "168046724+jrebull@users.noreply.github.com"
