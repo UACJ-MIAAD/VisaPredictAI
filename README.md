@@ -24,7 +24,7 @@ Pipeline de extracción, anotación, consolidación y auditoría de los datos hi
 
 Construir un **panel multiserie** $y_{p,c,b,t}$ (país × categoría × tabla × mes) con las fechas de prioridad publicadas, listo para modelado de series de tiempo.
 
-Los boletines son **fijos** una vez publicados, así que el pipeline es **incremental y orientado a S3**: el HTML crudo de cada mes se congela una sola vez en un bucket S3 (respaldo inmutable de la fuente, que se pudre), y todo lo demás —CSVs, panel y almacén DuckDB— se reconstruye **offline** desde esos snapshots. Una GitHub Action **semanal** solo va a la web a buscar un boletín **nuevo**; si no hay, es un no-op. Cada corrida notifica por correo (AWS SES).
+Los boletines son **fijos** una vez publicados, así que el pipeline es **incremental y orientado a S3**: el HTML crudo de cada mes se congela una sola vez en un bucket S3 (respaldo inmutable de la fuente, que se pudre), y todo lo demás —CSVs, panel y almacén DuckDB— se reconstruye **offline** desde esos snapshots. Una GitHub Action (Lun-Vie, mediodía del Este) solo va a la web a buscar un boletín **nuevo**; si no hay, es un no-op. Cada corrida notifica por correo (AWS SES).
 
 - **5 países o áreas de cargabilidad:** México, India, China, Filipinas y *All Chargeability Areas Except Those Listed* (RoW).
 - **Categorías:** Family-Sponsored (F1, F2A, F2B, F3, F4) y Employment-Based (EB-1 a EB-5 con subcategorías, 16 códigos canónicos).
@@ -60,7 +60,7 @@ VisaPredictAI/
 ├── data/processed/                     # visa_panel_long.csv (panel) + .duckdb/.parquet regenerables
 ├── reports/ · docs/                    # auditorías · data_dictionary · er_diagram · ROADMAP
 ├── Makefile · pyproject.toml           # one-command ops + config ruff/mypy/pytest
-└── .github/workflows/                  # ci.yml (lint+type+test) · update_graphs.yml (Action semanal S3-driven)
+└── .github/workflows/                  # ci.yml (lint+type+test) · freeze_and_rebuild.yml (Action Lun-Vie 12pm ET, S3-driven)
 ```
 
 ## Arquitectura del pipeline
@@ -79,7 +79,7 @@ flowchart LR
     FREEZE -.->|"heartbeat cada corrida<br/>(no-op o boletín nuevo)"| SES(["correo AWS SES<br/>→ al263483@…"]):::mail
     classDef mail fill:#fffae6,stroke:#d4a017;
 
-    subgraph WF["GitHub Action semanal (update_graphs.yml)"]
+    subgraph WF["GitHub Action Lun-Vie 12pm ET (freeze_and_rebuild.yml)"]
         FREEZE
         SCRAPE
         PANEL
@@ -207,7 +207,7 @@ read-only (el driver de DuckDB lo rechaza).
 
 - **Tests** (`pytest`, gate de cobertura) sobre las funciones de parseo, la extracción offline (fixtures HTML) y el contrato del panel.
 - **CI** (`ci.yml`): `ruff` (lint + format) + `mypy` + tests en cada push/PR.
-- **Action semanal** (`update_graphs.yml`): pull de S3 → congela el boletín nuevo (si hay) → reconstruye panel + DuckDB **solo cuando llega uno** → gate → commit. Notifica cada corrida por correo (AWS SES) y abre un issue si falla.
+- **Action Lun-Vie 12pm ET** (`freeze_and_rebuild.yml`): pull de S3 → congela el boletín nuevo (si hay) → reconstruye panel + DuckDB **solo cuando llega uno** → gate → commit. Notifica cada corrida por correo (AWS SES) y abre un issue si falla.
 - **Respaldo inmutable**: el HTML crudo de cada mes se congela en `s3://visapredictai-raw-snapshots/raw-html/` (la fuente oficial pierde boletines viejos; el bucket no).
 - **Auditorías** programáticas de calidad de datos (`mega_audit.py`, 12 dimensiones).
 

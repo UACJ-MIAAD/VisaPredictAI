@@ -35,5 +35,5 @@ make audit            # auditorías -> reports/
 - **Datos:** los CSV de `data/raw/` se generan **solo** con los scrapers; no editarlos
   a mano. El panel de `data/processed/` se genera con `build_panel.py`.
 - **Commits:** mensajes en inglés, imperativo y descriptivos.
-- **CI** (`ci.yml`) debe quedar en verde; el cron (`update_graphs.yml`) aborta el
+- **CI** (`ci.yml`) debe quedar en verde; el cron (`freeze_and_rebuild.yml`) aborta el
   commit diario si el gate de tests falla.

@@ -2,7 +2,7 @@ name: CI
 
 # Validates every code change (separate from the daily data-refresh cron):
 # lint + the full offline test suite. The data-refresh workflow
-# (update_graphs.yml) runs the same tests as a gate before committing data.
+# (freeze_and_rebuild.yml) runs the same tests as a gate before committing data.
 on:
   push:
     branches: [main]
