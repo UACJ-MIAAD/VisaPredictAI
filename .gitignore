@@ -27,3 +27,6 @@ CLAUDE.md
 # rebuild with `make db`). Kept out of git to avoid binary bloat.
 data/processed/*.duckdb
 data/processed/*.parquet
+
+# Raw HTML snapshots: master copy lives in S3 (cold backup), not git.
+data/snapshots/
