@@ -28,23 +28,19 @@ PANEL = Path("data/processed/visa_panel_long.csv")
 OUT = Path("data/processed/bulletins.json")
 
 
-def main() -> None:
-    df = pd.read_csv(PANEL, parse_dates=["bulletin_date", "priority_date"])
-    months = sorted(df["bulletin_date"].dt.strftime("%Y-%m").unique())
-    latest, previous = months[-1], months[-2]
+WINDOW = 24  # months of history kept for the selector (bounded so the feed stays small)
 
-    key = ["country", "block", "category", "table"]
-    cur = df[df["bulletin_date"].dt.strftime("%Y-%m") == latest].set_index(key)
-    prev = df[df["bulletin_date"].dt.strftime("%Y-%m") == previous].set_index(key)
 
-    rows = []
+def month_rows(cur: pd.DataFrame, prev: pd.DataFrame | None) -> list[dict]:
+    """Series rows for one month, with delta_days vs the prior month (F->F only)."""
+    out = []
     for k, r in cur.iterrows():
         delta = None
-        if r["status"] == "F" and k in prev.index:
+        if prev is not None and r["status"] == "F" and k in prev.index:
             p = prev.loc[k]
             if p["status"] == "F" and pd.notna(r["priority_date"]) and pd.notna(p["priority_date"]):
                 delta = int((r["priority_date"] - p["priority_date"]).days)
-        rows.append(
+        out.append(
             {
                 "country": k[0],
                 "block": k[1],
@@ -56,22 +52,40 @@ def main() -> None:
                 "delta_days": delta,
             }
         )
+    return out
 
+
+def main() -> None:
+    df = pd.read_csv(PANEL, parse_dates=["bulletin_date", "priority_date"])
+    df["ym"] = df["bulletin_date"].dt.strftime("%Y-%m")
+    all_months = sorted(df["ym"].unique())
+    key = ["country", "block", "category", "table"]
+    by_month = {m: g.set_index(key) for m, g in df.groupby("ym")}
+
+    # Keep the last WINDOW months for the selector; each needs its predecessor
+    # (even if outside the window) to compute movement.
+    window = all_months[-WINDOW:]
+    months = {}
+    for i, m in enumerate(all_months):
+        if m not in window:
+            continue
+        prev = by_month[all_months[i - 1]] if i > 0 else None
+        months[m] = month_rows(by_month[m], prev)
+
+    latest = all_months[-1]
     OUT.write_text(
         json.dumps(
             {
                 "generated_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "latest_month": latest,
-                "previous_month": previous,
-                "available_months": months,
-                "rows": rows,
+                "available_months": window,  # newest last
+                "months": months,
             },
             ensure_ascii=False,
-            indent=2,
         ),
         encoding="utf-8",
     )
-    print(f"{OUT}: {latest} · {len(rows)} series · {len(months)} meses")
+    print(f"{OUT}: {latest} · {len(months[latest])} series · ventana {len(window)} meses")
 
 
 if __name__ == "__main__":
