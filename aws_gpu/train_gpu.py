@@ -189,14 +189,23 @@ def main() -> None:
     ap.add_argument("--num-samples", type=int, default=50, help="trials de HPO por modelo Auto")
     ap.add_argument("--models", nargs="+", default=None)
     ap.add_argument("--seeds", nargs="+", type=int, default=[1])
+    ap.add_argument("--shutdown-on-done", action="store_true",
+                    help="apaga la instancia (sudo shutdown -h now) al terminar — red de seguridad de costo")
     args = ap.parse_args()
 
     panel = load_panel(args.panel, args.table, args.block)
     print(f"panel: {panel['unique_id'].nunique()} series, {len(panel)} filas "
           f"({args.table}/{args.block}), diff={args.diff}, auto={args.auto}, seeds={args.seeds}")
-    for seed in args.seeds:
-        run_seed(panel, args.table, args.block, args.diff, args.local_scaler, args.models,
-                 args.max_steps, seed, args.auto, args.num_samples, args.out_dir)
+    try:
+        for seed in args.seeds:
+            run_seed(panel, args.table, args.block, args.diff, args.local_scaler, args.models,
+                     args.max_steps, seed, args.auto, args.num_samples, args.out_dir)
+    finally:
+        if args.shutdown_on_done:
+            # se ejecuta aunque falle, para no dejar la GPU encendida por una excepción.
+            import subprocess
+            print("apagando la instancia en 60 s (cancela con: sudo shutdown -c)…")
+            subprocess.run(["sudo", "shutdown", "-h", "+1"], check=False)
 
 
 def _selfcheck() -> None:
