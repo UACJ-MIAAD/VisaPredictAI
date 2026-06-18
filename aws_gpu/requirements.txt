@@ -1,0 +1,15 @@
+# Entorno GPU (AWS) para el frontier pesado de forecasting. Instalar en una instancia
+# con CUDA (p.ej. AWS g5.xlarge / A10G, Deep Learning AMI). torch CUDA lo provee la AMI;
+# si no, instalar el wheel CUDA de torch antes que neuralforecast.
+#
+# IMPORTANTE: misma versión de neuralforecast que el entorno local `ante_nf` para que la
+# RECETA GANADORA (global + diferencia + local_scaler + HPO Optuna) corra IDÉNTICA en GPU.
+neuralforecast==3.1.9
+optuna==4.9.0
+pyarrow
+# Opcional — Chronos fine-tuning (LoRA), ver chronos_lora.py:
+#   pip install chronos-forecasting peft
+# Opcional — Mamba / state-space (NO viene en neuralforecast; requiere build CUDA + wrapper):
+#   pip install mamba-ssm causal-conv1d
+# Opcional — otros foundation models (cada uno su entorno recomendado):
+#   uni2ts   # Moirai (Salesforce)   ·   timesfm  # TimesFM (Google)

@@ -27,6 +27,17 @@ dist/
 # Internal AI/context notes — not part of the public deliverable.
 CLAUDE.md
 
+# Microsoft Office temp/lock files
+~$*
+
+# Materiales de referencia del curso (PDFs/DOCX de terceros, ejemplos) — no es el entregable.
+docs/ProyectoInnovaTecI/
+
+# Notas internas de investigación (revisiones de literatura, análisis de brechas) — no
+# forman parte del entregable público; `epiforecast_gap_analysis` además es contexto interno.
+reports/epiforecast_gap_analysis.md
+reports/litreview_*.md
+
 # Regenerated star-schema DB and typed export (open CSV is the versioned source;
 # rebuild with `make db`). Kept out of git to avoid binary bloat.
 data/processed/*.duckdb
@@ -42,6 +53,14 @@ reports/experiment_runs.jsonl
 reports/figures/eda_*.png
 reports/figures/results_*.png
 reports/model_comparison_*.csv
+# Resultados de los barridos profundos/HPO/PI — regenerables con los scripts run_*.py
+reports/global_*.csv
+reports/deep_pi_*.csv
+reports/crps_*.csv
+reports/tuned_params.json
+reports/tuning_confirmation.csv
+reports/holdout_forecasts_*.csv
+reports/neuralforecast_forecasts.csv
 ante_nf/
 
 # Efecto secundario del logger de Lightning (modelos torch de darts) — regenerable

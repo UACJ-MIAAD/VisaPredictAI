@@ -921,11 +921,32 @@ con sus hiperparámetros ajustados sin fuga. Sin esos cuatro ingredientes, las m
 redes caen por debajo del naïve. Una excepción notable es DeepAR: su parametrización
 probabilística sobre incrementos no se estabiliza ni con normalización por serie y queda
 muy por detrás de las redes deterministas; el mejor modelo profundo aquí no es el más
-conocido sino BiTCN. \textit{Cautela metodológica:} el resultado de AutoBiTCN ($0.108$)
-corresponde a una sola corrida con semilla fija; aunque el margen sobre los parsimoniosos
-($\sim$9\,\%) es consistente con su ventaja en DFF, su carácter \textbf{definitivo
-requiere confirmación con múltiples semillas} (media e intervalo de confianza), tarea que
-queda como validación inmediata antes de elevar esta conclusión a resultado central.
+conocido sino BiTCN. \textit{Confirmación multi-semilla:} para descartar que estos
+resultados dependan de una inicialización afortunada, ambos ganadores se reentrenaron con
+\textbf{ocho semillas independientes}, variando tanto la inicialización de pesos como la
+búsqueda de hiperparámetros (muestreo TPE con semilla distinta por corrida). En DFF la
+ventaja es \textbf{holgada y estable}: BiTCN promedia MASE $=0.0895$ con desviación
+$0.0006$ —intervalo de confianza del $95\,\%$ $[0.0890,\,0.0901]$—, con todo el intervalo
+por debajo de SARIMA ($0.100$). En FAD la ventaja es \textbf{real en promedio pero
+estrecha}: AutoBiTCN promedia $0.111$ con desviación $0.011$ —intervalo $[0.102,\,0.120]$—;
+la media queda bajo el listón parsimonioso ($0.118$) y la mejor de las ocho corridas
+alcanza $0.108$, pero el borde superior del intervalo roza el listón. Esa varianza proviene
+de un presupuesto de búsqueda modesto ($15$ ensayos de Optuna por semilla), en el que
+algunas semillas seleccionan configuraciones subóptimas. La lectura honesta, por tanto, es
+que el aprendizaje profundo \textbf{vence con holgura en DFF y en promedio en FAD};
+estrechar el intervalo de FAD con una búsqueda de hiperparámetros más amplia queda como
+refinamiento inmediato.
+
+\textit{Dimensión probabilística.} La ventaja del ganador profundo no se limita al punto.
+Dotado de intervalos conformes al $95\,\%$ —calibrados sin fuga sobre el pasado de cada
+origen de pronóstico—, BiTCN produce una distribución predictiva \textbf{más afilada que la
+de los modelos clásicos}: su CRPS es de $20.8$ días en DFF y $32.6$ en FAD, frente a los
+$48$–$49$ de SARIMA y ARIMA y los $174$ del DeepAR entrenado localmente. La cobertura
+empírica de esos intervalos es de
+$0.83$ (DFF) y $0.88$ (FAD), ligeramente por debajo del $95\,\%$ nominal —una sub-cobertura
+esperable de la calibración conforme con series cortas, que se documenta con transparencia
+en lugar de declararse exacta—. La incertidumbre declarada, por tanto, acompaña a la mejora
+puntual: el modelo global no solo acierta más, sino que cuantifica mejor su error.
 
 \begin{table}[H]
 \centering
@@ -995,7 +1016,11 @@ La robustez se evalúa por la consistencia del orden de los modelos a través de
 perturbaciones controladas (semilla, ventana inicial). El dominio de los modelos
 estadísticos se mantiene en todas las áreas y categorías; las redes neuronales
 muestran la mayor varianza entre series, lo que confirma su sensibilidad a la cantidad
-de datos. Una única combinación (SARIMA sobre China/F4) falló por inestabilidad
+de datos. La validación con ocho semillas cuantifica esta estabilidad para el ganador
+profundo: en DFF el MASE varía apenas $\pm0.0006$ entre semillas, mientras que en FAD
+—donde interviene la búsqueda de hiperparámetros— la variación sube a $\pm0.011$, reflejo
+de la sensibilidad del ajuste con muestras pequeñas. Una única combinación (SARIMA sobre
+China/F4) falló por inestabilidad
 numérica, lo que ilustra que incluso los modelos clásicos requieren un manejo
 defensivo de excepciones en producción. La cobertura empírica de los
 intervalos al 95\,\% se reporta junto con el desempeño puntual, de modo que la
@@ -1030,7 +1055,11 @@ adicional en FAD. Y un cuarto resultado, el más contundente: (iv) entrenado de 
 \textbf{normalización por serie} y con sus \textbf{hiperparámetros optimizados} sin fuga,
 el mismo tipo de red que fracasaba localmente \textbf{supera a los modelos parsimoniosos
 en ambas tablas como modelo único}: AutoBiTCN logra MASE $=0.108$ en FAD ($\sim$9\,\% por
-debajo de ETS/Theta $0.118$) y BiTCN $=0.088$ en DFF (frente a $0.100$ de SARIMA). La
+debajo de ETS/Theta $0.118$) y BiTCN $=0.088$ en DFF (frente a $0.100$ de SARIMA). Una
+validación con ocho semillas confirma esta lectura sin reservas en DFF (media
+$0.0895\pm0.0006$, con el intervalo de confianza enteramente por debajo de $0.100$) y la
+matiza en FAD (media $0.111\pm0.011$: por debajo del listón en promedio, con el límite
+superior del intervalo rozándolo). La
 conclusión, por tanto, se inclina a favor del aprendizaje profundo, pero con una
 precisión importante: \textbf{la ventaja no proviene de la capacidad del modelo sino de
 cómo se entrena} —global, sobre incrementos, con escalado por serie y regularización

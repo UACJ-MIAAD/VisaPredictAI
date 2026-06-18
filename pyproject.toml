@@ -19,6 +19,28 @@ dependencies = [
 # Single source of truth for the dev toolchain — Makefile and CI install via
 # `pip install -e .[dev]`, so a version bump happens here and nowhere else.
 dev = ["ruff==0.15.17", "mypy==2.1.0", "pytest==9.1.0", "pytest-cov==7.1.0", "duckdb==1.5.3"]
+# Modeling stage (Proyecto de Innovación Tecnológica I). Heavy; installed on demand
+# with `pip install -e .[model]`, not pulled by CI. darts/xgboost se añaden en Épica D.
+model = [
+    "duckdb==1.5.3",
+    "statsmodels==0.14.6",
+    "darts==0.44.1",
+    "xgboost==3.2.0",
+    "prophet==1.3.0",
+    "torch==2.12.0",
+    "pytorch-lightning==2.6.5",
+    "scipy==1.17.1",
+    # EDA/FE avanzado: features canónicas (catch22), detección de cambios de régimen
+    # (PELT) y entropías/Hurst para caracterización SOTA del panel.
+    "ruptures==1.1.9",
+    "pycatch22==0.4.5",
+    "antropy==0.2.2",
+    "arch==8.0.0",
+    # Pool de modelos ampliado + métricas/pruebas SOTA (investigación de modelos).
+    "lightgbm==4.6.0",
+    "catboost==1.2.10",
+    "scikit-posthocs==0.14.0",
+]
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -28,11 +50,12 @@ build-backend = "setuptools.build_meta"
 # Flat layout: only the importable libraries are packaged; the scrapers/audits/
 # visualizers are run as scripts (`python build_panel.py`), not imported.
 py-modules = ["config", "visa_common"]
+packages = ["vp_model"]
 
 [tool.ruff]
 line-length = 120
 target-version = "py314"
-extend-exclude = ["ante", "data", "figures", "tests/fixtures"]
+extend-exclude = ["ante", "ante_nf", "data", "figures", "tests/fixtures"]
 
 [tool.ruff.lint]
 # E/W pycodestyle, F pyflakes, I import-sort, UP pyupgrade, B bugbear.
@@ -41,6 +64,9 @@ select = ["E4", "E7", "E9", "F", "W", "I", "UP", "B"]
 [tool.ruff.lint.per-file-ignores]
 # Audit/analysis scripts favor dense one-liners and f-strings for report text.
 "mega_audit.py" = ["E741"]
+# xgboost se importa antes que torch a propósito (su OpenMP debe cargar primero, o
+# segfaultea en macOS); eso obliga un orden de imports que isort/E402 rechazarían.
+"vp_model/models.py" = ["E402", "I001"]
 
 [tool.mypy]
 python_version = "3.14"

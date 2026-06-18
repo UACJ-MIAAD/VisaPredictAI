@@ -2,10 +2,15 @@
 # Override the interpreter with: make test PY=python
 PY ?= ante/bin/python
 
-.PHONY: help install freeze scrape panel db news figures audit test lint typecheck check all update
+.PHONY: help install model-install freeze scrape panel db news figures audit test test-model lint typecheck check all update eda compare report
 
 help:
 	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"
+	@echo "model-install - install the modeling extra too (darts/torch/xgboost/prophet)"
+	@echo "eda      - regenerate the EDA figures (needs model-install + db)"
+	@echo "compare  - walk-forward comparison of the 8 models -> reports/model_comparison.csv"
+	@echo "report   - results table + holdout figure from the comparison"
+	@echo "test-model - run modeling tests with vp_model coverage (needs model-install)"
 	@echo "update   - refresh local AFTER the CI committed a new bulletin (pull + snapshots + db + figures)"
 	@echo "freeze   - fetch only newly published bulletins to data/snapshots/ (network; skip-if-exists)"
 	@echo "scrape   - parse the frozen snapshots offline into the 3 sections (no network)"
@@ -22,6 +27,9 @@ help:
 
 install:
 	$(PY) -m pip install -e ".[dev]"
+
+model-install:
+	$(PY) -m pip install -e ".[dev,model]"
 
 freeze:
 	$(PY) freeze_snapshots.py
@@ -57,11 +65,29 @@ audit:
 test:
 	$(PY) -m pytest
 
+# Capa de modelado (requiere `make model-install`): mide cobertura de vp_model con
+# piso propio (el gate por defecto cubre la capa de datos; este, el modelado).
+test-model:
+	$(PY) -m pytest -o addopts="" --cov=vp_model --cov-report=term-missing --cov-fail-under=55 \
+		tests/test_dataset.py tests/test_eda_preprocess.py tests/test_models.py \
+		tests/test_walkforward.py tests/test_intervals_significance.py tests/test_config_report.py \
+		tests/test_features.py tests/test_missingness.py tests/test_feature_select.py
+
+# Reproducir los resultados (requiere `make model-install` + `make db`):
+eda:
+	$(PY) -m vp_model.plots
+
+compare:
+	$(PY) -m vp_model.run_comparison
+
+report:
+	$(PY) -m vp_model.report
+
 lint:
 	$(PY) -m ruff check .
 
 typecheck:
-	$(PY) -m mypy --ignore-missing-imports *.py tests/*.py
+	$(PY) -m mypy --ignore-missing-imports *.py vp_model/*.py tests/*.py
 
 check: lint typecheck test
 
