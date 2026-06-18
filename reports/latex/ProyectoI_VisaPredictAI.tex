@@ -892,6 +892,94 @@ es apenas $0.112$ en FAD, lo que confirma que hay poco margen por ganar. En cuan
 modelos con muestreo nativo, los clásicos producen distribuciones mucho más fieles que
 la red neuronal: SARIMA ($48.0$ días) $\approx$ ARIMA ($49.1$) $\ll$ DeepAR ($174.5$).
 
+\paragraph{Entrenamiento global y aprendizaje profundo.} El fracaso de las redes
+\textit{entrenadas por serie} (Tabla~\ref{tab:comparacion_modelos}) no agota la pregunta
+de si el aprendizaje profundo puede aportar: la práctica moderna entrena un \textbf{modelo
+global} sobre todas las series apiladas, de modo que cada serie corta toma señal
+prestada del resto \cita{20}. Se entrenó así un conjunto de arquitecturas recientes
+(N-HiTS, PatchTST, TiDE, BiTCN, TimesNet, TimeMixer, KAN, DeepAR), tanto sobre el nivel
+como sobre la primera diferencia (con reintegración a un paso). El cambio es drástico:
+el mismo tipo de red que entrenada localmente quedaba muy por debajo del naïve pasa, en
+versión global, a ser \textbf{plenamente competitiva} —PatchTST sobre nivel alcanza
+MASE $=0.121$ y BiTCN sobre diferencia $0.124$ (Tabla~\ref{tab:global_deep})—, mejor que
+CatBoost y SARIMA. Aun así, \textbf{ningún modelo profundo global supera por sí solo a
+los parsimoniosos} ETS y Theta ($0.118$). El valor del aprendizaje profundo en este
+problema aparece \textit{en conjunto}: la mediana de \{BiTCN, ETS, Theta\} obtiene
+MASE $=0.111$, el mejor resultado del estudio en FAD —marginalmente por debajo de la
+combinación puramente estadística ($0.1115$) y del oráculo de selección ($0.112$)—.
+\textbf{En la tabla DFF el resultado es claramente más favorable al aprendizaje
+profundo}: en estas series más cortas, donde el entrenamiento global rinde más al prestar
+señal entre series, \textbf{BiTCN global supera por sí solo a todos los modelos
+estadísticos y de árboles} (MASE $=0.088$ frente a $0.100$ de SARIMA y $0.113$ de
+CatBoost), siendo el único caso del estudio en que un modelo profundo es el mejor
+absoluto; combinarlo con los estadísticos no lo mejora. La lectura honesta es que el
+aprendizaje profundo \textit{sí} aporta valor a este dominio, pero su ventaja depende del
+régimen de datos: marginal y solo en conjunto sobre las series largas de FAD —donde la
+parsimonia, sola, es difícil de superar—, y decisiva sobre las series cortas de DFF,
+donde el entrenamiento global vence a los modelos clásicos. El factor determinante no es
+la capacidad del modelo sino entrenarlo de forma global y sobre la primera diferencia.
+
+\begin{table}[H]
+\centering
+\caption[Modelos profundos globales (FAD)]{Modelos profundos entrenados de forma global
+sobre las 25 series FAD familiares (mejor de las variantes nivel/diferencia por modelo).
+MASE de hold-out; el listón es ETS/Theta $=0.118$. La mediana \{BiTCN, ETS, Theta\}
+($0.111$) es el mejor sistema del estudio.}
+\label{tab:global_deep}
+\begin{tabular}{lcc}
+\hline
+\rowcolor{uacjblue!15}
+\textbf{Modelo global} & \textbf{Variante} & \textbf{MASE hold-out} \\ \hline
+PatchTST & nivel & 0.121 \\
+BiTCN & diferencia & 0.124 \\
+TiDE & diferencia & 0.132 \\
+KAN & nivel & 0.133 \\
+TimesNet & nivel & 0.140 \\
+N-HiTS & diferencia & 0.150 \\
+TimeMixer & diferencia & 0.157 \\ \hline
+\rowcolor{uacjyellow!25}
+Mediana \{BiTCN, ETS, Theta\} & ensamble & \textbf{0.111} \\ \hline
+\end{tabular}
+\end{table}
+
+\paragraph{Cobertura ampliada: categorías basadas en empleo (EB).} El mismo protocolo se
+aplicó a las categorías de preferencia por empleo (EB-1 a EB-5), que extienden el sistema
+más allá de las familiares. La cobertura aquí es \textit{escalonada}: de las decenas de
+combinaciones país$\times$categoría EB, muchas carecen de objetivo predictivo porque
+permanecen casi siempre en estado \textit{Current} o \textit{Unavailable} (sin fecha
+específica) o son demasiado cortas; resultan evaluables 31 series en FAD y 16 en DFF,
+concentradas en los países con demanda alta (China, India) y en EB-2/EB-3. El patrón de
+desempeño \textbf{replica al de las familiares} (Tabla~\ref{tab:comparacion_eb}): los
+modelos parsimoniosos lideran el promedio —ETS y Theta encabezan tanto FAD (MASE de
+selección $0.228$ y $0.248$) como DFF ($0.129$ y $0.133$)— mientras que los árboles sobre
+deltas se reparten muchas series individuales (en EB FAD, LightGBM gana en 9 de 31
+series, ETS en 7 y Theta en 6). La heterogeneidad (hipótesis H2) se mantiene en el bloque
+de empleo, lo que confirma que las conclusiones del sistema no son un artefacto de las
+categorías familiares.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Comparación en categorías de empleo (EB)]{Desempeño promedio (MASE de selección)
+de los modelos competitivos sobre las series EB evaluables: 31 en FAD, 16 en DFF.
+Promediado solo sobre las series con ajuste exitoso. Mismo patrón que en familiares:
+parsimonia y árboles al frente.}
+\label{tab:comparacion_eb}
+\begin{tabular}{lcc}
+\hline
+\rowcolor{uacjblue!15}
+\textbf{Modelo} & \textbf{EB FAD (MASE sel.)} & \textbf{EB DFF (MASE sel.)} \\ \hline
+ETS (damped) & 0.228 & 0.133 \\
+Theta & 0.248 & 0.129 \\
+ARIMA & 0.278 & 0.141 \\
+LightGBM & 0.281 & 0.146 \\
+CatBoost & 0.285 & 0.167 \\
+XGBoost & 0.297 & 0.190 \\
+Chronos (zero-shot) & 0.362 & 0.197 \\
+Naïve estacional & 1.970 & 1.174 \\ \hline
+\end{tabular}
+\end{table}
+
 \section{2.3 Robustez de la solución}
 
 La robustez se evalúa por la consistencia del orden de los modelos a través de las
@@ -928,19 +1016,24 @@ escasez de datos donde el entrenamiento local fracasa; (ii) la optimización de
 hiperparámetros con Optuna mejora a los árboles hasta un $29\,\%$ en hold-out, pero los
 acerca a los parsimoniosos sin superarlos; y (iii) ningún conjunto amplio mejora al
 mejor modelo, y solo una combinación curada de los tres modelos fuertes araña un $5\,\%$
-adicional en FAD. La conclusión es que la IA \textit{sí} aporta valor a este problema,
-pero la IA que gana es la parsimoniosa y bien validada, no la de mayor capacidad.
+adicional en FAD. Y un cuarto resultado, el más favorable al aprendizaje profundo: (iv)
+entrenado de forma \textbf{global} sobre el panel y sobre la primera diferencia, el mismo
+tipo de red que fracasaba localmente se vuelve competitivo en FAD (BiTCN MASE $=0.124$) y
+\textbf{el mejor modelo absoluto en DFF} (BiTCN $=0.088$, por debajo de SARIMA $0.100$ y
+CatBoost $0.113$). La conclusión, por tanto, es matizada: la IA \textit{sí} aporta valor,
+y su forma ganadora depende del régimen de datos —la parsimonia es difícil de superar en
+las series largas de FAD, mientras que el aprendizaje profundo global vence en las series
+cortas de DFF—; el factor determinante no es la capacidad del modelo sino entrenarlo de
+forma global y sobre incrementos.
 
 Este resultado no es una limitación del trabajo sino un hallazgo validado: documenta,
-con un protocolo reproducible y libre de fuga, qué familia de modelos conviene a este
-dominio y por qué. La evaluación por separado de ambas tablas reveló además que el
-modelo idóneo depende del régimen de datos —parsimonia y árboles en FAD, árboles sobre
-deltas en las series cortas de DFF, donde los modelos de mayor capacidad se vuelven
-numéricamente inviables—, lo que justifica no asumir un único modelo universal. El
-sistema entrega pronósticos con intervalos de predicción al 95\,\% cuya cobertura
-empírica se verifica, y un marco reproducible de comparación que se extenderá, como
-trabajo futuro, a las categorías basadas en empleo, al entrenamiento global del panel
-(que rescata a los modelos profundos) y al tratamiento de los cambios de régimen
+con un protocolo reproducible y libre de fuga, qué familia de modelos conviene a cada
+régimen de este dominio y por qué. La cobertura se extendió de las categorías familiares
+a las basadas en empleo (EB), donde el patrón se replica (parsimonia y árboles al frente,
+heterogeneidad por serie), confirmando que las conclusiones no son un artefacto de un
+subconjunto de categorías. El sistema entrega pronósticos con intervalos de predicción al
+95\,\% cuya cobertura empírica se verifica, y un marco reproducible de comparación que se
+extenderá, como trabajo futuro, al tratamiento de los cambios de régimen
 ($C \leftrightarrow F \leftrightarrow U$) que en esta etapa quedan fuera del objetivo
 predictivo.
 
