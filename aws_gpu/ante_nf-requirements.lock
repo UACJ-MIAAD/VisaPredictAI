@@ -1,10 +1,13 @@
-# Lock del entorno aislado ante_nf (deep global). Generado con: ante_nf/bin/pip freeze
+# Lock del entorno aislado ante_nf (deep global + MLflow). Generado con: ante_nf/bin/pip freeze
 lightning-utilities==0.15.3
+mlflow==3.14.0
+mlflow-skinny==3.14.0
+mlflow-tracing==3.14.0
 neuralforecast==3.1.9
 numpy==2.4.6
 optuna==4.9.0
 pandas==2.3.3
 pyarrow==24.0.0
 pytorch-lightning==2.5.6
+SQLAlchemy==2.0.51
 torch==2.12.0
-torchmetrics==1.9.0

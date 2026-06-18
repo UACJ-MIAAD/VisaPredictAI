@@ -75,3 +75,12 @@ reports/latex/*.synctex.gz
 
 # Reportes de auditoría regenerables — no versionar (causan árbol sucio)
 reports/*_audit_report.md
+
+# MLflow tracking (local file store) + staging — regenerable, no versionar en git
+mlruns/
+mlruns_staging/
+mlflow.db
+mlartifacts/
+# Modelos entrenados -> versionados con DVC, no git
+models/
+/models

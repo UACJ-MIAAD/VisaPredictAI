@@ -30,36 +30,62 @@ OUT = REPORTS / "model_comparison.csv"
 LEDGER = REPORTS / "experiment_runs.jsonl"
 
 
-def run(series: list[tuple[str, str, str]], model_names: tuple[str, ...], run_id: str) -> pd.DataFrame:
-    """Walk-forward de cada modelo sobre cada serie -> DataFrame de métricas."""
+def run(
+    series: list[tuple[str, str, str]],
+    model_names: tuple[str, ...],
+    run_id: str,
+    track: bool = False,
+) -> pd.DataFrame:
+    """Walk-forward de cada modelo sobre cada serie -> DataFrame de métricas.
+
+    ``track=True`` loguea cada backtest a ``tracking`` (JSONL env-agnóstico) para MLflow.
+    """
+    tracking = _tracking() if track else None
     rows = []
     for country, category, table in series:
         for name in model_names:
             t0 = time.time()
             try:
                 r = walkforward.backtest(name, country, category, table)
-                rows.append(
-                    {
-                        "run_id": run_id,
-                        "model": name,
-                        "country": country,
-                        "category": category,
-                        "table": table,
-                        "sel_mase": r.selection["mase"],
-                        "sel_smape": r.selection["smape"],
-                        "sel_mae": r.selection["mae"],
-                        "sel_rmse": r.selection["rmse"],
-                        "hold_mase": r.holdout["mase"],
-                        "hold_smape": r.holdout["smape"],
-                        "hold_mae": r.holdout["mae"],
-                        "hold_rmse": r.holdout["rmse"],
-                        # Probabilístico (PI conforme 95%): MSIS (M5) + interval score + cobertura.
-                        "hold_msis": r.holdout.get("msis", float("nan")),
-                        "hold_interval_score": r.holdout.get("interval_score", float("nan")),
-                        "hold_coverage": r.holdout.get("coverage", float("nan")),
-                        "secs": round(time.time() - t0, 1),
-                    }
-                )
+                row = {
+                    "run_id": run_id,
+                    "model": name,
+                    "country": country,
+                    "category": category,
+                    "table": table,
+                    "sel_mase": r.selection["mase"],
+                    "sel_smape": r.selection["smape"],
+                    "sel_mae": r.selection["mae"],
+                    "sel_rmse": r.selection["rmse"],
+                    "hold_mase": r.holdout["mase"],
+                    "hold_smape": r.holdout["smape"],
+                    "hold_mae": r.holdout["mae"],
+                    "hold_rmse": r.holdout["rmse"],
+                    # Probabilístico (PI conforme 95%): MSIS (M5) + interval score + cobertura.
+                    "hold_msis": r.holdout.get("msis", float("nan")),
+                    "hold_interval_score": r.holdout.get("interval_score", float("nan")),
+                    "hold_coverage": r.holdout.get("coverage", float("nan")),
+                    "secs": round(time.time() - t0, 1),
+                }
+                rows.append(row)
+                if tracking is not None:
+                    block = "employment" if category.startswith("EB") else "family"
+                    tracking.log_run(
+                        f"pool_local_{table}",
+                        f"{name}/{country}/{category}/{table}",
+                        params={
+                            "model": name,
+                            "country": country,
+                            "category": category,
+                            "table": table,
+                            "block": block,
+                        },
+                        metrics={
+                            k: row[k]
+                            for k in ("sel_mase", "hold_mase", "hold_smape", "hold_mae", "hold_msis", "hold_coverage")
+                        },
+                        tags={"layer": "pool_local"},
+                    )
                 log.info(
                     "%s/%s/%s %-11s sel MASE=%.3f hold MASE=%.3f (%ss)",
                     country,
@@ -68,11 +94,23 @@ def run(series: list[tuple[str, str, str]], model_names: tuple[str, ...], run_id
                     name,
                     r.selection["mase"],
                     r.holdout["mase"],
-                    rows[-1]["secs"],
+                    row["secs"],
                 )
             except Exception as e:  # noqa: BLE001 — una serie/modelo que falle no debe abortar el barrido
                 log.warning("%s/%s/%s %-11s FAIL %s: %s", country, category, table, name, type(e).__name__, str(e)[:80])
     return pd.DataFrame(rows)
+
+
+def _tracking():
+    """Importa el módulo raíz ``tracking`` (env-agnóstico) con guard de ruta."""
+    import sys
+
+    root = str(Path(__file__).resolve().parent.parent)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    import tracking
+
+    return tracking
 
 
 def summary(df: pd.DataFrame) -> pd.DataFrame:
@@ -103,6 +141,7 @@ def _parse_args() -> argparse.Namespace:
         choices=list(config.MODEL_NAMES),
         help="subconjunto de modelos a comparar",
     )
+    p.add_argument("--mlflow", action="store_true", help="loguear cada backtest a tracking (JSONL -> MLflow)")
     return p.parse_args()
 
 
@@ -125,7 +164,7 @@ def main() -> None:
         " (dirty)" if meta["git_dirty"] else "",
     )
 
-    df = run(series, tuple(args.models), meta["run_id"])
+    df = run(series, tuple(args.models), meta["run_id"], track=args.mlflow)
     REPORTS.mkdir(parents=True, exist_ok=True)
     out = Path(args.out) if args.out else OUT
     df.to_csv(out, index=False)
