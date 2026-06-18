@@ -7,8 +7,10 @@
 neuralforecast==3.1.9
 optuna==4.9.0
 pyarrow
-# Opcional — Chronos fine-tuning (LoRA), ver chronos_lora.py:
-#   pip install chronos-forecasting peft
+# Chronos zero-shot (chronos_lora.py zeroshot). Necesario solo si corres ese paso.
+chronos-forecasting
+# Opcional — Chronos fine-tuning (LoRA), ver chronos_lora.py finetune (scaffold GPU):
+#   pip install peft
 # Opcional — Mamba / state-space (NO viene en neuralforecast; requiere build CUDA + wrapper):
 #   pip install mamba-ssm causal-conv1d
 # Opcional — otros foundation models (cada uno su entorno recomendado):

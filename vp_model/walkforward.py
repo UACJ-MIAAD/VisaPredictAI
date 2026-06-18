@@ -74,17 +74,21 @@ def run_forecasts(
         ts_model = scaler.transform(ts)
 
     forecasts = model.historical_forecasts(  # type: ignore[attr-defined]
-        ts_model, start=min_train, forecast_horizon=1, stride=1, retrain=retrain,
-        last_points_only=True, verbose=False, **extra,
+        ts_model,
+        start=min_train,
+        forecast_horizon=1,
+        stride=1,
+        retrain=retrain,
+        last_points_only=True,
+        verbose=False,
+        **extra,
     )
     if scaler is not None:
         forecasts = scaler.inverse_transform(forecasts)
     return ts, forecasts
 
 
-def backtest(
-    model_name: str, country: str, category: str, table: str, model: object | None = None
-) -> BacktestResult:
+def backtest(model_name: str, country: str, category: str, table: str, model: object | None = None) -> BacktestResult:
     """Corre el walk-forward de un modelo sobre una serie y devuelve sus métricas.
 
     Las métricas de *selección* se calculan sobre los pronósticos previos al hold-out
@@ -141,11 +145,17 @@ def crps_holdout(model_name: str, country: str, category: str, table: str, num_s
     ts_model = ts
     if model_name in NEEDS_SCALING:
         scaler = Scaler()
-        scaler.fit(ts[: -HOLDOUT])
+        scaler.fit(ts[:-HOLDOUT])
         ts_model = scaler.transform(ts)
     samples = model.historical_forecasts(  # type: ignore[attr-defined]
-        ts_model, start=split, forecast_horizon=1, stride=1, retrain=retrain,
-        last_points_only=True, verbose=False, num_samples=num_samples,
+        ts_model,
+        start=split,
+        forecast_horizon=1,
+        stride=1,
+        retrain=retrain,
+        last_points_only=True,
+        verbose=False,
+        num_samples=num_samples,
     )
     if scaler is not None:
         samples = scaler.inverse_transform(samples)

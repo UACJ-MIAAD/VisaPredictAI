@@ -28,9 +28,9 @@ class TuneResult:
     model: str
     table: str
     best_params: dict
-    best_score: float          # MASE de selección, media sobre el grupo
+    best_score: float  # MASE de selección, media sobre el grupo
     n_trials: int
-    default_score: float       # MASE de selección con los defaults de config (referencia)
+    default_score: float  # MASE de selección con los defaults de config (referencia)
 
 
 def _group_series(table: str, block: str) -> list[tuple[str, str, str]]:
@@ -97,7 +97,8 @@ def _val_mase(model_name: str, country: str, category: str, table: str, params: 
     val_start = len(sel) - _VAL
     model = models.build_model(model_name) if params is None else _build_tuned(model_name, dict(params))
     extra = {"future_covariates": walkforward._covariates(ts)} if model_name in config.DIFFERENCED else {}
-    model.fit(sel[:val_start], **extra)  # type: ignore[attr-defined] — un solo ajuste sobre el tramo de entrenamiento
+    # un solo ajuste sobre el tramo de entrenamiento (model es un union de forecasters de darts)
+    model.fit(sel[:val_start], **extra)  # type: ignore[attr-defined]
     fc = model.historical_forecasts(  # type: ignore[attr-defined]
         sel, start=val_start, forecast_horizon=1, stride=1, retrain=False, last_points_only=True, verbose=False, **extra
     )
@@ -119,8 +120,13 @@ def _mean_sel_mase(model_name: str, series: list[tuple[str, str, str]], params: 
     return float(np.mean(scores) + np.std(scores)) if scores else float("inf")
 
 
-def tune(model_name: str, table: str = "FAD", block: str = "family", n_trials: int = 40,
-         series: list[tuple[str, str, str]] | None = None) -> TuneResult:
+def tune(
+    model_name: str,
+    table: str = "FAD",
+    block: str = "family",
+    n_trials: int = 40,
+    series: list[tuple[str, str, str]] | None = None,
+) -> TuneResult:
     """Tunea UN set de hiperparámetros compartido para un GBM sobre el grupo (leakage-free)."""
     import optuna
 
@@ -133,7 +139,9 @@ def tune(model_name: str, table: str = "FAD", block: str = "family", n_trials: i
     def objective(trial):
         return _mean_sel_mase(model_name, grp, _suggest(trial, model_name))
 
-    study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(multivariate=True, seed=RANDOM_SEED))
+    study = optuna.create_study(
+        direction="minimize", sampler=optuna.samplers.TPESampler(multivariate=True, seed=RANDOM_SEED)
+    )
     study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
     return TuneResult(model_name, table, study.best_params, study.best_value, n_trials, default)
 
@@ -143,8 +151,10 @@ def demo() -> None:
     grp = _group_series("FAD", "family")[:3]
     res = tune("lightgbm", n_trials=3, series=grp)
     assert res.best_score <= res.default_score * 1.5  # no empeora groseramente
-    print(f"OK — tune lightgbm (3 trials, 3 series): default={res.default_score:.3f} "
-          f"-> mejor={res.best_score:.3f}; params={res.best_params}")
+    print(
+        f"OK — tune lightgbm (3 trials, 3 series): default={res.default_score:.3f} "
+        f"-> mejor={res.best_score:.3f}; params={res.best_params}"
+    )
 
 
 if __name__ == "__main__":

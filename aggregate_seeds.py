@@ -29,8 +29,7 @@ def main() -> None:
     args = ap.parse_args()
 
     df = eval_global_deep(args.table)
-    df = df[(df.block == args.block) & (df.model == args.model)
-            & df.variant.str.startswith(args.prefix)]
+    df = df[(df.block == args.block) & (df.model == args.model) & df.variant.str.startswith(args.prefix)]
     if df.empty:
         raise SystemExit(f"sin datos para {args.model}/{args.prefix}* en {args.table}/{args.block}")
 

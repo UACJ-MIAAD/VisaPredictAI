@@ -40,8 +40,7 @@ def run(table: str = "FAD", block: str = "family", models_set: tuple[str, ...] =
             af = actual.values().flatten()
             ff = hold_fc.slice_intersect(actual).values().flatten()
             rows += [
-                {"model": m, "country": r.country, "category": r.category,
-                 "date": d, "actual": a, "forecast": f}
+                {"model": m, "country": r.country, "category": r.category, "date": d, "actual": a, "forecast": f}
                 for d, a, f in zip(dates, af, ff, strict=True)
             ]
         log.info("hold-out forecasts: %s/%s listo", r.country, r.category)

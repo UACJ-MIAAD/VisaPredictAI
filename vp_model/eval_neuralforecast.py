@@ -86,31 +86,47 @@ def eval_global_deep(table: str = "FAD") -> pd.DataFrame:
         for uid, g in df.groupby("unique_id"):
             country, block, category = uid.split("/")
             try:
-                full = dataset.load_series(country, category, table).astype("float64").to_numpy()
+                full = dataset.load_series(country, category, table).astype("float64")
             except KeyError:
                 continue
-            scale = _naive_scale(full[:-len(g)])  # escala con el tramo previo al hold-out
+            # escala con el tramo ANTERIOR al hold-out, alineado por FECHA (no por posición):
+            # el panel global reindexa/interpola, así que el corte posicional `full[:-len(g)]`
+            # se desalinea en series con huecos C/U (bloque empleo). El corte por fecha es robusto.
+            g = g.sort_values("ds")
+            train_vals = full[full.index < g["ds"].min()].to_numpy()
+            if len(train_vals) == 0:
+                continue
+            scale = _naive_scale(train_vals)
             y = g["y"].to_numpy()
             for m in models:
                 f = g[m].to_numpy()
                 if np.isnan(f).all():
                     continue
                 mae = float(np.nanmean(np.abs(y - f)))
-                rows.append({
-                    "variant": variant, "model": m, "block": block,
-                    "country": country, "category": category,
-                    "hold_mase": mae / scale,
-                    "hold_smape": float(np.nanmean(2 * np.abs(y - f) / (np.abs(y) + np.abs(f) + 1e-9))),
-                    "hold_mae": mae,
-                })
+                rows.append(
+                    {
+                        "variant": variant,
+                        "model": m,
+                        "block": block,
+                        "country": country,
+                        "category": category,
+                        "hold_mase": mae / scale,
+                        "hold_smape": float(np.nanmean(2 * np.abs(y - f) / (np.abs(y) + np.abs(f) + 1e-9))),
+                        "hold_mae": mae,
+                    }
+                )
     return pd.DataFrame(rows)
 
 
 def global_summary(df: pd.DataFrame, block: str = "family") -> pd.DataFrame:
     """Ranking de los modelos globales sobre un bloque (familiar por defecto) vs el listón."""
     sub = df[df.block == block]
-    return (sub.groupby(["variant", "model"])[["hold_mase", "hold_smape", "hold_mae"]]
-            .mean().sort_values("hold_mase").round(4))
+    return (
+        sub.groupby(["variant", "model"])[["hold_mase", "hold_smape", "hold_mae"]]
+        .mean()
+        .sort_values("hold_mase")
+        .round(4)
+    )
 
 
 def demo() -> None:

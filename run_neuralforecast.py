@@ -29,8 +29,9 @@ HOLDOUT = 24
 def load_panel(table: str, block: str) -> pd.DataFrame:
     """Panel en formato largo de neuralforecast (unique_id, ds, y), F-only y mensual."""
     df = pd.read_parquet(PANEL)
-    df = df[(df["table"] == table) & (df["block"] == block) & (df["status"] == "F")
-            & (df["country"].isin(PILOT))].copy()
+    df = df[
+        (df["table"] == table) & (df["block"] == block) & (df["status"] == "F") & (df["country"].isin(PILOT))
+    ].copy()
     df["unique_id"] = df["country"] + "/" + df["category"]
     df["ds"] = pd.to_datetime(df["bulletin_date"])
     out = []

@@ -36,6 +36,52 @@ PILOT = ("mexico", "india", "china", "philippines", "all_chargeability")
 HOLDOUT = 24
 
 
+MAX_GAP = 3  # huecos <= 3 meses se interpolan; los más largos son un corte de serie (idéntico al pool local)
+BASE = pd.Timestamp("1975-01-01")  # epoca de days_since_base (t0)
+
+
+def encode_regime(g: pd.DataFrame) -> pd.Series:
+    """Codifica el régimen C/F/U como UNA serie continua (en vez de tirar huecos o interpolar).
+
+    * F → ``days_since_base`` de la fecha de prioridad (cutoff real).
+    * C (Current) → ``days_since_base`` del MES DEL BOLETÍN: "Current" significa que el cutoff
+      es el presente, así que el valor real es la fecha del propio boletín (no una rampa sintética).
+      Captura la dinámica real (p. ej. la retrogresión Current→F) en lugar de inventarla.
+    * U/UNK → se dejan NaN: en familia son marginales y ``regular_monthly`` los puentea como hueco
+      corto. (Semánticamente U = espera infinita = cutoff mínimo; trato dedicado en empleo.)
+    """
+    g = g.sort_values("ds")
+    y = g["days_since_base"].astype("float64").to_numpy().copy()
+    is_c = (g["status"] == "C").to_numpy()
+    y[is_c] = (g["ds"] - BASE).dt.days.to_numpy().astype("float64")[is_c]
+    return pd.Series(y, index=pd.DatetimeIndex(g["ds"]))
+
+
+def regular_monthly(s: pd.Series, max_gap: int = MAX_GAP) -> pd.Series:
+    """Serie mensual regular SIN inventar datos sobre huecos largos.
+
+    Reindexa a frecuencia mensual; interpola solo huecos <= ``max_gap``. Un hueco más
+    largo (mes C/U prolongado) se trata como INICIO DE SERIE NUEVA: se conserva solo el
+    segmento contiguo más reciente (después del último hueco largo). Así el modelo no
+    entrena sobre rampas sintéticas largas — misma regla que ``vp_model.preprocess``.
+    """
+    full = s.reindex(pd.date_range(s.index.min(), s.index.max(), freq="MS"))
+    isna = full.isna().to_numpy()
+    # largo total de la corrida de NaN a la que pertenece cada posición
+    total = np.zeros(len(isna), dtype=int)
+    run = 0
+    for i in range(len(isna)):
+        run = run + 1 if isna[i] else 0
+        total[i] = run
+    for i in range(len(isna) - 2, -1, -1):
+        if isna[i] and isna[i + 1]:
+            total[i] = total[i + 1]
+    long_gap = isna & (total > max_gap)
+    start = int(np.where(long_gap)[0].max()) + 1 if long_gap.any() else 0
+    seg = full.iloc[start:].interpolate(method="linear", limit_area="inside")
+    return seg.dropna()
+
+
 def load_panel(table: str, block: str) -> pd.DataFrame:
     """Panel largo neuralforecast (unique_id, ds, y), F-only, mensual regular.
 
@@ -44,15 +90,15 @@ def load_panel(table: str, block: str) -> pd.DataFrame:
     """
     df = pd.read_parquet(PANEL)
     blocks = ("family", "employment") if block == "both" else (block,)
-    df = df[(df["table"] == table) & (df["block"].isin(blocks)) & (df["status"] == "F")
-            & (df["country"].isin(PILOT))].copy()
+    # NO se filtra a status==F: necesitamos las celdas C (y U) para codificar el régimen y
+    # darle continuidad REAL a la serie. La EVALUACIÓN sigue siendo F-only (hold-out = fechas).
+    df = df[(df["table"] == table) & (df["block"].isin(blocks)) & (df["country"].isin(PILOT))].copy()
     df["unique_id"] = df["country"] + "/" + df["block"] + "/" + df["category"]
     df["ds"] = pd.to_datetime(df["bulletin_date"])
     min_len = (60 if table == "FAD" else 36) + HOLDOUT + 6
     out = []
-    for uid, g in df[["unique_id", "ds", "days_since_base"]].groupby("unique_id"):
-        s = g.set_index("ds")["days_since_base"].sort_index()
-        s = s.reindex(pd.date_range(s.index.min(), s.index.max(), freq="MS")).interpolate()
+    for uid, g in df.groupby("unique_id"):
+        s = regular_monthly(encode_regime(g[["ds", "status", "days_since_base"]]))
         if len(s) >= min_len:
             out.append(pd.DataFrame({"unique_id": uid, "ds": s.index, "y": s.to_numpy()}))
     return pd.concat(out, ignore_index=True)
@@ -72,15 +118,28 @@ def _build_models(input_size: int, max_steps: int, n_series: int, seed: int = 1)
         TimesNet,
     )
 
-    c = dict(h=1, input_size=input_size, max_steps=max_steps, scaler_type="standard",
-             random_seed=seed, enable_progress_bar=False, enable_model_summary=False)
+    c = dict(
+        h=1,
+        input_size=input_size,
+        max_steps=max_steps,
+        scaler_type="standard",
+        random_seed=seed,
+        enable_progress_bar=False,
+        enable_model_summary=False,
+    )
     builders = {
         "NHITS": lambda: NHITS(**c),
         "PatchTST": lambda: PatchTST(**c),
-        "DeepAR": lambda: DeepAR(h=1, input_size=input_size, max_steps=max_steps,
-                                 scaler_type="standard", random_seed=seed,
-                                 enable_progress_bar=False, enable_model_summary=False,
-                                 loss=DistributionLoss(distribution="Normal", level=[95])),
+        "DeepAR": lambda: DeepAR(
+            h=1,
+            input_size=input_size,
+            max_steps=max_steps,
+            scaler_type="standard",
+            random_seed=seed,
+            enable_progress_bar=False,
+            enable_model_summary=False,
+            loss=DistributionLoss(distribution="Normal", level=[95]),
+        ),
         "TiDE": lambda: TiDE(**c),
         "BiTCN": lambda: BiTCN(**c),
         "KAN": lambda: KAN(**c),
@@ -107,11 +166,22 @@ def _build_auto_models(num_samples: int, seed: int = 1):
     from neuralforecast.losses.pytorch import MAE
 
     def mk(M):
-        return lambda: M(h=1, loss=MAE(), config=_auto_config, num_samples=num_samples,
-                         backend="optuna", search_alg=_optuna_sampler(seed), verbose=False)
+        return lambda: M(
+            h=1,
+            loss=MAE(),
+            config=_auto_config,
+            num_samples=num_samples,
+            backend="optuna",
+            search_alg=_optuna_sampler(seed),
+            verbose=False,
+        )
 
-    return {"AutoBiTCN": mk(AutoBiTCN), "AutoPatchTST": mk(AutoPatchTST),
-            "AutoNHITS": mk(AutoNHITS), "AutoTiDE": mk(AutoTiDE)}
+    return {
+        "AutoBiTCN": mk(AutoBiTCN),
+        "AutoPatchTST": mk(AutoPatchTST),
+        "AutoNHITS": mk(AutoNHITS),
+        "AutoTiDE": mk(AutoTiDE),
+    }
 
 
 def _optuna_sampler(seed: int):
@@ -137,6 +207,7 @@ def main() -> None:
     args = ap.parse_args()
 
     import torch
+
     torch.set_num_threads(1)  # py3.14/macOS: evita segfault multihilo (igual que el env principal)
     from neuralforecast import NeuralForecast
 
@@ -155,7 +226,7 @@ def main() -> None:
             parts.append(g.iloc[1:])  # descarta el primer NaN
         train = pd.concat(parts, ignore_index=True)
 
-    input_size = (36 if args.table == "FAD" else 18)
+    input_size = 36 if args.table == "FAD" else 18
     max_steps = 5 if args.fast else args.max_steps
     if args.auto:
         builders = _build_auto_models(2 if args.fast else args.num_samples, args.seed)
@@ -197,5 +268,31 @@ def main() -> None:
     print(f"guardado {out.relative_to(ROOT)} ({len(merged)} filas)")
 
 
+def _selfcheck() -> None:
+    """Valida el encoding de régimen y el guard de huecos (lógica no trivial)."""
+    base = BASE
+    # C se codifica como el mes del boletín (days_since_base del propio mes), F tal cual, U=NaN
+    ds = pd.date_range("2020-01-01", periods=4, freq="MS")
+    g = pd.DataFrame({"ds": ds, "status": ["F", "C", "U", "F"], "days_since_base": [16000.0, np.nan, np.nan, 16100.0]})
+    s = encode_regime(g)
+    assert s.iloc[0] == 16000.0 and s.iloc[3] == 16100.0
+    assert s.iloc[1] == (ds[1] - base).days  # C -> mes del boletín
+    assert np.isnan(s.iloc[2])  # U -> NaN (lo puentea regular_monthly)
+    # guard: hueco largo (>3) corta y conserva el segmento reciente; hueco corto se interpola
+    idx = pd.date_range("2020-01-01", periods=20, freq="MS")
+    v = np.arange(20, dtype=float)
+    v[[5, 6, 7, 8, 9]] = np.nan  # hueco de 5 (>3) -> corta
+    assert len(regular_monthly(pd.Series(v, index=idx).dropna())) == 10
+    v2 = np.arange(20, dtype=float)
+    v2[[5, 6]] = np.nan  # hueco de 2 (<=3) -> interpola, no corta
+    assert len(regular_monthly(pd.Series(v2, index=idx).dropna())) == 20
+    print("selfcheck OK (encoding C/F/U + guard de huecos)")
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+
+    if "--selfcheck" in sys.argv:
+        _selfcheck()
+    else:
+        main()

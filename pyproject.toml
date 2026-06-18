@@ -83,6 +83,18 @@ addopts = [
     "--cov-report=term-missing",
 ]
 
+[tool.coverage.run]
+# Scripts de orquestación / CLI / puente entre entornos: se validan EJECUTANDO el estudio
+# (y con self-checks), no con unit tests — quedan fuera de la métrica de cobertura de lógica.
+omit = [
+    "vp_model/run_comparison.py",
+    "vp_model/run_tuning.py",
+    "vp_model/confirm_tuning.py",
+    "vp_model/persist_forecasts.py",
+    "vp_model/eval_neuralforecast.py",
+    "vp_model/tune.py",
+]
+
 [tool.coverage.report]
 show_missing = true
 skip_empty = true

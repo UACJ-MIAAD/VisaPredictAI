@@ -29,8 +29,8 @@ REPORTS = Path(__file__).resolve().parent.parent / "reports"
 @dataclass(frozen=True)
 class Strategy:
     name: str
-    hold_mase: float   # MASE de hold-out promedio sobre las series
-    hold_mae: float    # MAE de hold-out promedio (días)
+    hold_mase: float  # MASE de hold-out promedio sobre las series
+    hold_mae: float  # MAE de hold-out promedio (días)
     detail: str
 
 
@@ -61,12 +61,18 @@ def analyze(table: str = "FAD") -> list[Strategy]:
     orc = _per_series_oracle(df)
     n_distinct = sel.model.nunique()
     return [
-        Strategy(f"mejor global ({name})", gb.hold_mase.mean(), gb.hold_mae.mean(),
-                 f"un solo modelo en las {len(gb)} series"),
-        Strategy("selección por serie", sel.hold_mase.mean(), sel.hold_mae.mean(),
-                 f"{n_distinct} modelos distintos elegidos por sel_mase"),
-        Strategy("oráculo por serie", orc.hold_mase.mean(), orc.hold_mae.mean(),
-                 "cota superior inalcanzable (mira hold-out)"),
+        Strategy(
+            f"mejor global ({name})", gb.hold_mase.mean(), gb.hold_mae.mean(), f"un solo modelo en las {len(gb)} series"
+        ),
+        Strategy(
+            "selección por serie",
+            sel.hold_mase.mean(),
+            sel.hold_mae.mean(),
+            f"{n_distinct} modelos distintos elegidos por sel_mase",
+        ),
+        Strategy(
+            "oráculo por serie", orc.hold_mase.mean(), orc.hold_mae.mean(), "cota superior inalcanzable (mira hold-out)"
+        ),
     ]
 
 
@@ -89,9 +95,11 @@ def curated_combination(table: str = "FAD", subset: tuple[str, ...] = STRONG_SET
 
     fc = pd.read_csv(REPORTS / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
     sub = fc[fc.model.isin(subset)]
-    comb = sub.groupby(["country", "category", "date"]).agg(
-        actual=("actual", "first"), pred=("forecast", agg)
-    ).reset_index()
+    comb = (
+        sub.groupby(["country", "category", "date"])
+        .agg(actual=("actual", "first"), pred=("forecast", agg))
+        .reset_index()
+    )
     maes, mases = [], []
     for (country, category), g in comb.groupby(["country", "category"]):
         full = dataset.load_series(country, category, table)
@@ -99,9 +107,12 @@ def curated_combination(table: str = "FAD", subset: tuple[str, ...] = STRONG_SET
         mae = (g.actual - g.pred).abs().mean()
         maes.append(mae)
         mases.append(mae / scale)
-    return Strategy(f"combinación curada {agg} ({'+'.join(subset)})",
-                    float(pd.Series(mases).mean()), float(pd.Series(maes).mean()),
-                    f"{len(subset)} modelos fuertes")
+    return Strategy(
+        f"combinación curada {agg} ({'+'.join(subset)})",
+        float(pd.Series(mases).mean()),
+        float(pd.Series(maes).mean()),
+        f"{len(subset)} modelos fuertes",
+    )
 
 
 def combinations(table: str = "FAD") -> list[Strategy]:
@@ -120,9 +131,11 @@ def combinations(table: str = "FAD") -> list[Strategy]:
     fc = pd.read_csv(path, parse_dates=["date"])
     out = []
     for agg_name, agg in (("media", "mean"), ("mediana", "median")):
-        comb = fc.groupby(["country", "category", "date"]).agg(
-            actual=("actual", "first"), pred=("forecast", agg)
-        ).reset_index()
+        comb = (
+            fc.groupby(["country", "category", "date"])
+            .agg(actual=("actual", "first"), pred=("forecast", agg))
+            .reset_index()
+        )
         maes, mases = [], []
         for (country, category), g in comb.groupby(["country", "category"]):
             full = dataset.load_series(country, category, table)
@@ -130,8 +143,14 @@ def combinations(table: str = "FAD") -> list[Strategy]:
             mae = (g.actual - g.pred).abs().mean()
             maes.append(mae)
             mases.append(mae / scale)
-        out.append(Strategy(f"combinación ({agg_name})", float(pd.Series(mases).mean()),
-                            float(pd.Series(maes).mean()), f"{fc.model.nunique()} modelos curados"))
+        out.append(
+            Strategy(
+                f"combinación ({agg_name})",
+                float(pd.Series(mases).mean()),
+                float(pd.Series(maes).mean()),
+                f"{fc.model.nunique()} modelos curados",
+            )
+        )
     return out
 
 

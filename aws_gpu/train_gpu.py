@@ -36,21 +36,49 @@ import pandas as pd
 
 HOLDOUT = 24
 PILOT = ("mexico", "india", "china", "philippines", "all_chargeability")
+MAX_GAP = 3  # huecos <= 3 meses se interpolan; los más largos cortan la serie
+BASE = pd.Timestamp("1975-01-01")  # época de days_since_base (t0)
+
+
+def regular_monthly(s: pd.Series, max_gap: int = MAX_GAP) -> pd.Series:
+    """Serie mensual regular sin inventar datos sobre huecos largos (= run_global_deep)."""
+    full = s.reindex(pd.date_range(s.index.min(), s.index.max(), freq="MS"))
+    isna = full.isna().to_numpy()
+    total = np.zeros(len(isna), dtype=int)
+    run = 0
+    for i in range(len(isna)):
+        run = run + 1 if isna[i] else 0
+        total[i] = run
+    for i in range(len(isna) - 2, -1, -1):
+        if isna[i] and isna[i + 1]:
+            total[i] = total[i + 1]
+    long_gap = isna & (total > max_gap)
+    start = int(np.where(long_gap)[0].max()) + 1 if long_gap.any() else 0
+    return full.iloc[start:].interpolate(method="linear", limit_area="inside").dropna()
+
+
+def encode_regime(g: pd.DataFrame) -> pd.Series:
+    """C/F/U como UNA serie continua: F=fecha de prioridad, C=mes del boletín (cutoff=hoy),
+    U/UNK=NaN (puenteados como hueco corto). EVALUACIÓN sigue F-only. (= run_global_deep)."""
+    g = g.sort_values("ds")
+    y = g["days_since_base"].astype("float64").to_numpy().copy()
+    is_c = (g["status"] == "C").to_numpy()
+    y[is_c] = (g["ds"] - BASE).dt.days.to_numpy().astype("float64")[is_c]
+    return pd.Series(y, index=pd.DatetimeIndex(g["ds"]))
 
 
 def load_panel(panel_path: str, table: str, block: str) -> pd.DataFrame:
-    """Panel largo neuralforecast (unique_id=país/bloque/categoría, ds, y), F-only, mensual."""
+    """Panel largo neuralforecast (unique_id=país/bloque/categoría, ds, y), régimen codificado."""
     df = pd.read_parquet(panel_path)
     blocks = ("family", "employment") if block == "both" else (block,)
-    df = df[(df["table"] == table) & (df["block"].isin(blocks)) & (df["status"] == "F")
-            & (df["country"].isin(PILOT))].copy()
+    # NO se filtra a F: las celdas C dan continuidad real (Current=mes del boletín). Eval = F-only.
+    df = df[(df["table"] == table) & (df["block"].isin(blocks)) & (df["country"].isin(PILOT))].copy()
     df["unique_id"] = df["country"] + "/" + df["block"] + "/" + df["category"]
     df["ds"] = pd.to_datetime(df["bulletin_date"])
     min_len = (60 if table == "FAD" else 36) + HOLDOUT + 6
     out = []
-    for uid, g in df[["unique_id", "ds", "days_since_base"]].groupby("unique_id"):
-        s = g.set_index("ds")["days_since_base"].sort_index()
-        s = s.reindex(pd.date_range(s.index.min(), s.index.max(), freq="MS")).interpolate()
+    for uid, g in df.groupby("unique_id"):
+        s = regular_monthly(encode_regime(g[["ds", "status", "days_since_base"]]))
         if len(s) >= min_len:
             out.append(pd.DataFrame({"unique_id": uid, "ds": s.index, "y": s.to_numpy()}))
     return pd.concat(out, ignore_index=True)
@@ -98,15 +126,32 @@ def build_models(names, input_size, max_steps, n_series, seed, auto, num_samples
 
         try:
             import optuna
+
             sampler = optuna.samplers.TPESampler(seed=seed, multivariate=True)
         except Exception:  # noqa: BLE001
             sampler = None
-        cls = {"AutoBiTCN": AutoBiTCN, "AutoTiDE": AutoTiDE, "AutoNHITS": AutoNHITS,
-               "AutoPatchTST": AutoPatchTST, "AutoInformer": AutoInformer,
-               "AutoTimesNet": AutoTimesNet}
-        reg = {k: (lambda M=v: M(h=1, loss=MAE(), config=_auto_config, num_samples=num_samples,
-                                 backend="optuna", search_alg=sampler, verbose=False))
-               for k, v in cls.items()}
+        cls = {
+            "AutoBiTCN": AutoBiTCN,
+            "AutoTiDE": AutoTiDE,
+            "AutoNHITS": AutoNHITS,
+            "AutoPatchTST": AutoPatchTST,
+            "AutoInformer": AutoInformer,
+            "AutoTimesNet": AutoTimesNet,
+        }
+        reg = {
+            k: (
+                lambda M=v: M(
+                    h=1,
+                    loss=MAE(),
+                    config=_auto_config,
+                    num_samples=num_samples,
+                    backend="optuna",
+                    search_alg=sampler,
+                    verbose=False,
+                )
+            )
+            for k, v in cls.items()
+        }
     else:
         from neuralforecast.models import (  # noqa: I001
             NHITS,
@@ -121,8 +166,15 @@ def build_models(names, input_size, max_steps, n_series, seed, auto, num_samples
             iTransformer,
         )
 
-        c = dict(h=1, input_size=input_size, max_steps=max_steps, scaler_type="standard",
-                 random_seed=seed, enable_progress_bar=False, enable_model_summary=False)
+        c = dict(
+            h=1,
+            input_size=input_size,
+            max_steps=max_steps,
+            scaler_type="standard",
+            random_seed=seed,
+            enable_progress_bar=False,
+            enable_model_summary=False,
+        )
         reg = {
             "Informer": lambda: Informer(**c),
             "Autoformer": lambda: Autoformer(**c),
@@ -137,6 +189,12 @@ def build_models(names, input_size, max_steps, n_series, seed, auto, num_samples
             "TimeMixer": lambda: TimeMixer(**c, n_series=n_series),
         }
     if names:
+        unknown = set(names) - set(reg)
+        if unknown:  # falla fuerte en vez de producir un CSV vacío en silencio
+            raise ValueError(
+                f"modelos no reconocidos: {sorted(unknown)}. "
+                f"Disponibles: {sorted(reg)} (¿--auto para los Auto*? Mamba no existe en neuralforecast)"
+            )
         reg = {k: v for k, v in reg.items() if k in names}
     return reg
 
@@ -152,10 +210,8 @@ def run_seed(panel, table, block, diff, local, names, max_steps, seed, auto, num
     merged = panel[["unique_id", "ds", "y"]].copy()
     for name, build in builders.items():
         try:
-            nf = NeuralForecast(models=[build()], freq="MS",
-                                local_scaler_type="standard" if local else None)
-            cv = nf.cross_validation(df=train, n_windows=HOLDOUT, step_size=1,
-                                     refit=False).reset_index()
+            nf = NeuralForecast(models=[build()], freq="MS", local_scaler_type="standard" if local else None)
+            cv = nf.cross_validation(df=train, n_windows=HOLDOUT, step_size=1, refit=False).reset_index()
             meta = {"index", "unique_id", "ds", "cutoff", "y"}
             col = next(c for c in cv.columns if c not in meta and "-lo-" not in c and "-hi-" not in c)
             out = cv[["unique_id", "ds", col]].copy()
@@ -182,36 +238,63 @@ def main() -> None:
     ap.add_argument("--out-dir", default="reports")
     ap.add_argument("--table", default="FAD")
     ap.add_argument("--block", default="family", choices=["family", "employment", "both"])
-    ap.add_argument("--no-diff", dest="diff", action="store_false", help="entrenar en NIVELES (por defecto: diferencia)")
+    ap.add_argument(
+        "--no-diff", dest="diff", action="store_false", help="entrenar en NIVELES (por defecto: diferencia)"
+    )
     ap.add_argument("--local-scaler", action="store_true", help="normaliza cada serie")
     ap.add_argument("--max-steps", type=int, default=1000)
     ap.add_argument("--auto", action="store_true", help="AutoModels con HPO Optuna")
     ap.add_argument("--num-samples", type=int, default=50, help="trials de HPO por modelo Auto")
     ap.add_argument("--models", nargs="+", default=None)
     ap.add_argument("--seeds", nargs="+", type=int, default=[1])
-    ap.add_argument("--shutdown-on-done", action="store_true",
-                    help="apaga la instancia (sudo shutdown -h now) al terminar — red de seguridad de costo")
+    ap.add_argument(
+        "--shutdown-on-done",
+        action="store_true",
+        help="apaga la instancia (sudo shutdown -h +1) al terminar — red de seguridad de costo",
+    )
     args = ap.parse_args()
 
-    panel = load_panel(args.panel, args.table, args.block)
-    print(f"panel: {panel['unique_id'].nunique()} series, {len(panel)} filas "
-          f"({args.table}/{args.block}), diff={args.diff}, auto={args.auto}, seeds={args.seeds}")
     try:
+        # load_panel DENTRO del try: si el path del panel está mal, igual se dispara el
+        # shutdown (si no, un error temprano dejaría la GPU encendida cobrando).
+        panel = load_panel(args.panel, args.table, args.block)
+        print(
+            f"panel: {panel['unique_id'].nunique()} series, {len(panel)} filas "
+            f"({args.table}/{args.block}), diff={args.diff}, auto={args.auto}, seeds={args.seeds}"
+        )
         for seed in args.seeds:
-            run_seed(panel, args.table, args.block, args.diff, args.local_scaler, args.models,
-                     args.max_steps, seed, args.auto, args.num_samples, args.out_dir)
+            run_seed(
+                panel,
+                args.table,
+                args.block,
+                args.diff,
+                args.local_scaler,
+                args.models,
+                args.max_steps,
+                seed,
+                args.auto,
+                args.num_samples,
+                args.out_dir,
+            )
     finally:
         if args.shutdown_on_done:
             # se ejecuta aunque falle, para no dejar la GPU encendida por una excepción.
             import subprocess
-            print("apagando la instancia en 60 s (cancela con: sudo shutdown -c)…")
-            subprocess.run(["sudo", "shutdown", "-h", "+1"], check=False)
+
+            print("apagando la instancia en 1 min (cancela con: sudo shutdown -c)…")
+            r = subprocess.run(["sudo", "shutdown", "-h", "+1"], check=False)
+            if r.returncode != 0:
+                print(
+                    f"⚠️ ¡EL APAGADO FALLÓ (returncode {r.returncode})! Apaga/termina la "
+                    "instancia A MANO desde la consola AWS para no seguir pagando."
+                )
 
 
 def _selfcheck() -> None:
     """Reintegración: Δ reintegrada con el nivel previo real reconstruye el nivel."""
-    lvl = pd.DataFrame({"unique_id": "a", "ds": pd.date_range("2020-01-01", periods=4, freq="MS"),
-                        "y": [10.0, 13.0, 12.0, 20.0]})
+    lvl = pd.DataFrame(
+        {"unique_id": "a", "ds": pd.date_range("2020-01-01", periods=4, freq="MS"), "y": [10.0, 13.0, 12.0, 20.0]}
+    )
     lmap = lvl.set_index(["unique_id", "ds"])["y"]
     pred = lvl.iloc[1:][["unique_id", "ds"]].copy()
     pred["d"] = lvl["y"].diff().iloc[1:].to_numpy()  # Δ "predicho" perfecto
@@ -222,6 +305,7 @@ def _selfcheck() -> None:
 
 if __name__ == "__main__":
     import sys
+
     if "--selfcheck" in sys.argv:
         _selfcheck()
     else:

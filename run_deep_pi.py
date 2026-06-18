@@ -37,6 +37,7 @@ def main() -> None:
     args = ap.parse_args()
 
     import torch
+
     torch.set_num_threads(1)
     from neuralforecast import NeuralForecast
     from neuralforecast.models import NHITS, BiTCN, PatchTST, TiDE
@@ -52,16 +53,23 @@ def main() -> None:
     train = pd.concat(train, ignore_index=True)
 
     input_size = 36 if args.table == "FAD" else 18
-    c = dict(h=1, input_size=input_size, max_steps=args.max_steps, scaler_type="standard",
-             random_seed=args.seed, enable_progress_bar=False, enable_model_summary=False)
+    c = dict(
+        h=1,
+        input_size=input_size,
+        max_steps=args.max_steps,
+        scaler_type="standard",
+        random_seed=args.seed,
+        enable_progress_bar=False,
+        enable_model_summary=False,
+    )
     cls = {"BiTCN": BiTCN, "TiDE": TiDE, "NHITS": NHITS, "PatchTST": PatchTST}[args.model]
-    nf = NeuralForecast(models=[cls(**c)], freq="MS",
-                        local_scaler_type="standard" if args.local_scaler else None)
+    nf = NeuralForecast(models=[cls(**c)], freq="MS", local_scaler_type="standard" if args.local_scaler else None)
     # conformal: calibra residuales en ventanas del pasado de cada cutoff -> PI sin fuga.
     # neuralforecast exige refit=True con prediction_intervals (recalibra en cada cutoff).
     pi = PredictionIntervals(n_windows=10, method="conformal_distribution", step_size=1)
-    cv = nf.cross_validation(df=train, n_windows=HOLDOUT, step_size=1, refit=True,
-                             prediction_intervals=pi, level=LEVELS).reset_index()
+    cv = nf.cross_validation(
+        df=train, n_windows=HOLDOUT, step_size=1, refit=True, prediction_intervals=pi, level=LEVELS
+    ).reset_index()
 
     lvl = level_df.set_index(["unique_id", "ds"])["y"]
     prev_ds = cv["ds"] - pd.DateOffset(months=1)

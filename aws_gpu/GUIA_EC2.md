@@ -104,9 +104,9 @@ python train_gpu.py --panel $PANEL --table FAD --diff --local-scaler \
 ## 5. Bajar los resultados a tu Mac
 
 ```bash
-# en tu Mac
-scp -i $KEY '$GPU:~/run/aws_gpu/reports/global_*.csv' reports/
-scp -i $KEY '$GPU:~/run/aws_gpu/reports/chronos_*.csv' reports/
+# en tu Mac (comillas DOBLES: dejan expandir $GPU localmente y protegen el * para el shell remoto)
+scp -i "$KEY" "$GPU:~/run/aws_gpu/reports/global_*.csv" reports/
+scp -i "$KEY" "$GPU:~/run/aws_gpu/reports/chronos_*.csv" reports/
 ```
 
 ## 6. Evaluar localmente (entorno principal, como siempre)

@@ -32,17 +32,21 @@ CONTEXT = 60  # longitud de contexto que recibe Chronos para predecir el siguien
 
 
 def load_series(panel_path: str, table: str, block: str = "family") -> dict[str, np.ndarray]:
-    """{unique_id: serie de nivel (days_since_base) mensual regular}, F-only, piloto."""
+    """{unique_id: serie de nivel mensual regular} con el MISMO encoding de régimen que el deep.
+
+    C = mes del boletín (Current = cutoff hoy), F = fecha de prioridad, U/UNK puenteados.
+    Reusa ``encode_regime``/``regular_monthly`` de ``train_gpu`` (mismo bundle) para no divergir.
+    """
+    from train_gpu import encode_regime, regular_monthly  # mismo directorio del bundle
+
     df = pd.read_parquet(panel_path)
-    df = df[(df["table"] == table) & (df["block"] == block) & (df["status"] == "F")
-            & (df["country"].isin(PILOT))].copy()
+    df = df[(df["table"] == table) & (df["block"] == block) & (df["country"].isin(PILOT))].copy()
     df["unique_id"] = df["country"] + "/" + block + "/" + df["category"]
     df["ds"] = pd.to_datetime(df["bulletin_date"])
     out = {}
     min_len = (60 if table == "FAD" else 36) + HOLDOUT + 6
-    for uid, g in df[["unique_id", "ds", "days_since_base"]].groupby("unique_id"):
-        s = g.set_index("ds")["days_since_base"].sort_index()
-        s = s.reindex(pd.date_range(s.index.min(), s.index.max(), freq="MS")).interpolate()
+    for uid, g in df.groupby("unique_id"):
+        s = regular_monthly(encode_regime(g[["ds", "status", "days_since_base"]]))
         if len(s) >= min_len:
             out[uid] = s.to_numpy(dtype="float64")
     return out
@@ -55,7 +59,7 @@ def holdout_windows(series: np.ndarray):
     """
     n = len(series)
     for i in range(n - HOLDOUT, n):
-        ctx = series[max(0, i - CONTEXT):i]
+        ctx = series[max(0, i - CONTEXT) : i]
         yield i, ctx, series[i]
 
 
@@ -65,15 +69,19 @@ def zeroshot(args) -> None:
     from chronos import BaseChronosPipeline
 
     pipe = BaseChronosPipeline.from_pretrained(
-        args.model, device_map="cuda" if torch.cuda.is_available() else "cpu",
+        args.model,
+        device_map="cuda" if torch.cuda.is_available() else "cpu",
         torch_dtype=torch.bfloat16,
     )
     rows = []
     for uid, s in load_series(args.panel, args.table).items():
         for i, ctx, y in holdout_windows(s):
+            # API de chronos: el contexto es POSICIONAL (`inputs`), no `context=`; el primer
+            # elemento del return son los cuantiles (el segundo es la media).
             q = pipe.predict_quantiles(
-                context=torch.tensor(ctx, dtype=torch.float32),
-                prediction_length=1, quantile_levels=[0.5],
+                torch.tensor(ctx, dtype=torch.float32),
+                prediction_length=1,
+                quantile_levels=[0.5],
             )[0]  # (1, 1) mediana
             yhat = float(np.asarray(q).reshape(-1)[0])
             rows.append({"unique_id": uid, "idx": i, "y": y, "Chronos": yhat})

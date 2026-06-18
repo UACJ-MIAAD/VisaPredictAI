@@ -36,8 +36,7 @@ def _pinball(y: np.ndarray, q: np.ndarray, tau: float) -> float:
 
 def _interval_score(y, lo, hi, alpha) -> float:
     """Interval score de Gneiting-Raftery para un PI (1-alpha)."""
-    return float(np.mean((hi - lo) + (2 / alpha) * (lo - y) * (y < lo)
-                         + (2 / alpha) * (y - hi) * (y > hi)))
+    return float(np.mean((hi - lo) + (2 / alpha) * (lo - y) * (y < lo) + (2 / alpha) * (y - hi) * (y > hi)))
 
 
 def main() -> None:
@@ -55,11 +54,15 @@ def main() -> None:
         if block != args.block:
             continue
         g = g.sort_values("ds")
-        full = dataset.load_series(country, category, args.table).astype("float64").to_numpy()
-        scale = _naive_scale(full[: -len(g)])
+        full = dataset.load_series(country, category, args.table).astype("float64")
+        # escala y nivel real alineados por FECHA (robusto a huecos C/U del bloque empleo).
+        train_vals = full[full.index < g["ds"].min()].to_numpy()
+        if len(train_vals) == 0:
+            continue
+        scale = _naive_scale(train_vals)
         # OJO: en el pipeline diferenciado, la columna `y` del CSV es Δy (objetivo de
-        # entrenamiento), no el nivel. El nivel real del hold-out = la cola de la serie.
-        y = full[-len(g):]
+        # entrenamiento), no el nivel. El nivel real del hold-out = la serie alineada por fecha.
+        y = full.reindex(g["ds"]).to_numpy()
         lo95, hi95 = g[f"{model}-lo-95"].to_numpy(), g[f"{model}-hi-95"].to_numpy()
         cov = float(np.mean((y >= lo95) & (y <= hi95)))
         iscore = _interval_score(y, lo95, hi95, alpha=0.05)
@@ -69,8 +72,9 @@ def main() -> None:
             taus += [qlo, qhi]
             qs += [g[f"{model}-lo-{lvl}"].to_numpy(), g[f"{model}-hi-{lvl}"].to_numpy()]
         crps = 2 * float(np.mean([_pinball(y, q, t) for q, t in zip(qs, taus, strict=True)]))
-        rows.append({"country": country, "category": category, "coverage95": cov,
-                     "msis95": iscore / scale, "crps": crps})
+        rows.append(
+            {"country": country, "category": category, "coverage95": cov, "msis95": iscore / scale, "crps": crps}
+        )
     r = pd.DataFrame(rows)
     print(f"\n=== {model} · {args.table}/{args.block} · PI conforme · {len(r)} series ===")
     print(f"  cobertura 95% : {r.coverage95.mean():.3f}  (objetivo 0.95)")

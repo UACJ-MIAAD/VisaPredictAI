@@ -43,11 +43,16 @@ def confirm() -> pd.DataFrame:
                 try:
                     m = tune._build_tuned(model, dict(params))
                     res = walkforward.backtest(model, r.country, r.category, table, model=m)
-                    rows.append({
-                        "model": model, "table": table, "country": r.country, "category": r.category,
-                        "tuned_hold_mase": res.holdout["mase"],
-                        "default_hold_mase": defaults.get((r.country, r.category), np.nan),
-                    })
+                    rows.append(
+                        {
+                            "model": model,
+                            "table": table,
+                            "country": r.country,
+                            "category": r.category,
+                            "tuned_hold_mase": res.holdout["mase"],
+                            "default_hold_mase": defaults.get((r.country, r.category), np.nan),
+                        }
+                    )
                 except Exception as e:  # noqa: BLE001 — serie que falle no aborta el resto
                     log.warning("skip %s %s/%s: %s", model, r.country, r.category, e)
             log.info("confirmado %s · %s", model, key)
@@ -58,9 +63,11 @@ def confirm() -> pd.DataFrame:
 
 def summary(df: pd.DataFrame) -> pd.DataFrame:
     """Media de hold-MASE tuned vs default por modelo×tabla + veredicto de aceptación."""
-    g = df.groupby(["model", "table"]).agg(
-        tuned=("tuned_hold_mase", "mean"), default=("default_hold_mase", "mean"), n=("country", "count")
-    ).reset_index()
+    g = (
+        df.groupby(["model", "table"])
+        .agg(tuned=("tuned_hold_mase", "mean"), default=("default_hold_mase", "mean"), n=("country", "count"))
+        .reset_index()
+    )
     g["delta_pct"] = (100 * (g.default - g.tuned) / g.default).round(1)
     g["acepta"] = g.tuned < g.default
     return g.round(4)

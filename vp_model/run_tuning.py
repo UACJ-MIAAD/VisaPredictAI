@@ -37,7 +37,10 @@ def main(n_trials: int = 40, groups: tuple[tuple[str, str], ...] = (("FAD", "fam
             }
             log.info(
                 "  %s %s: default=%.4f -> mejor=%.4f (%+.1f%%) %s",
-                model_name, key, r.default_score, r.best_score,
+                model_name,
+                key,
+                r.default_score,
+                r.best_score,
                 100 * (r.default_score - r.best_score) / r.default_score,
                 "MEJORA" if improved else "sin mejora",
             )
