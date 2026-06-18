@@ -921,7 +921,11 @@ con sus hiperparámetros ajustados sin fuga. Sin esos cuatro ingredientes, las m
 redes caen por debajo del naïve. Una excepción notable es DeepAR: su parametrización
 probabilística sobre incrementos no se estabiliza ni con normalización por serie y queda
 muy por detrás de las redes deterministas; el mejor modelo profundo aquí no es el más
-conocido sino BiTCN.
+conocido sino BiTCN. \textit{Cautela metodológica:} el resultado de AutoBiTCN ($0.108$)
+corresponde a una sola corrida con semilla fija; aunque el margen sobre los parsimoniosos
+($\sim$9\,\%) es consistente con su ventaja en DFF, su carácter \textbf{definitivo
+requiere confirmación con múltiples semillas} (media e intervalo de confianza), tarea que
+queda como validación inmediata antes de elevar esta conclusión a resultado central.
 
 \begin{table}[H]
 \centering
