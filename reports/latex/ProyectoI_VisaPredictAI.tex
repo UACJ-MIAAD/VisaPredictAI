@@ -901,44 +901,48 @@ prestada del resto \cita{20}. Se entrenó así un conjunto de arquitecturas reci
 como sobre la primera diferencia (con reintegración a un paso). El cambio es drástico:
 el mismo tipo de red que entrenada localmente quedaba muy por debajo del naïve pasa, en
 versión global, a ser \textbf{plenamente competitiva} —PatchTST sobre nivel alcanza
-MASE $=0.121$ y BiTCN sobre diferencia $0.124$ (Tabla~\ref{tab:global_deep})—, mejor que
-CatBoost y SARIMA. Aun así, \textbf{ningún modelo profundo global supera por sí solo a
-los parsimoniosos} ETS y Theta ($0.118$). El valor del aprendizaje profundo en este
-problema aparece \textit{en conjunto}: la mediana de \{BiTCN, ETS, Theta\} obtiene
-MASE $=0.111$, el mejor resultado del estudio en FAD —marginalmente por debajo de la
-combinación puramente estadística ($0.1115$) y del oráculo de selección ($0.112$)—.
-\textbf{En la tabla DFF el resultado es claramente más favorable al aprendizaje
-profundo}: en estas series más cortas, donde el entrenamiento global rinde más al prestar
-señal entre series, \textbf{BiTCN global supera por sí solo a todos los modelos
-estadísticos y de árboles} (MASE $=0.088$ frente a $0.100$ de SARIMA y $0.113$ de
-CatBoost), siendo el único caso del estudio en que un modelo profundo es el mejor
-absoluto; combinarlo con los estadísticos no lo mejora. La lectura honesta es que el
-aprendizaje profundo \textit{sí} aporta valor a este dominio, pero su ventaja depende del
-régimen de datos: marginal y solo en conjunto sobre las series largas de FAD —donde la
-parsimonia, sola, es difícil de superar—, y decisiva sobre las series cortas de DFF,
-donde el entrenamiento global vence a los modelos clásicos. El factor determinante no es
-la capacidad del modelo sino entrenarlo de forma global y sobre la primera diferencia.
+MASE $=0.121$ y BiTCN sobre diferencia $0.124$ (Tabla~\ref{tab:global_deep})—, ya mejor
+que CatBoost y SARIMA. Dos refinamientos adicionales cierran la brecha con los
+parsimoniosos y la cruzan: (a) \textit{agrupar} en el entrenamiento las series familiares
+y de empleo con \textbf{normalización por serie} —para que convivan sus distintas
+escalas— da a cada serie más señal y baja BiTCN a $0.116$; y (b) la \textbf{optimización
+de hiperparámetros} con Optuna (búsqueda con validación interna, sin tocar el hold-out)
+lleva a \textbf{AutoBiTCN a MASE $=0.108$ y AutoTiDE a $0.115$, ambos por debajo de ETS y
+Theta ($0.118$)}. Es decir, \textbf{un único modelo profundo global, bien regularizado,
+supera a los parsimoniosos en FAD} (AutoBiTCN $0.108$, $\sim$9\,\% mejor), y resulta
+incluso el mejor sistema de la tabla —por delante de cualquier combinación—. \textbf{En
+DFF el aprendizaje profundo gana con más holgura}: BiTCN global supera por sí solo a
+todos los estadísticos y árboles (MASE $=0.088$ frente a $0.100$ de SARIMA y $0.113$ de
+CatBoost). La lectura honesta es que el aprendizaje profundo \textit{sí} vence a los
+modelos clásicos en este dominio —en ambas tablas y como modelo único—, pero la victoria
+\textbf{no viene de la capacidad del modelo sino de cómo se entrena}: de forma global
+(todas las series a la vez), sobre la primera diferencia, con normalización por serie y
+con sus hiperparámetros ajustados sin fuga. Sin esos cuatro ingredientes, las mismas
+redes caen por debajo del naïve. Una excepción notable es DeepAR: su parametrización
+probabilística sobre incrementos no se estabiliza ni con normalización por serie y queda
+muy por detrás de las redes deterministas; el mejor modelo profundo aquí no es el más
+conocido sino BiTCN.
 
 \begin{table}[H]
 \centering
 \caption[Modelos profundos globales (FAD)]{Modelos profundos entrenados de forma global
-sobre las 25 series FAD familiares (mejor de las variantes nivel/diferencia por modelo).
-MASE de hold-out; el listón es ETS/Theta $=0.118$. La mediana \{BiTCN, ETS, Theta\}
-($0.111$) es el mejor sistema del estudio.}
+sobre las 25 series FAD familiares y el efecto acumulado de las técnicas de
+entrenamiento. MASE de hold-out; el listón parsimonioso es ETS/Theta $=0.118$. La
+optimización de hiperparámetros lleva a un único modelo profundo (AutoBiTCN) por debajo
+del listón.}
 \label{tab:global_deep}
 \begin{tabular}{lcc}
 \hline
 \rowcolor{uacjblue!15}
-\textbf{Modelo global} & \textbf{Variante} & \textbf{MASE hold-out} \\ \hline
-PatchTST & nivel & 0.121 \\
-BiTCN & diferencia & 0.124 \\
-TiDE & diferencia & 0.132 \\
-KAN & nivel & 0.133 \\
-TimesNet & nivel & 0.140 \\
-N-HiTS & diferencia & 0.150 \\
-TimeMixer & diferencia & 0.157 \\ \hline
+\textbf{Modelo / configuración} & \textbf{Técnica} & \textbf{MASE hold-out} \\ \hline
+PatchTST & global, nivel & 0.121 \\
+BiTCN & global, diferencia & 0.124 \\
+TiDE & global, diferencia & 0.132 \\
+BiTCN & + agrupado + norma por serie & 0.116 \\
+AutoTiDE & + optimización (Optuna) & 0.115 \\ \hline
 \rowcolor{uacjyellow!25}
-Mediana \{BiTCN, ETS, Theta\} & ensamble & \textbf{0.111} \\ \hline
+AutoBiTCN & + optimización (Optuna) & \textbf{0.108} \\ \hline
+ETS / Theta \textit{(listón)} & estadístico, por serie & \textit{0.118} \\ \hline
 \end{tabular}
 \end{table}
 
@@ -1002,29 +1006,33 @@ Se construyó y validó el sistema predictivo VisaPredict AI sobre las 25 series
 por separado, las 25 series DFF— de preferencia familiar de las cinco áreas piloto,
 integrando la base de datos del Objetivo~1 con un catálogo de \textbf{21 modelos} de
 seis familias bajo un protocolo de validación temporal sin fuga de información. El
-hallazgo central es claro y, a la vez, contrario a la intuición de que "más capacidad
-es mejor": para series de fechas de prioridad —cortas, con tendencia fuerte,
-estacionalidad casi nula y retrogresiones ocasionales—, \textbf{los modelos
-parsimoniosos ganan}. ETS amortiguado y Theta encabezan FAD (MASE $=0.117$), CatBoost
-sobre deltas encabeza DFF ($0.116$), y todos mejoran al naïve estacional por un margen
-amplio. Las redes profundas entrenadas localmente (LSTM, DeepAR, TFT) caen por debajo
-del naïve: con 125 a 290 observaciones por serie su capacidad se traduce en
-sobreajuste, no en exactitud. Tres resultados matizan la respuesta a "¿conviene la
+primer hallazgo, contrario a la intuición de que "más capacidad es mejor": evaluados
+\textit{por serie}, para fechas de prioridad —cortas, con tendencia fuerte, estacionalidad
+casi nula y retrogresiones ocasionales—, \textbf{los modelos parsimoniosos ganan}. ETS
+amortiguado y Theta encabezan FAD (MASE $=0.117$), CatBoost sobre deltas encabeza DFF
+($0.116$), y todos mejoran al naïve estacional por un margen amplio. Las redes profundas
+entrenadas \textit{localmente} (LSTM, DeepAR, TFT) caen por debajo del naïve: con 125 a
+290 observaciones por serie su capacidad se traduce en sobreajuste, no en exactitud. Este
+cuadro, sin embargo, se revierte cuando las redes se entrenan como corresponde a un panel
+(punto~(iv) más abajo). Tres resultados matizan la respuesta a "¿conviene la
 IA?": (i) un \textit{foundation model} preentrenado evaluado sin ajuste (Chronos) supera
 a todas las redes entrenadas localmente, mostrando que la transferencia vence a la
 escasez de datos donde el entrenamiento local fracasa; (ii) la optimización de
 hiperparámetros con Optuna mejora a los árboles hasta un $29\,\%$ en hold-out, pero los
 acerca a los parsimoniosos sin superarlos; y (iii) ningún conjunto amplio mejora al
 mejor modelo, y solo una combinación curada de los tres modelos fuertes araña un $5\,\%$
-adicional en FAD. Y un cuarto resultado, el más favorable al aprendizaje profundo: (iv)
-entrenado de forma \textbf{global} sobre el panel y sobre la primera diferencia, el mismo
-tipo de red que fracasaba localmente se vuelve competitivo en FAD (BiTCN MASE $=0.124$) y
-\textbf{el mejor modelo absoluto en DFF} (BiTCN $=0.088$, por debajo de SARIMA $0.100$ y
-CatBoost $0.113$). La conclusión, por tanto, es matizada: la IA \textit{sí} aporta valor,
-y su forma ganadora depende del régimen de datos —la parsimonia es difícil de superar en
-las series largas de FAD, mientras que el aprendizaje profundo global vence en las series
-cortas de DFF—; el factor determinante no es la capacidad del modelo sino entrenarlo de
-forma global y sobre incrementos.
+adicional en FAD. Y un cuarto resultado, el más contundente: (iv) entrenado de forma
+\textbf{global} (todas las series a la vez), sobre la \textbf{primera diferencia}, con
+\textbf{normalización por serie} y con sus \textbf{hiperparámetros optimizados} sin fuga,
+el mismo tipo de red que fracasaba localmente \textbf{supera a los modelos parsimoniosos
+en ambas tablas como modelo único}: AutoBiTCN logra MASE $=0.108$ en FAD ($\sim$9\,\% por
+debajo de ETS/Theta $0.118$) y BiTCN $=0.088$ en DFF (frente a $0.100$ de SARIMA). La
+conclusión, por tanto, se inclina a favor del aprendizaje profundo, pero con una
+precisión importante: \textbf{la ventaja no proviene de la capacidad del modelo sino de
+cómo se entrena} —global, sobre incrementos, con escalado por serie y regularización
+ajustada—; sin esos ingredientes las mismas redes caen por debajo del naïve, y modelos de
+gran nombre como DeepAR fallan. La respuesta a ``¿conviene la IA?'' es sí, siempre que se
+la entrene como exige un panel de series cortas y no como una red aislada por serie.
 
 Este resultado no es una limitación del trabajo sino un hallazgo validado: documenta,
 con un protocolo reproducible y libre de fuga, qué familia de modelos conviene a cada
