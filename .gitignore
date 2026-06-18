@@ -72,3 +72,6 @@ reports/latex/*.log
 reports/latex/*.out
 reports/latex/*.toc
 reports/latex/*.synctex.gz
+
+# Reportes de auditoría regenerables — no versionar (causan árbol sucio)
+reports/*_audit_report.md

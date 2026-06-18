@@ -53,7 +53,7 @@ def classify_family_category(raw) -> None | str:
         return "2B"
     if s in ("3rd", "f3"):
         return "3"
-    if s in ("4th", "f4"):
+    if s in ("4th", "4rd", "f4"):  # '4rd' = typo de la fuente (2003-03) -> recupera 3 celdas F4
         return "4"
     return None
 

@@ -1,4 +1,4 @@
-"""Comparación de los 8 modelos por walk-forward (US-F1, US-A3).
+"""Comparación del catálogo de modelos (21) por walk-forward (US-F1, US-A3).
 
 Corre el catálogo sobre un conjunto de series y consolida las métricas en
 ``reports/model_comparison.csv`` (una fila por modelo×serie, con ``run_id`` para
@@ -86,7 +86,7 @@ def summary(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Comparación walk-forward de los 8 modelos.")
+    p = argparse.ArgumentParser(description="Comparación walk-forward del catálogo de modelos.")
     p.add_argument(
         "--country",
         default="mexico",

@@ -22,12 +22,18 @@ repos:
         args: [--maxkb=3000]            # the long panel is ~2.1 MB; figures are gitignored
       - id: debug-statements
 
-  # ── fast offline tests ───────────────────────────────────────────
+  # ── fast offline tests + typecheck (alineado con CI: cierra el gap pre-commit↔CI) ──
   - repo: local
     hooks:
       - id: pipeline-tests
-        name: pipeline tests (parsers + offline extraction)
-        entry: bash -c 'ante/bin/python tests/test_parsers.py && ante/bin/python tests/test_extraction.py'
+        name: pipeline tests (parsers + offline extraction + panel invariants)
+        entry: bash -c 'ante/bin/python tests/test_parsers.py && ante/bin/python tests/test_extraction.py && ante/bin/python tests/test_panel_integrity.py'
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: typecheck
+        name: mypy (vp_model) — mismo gate que CI
+        entry: bash -c 'ante/bin/python -m mypy vp_model'
         language: system
         pass_filenames: false
         always_run: true

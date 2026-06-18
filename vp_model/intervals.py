@@ -34,7 +34,7 @@ def conformal(
 ) -> Interval:
     """Split conformal: PI = pronóstico ± cuantil(1-alpha) de |error| en calibración.
 
-    Model-agnostic: sirve para cualquiera de los 8 modelos a partir de su backtest.
+    Model-agnostic: sirve para cualquier modelo del catálogo a partir de su backtest.
     El semiancho es el cuantil empírico de los residuales absolutos de calibración,
     con la pequeña corrección de tamaño finito (n+1).
     """

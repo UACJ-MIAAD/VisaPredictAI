@@ -1,9 +1,12 @@
-"""Los 8 modelos de referencia tras una interfaz común (US-D1).
+"""El catálogo de modelos tras una interfaz común (US-D1).
+
+El catálogo completo son **21 modelos** (``config.MODEL_NAMES``: +ETS, Theta, Kalman,
+DLinear, NLinear, RLinear, N-BEATS, N-HiTS, TiDE, LightGBM, CatBoost, TFT, Chronos). Los
+8 de referencia originales del Anteproyecto (§4.3) son el núcleo:
 
 Todos se exponen como modelos darts (misma API ``fit``/``predict``/
 ``historical_forecasts``), lo que da comparación justa, walk-forward y bandas
-probabilísticas sin reimplementar nada. El catálogo replica la Tabla de modelos de
-referencia del Anteproyecto (§4.3):
+probabilísticas sin reimplementar nada. Núcleo de referencia:
 
     naive       — naïve estacional (baseline; denominador de MASE)
     arima       — ARIMA (lineal, no estacional)
@@ -14,7 +17,7 @@ referencia del Anteproyecto (§4.3):
     arima_lstm  — cascada: ARIMA + LSTM sobre los residuales
     xgboost     — XGBoost sobre rezagos + regresores de calendario
 
-Decisión (ponytail): darts ya trae 7 de los 8; solo la cascada ARIMA-LSTM es
+Decisión (ponytail): darts cubre casi todo el catálogo; solo la cascada ARIMA-LSTM es
 código propio, y es un envoltorio delgado, no un modelo nuevo.
 """
 
@@ -76,7 +79,12 @@ _TRAINER_KWARGS = {"enable_progress_bar": False, "accelerator": "cpu", "devices"
 
 
 class Forecaster(Protocol):
-    """API mínima común a los 8 modelos (lo que usa el motor de walk-forward)."""
+    """API común al catálogo de modelos (lo que usa el motor de walk-forward).
+
+    Mínima a propósito (``fit``/``predict``): el backtesting además llama
+    ``historical_forecasts`` de darts, cuya firma concreta varía por modelo y no se modela
+    en el Protocol (de ahí los ``# type: ignore[attr-defined]`` puntuales en walkforward/tune).
+    """
 
     def fit(self, series: TimeSeries, **kwargs: object) -> object: ...
     def predict(self, n: int, **kwargs: object) -> TimeSeries: ...

@@ -38,20 +38,37 @@ def main() -> None:
     emp_tables = []
     fam_tables = []
     dv_frames = []
-    failed = []  # a few old months have malformed tables; drop them like the live scrape did
+    failed = []  # fallos del PANEL objetivo (employment+family) -- esto sí es "mes perdido"
+    dv_failed = []  # fallos SOLO del parser DV (dataset no-predictivo) -- NO contamina el panel
     for path in tqdm(snapshots, desc="Parsing frozen bulletins offline (employment + family + DV)"):
         try:
             soup = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
             ym = extract_datetime_from_link(path.name)
+        except Exception as exc:
+            failed.append((path.name, f"soup/ym: {str(exc)[:50]}"))
+            continue
+        # Sección objetivo (panel): su fallo SÍ es un mes perdido.
+        try:
             emp_tables.extend(parse_tables(soup, ym, emp.is_employment_section))
             fam_tables.extend(parse_tables(soup, ym, fam.is_family_section))
+        except Exception as exc:
+            failed.append((path.name, str(exc)[:60]))
+        # Diversity Visa: AISLADO -- un fallo aquí NO marca el mes como perdido ni cuenta
+        # contra el gate del panel (antes un IndexError de DV tiraba el mes entero).
+        try:
             rows = dv.extract_month_rows(soup, ym)
             if not rows.empty:
                 dv_frames.append(rows)
         except Exception as exc:
-            failed.append((path.name, str(exc)[:60]))
+            dv_failed.append((path.name, str(exc)[:60]))
 
     report_failures(failed, logger)
+    if dv_failed:
+        logger.warning(
+            "DV parser falló en %d meses (dataset no-predictivo; panel objetivo intacto): %s",
+            len(dv_failed),
+            [f[0] for f in dv_failed],
+        )
     emp.write_csvs(emp_tables)
     fam.write_csvs(fam_tables)
     dv.finalize(dv_frames)

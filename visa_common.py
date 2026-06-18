@@ -117,15 +117,28 @@ def report_failures(failed: list[tuple[str, str]], logger) -> None:
 # ---- cell parsing / annotation -----------------------------------------
 def string_to_datetime(date_str: str, bulletin_date: datetime) -> None | datetime:
     """Convert a published cell to a date. 'C' -> bulletin date (legacy
-    behavior kept for the wait-time column); 'U'/empty/unparseable -> None."""
-    if date_str == "C":
+    behavior kept for the wait-time column); 'U'/empty/unparseable -> None.
+
+    Whitespace/case-normalized to match ``classify_status`` (so ' C ' / 'c' don't parse
+    inconsistently). Guards the ``%y`` century pivot: a priority date is never much later
+    than its bulletin, so a 2-digit year that lands in the future (>bulletin+1) is a wrong
+    20xx pivot of a 19xx date -> corrected by -100 years (latent before 2027; harmless today).
+    """
+    if pd.isna(date_str):
+        return None
+    s = str(date_str).strip()
+    su = s.upper()
+    if su == "C":
         return bulletin_date
-    if date_str == "U" or pd.isna(date_str):
+    if su in ("U", ""):
         return None
     try:
-        return datetime.strptime(date_str, DATE_FMT)
+        d = datetime.strptime(s, DATE_FMT)
     except ValueError:
         return None
+    if d.year > bulletin_date.year + 1:
+        d = d.replace(year=d.year - 100)
+    return d
 
 
 def classify_status(date_str) -> str:

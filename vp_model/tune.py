@@ -105,7 +105,7 @@ def _val_mase(model_name: str, country: str, category: str, table: str, params: 
     actual = sel.slice_intersect(fc)
     a = actual.values().flatten()
     f = fc.slice_intersect(actual).values().flatten()
-    scale = metrics._seasonal_naive_mae(sel[:val_start])  # MAE del naïve estacional in-sample
+    scale = metrics.seasonal_naive_mae(sel[:val_start].values().flatten())  # naïve estacional in-sample
     return float(np.mean(np.abs(a - f)) / scale)
 
 

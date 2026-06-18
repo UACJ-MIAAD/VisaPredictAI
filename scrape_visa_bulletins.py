@@ -67,7 +67,7 @@ def classify_eb_category(raw) -> None | str:
     if s.startswith("other worker"):
         return "EB3_OW"
     # EB-4 subcategories
-    if "religious" in s:
+    if "religious" in s or "religiuos" in s:  # 'religiuos' = typo de la fuente (2004-05)
         return "EB4_RW"
     if "translator" in s:
         return "EB4_TRANS"
@@ -85,7 +85,7 @@ def classify_eb_category(raw) -> None | str:
     # EB-5 pre-2015 targeted-employment / pilot (TEA contains 'regional center')
     if "targeted employment" in s:
         return "EB5_TEA"
-    if "pilot program" in s:
+    if "pilot prog" in s:  # 'prog' (no 'program') tolera el typo 'pilot progams' (2009-04)
         return "EB5_PILOT"
     # EB-5 2015-2022 regional-center split ('non-regional' contains 'regional')
     if "non-regional center" in s:

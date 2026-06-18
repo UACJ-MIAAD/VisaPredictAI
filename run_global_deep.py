@@ -33,11 +33,11 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
 PILOT = ("mexico", "india", "china", "philippines", "all_chargeability")
-HOLDOUT = 24
-
-
-MAX_GAP = 3  # huecos <= 3 meses se interpolan; los más largos son un corte de serie (idéntico al pool local)
-BASE = pd.Timestamp("1975-01-01")  # epoca de days_since_base (t0)
+# Constantes re-declaradas porque este script corre en el venv ante_nf (pandas<3, sin vp_model).
+# DEBEN coincidir con vp_model.config.HOLDOUT / MAX_INTERPOLABLE_GAP y el BASE_EPOCH del panel.
+HOLDOUT = 24  # = vp_model.config.HOLDOUT
+MAX_GAP = 3  # = vp_model.config.MAX_INTERPOLABLE_GAP (huecos <=3 se interpolan; más largos cortan)
+BASE = pd.Timestamp("1975-01-01")  # = t0 de days_since_base (build_panel BASE_EPOCH)
 
 
 def encode_regime(g: pd.DataFrame) -> pd.Series:
@@ -98,6 +98,10 @@ def load_panel(table: str, block: str) -> pd.DataFrame:
     min_len = (60 if table == "FAD" else 36) + HOLDOUT + 6
     out = []
     for uid, g in df.groupby("unique_id"):
+        # exige un mínimo de meses F REALES (no solo largo C-encoded): una serie con <24 F
+        # no puede llenar el hold-out ni dar una escala naïve fiable (p. ej. china/EB5_TEA, 5 F).
+        if (g["status"] == "F").sum() < HOLDOUT:
+            continue
         s = regular_monthly(encode_regime(g[["ds", "status", "days_since_base"]]))
         if len(s) >= min_len:
             out.append(pd.DataFrame({"unique_id": uid, "ds": s.index, "y": s.to_numpy()}))

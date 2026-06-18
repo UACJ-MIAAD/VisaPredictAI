@@ -14,18 +14,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from vp_model.config import SEASONAL_PERIOD
+from vp_model.metrics import naive_scale_before
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
 CSV = REPORTS / "neuralforecast_forecasts.csv"
 NON_MODEL = {"index", "unique_id", "ds", "cutoff", "y"}
-
-
-def _naive_scale(train_vals: np.ndarray, m: int = SEASONAL_PERIOD) -> float:
-    """MAE del naïve estacional in-sample (denominador de MASE)."""
-    if len(train_vals) <= m:
-        return float(np.mean(np.abs(np.diff(train_vals)))) or 1.0
-    return float(np.mean(np.abs(train_vals[m:] - train_vals[:-m]))) or 1.0
 
 
 def evaluate(csv: Path = CSV) -> pd.DataFrame:
@@ -37,8 +30,9 @@ def evaluate(csv: Path = CSV) -> pd.DataFrame:
     rows = []
     for uid, g in fc.groupby("unique_id"):
         country, category = uid.split("/")
-        full = dataset.load_series(country, category, "FAD")  # escala naïve estacional del train
-        scale = _naive_scale(full.iloc[: -len(g)].astype("float64").to_numpy())
+        full = dataset.load_series(country, category, "FAD").astype("float64")  # escala del train
+        g = g.sort_values("ds")
+        scale = naive_scale_before(full, g["ds"].min())  # por fecha, fuente única
         y = g["y"].to_numpy()
         for m in models:
             f = g[m].to_numpy()
@@ -89,17 +83,19 @@ def eval_global_deep(table: str = "FAD") -> pd.DataFrame:
                 full = dataset.load_series(country, category, table).astype("float64")
             except KeyError:
                 continue
-            # escala con el tramo ANTERIOR al hold-out, alineado por FECHA (no por posición):
-            # el panel global reindexa/interpola, así que el corte posicional `full[:-len(g)]`
-            # se desalinea en series con huecos C/U (bloque empleo). El corte por fecha es robusto.
             g = g.sort_values("ds")
-            train_vals = full[full.index < g["ds"].min()].to_numpy()
-            if len(train_vals) == 0:
+            if (full.index < g["ds"].min()).sum() == 0:
+                continue  # sin historia previa al hold-out: serie no evaluable
+            scale = naive_scale_before(full, g["ds"].min())  # escala única, por fecha
+            # M1: evaluar SOLO meses F reales. El CSV global trae el nivel C-encoded para dar
+            # continuidad al entrenamiento; en empleo ~23% del hold-out son C interpolado, que
+            # es función determinista de t y deprimiría el MASE. ``full`` (F-only) marca los F.
+            fmask = g["ds"].isin(full.index).to_numpy()
+            if not fmask.any():
                 continue
-            scale = _naive_scale(train_vals)
-            y = g["y"].to_numpy()
+            y = g["y"].to_numpy()[fmask]
             for m in models:
-                f = g[m].to_numpy()
+                f = g[m].to_numpy()[fmask]
                 if np.isnan(f).all():
                     continue
                 mae = float(np.nanmean(np.abs(y - f)))
@@ -135,7 +131,7 @@ def demo() -> None:
     assert not df.empty and {"PatchTST", "NHITS"} <= set(df["model"])
     s = summary(df)
     assert (s["hold_mase"] > 0).all()
-    print(f"OK — neuralforecast global, {SEASONAL_PERIOD}-naïve scale; ranking hold-out:")
+    print("OK — neuralforecast global, escala naïve estacional; ranking hold-out:")
     print(s.to_string())
 
 

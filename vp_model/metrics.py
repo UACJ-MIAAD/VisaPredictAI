@@ -16,10 +16,34 @@ Todas se evalúan SOLO sobre observaciones con fecha (estado F).
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 from darts import TimeSeries
 from darts.metrics import mae, mase, rmse, smape
 
 from vp_model.config import SEASONAL_PERIOD as SEASONAL_M
+
+
+def seasonal_naive_mae(values: np.ndarray, m: int = SEASONAL_M) -> float:
+    """MAE del naïve estacional in-sample = denominador del MASE/MSIS. ÚNICA fuente.
+
+    Robusta a NaN y a escala cero: si el resultado no es finito o no es positivo
+    (p. ej. serie de 1 punto, o todos los valores iguales) devuelve 1.0 en vez de NaN/0,
+    evitando MASE NaN o división por cero silenciosos.
+    """
+    v = np.asarray(values, dtype="float64")
+    diffs = np.abs(v[m:] - v[:-m]) if len(v) > m else np.abs(np.diff(v))
+    s = float(np.mean(diffs)) if len(diffs) else 0.0
+    return s if np.isfinite(s) and s > 0 else 1.0
+
+
+def naive_scale_before(full: pd.Series, cutoff, m: int = SEASONAL_M) -> float:
+    """Escala naïve estacional sobre el tramo ANTERIOR a ``cutoff``, alineado por FECHA.
+
+    El corte por fecha (no posicional ``full[:-len(g)]``) es robusto a series con huecos
+    C/U: en el bloque empleo el corte posicional se desalinea. Leakage-free: solo pasado.
+    """
+    train = full[full.index < cutoff].astype("float64").to_numpy()
+    return seasonal_naive_mae(train, m)
 
 
 def compute(actual: TimeSeries, pred: TimeSeries, insample: TimeSeries) -> dict[str, float]:
@@ -51,11 +75,8 @@ def pi_coverage(actual: TimeSeries, lower: TimeSeries, upper: TimeSeries) -> flo
 
 
 def _seasonal_naive_mae(insample: TimeSeries, m: int = SEASONAL_M) -> float:
-    """Escala del MASE/MSIS: MAE del naïve estacional dentro de la muestra."""
-    v = insample.values().flatten()
-    if len(v) <= m:
-        return float(np.mean(np.abs(np.diff(v)))) or 1.0
-    return float(np.mean(np.abs(v[m:] - v[:-m]))) or 1.0
+    """Escala del MASE/MSIS sobre una ``TimeSeries`` de darts (delega en la fuente única)."""
+    return seasonal_naive_mae(insample.values().flatten(), m)
 
 
 def interval_score(actual: TimeSeries, lower: TimeSeries, upper: TimeSeries, alpha: float = 0.05) -> float:

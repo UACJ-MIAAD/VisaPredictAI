@@ -20,6 +20,7 @@ _MODEL_TESTS = [
     "test_features.py",
     "test_missingness.py",
     "test_feature_select.py",
+    "test_ensemble.py",
 ]
 
 # `statsmodels` es del extra `model`; su ausencia marca el job base sin la capa de modelado.

@@ -48,10 +48,10 @@ MODEL_NAMES = (
     "tft",  # Temporal Fusion Transformer (panel/covariables; transformer defendible)
     "chronos",  # foundation model zero-shot (Amazon Chronos-Bolt): transferencia, sin entrenar
 )
-# Modelos zero-shot/preentrenados: no se entrenan en la serie (transferencia).
-ZERO_SHOT = frozenset({"chronos"})
-CHRONOS_MODEL = "amazon/chronos-bolt-small"
-PROBABILISTIC = frozenset({"deepar", "arima"})  # muestreo probabilístico nativo
+CHRONOS_MODEL = "amazon/chronos-bolt-small"  # foundation zero-shot (ruteado por su clase wrapper)
+# Modelos con muestreo probabilístico nativo (CRPS/PI distribucional). 'sarima' se construye
+# como ARIMA estacional, así que también lo es en runtime (estaba ausente del set por omisión).
+PROBABILISTIC = frozenset({"deepar", "arima", "sarima"})
 # Modelos torch que operan sobre magnitudes grandes -> escalar (leakage-free).
 NEEDS_SCALING = frozenset({"lstm", "deepar", "dlinear", "nlinear", "nbeats", "nhits", "tide", "tft"})
 # Modelos baratos que se reentrenan en CADA paso del walk-forward (ventana expansible).

@@ -26,6 +26,7 @@ from vp_model.config import (
     MIN_TRAIN,
     NEEDS_SCALING,
     NN_RETRAIN,
+    PROBABILISTIC,
     RETRAIN_EACH_STEP,
 )
 
@@ -137,6 +138,11 @@ def crps_holdout(model_name: str, country: str, category: str, table: str, num_s
     COMPLETA. Solo aplica a modelos probabilísticos (ARIMA/SARIMA/DeepAR): se corre un
     walk-forward de 1 paso sobre el hold-out con ``num_samples`` y se promedia el CRPS.
     """
+    if model_name not in PROBABILISTIC:
+        # un modelo determinista devolvería un "CRPS" = MAE en silencio (sin muestreo real).
+        raise ValueError(
+            f"crps_holdout solo aplica a modelos distribucionales {sorted(PROBABILISTIC)}, no '{model_name}'"
+        )
     ts = models.to_timeseries(dataset.load_series(country, category, table))
     split = ts.time_index[-HOLDOUT]
     model = models.build_model(model_name)

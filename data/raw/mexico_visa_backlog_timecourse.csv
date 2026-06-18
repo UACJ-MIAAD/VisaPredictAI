@@ -3794,6 +3794,7 @@ Workers"
 EB4,2009-04-01,2009-04-01 00:00:00,final_action,C,C,0.0,4th
 EB4_RW,,2009-04-01 00:00:00,final_action,U,U,,Certain Religious Workers
 EB5,2009-04-01,2009-04-01 00:00:00,final_action,C,C,0.0,5th
+EB5_PILOT,,2009-04-01 00:00:00,final_action,U,U,,5th Pilot Progams
 EB5_TEA,2009-04-01,2009-04-01 00:00:00,final_action,C,C,0.0,Targeted Employment Areas
 EB1,2009-02-01,2009-02-01 00:00:00,final_action,C,C,0.0,1st
 EB2,2009-02-01,2009-02-01 00:00:00,final_action,C,C,0.0,2nd
@@ -4245,6 +4246,8 @@ EB2,2004-05-01,2004-05-01 00:00:00,final_action,C,C,0.0,2nd
 EB3,2004-05-01,2004-05-01 00:00:00,final_action,C,C,0.0,3rd
 EB3_OW,2004-05-01,2004-05-01 00:00:00,final_action,C,C,0.0,Other Workers
 EB4,2004-05-01,2004-05-01 00:00:00,final_action,C,C,0.0,4th
+EB4_RW,2004-05-01,2004-05-01 00:00:00,final_action,C,C,0.0,"Certain Religiuos
+ Workers"
 EB5,2004-05-01,2004-05-01 00:00:00,final_action,C,C,0.0,5th
 EB5_TEA,2004-05-01,2004-05-01 00:00:00,final_action,C,C,0.0,Targeted Employment Areas/Regional Centers
 EB1,2004-04-01,2004-04-01 00:00:00,final_action,C,C,0.0,1st

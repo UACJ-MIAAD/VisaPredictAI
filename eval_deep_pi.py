@@ -17,16 +17,10 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from vp_model.config import SEASONAL_PERIOD
+from vp_model.metrics import naive_scale_before
 
 # nivel L -> (cuantil_bajo, cuantil_alto)
 QPAIRS = {50: (0.25, 0.75), 80: (0.10, 0.90), 90: (0.05, 0.95), 95: (0.025, 0.975)}
-
-
-def _naive_scale(v: np.ndarray, m: int = SEASONAL_PERIOD) -> float:
-    if len(v) <= m:
-        return float(np.mean(np.abs(np.diff(v)))) or 1.0
-    return float(np.mean(np.abs(v[m:] - v[:-m]))) or 1.0
 
 
 def _pinball(y: np.ndarray, q: np.ndarray, tau: float) -> float:
@@ -56,10 +50,9 @@ def main() -> None:
         g = g.sort_values("ds")
         full = dataset.load_series(country, category, args.table).astype("float64")
         # escala y nivel real alineados por FECHA (robusto a huecos C/U del bloque empleo).
-        train_vals = full[full.index < g["ds"].min()].to_numpy()
-        if len(train_vals) == 0:
+        if (full.index < g["ds"].min()).sum() == 0:
             continue
-        scale = _naive_scale(train_vals)
+        scale = naive_scale_before(full, g["ds"].min())
         # OJO: en el pipeline diferenciado, la columna `y` del CSV es Δy (objetivo de
         # entrenamiento), no el nivel. El nivel real del hold-out = la serie alineada por fecha.
         y = full.reindex(g["ds"]).to_numpy()

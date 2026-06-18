@@ -91,7 +91,7 @@ STRONG_SET = ("theta", "ets", "sarima")
 
 def curated_combination(table: str = "FAD", subset: tuple[str, ...] = STRONG_SET, agg: str = "median") -> Strategy:
     """Combinación de un subconjunto curado de modelos fuertes (mediana por defecto)."""
-    from vp_model.eval_neuralforecast import _naive_scale
+    from vp_model.metrics import naive_scale_before
 
     fc = pd.read_csv(REPORTS / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
     sub = fc[fc.model.isin(subset)]
@@ -102,8 +102,8 @@ def curated_combination(table: str = "FAD", subset: tuple[str, ...] = STRONG_SET
     )
     maes, mases = [], []
     for (country, category), g in comb.groupby(["country", "category"]):
-        full = dataset.load_series(country, category, table)
-        scale = _naive_scale(full.iloc[: -len(g)].astype("float64").to_numpy())
+        full = dataset.load_series(country, category, table).astype("float64")
+        scale = naive_scale_before(full, g["date"].min())  # por fecha, fuente única
         mae = (g.actual - g.pred).abs().mean()
         maes.append(mae)
         mases.append(mae / scale)
@@ -123,7 +123,7 @@ def combinations(table: str = "FAD") -> list[Strategy]:
     serie escalando por el naïve estacional in-sample (leakage-free: la escala usa solo el
     tramo previo al hold-out). Devuelve [] si no existe el CSV (aún no persistido).
     """
-    from vp_model.eval_neuralforecast import _naive_scale
+    from vp_model.metrics import naive_scale_before
 
     path = REPORTS / f"holdout_forecasts_{table}.csv"
     if not path.exists():
@@ -138,8 +138,8 @@ def combinations(table: str = "FAD") -> list[Strategy]:
         )
         maes, mases = [], []
         for (country, category), g in comb.groupby(["country", "category"]):
-            full = dataset.load_series(country, category, table)
-            scale = _naive_scale(full.iloc[: -len(g)].astype("float64").to_numpy())
+            full = dataset.load_series(country, category, table).astype("float64")
+            scale = naive_scale_before(full, g["date"].min())  # por fecha, fuente única
             mae = (g.actual - g.pred).abs().mean()
             maes.append(mae)
             mases.append(mae / scale)

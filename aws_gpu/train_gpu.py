@@ -78,6 +78,8 @@ def load_panel(panel_path: str, table: str, block: str) -> pd.DataFrame:
     min_len = (60 if table == "FAD" else 36) + HOLDOUT + 6
     out = []
     for uid, g in df.groupby("unique_id"):
+        if (g["status"] == "F").sum() < HOLDOUT:  # mínimo de meses F reales (= run_global_deep)
+            continue
         s = regular_monthly(encode_regime(g[["ds", "status", "days_since_base"]]))
         if len(s) >= min_len:
             out.append(pd.DataFrame({"unique_id": uid, "ds": s.index, "y": s.to_numpy()}))
@@ -105,7 +107,9 @@ def _auto_config(trial):
     return {
         "input_size": trial.suggest_categorical("input_size", [18, 24, 36]),
         "learning_rate": trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True),
-        "max_steps": trial.suggest_categorical("max_steps", [500, 1000, 2000]),
+        "max_steps": trial.suggest_categorical(
+            "max_steps", [500, 1000]
+        ),  # = run_global_deep (confirmación apples-to-apples)
         "scaler_type": trial.suggest_categorical("scaler_type", ["standard", "robust"]),
         "val_check_steps": 50,
     }
