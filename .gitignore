@@ -5,6 +5,10 @@ __pycache__/
 
 # Generated figures: regenerate with `make figures` (not versioned -- avoids binary git bloat)
 figures/
+# ...pero las figuras del proyecto LaTeX SÍ se versionan: Overleaf las compila desde GitHub.
+!reports/latex/Figures/
+!reports/latex/Figures/**
+reports/latex/Figures/.DS_Store
 
 # Tooling caches / coverage artifacts
 .coverage
@@ -30,3 +34,15 @@ data/processed/*.parquet
 
 # Raw HTML snapshots: master copy lives in S3 (cold backup), not git.
 data/snapshots/
+
+# Modeling artifacts — regenerables con `make compare` / `make report` / `make eda`
+reports/model_comparison.csv
+reports/results_table.tex
+reports/experiment_runs.jsonl
+reports/figures/eda_*.png
+reports/figures/results_*.png
+reports/model_comparison_*.csv
+ante_nf/
+
+# Efecto secundario del logger de Lightning (modelos torch de darts) — regenerable
+lightning_logs/
