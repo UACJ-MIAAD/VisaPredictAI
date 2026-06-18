@@ -26,6 +26,7 @@ def main() -> None:
     ap.add_argument("--prefix", required=True, help="prefijo de la variante, p.ej. 'auto_s' o 'dff_s'")
     ap.add_argument("--model", required=True, help="columna del modelo, p.ej. 'AutoBiTCN' o 'BiTCN'")
     ap.add_argument("--block", default="family")
+    ap.add_argument("--mlflow", action="store_true", help="loguear el agregado multi-semilla a tracking")
     args = ap.parse_args()
 
     df = eval_global_deep(args.table)
@@ -52,6 +53,32 @@ def main() -> None:
     print(f"  desv.   : {sd:.4f}")
     print(f"  IC 95%  : [{lo:.4f}, {hi:.4f}]  (t, n={n})")
     print(f"  min/max : {vals.min():.4f} / {vals.max():.4f}")
+
+    if args.mlflow:
+        import tracking
+
+        tracking.log_run(
+            f"deep_global_{args.table}",
+            f"{args.model}/{args.prefix}/{args.table}/{args.block}",
+            params={
+                "model": args.model,
+                "variant": args.prefix,
+                "table": args.table,
+                "block": args.block,
+                "n_seeds": n,
+                "layer": "deep_global",
+            },
+            metrics={
+                "mase_mean": mean,
+                "mase_std": sd,
+                "mase_ci_lo": lo,
+                "mase_ci_hi": hi,
+                "mase_min": float(vals.min()),
+                "mase_max": float(vals.max()),
+            },
+            tags={"layer": "deep_global"},
+        )
+        print("  -> logueado a MLflow (deep_global)")
 
 
 if __name__ == "__main__":

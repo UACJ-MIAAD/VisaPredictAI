@@ -84,3 +84,4 @@ mlartifacts/
 # Modelos entrenados -> versionados con DVC, no git
 models/
 /models
+campaign.log
