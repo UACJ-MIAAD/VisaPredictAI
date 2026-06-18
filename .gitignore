@@ -46,3 +46,10 @@ ante_nf/
 
 # Efecto secundario del logger de Lightning (modelos torch de darts) — regenerable
 lightning_logs/
+
+# Artefactos de build LaTeX (Overleaf no los versiona; parses locales sí los generan)
+reports/latex/*.aux
+reports/latex/*.log
+reports/latex/*.out
+reports/latex/*.toc
+reports/latex/*.synctex.gz
