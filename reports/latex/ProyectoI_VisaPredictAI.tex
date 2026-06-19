@@ -105,12 +105,12 @@ prioridad publicadas mensualmente en el \textit{Visa Bulletin} del Departamento 
 de Estados Unidos, formuladas como un panel multiserie indexado por país o área de
 cargabilidad, categoría migratoria y tipo de tabla (\textit{Final Action Dates} y
 \textit{Dates for Filing}). Siguiendo la metodología CRISP-DM, se construyó una base de
-datos histórica (diciembre de 2001 a 2026; 194 series, 27\,289 observaciones) y se comparó,
+datos histórica (diciembre de 2001 a 2026; 194 series, 27{,}289 observaciones) y se comparó,
 mediante validación temporal \textit{walk-forward} sin fuga de información sobre un conjunto
 de prueba reservado de 24 meses, un repertorio de 21 modelos —desde líneas base estadísticas
 (ARIMA, SARIMA, ETS amortiguado, Theta) hasta árboles de potenciación del gradiente y redes
-profundas—, complementado con redes profundas entrenadas de forma \textbf{global} sobre el
-panel completo. El sistema se entrena exclusivamente sobre las observaciones con fecha
+profundas—. A estos se sumaron \textbf{versiones globales} de las redes, entrenadas sobre
+todo el panel a la vez. El sistema se entrena exclusivamente sobre las observaciones con fecha
 específica y cuantifica la incertidumbre con intervalos de predicción al 95\,\% de cobertura
 empírica verificada. Los resultados muestran que el desempeño \textbf{depende del régimen}:
 el aprendizaje profundo global supera con holgura a los modelos parsimoniosos en las series
@@ -239,7 +239,7 @@ calidad. El conjunto resultante comprende \textbf{194 series} y \textbf{27{,}289
 filas} en el rango \textbf{dic-2001 a 2026}, con una cobertura a nivel de boletín
 del 98.3\,\% (291 de 296 meses; los cinco ausentes no existen en la fuente oficial).
 Los principales retos enfrentados fueron: la heterogeneidad del formato HTML a lo
-largo de dos décadas; la distinción entre "sin dato" y "Unavailable" (resuelta con
+largo de dos décadas; la distinción entre ``sin dato'' y ``Unavailable'' (resuelta con
 el centinela \texttt{UNK} en lugar de \texttt{NA}, que colisiona con la coerción de
 \texttt{pandas}); y la naturaleza dispersa de las series, pues los meses en régimen
 $C$ o $U$ no aportan fecha y se manifiestan como huecos.
@@ -290,7 +290,7 @@ la cola izquierda corresponde a las retrogresiones.}
 \label{fig:eda_steps}
 \end{figure}
 
-La descomposición STL de una serie representativa (Figura~\ref{fig:eda_stl})
+La descomposición STL (\textit{Seasonal-Trend decomposition using Loess}) de una serie representativa (Figura~\ref{fig:eda_stl})
 confirma una tendencia creciente dominante y una componente estacional pequeña,
 con residuos volátiles concentrados en el periodo temprano. Las pruebas de
 estacionariedad lo formalizan: para la serie México/F3/FAD, la prueba de
@@ -381,37 +381,37 @@ reproducible.
 \begin{table}[H]
 \centering
 \footnotesize
-\caption[Características estructurales de las series]{Estructura temporal de las 25 series FAD de preferencia familiar. $F_T$/$F_S$: fuerza de tendencia y estacionalidad; $H$: entropía espectral; $d$: orden de diferenciación.}
+\caption[Características estructurales de las series]{Estructura temporal de las 25 series FAD de preferencia familiar. $F_T$/$F_S$: fuerza de tendencia y estacionalidad; $H$: entropía espectral; $d$: orden de diferenciación. Códigos de área: CN China, IN India, MX México, PH Filipinas, RoW \textit{Resto del mundo} (\textit{All Chargeability}).}
 \label{tab:features_estructura}
 \begin{tabular}{llcccccc}
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Área} & \textbf{Cat.} & $\mathbf{F_T}$ & $\mathbf{F_S}$ & $\mathbf{H}$ & \textbf{ACF1} & $\mathbf{ACF1_\Delta}$ & $\mathbf{d}$ \\ \midrule
-CN & F1 & 0.993 & 0.001 & 0.292 & 0.989 & +0.276 & 1 \\
-CN & F2A & 0.991 & 0.000 & 0.338 & 0.987 & +0.158 & 1 \\
-CN & F2B & 0.998 & 0.029 & 0.299 & 0.989 & +0.269 & 1 \\
-CN & F3 & 0.998 & 0.000 & 0.344 & 0.987 & +0.114 & 1 \\
-CN & F4 & 0.993 & 0.024 & 0.351 & 0.984 & -0.216 & 1 \\
-IN & F1 & 0.990 & 0.000 & 0.301 & 0.990 & +0.208 & 1 \\
-IN & F2A & 0.994 & 0.007 & 0.319 & 0.989 & +0.160 & 1 \\
-IN & F2B & 0.998 & 0.030 & 0.271 & 0.992 & +0.251 & 1 \\
-IN & F3 & 0.999 & 0.000 & 0.332 & 0.989 & +0.118 & 1 \\
-IN & F4 & 0.993 & 0.000 & 0.335 & 0.988 & -0.060 & 1 \\
-MX & F1 & 0.928 & 0.227 & 0.407 & 0.956 & +0.045 & 2 \\
-MX & F2A & 0.995 & 0.066 & 0.305 & 0.990 & +0.142 & 1 \\
-MX & F2B & 0.997 & 0.074 & 0.356 & 0.985 & +0.104 & 2 \\
-MX & F3 & 0.754 & 0.000 & 0.445 & 0.918 & -0.142 & 1 \\
-MX & F4 & 0.958 & 0.136 & 0.411 & 0.972 & -0.019 & 1 \\
-PH & F1 & 0.990 & 0.000 & 0.251 & 0.991 & +0.117 & 1 \\
-PH & F2A & 0.994 & 0.008 & 0.319 & 0.989 & +0.159 & 1 \\
-PH & F2B & 0.995 & 0.024 & 0.276 & 0.990 & +0.158 & 1 \\
-PH & F3 & 0.967 & 0.074 & 0.330 & 0.981 & +0.075 & 1 \\
-PH & F4 & 0.997 & 0.000 & 0.322 & 0.989 & +0.229 & 1 \\
-RoW & F1 & 0.991 & 0.011 & 0.296 & 0.989 & +0.202 & 1 \\
-RoW & F2A & 0.994 & 0.007 & 0.319 & 0.989 & +0.160 & 1 \\
-RoW & F2B & 0.999 & 0.033 & 0.271 & 0.992 & +0.276 & 1 \\
-RoW & F3 & 0.999 & 0.000 & 0.331 & 0.989 & +0.120 & 1 \\
-RoW & F4 & 0.997 & 0.170 & 0.327 & 0.988 & -0.232 & 1 \\
+CN & F1 & 0.993 & 0.001 & 0.292 & 0.989 & $+0.276$ & 1 \\
+CN & F2A & 0.991 & 0.000 & 0.338 & 0.987 & $+0.158$ & 1 \\
+CN & F2B & 0.998 & 0.029 & 0.299 & 0.989 & $+0.269$ & 1 \\
+CN & F3 & 0.998 & 0.000 & 0.344 & 0.987 & $+0.114$ & 1 \\
+CN & F4 & 0.993 & 0.024 & 0.351 & 0.984 & $-0.216$ & 1 \\
+IN & F1 & 0.990 & 0.000 & 0.301 & 0.990 & $+0.208$ & 1 \\
+IN & F2A & 0.994 & 0.007 & 0.319 & 0.989 & $+0.160$ & 1 \\
+IN & F2B & 0.998 & 0.030 & 0.271 & 0.992 & $+0.251$ & 1 \\
+IN & F3 & 0.999 & 0.000 & 0.332 & 0.989 & $+0.118$ & 1 \\
+IN & F4 & 0.993 & 0.000 & 0.335 & 0.988 & $-0.060$ & 1 \\
+MX & F1 & 0.928 & 0.227 & 0.407 & 0.956 & $+0.045$ & 2 \\
+MX & F2A & 0.995 & 0.066 & 0.305 & 0.990 & $+0.142$ & 1 \\
+MX & F2B & 0.997 & 0.074 & 0.356 & 0.985 & $+0.104$ & 2 \\
+MX & F3 & 0.754 & 0.000 & 0.445 & 0.918 & $-0.142$ & 1 \\
+MX & F4 & 0.958 & 0.136 & 0.411 & 0.972 & $-0.019$ & 1 \\
+PH & F1 & 0.990 & 0.000 & 0.251 & 0.991 & $+0.117$ & 1 \\
+PH & F2A & 0.994 & 0.008 & 0.319 & 0.989 & $+0.159$ & 1 \\
+PH & F2B & 0.995 & 0.024 & 0.276 & 0.990 & $+0.158$ & 1 \\
+PH & F3 & 0.967 & 0.074 & 0.330 & 0.981 & $+0.075$ & 1 \\
+PH & F4 & 0.997 & 0.000 & 0.322 & 0.989 & $+0.229$ & 1 \\
+RoW & F1 & 0.991 & 0.011 & 0.296 & 0.989 & $+0.202$ & 1 \\
+RoW & F2A & 0.994 & 0.007 & 0.319 & 0.989 & $+0.160$ & 1 \\
+RoW & F2B & 0.999 & 0.033 & 0.271 & 0.992 & $+0.276$ & 1 \\
+RoW & F3 & 0.999 & 0.000 & 0.331 & 0.989 & $+0.120$ & 1 \\
+RoW & F4 & 0.997 & 0.170 & 0.327 & 0.988 & $-0.232$ & 1 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -425,31 +425,31 @@ RoW & F4 & 0.997 & 0.170 & 0.327 & 0.988 & -0.232 & 1 \\
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Área} & \textbf{Cat.} & \textbf{Atípicos} & \textbf{LB}\,$p$ & \textbf{Asim.} & \textbf{Curt.} \\ \midrule
-CN & F1 & 68 & 0.000 & -2.85 & 55.2 \\
-CN & F2A & 66 & 0.000 & -3.64 & 30.9 \\
-CN & F2B & 32 & 0.000 & -6.74 & 95.8 \\
-CN & F3 & 40 & 0.000 & -5.76 & 84.4 \\
-CN & F4 & 42 & 0.000 & -2.28 & 55.0 \\
-IN & F1 & 70 & 0.000 & -5.15 & 60.2 \\
-IN & F2A & 68 & 0.000 & -3.88 & 35.7 \\
-IN & F2B & 34 & 0.000 & -6.68 & 100.8 \\
-IN & F3 & 44 & 0.000 & -6.05 & 95.1 \\
-IN & F4 & 45 & 0.000 & -3.10 & 48.8 \\
-MX & F1 & 76 & 0.000 & -2.63 & 100.1 \\
-MX & F2A & 80 & 0.000 & -5.78 & 76.8 \\
-MX & F2B & 75 & 0.000 & +0.66 & 21.8 \\
-MX & F3 & 78 & 0.000 & -4.81 & 79.4 \\
-MX & F4 & 65 & 0.000 & -3.39 & 78.9 \\
-PH & F1 & 73 & 0.000 & -6.24 & 57.2 \\
-PH & F2A & 67 & 0.000 & -3.88 & 35.6 \\
-PH & F2B & 68 & 0.000 & -4.04 & 66.4 \\
-PH & F3 & 78 & 0.000 & +0.88 & 48.2 \\
-PH & F4 & 62 & 0.000 & -7.65 & 107.1 \\
-RoW & F1 & 61 & 0.000 & -4.00 & 50.9 \\
-RoW & F2A & 72 & 0.000 & -3.88 & 35.6 \\
-RoW & F2B & 33 & 0.000 & -7.03 & 106.9 \\
-RoW & F3 & 44 & 0.000 & -6.05 & 94.9 \\
-RoW & F4 & 51 & 0.000 & -2.60 & 74.7 \\
+CN & F1 & 68 & 0.000 & $-2.85$ & 55.2 \\
+CN & F2A & 66 & 0.000 & $-3.64$ & 30.9 \\
+CN & F2B & 32 & 0.000 & $-6.74$ & 95.8 \\
+CN & F3 & 40 & 0.000 & $-5.76$ & 84.4 \\
+CN & F4 & 42 & 0.000 & $-2.28$ & 55.0 \\
+IN & F1 & 70 & 0.000 & $-5.15$ & 60.2 \\
+IN & F2A & 68 & 0.000 & $-3.88$ & 35.7 \\
+IN & F2B & 34 & 0.000 & $-6.68$ & 100.8 \\
+IN & F3 & 44 & 0.000 & $-6.05$ & 95.1 \\
+IN & F4 & 45 & 0.000 & $-3.10$ & 48.8 \\
+MX & F1 & 76 & 0.000 & $-2.63$ & 100.1 \\
+MX & F2A & 80 & 0.000 & $-5.78$ & 76.8 \\
+MX & F2B & 75 & 0.000 & $+0.66$ & 21.8 \\
+MX & F3 & 78 & 0.000 & $-4.81$ & 79.4 \\
+MX & F4 & 65 & 0.000 & $-3.39$ & 78.9 \\
+PH & F1 & 73 & 0.000 & $-6.24$ & 57.2 \\
+PH & F2A & 67 & 0.000 & $-3.88$ & 35.6 \\
+PH & F2B & 68 & 0.000 & $-4.04$ & 66.4 \\
+PH & F3 & 78 & 0.000 & $+0.88$ & 48.2 \\
+PH & F4 & 62 & 0.000 & $-7.65$ & 107.1 \\
+RoW & F1 & 61 & 0.000 & $-4.00$ & 50.9 \\
+RoW & F2A & 72 & 0.000 & $-3.88$ & 35.6 \\
+RoW & F2B & 33 & 0.000 & $-7.03$ & 106.9 \\
+RoW & F3 & 44 & 0.000 & $-6.05$ & 94.9 \\
+RoW & F4 & 51 & 0.000 & $-2.60$ & 74.7 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -602,7 +602,7 @@ faltantes (todo-o-nada por corrida), para no imponer una rampa artificial sobre 
 sin información.
 \item \textbf{Estandarización.} Los modelos de redes neuronales requieren entradas
 escaladas. El estandarizador $z = (x-\mu)/\sigma$ ajusta $\mu$ y $\sigma$
-\textit{solo} sobre la ventana inicial de entrenamiento; aplicarlos sobre el
+\textit{solo} sobre la ventana inicial de entrenamiento; calcularlos sobre el
 conjunto completo filtraría el futuro al pasado.
 \item \textbf{Regresores de calendario.} Para los modelos tabulares se construyen
 variables del mes y de la posición dentro del año fiscal estadounidense (que inicia
@@ -700,7 +700,7 @@ conjunto de prueba, para impedir la fuga de información.
 \subsection{1.4.3 Optimización de parámetros y pruebas avanzadas}
 
 Los árboles de potenciación de gradiente se optimizan con \textit{Optuna} \cita{19}
-(muestreo TPE multivariante, semilla fija) bajo un protocolo \textit{anidado y libre de
+(muestreo TPE, \textit{Tree-structured Parzen Estimator}, multivariante, semilla fija) bajo un protocolo \textit{anidado y libre de
 fuga}: el objetivo minimiza el error de una cola de validación interna recortada de la
 región de entrenamiento (un ajuste seguido de validación rodante a un paso), de modo que
 el conjunto reservado de 24 meses \textit{nunca} interviene en la búsqueda. Se ajusta un
@@ -934,9 +934,9 @@ por lo que no es una referencia comparable.}
 potenciación de gradiente se optimizaron con \textit{Optuna} \cita{19} bajo el protocolo
 anidado de §1.4.3. La mejora se confirma \textit{sobre el conjunto reservado} —no solo
 sobre la validación interna—, por lo que no es un artefacto de sobreajuste a la métrica
-de selección: en FAD, LightGBM pasa de MASE de hold-out $0.195$ a $0.138$ ($-29\,\%$),
-XGBoost de $0.208$ a $0.152$ ($-27\,\%$) y CatBoost de $0.164$ a $0.137$ ($-17\,\%$); en
-DFF la ganancia es de $4$ a $15\,\%$. Los seis casos mejoran y se aceptan. Ahora bien,
+de selección: en FAD, LightGBM pasa de MASE de hold-out $0.195$ a $0.138$ ($-29$\,\%),
+XGBoost de $0.208$ a $0.152$ ($-27$\,\%) y CatBoost de $0.164$ a $0.137$ ($-17$\,\%); en
+DFF la ganancia es de $4$ a $15$\,\%. Los seis casos mejoran y se aceptan. Ahora bien,
 la optimización \textit{cierra la brecha pero no cambia el veredicto}: los árboles
 tuneados (FAD $0.137$--$0.152$) siguen por encima de los parsimoniosos ETS y Theta
 ($0.118$), y en DFF ($0.109$) por encima de SARIMA. La capacidad adicional bien regulada
@@ -945,15 +945,15 @@ acerca al modelo complejo, no lo hace superar al simple.
 \paragraph{Combinación de modelos y distribución predictiva.} Se evaluaron, también sin
 fuga, estrategias de conjunto sobre los pronósticos del hold-out \cita{20}. La
 \textit{selección por serie} (elegir para cada serie el modelo de menor error de
-selección) \textit{empeora} respecto al mejor modelo global ($+9.5\,\%$ en FAD,
-$+10.5\,\%$ en DFF): el criterio de selección no generaliza al hold-out con series tan
+selección) \textit{empeora} respecto al mejor modelo global ($+9.5$\,\% en FAD,
+$+10.5$\,\% en DFF): el criterio de selección no generaliza al hold-out con series tan
 cortas. La media o mediana de un conjunto amplio de siete modelos también queda por
 detrás, arrastrada por los miembros débiles. Solo una \textbf{combinación curada de los
 modelos fuertes} aporta valor: la mediana de Theta, ETS y SARIMA alcanza MASE $=0.1115$
 en FAD, superando por $\sim$5\,\% al mejor modelo parsimonioso individual ($0.117$); en
 DFF, en cambio, ninguna combinación de modelos por serie mejora a sus miembros. La cota de un selector perfecto (oráculo)
 es apenas $0.112$ en FAD, lo que confirma que hay poco margen por ganar. En cuanto a la
-\textit{distribución predictiva completa}, medida con el CRPS \cita{21} sobre los
+\textit{distribución predictiva completa}, medida con el CRPS (\textit{Continuous Ranked Probability Score}) \cita{21} sobre los
 modelos con muestreo nativo, los clásicos producen distribuciones mucho más fieles que
 la red neuronal: SARIMA ($48.0$ días) $\approx$ ARIMA ($49.1$) $\ll$ DeepAR ($174.5$).
 
@@ -972,8 +972,10 @@ un conjunto de arquitecturas recientes
 como sobre la primera diferencia (con reintegración a un paso). El cambio es drástico:
 el mismo tipo de red que entrenada localmente quedaba muy por debajo del naïve pasa, en
 versión global, a ser \textbf{plenamente competitiva} —PatchTST sobre nivel alcanza
-MASE $=0.121$ y BiTCN sobre diferencia $0.124$ (Tabla~\ref{tab:global_deep})—, ya mejor
-que CatBoost y SARIMA. Dos refinamientos adicionales cierran la brecha con los
+MASE $=0.121$ y BiTCN sobre diferencia $0.123$ (Tabla~\ref{tab:global_deep})—, ya mejor
+que CatBoost y SARIMA.
+
+Dos refinamientos adicionales cierran la brecha con los
 parsimoniosos y la cruzan: (a) \textit{agrupar} en el entrenamiento las series familiares
 y de empleo con \textbf{normalización por serie} —para que convivan sus distintas
 escalas— da a cada serie más señal y baja BiTCN a $0.116$; y (b) la \textbf{optimización
@@ -995,12 +997,14 @@ serie y con sus hiperparámetros ajustados sin fuga. Sin esos cuatro ingrediente
 mismas redes caen por debajo del naïve. Una excepción notable es DeepAR: su parametrización
 probabilística sobre incrementos no se estabiliza ni con normalización por serie y queda
 muy por detrás de las redes deterministas; el mejor modelo profundo aquí no es el más
-conocido sino BiTCN; la Figura~\ref{fig:forecast} muestra sus pronósticos frente a las fechas
-reales. \textit{Confirmación multi-semilla:} para caracterizar la estabilidad,
+conocido sino BiTCN; la Figura~\ref{fig:forecast} muestra los pronósticos de BiTCN frente a las fechas
+reales.
+
+\textit{Confirmación multi-semilla:} para caracterizar la estabilidad,
 ambos resultados se reentrenaron con \textbf{cinco semillas independientes} (Figura~\ref{fig:multiseed}), variando tanto
 la inicialización de pesos como la búsqueda de hiperparámetros (muestreo TPE con semilla
 distinta por corrida). En DFF la ventaja es \textbf{holgada y estable}: BiTCN promedia MASE
-$=0.090$ con desviación $0.0003$ —intervalo de confianza del $95\,\%$ $[0.0897,\,0.0901]$—,
+$=0.090$ con desviación $0.0003$ —intervalo de confianza del $95$\,\% $[0.0897,\,0.0901]$—,
 muy por debajo del mejor parsimonioso ($0.106$). En FAD el resultado es un \textbf{empate
 estadístico}: AutoBiTCN promedia $0.112$ con desviación $0.008$ —intervalo
 $[0.102,\,0.122]$—, un rango que contiene el listón parsimonioso ($0.117$); ni el modelo
@@ -1023,12 +1027,12 @@ en FAD el intervalo contiene al listón, evidenciando un empate estadístico.}
 \end{figure}
 
 \textit{Dimensión probabilística.} La ventaja del ganador profundo no se limita al punto.
-Dotado de intervalos conformes al $95\,\%$ —calibrados sin fuga sobre el pasado de cada
+Dotado de intervalos conformes al $95$\,\% —calibrados sin fuga sobre el pasado de cada
 origen de pronóstico—, BiTCN produce una distribución predictiva \textbf{más afilada que la
 de los modelos clásicos}: su CRPS es de $22.6$ días en DFF y $31.5$ en FAD, frente a los
 $48$–$49$ de SARIMA y ARIMA y los $174$ del DeepAR entrenado localmente. La cobertura
 empírica de esos intervalos es de
-$0.77$ (DFF) y $0.89$ (FAD), por debajo del $95\,\%$ nominal —una sub-cobertura esperable de
+$0.77$ (DFF) y $0.89$ (FAD), por debajo del $95$\,\% nominal —una sub-cobertura esperable de
 la calibración conforme con pocas ventanas y series cortas, que se documenta con
 transparencia en lugar de declararse exacta—. La distribución predictiva del modelo global
 es, por tanto, más afilada que la de los clásicos (mejor CRPS), aunque sus intervalos
@@ -1038,7 +1042,7 @@ requieren más calibración para alcanzar la cobertura nominal.
 con \textit{inferencia conforme adaptativa} (Adaptive Conformal Inference) \cita{25}, que ajusta el
 nivel de error en línea tras cada origen de pronóstico en lugar de fijarlo de antemano. Con
 esta calibración —leakage-free, sobre el mismo ganador profundo— la cobertura empírica del
-intervalo al $95\,\%$ subió de $0.77$ a $0.95$ en DFF y de $0.89$ a $0.92$ en FAD
+intervalo al $95$\,\% subió de $0.77$ a $0.95$ en DFF y de $0.89$ a $0.92$ en FAD
 (Figura~\ref{fig:coverage}), clavando
 el nivel nominal sin sacrificar el afilado de la distribución predictiva. Es el mecanismo
 que el sistema adopta para reportar intervalos con cobertura verificada.
@@ -1109,7 +1113,7 @@ migratoria; la fecha de prioridad se expresa en años.}
 serie, el backtest completo sobre las \textbf{25 combinaciones país$\times$categoría} de cada
 tabla (Figuras~\ref{fig:grid_fad} y~\ref{fig:grid_dff}) permite ver cómo el modelo sigue la
 trayectoria escalonada y los avances de cada cola migratoria \textit{dentro del lapso de
-hold-out} (sombreado), con su intervalo de predicción al $95\,\%$. El pronóstico reproduce
+hold-out} (sombreado), con su intervalo de predicción al $95$\,\%. El pronóstico reproduce
 tanto las series que avanzan con rapidez (F2A) como las prácticamente estancadas (varias
 F3/F4), y su banda se ensancha precisamente donde la fecha da saltos. Las
 Tablas~\ref{tab:fcst_fad} y~\ref{tab:fcst_dff} traducen esa cercanía a días: contrastan, en
@@ -1125,7 +1129,7 @@ que en las de movimiento rápido se sitúa en algunos meses; las áreas no sobre
 \caption[Backtest por categoría sobre el hold-out (FAD)]{Backtest del pronóstico sobre el
 conjunto reservado de 24 meses para las 25 combinaciones país$\times$categoría de la tabla
 FAD. Cada panel contrasta la fecha de prioridad real (estado F) con el pronóstico de la red
-profunda global (BiTCN) y su intervalo de predicción al $95\,\%$; la franja sombreada marca
+profunda global (BiTCN) y su intervalo de predicción al $95$\,\%; la franja sombreada marca
 el lapso de hold-out. La fecha de prioridad se expresa en años.}
 \label{fig:grid_fad}
 \end{figure}
@@ -1152,31 +1156,31 @@ menor a un mes— y MAE el error absoluto medio en días sobre todo el lapso de 
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Área} & \textbf{Cat.} & \textbf{Fecha real} & \textbf{Pronóstico} & \textbf{$\Delta$ (días)} & \textbf{MAE (días)} \\ \midrule
-México & F1 & 08-Nov-2007 & 28-Mar-2008 & +142 & 105 \\
- & F2A & 01-Jan-2024 & 13-Jul-2024 & +194 & 66 \\
- & F2B & 15-Feb-2009 & 18-Feb-2009 & \textbf{+4} & 88 \\
- & F3 & 01-Jun-2001 & 30-Apr-2001 & -32 & 27 \\
+México & F1 & 08-Nov-2007 & 28-Mar-2008 & $+142$ & 105 \\
+ & F2A & 01-Jan-2024 & 13-Jul-2024 & $+194$ & 66 \\
+ & F2B & 15-Feb-2009 & 18-Feb-2009 & \textbf{$+4$} & 88 \\
+ & F3 & 01-Jun-2001 & 30-Apr-2001 & $-32$ & 27 \\
  & F4 & 08-Apr-2001 & 08-Apr-2001 & \textbf{0} & 5 \\
-India & F1 & 01-Feb-2018 & 11-Sep-2017 & -142 & 47 \\
- & F2A & 01-Jan-2025 & 10-Jun-2025 & +161 & 68 \\
- & F2B & 22-Nov-2017 & 06-Nov-2017 & \textbf{-16} & 25 \\
- & F3 & 15-Apr-2012 & 27-Feb-2012 & -47 & 44 \\
- & F4 & 01-Nov-2006 & 31-Oct-2006 & \textbf{-1} & 14 \\
-China & F1 & 01-Feb-2018 & 11-Sep-2017 & -142 & 47 \\
- & F2A & 01-Jan-2025 & 10-Jun-2025 & +161 & 68 \\
- & F2B & 22-Nov-2017 & 06-Nov-2017 & \textbf{-16} & 25 \\
- & F3 & 15-Apr-2012 & 27-Feb-2012 & -47 & 44 \\
- & F4 & 01-Jan-2009 & 12-Dec-2008 & \textbf{-20} & 21 \\
-Filipinas & F1 & 01-May-2013 & 02-May-2013 & \textbf{+2} & 19 \\
- & F2A & 01-Jan-2025 & 10-Jun-2025 & +161 & 68 \\
- & F2B & 15-May-2013 & 10-Apr-2013 & -35 & 25 \\
- & F3 & 22-Feb-2006 & 13-Dec-2005 & -70 & 58 \\
- & F4 & 01-Aug-2007 & 06-Sep-2007 & +37 & 67 \\
-Resto del mundo & F1 & 01-Feb-2018 & 11-Sep-2017 & -142 & 47 \\
- & F2A & 01-Jan-2025 & 10-Jun-2025 & +161 & 68 \\
- & F2B & 22-Nov-2017 & 06-Nov-2017 & \textbf{-16} & 25 \\
- & F3 & 15-Apr-2012 & 27-Feb-2012 & -47 & 44 \\
- & F4 & 01-Jan-2009 & 12-Dec-2008 & \textbf{-20} & 21 \\
+India & F1 & 01-Feb-2018 & 11-Sep-2017 & $-142$ & 47 \\
+ & F2A & 01-Jan-2025 & 10-Jun-2025 & $+161$ & 68 \\
+ & F2B & 22-Nov-2017 & 06-Nov-2017 & \textbf{$-16$} & 25 \\
+ & F3 & 15-Apr-2012 & 27-Feb-2012 & $-47$ & 44 \\
+ & F4 & 01-Nov-2006 & 31-Oct-2006 & \textbf{$-1$} & 14 \\
+China & F1 & 01-Feb-2018 & 11-Sep-2017 & $-142$ & 47 \\
+ & F2A & 01-Jan-2025 & 10-Jun-2025 & $+161$ & 68 \\
+ & F2B & 22-Nov-2017 & 06-Nov-2017 & \textbf{$-16$} & 25 \\
+ & F3 & 15-Apr-2012 & 27-Feb-2012 & $-47$ & 44 \\
+ & F4 & 01-Jan-2009 & 12-Dec-2008 & \textbf{$-20$} & 21 \\
+Filipinas & F1 & 01-May-2013 & 02-May-2013 & \textbf{$+2$} & 19 \\
+ & F2A & 01-Jan-2025 & 10-Jun-2025 & $+161$ & 68 \\
+ & F2B & 15-May-2013 & 10-Apr-2013 & $-35$ & 25 \\
+ & F3 & 22-Feb-2006 & 13-Dec-2005 & $-70$ & 58 \\
+ & F4 & 01-Aug-2007 & 06-Sep-2007 & $+37$ & 67 \\
+Resto del mundo & F1 & 01-Feb-2018 & 11-Sep-2017 & $-142$ & 47 \\
+ & F2A & 01-Jan-2025 & 10-Jun-2025 & $+161$ & 68 \\
+ & F2B & 22-Nov-2017 & 06-Nov-2017 & \textbf{$-16$} & 25 \\
+ & F3 & 15-Apr-2012 & 27-Feb-2012 & $-47$ & 44 \\
+ & F4 & 01-Jan-2009 & 12-Dec-2008 & \textbf{$-20$} & 21 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1192,31 +1196,31 @@ $0$~días; las de movimiento rápido concentran el error mayor.}
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Área} & \textbf{Cat.} & \textbf{Fecha real} & \textbf{Pronóstico} & \textbf{$\Delta$ (días)} & \textbf{MAE (días)} \\ \midrule
-México & F1 & 01-Oct-2008 & 05-Apr-2009 & +186 & 61 \\
- & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{+4} & 36 \\
- & F2B & 15-May-2010 & 19-May-2010 & \textbf{+5} & 103 \\
+México & F1 & 01-Oct-2008 & 05-Apr-2009 & $+186$ & 61 \\
+ & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{$+4$} & 36 \\
+ & F2B & 15-May-2010 & 19-May-2010 & \textbf{$+5$} & 103 \\
  & F3 & 15-Jul-2001 & 15-Jul-2001 & \textbf{0} & 1 \\
  & F4 & 30-Apr-2001 & 30-Apr-2001 & \textbf{0} & 0 \\
-India & F1 & 01-Jan-2019 & 10-Oct-2018 & -83 & 21 \\
- & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{+4} & 36 \\
- & F2B & 08-Jun-2018 & 06-Apr-2018 & -62 & 21 \\
- & F3 & 08-Dec-2012 & 11-Dec-2012 & \textbf{+4} & 60 \\
+India & F1 & 01-Jan-2019 & 10-Oct-2018 & $-83$ & 21 \\
+ & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{$+4$} & 36 \\
+ & F2B & 08-Jun-2018 & 06-Apr-2018 & $-62$ & 21 \\
+ & F3 & 08-Dec-2012 & 11-Dec-2012 & \textbf{$+4$} & 60 \\
  & F4 & 15-Dec-2006 & 15-Dec-2006 & \textbf{0} & 14 \\
-China & F1 & 01-Jan-2019 & 10-Oct-2018 & -83 & 21 \\
- & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{+4} & 36 \\
- & F2B & 08-Jun-2018 & 06-Apr-2018 & -62 & 21 \\
- & F3 & 08-Dec-2012 & 11-Dec-2012 & \textbf{+4} & 60 \\
- & F4 & 01-Mar-2010 & 10-Mar-2010 & \textbf{+10} & 31 \\
+China & F1 & 01-Jan-2019 & 10-Oct-2018 & $-83$ & 21 \\
+ & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{$+4$} & 36 \\
+ & F2B & 08-Jun-2018 & 06-Apr-2018 & $-62$ & 21 \\
+ & F3 & 08-Dec-2012 & 11-Dec-2012 & \textbf{$+4$} & 60 \\
+ & F4 & 01-Mar-2010 & 10-Mar-2010 & \textbf{$+10$} & 31 \\
 Filipinas & F1 & 22-Apr-2015 & 22-Apr-2015 & \textbf{0} & 0 \\
- & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{+4} & 36 \\
+ & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{$+4$} & 36 \\
  & F2B & 01-Oct-2013 & 01-Oct-2013 & \textbf{0} & 0 \\
- & F3 & 08-Aug-2006 & 08-Aug-2006 & \textbf{+1} & 47 \\
+ & F3 & 08-Aug-2006 & 08-Aug-2006 & \textbf{$+1$} & 47 \\
  & F4 & 22-Mar-2008 & 21-Mar-2008 & \textbf{0} & 53 \\
-Resto del mundo & F1 & 01-Jan-2019 & 10-Oct-2018 & -83 & 21 \\
- & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{+4} & 36 \\
- & F2B & 08-Jun-2018 & 06-Apr-2018 & -62 & 21 \\
- & F3 & 08-Dec-2012 & 11-Dec-2012 & \textbf{+4} & 60 \\
- & F4 & 01-Mar-2010 & 10-Mar-2010 & \textbf{+10} & 31 \\
+Resto del mundo & F1 & 01-Jan-2019 & 10-Oct-2018 & $-83$ & 21 \\
+ & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{$+4$} & 36 \\
+ & F2B & 08-Jun-2018 & 06-Apr-2018 & $-62$ & 21 \\
+ & F3 & 08-Dec-2012 & 11-Dec-2012 & \textbf{$+4$} & 60 \\
+ & F4 & 01-Mar-2010 & 10-Mar-2010 & \textbf{$+10$} & 31 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1267,8 +1271,8 @@ perturbaciones controladas (semilla, ventana inicial). El dominio de los modelos
 estadísticos se mantiene en todas las áreas y categorías; las redes neuronales
 muestran la mayor varianza entre series, lo que confirma su sensibilidad a la cantidad
 de datos. La validación con cinco semillas cuantifica esta estabilidad para el ganador
-profundo: en DFF el MASE varía apenas $\pm0.0006$ entre semillas, mientras que en FAD
-—donde interviene la búsqueda de hiperparámetros— la variación sube a $\pm0.011$, reflejo
+profundo: en DFF el MASE varía apenas $\pm0.0003$ entre semillas, mientras que en FAD
+—donde interviene la búsqueda de hiperparámetros— la variación sube a $\pm0.008$, reflejo
 de la sensibilidad del ajuste con muestras pequeñas. Una única combinación (SARIMA sobre
 China/F4) falló por inestabilidad
 numérica, lo que ilustra que incluso los modelos clásicos requieren un manejo
@@ -1299,9 +1303,9 @@ sobreajuste, no en exactitud.
 respuesta: (i) un \textit{foundation model} preentrenado evaluado sin ajuste (Chronos)
 supera a todas las redes entrenadas localmente, mostrando que la transferencia vence a la
 escasez de datos donde el entrenamiento local fracasa; (ii) la optimización de
-hiperparámetros con Optuna mejora a los árboles hasta un $29\,\%$ en hold-out, pero los
+hiperparámetros con Optuna mejora a los árboles hasta un $29$\,\% en hold-out, pero los
 acerca a los parsimoniosos sin superarlos; y (iii) ningún conjunto amplio mejora al mejor
-modelo, y solo una combinación curada de tres modelos fuertes araña un $5\,\%$ adicional en
+modelo, y solo una combinación curada de tres modelos fuertes araña un $5$\,\% adicional en
 FAD. El vuelco llega con un cuarto resultado, el más contundente: (iv) entrenado de forma
 \textbf{global} (todas las series a la vez), sobre la \textbf{primera diferencia}, con
 \textbf{normalización por serie} y con sus \textbf{hiperparámetros optimizados} sin fuga,
@@ -1317,9 +1321,8 @@ $0.090\pm0.0003$, intervalo de confianza enteramente por debajo del listón), y 
 el listón $0.117$). \textbf{El aprendizaje profundo gana en DFF} (series cortas, donde el
 entrenamiento global presta señal entre series) \textbf{e iguala a la parsimonia en FAD}
 (series largas, donde un modelo simple ya es óptimo). Cuando aporta, la ventaja \textbf{no
-proviene de la capacidad del modelo sino de cómo se entrena} —global, sobre incrementos, con
-escalado por serie y regularización ajustada—; sin esos ingredientes las mismas redes caen
-por debajo del naïve, y modelos de gran nombre como DeepAR fallan. La respuesta a
+proviene de la capacidad del modelo sino de cómo se entrena} —de forma global, sobre
+incrementos y con escalado por serie, según se detalla en §2.2—. La respuesta a
 ``¿conviene la IA?'', por tanto, es \textit{matizada}: sí en series cortas entrenada como un
 panel; en series largas, un modelo estadístico simple la iguala a una fracción del costo.
 
@@ -1329,7 +1332,7 @@ y libre de fuga, qué familia de modelos conviene a cada régimen y por qué. La
 extendió de las categorías familiares a las basadas en empleo (EB), donde el patrón se
 replica (parsimonia y árboles al frente, heterogeneidad por serie), confirmando que las
 conclusiones no son un artefacto de un subconjunto de categorías. El sistema entrega
-pronósticos con intervalos de predicción al $95\,\%$ de cobertura empírica verificada.
+pronósticos con intervalos de predicción al $95$\,\% de cobertura empírica verificada.
 
 \paragraph{Limitaciones y trabajo futuro.} Se reconocen, con transparencia, los límites del
 alcance actual:
@@ -1475,7 +1478,7 @@ ETS & tendencia amortiguada; estacionalidad $m=12$ \\
 Deep global (BiTCN, TiDE) & ventana 36, máx.\ 800 pasos, 1.\textsuperscript{a} diferencia, norma por serie, pérdida MAE \\
 AutoModels (HPO) & búsqueda Optuna, 15 ensayos, muestreo TPE con semilla \\
 Chronos & zero-shot, contexto 36 (sin entrenamiento) \\
-Intervalos de predicción & conformes al $95\,\%$; ACI con tasa de adaptación $\gamma=0.05$ \\
+Intervalos de predicción & conformes al $95$\,\%; ACI con tasa de adaptación $\gamma=0.05$ \\
 Multi-semilla & 5 semillas (inicialización + búsqueda) \\
 \bottomrule
 \end{tabular}
