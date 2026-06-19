@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent
+PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
 HOLDOUT = 24
 
 
@@ -28,6 +29,17 @@ def _panel(table: str) -> pd.DataFrame:
 
     p = R.load_panel(table, "family")
     return p.rename(columns={"unique_id": "item_id", "ds": "timestamp", "y": "target"})
+
+
+def _actuals(parquet: pd.DataFrame, country: str, category: str, table: str) -> pd.Series:
+    """Serie F-only indexada por fecha — desde el parquet (ante_tab no tiene vp_model/duckdb)."""
+    g = parquet[
+        (parquet["country"] == country)
+        & (parquet["category"] == category)
+        & (parquet["table"] == table)
+        & (parquet["status"] == "F")
+    ]
+    return g.set_index(pd.to_datetime(g["bulletin_date"]))["days_since_base"].astype("float64").sort_index()
 
 
 def _naive_scale(values: np.ndarray, m: int = 12) -> float:
@@ -47,7 +59,9 @@ def main() -> None:
     panel = _panel(args.table)
     dates = sorted(panel["timestamp"].unique())
     holdout_dates = dates[-HOLDOUT:]
-    pipe = TabPFNTSPipeline(tabpfn_mode=TabPFNMode.LOCAL, tabpfn_model_config={"device": "cpu"})
+    # CLIENT: usa la API de PriorLabs con TABPFN_TOKEN (los pesos LOCAL exigen aceptar licencia
+    # en terminal interactiva). Datos públicos del Visa Bulletin.
+    pipe = TabPFNTSPipeline(tabpfn_mode=TabPFNMode.CLIENT)
 
     preds = []  # (item_id, timestamp, forecast)
     for t in holdout_dates:  # walk-forward 1 paso: contexto = todo < t, predecir t (panel completo)
@@ -55,21 +69,32 @@ def main() -> None:
         fut = panel[panel["timestamp"] == t][["item_id", "timestamp"]]
         if fut.empty:
             continue
-        out = pipe.predict_df(ctx, fut).reset_index()
+        out = None
+        for attempt in range(5):  # la API CLIENT da 409 por concurrencia; reintentar con backoff
+            try:
+                out = pipe.predict_df(ctx, fut).reset_index()
+                break
+            except Exception as e:  # noqa: BLE001
+                if "409" not in str(e) or attempt == 4:
+                    raise
+                import time
+
+                time.sleep(5 * (attempt + 1))
+        if out is None:
+            continue
         col = "target" if "target" in out.columns else [c for c in out.columns if "0.5" in str(c) or c == "mean"][0]
         for _, r in out.iterrows():
             preds.append({"item_id": r["item_id"], "timestamp": r["timestamp"], "forecast": float(r[col])})
     fc = pd.DataFrame(preds)
+    fc.to_csv(ROOT / "reports" / f"tabpfn_forecasts_{args.table}.csv", index=False)  # no perder las predicciones
 
-    # eval F-only por serie (la fecha del hold-out debe ser F real en el panel original)
-    from vp_model import dataset
-
+    # eval F-only por serie (la fecha del hold-out debe ser F real); actuals desde el parquet
+    raw = pd.read_parquet(PANEL)
     mases = []
     for item, g in fc.groupby("item_id"):
         country, _block, category = item.split("/")
-        try:
-            full = dataset.load_series(country, category, args.table).astype("float64")
-        except KeyError:
+        full = _actuals(raw, country, category, args.table)
+        if full.empty:
             continue
         g = g[g["timestamp"].isin(full.index)]  # F-only
         if g.empty:
