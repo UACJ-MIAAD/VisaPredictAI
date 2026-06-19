@@ -47,6 +47,7 @@ data/processed/*.parquet
 data/snapshots/
 
 # Modeling artifacts — regenerables con `make compare` / `make report` / `make eda`
+reports/*.log
 reports/model_comparison.csv
 reports/results_table.tex
 reports/experiment_runs.jsonl

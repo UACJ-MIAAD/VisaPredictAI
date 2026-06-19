@@ -88,12 +88,24 @@ def main() -> None:
     ap.add_argument("--mlflow", action="store_true")
     args = ap.parse_args()
     base_cov = {"FAD": 0.89, "DFF": 0.77}
+    rows = []
     for table in ("FAD", "DFF"):
         r = _evaluate(table)
         print(f"\n=== CONFORMAL AVANZADO {table} ({r['n']} series, target cobertura 0.95) ===")
         print(f"  baseline (nf conformal)      : cobertura ~{base_cov[table]}")
         print(f"  split-conformal finite-sample: cobertura {r['split_cov']:.3f}  ancho {r['split_width']:.2f}")
         print(f"  ACI (adaptive)               : cobertura {r['aci_cov']:.3f}  ancho {r['aci_width']:.2f}")
+        rows.append(
+            {
+                "table": table,
+                "n_series": r["n"],
+                "baseline_coverage": base_cov[table],
+                "split_coverage": round(r["split_cov"], 4),
+                "split_width_scaled": round(r["split_width"], 4),
+                "aci_coverage": round(r["aci_cov"], 4),
+                "aci_width_scaled": round(r["aci_width"], 4),
+            }
+        )
         if args.mlflow:
             for m, cov, w in [
                 ("split_conformal", r["split_cov"], r["split_width"]),
@@ -106,6 +118,7 @@ def main() -> None:
                     metrics={"coverage95": cov, "width_scaled": w},
                     tags={"layer": "improve", "technique": "conformal"},
                 )
+    pd.DataFrame(rows).to_csv(REPORTS / "conformal_coverage.csv", index=False)  # artefacto reproducible del claim ACI
 
 
 if __name__ == "__main__":
