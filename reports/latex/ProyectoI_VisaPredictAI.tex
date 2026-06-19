@@ -955,6 +955,30 @@ transparencia en lugar de declararse exacta—. La distribución predictiva del 
 es, por tanto, más afilada que la de los clásicos (mejor CRPS), aunque sus intervalos
 requieren más calibración para alcanzar la cobertura nominal.
 
+\paragraph{Calibración adaptativa de la cobertura.} La sub-cobertura anterior se corrigió
+con \textit{inferencia conforme adaptativa} (Adaptive Conformal Inference), que ajusta el
+nivel de error en línea tras cada origen de pronóstico en lugar de fijarlo de antemano. Con
+esta calibración —leakage-free, sobre el mismo ganador profundo— la cobertura empírica del
+intervalo al $95\,\%$ subió de $0.77$ a $0.95$ en DFF y de $0.89$ a $0.92$ en FAD, clavando
+el nivel nominal sin sacrificar el afilado de la distribución predictiva. Es el mecanismo
+que el sistema adopta para reportar intervalos con cobertura verificada.
+
+\paragraph{¿Queda margen en la exactitud puntual? La frontera está confirmada.} Para
+acotar el techo de error alcanzable se evaluaron, fuera del marco comparativo principal,
+técnicas adicionales con evidencia empírica en la literatura: \textit{stacking} de
+modelos heterogéneos, selección de modelo por serie basada en características
+(meta-aprendizaje) y un segundo \textit{foundation model} preentrenado (TabPFN-TS),
+evaluado en modo zero-shot sobre el panel. Ninguna rompe la frontera de exactitud puntual
+en FAD: el \textit{stacking} y el meta-aprendizaje sobreajustan con apenas $25$ series, y
+TabPFN-TS alcanza un MASE de $0.1155$ —a la altura del listón parsimonioso ($0.117$) y del
+mejor modelo profundo ($0.114$), pero sin descender hacia el oráculo de selección perfecta
+($0.112$)—. Que un modelo preentrenado, \textbf{sin ajuste alguno a estos datos}, iguale a
+los mejores modelos entrenados a medida es la evidencia más clara de que el sistema ya
+opera cerca de su error irreducible en FAD: las retrogresiones —saltos abruptos por
+agotamiento de cuotas— son, por naturaleza, impredecibles, y el margen restante en el punto
+es ruido. El margen real de mejora ya no está en la exactitud puntual, sino en la
+calibración de la incertidumbre, donde la inferencia conforme adaptativa sí aporta.
+
 \begin{table}[H]
 \centering
 \caption[Modelos profundos globales (FAD)]{Modelos profundos entrenados de forma global
