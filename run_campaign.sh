@@ -57,7 +57,7 @@ done
 echo ">>> F2 ensembles tracked $(date)"
 $ANTE run_ensembles.py --mlflow || true
 
-# ---------- sincronizar todo a MLflow ----------
-echo ">>> sync MLflow $(date)"
-$NF sync_mlflow.py || true
+# ---------- TODO MACHIN: MLflow + DVC->S3 + git ----------
+echo ">>> sync_all (MLflow + DVC->S3 + git) $(date)"
+bash sync_all.sh "campaña: MLflow + DVC->S3 ($(date +%Y-%m-%d))" || true
 echo "=== CAMPAÑA termina $(date) ==="

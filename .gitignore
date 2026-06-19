@@ -85,3 +85,5 @@ mlartifacts/
 models/
 /models
 campaign.log
+
+reports/campaign_pool_*.csv

@@ -28,7 +28,7 @@ ante/bin/python -m vp_model.run_comparison --country all --table FAD --block fam
 ante_nf/bin/python sync_mlflow.py
 
 # 3. abrir la UI para comparar corridas (filtra por params, ordena por métrica)
-ante_nf/bin/mlflow ui --backend-store-uri sqlite:///mlflow.db --default-artifact-root mlartifacts/
+PYTHONPATH=tools/mlflow_shim ante_nf/bin/mlflow ui --backend-store-uri sqlite:///mlflow.db --default-artifact-root mlartifacts/ --port 5001
 #   -> http://127.0.0.1:5000
 ```
 
