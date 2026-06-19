@@ -59,7 +59,7 @@ def main() -> None:
     dates = sorted(panel["ds"].unique())
     holdout = dates[-HOLDOUT:]
 
-    preds = {u: [] for u in uids}  # (ds, forecast)
+    preds: dict[str, list[tuple]] = {u: [] for u in uids}  # (ds, forecast)
     for t in holdout:  # walk-forward 1 paso: contexto = historia < t por serie
         ctx, items = [], []
         for u in uids:

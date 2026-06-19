@@ -60,7 +60,7 @@ def _evaluate(table: str) -> dict:
         X.append(_features(full[full.index < piv.index.min()].to_numpy()))
         mase[uid] = m
         fcast[uid] = (act, piv)
-    X = np.array(X)
+    Xa = np.array(X)
     pool = sorted(set.intersection(*[set(mase[s]) for s in series]))  # modelos comunes a todas
     best_model = [min(pool, key=lambda m: mase[s][m]) for s in series]  # noqa: B023
     labels = sorted(set(best_model))  # solo los modelos que alguna vez ganan (clases contiguas)
@@ -72,8 +72,8 @@ def _evaluate(table: str) -> dict:
     for i, uid in enumerate(series):
         tr = [j for j in range(len(series)) if j != i]
         clf = XGBClassifier(n_estimators=60, max_depth=3, learning_rate=0.1, verbosity=0)
-        clf.fit(X[tr], y[tr])
-        chosen = labels[int(clf.predict(X[i : i + 1])[0])]
+        clf.fit(Xa[tr], y[tr])
+        chosen = labels[int(clf.predict(Xa[i : i + 1])[0])]
         sel_mase.append(mase[uid][chosen])
         fixed_mase.append(mase[uid][best_fixed])
         oracle_mase.append(min(mase[uid][m] for m in pool))

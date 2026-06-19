@@ -61,7 +61,10 @@ def main() -> None:
             enable_progress_bar=False,
             enable_model_summary=False,
         )
-        builders = {m: (lambda M=cls[m], c=common: M(**c)) for m in DET}
+        from collections.abc import Callable
+        from typing import Any
+
+        builders: dict[str, Callable[..., Any]] = {m: (lambda M=cls[m], c=common: M(**c)) for m in DET}
         builders["AutoBiTCN"] = lambda: AutoBiTCN(
             h=1,
             loss=MAE(),
