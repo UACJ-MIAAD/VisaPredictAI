@@ -1105,6 +1105,122 @@ migratoria; la fecha de prioridad se expresa en años.}
 \label{fig:forecast}
 \end{figure}
 
+\paragraph{Backtest por categoría: el pronóstico sobre el lapso reservado.} Más allá de una
+serie, el backtest completo sobre las \textbf{25 combinaciones país$\times$categoría} de cada
+tabla (Figuras~\ref{fig:grid_fad} y~\ref{fig:grid_dff}) permite ver cómo el modelo sigue la
+trayectoria escalonada y los avances de cada cola migratoria \textit{dentro del lapso de
+hold-out} (sombreado), con su intervalo de predicción al $95\,\%$. El pronóstico reproduce
+tanto las series que avanzan con rapidez (F2A) como las prácticamente estancadas (varias
+F3/F4), y su banda se ensancha precisamente donde la fecha da saltos. Las
+Tablas~\ref{tab:fcst_fad} y~\ref{tab:fcst_dff} traducen esa cercanía a días: contrastan, en
+el último mes con fecha publicada del hold-out, la fecha real con la pronosticada y su
+diferencia $\Delta$, junto al error absoluto medio (MAE) sobre todo el lapso. En las
+categorías estancadas el error cae a pocos días (México~F4 y F3 en DFF, $0$~días), mientras
+que en las de movimiento rápido se sitúa en algunos meses; las áreas no sobre-suscritas
+(India, China) coinciden con \textit{Resto del mundo} cuando comparten la fecha mundial.
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth]{results_backtest_grid_FAD.pdf}
+\caption[Backtest por categoría sobre el hold-out (FAD)]{Backtest del pronóstico sobre el
+conjunto reservado de 24 meses para las 25 combinaciones país$\times$categoría de la tabla
+FAD. Cada panel contrasta la fecha de prioridad real (estado F) con el pronóstico de la red
+profunda global (BiTCN) y su intervalo de predicción al $95\,\%$; la franja sombreada marca
+el lapso de hold-out. La fecha de prioridad se expresa en años.}
+\label{fig:grid_fad}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth]{results_backtest_grid_DFF.pdf}
+\caption[Backtest por categoría sobre el hold-out (DFF)]{Backtest análogo para las 25
+combinaciones país$\times$categoría de la tabla DFF. Las series prácticamente constantes
+(p.\,ej. varias de Filipinas) aparecen como líneas planas que el modelo reproduce con error
+casi nulo; las de movimiento rápido muestran bandas de predicción más anchas.}
+\label{fig:grid_dff}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Pronóstico vs.\ fecha real por categoría (FAD)]{Comparación, por serie, de la fecha
+de prioridad real y la pronosticada en el último mes con fecha publicada del hold-out (tabla
+FAD). $\Delta$ es la diferencia (pronóstico $-$ real) en días —en \textbf{negrita} cuando es
+menor a un mes— y MAE el error absoluto medio en días sobre todo el lapso de hold-out.}
+\label{tab:fcst_fad}
+\begin{tabular}{llccrr}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Área} & \textbf{Cat.} & \textbf{Fecha real} & \textbf{Pronóstico} & \textbf{$\Delta$ (días)} & \textbf{MAE (días)} \\ \midrule
+México & F1 & 08-Nov-2007 & 28-Mar-2008 & +142 & 105 \\
+ & F2A & 01-Jan-2024 & 13-Jul-2024 & +194 & 66 \\
+ & F2B & 15-Feb-2009 & 18-Feb-2009 & \textbf{+4} & 88 \\
+ & F3 & 01-Jun-2001 & 30-Apr-2001 & -32 & 27 \\
+ & F4 & 08-Apr-2001 & 08-Apr-2001 & \textbf{0} & 5 \\
+India & F1 & 01-Feb-2018 & 11-Sep-2017 & -142 & 47 \\
+ & F2A & 01-Jan-2025 & 10-Jun-2025 & +161 & 68 \\
+ & F2B & 22-Nov-2017 & 06-Nov-2017 & \textbf{-16} & 25 \\
+ & F3 & 15-Apr-2012 & 27-Feb-2012 & -47 & 44 \\
+ & F4 & 01-Nov-2006 & 31-Oct-2006 & \textbf{-1} & 14 \\
+China & F1 & 01-Feb-2018 & 11-Sep-2017 & -142 & 47 \\
+ & F2A & 01-Jan-2025 & 10-Jun-2025 & +161 & 68 \\
+ & F2B & 22-Nov-2017 & 06-Nov-2017 & \textbf{-16} & 25 \\
+ & F3 & 15-Apr-2012 & 27-Feb-2012 & -47 & 44 \\
+ & F4 & 01-Jan-2009 & 12-Dec-2008 & \textbf{-20} & 21 \\
+Filipinas & F1 & 01-May-2013 & 02-May-2013 & \textbf{+2} & 19 \\
+ & F2A & 01-Jan-2025 & 10-Jun-2025 & +161 & 68 \\
+ & F2B & 15-May-2013 & 10-Apr-2013 & -35 & 25 \\
+ & F3 & 22-Feb-2006 & 13-Dec-2005 & -70 & 58 \\
+ & F4 & 01-Aug-2007 & 06-Sep-2007 & +37 & 67 \\
+Resto del mundo & F1 & 01-Feb-2018 & 11-Sep-2017 & -142 & 47 \\
+ & F2A & 01-Jan-2025 & 10-Jun-2025 & +161 & 68 \\
+ & F2B & 22-Nov-2017 & 06-Nov-2017 & \textbf{-16} & 25 \\
+ & F3 & 15-Apr-2012 & 27-Feb-2012 & -47 & 44 \\
+ & F4 & 01-Jan-2009 & 12-Dec-2008 & \textbf{-20} & 21 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Pronóstico vs.\ fecha real por categoría (DFF)]{Comparación análoga para la tabla
+DFF. Las series estancadas (Filipinas~F1/F2B, México~F3/F4) se pronostican con error de
+$0$~días; las de movimiento rápido concentran el error mayor.}
+\label{tab:fcst_dff}
+\begin{tabular}{llccrr}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Área} & \textbf{Cat.} & \textbf{Fecha real} & \textbf{Pronóstico} & \textbf{$\Delta$ (días)} & \textbf{MAE (días)} \\ \midrule
+México & F1 & 01-Oct-2008 & 05-Apr-2009 & +186 & 61 \\
+ & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{+4} & 36 \\
+ & F2B & 15-May-2010 & 19-May-2010 & \textbf{+5} & 103 \\
+ & F3 & 15-Jul-2001 & 15-Jul-2001 & \textbf{0} & 1 \\
+ & F4 & 30-Apr-2001 & 30-Apr-2001 & \textbf{0} & 0 \\
+India & F1 & 01-Jan-2019 & 10-Oct-2018 & -83 & 21 \\
+ & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{+4} & 36 \\
+ & F2B & 08-Jun-2018 & 06-Apr-2018 & -62 & 21 \\
+ & F3 & 08-Dec-2012 & 11-Dec-2012 & \textbf{+4} & 60 \\
+ & F4 & 15-Dec-2006 & 15-Dec-2006 & \textbf{0} & 14 \\
+China & F1 & 01-Jan-2019 & 10-Oct-2018 & -83 & 21 \\
+ & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{+4} & 36 \\
+ & F2B & 08-Jun-2018 & 06-Apr-2018 & -62 & 21 \\
+ & F3 & 08-Dec-2012 & 11-Dec-2012 & \textbf{+4} & 60 \\
+ & F4 & 01-Mar-2010 & 10-Mar-2010 & \textbf{+10} & 31 \\
+Filipinas & F1 & 22-Apr-2015 & 22-Apr-2015 & \textbf{0} & 0 \\
+ & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{+4} & 36 \\
+ & F2B & 01-Oct-2013 & 01-Oct-2013 & \textbf{0} & 0 \\
+ & F3 & 08-Aug-2006 & 08-Aug-2006 & \textbf{+1} & 47 \\
+ & F4 & 22-Mar-2008 & 21-Mar-2008 & \textbf{0} & 53 \\
+Resto del mundo & F1 & 01-Jan-2019 & 10-Oct-2018 & -83 & 21 \\
+ & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{+4} & 36 \\
+ & F2B & 08-Jun-2018 & 06-Apr-2018 & -62 & 21 \\
+ & F3 & 08-Dec-2012 & 11-Dec-2012 & \textbf{+4} & 60 \\
+ & F4 & 01-Mar-2010 & 10-Mar-2010 & \textbf{+10} & 31 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \paragraph{Cobertura ampliada: categorías basadas en empleo (EB).} El mismo protocolo se
 aplicó a las categorías de preferencia por empleo (EB-1 a EB-5), que extienden el sistema
 más allá de las familiares. La cobertura aquí es \textit{escalonada}: de las decenas de

@@ -17,9 +17,11 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.dates as mdates  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+from matplotlib.ticker import MaxNLocator  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
 REP = ROOT / "reports"
@@ -283,9 +285,128 @@ def fig_coverage_crps() -> None:
     print("F4 coverage+crps OK")
 
 
+# ---------- F5: grid 5x5 de backtest (todas las categorías) ----------
+AREAS = [
+    ("mexico", "México"),
+    ("india", "India"),
+    ("china", "China"),
+    ("philippines", "Filipinas"),
+    ("all_chargeability", "Resto del mundo"),
+]
+CATS = ["F1", "F2A", "F2B", "F3", "F4"]
+HOLD_START = pd.Timestamp("2024-08-01")
+HOLD_END = pd.Timestamp("2026-07-01")
+WIN_START = pd.Timestamp("2022-08-01")  # 48 meses de ventana: 24 de contexto + 24 de hold-out
+BASE = pd.Timestamp("1975-01-01")
+
+
+def fig_backtest_grid(table: str) -> None:
+    from vp_model import dataset
+
+    d = pd.read_csv(REP / f"deep_pi_{table}.csv", parse_dates=["ds"])
+    fig, axes = plt.subplots(5, 5, figsize=(9.6, 10.4), sharex=True)
+    for r, (acode, aname) in enumerate(AREAS):
+        for c, cat in enumerate(CATS):
+            ax = axes[r, c]
+            ax.axvspan(HOLD_START, HOLD_END, color="#EDEDED", zorder=0)  # lapso de hold-out marcado
+            try:
+                full = dataset.load_series(acode, cat, table).astype("float64")
+            except KeyError:
+                ax.text(0.5, 0.5, "sin datos", ha="center", va="center", fontsize=6, color=GRAY, transform=ax.transAxes)
+                full = None
+            if full is not None:
+                fw = full[full.index >= WIN_START]
+                ax.plot(fw.index, _to_year(fw.to_numpy()), color=BLACK, lw=0.9, zorder=2)
+                g = d[d.unique_id == f"{acode}/family/{cat}"].sort_values("ds")
+                g = g[g["ds"].isin(full.index)]  # solo donde la fecha real es específica (F)
+                if len(g):
+                    ax.fill_between(
+                        g["ds"],
+                        _to_year(g["BiTCN-lo-95"]),
+                        _to_year(g["BiTCN-hi-95"]),
+                        color=BLUE,
+                        alpha=0.18,
+                        zorder=1,
+                    )
+                    ax.plot(g["ds"], _to_year(g["BiTCN"]), color=BLUE, lw=1.1, ls="--", zorder=3)
+            lo, hi = ax.get_ylim()  # series casi planas (fecha estancada): evita zoom al ruido sub-día
+            if hi - lo < 0.5:
+                mid = (lo + hi) / 2
+                ax.set_ylim(mid - 0.5, mid + 0.5)
+            ax.tick_params(labelsize=6, length=2)
+            ax.margins(x=0.02)
+            ax.xaxis.set_major_locator(mdates.YearLocator())
+            ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+            ax.yaxis.set_major_locator(MaxNLocator(4))
+            ax.ticklabel_format(axis="y", useOffset=False, style="plain")
+            if r == 0:
+                ax.set_title(cat, fontsize=9, color=BLUE, fontweight="bold", pad=4)
+            if c == 0:
+                ax.set_ylabel(aname, fontsize=8, color=GRAY)
+            for sp in ("top", "right"):
+                ax.spines[sp].set_visible(False)
+    # leyenda compartida + nota
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
+    handles = [
+        Line2D([0], [0], color=BLACK, lw=1.2, label="Fecha real (estado F)"),
+        Line2D([0], [0], color=BLUE, lw=1.2, ls="--", label="Pronóstico (BiTCN)"),
+        Patch(facecolor=BLUE, alpha=0.18, label="Intervalo de predicción 95%"),
+        Patch(facecolor="#EDEDED", label="Lapso de hold-out (24 meses)"),
+    ]
+    fig.legend(handles=handles, loc="lower center", ncol=4, fontsize=8, frameon=False, bbox_to_anchor=(0.5, -0.005))
+    fig.supylabel("Fecha de prioridad (año)", fontsize=9)
+    fig.suptitle(f"Backtest del pronóstico sobre el hold-out — tabla {table}", fontsize=11, y=0.997)
+    fig.tight_layout(rect=(0.01, 0.03, 1, 0.99))
+    fig.savefig(FIG / f"results_backtest_grid_{table}.pdf")
+    plt.close(fig)
+    print(f"F5 grid {table} OK")
+
+
+# ---------- Tabla pronóstico vs. real (diferencias en días) ----------
+def forecast_vs_actual_rows(table: str) -> pd.DataFrame:
+    """Por serie: último mes F del hold-out (fecha real vs pronosticada, Δ días) + MAE en días."""
+    from vp_model import dataset
+
+    d = pd.read_csv(REP / f"deep_pi_{table}.csv", parse_dates=["ds"])
+    rows = []
+    for acode, aname in AREAS:
+        for cat in CATS:
+            try:
+                full = dataset.load_series(acode, cat, table).astype("float64")
+            except KeyError:
+                continue
+            g = d[d.unique_id == f"{acode}/family/{cat}"].sort_values("ds")
+            g = g[g["ds"].isin(full.index)]
+            if g.empty:
+                continue
+            last = g.iloc[-1]
+            real_d = BASE + pd.Timedelta(days=float(last["y"]))
+            pred_d = BASE + pd.Timedelta(days=float(last["BiTCN"]))
+            mae_days = float(np.mean(np.abs(g["y"].to_numpy() - g["BiTCN"].to_numpy())))
+            rows.append(
+                {
+                    "area": aname,
+                    "cat": cat,
+                    "mes": last["ds"].strftime("%b-%Y"),
+                    "real": real_d.strftime("%d-%b-%Y"),
+                    "pred": pred_d.strftime("%d-%b-%Y"),
+                    "delta_dias": round(float(last["BiTCN"] - last["y"])),
+                    "mae_dias": round(mae_days),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 if __name__ == "__main__":
     fig_ranking()
     fig_forecast()
     fig_multiseed()
     fig_coverage_crps()
+    fig_backtest_grid("FAD")
+    fig_backtest_grid("DFF")
+    for t in ("FAD", "DFF"):
+        forecast_vs_actual_rows(t).to_csv(REP / f"forecast_vs_actual_{t}.csv", index=False)
+        print(f"tabla {t} -> reports/forecast_vs_actual_{t}.csv")
     print("Figuras en", FIG)

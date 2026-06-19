@@ -1,0 +1,26 @@
+area,cat,mes,real,pred,delta_dias,mae_dias
+México,F1,Jul-2026,08-Nov-2007,28-Mar-2008,142,105
+México,F2A,Jul-2026,01-Jan-2024,13-Jul-2024,194,66
+México,F2B,Jul-2026,15-Feb-2009,18-Feb-2009,4,88
+México,F3,Jul-2026,01-Jun-2001,30-Apr-2001,-32,27
+México,F4,Jul-2026,08-Apr-2001,08-Apr-2001,0,5
+India,F1,Jul-2026,01-Feb-2018,11-Sep-2017,-142,47
+India,F2A,Jul-2026,01-Jan-2025,10-Jun-2025,161,68
+India,F2B,Jul-2026,22-Nov-2017,06-Nov-2017,-16,25
+India,F3,Jul-2026,15-Apr-2012,27-Feb-2012,-47,44
+India,F4,Jul-2026,01-Nov-2006,31-Oct-2006,-1,14
+China,F1,Jul-2026,01-Feb-2018,11-Sep-2017,-142,47
+China,F2A,Jul-2026,01-Jan-2025,10-Jun-2025,161,68
+China,F2B,Jul-2026,22-Nov-2017,06-Nov-2017,-16,25
+China,F3,Jul-2026,15-Apr-2012,27-Feb-2012,-47,44
+China,F4,Jul-2026,01-Jan-2009,12-Dec-2008,-20,21
+Filipinas,F1,Jul-2026,01-May-2013,02-May-2013,2,19
+Filipinas,F2A,Jul-2026,01-Jan-2025,10-Jun-2025,161,68
+Filipinas,F2B,Jul-2026,15-May-2013,10-Apr-2013,-35,25
+Filipinas,F3,Jul-2026,22-Feb-2006,13-Dec-2005,-70,58
+Filipinas,F4,Jul-2026,01-Aug-2007,06-Sep-2007,37,67
+Resto del mundo,F1,Jul-2026,01-Feb-2018,11-Sep-2017,-142,47
+Resto del mundo,F2A,Jul-2026,01-Jan-2025,10-Jun-2025,161,68
+Resto del mundo,F2B,Jul-2026,22-Nov-2017,06-Nov-2017,-16,25
+Resto del mundo,F3,Jul-2026,15-Apr-2012,27-Feb-2012,-47,44
+Resto del mundo,F4,Jul-2026,01-Jan-2009,12-Dec-2008,-20,21
