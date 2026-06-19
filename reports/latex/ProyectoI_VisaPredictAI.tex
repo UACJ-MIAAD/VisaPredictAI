@@ -299,7 +299,7 @@ de \textit{Kwiatkowski-Phillips-Schmidt-Shin} (KPSS) rechaza la estacionariedad 
 nivel ($p<0.01$); ambas concuerdan en que la serie requiere una diferenciación. Como
 la prueba ADF pierde potencia precisamente bajo tendencia fuerte y muestras cortas
 —el escenario de este panel—, se añade la prueba DF-GLS de Elliott-Rothenberg-Stock
-\cita{15}, que aplica un \textit{detrending} por mínimos cuadrados generalizados y
+\cita{2}, que aplica un \textit{detrending} por mínimos cuadrados generalizados y
 alcanza la envolvente de potencia óptima; también confirma la no estacionariedad en
 nivel ($p=0.78$), reforzando de forma más robusta la elección $d=1$. La
 Figura~\ref{fig:eda_acf} muestra la autocorrelación de la serie diferenciada, que
@@ -324,7 +324,7 @@ componente estacional y residuo (en años).}
 \subsubsection{Catálogo de características por serie}
 
 Examinar 25 series una por una no escala. Por ello se adopta el enfoque de análisis
-basado en características (\textit{feature-based}) \cita{10}: se resume cada serie en
+basado en características (\textit{feature-based}) \cita{3}: se resume cada serie en
 un vector de descriptores numéricos comparables, de modo que el panel completo se
 analiza como una tabla. A continuación se define cada característica, su rango y su
 lectura operativa para el modelado.
@@ -490,7 +490,7 @@ El conteo de la columna ``Atípicos'' (32--80) proviene de un $z$-score robusto 
 punto y, por sí solo, confunde dos fenómenos distintos. Un diagnóstico de mayor nivel
 los separa: por un lado, los \textbf{cambios de régimen} —desplazamientos estructurales
 duraderos— se detectan con el algoritmo PELT (\textit{Pruned Exact Linear Time})
-\cita{12} sobre la serie estandarizada; por otro, las \textbf{anomalías puntuales}
+\cita{4} sobre la serie estandarizada; por otro, las \textbf{anomalías puntuales}
 —observaciones aisladas— con un filtro de Hampel sobre el residuo de la STL (mediana y
 MAD locales). Aplicado a México/F3/FAD, el método identifica \textbf{solo 3 cambios de
 régimen} (no 78), mientras que las anomalías puntuales se concentran en la era volátil
@@ -512,14 +512,14 @@ México/F3/FAD. Distingue desplazamientos estructurales de observaciones aislada
 caracterización se calcula, por serie, el exponente de Hurst (mediante análisis de
 fluctuación sin tendencia), la entropía de permutación y de muestra, la $\lambda$
 óptima de Box-Cox y la prueba de Zivot-Andrews (raíz unitaria con un quiebre endógeno),
-además del conjunto canónico de 22 características \textit{catch22} \cita{11}, un
+además del conjunto canónico de 22 características \textit{catch22} \cita{5}, un
 subconjunto de alto rendimiento seleccionado entre más de siete mil descriptores. En
 México/F3/FAD el exponente de Hurst supera 1 (memoria larga, fuertemente persistente),
 las entropías de permutación y de muestra son bajas ($\approx 0.13$--$0.17$, señal de
 una dinámica muy regular y por tanto predecible), la $\lambda$ de Box-Cox queda cerca
 de 1 (no se requiere transformar la varianza) y Zivot-Andrews rechaza la raíz unitaria
 tras una diferencia ($p < 0.001$), reforzando la elección $d=1$. Finalmente, la prueba
-BDS de Brock-Dechert-Scheinkman-LeBaron \cita{18} —cuya hipótesis nula es que la serie
+BDS de Brock-Dechert-Scheinkman-LeBaron \cita{6} —cuya hipótesis nula es que la serie
 diferenciada es independiente e idénticamente distribuida— se rechaza con fuerza
 ($p < 0.001$), lo que evidencia dependencia no lineal y justifica de forma cuantitativa
 incluir modelos no lineales (LSTM, DeepAR, XGBoost) en la comparación, en lugar de
@@ -531,16 +531,16 @@ Con muestras de 125 a 290 observaciones por serie, cada grado de libertad cuenta
 lo que el conjunto unido de características (catch22, descriptores de pronóstico y
 variables de dominio) se somete a una etapa formal de selección en dos pasos. Primero,
 un filtro de relevancia univariada con corrección de multiplicidad de Benjamini-Yekutieli
-—el patrón del algoritmo FRESH \cita{14}— que controla la tasa de falso descubrimiento.
+—el patrón del algoritmo FRESH \cita{7}— que controla la tasa de falso descubrimiento.
 Segundo, una des-redundancia por correlación de Spearman —en el espíritu de la selección
-de mínima redundancia y máxima relevancia (mRMR) \cita{16}— que conserva una sola
+de mínima redundancia y máxima relevancia (mRMR) \cita{8}— que conserva una sola
 característica representativa de cada grupo colineal; esto resuelve, por ejemplo, la
 duplicación entre el exponente de Hurst y las características de escalamiento de catch22.
 Para evitar fuga de información, la selección se ajusta únicamente con datos de
 entrenamiento dentro de cada partición del walk-forward. La decisión de no apilar
 bibliotecas completas de características (que serían cientos, con fuerte redundancia
 mutua) se apoya en la evidencia empírica de redundancia entre conjuntos de
-características \cita{17}: pocos descriptores bien elegidos superan a muchos correlacionados.
+características \cita{9}: pocos descriptores bien elegidos superan a muchos correlacionados.
 
 \subsubsection{Métodos del estado del arte evaluados y descartados por diagnóstico}
 
@@ -591,7 +591,7 @@ corresponden a regímenes \textit{Current}/\textit{Unavailable}, donde estructur
 no hay fecha que predecir. Es un mecanismo \textit{Missing Not At Random} (MNAR): la
 ausencia misma es información. Por ello el tratamiento es doble. Para
 \textbf{caracterizar y visualizar} se imputa con suavizado de Kalman sobre un modelo de
-espacio de estados —el método de referencia de \texttt{imputeTS} \cita{13}, superior a
+espacio de estados —el método de referencia de \texttt{imputeTS} \cita{10}, superior a
 la interpolación lineal (Figura~\ref{fig:eda_kalman})—. Para \textbf{modelar} se evita
 imputar: se añaden una máscara de observación y el tiempo transcurrido desde la última
 observación como covariables, de modo que el modelo aprenda del patrón de ausencia en
@@ -648,11 +648,11 @@ justificación. Los árboles operan sobre la primera diferencia; Chronos es zero
 \rowcolor{uacjblue!15}
 \textbf{Familia} & \textbf{Modelos} & \textbf{Rol} \\ \midrule
 Referencia & Naïve estacional & Línea base; denominador de MASE \\
-Estadísticos \cita{2} & ARIMA, SARIMA & Tendencia/estacionalidad lineal \\
+Estadísticos \cita{11} & ARIMA, SARIMA & Tendencia/estacionalidad lineal \\
 Suavizamiento & ETS amortiguado, Theta, Kalman & Tendencia parsimoniosa \\
-Aditivo \cita{3} & Prophet & Tendencia con cambios de régimen \\
-Árboles sobre deltas \cita{6} & XGBoost, LightGBM, CatBoost & Rezagos + regresores, extrapolación \\
-Lineales/profundos \cita{4}\cita{5}\cita{9} & DLinear, NLinear, RLinear, TiDE, & No linealidad y capacidad alta \\
+Aditivo \cita{12} & Prophet & Tendencia con cambios de régimen \\
+Árboles sobre deltas \cita{13} & XGBoost, LightGBM, CatBoost & Rezagos + regresores, extrapolación \\
+Lineales/profundos \cita{14}\cita{15}\cita{16} & DLinear, NLinear, RLinear, TiDE, & No linealidad y capacidad alta \\
  & LSTM, DeepAR, ARIMA-LSTM, & \\
  & N-BEATS, N-HiTS, TFT & \\
 Foundation \textit{(zero-shot)} & Chronos & Transferencia sin entrenamiento \\ \bottomrule
@@ -699,7 +699,7 @@ conjunto de prueba, para impedir la fuga de información.
 
 \subsection{1.4.3 Optimización de parámetros y pruebas avanzadas}
 
-Los árboles de potenciación de gradiente se optimizan con \textit{Optuna} \cita{19}
+Los árboles de potenciación de gradiente se optimizan con \textit{Optuna} \cita{17}
 (muestreo TPE, \textit{Tree-structured Parzen Estimator}, multivariante, semilla fija) bajo un protocolo \textit{anidado y libre de
 fuga}: el objetivo minimiza el error de una cola de validación interna recortada de la
 región de entrenamiento (un ajuste seguido de validación rodante a un paso), de modo que
@@ -719,7 +719,7 @@ su distribución predictiva, de la que se leen los cuantiles 2.5\,\% y 97.5\,\%;
 camino cubre tanto los modelos estadísticos como el de red neuronal. El segundo es el
 conforme dividido, un método no paramétrico y agnóstico al modelo que fija el
 semiancho a partir del cuantil de los errores absolutos de calibración, con cobertura
-garantizada bajo intercambiabilidad \cita{8}; al no depender del modelo, sirve de red
+garantizada bajo intercambiabilidad \cita{18}; al no depender del modelo, sirve de red
 de seguridad uniforme para los 21. En una verificación controlada con datos
 intercambiables, el intervalo conforme alcanzó una cobertura empírica del 92\,\%,
 cercana al nivel nominal; sobre las series reales tiende a ser conservador (cobertura
@@ -733,7 +733,7 @@ $\geq$ nominal), como corresponde a su garantía teórica.
 El desempeño se mide con cuatro métricas estándar evaluadas solo sobre las
 observaciones con fecha: el error absoluto medio (MAE), la raíz del error cuadrático
 medio (RMSE), el error porcentual absoluto medio simétrico (sMAPE) y el error
-absoluto medio escalado (MASE \cita{7}), este último referido al naïve estacional.
+absoluto medio escalado (MASE \cita{19}), este último referido al naïve estacional.
 Un valor de MASE menor que uno indica que el modelo mejora al naïve.
 
 \subsection{1.5.2 Validación de generalización y estabilidad del sistema}
@@ -856,9 +856,9 @@ cerca pero no supera a los parsimoniosos ETS y Theta ($0.117$). La hipótesis H2
 (heterogeneidad por país-categoría-tabla) sí se sostiene: el modelo ganador varía por
 serie (CatBoost en 11, ETS en 8, Theta en 6), repartido entre un árbol y la familia
 estadística. La significancia de las diferencias se contrasta con la prueba de
-Diebold-Mariano \cita{22} (corrección de Holm) y, dado el tamaño del pool, con el conjunto de
-confianza de modelos (Model Confidence Set) \cita{23} y el ranking de Friedman-Nemenyi
-\cita{24} sobre las 25 series, fijados de antemano.
+Diebold-Mariano \cita{20} (corrección de Holm) y, dado el tamaño del pool, con el conjunto de
+confianza de modelos (Model Confidence Set) \cita{21} y el ranking de Friedman-Nemenyi
+\cita{22} sobre las 25 series, fijados de antemano.
 
 \paragraph{Resultados sobre la tabla DFF.} Como FAD y DFF se evalúan por separado, el
 mismo protocolo (los 21 modelos) se aplicó a las 25 series DFF de preferencia familiar
@@ -931,7 +931,7 @@ por lo que no es una referencia comparable.}
 \end{figure}
 
 \paragraph{Efecto de la optimización de hiperparámetros.} Los tres árboles de
-potenciación de gradiente se optimizaron con \textit{Optuna} \cita{19} bajo el protocolo
+potenciación de gradiente se optimizaron con \textit{Optuna} \cita{17} bajo el protocolo
 anidado de §1.4.3. La mejora se confirma \textit{sobre el conjunto reservado} —no solo
 sobre la validación interna—, por lo que no es un artefacto de sobreajuste a la métrica
 de selección: en FAD, LightGBM pasa de MASE de hold-out $0.195$ a $0.138$ ($-29$\,\%),
@@ -943,7 +943,7 @@ tuneados (FAD $0.137$--$0.152$) siguen por encima de los parsimoniosos ETS y The
 acerca al modelo complejo, no lo hace superar al simple.
 
 \paragraph{Combinación de modelos y distribución predictiva.} Se evaluaron, también sin
-fuga, estrategias de conjunto sobre los pronósticos del hold-out \cita{20}. La
+fuga, estrategias de conjunto sobre los pronósticos del hold-out \cita{23}. La
 \textit{selección por serie} (elegir para cada serie el modelo de menor error de
 selección) \textit{empeora} respecto al mejor modelo global ($+9.5$\,\% en FAD,
 $+10.5$\,\% en DFF): el criterio de selección no generaliza al hold-out con series tan
@@ -953,7 +953,7 @@ modelos fuertes} aporta valor: la mediana de Theta, ETS y SARIMA alcanza MASE $=
 en FAD, superando por $\sim$5\,\% al mejor modelo parsimonioso individual ($0.117$); en
 DFF, en cambio, ninguna combinación de modelos por serie mejora a sus miembros. La cota de un selector perfecto (oráculo)
 es apenas $0.112$ en FAD, lo que confirma que hay poco margen por ganar. En cuanto a la
-\textit{distribución predictiva completa}, medida con el CRPS (\textit{Continuous Ranked Probability Score}) \cita{21} sobre los
+\textit{distribución predictiva completa}, medida con el CRPS (\textit{Continuous Ranked Probability Score}) \cita{24} sobre los
 modelos con muestreo nativo, los clásicos producen distribuciones mucho más fieles que
 la red neuronal: SARIMA ($48.0$ días) $\approx$ ARIMA ($49.1$) $\ll$ DeepAR ($174.5$).
 
@@ -961,7 +961,7 @@ la red neuronal: SARIMA ($48.0$ días) $\approx$ ARIMA ($49.1$) $\ll$ DeepAR ($1
 \textit{entrenadas por serie} (Tabla~\ref{tab:comparacion_modelos}) no agota la pregunta
 de si el aprendizaje profundo puede aportar: la práctica moderna entrena un \textbf{modelo
 global} sobre todas las series apiladas, de modo que cada serie corta toma señal
-prestada del resto \cita{20}. Como el modelo global exige series continuas, los meses en
+prestada del resto \cita{23}. Como el modelo global exige series continuas, los meses en
 régimen \textit{Current} —en los que, por definición, el cutoff es el mes en curso— se
 codifican con la fecha del propio boletín, en lugar de interpolar linealmente a través del
 periodo. Así las veinticinco series conservan su historia completa con valores
@@ -1360,69 +1360,69 @@ por país de las categorías de empleo y la integración del archivo histórico 
 \begin{enumerate}[label={[\arabic*]}, leftmargin=*, itemsep=2pt]
 \item\label{bib:1} P. Chapman \textit{et al.}, ``CRISP-DM 1.0: Step-by-step data
 mining guide,'' SPSS Inc., 2000.
-\item\label{bib:2} G. E. P. Box, G. M. Jenkins, G. C. Reinsel, y G. M. Ljung,
+\item\label{bib:2} G. Elliott, T. J. Rothenberg, y J. H. Stock, ``Efficient tests for
+an autoregressive unit root,'' \textit{Econometrica}, vol. 64, n.\textsuperscript{o} 4,
+pp. 813--836, 1996.
+\item\label{bib:3} X. Wang, K. Smith, y R. Hyndman, ``Characteristic-based
+clustering for time series data,'' \textit{Data Mining and Knowledge Discovery},
+vol. 13, n.\textsuperscript{o} 3, pp. 335--364, 2006.
+\item\label{bib:4} R. Killick, P. Fearnhead, y I. A. Eckley, ``Optimal detection of
+changepoints with a linear computational cost,'' \textit{Journal of the American
+Statistical Association}, vol. 107, n.\textsuperscript{o} 500, pp. 1590--1598, 2012.
+\item\label{bib:5} C. H. Lubba, S. S. Sethi, P. Knaute, S. R. Schultz, B. D. Fulcher,
+y N. S. Jones, ``catch22: CAnonical Time-series CHaracteristics,'' \textit{Data Mining
+and Knowledge Discovery}, vol. 33, n.\textsuperscript{o} 6, pp. 1821--1852, 2019.
+\item\label{bib:6} W. A. Brock, W. D. Dechert, J. A. Scheinkman, y B. LeBaron, ``A test
+for independence based on the correlation dimension,'' \textit{Econometric Reviews},
+vol. 15, n.\textsuperscript{o} 3, pp. 197--235, 1996.
+\item\label{bib:7} M. Christ, N. Braun, J. Neuffer, y A. W. Kempa-Liehr, ``Time series
+feature extraction on basis of scalable hypothesis tests (tsfresh),''
+\textit{Neurocomputing}, vol. 307, pp. 72--77, 2018.
+\item\label{bib:8} C. Ding y H. Peng, ``Minimum redundancy feature selection from
+microarray gene expression data,'' \textit{Journal of Bioinformatics and Computational
+Biology}, vol. 3, n.\textsuperscript{o} 2, pp. 185--205, 2005.
+\item\label{bib:9} T. Henderson y B. D. Fulcher, ``An empirical evaluation of
+time-series feature sets,'' en \textit{ICDM Workshops}, 2021, pp. 1032--1041.
+\item\label{bib:10} S. Moritz y T. Bartz-Beielstein, ``imputeTS: Time series missing
+value imputation in R,'' \textit{The R Journal}, vol. 9, n.\textsuperscript{o} 1,
+pp. 207--218, 2017.
+\item\label{bib:11} G. E. P. Box, G. M. Jenkins, G. C. Reinsel, y G. M. Ljung,
 \textit{Time Series Analysis: Forecasting and Control}, 5.\textsuperscript{a} ed.
 Hoboken, NJ: Wiley, 2015.
-\item\label{bib:3} S. J. Taylor y B. Letham, ``Forecasting at scale,'' \textit{The
+\item\label{bib:12} S. J. Taylor y B. Letham, ``Forecasting at scale,'' \textit{The
 American Statistician}, vol. 72, n.\textsuperscript{o} 1, pp. 37--45, 2018.
-\item\label{bib:4} S. Hochreiter y J. Schmidhuber, ``Long short-term memory,''
+\item\label{bib:13} T. Chen y C. Guestrin, ``XGBoost: A scalable tree boosting
+system,'' en \textit{Proc. 22nd ACM SIGKDD}, 2016, pp. 785--794.
+\item\label{bib:14} S. Hochreiter y J. Schmidhuber, ``Long short-term memory,''
 \textit{Neural Computation}, vol. 9, n.\textsuperscript{o} 8, pp. 1735--1780, 1997.
-\item\label{bib:5} D. Salinas, V. Flunkert, J. Gasthaus, y T. Januschowski,
+\item\label{bib:15} D. Salinas, V. Flunkert, J. Gasthaus, y T. Januschowski,
 ``DeepAR: Probabilistic forecasting with autoregressive recurrent networks,''
 \textit{International Journal of Forecasting}, vol. 36, n.\textsuperscript{o} 3,
 pp. 1181--1191, 2020.
-\item\label{bib:6} T. Chen y C. Guestrin, ``XGBoost: A scalable tree boosting
-system,'' en \textit{Proc. 22nd ACM SIGKDD}, 2016, pp. 785--794.
-\item\label{bib:7} R. J. Hyndman y A. B. Koehler, ``Another look at measures of
-forecast accuracy,'' \textit{International Journal of Forecasting}, vol. 22,
-n.\textsuperscript{o} 4, pp. 679--688, 2006.
-\item\label{bib:8} V. Vovk, A. Gammerman, y G. Shafer, \textit{Algorithmic Learning
-in a Random World}. Nueva York: Springer, 2005.
-\item\label{bib:9} G. P. Zhang, ``Time series forecasting using a hybrid ARIMA and
+\item\label{bib:16} G. P. Zhang, ``Time series forecasting using a hybrid ARIMA and
 neural network model,'' \textit{Neurocomputing}, vol. 50, pp. 159--175, 2003.
-\item\label{bib:10} X. Wang, K. Smith, y R. Hyndman, ``Characteristic-based
-clustering for time series data,'' \textit{Data Mining and Knowledge Discovery},
-vol. 13, n.\textsuperscript{o} 3, pp. 335--364, 2006.
-\item\label{bib:11} C. H. Lubba, S. S. Sethi, P. Knaute, S. R. Schultz, B. D. Fulcher,
-y N. S. Jones, ``catch22: CAnonical Time-series CHaracteristics,'' \textit{Data Mining
-and Knowledge Discovery}, vol. 33, n.\textsuperscript{o} 6, pp. 1821--1852, 2019.
-\item\label{bib:12} R. Killick, P. Fearnhead, y I. A. Eckley, ``Optimal detection of
-changepoints with a linear computational cost,'' \textit{Journal of the American
-Statistical Association}, vol. 107, n.\textsuperscript{o} 500, pp. 1590--1598, 2012.
-\item\label{bib:13} S. Moritz y T. Bartz-Beielstein, ``imputeTS: Time series missing
-value imputation in R,'' \textit{The R Journal}, vol. 9, n.\textsuperscript{o} 1,
-pp. 207--218, 2017.
-\item\label{bib:14} M. Christ, N. Braun, J. Neuffer, y A. W. Kempa-Liehr, ``Time series
-feature extraction on basis of scalable hypothesis tests (tsfresh),''
-\textit{Neurocomputing}, vol. 307, pp. 72--77, 2018.
-\item\label{bib:15} G. Elliott, T. J. Rothenberg, y J. H. Stock, ``Efficient tests for
-an autoregressive unit root,'' \textit{Econometrica}, vol. 64, n.\textsuperscript{o} 4,
-pp. 813--836, 1996.
-\item\label{bib:16} C. Ding y H. Peng, ``Minimum redundancy feature selection from
-microarray gene expression data,'' \textit{Journal of Bioinformatics and Computational
-Biology}, vol. 3, n.\textsuperscript{o} 2, pp. 185--205, 2005.
-\item\label{bib:17} T. Henderson y B. D. Fulcher, ``An empirical evaluation of
-time-series feature sets,'' en \textit{ICDM Workshops}, 2021, pp. 1032--1041.
-\item\label{bib:18} W. A. Brock, W. D. Dechert, J. A. Scheinkman, y B. LeBaron, ``A test
-for independence based on the correlation dimension,'' \textit{Econometric Reviews},
-vol. 15, n.\textsuperscript{o} 3, pp. 197--235, 1996.
-\item\label{bib:19} T. Akiba, S. Sano, T. Yanase, T. Ohta, y M. Koyama, ``Optuna: A
+\item\label{bib:17} T. Akiba, S. Sano, T. Yanase, T. Ohta, y M. Koyama, ``Optuna: A
 next-generation hyperparameter optimization framework,'' en \textit{Proc. 25th ACM
 SIGKDD}, 2019, pp. 2623--2631.
-\item\label{bib:20} S. Makridakis, E. Spiliotis, y V. Assimakopoulos, ``The M4
-competition: 100,000 time series and 61 forecasting methods,'' \textit{International
-Journal of Forecasting}, vol. 36, n.\textsuperscript{o} 1, pp. 54--74, 2020.
-\item\label{bib:21} T. Gneiting y A. E. Raftery, ``Strictly proper scoring rules,
-prediction, and estimation,'' \textit{Journal of the American Statistical Association},
-vol. 102, n.\textsuperscript{o} 477, pp. 359--378, 2007.
-\item\label{bib:22} F. X. Diebold y R. S. Mariano, ``Comparing predictive
+\item\label{bib:18} V. Vovk, A. Gammerman, y G. Shafer, \textit{Algorithmic Learning
+in a Random World}. Nueva York: Springer, 2005.
+\item\label{bib:19} R. J. Hyndman y A. B. Koehler, ``Another look at measures of
+forecast accuracy,'' \textit{International Journal of Forecasting}, vol. 22,
+n.\textsuperscript{o} 4, pp. 679--688, 2006.
+\item\label{bib:20} F. X. Diebold y R. S. Mariano, ``Comparing predictive
 accuracy,'' \textit{Journal of Business \& Economic Statistics}, vol. 13,
 n.\textsuperscript{o} 3, pp. 253--263, 1995.
-\item\label{bib:23} P. R. Hansen, A. Lunde, y J. M. Nason, ``The model confidence
+\item\label{bib:21} P. R. Hansen, A. Lunde, y J. M. Nason, ``The model confidence
 set,'' \textit{Econometrica}, vol. 79, n.\textsuperscript{o} 2, pp. 453--497, 2011.
-\item\label{bib:24} J. Dem\v{s}ar, ``Statistical comparisons of classifiers over
+\item\label{bib:22} J. Dem\v{s}ar, ``Statistical comparisons of classifiers over
 multiple data sets,'' \textit{Journal of Machine Learning Research}, vol. 7,
 pp. 1--30, 2006.
+\item\label{bib:23} S. Makridakis, E. Spiliotis, y V. Assimakopoulos, ``The M4
+competition: 100,000 time series and 61 forecasting methods,'' \textit{International
+Journal of Forecasting}, vol. 36, n.\textsuperscript{o} 1, pp. 54--74, 2020.
+\item\label{bib:24} T. Gneiting y A. E. Raftery, ``Strictly proper scoring rules,
+prediction, and estimation,'' \textit{Journal of the American Statistical Association},
+vol. 102, n.\textsuperscript{o} 477, pp. 359--378, 2007.
 \item\label{bib:25} I. Gibbs y E. Cand\`es, ``Adaptive conformal inference under
 distribution shift,'' en \textit{Advances in Neural Information Processing Systems
 (NeurIPS)}, vol. 34, pp. 1660--1672, 2021.
