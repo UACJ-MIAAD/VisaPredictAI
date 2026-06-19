@@ -87,3 +87,4 @@ models/
 campaign.log
 
 reports/campaign_pool_*.csv
+ante_tab/

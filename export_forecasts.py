@@ -43,8 +43,10 @@ def _local_rows(table: str) -> list[dict]:
         for name in LOCAL:
             try:
                 m = models.build_model(name)
-                # retrain=False: ajusta una vez sobre el pre-hold-out y rueda 1-paso (rápido,
-                # para visualización; los MASE oficiales del .tex vienen del walk-forward completo).
+                fit_kw = cov if name in config.DIFFERENCED else {}
+                # ajustar una vez sobre el pre-hold-out, luego rodar 1-paso con retrain=False
+                # (rápido, para visualización; los MASE oficiales del .tex vienen del walk-forward).
+                m.fit(ts[: -walkforward.HOLDOUT], **fit_kw)  # type: ignore[attr-defined]
                 fc = m.historical_forecasts(  # type: ignore[attr-defined]
                     ts,
                     start=split,
@@ -53,7 +55,7 @@ def _local_rows(table: str) -> list[dict]:
                     retrain=False,
                     last_points_only=True,
                     verbose=False,
-                    **(cov if name in config.DIFFERENCED else {}),
+                    **fit_kw,
                 )
                 a = actual.slice_intersect(fc)
                 for d, av, fv in zip(
