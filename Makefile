@@ -2,7 +2,7 @@
 # Override the interpreter with: make test PY=python
 PY ?= ante/bin/python
 
-.PHONY: help install model-install freeze scrape panel db news figures audit test test-model lint typecheck check all update eda compare report
+.PHONY: help install model-install freeze scrape panel db news figures audit test test-model lint typecheck check all update eda compare report validate
 
 help:
 	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"
@@ -23,6 +23,7 @@ help:
 	@echo "lint     - ruff check"
 	@echo "typecheck- mypy"
 	@echo "check    - lint + typecheck + test"
+	@echo "validate - assert cookiecutter structure + no loose files"
 	@echo "all      - scrape -> panel -> db -> test -> figures -> audit"
 
 install:
@@ -90,7 +91,10 @@ lint:
 typecheck:
 	$(PY) -m mypy --ignore-missing-imports *.py vp_model/*.py tests/*.py
 
-check: lint typecheck test
+validate:
+	bash tools/validate_structure.sh
+
+check: validate lint typecheck test
 
 all: freeze scrape panel db test figures audit
 

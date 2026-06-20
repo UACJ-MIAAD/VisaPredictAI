@@ -21,6 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Validate cookiecutter structure
+        run: bash tools/validate_structure.sh
+
       - uses: actions/setup-python@v6
         with:
           python-version: '3.14'

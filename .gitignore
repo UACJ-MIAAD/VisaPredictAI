@@ -68,6 +68,7 @@ ante_nf/
 lightning_logs/
 
 # Artefactos de build LaTeX (Overleaf no los versiona; parses locales sí los generan)
+reports/latex/*.pdf
 reports/latex/*.aux
 reports/latex/*.log
 reports/latex/*.out
