@@ -312,6 +312,35 @@ Para asegurar la reproducibilidad y la resiliencia ante la rotación de boletine
 viejos del portal oficial, cada boletín se congela como instantánea HTML en un
 respaldo versionado, del cual el procesamiento parte de forma reproducible.
 
+La Figura~\ref{fig:fuente} muestra un boletín real (julio de 2026) tal como se publica: un
+encabezado institucional y, para cada tabla, una matriz con las categorías migratorias en las
+filas y los países o áreas de cargabilidad en las columnas. Cada celda contiene uno de tres
+valores: una \textbf{fecha de prioridad} en formato \texttt{DDMMMYY} (p.\,ej.\ \texttt{01FEB18}),
+la marca \textbf{\textit{Current}} (\texttt{C}, sin rezago ese mes) o \textbf{\textit{Unavailable}}
+(\texttt{U}, sin números disponibles). La Figura~\ref{fig:tabla_pub} reproduce, con esa misma
+estructura, la tabla \textit{Final Action Dates} de preferencia por empleo del mismo boletín,
+donde conviven los tres regímenes. Esta distinción $C/F/U$ es central: solo las celdas con
+fecha ($e=F$) constituyen el objetivo predictivo.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.74\textwidth]{data_source_page.png}
+\caption[Página oficial del Visa Bulletin]{Boletín de visas de julio de 2026 publicado por el
+Departamento de Estado en \texttt{travel.state.gov}, con la tabla de preferencias familiares.
+Es la fuente primaria y autoritativa del proyecto.}
+\label{fig:fuente}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.94\textwidth]{data_bulletin_table.pdf}
+\caption[Estructura publicada y regímenes $C/F/U$]{Tabla \textit{Final Action Dates} de
+preferencia por empleo (julio de 2026): categorías en las filas, áreas de cargabilidad en las
+columnas. Cada celda es una fecha (F), \textit{Current} (C) o \textit{Unavailable} (U); solo las
+celdas con fecha son objetivo predictivo.}
+\label{fig:tabla_pub}
+\end{figure}
+
 \subsection{1.1.2 Obtención de los datos y conversión al formato adecuado}
 
 La extracción se realiza por \textit{web scraping} de las instantáneas congeladas,
@@ -320,6 +349,43 @@ crudo de cada celda se conserva tal cual se publicó y se clasifica en el régim
 $e \in \{F, C, U, \text{UNK}\}$. La variable dependiente $y_{p,c,b,t}$ se define
 como el número de días desde la época base $t_0 = $ 1-ene-1975, calculado solo para
 las celdas con fecha ($e=F$).
+
+El flujo completo de adquisición y conversión se resume en la
+Figura~\ref{fig:pipeline_datos}. Primero, cada boletín se \textbf{congela} como una instantánea
+HTML en un respaldo versionado (política \textit{skip-if-exists}), lo que aísla el proyecto de la
+rotación de boletines viejos en el portal oficial. Después, un \textbf{parser sin conexión}
+recorre las instantáneas con una detección de columnas robusta a veinte años de deriva de
+formato, clasifica el régimen de cada celda y, para las celdas con fecha, calcula
+$y_{p,c,b,t}$ como los días transcurridos desde la época base.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\footnotesize,
+  stage/.style={rectangle, rounded corners=3pt, draw=uacjblue, line width=0.7pt, fill=white,
+    text width=2.6cm, align=center, minimum height=1.5cm, inner sep=4pt},
+  src/.style={stage, fill=uacjblue!8},
+  whbox/.style={stage, fill=uacjyellow!30, draw=uacjblack},
+  lbl/.style={font=\scriptsize, text=uacjgray, align=center, text width=2.6cm},
+  darr/.style={-{Latex[length=2.4mm]}, uacjgray, line width=1.0pt}]
+  \node[src] (web) {\textbf{travel.state.gov}\\ Visa Bulletin (HTML mensual)};
+  \node[stage, right=0.75cm of web] (snap) {Instantánea HTML congelada (respaldo S3)};
+  \node[stage, right=0.75cm of snap] (parse) {Parser sin conexión; detección robusta de columnas};
+  \node[stage, right=0.75cm of parse] (panel) {Panel largo $y_{p,c,b,t}$ (CSV \textit{tidy})};
+  \node[whbox, right=0.75cm of panel] (wh) {Almacén estrella DuckDB (capa gold)};
+  \draw[darr] (web)--(snap); \draw[darr] (snap)--(parse);
+  \draw[darr] (parse)--(panel); \draw[darr] (panel)--(wh);
+  \node[lbl, below=0.12cm of snap] {\textit{congelar} (skip-if-exists)};
+  \node[lbl, below=0.12cm of parse] {\textit{clasificar} $C/F/U$};
+  \node[lbl, below=0.12cm of panel] {$y=$ días desde $t_0{=}$1975};
+\end{tikzpicture}%
+}
+\caption[Conversión de los datos]{De la página oficial al almacén entrenable: congelado de la
+instantánea HTML, parseo sin conexión con clasificación de régimen, consolidación del panel
+$y_{p,c,b,t}$ y carga en el almacén dimensional en estrella.}
+\label{fig:pipeline_datos}
+\end{figure}
 
 Los datos se consolidan en un panel largo y se cargan en un almacén dimensional en
 estrella (DuckDB) cuyas restricciones de clave e integridad actúan como contrato de
@@ -331,6 +397,41 @@ largo de dos décadas; la distinción entre ``sin dato'' y ``Unavailable'' (resu
 el centinela \texttt{UNK} en lugar de \texttt{NA}, que colisiona con la coerción de
 \texttt{pandas}); y la naturaleza dispersa de las series, pues los meses en régimen
 $C$ o $U$ no aportan fecha y se manifiestan como huecos.
+
+La Figura~\ref{fig:csv_panel} muestra el resultado de la conversión: el panel en formato
+\textit{tidy} (largo), donde cada fila es una observación (país, categoría, tabla, mes) con su
+régimen, su fecha de prioridad y la variable objetivo \texttt{days\_since\_base}; las celdas
+$C$ y $U$ se conservan como anotación, sin fecha. Ese panel se materializa en el almacén
+dimensional en estrella de la Figura~\ref{fig:schema_er} —siete dimensiones, dos tablas de
+hechos y vistas/marts de gobernanza—, sobre el que cualquier consulta es reproducible
+(Figura~\ref{fig:duckdb}).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{data_csv_panel.pdf}
+\caption[Panel \textit{tidy} resultante]{Muestra del panel largo \texttt{visa\_panel\_long.csv}:
+cada fila combina país, categoría, tabla y mes con su régimen, su fecha de prioridad y la
+variable objetivo \texttt{days\_since\_base}, definida solo cuando el estado es $F$.}
+\label{fig:csv_panel}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{data_schema_er.png}
+\caption[Esquema estrella del almacén]{Modelo dimensional en estrella del almacén DuckDB (capa
+gold): siete dimensiones, dos tablas de hechos (prioridades y rangos de \textit{Diversity Visa})
+y vistas/marts de gobernanza, con restricciones de clave e integridad como contrato de calidad.}
+\label{fig:schema_er}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{data_duckdb_sample.pdf}
+\caption[Consulta al almacén gold]{Resultado de una consulta SQL a la vista
+\texttt{v\_panel\_long} del almacén: la serie entrenable (estado $F$) de México/F3/FAD con su
+fecha de prioridad y la variable objetivo \texttt{days\_since\_base}.}
+\label{fig:duckdb}
+\end{figure}
 
 % ------------------------------------------------------------
 \section{1.2 Análisis de datos}
