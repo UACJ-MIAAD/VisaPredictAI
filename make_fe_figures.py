@@ -72,7 +72,9 @@ def fig_calendar() -> None:
     a1.set_xlabel("Mes del año fiscal")
     a1.set_ylabel("Valor de la codificación")
     a1.set_title("(a) Componentes seno/coseno", fontsize=9.5, color=BLUE)
-    a1.legend(fontsize=8, loc="upper right")
+    # centro-superior (Abr–Jun): ambas curvas están en la mitad baja ahí, zona libre
+    a1.set_ylim(-1.12, 1.18)
+    a1.legend(fontsize=8, loc="upper center", bbox_to_anchor=(0.6, 1.0), framealpha=0.92)
     # círculo: meses equiespaciados; Dic y Ene quedan adyacentes
     a2.add_patch(plt.Circle((0, 0), 1, fill=False, color=MID, lw=1.0))
     a2.scatter(sin, cos, color=BLUE, s=40, zorder=5)
