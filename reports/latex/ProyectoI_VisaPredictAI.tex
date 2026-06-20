@@ -41,7 +41,7 @@
 \definecolor{uacjblack}{HTML}{231F20}
 \definecolor{regC}{HTML}{2E7D6F}   % verde-teal: régimen Current
 \definecolor{regU}{HTML}{8C2D2D}   % vino: régimen Unavailable
-\definecolor{regUNK}{HTML}{8A8A8A} % gris: UNK
+\definecolor{regUNK}{HTML}{9AA3AD} % gris: UNK (= MID de la paleta matplotlib)
 \definecolor{bronzec}{HTML}{B87333} % bronce (capa cruda)
 \definecolor{silverc}{HTML}{8C97A0} % plata (panel)
 \usepackage{amsmath}
@@ -1317,7 +1317,7 @@ e integridad actúan como contrato de calidad; de él se deriva el mart de entre
     minimum height=2.1cm, inner sep=5pt},
   bronze/.style={layer, draw=bronzec, fill=bronzec!13},
   silver/.style={layer, draw=silverc, fill=silverc!20},
-  gold/.style={layer, draw=uacjyellow!85!black, fill=uacjyellow!22},
+  gold/.style={layer, draw=uacjyellow!80!black, fill=uacjyellow!30},
   modl/.style={layer, draw=uacjblue, fill=uacjblue!10},
   sub/.style={font=\scriptsize\itshape, text=uacjgray, align=center, text width=3.0cm},
   darr/.style={-{Latex[length=3mm]}, uacjgray, line width=1.3pt}]
@@ -1355,7 +1355,7 @@ boletín nuevo, no hace nada; si lo hay, reconstruye el panel y el almacén, los
   font=\footnotesize,
   trig/.style={ellipse, draw=uacjblue, fill=uacjblue!10, line width=0.9pt, font=\footnotesize\bfseries, inner sep=3pt, minimum width=1.7cm},
   proc/.style={rectangle, rounded corners=2pt, draw=uacjgray, fill=white, line width=0.6pt, text width=2.0cm, align=center, minimum height=1.0cm, inner sep=3pt},
-  gate/.style={diamond, draw=uacjyellow!80!black, fill=uacjyellow!22, line width=0.9pt, aspect=1.7, inner sep=0pt, font=\scriptsize, align=center, text width=1.5cm},
+  gate/.style={diamond, draw=uacjyellow!80!black, fill=uacjyellow!30, line width=0.9pt, aspect=1.7, inner sep=0pt, font=\scriptsize, align=center, text width=1.5cm},
   okk/.style={rectangle, rounded corners=2pt, draw=regC, fill=regC!16, line width=0.8pt, align=center, inner sep=4pt, font=\bfseries\footnotesize, text width=1.6cm},
   arr/.style={-{Latex[length=2.2mm]}, uacjgray, line width=0.9pt},
   lab/.style={font=\scriptsize\itshape, text=uacjgray}]
@@ -1399,7 +1399,7 @@ este documento puede atarse al \textit{commit}, la semilla y los datos exactos q
 \begin{tikzpicture}[
   font=\footnotesize,
   src/.style={rectangle, rounded corners=2pt, draw=uacjblue, fill=uacjblue!8, line width=0.7pt, text width=2.6cm, align=center, minimum height=0.9cm, inner sep=3pt},
-  hub/.style={rectangle, rounded corners=3pt, draw=uacjyellow!80!black, fill=uacjyellow!22, line width=1pt, text width=2.5cm, align=center, minimum height=1.0cm, font=\bfseries, inner sep=3pt},
+  hub/.style={rectangle, rounded corners=3pt, draw=uacjyellow!80!black, fill=uacjyellow!30, line width=1pt, text width=2.5cm, align=center, minimum height=1.0cm, font=\bfseries, inner sep=3pt},
   stor/.style={rectangle, rounded corners=2pt, draw=uacjgray, fill=uacjblue!4, line width=0.7pt, text width=2.9cm, align=center, minimum height=1.0cm, inner sep=4pt, font=\scriptsize},
   arr/.style={-{Latex[length=2mm]}, uacjgray, line width=0.8pt}]
   \node[src] (run) {Corrida de modelado (\texttt{-{}-mlflow})};
