@@ -40,12 +40,16 @@ plt.rcParams.update(
     }
 )
 
+# 300 ppi (estándar de impresión) para .png nítidos. Explícito en cada savefig:
+# statsmodels (STL/ACF) reescribe rcParams a mitad de proceso, así que no se confía en el rcParam.
+SAVE_DPI = 300
+
 
 def _save(fig: plt.Figure, name: str) -> Path:
     OUTDIR.mkdir(parents=True, exist_ok=True)
     path = OUTDIR / name
     fig.tight_layout()
-    fig.savefig(path, bbox_inches="tight")
+    fig.savefig(path, bbox_inches="tight", dpi=SAVE_DPI)
     plt.close(fig)
     return path
 
