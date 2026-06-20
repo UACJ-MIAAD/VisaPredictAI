@@ -1019,15 +1019,15 @@ transformaciones, todas diseñadas para evitar la fuga de información (\textit{
 \resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\footnotesize,
-  step/.style={rectangle, rounded corners=3pt, draw=uacjblue, line width=0.7pt, fill=white,
+  fstep/.style={rectangle, rounded corners=3pt, draw=uacjblue, line width=0.7pt, fill=white,
     text width=2.5cm, align=center, minimum height=1.4cm, inner sep=4pt},
-  srcb/.style={step, fill=uacjblue!8},
-  matb/.style={step, fill=uacjyellow!30, draw=uacjblack},
+  srcb/.style={fstep, fill=uacjblue!8},
+  matb/.style={fstep, fill=uacjyellow!30, draw=uacjblack},
   far/.style={-{Latex[length=2.2mm]}, uacjgray, line width=0.9pt}]
   \node[srcb] (ser) {Serie con fecha ($e=F$)};
-  \node[step, right=0.7cm of ser] (dif) {Primera diferencia (avance mensual)};
-  \node[step, right=0.7cm of dif] (cov) {Rezagos $+$ calendario cíclico $+$ máscara MNAR};
-  \node[step, right=0.7cm of cov] (std) {Estandarización (solo entrenamiento)};
+  \node[fstep, right=0.7cm of ser] (dif) {Primera diferencia (avance mensual)};
+  \node[fstep, right=0.7cm of dif] (cov) {Rezagos $+$ calendario cíclico $+$ máscara MNAR};
+  \node[fstep, right=0.7cm of cov] (std) {Estandarización (solo entrenamiento)};
   \node[matb, right=0.7cm of std] (mat) {Matriz de características};
   \draw[far] (ser)--(dif); \draw[far] (dif)--(cov);
   \draw[far] (cov)--(std); \draw[far] (std)--(mat);
@@ -1382,7 +1382,7 @@ este documento puede atarse al \textit{commit}, la semilla y los datos exactos q
 \begin{tikzpicture}[
   font=\footnotesize,
   src/.style={rectangle, rounded corners=2pt, draw=uacjblue, fill=uacjblue!8, line width=0.7pt, text width=2.6cm, align=center, minimum height=0.9cm, inner sep=3pt},
-  hub/.style={rectangle, rounded corners=3pt, draw=uacjyellow!80!black, fill=uacjyellow!22, line width=1pt, text width=1.9cm, align=center, minimum height=1.0cm, font=\bfseries, inner sep=3pt},
+  hub/.style={rectangle, rounded corners=3pt, draw=uacjyellow!80!black, fill=uacjyellow!22, line width=1pt, text width=2.5cm, align=center, minimum height=1.0cm, font=\bfseries, inner sep=3pt},
   stor/.style={rectangle, rounded corners=2pt, draw=uacjgray, fill=uacjblue!4, line width=0.7pt, text width=2.9cm, align=center, minimum height=1.0cm, inner sep=4pt, font=\scriptsize},
   arr/.style={-{Latex[length=2mm]}, uacjgray, line width=0.8pt}]
   \node[src] (run) {Corrida de modelado (\texttt{-{}-mlflow})};
