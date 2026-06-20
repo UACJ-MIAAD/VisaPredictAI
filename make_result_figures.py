@@ -399,6 +399,133 @@ def forecast_vs_actual_rows(table: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# ---------- F6: diagrama de Diferencia Crítica (Friedman-Nemenyi) ----------
+def _avg_ranks(table: str):
+    """Rangos promedio por modelo (1=mejor) sobre las series con cobertura completa + CD de Nemenyi."""
+    from scipy.stats import friedmanchisquare, studentized_range
+
+    df = pd.read_csv(REP / f"model_comparison_{table}21.csv")
+    piv = df.pivot_table(index=["country", "category"], columns="model", values="hold_mase")
+    piv = piv.dropna(axis=1)  # solo modelos presentes en TODAS las series (bloques completos)
+    ranks = piv.rank(axis=1, ascending=True)  # 1 = menor MASE = mejor
+    avg = ranks.mean().sort_values()
+    k, n = piv.shape[1], piv.shape[0]
+    q = studentized_range.ppf(0.95, k, np.inf) / np.sqrt(2)  # valor crítico de Nemenyi
+    cd = float(q * np.sqrt(k * (k + 1) / (6 * n)))
+    pval = friedmanchisquare(*[piv[c].to_numpy() for c in piv.columns]).pvalue
+    return avg, cd, n, k, pval
+
+
+def _cd_panel(ax, avg, cd, title):
+    models = list(avg.index)
+    ranks = avg.to_numpy()
+    k = len(models)
+    lo, hi = 1, int(np.ceil(ranks.max()))
+    half = (k + 1) // 2
+    yaxis = k / 2 + 1.7
+    lowest_y = yaxis - 0.5 - (half - 1) * 0.42
+    ax.set_xlim(lo - 0.5, hi + 0.5)
+    ax.set_ylim(lowest_y - 0.45, yaxis + 1.35)
+    ax.axis("off")
+    ax.plot([lo, hi], [yaxis, yaxis], color=BLACK, lw=1.0)  # eje de rangos
+    for r in range(lo, hi + 1):
+        ax.plot([r, r], [yaxis, yaxis + 0.12], color=BLACK, lw=1.0)
+        ax.text(r, yaxis + 0.20, str(r), ha="center", va="bottom", fontsize=7)
+    ax.text((lo + hi) / 2, yaxis + 0.62, title, ha="center", fontsize=9, color=BLUE, fontweight="bold")
+    half = (k + 1) // 2
+    for i, (mdl, rk) in enumerate(zip(models, ranks, strict=True)):
+        left = i < half
+        row = (half - 1 - i) if left else (i - half)
+        ytxt = yaxis - 0.5 - row * 0.42
+        xtxt = lo - 0.4 if left else hi + 0.4
+        best = i == 0
+        col = BLUE if best else BLACK
+        ax.plot([rk, rk], [yaxis, ytxt], color=col, lw=1.4 if best else 0.8)
+        ax.plot([rk, xtxt], [ytxt, ytxt], color=col, lw=1.4 if best else 0.8)
+        ax.text(
+            xtxt + (-0.12 if left else 0.12),
+            ytxt,
+            f"{mdl} ({rk:.2f})",
+            ha="right" if left else "left",
+            va="center",
+            fontsize=7.2,
+            color=col,
+            fontweight="bold" if best else "normal",
+        )
+    # barras de cliques (modelos sin diferencia significativa: rango dentro de CD)
+    cliques, i = [], 0
+    while i < k:
+        j = i
+        while j + 1 < k and ranks[j + 1] - ranks[i] <= cd:
+            j += 1
+        if j > i:
+            cliques.append((ranks[i], ranks[j]))
+        i += 1
+    cliques = [
+        c
+        for idx, c in enumerate(cliques)
+        if not any(c2[0] <= c[0] and c[1] <= c2[1] for k2, c2 in enumerate(cliques) if k2 != idx)
+    ]
+    ylev = yaxis - 0.22
+    for a, b in cliques:
+        ax.plot([a - 0.03, b + 0.03], [ylev, ylev], color=GOLD, lw=3.2, solid_capstyle="round")
+        ylev -= 0.12
+    # barra de la Diferencia Crítica
+    ax.plot([lo, lo + cd], [yaxis + 0.95, yaxis + 0.95], color=BLACK, lw=1.6)
+    ax.plot([lo, lo], [yaxis + 0.90, yaxis + 1.0], color=BLACK, lw=1.0)
+    ax.plot([lo + cd, lo + cd], [yaxis + 0.90, yaxis + 1.0], color=BLACK, lw=1.0)
+    ax.text(lo + cd / 2, yaxis + 1.02, f"CD = {cd:.2f}", ha="center", va="bottom", fontsize=7)
+
+
+def fig_cd_diagram() -> None:
+    fig, axes = plt.subplots(2, 1, figsize=(7.4, 6.6))
+    for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
+        avg, cd, n, k, pval = _avg_ranks(table)
+        ptxt = "p < 0.001" if pval < 0.001 else f"p = {pval:.3f}"
+        _cd_panel(
+            ax, avg, cd, f"({'a' if table == 'FAD' else 'b'}) {table} — {k} modelos, {n} series · Friedman {ptxt}"
+        )
+    fig.tight_layout(h_pad=1.2)
+    fig.savefig(FIG / "results_cd_diagram.pdf")
+    plt.close(fig)
+    print("F6 CD-diagram OK")
+
+
+# ---------- F7: heatmap de error por serie (área x categoría) ----------
+def fig_error_heatmap() -> None:
+    fig, axes = plt.subplots(1, 2, figsize=(7.6, 3.8))
+    anames = [a[1] for a in AREAS]
+    for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
+        d = pd.read_csv(REP / f"forecast_vs_actual_{table}.csv")
+        d["area"] = pd.Categorical(d["area"], [a[1] for a in AREAS], ordered=True)
+        m = d.pivot_table(index="area", columns="cat", values="mae_dias", observed=True).reindex(anames)[CATS]
+        ax.grid(False)
+        im = ax.imshow(m.to_numpy(), cmap="YlOrRd", aspect="auto", vmin=0, vmax=float(np.nanmax(m.to_numpy())))
+        ax.set_xticks(range(len(CATS)), CATS, fontsize=8)
+        ax.set_yticks(range(len(anames)), anames, fontsize=8)
+        for i in range(m.shape[0]):
+            for j in range(m.shape[1]):
+                v = m.to_numpy()[i, j]
+                if np.isfinite(v):
+                    ax.text(
+                        j,
+                        i,
+                        f"{int(v)}",
+                        ha="center",
+                        va="center",
+                        fontsize=7.5,
+                        color="white" if v > 0.6 * np.nanmax(m.to_numpy()) else BLACK,
+                    )
+        ax.set_title(f"({'a' if table == 'FAD' else 'b'}) {table}", fontsize=9, color=BLUE, fontweight="bold")
+        cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cb.ax.tick_params(labelsize=6)
+    fig.suptitle("Error absoluto medio del pronóstico por serie (días)", fontsize=10, y=1.02)
+    fig.tight_layout()
+    fig.savefig(FIG / "results_error_heatmap.pdf")
+    plt.close(fig)
+    print("F7 heatmap OK")
+
+
 if __name__ == "__main__":
     fig_ranking()
     fig_forecast()
@@ -406,6 +533,8 @@ if __name__ == "__main__":
     fig_coverage_crps()
     fig_backtest_grid("FAD")
     fig_backtest_grid("DFF")
+    fig_cd_diagram()
+    fig_error_heatmap()
     for t in ("FAD", "DFF"):
         forecast_vs_actual_rows(t).to_csv(REP / f"forecast_vs_actual_{t}.csv", index=False)
         print(f"tabla {t} -> reports/forecast_vs_actual_{t}.csv")

@@ -40,6 +40,12 @@
 \definecolor{uacjblack}{HTML}{231F20}
 \usepackage{amsmath}
 \usepackage{amssymb}
+\usepackage{algorithm}                    % flotante de pseudocódigo
+\usepackage{algpseudocode}                % cuerpo del algoritmo (algorithmicx)
+\floatname{algorithm}{Algoritmo}
+\renewcommand{\thealgorithm}{\arabic{algorithm}}
+\renewcommand{\algorithmicrequire}{\textbf{Entrada:}}
+\renewcommand{\algorithmicensure}{\textbf{Salida:}}
 
 % --- Interlineado y espaciado (idéntico al Anteproyecto) ---
 \setstretch{1.10}
@@ -185,23 +191,44 @@ cobertura empírica.
 \centering
 \begin{tikzpicture}[
   font=\footnotesize,
-  box/.style={rectangle, rounded corners=2pt, draw=uacjblue, line width=0.6pt,
-    fill=white, text width=2.5cm, align=center, minimum height=1.1cm,
-    inner sep=3pt, outer sep=0pt},
-  store/.style={box, fill=uacjblue!10},
-  arr/.style={-{Latex[length=2mm]}, uacjgray, line width=0.7pt}]
-  \node[store] (db) {Almacén DuckDB (vista entrenable $e=F$)};
-  \node[box, right=0.6cm of db] (pre) {Preprocesa\-miento (huecos, escala, calendario)};
-  \node[box, right=0.6cm of pre] (mod) {Catálogo de 21 modelos};
-  \node[box, right=0.6cm of mod] (wf) {Walk-forward (holdout 24 m)};
-  \node[box, fill=uacjyellow!25, right=0.6cm of wf] (pi) {Pronóstico + intervalo 95\,\%};
+  box/.style={rectangle, rounded corners=3pt, draw=uacjblue, line width=0.7pt,
+    fill=white, text width=2.45cm, align=center, minimum height=1.25cm,
+    inner sep=4pt, outer sep=0pt},
+  store/.style={box, fill=uacjblue!8},
+  out/.style={box, fill=uacjyellow!30, draw=uacjblack},
+  badge/.style={circle, fill=uacjblue, text=white, font=\bfseries\scriptsize,
+    inner sep=0pt, minimum size=0.42cm},
+  fam/.style={rectangle, rounded corners=2pt, fill=uacjblue!12, draw=uacjblue!45,
+    font=\scriptsize, inner sep=2.5pt, text width=3.2cm, align=center, minimum height=0.42cm},
+  arr/.style={-{Latex[length=2.2mm]}, uacjgray, line width=0.9pt}]
+  \node[store] (db) {Carga de series \textit{(vista $e=F$)}};
+  \node[box, right=0.5cm of db] (pre) {Preprocesa\-miento \textit{(huecos, escala, calendario)}};
+  \node[box, right=0.5cm of pre] (mod) {Catálogo de \textbf{21 modelos}};
+  \node[box, right=0.5cm of mod] (wf) {Walk-forward \textit{(hold-out 24 m)}};
+  \node[out, right=0.5cm of wf] (pi) {Pronóstico $+$ PI 95\,\%};
   \draw[arr] (db) -- (pre);
   \draw[arr] (pre) -- (mod);
   \draw[arr] (mod) -- (wf);
   \draw[arr] (wf) -- (pi);
+  \node[badge] at (db.north west) {1};
+  \node[badge] at (pre.north west) {2};
+  \node[badge] at (mod.north west) {3};
+  \node[badge] at (wf.north west) {4};
+  \node[badge] at (pi.north west) {5};
+  \node[fam] (f1) at ([yshift=-1.15cm]mod.south) {Estadísticos: ARIMA, SARIMA};
+  \node[fam, below=0.1cm of f1] (f2) {Suavizamiento: ETS, Theta, Kalman};
+  \node[fam, below=0.1cm of f2] (f3) {Aditivo: Prophet};
+  \node[fam, below=0.1cm of f3] (f4) {Árboles: XGBoost, LightGBM, CatBoost};
+  \node[fam, below=0.1cm of f4] (f5) {Lineales/profundos: DLinear, TiDE, LSTM, TFT\ldots};
+  \node[fam, below=0.1cm of f5] (f6) {Foundation: Chronos \textit{(zero-shot)}};
+  \draw[arr, uacjblue!55, line width=0.7pt] (mod) -- (f1);
+  \begin{scope}[on background layer]
+    \node[draw=uacjblue!30, rounded corners=3pt, fill=uacjblue!4, fit=(f1)(f6), inner sep=4pt] {};
+  \end{scope}
 \end{tikzpicture}
-\caption[Arquitectura del sistema de modelado]{Flujo modular de VisaPredict AI:
-del almacén entrenable al pronóstico con intervalo de predicción al 95\,\%.}
+\caption[Arquitectura del sistema de modelado]{Flujo modular de VisaPredict AI en cinco
+etapas, de la vista entrenable ($e=F$) del almacén al pronóstico con intervalo de
+predicción al $95$\,\%. La etapa~3 despliega las seis familias del catálogo de 21 modelos.}
 \label{fig:arquitectura}
 \end{figure}
 
@@ -791,6 +818,50 @@ La MASE escala el error por el del naïve estacional calculado \textit{solo} sob
 de entrenamiento; un valor menor que $1$ indica superar a esa línea base. Se adopta como
 métrica principal por ser comparable entre series de distinta escala y robusta a los ceros.
 
+El Algoritmo~\ref{alg:walkforward} resume el procedimiento de validación: en cada origen del
+hold-out el modelo se entrena \textit{solo} con el pasado, predice un paso y deriva su
+intervalo de los errores de calibración anteriores, de modo que ninguna observación futura
+interviene. La Tabla~\ref{tab:notacion} reúne la notación empleada.
+
+\begin{algorithm}[H]
+\caption{Validación \textit{walk-forward} sin fuga con intervalo de predicción conforme}
+\label{alg:walkforward}
+\begin{algorithmic}[1]
+\Require serie $y_{1:T}$, modelo $\mathcal{M}$, horizonte de prueba $H$, nivel $\alpha$
+\Ensure errores $\{e_t\}$ e intervalos $\{[L_t,U_t]\}$ sobre el hold-out
+\For{$t = T-H+1$ \textbf{hasta} $T$}
+  \State entrenar $\mathcal{M}$ con $y_{1:t-1}$ \Comment{nada del mes $t$ en adelante}
+  \State $\hat{y}_t \gets \mathcal{M}.\textsc{predecir}(1)$
+  \State $e_t \gets \lvert y_t - \hat{y}_t\rvert$
+  \State $q \gets \mathrm{cuantil}_{1-\alpha}\bigl(\{\lvert y_s-\hat{y}_s\rvert\}_{s<t}\bigr)$ \Comment{calibración con el pasado}
+  \State $[L_t,U_t] \gets [\hat{y}_t - q,\ \hat{y}_t + q]$
+\EndFor
+\State \textbf{devolver} $\{e_t\},\ \{[L_t,U_t]\}$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Notación principal]{Notación principal empleada en el documento.}
+\label{tab:notacion}
+\begin{tabular}{ll}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Símbolo} & \textbf{Significado} \\ \midrule
+$y_{p,c,b,t}$ & fecha de prioridad (días desde la base) de país $p$, categoría $c$, tabla $b$, mes $t$ \\
+$e \in \{C,F,U\}$ & régimen de la celda (\textit{Current}, fecha publicada, \textit{Unavailable}) \\
+$\hat{y}_t$ & pronóstico a un paso para el mes $t$ \\
+$H=24$ & longitud del conjunto de prueba (meses) \\
+$m=12$ & periodo estacional \\
+$[L_t,U_t]$ & intervalo de predicción en el mes $t$ \\
+$\alpha=0.05$ & nivel de significancia (cobertura nominal $1-\alpha=95$\,\%) \\
+$\bar{R}_j$ & rango promedio del modelo $j$ (prueba de Friedman) \\
+$\mathrm{CD}$ & diferencia crítica de la prueba de Nemenyi \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \section{2.2 Validación de los resultados}
 
 La Tabla~\ref{tab:comparacion_modelos} presenta el desempeño promedio de los 21
@@ -928,6 +999,25 @@ serie quedan fuera de escala (anotadas) por sobreajuste con muestras cortas. En 
 aparenta el menor error pero solo converge en 13 de las 25 series (sesgo de supervivencia),
 por lo que no es una referencia comparable.}
 \label{fig:ranking}
+\end{figure}
+
+La significancia de estas diferencias se formaliza con la prueba de Friedman sobre los
+rangos de los modelos en las 25 series, seguida de la prueba posterior de Nemenyi
+\cita{22}. El \textbf{diagrama de diferencia crítica} (Figura~\ref{fig:cd}) resume el
+resultado: la prueba de Friedman rechaza la hipótesis de igualdad ($p<0.001$) en ambas
+tablas, y la barra de diferencia crítica (CD) une los modelos cuyo rango promedio no se
+distingue estadísticamente. \textbf{ETS amortiguado obtiene el mejor rango promedio} en FAD
+($2.04$) y DFF ($2.92$), acompañado de Theta y los árboles sobre deltas; las redes profundas
+entrenadas por serie (LSTM, DeepAR, TFT) ocupan, junto al naïve, los últimos lugares.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{results_cd_diagram.pdf}
+\caption[Diagrama de diferencia crítica (Friedman-Nemenyi)]{Rango promedio de cada modelo
+(menor es mejor) sobre las 25 series, con la barra de diferencia crítica (CD) de la prueba de
+Nemenyi al $95$\,\%. Los modelos unidos por una barra horizontal no presentan una diferencia
+estadísticamente significativa en su rango. (a) FAD; (b) DFF.}
+\label{fig:cd}
 \end{figure}
 
 \paragraph{Efecto de la optimización de hiperparámetros.} Los tres árboles de
@@ -1224,6 +1314,21 @@ Resto del mundo & F1 & 01-Jan-2019 & 10-Oct-2018 & $-83$ & 21 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+La Figura~\ref{fig:heatmap} sintetiza el error en un mapa de calor por área y categoría: el
+modelo es \textbf{casi exacto} en las series estancadas (México~F3/F4 en DFF, $\le 1$ día) y
+acumula el mayor error en las de movimiento rápido (México~F1/F2B en FAD, F2A en todas las
+áreas), un patrón coherente con la dificultad intrínseca de cada cola migratoria.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{results_error_heatmap.pdf}
+\caption[Mapa de calor del error por serie]{Error absoluto medio del pronóstico (en días)
+por área de cargabilidad y categoría sobre el conjunto reservado de 24 meses. Tonos claros
+indican mayor exactitud. (a) FAD; (b) DFF. Las áreas no sobre-suscritas comparten valores
+cuando coinciden con la fecha mundial.}
+\label{fig:heatmap}
+\end{figure}
 
 \paragraph{Cobertura ampliada: categorías basadas en empleo (EB).} El mismo protocolo se
 aplicó a las categorías de preferencia por empleo (EB-1 a EB-5), que extienden el sistema
