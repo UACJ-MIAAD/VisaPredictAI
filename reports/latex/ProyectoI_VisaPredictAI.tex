@@ -1131,6 +1131,63 @@ Foundation \textit{(zero-shot)} & Chronos & Transferencia sin entrenamiento \\ \
 \end{tabular}
 \end{table}
 
+Cada familia aporta un \textit{sesgo inductivo} distinto; explicarlo permite anticipar —y luego
+contrastar empíricamente— cuál encaja con este régimen de tendencia fuerte, estacionalidad casi
+nula y retrogresiones ocasionales.
+
+\paragraph{Referencia: naïve estacional.} Repite el valor de doce meses atrás. No aprende nada,
+pero es el contrato mínimo: la métrica MASE escala el error de cada modelo por el suyo, de modo
+que un valor menor que uno significa haberlo superado. Todos los modelos serios lo baten por
+amplio margen (MASE de hold-out $1.30$), lo que confirma que las series son predecibles.
+
+\paragraph{Estadísticos lineales: ARIMA y SARIMA \cita{11}.} Modelan la serie como una
+combinación lineal de sus valores y errores pasados; SARIMA añade términos estacionales. Se
+eligen porque las series son fuertemente autorregresivas. Ocupan la zona media (ARIMA $0.157$,
+SARIMA $0.139$ en FAD) y revelan una fragilidad clave: con las series cortas de DFF, SARIMA solo
+converge en 13 de 25 series (falla numérica \textit{LinAlgError}), un sesgo de supervivencia que
+desmiente su aparente ventaja.
+
+\paragraph{Suavizamiento parsimonioso: ETS amortiguado, Theta y Kalman.} El suavizamiento
+exponencial con tendencia amortiguada, la descomposición de Theta y el filtro de Kalman comparten
+una virtud decisiva: \textbf{pocos parámetros}. Se eligen justo para el régimen observado, donde
+un modelo simple y bien regularizado es difícil de batir. El resultado lo confirma: \textbf{ETS y
+Theta encabezan FAD} (MASE $0.117$), por delante de todos los modelos de mayor capacidad. Es el
+hallazgo contraintuitivo del proyecto: aquí, menos es más.
+
+\paragraph{Aditivo: Prophet \cita{12}.} Descompone la serie en tendencia, estacionalidad y puntos
+de cambio. Se elige por su manejo explícito de cambios de régimen, atractivo ante las
+retrogresiones. Sin embargo, su estructura aditiva y suave \textit{subajusta} (MASE $0.572$): no
+reproduce ni la trayectoria escalonada ni los saltos abruptos de las colas migratorias.
+
+\paragraph{Árboles de potenciación de gradiente sobre deltas: XGBoost, LightGBM y CatBoost
+\cita{13}.} Aprenden relaciones no lineales entre rezagos y regresores de calendario. Su
+limitación —no extrapolan más allá del máximo visto en el entrenamiento— se resuelve
+formulándolos sobre la \textbf{primera diferencia}: predicen el avance mensual y lo reintegran.
+Así son plenamente competitivos (CatBoost $0.124$ en FAD) y la optimización de hiperparámetros los
+acerca aún más, pero no los lleva a superar a los parsimoniosos.
+
+\paragraph{Lineales y redes profundas: DLinear, NLinear, RLinear, TiDE, LSTM, DeepAR, ARIMA-LSTM,
+N-BEATS, N-HiTS y TFT \cita{14}\cita{15}\cita{16}.} Abarcan desde proyecciones lineales hasta
+arquitecturas de altísima capacidad. Se incluyen para responder \textit{empíricamente} si la
+capacidad ayuda. \textbf{Entrenadas por serie, fracasan}: con 125 a 290 observaciones se
+sobreajustan y caen por debajo del naïve (el TFT en último lugar, MASE $2.6$); la cascada
+ARIMA-LSTM ni siquiera converge en las series cortas de DFF. DeepAR merece mención aparte: su
+parametrización probabilística sobre incrementos no se estabiliza, un límite del modelo más que de
+la implementación. La causa es estructural —faltan datos por serie para tanta capacidad— y solo se
+revierte al entrenar de forma global (§2.2).
+
+\paragraph{Foundation model: Chronos en modo zero-shot.} Un transformador preentrenado sobre
+millones de series, evaluado \textit{sin ajuste alguno} a estos datos. Se incluye para medir
+cuánto vale la transferencia de conocimiento frente a la escasez. Su resultado es revelador: con
+MASE $0.225$ \textbf{supera a todas las redes profundas entrenadas localmente}, prueba de que la
+transferencia vence al entrenamiento local cuando los datos escasean —aunque tampoco alcanza a los
+parsimoniosos.
+
+En conjunto, esta comparación de sesgos inductivos anticipa el resultado central del Capítulo de
+resultados: la alta capacidad solo rinde cuando se entrena \textbf{global} sobre el panel, sobre
+la primera diferencia y con normalización por serie, condición bajo la cual las redes profundas
+pasan de fracasar a igualar o superar a la parsimonia según el régimen (§2.2).
+
 \subsection{1.3.2 Creación de la arquitectura general del sistema y definición del flujo de trabajo}
 
 Los 21 modelos se exponen tras una interfaz común (\texttt{fit}/\texttt{predict})
@@ -1385,9 +1442,22 @@ $y_1,\dots,y_n$ la serie de entrenamiento con periodo estacional $m=12$:
 \mathrm{MASE} = \frac{\mathrm{MAE}}
 {\dfrac{1}{n-m}\displaystyle\sum_{t=m+1}^{n} \lvert y_t - y_{t-m}\rvert}.
 \end{equation}
-La MASE escala el error por el del naïve estacional calculado \textit{solo} sobre el tramo
-de entrenamiento; un valor menor que $1$ indica superar a esa línea base. Se adopta como
-métrica principal por ser comparable entre series de distinta escala y robusta a los ceros.
+Las cuatro métricas son complementarias. \textbf{MAE} y \textbf{RMSE} miden el error en su
+escala natural —días—, intuitivos pero no comparables entre series de distinto rango; la RMSE
+penaliza con más fuerza los errores grandes, como los de las retrogresiones. La \textbf{sMAPE} es
+un porcentaje acotado y simétrico, libre de escala pero inestable cuando los valores rondan el
+cero. La \textbf{MASE} se adopta como \textbf{métrica principal}: escala el error por el del naïve
+estacional calculado \textit{solo} sobre el tramo de entrenamiento, por lo que es libre de escala
+—y por tanto comparable entre las 25 series—, robusta a los ceros e interpretable: un valor menor
+que $1$ significa superar a la línea base ingenua. Es, así, la métrica idónea para promediar el
+desempeño sobre un panel de series heterogéneas.
+
+\paragraph{Selección del modelo y modelo de producción.} El sistema no fija un único modelo: para
+cada serie despliega el de menor MASE en la región de validación, sin tocar nunca el conjunto de
+prueba. Como el ganador varía entre series (hipótesis H2), el sistema en producción es en realidad
+una \textbf{cartera} —un modelo por combinación país-categoría-tabla, con su intervalo de
+predicción conforme—. La significancia de las diferencias entre modelos se contrasta de antemano
+con las pruebas de la §2.2, para no confundir ruido con mejora.
 
 El Algoritmo~\ref{alg:walkforward} resume el procedimiento de validación: en cada origen del
 hold-out el modelo se entrena \textit{solo} con el pasado, predice un paso y deriva su
