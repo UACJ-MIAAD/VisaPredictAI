@@ -54,6 +54,9 @@ VisaPredictAI/
 ├── build_database.py · schema.sql      # carga el esquema estrella DuckDB + Parquet
 ├── mega_audit.py                      # auditoría exhaustiva de calidad de datos
 ├── visualize_wait_times.py             # gráficas por país (artefactos no versionados)
+├── vp_model/                           # capa de modelado (PI-I) + palette.py (paleta única) + plots.py (figuras EDA)
+├── make_*.py                           # generadores de figuras del .tex → reports/latex/Figures/ (data/eda/fe/result/hero/latinometrics)
+├── reports/latex/                      # ★ fuente LaTeX del entregable (Overleaf importa de aquí) + Figures/
 ├── tests/                              # pytest: parsers · extracción offline · contrato del panel + BD
 ├── data/snapshots/                     # HTML crudo congelado (gitignored; máster en S3)
 ├── data/raw/                           # CSVs por país (derivados de los snapshots, versionados)
