@@ -23,11 +23,13 @@ import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 from PIL import Image  # noqa: E402
 
+from vp_model.palette import BLUE, GRAY, MUTE, REGIME, STRIPE  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent
 FIG = ROOT / "reports" / "latex" / "Figures"
-BLUE, YELLOW, GRAY, BLACK = "#003CA6", "#FFD600", "#555559", "#231F20"
-DATEC, CURC, UNAC, UNKC = "#DCE6F5", "#D8EAD3", "#F6D9D6", "#ECECEC"  # date/Current/Unavailable/UNK
-plt.rcParams.update({"font.family": "serif", "savefig.bbox": "tight"})
+# regímenes de celda (relleno pastel) desde la paleta canónica
+DATEC, CURC, UNAC, UNKC = REGIME["F"]["fill"], REGIME["C"]["fill"], REGIME["U"]["fill"], REGIME["UNK"]["fill"]
+plt.rcParams.update({"font.family": "serif", "savefig.bbox": "tight", "savefig.dpi": 300})
 
 AREAS = ["all_chargeability", "china", "india", "mexico", "philippines"]
 ANAMES = ["All Charg.", "China", "India", "México", "Filipinas"]
@@ -121,13 +123,13 @@ def _render_df(df: pd.DataFrame, path: Path, title: str) -> None:
     tbl.auto_set_column_width(col=list(range(len(df.columns))))  # ancho por contenido (evita truncar)
     tbl.scale(1, 1.30)
     for (r, _c), cell in tbl.get_celld().items():
-        cell.set_edgecolor("#CCCCCC")
+        cell.set_edgecolor(MUTE)
         cell.set_linewidth(0.5)
         if r == 0:
             cell.set_facecolor(BLUE)
             cell.set_text_props(color="white", fontweight="bold")
         elif r % 2 == 0:
-            cell.set_facecolor("#F4F6FB")
+            cell.set_facecolor(STRIPE)
     ax.set_title(title, fontsize=9.5, color=BLUE, fontweight="bold", pad=6)
     fig.savefig(path)
     plt.close(fig)

@@ -23,9 +23,10 @@ import seaborn as sns  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
 FIG = ROOT / "reports" / "latex" / "Figures"
-BLUE, GOLD, GRAY, WINE, TEAL = "#003CA6", "#B8860B", "#555559", "#8C2D2D", "#2E7D6F"
-sns.set_theme(style="whitegrid", font="serif", rc={"axes.edgecolor": GRAY, "grid.color": "#E6E6E6"})
-plt.rcParams.update({"savefig.bbox": "tight", "font.size": 9})
+from vp_model.palette import BLUE, GOLD, GRAY, GRID, MID  # noqa: E402
+
+sns.set_theme(style="whitegrid", font="serif", rc={"axes.edgecolor": MID, "grid.color": GRID})
+plt.rcParams.update({"savefig.bbox": "tight", "savefig.dpi": 300, "font.size": 9})
 
 
 def _series(country="mexico", category="F3", table="FAD"):
@@ -73,7 +74,7 @@ def fig_calendar() -> None:
     a1.set_title("(a) Componentes seno/coseno", fontsize=9.5, color=BLUE)
     a1.legend(fontsize=8, loc="upper right")
     # círculo: meses equiespaciados; Dic y Ene quedan adyacentes
-    a2.add_patch(plt.Circle((0, 0), 1, fill=False, color="#CCCCCC", lw=1.0))
+    a2.add_patch(plt.Circle((0, 0), 1, fill=False, color=MID, lw=1.0))
     a2.scatter(sin, cos, color=BLUE, s=40, zorder=5)
     for kk, mm in zip(k, months, strict=True):
         a2.annotate(

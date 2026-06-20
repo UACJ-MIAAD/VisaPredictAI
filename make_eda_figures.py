@@ -18,10 +18,11 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import seaborn as sns  # noqa: E402
 
+from vp_model.palette import BLUE, COUNTRY, DIV, GOLD, GRID, MID, REGIME, SEQ, WINE  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent
 FIG = ROOT / "reports" / "latex" / "Figures"
-BLUE, GOLD, GRAY = "#003CA6", "#B8860B", "#555559"
-CCOL = {"mexico": BLUE, "india": GOLD, "china": "#8C2D2D", "philippines": "#2E7D6F", "all_chargeability": GRAY}
+CCOL = COUNTRY
 CNAME = {
     "mexico": "México",
     "india": "India",
@@ -31,8 +32,8 @@ CNAME = {
 }
 CATS = ["F1", "F2A", "F2B", "F3", "F4"]
 AREAS = ["mexico", "india", "china", "philippines", "all_chargeability"]
-sns.set_theme(style="whitegrid", font="serif", rc={"axes.edgecolor": GRAY, "grid.color": "#E6E6E6"})
-plt.rcParams.update({"savefig.bbox": "tight", "font.size": 9})
+sns.set_theme(style="whitegrid", font="serif", rc={"axes.edgecolor": MID, "grid.color": GRID})
+plt.rcParams.update({"savefig.bbox": "tight", "savefig.dpi": 300, "font.size": 9})
 
 
 def _panel(table="FAD"):
@@ -66,7 +67,7 @@ def fig_violin_country() -> None:
         ax=ax,
     )
     ax.set_xticks(range(len(order)), [CNAME[a] for a in order])
-    ax.axhline(0, color="#999999", lw=0.8, ls="--")
+    ax.axhline(0, color=MID, lw=0.8, ls="--")
     ax.set_xlabel("")
     ax.set_ylabel("Avance mensual de la fecha (días)")
     ax.set_title("Distribución del avance mensual por área de cargabilidad (FAD)", fontsize=10, color=BLUE)
@@ -80,7 +81,7 @@ def fig_violin_category() -> None:
     g = f[f.delta.between(-120, 280)]
     fig, ax = plt.subplots(figsize=(7.2, 3.6))
     sns.violinplot(data=g, x="category", y="delta", order=CATS, color=BLUE, cut=0, inner="box", linewidth=0.9, ax=ax)
-    ax.axhline(0, color="#999999", lw=0.8, ls="--")
+    ax.axhline(0, color=MID, lw=0.8, ls="--")
     ax.set_xlabel("Categoría de preferencia familiar")
     ax.set_ylabel("Avance mensual (días)")
     ax.set_title("Distribución del avance mensual por categoría (FAD)", fontsize=10, color=BLUE)
@@ -95,7 +96,7 @@ def fig_ridgeline() -> None:
 
     f = _panel()
     g = f[f.delta.between(-90, 200)]
-    pal = sns.color_palette("crest", len(CATS))
+    pal = [SEQ(v) for v in np.linspace(0.40, 0.92, len(CATS))]
     xs = np.linspace(-90, 200, 400)
     fig, ax = plt.subplots(figsize=(7.2, 4.0))
     for i, cat in enumerate(reversed(CATS)):  # F4 abajo, F1 arriba
@@ -109,7 +110,7 @@ def fig_ridgeline() -> None:
         ax.fill_between(xs, y0, y0 + dens, color=col, alpha=0.85, zorder=10 - i, lw=0)
         ax.plot(xs, y0 + dens, color="white", lw=1.1, zorder=10 - i)
         ax.text(-95, y0 + 0.04, cat, ha="right", va="bottom", fontweight="bold", color=col, fontsize=9)
-    ax.axvline(0, color="#999999", ls="--", lw=0.8, zorder=0)
+    ax.axvline(0, color=MID, ls="--", lw=0.8, zorder=0)
     ax.set_yticks([])
     ax.set_xlim(-105, 200)
     ax.set_xlabel("Avance mensual de la fecha (días)")
@@ -127,7 +128,7 @@ def fig_regime() -> None:
     fam = d[d.block == "family"].copy()
     fam["serie"] = fam.country.map(CNAME) + "/" + fam.category
     order_status = ["F", "C", "U", "UNK"]
-    cmap = {"F": BLUE, "C": "#2E7D6F", "U": "#8C2D2D", "UNK": "#BBBBBB"}
+    cmap = {s: REGIME[s]["line"] for s in order_status}
     comp = fam.groupby(["serie", "status"]).size().unstack(fill_value=0)
     comp = comp.reindex(columns=order_status, fill_value=0)
     comp = comp.div(comp.sum(axis=1), axis=0).sort_values("F")
@@ -154,7 +155,7 @@ def fig_seasonality() -> None:
     ax.axvline(8.5, color=GOLD, ls="--", lw=1.4)
     ax.text(8.6, ax.get_ylim()[1] * 0.9, "inicio año fiscal (oct)", color=GOLD, fontsize=7.5, va="top")
     ax.set_xticks(range(12), ["E", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"])
-    ax.axhline(0, color="#999999", lw=0.8, ls="--")
+    ax.axhline(0, color=MID, lw=0.8, ls="--")
     ax.set_xlabel("Mes del boletín")
     ax.set_ylabel("Avance mensual (días)")
     ax.set_title("Estacionalidad del avance por mes calendario (FAD)", fontsize=10, color=BLUE)
@@ -192,7 +193,7 @@ def fig_distributions() -> None:
     a1.set_title("(a) Variable objetivo", fontsize=9.5, color=BLUE)
     d = f.delta.dropna()
     a2.hist(np.sign(d) * np.log1p(np.abs(d)), bins=60, color=GOLD, edgecolor="white")
-    a2.axvline(0, color="#999999", lw=0.8, ls="--")
+    a2.axvline(0, color=MID, lw=0.8, ls="--")
     a2.set_xlabel("Avance mensual  (escala signo·log)")
     a2.set_title("(b) Incrementos: cola de retrogresión", fontsize=9.5, color=BLUE)
     a2.text(
@@ -202,7 +203,7 @@ def fig_distributions() -> None:
         transform=a2.transAxes,
         fontsize=7.5,
         va="top",
-        color="#8C2D2D",
+        color=WINE,
     )
     fig.suptitle("Distribución del objetivo y de sus incrementos (FAD)", fontsize=10, color=BLUE, y=1.02)
     fig.tight_layout()
@@ -218,7 +219,7 @@ def fig_corr() -> None:
     corr = wide.corr().fillna(0)
     g = sns.clustermap(
         corr,
-        cmap="vlag",
+        cmap=DIV,
         center=0,
         figsize=(7.0, 7.0),
         cbar_pos=(0.02, 0.83, 0.03, 0.13),

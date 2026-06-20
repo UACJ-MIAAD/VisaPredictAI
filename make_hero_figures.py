@@ -17,20 +17,13 @@ import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from vp_model import dataset  # noqa: E402
+from vp_model.palette import BLUE, GRID, INK, MID, style  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
 FIG = ROOT / "reports" / "latex" / "Figures"
-INK, BLUE, GRAY, GOLD = "#231F20", "#003CA6", "#9AA3AD", "#B8860B"
-plt.rcParams.update(
-    {
-        "font.family": "serif",
-        "font.size": 10,
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "axes.edgecolor": "#888888",
-        "savefig.bbox": "tight",
-    }
-)
+GRAY = MID  # gris medio para etiquetas de contexto
+style()
+plt.rcParams.update({"axes.spines.top": False, "axes.spines.right": False})
 HOLD_START = pd.Timestamp("2024-08-01")
 CTX_START = pd.Timestamp("2019-01-01")
 
@@ -126,7 +119,7 @@ def fig_hero(country="philippines", category="F3", table="FAD", out="results_her
     )
     # cosmética editorial
     ax.set_ylabel("Fecha de prioridad (año)")
-    ax.grid(axis="y", color="#E8E8E8", lw=0.8)
+    ax.grid(axis="y", color=GRID, lw=0.8)
     ax.set_axisbelow(True)
     ax.xaxis.set_major_locator(mdates.YearLocator(2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))

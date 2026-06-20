@@ -26,8 +26,9 @@ from matplotlib.ticker import MaxNLocator  # noqa: E402
 ROOT = Path(__file__).resolve().parent
 REP = ROOT / "reports"
 FIG = REP / "latex" / "Figures"
-BLUE, YELLOW, GRAY, BLACK = "#003CA6", "#FFD600", "#555559", "#231F20"
-GOLD = "#B8860B"  # ámbar legible sobre blanco (el amarillo UACJ no contrasta en líneas)
+from vp_model.palette import BLUE, GOLD, GRAY, GRID, INK, MID, MUTE, STRIPE, WARN  # noqa: E402
+
+BLACK = INK  # alias: el cuerpo usa BLACK para el texto/línea dominante
 
 plt.rcParams.update(
     {
@@ -35,12 +36,13 @@ plt.rcParams.update(
         "font.size": 9,
         "axes.titlesize": 10,
         "axes.labelsize": 9,
-        "axes.edgecolor": GRAY,
+        "axes.edgecolor": MID,
         "axes.linewidth": 0.8,
         "axes.grid": True,
-        "grid.color": "#DDDDDD",
+        "grid.color": GRID,
         "grid.linewidth": 0.6,
         "savefig.bbox": "tight",
+        "savefig.dpi": 300,
     }
 )
 
@@ -59,7 +61,7 @@ def fig_ranking() -> None:
         n_off = df.groupby("model")["hold_mase"].mean().gt(0.40).sum()
         colors = [BLUE if mm in ("ets", "theta") else GRAY for mm in m.index]
         y = np.arange(len(m))
-        ax.hlines(y, _liston(table), m.values, color="#CCCCCC", lw=1.2, zorder=1)
+        ax.hlines(y, _liston(table), m.values, color=MUTE, lw=1.2, zorder=1)
         ax.scatter(m.values, y, color=colors, s=34, zorder=3, edgecolor=BLACK, linewidth=0.4)
         ax.axvline(_liston(table), color=GOLD, ls="--", lw=1.3, zorder=2)
         ax.set_yticks(y)
@@ -308,7 +310,7 @@ def fig_backtest_grid(table: str) -> None:
     for r, (acode, aname) in enumerate(AREAS):
         for c, cat in enumerate(CATS):
             ax = axes[r, c]
-            ax.axvspan(HOLD_START, HOLD_END, color="#EDEDED", zorder=0)  # lapso de hold-out marcado
+            ax.axvspan(HOLD_START, HOLD_END, color=STRIPE, zorder=0)  # lapso de hold-out marcado
             try:
                 full = dataset.load_series(acode, cat, table).astype("float64")
             except KeyError:
@@ -353,7 +355,7 @@ def fig_backtest_grid(table: str) -> None:
         Line2D([0], [0], color=BLACK, lw=1.2, label="Fecha real (estado F)"),
         Line2D([0], [0], color=BLUE, lw=1.2, ls="--", label="Pronóstico (BiTCN)"),
         Patch(facecolor=BLUE, alpha=0.18, label="Intervalo de predicción 95%"),
-        Patch(facecolor="#EDEDED", label="Lapso de hold-out (24 meses)"),
+        Patch(facecolor=STRIPE, label="Lapso de hold-out (24 meses)"),
     ]
     fig.legend(handles=handles, loc="lower center", ncol=4, fontsize=8, frameon=False, bbox_to_anchor=(0.5, -0.005))
     fig.supylabel("Fecha de prioridad (año)", fontsize=9)
@@ -500,7 +502,7 @@ def fig_error_heatmap() -> None:
         d["area"] = pd.Categorical(d["area"], [a[1] for a in AREAS], ordered=True)
         m = d.pivot_table(index="area", columns="cat", values="mae_dias", observed=True).reindex(anames)[CATS]
         ax.grid(False)
-        im = ax.imshow(m.to_numpy(), cmap="YlOrRd", aspect="auto", vmin=0, vmax=float(np.nanmax(m.to_numpy())))
+        im = ax.imshow(m.to_numpy(), cmap=WARN, aspect="auto", vmin=0, vmax=float(np.nanmax(m.to_numpy())))
         ax.set_xticks(range(len(CATS)), CATS, fontsize=8)
         ax.set_yticks(range(len(anames)), anames, fontsize=8)
         for i in range(m.shape[0]):

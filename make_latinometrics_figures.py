@@ -20,11 +20,11 @@ import pandas as pd  # noqa: E402
 from matplotlib.offsetbox import AnnotationBbox, OffsetImage  # noqa: E402
 from PIL import Image, ImageDraw  # noqa: E402
 
+from vp_model.palette import BLUE, GRAY, INK, MID, MUTE, style  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent
 FIG = ROOT / "reports" / "latex" / "Figures"
-BLUE, YELLOW, GRAY, INK = "#003CA6", "#FFD600", "#9AA3AD", "#231F20"
-MUTE = "#C7CDD4"  # gris claro para las barras no resaltadas
-plt.rcParams.update({"font.family": "serif", "savefig.bbox": "tight", "savefig.dpi": 300})
+style()
 
 W, H = 150, 100  # lienzo de cada mini-bandera
 
@@ -117,7 +117,7 @@ def fig_backlog(category="F4", table="FAD", highlight="mexico", out="latam_backl
             va="center",
             ha="left",
             fontsize=10.5,
-            color=BLUE if c == highlight else GRAY,
+            color=BLUE if c == highlight else MID,
             fontweight="bold" if c == highlight else "normal",
         )
 
