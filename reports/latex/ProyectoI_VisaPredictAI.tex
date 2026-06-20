@@ -34,11 +34,14 @@
 \usepackage{multicol}
 \usepackage{chngcntr}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta, positioning, fit, backgrounds}
+\usetikzlibrary{arrows.meta, positioning, fit, backgrounds, shapes.geometric}
 \definecolor{uacjblue}{HTML}{003CA6}
 \definecolor{uacjyellow}{HTML}{FFD600}
 \definecolor{uacjgray}{HTML}{555559}
 \definecolor{uacjblack}{HTML}{231F20}
+\definecolor{regC}{HTML}{2E7D6F}   % verde-teal: régimen Current
+\definecolor{regU}{HTML}{8C2D2D}   % vino: régimen Unavailable
+\definecolor{regUNK}{HTML}{8A8A8A} % gris: UNK
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{algorithm}                    % flotante de pseudocódigo
@@ -432,6 +435,105 @@ y vistas/marts de gobernanza, con restricciones de clave e integridad como contr
 fecha de prioridad y la variable objetivo \texttt{days\_since\_base}.}
 \label{fig:duckdb}
 \end{figure}
+
+% ------------------------------------------------------------
+\subsection{1.1.3 Limpieza y clasificación de los datos}
+
+El reto central de la limpieza es que el boletín \textit{no publica solo fechas}: una celda
+puede contener una fecha de prioridad, la palabra \textit{Current}, la palabra
+\textit{Unavailable} o estar vacía, y cada caso significa algo distinto. La
+Figura~\ref{fig:cleansing} muestra la lógica que clasifica cada celda en uno de cuatro
+\textbf{regímenes} ($e$) y la convierte —o la conserva como anotación— sin inventar valores.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  font=\footnotesize,
+  io/.style={rectangle, rounded corners=2pt, draw=uacjgray, fill=uacjblue!6, line width=0.6pt,
+    text width=4.6cm, align=center, minimum height=0.8cm, inner sep=3pt},
+  dec/.style={diamond, draw=uacjblue, fill=white, line width=0.8pt, aspect=2.6,
+    inner sep=1pt, align=center, font=\scriptsize, text width=1.7cm},
+  reg/.style={rectangle, rounded corners=3pt, line width=0.9pt, text width=6.0cm,
+    align=left, inner sep=4pt, minimum height=0.9cm},
+  arr/.style={-{Latex[length=2mm]}, uacjgray, line width=0.8pt},
+  si/.style={font=\scriptsize\bfseries, text=uacjblue, inner sep=1.5pt},
+  no/.style={font=\scriptsize, text=uacjgray, inner sep=1.5pt}]
+  \node[io] (cell) {Celda publicada \texttt{(01MAY16, C, U, vacía)}};
+  \node[io, below=5mm of cell] (norm) {Normalización: espacios, NBSP, mayúsculas};
+  \node[dec, below=7mm of norm] (d1) {¿Fecha \texttt{DDMMMYY}?};
+  \node[dec, below=17mm of d1] (d2) {¿Es \texttt{C}?};
+  \node[dec, below=17mm of d2] (d3) {¿Es \texttt{U}?};
+  \node[reg, draw=uacjblue, fill=uacjblue!12, right=1.4cm of d1] (oF)
+    {\textbf{\textcolor{uacjblue}{F} --- fecha de prioridad.} Parseo \texttt{\%d\%b\%y} con
+    guard de siglo; $y=$ días desde $t_0{=}$1975. \textbf{Único objetivo predictivo.}};
+  \node[reg, draw=regC, fill=regC!12, right=1.4cm of d2] (oC)
+    {\textbf{\textcolor{regC}{C} --- \textit{Current}.} Sin fecha; en el entrenamiento global se
+    codifica como el mes del boletín.};
+  \node[reg, draw=regU, fill=regU!12, right=1.4cm of d3] (oU)
+    {\textbf{\textcolor{regU}{U} --- \textit{Unavailable}.} Sin números; sin fecha.};
+  \node[reg, draw=regUNK, fill=regUNK!15, below=9mm of d3] (oUNK)
+    {\textbf{\textcolor{regUNK}{UNK} --- vacía o no parseable.} Centinela explícito (no
+    ``\texttt{NA}'', que \texttt{pandas} coercería a \texttt{NaN}).};
+  \draw[arr] (cell)--(norm);
+  \draw[arr] (norm)--(d1);
+  \draw[arr] (d1)--node[si,above]{sí}(oF);
+  \draw[arr] (d1)--node[no,left]{no}(d2);
+  \draw[arr] (d2)--node[si,above]{sí}(oC);
+  \draw[arr] (d2)--node[no,left]{no}(d3);
+  \draw[arr] (d3)--node[si,above]{sí}(oU);
+  \draw[arr] (d3)--node[no,left]{no}(oUNK);
+\end{tikzpicture}
+\caption[Clasificación y conversión de cada celda]{Lógica de limpieza: cada celda publicada se
+normaliza y se clasifica en uno de cuatro regímenes. Solo las celdas con fecha (\textbf{F})
+producen la variable objetivo \texttt{days\_since\_base}; \textbf{C} y \textbf{U} se conservan
+como anotación descriptiva y \textbf{UNK} distingue ``sin dato'' de \textit{Unavailable}.}
+\label{fig:cleansing}
+\end{figure}
+
+Sobre esa clasificación, la limpieza aplica operaciones conservadoras que nunca fabrican un
+valor:
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{Preservación del régimen.} Las versiones tempranas aplanaban ``C'' a la fecha del
+boletín y ``U'' a \texttt{NaN}, perdiendo la información del régimen. Aquí $e$ se guarda en una
+columna explícita, lo que permite la idea \textit{disruptiva} de codificar los meses
+\textit{Current} con la fecha del propio boletín cuando se entrena de forma global, sin
+contaminar la evaluación, que permanece sobre celdas $F$.
+\item \textbf{Parseo robusto de fechas.} El año de dos dígitos del formato \texttt{\%d\%b\%y}
+introduce una ambigüedad de siglo. Como una fecha de prioridad nunca es muy posterior a su
+boletín, un año que cae en el futuro (un ``\texttt{15}'' interpretado como 2015 cuando debía ser
+1915) se corrige restando un siglo.
+\item \textbf{Corrección de erratas de la fuente.} El portal acumula erratas tipográficas en dos
+décadas —por ejemplo ``\texttt{4rd}'' por F4 en marzo de 2003—, que se normalizan para no
+descartar celdas válidas.
+\item \textbf{Centinela de ausencia.} Las celdas vacías se marcan con \texttt{UNK} en lugar de
+``\texttt{NA}'', porque \texttt{pandas} coerciona la cadena ``\texttt{NA}'' a \texttt{NaN} al
+leer y borraría la anotación.
+\item \textbf{Guard de época base.} Toda fecha $F$ anterior a $t_0=$ 1-ene-1975 dispara una
+alerta, pues delataría un error de parseo (la prioridad real más antigua es de 1979).
+\end{itemize}
+
+La Tabla~\ref{tab:cleansing} ilustra la conversión sobre celdas representativas.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Conversión de celdas representativas]{De la celda cruda al registro del panel. Solo el
+régimen $F$ produce \texttt{days\_since\_base}; los regímenes $C$, $U$ y UNK quedan sin fecha.}
+\label{tab:cleansing}
+\begin{tabular}{llll}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Celda cruda} & \textbf{Estado} & \textbf{Fecha de prioridad} & \textbf{\texttt{days\_since\_base}} \\ \midrule
+\texttt{01MAY16}          & F   & 2016-05-01                          & 15{,}096 \\
+\texttt{15FEB09}          & F   & 2009-02-15                          & 12{,}464 \\
+\texttt{C}                & C   & --- \textit{(mes del boletín, global)} & --- \\
+\texttt{U}                & U   & ---                                 & --- \\
+\textit{(vacía)}          & UNK & ---                                 & --- \\
+\texttt{15JUL99}          & F   & 1999-07-15 \textit{(guard de siglo)} & 8{,}961 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 % ------------------------------------------------------------
 \section{1.2 Análisis de datos}
