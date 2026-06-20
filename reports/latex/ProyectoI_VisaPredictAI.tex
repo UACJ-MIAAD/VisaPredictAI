@@ -14,6 +14,7 @@
 \usepackage{mathptmx}                     % Times New Roman
 \usepackage{microtype}
 \usepackage{ragged2e}
+\setlength{\emergencystretch}{3em}        % evita overfull (igual al Anteproyecto)
 \usepackage[left=1.25in, right=1.25in, top=1in, bottom=1in]{geometry}
 \usepackage{setspace}
 \usepackage{graphicx}
@@ -51,7 +52,54 @@
 \setstretch{1.10}
 \setlength{\parskip}{0.4em}
 
+% ============================================================
+% Formato de títulos (idéntico al Anteproyecto)
+% ============================================================
+\titleformat{\chapter}[display]
+  {}{}{0pt}
+  {\centering\fontsize{16pt}{19.2pt}\selectfont\bfseries}
+\titlespacing*{\chapter}{0pt}{-60pt}{24pt}
+\titleformat{\section}
+  {\normalsize\bfseries}{}{0pt}{}
+\titlespacing*{\section}{0pt}{10pt}{6pt}
+\titleformat{\subsection}
+  {\normalsize\bfseries}{}{0pt}{}
+\titlespacing*{\subsection}{0pt}{8pt}{4pt}
+
+% --- Formato de índices (TOC/LOF/LOT, idéntico al Anteproyecto) ---
+\renewcommand{\cftchapfont}{\normalsize\bfseries}
+\renewcommand{\cftsecfont}{\normalsize}
+\renewcommand{\cftsubsecfont}{\normalsize}
+\renewcommand{\cftchapleader}{\cftdotfill{\cftdotsep}}
+\setlength{\cftbeforechapskip}{3pt}
+\setlength{\cftbeforesecskip}{1pt}
+\renewcommand{\cftfigpresnum}{Figura~}
+\renewcommand{\cftfigaftersnum}{:}
+\setlength{\cftfignumwidth}{2.0cm}
+\renewcommand{\cfttabpresnum}{Tabla~}
+\renewcommand{\cfttabaftersnum}{:}
+\setlength{\cfttabnumwidth}{2.0cm}
+\setcounter{tocdepth}{2}
+
+% --- Encabezados y pies (idéntico al Anteproyecto) ---
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\fancypagestyle{plain}{
+  \fancyhf{}
+  \fancyfoot[C]{\thepage}
+  \renewcommand{\headrulewidth}{0pt}
+}
+
+% --- Quitar la palabra "Capítulo" de \chapter (idéntico al Anteproyecto) ---
+\makeatletter
+\renewcommand{\@chapapp}{}
+\renewcommand{\thechapter}{}
+\makeatother
+
 % --- Numeración continua sin prefijo de capítulo ---
+\renewcommand{\thefigure}{\arabic{figure}}
 \renewcommand{\thetable}{\arabic{table}}
 \renewcommand{\theequation}{\arabic{equation}}
 \counterwithout{figure}{chapter}
@@ -59,7 +107,11 @@
 \counterwithout{equation}{chapter}
 \setcounter{secnumdepth}{0}
 
-\hypersetup{colorlinks=true, linkcolor=uacjblue, citecolor=uacjblue, urlcolor=uacjblue}
+% --- Hyperref: links negros sin recuadro (idéntico al Anteproyecto) ---
+\hypersetup{colorlinks=false, pdfborder={0 0 0}}
+\makeatletter
+\g@addto@macro{\UrlBreaks}{\UrlOrds}
+\makeatother
 
 % --- Macro de citas IEEE clicables ---
 \newcommand{\cita}[1]{\hyperref[bib:#1]{[#1]}}
@@ -70,32 +122,39 @@
 % PORTADA (formato del seguimiento de avances)
 % ============================================================
 \begin{titlepage}
-\centering
 \begin{spacing}{1.2}
-{\scshape\large Universidad Autónoma de Ciudad Juárez\par}
-{\scshape Instituto de Ingeniería y Tecnología\par}
-{\scshape Departamento de Ingeniería Eléctrica y Computación\par}
-{\scshape Maestría en Inteligencia Artificial y Analítica de Datos\par}
-\vspace{1.2cm}
-\includegraphics[width=0.32\textwidth]{logouacj.png}\par
-\vspace{1.2cm}
-{\large\bfseries PREDICCIÓN DE FECHAS DE PRIORIDAD EN EL VISA BULLETIN DE
-ESTADOS UNIDOS CONSIDERANDO PAÍS O ÁREA DE CARGABILIDAD, CATEGORÍA MIGRATORIA
-Y TIPO DE TABLA\par}
-\vspace{0.8cm}
-{\itshape Desarrollo y validación de la propuesta de solución\par}
-{\itshape Proyecto de Innovación Tecnológica I\par}
-\vspace{1.4cm}
-{Proyecto de innovación presentado por:\par}
-{\bfseries Javier Augusto Rebull Saucedo \quad (263483)\par}
-\vspace{0.8cm}
-{Requisito para la obtención del título de\par}
-{Maestro en Inteligencia Artificial y Analítica de Datos\par}
+\setlength{\parskip}{0pt}
+\begin{center}
+{\fontsize{16pt}{19.2pt}\selectfont UNIVERSIDAD AUTÓNOMA DE CIUDAD JUÁREZ\par}
+\vspace{0.3cm}
+{\fontsize{14pt}{16.8pt}\selectfont Instituto de Ingeniería y Tecnología\par}
+\vspace{0.2cm}
+{\fontsize{14pt}{16.8pt}\selectfont Departamento de Ingeniería Eléctrica y Computación\par}
 \vspace{1.0cm}
-{Asesor:\par}
-{\bfseries Dr. Vicente García Jiménez\par}
+\includegraphics[width=4cm]{logouacj.png}\\
+\vspace{1.0cm}
+{\fontsize{12pt}{15pt}\selectfont\bfseries PREDICCIÓN DE FECHAS DE PRIORIDAD EN EL VISA BULLETIN DE ESTADOS UNIDOS CONSIDERANDO PAÍS O ÁREA DE CARGABILIDAD, CATEGORÍA MIGRATORIA Y TIPO DE TABLA\par}
+\vspace{0.6cm}
+{\normalsize\itshape Desarrollo y validación de la propuesta de solución\par}
+{\normalsize\itshape Proyecto de Innovación Tecnológica I\par}
+\vspace{1.0cm}
+{\normalsize Proyecto de innovación presentado por:\par}
+\vspace{0.5cm}
+{\normalsize Javier Augusto Rebull Saucedo\par}
+\vspace{0.2cm}
+{\normalsize Matrícula: 263483\par}
+\vspace{0.7cm}
+{\normalsize Requisito para la obtención del título de\par}
+\vspace{0.5cm}
+{\normalsize MAESTRO EN INTELIGENCIA ARTIFICIAL\par}
+{\normalsize Y ANALÍTICA DE DATOS\par}
+\vspace{0.7cm}
+{\normalsize Asesor:\par}
+\vspace{0.5cm}
+{\normalsize Dr. Vicente García Jiménez\par}
+\end{center}
 \vfill
-{Ciudad Juárez, Chihuahua \hfill mayo de 2027\par}
+\noindent Ciudad Juárez, Chihuahua \hfill Mayo 2027
 \end{spacing}
 \end{titlepage}
 
