@@ -447,6 +447,119 @@ La Figura~\ref{fig:eda_pilot} muestra la categoría F3 a través de las cinco á
 México y Filipinas exhiben retrocesos pronunciados (retrogresiones) concentrados
 entre 2002 y 2008, evidencia directa de la heterogeneidad por país-categoría.
 
+\paragraph{Vista panorámica.} La Figura~\ref{fig:eda_spaghetti} traza las 25 series
+familiares de ambas tablas a la vez: todas comparten una \textbf{tendencia creciente fuerte}
+—la fecha de prioridad avanza con los años—, pero con pendientes muy distintas por área
+(México se estanca en varias categorías mientras India y Filipinas escalan con rapidez) y con
+\textbf{retrocesos abruptos} (retrogresiones) visibles como caídas. Estas tres propiedades
+—tendencia dominante, heterogeneidad por serie y saltos ocasionales— gobiernan el modelado.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{eda2_spaghetti.pdf}
+\caption[Trayectoria de las 25 series]{Fecha de prioridad de las 25 series de preferencia
+familiar a lo largo del tiempo, por área de cargabilidad (FAD y DFF). Predomina una tendencia
+creciente con pendientes heterogéneas y retrocesos ocasionales.}
+\label{fig:eda_spaghetti}
+\end{figure}
+
+\paragraph{Distribución del objetivo y de sus incrementos.} La Figura~\ref{fig:eda_dist}
+caracteriza la variable dependiente y su primera diferencia: la fecha de prioridad se
+extiende a lo largo de cuatro décadas, y el \textbf{avance mensual} se concentra en valores
+pequeños y positivos (mediana cercana a un mes) con una cola derecha de saltos grandes y una
+cola izquierda de retrogresiones ($1.3$\,\% de los meses).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{eda2_distributions.pdf}
+\caption[Distribución del objetivo y los incrementos]{(a) Histograma de la variable objetivo
+(fecha de prioridad, en años). (b) Histograma del avance mensual en escala signo$\cdot$log, que
+revela la cola de retrogresión.}
+\label{fig:eda_dist}
+\end{figure}
+
+\paragraph{Forma de la distribución por grupo.} Los violines de las
+Figuras~\ref{fig:eda_violin_c} y~\ref{fig:eda_violin_cat}, junto con el diagrama de cumbres
+(\textit{ridgeline}) de la Figura~\ref{fig:eda_ridge}, muestran que el avance es marcadamente
+\textbf{asimétrico y de cola pesada} en todas las áreas y categorías: una moda cercana a cero
+(meses sin movimiento) y una cola derecha que recoge los avances grandes; las categorías de
+mayor demanda exhiben las colas más largas.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.86\textwidth]{eda2_violin_country.pdf}
+\caption[Avance mensual por área (violín)]{Distribución del avance mensual de la fecha por área
+de cargabilidad (FAD); las líneas internas marcan los cuartiles. Avance recortado para apreciar
+la forma.}
+\label{fig:eda_violin_c}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.86\textwidth]{eda2_violin_category.pdf}
+\caption[Avance mensual por categoría (violín)]{Distribución del avance mensual por categoría
+de preferencia familiar (FAD).}
+\label{fig:eda_violin_cat}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.86\textwidth]{eda2_ridgeline.pdf}
+\caption[Distribución del avance por categoría (ridgeline)]{Densidad del avance mensual por
+categoría (\textit{ridgeline}, normalizada por su pico): todas las categorías comparten la
+asimetría a la derecha, con colas más largas en las de mayor demanda.}
+\label{fig:eda_ridge}
+\end{figure}
+
+\paragraph{Estructura de régimen y retrogresiones.} La Figura~\ref{fig:eda_regime} descompone
+cada serie en sus regímenes $C/F/U$: las series familiares son mayoritariamente entrenables
+(estado $F$, $\ge 80$\,\%), salvo la categoría F2A, que pasa con frecuencia a \textit{Current}
+y reduce su continuidad. La Figura~\ref{fig:eda_len} resume la longitud de las series y la
+incidencia de retrogresiones, concentradas en pocas series (México y Filipinas) pero de gran
+magnitud (hasta varios años de retroceso).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.80\textwidth]{eda2_regime.pdf}
+\caption[Composición de régimen por serie]{Fracción de meses en cada régimen ($F$/$C$/$U$/UNK)
+por serie de preferencia familiar, ordenada por proporción entrenable. La categoría F2A
+concentra los periodos \textit{Current}.}
+\label{fig:eda_regime}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{eda2_length_retro.pdf}
+\caption[Longitud y retrogresiones]{(a) Distribución de la longitud de las series (meses con
+fecha). (b) Número y magnitud (en años) de las retrogresiones por serie; se concentran en
+México y Filipinas.}
+\label{fig:eda_len}
+\end{figure}
+
+\paragraph{Estacionalidad y dependencia entre series.} La Figura~\ref{fig:eda_season} contrasta
+el avance por mes calendario: la estacionalidad anual es débil, con un ligero efecto del inicio
+del año fiscal (octubre). La Figura~\ref{fig:eda_corr2} muestra la correlación entre los
+incrementos de las 25 series; los bloques de alta correlación agrupan categorías que comparten
+la fecha mundial, lo que motiva el \textbf{entrenamiento global} explotado en el Cap.~de
+resultados.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.86\textwidth]{eda2_seasonality.pdf}
+\caption[Estacionalidad por mes calendario]{Avance mensual de la fecha por mes del boletín
+(FAD). La estacionalidad es débil; la línea marca el inicio del año fiscal estadounidense.}
+\label{fig:eda_season}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\textwidth]{eda2_corr.pdf}
+\caption[Correlación entre series]{Matriz de correlación (con agrupamiento jerárquico) entre
+los incrementos mensuales de las 25 series familiares (FAD). Los bloques revelan series que se
+mueven de forma conjunta.}
+\label{fig:eda_corr2}
+\end{figure}
+
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.92\textwidth]{eda_pilot_F3_FAD.png}
