@@ -248,13 +248,14 @@ cobertura empírica.
 
 \begin{figure}[H]
 \centering
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\footnotesize,
   box/.style={rectangle, rounded corners=3pt, draw=uacjblue, line width=0.7pt,
     fill=white, text width=2.45cm, align=center, minimum height=1.25cm,
     inner sep=4pt, outer sep=0pt},
   store/.style={box, fill=uacjblue!8},
-  out/.style={box, fill=uacjyellow!30, draw=uacjblack},
+  outbox/.style={box, fill=uacjyellow!30, draw=uacjblack},
   badge/.style={circle, fill=uacjblue, text=white, font=\bfseries\scriptsize,
     inner sep=0pt, minimum size=0.42cm},
   fam/.style={rectangle, rounded corners=2pt, fill=uacjblue!12, draw=uacjblue!45,
@@ -264,7 +265,7 @@ cobertura empírica.
   \node[box, right=0.5cm of db] (pre) {Preprocesa\-miento \textit{(huecos, escala, calendario)}};
   \node[box, right=0.5cm of pre] (mod) {Catálogo de \textbf{21 modelos}};
   \node[box, right=0.5cm of mod] (wf) {Walk-forward \textit{(hold-out 24 m)}};
-  \node[out, right=0.5cm of wf] (pi) {Pronóstico $+$ PI 95\,\%};
+  \node[outbox, right=0.5cm of wf] (pi) {Pronóstico $+$ PI 95\,\%};
   \draw[arr] (db) -- (pre);
   \draw[arr] (pre) -- (mod);
   \draw[arr] (mod) -- (wf);
@@ -284,7 +285,8 @@ cobertura empírica.
   \begin{scope}[on background layer]
     \node[draw=uacjblue!30, rounded corners=3pt, fill=uacjblue!4, fit=(f1)(f6), inner sep=4pt] {};
   \end{scope}
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption[Arquitectura del sistema de modelado]{Flujo modular de VisaPredict AI en cinco
 etapas, de la vista entrenable ($e=F$) del almacén al pronóstico con intervalo de
 predicción al $95$\,\%. La etapa~3 despliega las seis familias del catálogo de 21 modelos.}
@@ -729,7 +731,7 @@ evaluado en modo zero-shot, sin ajustarse a estos datos.
 \caption[Catálogo de modelos]{Las seis familias del catálogo de 21 modelos y su
 justificación. Los árboles operan sobre la primera diferencia; Chronos es zero-shot.}
 \label{tab:modelos}
-\begin{tabular}{lll}
+\begin{tabular}{p{2.9cm} l l}
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Familia} & \textbf{Modelos} & \textbf{Rol} \\ \midrule
@@ -1630,7 +1632,7 @@ componente, fijados antes del conjunto de prueba reservado. La búsqueda de
 hiperparámetros (Optuna) usa exclusivamente validación interna sobre el tramo de
 entrenamiento, sin tocar los 24 meses de hold-out.}
 \label{tab:hparams}
-\begin{tabular}{ll}
+\begin{tabular}{@{}l p{0.62\textwidth}@{}}
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Componente} & \textbf{Configuración} \\ \midrule
