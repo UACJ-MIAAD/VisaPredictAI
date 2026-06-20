@@ -1271,6 +1271,7 @@ e integridad actúan como contrato de calidad; de él se deriva el mart de entre
 
 \begin{figure}[H]
 \centering
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\footnotesize,
   layer/.style={rectangle, rounded corners=4pt, line width=1pt, text width=3.4cm, align=center,
@@ -1290,7 +1291,8 @@ e integridad actúan como contrato de calidad; de él se deriva el mart de entre
   \node[sub, below=1.5mm of s] {scrape offline $+$ limpieza};
   \node[sub, below=1.5mm of g] {\texttt{build\_database.py}};
   \node[sub, below=1.5mm of m] {regresor temporal};
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption[Arquitectura de datos en medallón]{Linaje de datos en tres capas (bronce/plata/oro):
 de las instantáneas HTML crudas en S3 al almacén estrella con contrato de calidad, del que se
 deriva el conjunto de entrenamiento.}
@@ -1601,6 +1603,7 @@ de preferencia familiar, ordenado por MASE de selección. Promediado solo sobre 
 series con ajuste exitoso ($n$); la cascada ARIMA-LSTM se omite por no converger en
 ninguna. El hold-out de SARIMA solo cubre 13 series (sesgo de supervivencia).}
 \label{tab:comparacion_dff}
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{lccccc}
 \toprule
 \rowcolor{uacjblue!15}
@@ -2212,7 +2215,7 @@ componente, fijados antes del conjunto de prueba reservado. La búsqueda de
 hiperparámetros (Optuna) usa exclusivamente validación interna sobre el tramo de
 entrenamiento, sin tocar los 24 meses de hold-out.}
 \label{tab:hparams}
-\begin{tabular}{@{}l p{0.62\textwidth}@{}}
+\begin{tabular}{@{}p{4.2cm} p{9.3cm}@{}}
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Componente} & \textbf{Configuración} \\ \midrule
