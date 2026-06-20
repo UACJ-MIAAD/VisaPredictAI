@@ -22,6 +22,15 @@ repos:
         args: [--maxkb=3000]            # the long panel is ~2.1 MB; figures are gitignored
       - id: debug-statements
 
+  # ── commit-msg: bloquea co-autoría de IA / rastro de Claude ──────
+  - repo: local
+    hooks:
+      - id: no-coauthor-trailer
+        name: block Co-Authored-By / anthropic / Claude in commit message
+        entry: tools/check_no_coauthor.sh
+        language: script
+        stages: [commit-msg]
+
   # ── fast offline tests + typecheck (alineado con CI: cierra el gap pre-commit↔CI) ──
   - repo: local
     hooks:
