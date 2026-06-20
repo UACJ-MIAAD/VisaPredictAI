@@ -164,6 +164,28 @@
 \end{titlepage}
 
 % ============================================================
+% DECLARACIÓN DE ORIGINALIDAD
+% ============================================================
+\chapter*{Declaración de Originalidad}
+\addcontentsline{toc}{chapter}{Declaración de Originalidad}
+\thispagestyle{plain}
+
+\begin{spacing}{2.0}
+\noindent Yo, Javier Augusto Rebull Saucedo, declaro que el material contenido en esta
+publicación fue generado con la revisión de los documentos que se mencionan en la sección de
+Referencias y que no ha sido utilizado para obtener otro título o reconocimiento en otra
+Institución de Educación Superior.
+\end{spacing}
+
+\begin{center}
+\vspace{2cm}
+\includegraphics[height=2.5cm]{JARSSginature.png}\\[-0.2cm]
+\rule{6cm}{0.4pt}\\
+Javier Augusto Rebull Saucedo
+\end{center}
+\clearpage
+
+% ============================================================
 % RESUMEN
 % ============================================================
 \chapter*{Resumen}
@@ -2101,6 +2123,151 @@ modelos frontera al repertorio.
 \end{enumerate}
 El trabajo futuro prioriza el tratamiento explícito de los cambios de régimen, la extensión
 por país de las categorías de empleo y la integración del archivo histórico 1992--2001.
+
+% ============================================================
+% GLOSARIO
+% ============================================================
+\chapter*{Glosario}
+\addcontentsline{toc}{chapter}{Glosario}
+
+\begin{multicols}{2}
+\setlength{\columnsep}{14pt}
+\scriptsize
+\sloppy   % glosario justificado: tolerancia ampliada para columnas estrechas
+\hbadness=10000        % silencia underfull \hbox warnings cosméticos
+\emergencystretch=3em  % permite mayor margen al algoritmo de saltos de línea
+\begin{description}[leftmargin=0pt, labelindent=0pt, itemindent=0pt,
+                    labelsep=0.4em, font=\bfseries\scriptsize,
+                    itemsep=2pt, parsep=0pt, topsep=0pt]
+    \item[ACF] (\textit{Autocorrelation Function})\hspace{0.3em}Función que cuantifica la correlación entre observaciones separadas por distintos rezagos temporales; herramienta central en la identificación de modelos ARIMA.
+
+    \item[ACI] (\textit{Adaptive Conformal Inference})\hspace{0.3em}Variante de la predicción conforme que ajusta el nivel de error en línea tras cada origen de pronóstico para clavar la cobertura nominal bajo cambios de distribución.
+
+    \item[Adam] (\textit{Adaptive Moment Estimation})\hspace{0.3em}Algoritmo de optimización de gradiente estocástico que combina momento y tasas de aprendizaje adaptativas por parámetro; estándar \textit{de facto} en entrenamiento de redes profundas.
+
+    \item[AIC] (\textit{Akaike Information Criterion})\hspace{0.3em}Criterio de selección de modelos que balancea ajuste y parsimonia: $\text{AIC} = 2k - 2\ln(\mathcal{L})$.
+
+    \item[All Chargeability Areas Except Those Listed] Categoría agregada del \textit{Visa Bulletin} que reúne a todos los países de cargabilidad no listados explícitamente. Es una agrupación administrativa, no una entidad geográfica única; incluye decenas de países de baja a media demanda. Su \textbf{composición varía a lo largo del tiempo} conforme países entran y salen del estado de ``límite efectivo'' por superación de cuota, lo cual constituye una forma de no-estacionariedad de composición. Por esta razón, esta serie se reportará en la cobertura piloto pero será analizada con cautela explícita: cualquier inferencia sobre tendencia se acompañará de la advertencia sobre cambio de composición.
+
+    \item[ARIMA] (\textit{Autoregressive Integrated Moving Average})\hspace{0.3em}Familia de modelos estadísticos de series de tiempo que combina componentes autorregresivos, de diferenciación y de media móvil para capturar dinámicas lineales.
+
+    \item[ARIMAX] Extensión de ARIMA que incorpora variables exógenas regresoras además de la dinámica endógena de la serie objetivo.
+
+    \item[Backlog (neto)] En el contexto migratorio, volumen acumulado de solicitudes pendientes de procesamiento que excede la capacidad operativa del sistema, medido restando las solicitudes resueltas de las recibidas en un período.
+
+    \item[Batch Normalization] Técnica de regularización que estandariza las activaciones de una capa al interior de cada minibatch para estabilizar y acelerar el entrenamiento.
+
+    \item[BiLSTM] (\textit{Bidirectional Long Short-Term Memory})\hspace{0.3em}Variante de LSTM que procesa la secuencia simultáneamente en dirección cronológica y anticronológica, permitiendo que cada estado oculto incorpore contexto pasado y futuro.
+
+    \item[BiTCN] (\textit{Bidirectional Temporal Convolutional Network})\hspace{0.3em}Red convolucional temporal bidireccional; el modelo profundo de mejor desempeño global del proyecto.
+
+    \item[CatBoost] Implementación de potenciación de gradiente con manejo nativo de variables categóricas y reducción del sesgo de predicción.
+
+    \item[Chronos] \textit{Foundation model} de pronóstico preentrenado que tokeniza la serie y predice en modo \textit{zero-shot}, sin ajuste a los datos del problema.
+
+    \item[CRPS] (\textit{Continuous Ranked Probability Score})\hspace{0.3em}Regla de puntuación propia que evalúa toda la distribución predictiva, no solo el punto; menor es mejor.
+
+    \item[Dates for Filing] Calendario publicado mensualmente por el Departamento de Estado que autoriza el inicio anticipado del trámite de ajuste de estatus, generalmente con fechas más recientes que las \textit{Final Action Dates}.
+
+    \item[DeepAR] Arquitectura probabilística basada en LSTM autorregresiva, diseñada para producir pronósticos de series de tiempo con distribuciones predictivas en lugar de puntos.
+
+    \item[Diebold-Mariano (prueba)] Prueba estadística formal de comparación de precisión predictiva entre dos modelos sobre una misma serie, bajo hipótesis nula de igualdad de errores esperados.
+
+    \item[DLinear / NLinear / RLinear] Modelos lineales de pronóstico que proyectan la serie (con descomposición tendencia/estacionalidad, normalización o regularización \textit{ridge}) directamente al horizonte.
+
+    \item[Dropout] Técnica de regularización que desactiva aleatoriamente una fracción de neuronas durante el entrenamiento, forzando redundancia representacional y reduciendo el sobreajuste.
+
+    \item[DuckDB] Motor de base de datos analítica embebido (OLAP) sobre el que se materializa el almacén dimensional en estrella del proyecto.
+
+    \item[DVC] (\textit{Data Version Control})\hspace{0.3em}Herramienta que versiona datos y modelos grandes fuera de Git, guardándolos en almacenamiento remoto (S3) y dejando punteros ligeros en el repositorio.
+
+    \item[Early Stopping] Estrategia de regularización implícita que interrumpe el entrenamiento cuando el error sobre el conjunto de validación deja de mejorar durante un número predefinido de épocas.
+
+    \item[EB-1 a EB-5] Categorías de preferencia laboral para residencia permanente en EE.\,UU., desde trabajadores prioritarios con habilidades extraordinarias (EB-1) hasta inversionistas (EB-5).
+
+    \item[Esquema en estrella] (\textit{star schema})\hspace{0.3em}Modelo dimensional en el que tablas de hechos centrales se rodean de tablas de dimensión, optimizado para consultas analíticas.
+
+    \item[ETS] (\textit{Error-Trend-Seasonality})\hspace{0.3em}Familia de suavizamiento exponencial en espacio de estados; con tendencia amortiguada es uno de los modelos parsimoniosos ganadores en FAD.
+
+    \item[F1, F2A, F2B, F3, F4] Categorías de preferencia familiar definidas por la INA: hijos adultos solteros de ciudadanos (F1), cónyuges e hijos menores de residentes (F2A), hijos adultos solteros de residentes (F2B), hijos casados de ciudadanos (F3) y hermanos de ciudadanos (F4).
+
+    \item[Filtro de Kalman] Algoritmo recursivo de estimación en espacio de estados; se usa para suavizar e imputar los huecos de las series y como modelo de tendencia local.
+
+    \item[Final Action Dates] Fecha de prioridad publicada mensualmente en el \textit{Visa Bulletin} que determina qué solicitantes pueden recibir la adjudicación final de su residencia permanente en ese mes fiscal.
+
+    \item[Friedman-Nemenyi (pruebas)] Procedimiento para comparar múltiples modelos sobre múltiples series: la prueba de Friedman detecta diferencias globales y la de Nemenyi las localiza mediante una diferencia crítica (CD).
+
+    \item[Gradient Boosting] Familia de métodos de ensamble que construye secuencialmente modelos débiles, cada uno enfocado en corregir los errores residuales del ensamble previo; XGBoost es su implementación más difundida.
+
+    \item[INA] (\textit{Immigration and Nationality Act})\hspace{0.3em}Ley federal estadounidense de 1965 que estableció el sistema actual de cuotas por categoría y país para la residencia permanente.
+
+    \item[LightGBM] Implementación eficiente de potenciación de gradiente basada en histogramas y crecimiento por hojas.
+
+    \item[LSTM] (\textit{Long Short-Term Memory})\hspace{0.3em}Arquitectura de red neuronal recurrente diseñada por Hochreiter y Schmidhuber en 1997 que incorpora celdas de memoria y compuertas para capturar dependencias temporales de largo plazo y mitigar el desvanecimiento del gradiente.
+
+    \item[MAE] (\textit{Mean Absolute Error})\hspace{0.3em}Error absoluto medio: promedio de los valores absolutos de los errores de predicción.
+
+    \item[MAPE] (\textit{Mean Absolute Percentage Error})\hspace{0.3em}Error porcentual absoluto medio; sensible a valores cercanos a cero y asimétrico entre sobre y subestimaciones.
+
+    \item[MASE] (\textit{Mean Absolute Scaled Error})\hspace{0.3em}Error absoluto escalado medio propuesto por Hyndman y Koehler; métrica universal que normaliza el error por el error del naïve estacional.
+
+    \item[Medallón (arquitectura)] Patrón de ingeniería de datos en tres capas de calidad creciente: bronce (cruda), plata (limpia) y oro (lista para el consumo analítico).
+
+    \item[MLflow] Plataforma de seguimiento de experimentos que registra parámetros, métricas y artefactos de cada corrida de modelado.
+
+    \item[MLOps] Conjunto de prácticas que llevan la ingeniería de software (automatización, pruebas, versionado, monitoreo) al ciclo de vida de los modelos de aprendizaje automático.
+
+    \item[MNAR] (\textit{Missing Not At Random})\hspace{0.3em}Mecanismo de datos faltantes en el que la ausencia depende del valor no observado; aquí, los meses sin fecha corresponden a regímenes \textit{Current}/\textit{Unavailable}.
+
+    \item[Model Confidence Set (MCS)] Procedimiento que, a un nivel de confianza dado, retiene el conjunto de modelos estadísticamente indistinguibles del mejor.
+
+    \item[Monte Carlo Dropout] Técnica de cuantificación de incertidumbre que aplica dropout también en inferencia, interpretando las predicciones resultantes como muestras de una distribución predictiva aproximada.
+
+    \item[Nacionalidad vs. país de cargabilidad] Términos no equivalentes en derecho migratorio estadounidense. La cargabilidad sigue, por defecto, al país de nacimiento (INA Sección 202); la nacionalidad del solicitante puede o no coincidir con su país de cargabilidad. Para evitar ambigüedad, el presente documento utiliza consistentemente \textit{país o área de cargabilidad} cuando se refiere a la dimensión $p$ del \textit{Visa Bulletin}.
+
+    \item[N-BEATS] (\textit{Neural Basis Expansion Analysis for Time Series})\hspace{0.3em}Arquitectura profunda puramente basada en bloques residuales que ofrece pronósticos interpretables sin recurrir a mecanismos recurrentes.
+
+    \item[N-HiTS] (\textit{Neural Hierarchical Interpolation for Time Series})\hspace{0.3em}Red profunda que pronostica mediante interpolación jerárquica multi-tasa; refinamiento de N-BEATS.
+
+    \item[PACF] (\textit{Partial Autocorrelation Function})\hspace{0.3em}Función que mide la correlación entre la observación actual y observaciones rezagadas eliminando la influencia lineal de los rezagos intermedios.
+
+    \item[País de cargabilidad (\textit{chargeability area})] Categoría administrativa bajo la cual el Departamento de Estado contabiliza una solicitud para fines del límite estatutario del 7\,\%. Por defecto coincide con el país de nacimiento del solicitante principal, no con su nacionalidad ni con su país de residencia. Las áreas de cargabilidad reportadas en el \textit{Visa Bulletin} incluyen países individuales (México, India, China, Filipinas, etc.) y la categoría agregada \textit{All Chargeability Areas Except Those Listed}, que NO es un país sino una agrupación residual.
+
+    \item[PatchTST] Arquitectura transformer reciente para pronóstico de series largas que segmenta la serie en \textit{patches} temporales tratados como tokens, logrando un rendimiento competitivo con un costo computacional reducido.
+
+    \item[Per-country limit] Límite legal del 7\,\% de las visas de preferencia anuales disponibles para nacionales de un mismo país, origen principal de la severa retrogresión observada en países de alta demanda como México, India, China y Filipinas.
+
+    \item[Predicción conforme] (\textit{Conformal Prediction})\hspace{0.3em}Marco no paramétrico introducido por Vovk, Gammerman y Shafer que produce intervalos de predicción con garantías de cobertura válidas bajo el supuesto mínimo de intercambiabilidad de los datos.
+
+    \item[Priority Date] (Fecha de prioridad)\hspace{0.3em}Fecha oficial de registro de una petición migratoria, asignada al recibirse por USCIS o por el Departamento del Trabajo; funciona como turno en la cola de procesamiento.
+
+    \item[Prophet] Biblioteca de pronóstico desarrollada por Meta AI que modela series de tiempo como suma de componentes de tendencia, estacionalidad y efectos de festividades, robusta ante observaciones faltantes y valores atípicos.
+
+    \item[ReLU] (\textit{Rectified Linear Unit})\hspace{0.3em}Función de activación no lineal $f(x) = \max(0, x)$; de uso dominante en redes profundas modernas por su simplicidad computacional y su mitigación del desvanecimiento del gradiente.
+
+    \item[Retrogresión] Fenómeno del sistema migratorio estadounidense en el que las fechas de prioridad del \textit{Visa Bulletin} retroceden en lugar de avanzar, reflejando un agotamiento anticipado de cuotas o reajustes internos en la asignación de visas.
+
+    \item[RMSE] (\textit{Root Mean Squared Error})\hspace{0.3em}Raíz del error cuadrático medio; métrica sensible a errores grandes por su penalización cuadrática.
+
+    \item[SARIMA] Extensión estacional de ARIMA que incorpora componentes autorregresivos, de diferenciación y de media móvil a nivel estacional con período $s$.
+
+    \item[sMAPE] (\textit{Symmetric Mean Absolute Percentage Error})\hspace{0.3em}Variante simétrica del MAPE que utiliza el promedio de los valores absolutos observados y predichos en el denominador.
+
+    \item[TabPFN] (\textit{Tabular Prior-data Fitted Network})\hspace{0.3em}Red transformer preentrenada para datos tabulares y series, capaz de predecir en modo \textit{zero-shot} informada por covariables.
+
+    \item[TFT] (\textit{Temporal Fusion Transformer})\hspace{0.3em}Arquitectura híbrida transformer-recurrente para pronóstico multi-horizonte con entradas heterogéneas (pasado, covariables conocidas, variables estáticas).
+
+    \item[Theta (método)] Método de pronóstico que descompone la serie en líneas \textit{theta} de distinta curvatura y las recombina; equivale a un suavizamiento con deriva, muy competitivo en series tendenciales.
+
+    \item[TiDE] (\textit{Time-series Dense Encoder})\hspace{0.3em}Codificador denso (MLP) para pronóstico de series largas, alternativa eficiente a los transformadores.
+
+    \item[\textit{Visa Bulletin}] Boletín mensual publicado por la Oficina de Asuntos Consulares del Departamento de Estado de EE.\,UU. que actualiza las fechas de prioridad para cada categoría migratoria y país.
+
+    \item[Walk-forward Validation] Estrategia de validación para series de tiempo en la que el conjunto de entrenamiento se expande progresivamente hacia el futuro, respetando la causalidad temporal.
+
+    \item[XGBoost] (\textit{eXtreme Gradient Boosting})\hspace{0.3em}Implementación escalable y regularizada de \textit{gradient boosting} sobre árboles de decisión; referente de alto rendimiento en competiciones de aprendizaje automático.
+\end{description}
+\end{multicols}
 
 % ============================================================
 % REFERENCIAS (IEEE)
