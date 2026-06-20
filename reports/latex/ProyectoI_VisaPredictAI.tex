@@ -42,6 +42,8 @@
 \definecolor{regC}{HTML}{2E7D6F}   % verde-teal: régimen Current
 \definecolor{regU}{HTML}{8C2D2D}   % vino: régimen Unavailable
 \definecolor{regUNK}{HTML}{8A8A8A} % gris: UNK
+\definecolor{bronzec}{HTML}{B87333} % bronce (capa cruda)
+\definecolor{silverc}{HTML}{8C97A0} % plata (panel)
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{algorithm}                    % flotante de pseudocódigo
@@ -1194,6 +1196,132 @@ de seguridad uniforme para los 21. En una verificación controlada con datos
 intercambiables, el intervalo conforme alcanzó una cobertura empírica del 92\,\%,
 cercana al nivel nominal; sobre las series reales tiende a ser conservador (cobertura
 $\geq$ nominal), como corresponde a su garantía teórica.
+
+% ------------------------------------------------------------
+\subsection{1.4.4 Infraestructura y operaciones (MLOps)}
+
+El proyecto se sostiene sobre una infraestructura de \textit{MLOps} que automatiza la
+adquisición de datos, garantiza la calidad y hace cada resultado reproducible y trazable. Tres
+piezas la articulan: una arquitectura de datos en medallón, una automatización de doble
+disparador y un sistema de seguimiento y versionado de experimentos.
+
+\paragraph{Arquitectura de datos en medallón.} Los datos fluyen por tres capas de calidad
+creciente (Figura~\ref{fig:mlops_medallion}). La capa \textbf{bronce} conserva las instantáneas
+HTML crudas en un almacenamiento versionado (S3), la \textit{fuente de verdad} que resiste la
+rotación de boletines en el portal oficial. La capa \textbf{plata} es el panel \textit{tidy} ya
+limpio. La capa \textbf{oro} es el almacén dimensional en estrella, cuyas restricciones de clave
+e integridad actúan como contrato de calidad; de él se deriva el mart de entrenamiento.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  font=\footnotesize,
+  layer/.style={rectangle, rounded corners=4pt, line width=1pt, text width=3.4cm, align=center,
+    minimum height=2.1cm, inner sep=5pt},
+  bronze/.style={layer, draw=bronzec, fill=bronzec!13},
+  silver/.style={layer, draw=silverc, fill=silverc!20},
+  gold/.style={layer, draw=uacjyellow!85!black, fill=uacjyellow!22},
+  modl/.style={layer, draw=uacjblue, fill=uacjblue!10},
+  sub/.style={font=\scriptsize\itshape, text=uacjgray, align=center, text width=3.0cm},
+  darr/.style={-{Latex[length=3mm]}, uacjgray, line width=1.3pt}]
+  \node[bronze] (b) {\textbf{BRONCE}\\[2pt] Instantáneas HTML en S3 (versionado)\\[2pt] \textit{298 boletines; fuente de verdad cruda}};
+  \node[silver, right=1.1cm of b] (s) {\textbf{PLATA}\\[2pt] Panel \textit{tidy} CSV $y_{p,c,b,t}$\\[2pt] \textit{194 series, 27\,289 filas}};
+  \node[gold, right=1.1cm of s] (g) {\textbf{ORO}\\[2pt] Almacén estrella DuckDB $+$ marts\\[2pt] \textit{contrato PK/FK/CHECK}};
+  \node[modl, right=1.1cm of g] (m) {\textbf{Modelado}\\[2pt] \texttt{mart\_training\_F}\\[2pt] \textit{solo estado F}};
+  \draw[darr] (b)--(s);\draw[darr] (s)--(g);\draw[darr] (g)--(m);
+  \node[sub, below=1.5mm of b] {congelar (skip-if-exists)};
+  \node[sub, below=1.5mm of s] {scrape offline $+$ limpieza};
+  \node[sub, below=1.5mm of g] {\texttt{build\_database.py}};
+  \node[sub, below=1.5mm of m] {regresor temporal};
+\end{tikzpicture}
+\caption[Arquitectura de datos en medallón]{Linaje de datos en tres capas (bronce/plata/oro):
+de las instantáneas HTML crudas en S3 al almacén estrella con contrato de calidad, del que se
+deriva el conjunto de entrenamiento.}
+\label{fig:mlops_medallion}
+\end{figure}
+
+\paragraph{Automatización de doble disparador.} Dos flujos de \textit{GitHub Actions} mantienen
+el sistema vivo y sano (Figura~\ref{fig:mlops_pipeline}). En cada \texttt{push}, la
+\textbf{integración continua} ejecuta el linaje de calidad del código —\texttt{ruff} (estilo y
+formato), \texttt{mypy} (tipos) y \texttt{pytest} con un piso de cobertura— y solo entonces
+permite integrar a \texttt{main}. En paralelo, un \textbf{pipeline de datos} semanal, dirigido
+por S3, congela únicamente el boletín nuevo (con política \textit{skip-if-exists}); si no hay
+boletín nuevo, no hace nada; si lo hay, reconstruye el panel y el almacén, los somete a un
+\textbf{gate de calidad} y a la batería de pruebas, los comitea y emite un correo
+\textit{heartbeat} por AWS SES. Cualquier fallo abre una incidencia automáticamente.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\footnotesize,
+  trig/.style={ellipse, draw=uacjblue, fill=uacjblue!10, line width=0.9pt, font=\footnotesize\bfseries, inner sep=3pt, minimum width=1.7cm},
+  proc/.style={rectangle, rounded corners=2pt, draw=uacjgray, fill=white, line width=0.6pt, text width=2.0cm, align=center, minimum height=1.0cm, inner sep=3pt},
+  gate/.style={diamond, draw=uacjyellow!80!black, fill=uacjyellow!22, line width=0.9pt, aspect=1.7, inner sep=0pt, font=\scriptsize, align=center, text width=1.5cm},
+  okk/.style={rectangle, rounded corners=2pt, draw=regC, fill=regC!16, line width=0.8pt, align=center, inner sep=4pt, font=\bfseries\footnotesize, text width=1.6cm},
+  arr/.style={-{Latex[length=2.2mm]}, uacjgray, line width=0.9pt},
+  lab/.style={font=\scriptsize\itshape, text=uacjgray}]
+  \node[trig] (push) {\texttt{git push}};
+  \node[proc, right=0.7cm of push] (ruff) {\texttt{ruff} lint $+$ formato};
+  \node[proc, right=0.5cm of ruff] (mypy) {\texttt{mypy} tipos};
+  \node[proc, right=0.5cm of mypy] (test) {\texttt{pytest} cobertura $\ge 65$\,\%};
+  \node[okk, right=0.6cm of test] (mok) {a \texttt{main}};
+  \draw[arr] (push)--(ruff);\draw[arr] (ruff)--(mypy);\draw[arr] (mypy)--(test);\draw[arr] (test)--(mok);
+  \node[lab, above=1mm of ruff.north] {Integración continua (cada \texttt{push})};
+  \node[trig, below=2.1cm of push] (cron) {cron L--V};
+  \node[proc, right=0.7cm of cron] (frz) {\texttt{freeze} (solo mes nuevo)};
+  \node[gate, right=0.5cm of frz] (gt) {¿boletín nuevo?};
+  \node[proc, right=0.5cm of gt] (bld) {scrape $\to$ panel $\to$ GATE $\to$ DuckDB $+$ tests};
+  \node[proc, right=0.5cm of bld] (cm) {\texttt{commit} $+$ push};
+  \node[proc, right=0.5cm of cm] (ses) {correo SES (heartbeat)};
+  \draw[arr] (cron)--(frz);\draw[arr] (frz)--(gt);
+  \draw[arr] (gt)--node[lab,above]{sí}(bld);\draw[arr] (bld)--(cm);\draw[arr] (cm)--(ses);
+  \draw[arr] (gt.south) to[bend right=28] node[lab,below]{no: no-op} (ses.south);
+  \node[lab, above=1mm of frz.north] {Pipeline de datos S3-driven (semanal)};
+\end{tikzpicture}%
+}
+\caption[Automatización de doble disparador]{Integración continua en cada \texttt{push} (gates de
+estilo, tipos y pruebas) y pipeline de datos semanal dirigido por S3 (congela, reconstruye solo
+si hay boletín nuevo, somete a gate de calidad y emite un correo \textit{heartbeat}).}
+\label{fig:mlops_pipeline}
+\end{figure}
+
+\paragraph{Seguimiento de experimentos y versionado.} Cada corrida de modelado se registra de
+forma \textbf{independiente del entorno} (Figura~\ref{fig:mlops_stack}): el módulo de seguimiento
+escribe a un archivo \textit{JSONL} sin dependencias pesadas —lo que resuelve el conflicto entre
+la versión de \texttt{pandas} que exige MLflow y la del entorno de modelado— y un sincronizador
+lo ingiere a una base MLflow consultable por interfaz web. Los datos, los modelos y la propia
+base de MLflow se versionan con DVC sobre S3, mientras Git versiona el código y los punteros
+\texttt{.dvc}; un único guion (\texttt{sync\_all.sh}) orquesta los tres. Así, cualquier número de
+este documento puede atarse al \textit{commit}, la semilla y los datos exactos que lo generaron.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.92\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\footnotesize,
+  src/.style={rectangle, rounded corners=2pt, draw=uacjblue, fill=uacjblue!8, line width=0.7pt, text width=2.6cm, align=center, minimum height=0.9cm, inner sep=3pt},
+  hub/.style={rectangle, rounded corners=3pt, draw=uacjyellow!80!black, fill=uacjyellow!22, line width=1pt, text width=1.9cm, align=center, minimum height=1.0cm, font=\bfseries, inner sep=3pt},
+  stor/.style={rectangle, rounded corners=2pt, draw=uacjgray, fill=uacjblue!4, line width=0.7pt, text width=2.9cm, align=center, minimum height=1.0cm, inner sep=4pt, font=\scriptsize},
+  arr/.style={-{Latex[length=2mm]}, uacjgray, line width=0.8pt}]
+  \node[src] (run) {Corrida de modelado (\texttt{-{}-mlflow})};
+  \node[src, below=0.45cm of run] (jsonl) {\texttt{tracking.py}: JSONL sin dependencias};
+  \node[hub, right=1.3cm of run, yshift=-0.7cm] (sync) {\texttt{sync\_all.sh}};
+  \node[stor, right=1.7cm of sync, yshift=1.35cm] (ml) {MLflow\\ SQLite $+$ web};
+  \node[stor, right=1.7cm of sync] (dv) {DVC $\to$ S3\\ datos $+$ modelos};
+  \node[stor, right=1.7cm of sync, yshift=-1.35cm] (gt) {Git\\ código $+$ \texttt{.dvc}};
+  \draw[arr] (run.east) -- (sync.west);
+  \draw[arr] (jsonl.east) -- (sync.west);
+  \draw[arr] (sync.east) -- (ml.west);
+  \draw[arr] (sync.east) -- (dv.west);
+  \draw[arr] (sync.east) -- (gt.west);
+\end{tikzpicture}%
+}
+\caption[Seguimiento y versionado de experimentos]{Cada corrida se registra en JSONL
+independiente del entorno y se sincroniza a MLflow; los datos y modelos se versionan con DVC
+sobre S3 y el código con Git, todo orquestado por un único guion.}
+\label{fig:mlops_stack}
+\end{figure}
 
 % ------------------------------------------------------------
 \section{1.5 Pruebas y validación final}
