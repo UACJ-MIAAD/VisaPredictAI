@@ -1753,8 +1753,24 @@ serie y con sus hiperparámetros ajustados sin fuga. Sin esos cuatro ingrediente
 mismas redes caen por debajo del naïve. Una excepción notable es DeepAR: su parametrización
 probabilística sobre incrementos no se estabiliza ni con normalización por serie y queda
 muy por detrás de las redes deterministas; el mejor modelo profundo aquí no es el más
-conocido sino BiTCN; la Figura~\ref{fig:forecast} muestra los pronósticos de BiTCN frente a las fechas
-reales.
+conocido sino BiTCN. La Figura~\ref{fig:hero} presenta el caso más elocuente: el pronóstico a
+24 meses para México/F1/FAD —la cola familiar que más avanzó en el periodo, casi cuatro años
+de fecha de prioridad ganados de golpe—, donde el modelo sigue el salto y \textbf{ensancha su
+banda de incertidumbre justo donde la trayectoria se vuelve impredecible}, para volver a
+afilarla cuando la fecha se estabiliza. La Figura~\ref{fig:forecast} extiende la lectura a la
+serie de mayor cobertura de cada tabla.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{results_hero_forecast.pdf}
+\caption[Pronóstico a 24 meses con banda de incertidumbre (México/F1/FAD)]{Pronóstico del
+modelo profundo global (BiTCN) para México/F1/FAD sobre el lapso reservado de 24 meses,
+comparado con las fechas de prioridad reales (estado F). La banda anidada representa los
+intervalos de predicción al 50, 80 y 95\,\%: se abre donde la cola da el salto de casi cuatro
+años y se cierra al estabilizarse, una incertidumbre honesta y resuelta en el tiempo. La
+fecha de prioridad se expresa en años.}
+\label{fig:hero}
+\end{figure}
 
 \textit{Confirmación multi-semilla:} para caracterizar la estabilidad,
 ambos resultados se reentrenaron con \textbf{cinco semillas independientes} (Figura~\ref{fig:multiseed}), variando tanto
