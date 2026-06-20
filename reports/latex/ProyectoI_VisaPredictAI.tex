@@ -2416,6 +2416,44 @@ Multi-semilla & 5 semillas (inicialización + búsqueda) \\
 \end{tabular}
 \end{table}
 
+\section{A.2 Repositorio del proyecto}
+
+El código, los datos procesados y la documentación residen en un repositorio
+público de GitHub bajo licencia MIT:
+
+\begin{center}
+\url{https://github.com/UACJ-MIAAD/VisaPredictAI}
+\end{center}
+
+El repositorio reúne el flujo completo del proyecto: la extracción del
+\textit{Visa Bulletin} a partir de instantáneas HTML congeladas (procesamiento
+sin red), la construcción del panel multiserie $y_{p,c,b,t}$, el almacén
+dimensional en DuckDB con su esquema estrella, el módulo de modelado
+\texttt{vp\_model} con los $21$ modelos del repertorio y la red profunda global,
+y la suite de pruebas con integración continua y piso de cobertura. Incluye un
+\texttt{README} bilingüe y un \texttt{Makefile} que reproducen, paso a paso y con
+semilla fija, cada figura y tabla de este documento desde cero.
+
+\section{A.3 Portal de divulgación del proyecto}
+
+El dominio \texttt{visapredictai.com} corresponde a un proyecto personal del autor
+y \textbf{no forma parte del entregable académico evaluado}. La
+Figura~\ref{fig:portal_visapredict} muestra su página de aterrizaje como material
+descriptivo del proyecto; el demostrador académico oficial se ejecuta desde el
+repositorio público (Sección~A.2), sin dependencia operativa del dominio. Cualquier
+cifra cuantitativa reportada en este documento se refiere exclusivamente al sistema
+entregado con el repositorio.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{portal_visapredict.png}
+\caption[Portal de divulgación del proyecto]{Página de aterrizaje del proyecto en
+\url{https://visapredictai.com/}, con el resumen del sistema y los indicadores del
+panel. Material descriptivo del proyecto personal del autor, \textbf{no parte del
+entregable académico evaluado}. Fuente: captura del portal.}
+\label{fig:portal_visapredict}
+\end{figure}
+
 % ============================================================
 % ACERCA DEL AUTOR Y DEL ASESOR DE TESIS
 % ============================================================
