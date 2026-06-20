@@ -267,7 +267,7 @@ def fig_coverage_crps() -> None:
     axc.set_ylim(0.6, 1.0)
     axc.set_ylabel("Cobertura empírica del PI 95%")
     axc.set_title("(a) Calibración conforme adaptativa")
-    axc.legend(fontsize=7, loc="lower right")
+    # leyenda al pie de la figura (fuera del área de barras, evita encimarse con DFF)
     # (b) CRPS por modelo (FAD): clásicos + el deep ganador (BiTCN, calculado desde sus cuantiles)
     crps = pd.read_csv(REP / "crps_fad.csv").groupby("model")["crps"].mean()
     crps["BiTCN"] = _bitcn_crps("FAD")
@@ -281,7 +281,15 @@ def fig_coverage_crps() -> None:
     axr.set_title("(b) Afilado de la distribución predictiva")
     for i, v in enumerate(crps.values):
         axr.text(v, i, f" {v:.1f}", va="center", fontsize=7.5)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.06, 1, 1))
+    fig.legend(
+        *axc.get_legend_handles_labels(),
+        loc="lower center",
+        ncol=3,
+        fontsize=8,
+        frameon=False,
+        bbox_to_anchor=(0.5, -0.01),
+    )
     fig.savefig(FIG / "results_coverage_crps.pdf")
     plt.close(fig)
     print("F4 coverage+crps OK")
