@@ -5,7 +5,7 @@ MLflow vive solo en ``ante_nf`` (pandas<3). Este script lee lo que cualquier env
 duplica al re-sincronizar). MLflow 3.x deprecó el file-store → backend SQLite (``mlflow.db``)
 con artefactos en ``mlartifacts/``.
 
-Uso:  ante_nf/bin/python sync_mlflow.py
+Uso:  ante_nf/bin/python experiments/sync_mlflow.py
       ante_nf/bin/mlflow ui --backend-store-uri sqlite:///mlflow.db --default-artifact-root mlartifacts/
 """
 
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import mlflow
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 STAGING = ROOT / "mlruns_staging"
 DB_URI = f"sqlite:///{ROOT / 'mlflow.db'}"
 ARTIFACTS = (ROOT / "mlartifacts").as_uri()

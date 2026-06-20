@@ -3,7 +3,7 @@
 MLflow exige ``pandas<3`` y el env principal ``ante`` usa pandas 3 → no se puede importar
 mlflow ahí. Este módulo es **stdlib pura** (sin mlflow, sin vp_model): corre idéntico en
 ``ante`` (pandas 3, pool local) y ``ante_nf`` (pandas 2, deep global). Cada experimento
-escribe records JSONL en ``mlruns_staging/{experiment}.jsonl``; ``sync_mlflow.py`` (en
+escribe records JSONL en ``mlruns_staging/{experiment}.jsonl``; ``experiments/sync_mlflow.py`` (en
 ``ante_nf``, con mlflow) los vuelca a ``mlruns/`` para la UI y la comparación.
 
 Cada record es idempotente vía ``rec_id`` (hash de contenido) → re-sincronizar no duplica.

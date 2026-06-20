@@ -1,7 +1,7 @@
 """Entrenamiento GLOBAL en GPU (AWS) — RECETA GANADORA + frontier pesado + multi-semilla.
 
 Corre el MISMO protocolo que demostró ser el ganador en CPU/MPS local
-(``run_global_deep.py``), pero abre la puerta a los modelos que en CPU son inviables o
+(``experiments/run_global_deep.py``), pero abre la puerta a los modelos que en CPU son inviables o
 sobreajustan: transformers de horizonte largo (Informer/Autoformer/FEDformer/PatchTST/
 iTransformer/TimesNet) entrenados GLOBALES, y la confirmación MULTI-SEMILLA de los
 ganadores (AutoBiTCN/BiTCN) que en CPU es lenta y en GPU es barata.

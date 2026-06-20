@@ -9,7 +9,7 @@ fail=0
 
 # (a) Directorios y archivos canónicos que SIEMPRE deben existir.
 required=(
-  data/raw data/processed docs tests vp_model
+  data/raw data/processed docs tests vp_model experiments
   reports/latex/Figures .github/workflows
   Makefile pyproject.toml README.md schema.sql
   visa_common.py config.py freeze_snapshots.py scrape_all.py

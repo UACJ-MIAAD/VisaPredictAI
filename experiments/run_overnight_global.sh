@@ -9,15 +9,15 @@ export PYTHONWARNINGS=ignore
 MS=1000
 
 echo "=== [1/4] FAD diff (familiar+EB, max_steps=$MS) ==="
-$PY run_global_deep.py --table FAD --block both --diff --max-steps $MS 2>&1 | grep -E "panel:|✓|✗|guardado"
+$PY experiments/run_global_deep.py --table FAD --block both --diff --max-steps $MS 2>&1 | grep -E "panel:|✓|✗|guardado"
 
 echo "=== [2/4] FAD levels ==="
-$PY run_global_deep.py --table FAD --block both --max-steps $MS 2>&1 | grep -E "panel:|✓|✗|guardado"
+$PY experiments/run_global_deep.py --table FAD --block both --max-steps $MS 2>&1 | grep -E "panel:|✓|✗|guardado"
 
 echo "=== [3/4] DFF diff ==="
-$PY run_global_deep.py --table DFF --block both --diff --max-steps $MS 2>&1 | grep -E "panel:|✓|✗|guardado"
+$PY experiments/run_global_deep.py --table DFF --block both --diff --max-steps $MS 2>&1 | grep -E "panel:|✓|✗|guardado"
 
 echo "=== [4/4] DFF levels ==="
-$PY run_global_deep.py --table DFF --block both --max-steps $MS 2>&1 | grep -E "panel:|✓|✗|guardado"
+$PY experiments/run_global_deep.py --table DFF --block both --max-steps $MS 2>&1 | grep -E "panel:|✓|✗|guardado"
 
 echo "=== OVERNIGHT GLOBAL DONE ==="

@@ -10,12 +10,12 @@ modelado. Diseñada alrededor de los **dos entornos** del proyecto (incompatible
 
 ```
 [ante  o  ante_nf]                    [ante_nf]
- tracking.log_run()  ──►  mlruns_staging/*.jsonl  ──►  sync_mlflow.py  ──►  mlflow.db (SQLite)
+ tracking.log_run()  ──►  mlruns_staging/*.jsonl  ──►  experiments/sync_mlflow.py  ──►  mlflow.db (SQLite)
  (stdlib, env-agnóstico)   (records idempotentes)       (ingesta)          + mlartifacts/
 ```
 
 `tracking.py` es **stdlib pura** (sin mlflow ni vp_model) → corre idéntico en ambos venv y
-escribe records JSONL. `sync_mlflow.py` (en `ante_nf`) los vuelca a MLflow, idempotente por
+escribe records JSONL. `experiments/sync_mlflow.py` (en `ante_nf`) los vuelca a MLflow, idempotente por
 `rec_id` (re-sincronizar no duplica). MLflow 3.x deprecó el file-store → **backend SQLite**.
 
 ## Uso
@@ -25,7 +25,7 @@ escribe records JSONL. `sync_mlflow.py` (en `ante_nf`) los vuelca a MLflow, idem
 ante/bin/python -m vp_model.run_comparison --country all --table FAD --block family --mlflow
 
 # 2. sincronizar el staging a MLflow (en ante_nf)
-ante_nf/bin/python sync_mlflow.py
+ante_nf/bin/python experiments/sync_mlflow.py
 
 # 3. abrir la UI para comparar corridas (filtra por params, ordena por métrica)
 PYTHONPATH=tools/mlflow_shim ante_nf/bin/mlflow ui --backend-store-uri sqlite:///mlflow.db --default-artifact-root mlartifacts/ --port 5001

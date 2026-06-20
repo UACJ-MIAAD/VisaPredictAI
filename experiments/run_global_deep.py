@@ -19,7 +19,7 @@ Salida: ``reports/global_{table}_{levels|diff}.csv`` (unique_id, ds, y, <modelos
 SIEMPRE en espacio de NIVEL (la variante diff ya viene reintegrada), que el entorno
 principal evalúa con ``eval_neuralforecast`` usando las MISMAS métricas.
 
-Uso:  ante_nf/bin/python run_global_deep.py --table FAD --block both [--diff] [--max-steps 1000] [--fast]
+Uso:  ante_nf/bin/python experiments/run_global_deep.py --table FAD --block both [--diff] [--max-steps 1000] [--fast]
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
 PILOT = ("mexico", "india", "china", "philippines", "all_chargeability")
 # Constantes re-declaradas porque este script corre en el venv ante_nf (pandas<3, sin vp_model).

@@ -99,4 +99,4 @@ check: validate lint typecheck test
 all: freeze scrape panel db test figures audit
 
 sync:  ## todo machin: MLflow + DVC->S3 + git (tras una corrida)
-	bash sync_all.sh
+	bash experiments/sync_all.sh

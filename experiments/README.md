@@ -1,0 +1,20 @@
+# experiments/
+
+Scripts de modelado y experimentación del Objetivo 2 (PI-I). **No** son parte
+del pipeline de datos canónico (ese vive en la raíz: `scrape_all.py`,
+`build_panel.py`, `build_database.py`, etc.). Se ejecutan **desde la raíz del
+repo** para que las rutas relativas (`reports/`, `models/`, `mlflow.db`) y los
+venvs (`ante/`, `ante_nf/`) resuelvan:
+
+```bash
+bash experiments/run_campaign.sh > reports/campaign.log 2>&1
+ante/bin/python experiments/run_ensembles.py --mlflow
+```
+
+| Grupo | Scripts |
+|---|---|
+| Entrenamiento global deep | `run_global_deep.py` · `run_deep_pi.py` · `run_neuralforecast.py` |
+| Mejoras / ensembles | `improve_*.py` · `run_ensembles.py` · `aggregate_seeds.py` |
+| Finalistas / export | `save_finalists*.py` · `export_forecasts.py` · `eval_deep_pi.py` |
+| Orquestadores (bash) | `run_campaign.sh` · `run_experiments.sh` · `run_overnight_global.sh` · `save_finalists.sh` |
+| Tracking / sync | `sync_mlflow.py` · `sync_all.sh` (el módulo `tracking` vive en la raíz: lo comparte `vp_model`) |

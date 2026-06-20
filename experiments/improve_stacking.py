@@ -8,7 +8,7 @@ Leakage-free: por serie, el hold-out de 24m se parte en CALIBRACIÓN (primera mi
 pesos lasso) y TEST (segunda mitad, evalúa). El baseline justo = el mejor modelo base sobre el
 MISMO tramo de test. Se reporta MASE de test y se loguea a MLflow vía tracking.
 
-Corre en ``ante``. Uso:  ante/bin/python improve_stacking.py [--mlflow]
+Corre en ``ante``. Uso:  ante/bin/python experiments/improve_stacking.py [--mlflow]
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import tracking
 from vp_model import dataset
 from vp_model.metrics import naive_scale_before
 
-REPORTS = Path(__file__).resolve().parent / "reports"
+REPORTS = Path(__file__).resolve().parent.parent / "reports"
 BASE = ("AutoBiTCN", "BiTCN", "theta", "ets", "sarima", "catboost")
 
 

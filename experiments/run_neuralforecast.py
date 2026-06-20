@@ -9,7 +9,7 @@ Salida: ``reports/neuralforecast_forecasts.csv`` (unique_id, ds, modelo, pronós
 1 paso sobre el hold-out de 24 meses), que el entorno principal evalúa con las MISMAS
 métricas (MASE/CRPS/...) para comparar de forma justa contra el pool local.
 
-Uso:  ante_nf/bin/python run_neuralforecast.py [--table FAD] [--fast]
+Uso:  ante_nf/bin/python experiments/run_neuralforecast.py [--table FAD] [--fast]
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
 OUT = ROOT / "reports" / "neuralforecast_forecasts.csv"
 PILOT = ("mexico", "india", "china", "philippines", "all_chargeability")

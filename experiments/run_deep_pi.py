@@ -9,8 +9,8 @@ principal evalúa con cobertura empírica, interval score (MSIS) y CRPS aproxima
 Corre en ``ante_nf``. Salida: ``reports/deep_pi_{table}.csv`` (unique_id, ds, y, <model>,
 <model>-lo-95, <model>-hi-95, ... para cada nivel).
 
-Uso:  ante_nf/bin/python run_deep_pi.py --table DFF --model BiTCN --max-steps 800
-      ante_nf/bin/python run_deep_pi.py --table FAD --model BiTCN --max-steps 800 --local-scaler
+Uso:  ante_nf/bin/python experiments/run_deep_pi.py --table DFF --model BiTCN --max-steps 800
+      ante_nf/bin/python experiments/run_deep_pi.py --table FAD --model BiTCN --max-steps 800 --local-scaler
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
 from run_global_deep import HOLDOUT, load_panel
 
 LEVELS = [50, 80, 90, 95]
@@ -81,7 +80,7 @@ def main() -> None:
     out = cv[["unique_id", "ds", "y", *qcols]].copy()
     # la `y` del cv es Δy (objetivo diferenciado); guardar el NIVEL real para evaluar.
     out["y"] = np.array([lvl.get(k, np.nan) for k in zip(out["unique_id"], out["ds"], strict=True)])
-    path = Path(__file__).resolve().parent / "reports" / f"deep_pi_{args.table}.csv"
+    path = Path(__file__).resolve().parent.parent / "reports" / f"deep_pi_{args.table}.csv"
     out.to_csv(path, index=False)
     print(f"guardado {path.name} ({len(out)} filas, cols {qcols})")
 

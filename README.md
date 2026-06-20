@@ -56,6 +56,8 @@ VisaPredictAI/
 ├── visualize_wait_times.py             # gráficas por país (artefactos no versionados)
 ├── vp_model/                           # capa de modelado (PI-I) + palette.py (paleta única) + plots.py (figuras EDA)
 ├── make_*.py                           # generadores de figuras del .tex → reports/latex/Figures/ (data/eda/fe/result/hero/latinometrics)
+├── experiments/                        # scripts de modelado/experimentación PI-I (run_*, improve_*, save_*, sync_*) — se corren desde la raíz
+├── tools/validate_structure.sh         # valida la estructura cookiecutter (make validate; gate de CI)
 ├── reports/latex/                      # ★ fuente LaTeX del entregable (Overleaf importa de aquí) + Figures/
 ├── tests/                              # pytest: parsers · extracción offline · contrato del panel + BD
 ├── data/snapshots/                     # HTML crudo congelado (gitignored; máster en S3)

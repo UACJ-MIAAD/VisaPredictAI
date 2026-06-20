@@ -4,7 +4,7 @@ La investigación destacó TimesFM con in-context fine-tuning (ICF). El checkpoi
 público; aquí se evalúa el TimesFM 2.5 BASE zero-shot (200M, torch, local — sin API ni cuota),
 con walk-forward de 1 paso sobre el hold-out de 24m por serie, contra el listón (FAD 0.117 /
 DFF 0.090). Evaluación F-only, leakage-free. Corre en ``ante_tfm``.
-Uso:  ante_tfm/bin/python improve_timesfm.py [--table FAD] [--mlflow]
+Uso:  ante_tfm/bin/python experiments/improve_timesfm.py [--table FAD] [--mlflow]
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
 HOLDOUT = 24
 CONTEXT = 256
@@ -45,10 +45,9 @@ def main() -> None:
     ap.add_argument("--mlflow", action="store_true")
     args = ap.parse_args()
 
+    import run_global_deep as R
     from timesfm import ForecastConfig
     from timesfm.timesfm_2p5.timesfm_2p5_torch import TimesFM_2p5_200M_torch
-
-    import run_global_deep as R
 
     model = TimesFM_2p5_200M_torch.from_pretrained("google/timesfm-2.5-200m-pytorch")
     model.compile(ForecastConfig(max_context=CONTEXT, max_horizon=1, normalize_inputs=True))

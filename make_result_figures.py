@@ -222,7 +222,7 @@ def _pinball(y: np.ndarray, q: np.ndarray, tau: float) -> float:
 
 
 def _bitcn_crps(table: str) -> float:
-    """CRPS de BiTCN (2·media pinball sobre cuantiles), idéntico a eval_deep_pi.py, F-only por serie."""
+    """CRPS de BiTCN (2·media pinball sobre cuantiles), idéntico a experiments/eval_deep_pi.py, F-only por serie."""
     from vp_model import dataset
 
     d = pd.read_csv(REP / f"deep_pi_{table}.csv", parse_dates=["ds"])

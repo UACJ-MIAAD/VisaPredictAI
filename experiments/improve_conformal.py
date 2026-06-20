@@ -8,7 +8,7 @@ contra el baseline (neuralforecast conformal, cobertura 0.77 DFF / 0.89 FAD).
 
 Calibración leakage-free: por serie, los primeros 12 meses del hold-out calibran; los últimos
 12 se evalúan (cobertura empírica del PI 95% + ancho medio escalado). Corre en ``ante``.
-Uso:  ante/bin/python improve_conformal.py [--mlflow]
+Uso:  ante/bin/python experiments/improve_conformal.py [--mlflow]
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import tracking
 from vp_model import dataset
 from vp_model.metrics import naive_scale_before
 
-REPORTS = Path(__file__).resolve().parent / "reports"
+REPORTS = Path(__file__).resolve().parent.parent / "reports"
 ALPHA = 0.05  # PI al 95%
 
 

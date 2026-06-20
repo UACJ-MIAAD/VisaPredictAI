@@ -7,7 +7,7 @@ cada finalista (local por serie + deep global) sobre los 24 meses de hold-out, e
 Locales: walk-forward de 1 paso (``historical_forecasts``) sobre el hold-out. Deep: se leen
 los CSV de la campaña (``reports/global_{table}_camp_*.csv``), ya reintegrados a nivel.
 
-Corre en ``ante``. Uso:  ante/bin/python export_forecasts.py
+Corre en ``ante``. Uso:  ante/bin/python experiments/export_forecasts.py
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import pandas as pd
 
 from vp_model import config, dataset, models, walkforward
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
 LOCAL = ("ets", "theta", "sarima", "arima", "kalman", "catboost", "lightgbm")
 # variante ganadora por modelo deep (de la campaña): diff salvo PatchTST (nivel).

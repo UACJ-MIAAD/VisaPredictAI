@@ -3,8 +3,8 @@
 # F1: pool local 21 modelos (incluye el híbrido ARIMA-LSTM) × FAD/DFF × familia/empleo.
 # F2: deep global — matriz de variantes (espacio-target × normalización × HPO) × multi-semilla.
 # Cada paso es independiente (|| true): un fallo no aborta la campaña. Correr en background:
-#   bash run_campaign.sh > reports/campaign.log 2>&1
-# Al terminar: ante_nf/bin/python sync_mlflow.py  &&  mlflow ui --backend-store-uri sqlite:///mlflow.db
+#   bash experiments/run_campaign.sh > reports/campaign.log 2>&1
+# Al terminar: ante_nf/bin/python experiments/sync_mlflow.py  &&  mlflow ui --backend-store-uri sqlite:///mlflow.db
 set -u
 cd "$(dirname "$0")"
 ANTE=ante/bin/python
@@ -26,16 +26,16 @@ done
 DET_MODELS="BiTCN PatchTST TiDE NHITS"
 for table in FAD DFF; do
   for seed in $SEEDS; do
-    $NF run_global_deep.py --table "$table" --block family --max-steps 800 --models $DET_MODELS \
+    $NF experiments/run_global_deep.py --table "$table" --block family --max-steps 800 --models $DET_MODELS \
       --seed "$seed" --suffix "camp_levels_s${seed}" || true
-    $NF run_global_deep.py --table "$table" --block family --diff --max-steps 800 --models $DET_MODELS \
+    $NF experiments/run_global_deep.py --table "$table" --block family --diff --max-steps 800 --models $DET_MODELS \
       --seed "$seed" --suffix "camp_diff_s${seed}" || true
-    $NF run_global_deep.py --table "$table" --block family --diff --local-scaler --max-steps 800 \
+    $NF experiments/run_global_deep.py --table "$table" --block family --diff --local-scaler --max-steps 800 \
       --models $DET_MODELS --seed "$seed" --suffix "camp_diffls_s${seed}" || true
   done
   # Variante con HPO (Auto*): más cara, menos modelos.
   for seed in $SEEDS; do
-    $NF run_global_deep.py --table "$table" --block family --diff --auto --num-samples 15 \
+    $NF experiments/run_global_deep.py --table "$table" --block family --diff --auto --num-samples 15 \
       --models AutoBiTCN AutoTiDE AutoNHITS --seed "$seed" --suffix "camp_auto_s${seed}" || true
   done
 done
@@ -45,19 +45,19 @@ echo ">>> F2 agregación tracked $(date)"
 for table in FAD DFF; do
   for m in $DET_MODELS; do
     for v in camp_levels_s camp_diff_s camp_diffls_s; do
-      $ANTE aggregate_seeds.py --table "$table" --prefix "$v" --model "$m" --mlflow || true
+      $ANTE experiments/aggregate_seeds.py --table "$table" --prefix "$v" --model "$m" --mlflow || true
     done
   done
   for m in AutoBiTCN AutoTiDE AutoNHITS; do
-    $ANTE aggregate_seeds.py --table "$table" --prefix camp_auto_s --model "$m" --mlflow || true
+    $ANTE experiments/aggregate_seeds.py --table "$table" --prefix camp_auto_s --model "$m" --mlflow || true
   done
 done
 
 # ---------- F2: ensembles (combinaciones) -> MLflow ----------
 echo ">>> F2 ensembles tracked $(date)"
-$ANTE run_ensembles.py --mlflow || true
+$ANTE experiments/run_ensembles.py --mlflow || true
 
 # ---------- TODO MACHIN: MLflow + DVC->S3 + git ----------
 echo ">>> sync_all (MLflow + DVC->S3 + git) $(date)"
-bash sync_all.sh "campaña: MLflow + DVC->S3 ($(date +%Y-%m-%d))" || true
+bash experiments/sync_all.sh "campaña: MLflow + DVC->S3 ($(date +%Y-%m-%d))" || true
 echo "=== CAMPAÑA termina $(date) ==="

@@ -1,14 +1,14 @@
 """Agrega las corridas multi-semilla de los modelos profundos globales.
 
 Lee los CSV ``reports/global_{TABLE}_{prefix}{seed}.csv`` (uno por semilla, producidos
-por ``run_global_deep.py --seed N --suffix {prefix}{seed}``), calcula el MASE de
+por ``experiments/run_global_deep.py --seed N --suffix {prefix}{seed}``), calcula el MASE de
 hold-out por serie con las MISMAS métricas del proyecto (vía ``eval_neuralforecast``),
 promedia sobre el bloque familiar para obtener UN número por semilla, y reporta
 media ± desv. estándar e IC 95% (t de Student) sobre las semillas.
 
 Corre en el ENTORNO PRINCIPAL (ante/bin/python), no en ante_nf — usa vp_model.dataset.
 
-Uso:  ante/bin/python aggregate_seeds.py --table FAD --prefix auto_s --model AutoBiTCN
+Uso:  ante/bin/python experiments/aggregate_seeds.py --table FAD --prefix auto_s --model AutoBiTCN
 """
 
 from __future__ import annotations

@@ -7,7 +7,7 @@ Dos familias:
      profundo global (BiTCN/AutoBiTCN, de los CSV de la campaña) con ETS/Theta/SARIMA bate
      a cualquiera por separado? Mediana por serie×fecha, evaluada F-only con la escala única.
 
-Corre en ``ante``. Uso:  ante/bin/python run_ensembles.py --mlflow
+Corre en ``ante``. Uso:  ante/bin/python experiments/run_ensembles.py --mlflow
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import tracking
 from vp_model import dataset, ensemble
 from vp_model.metrics import naive_scale_before
 
-REPORTS = Path(__file__).resolve().parent / "reports"
+REPORTS = Path(__file__).resolve().parent.parent / "reports"
 
 
 def _log(track: bool, table: str, name: str, mase: float, detail: str) -> None:

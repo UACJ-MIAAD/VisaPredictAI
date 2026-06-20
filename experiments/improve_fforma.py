@@ -6,7 +6,7 @@ minimiza el error. Aquí se evalúa LEAVE-ONE-SERIES-OUT (anti-leakage) sobre la
 compara contra el mejor modelo FIJO (ETS) y contra el ORÁCULO de selección perfecta (~0.112 FAD).
 
 ⚠️ Con solo 25 series el meta-learner sobreajusta (lo advierte la investigación); el resultado
-honesto suele ser que NO bate al fijo. Corre en ``ante``. Uso:  ante/bin/python improve_fforma.py [--mlflow]
+honesto suele ser que NO bate al fijo. Corre en ``ante``. Uso:  ante/bin/python experiments/improve_fforma.py [--mlflow]
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import tracking
 from vp_model import dataset
 from vp_model.metrics import naive_scale_before
 
-REPORTS = Path(__file__).resolve().parent / "reports"
+REPORTS = Path(__file__).resolve().parent.parent / "reports"
 
 
 def _features(s: np.ndarray) -> list[float]:

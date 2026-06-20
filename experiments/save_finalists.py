@@ -5,7 +5,7 @@ sobre TODA la serie (modelo desplegable) y los persiste con ``model.save()`` en
 ``models/{table}/local/{model}/{pais}_{cat}/``, con una entrada en el manifiesto. Los modelos
 diferenciados (GBMs) reciben las covariables de calendario igual que el walk-forward.
 
-Corre en ``ante``. Uso:  ante/bin/python save_finalists.py
+Corre en ``ante``. Uso:  ante/bin/python experiments/save_finalists.py
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import joblib
 
 from vp_model import config, dataset, models, walkforward
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 MODELS = ROOT / "models"
 MANIFEST = MODELS / "manifest.jsonl"
 # Finalistas locales (top del barrido): parsimonia + árbol + clásicos. SARIMA se omite del

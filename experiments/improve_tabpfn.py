@@ -8,7 +8,7 @@ DFF 0.090). Las features de calendario las genera el pipeline; se evalúa F-only
 
 ⚠️ Requiere ``TABPFN_TOKEN`` (licencia gratuita: registro en https://ux.priorlabs.ai, aceptar
 licencia, copiar API key). Correr en ``ante_tab``:
-    TABPFN_TOKEN=... ante_tab/bin/python improve_tabpfn.py [--table FAD] [--mlflow]
+    TABPFN_TOKEN=... ante_tab/bin/python experiments/improve_tabpfn.py [--table FAD] [--mlflow]
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
 HOLDOUT = 24
 

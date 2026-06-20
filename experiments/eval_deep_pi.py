@@ -7,7 +7,7 @@ calcula, por serie y promedio sobre el bloque familiar:
   * CRPS aproximado por cuantiles (2·media de la pérdida pinball sobre los niveles disponibles),
 para comparar contra el CRPS de los clásicos del .tex (SARIMA 48 / ARIMA 49 / DeepAR 174).
 
-Corre en el entorno PRINCIPAL (ante/bin/python). Uso: ante/bin/python eval_deep_pi.py --table DFF
+Corre en el entorno PRINCIPAL (ante/bin/python). Uso: ante/bin/python experiments/eval_deep_pi.py --table DFF
 """
 
 from __future__ import annotations

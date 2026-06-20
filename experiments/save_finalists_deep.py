@@ -3,7 +3,7 @@
 Por tabla (FAD, DFF) entrena sobre TODO el panel (encoding de régimen + primera diferencia,
 la receta ganadora) y persiste cada modelo con ``nf.save()`` en ``models/{table}/global/{model}/``,
 junto con sus pronósticos hold-out (24m, 1 paso, leakage-free) y una entrada en el manifiesto.
-Corre en ``ante_nf``. Uso:  ante_nf/bin/python save_finalists_deep.py
+Corre en ``ante_nf``. Uso:  ante_nf/bin/python experiments/save_finalists_deep.py
 """
 
 from __future__ import annotations
@@ -12,10 +12,9 @@ import json
 from pathlib import Path
 
 import pandas as pd
-
 from run_global_deep import HOLDOUT, encode_regime, load_panel, regular_monthly  # noqa: F401
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 MODELS = ROOT / "models"
 MANIFEST = MODELS / "manifest.jsonl"
 DET = ("BiTCN", "PatchTST", "TiDE", "NHITS")  # deterministas finalistas
@@ -44,7 +43,6 @@ def main() -> None:
     from neuralforecast.auto import AutoBiTCN
     from neuralforecast.losses.pytorch import MAE
     from neuralforecast.models import NHITS, BiTCN, PatchTST, TiDE
-
     from run_global_deep import _auto_config, _optuna_sampler
 
     cls = {"BiTCN": BiTCN, "PatchTST": PatchTST, "TiDE": TiDE, "NHITS": NHITS}
