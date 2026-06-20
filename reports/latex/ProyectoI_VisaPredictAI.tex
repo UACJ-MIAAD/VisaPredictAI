@@ -884,10 +884,42 @@ son independientes.}
 
 \subsection{1.2.2 Preprocesamiento de datos}
 
-El preprocesamiento aplica cuatro transformaciones, todas diseñadas para evitar la
-fuga de información (\textit{leakage}):
+El preprocesamiento construye, a partir de cada serie con fecha, la \textbf{matriz de
+características} que alimenta a los modelos (Figura~\ref{fig:fe_pipeline}). Aplica cinco
+transformaciones, todas diseñadas para evitar la fuga de información (\textit{leakage}):
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\footnotesize,
+  step/.style={rectangle, rounded corners=3pt, draw=uacjblue, line width=0.7pt, fill=white,
+    text width=2.5cm, align=center, minimum height=1.4cm, inner sep=4pt},
+  srcb/.style={step, fill=uacjblue!8},
+  matb/.style={step, fill=uacjyellow!30, draw=uacjblack},
+  far/.style={-{Latex[length=2.2mm]}, uacjgray, line width=0.9pt}]
+  \node[srcb] (ser) {Serie con fecha ($e=F$)};
+  \node[step, right=0.7cm of ser] (dif) {Primera diferencia (avance mensual)};
+  \node[step, right=0.7cm of dif] (cov) {Rezagos $+$ calendario cíclico $+$ máscara MNAR};
+  \node[step, right=0.7cm of cov] (std) {Estandarización (solo entrenamiento)};
+  \node[matb, right=0.7cm of std] (mat) {Matriz de características};
+  \draw[far] (ser)--(dif); \draw[far] (dif)--(cov);
+  \draw[far] (cov)--(std); \draw[far] (std)--(mat);
+\end{tikzpicture}%
+}
+\caption[Ingeniería de características]{Construcción de la matriz de características: la serie con
+fecha se diferencia (avance mensual), se le agregan rezagos, codificación cíclica del calendario
+y una máscara de ausencia, y se estandariza con estadísticos del tramo de entrenamiento.}
+\label{fig:fe_pipeline}
+\end{figure}
 
 \begin{itemize}[leftmargin=*]
+\item \textbf{Diferenciación.} La serie de fechas tiene una tendencia fuerte y no
+estacionaria, y los árboles y las redes \textit{no extrapolan tendencias sobre niveles}: se
+saturan en el máximo observado. Por ello el objetivo se modela sobre la \textbf{primera
+diferencia} —el avance mensual— y se reintegra a un paso. La transformación vuelve la serie
+estacionaria y extrapolable (Figura~\ref{fig:fe_diff}); es la palanca que rescata a los
+modelos de alta capacidad.
 \item \textbf{Huecos como mecanismo MNAR.} Los meses sin fecha no faltan al azar:
 corresponden a regímenes \textit{Current}/\textit{Unavailable}, donde estructuralmente
 no hay fecha que predecir. Es un mecanismo \textit{Missing Not At Random} (MNAR): la
@@ -909,8 +941,42 @@ conjunto completo filtraría el futuro al pasado.
 \item \textbf{Regresores de calendario.} Para los modelos tabulares se construyen
 variables del mes y de la posición dentro del año fiscal estadounidense (que inicia
 en octubre, cuando se reinician las cuotas), codificadas de forma cíclica con seno
-y coseno para no imponer un orden falso entre diciembre y enero.
+y coseno (Figura~\ref{fig:fe_calendar}) para no imponer un orden falso entre diciembre y enero.
 \end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.86\textwidth]{fe_differencing.pdf}
+\caption[Diferenciación de la serie]{(a) Serie en niveles con tendencia fuerte (no
+estacionaria). (b) Su primera diferencia —el avance mensual—, estacionaria alrededor de una
+media positiva y por tanto extrapolable por los modelos.}
+\label{fig:fe_diff}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.94\textwidth]{fe_calendar.pdf}
+\caption[Codificación cíclica del calendario]{Codificación del mes en el año fiscal
+estadounidense (inicia en octubre) mediante seno y coseno. (a) Componentes. (b) Sobre el
+círculo unitario diciembre y enero quedan adyacentes, evitando un orden falso entre meses.}
+\label{fig:fe_calendar}
+\end{figure}
+
+Para verificar qué información usan efectivamente los modelos tabulares, la
+Figura~\ref{fig:fe_importance} reporta la importancia de características de un árbol de
+potenciación de gradiente (LightGBM) entrenado sobre el avance mensual: domina el avance del
+mes anterior ($t-1$), seguido de los rezagos cortos y del rezago anual ($t-12$), mientras que
+los regresores de calendario aportan una señal menor pero no nula, coherente con la débil
+estacionalidad observada en el EDA.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.84\textwidth]{fe_importance.pdf}
+\caption[Importancia de características]{Importancia (por ganancia) de las características de un
+modelo de potenciación de gradiente para predecir el avance mensual de la fecha (FAD): los
+rezagos del propio avance dominan; el calendario cíclico aporta una señal secundaria.}
+\label{fig:fe_importance}
+\end{figure}
 
 \begin{figure}[H]
 \centering
