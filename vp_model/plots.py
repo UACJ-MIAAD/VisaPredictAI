@@ -19,7 +19,7 @@ from statsmodels.graphics.tsaplots import plot_acf, plot_pacf  # noqa: E402
 from statsmodels.tsa.seasonal import STL  # noqa: E402
 
 from vp_model import config, dataset, eda, features, preprocess  # noqa: E402
-from vp_model.palette import BLUE, COUNTRY, GOLD, GRAY, INK, MID, SEQ, WINE  # noqa: E402
+from vp_model.palette import BLUE, COUNTRY, COUNTRY_NAME, DIV, GOLD, GRAY, INK, MID, SEQ, WINE  # noqa: E402
 
 log = config.get_logger(__name__)
 
@@ -63,7 +63,7 @@ def plot_pilot_series(table: str = "FAD", category: str = "F3") -> Path:
             s = dataset.load_series(country, category, table)
         except KeyError:
             continue
-        ax.plot(s.index, s.to_numpy() / 365.25, label=country, color=color, lw=1.3)
+        ax.plot(s.index, s.to_numpy() / 365.25, label=COUNTRY_NAME[country], color=color, lw=1.3)
     ax.set_title(f"Frente de fecha de prioridad — categoría {category}, tabla {table}")
     ax.set_xlabel("Mes del boletín")
     ax.set_ylabel("Años desde la época base (1975)")
@@ -78,7 +78,7 @@ def plot_coverage_heatmap(table: str = "FAD", block: str = "family") -> Path:
     fig, ax = plt.subplots(figsize=(7, 3.2))
     im = ax.imshow(pivot.to_numpy(), cmap=SEQ, vmin=0, vmax=1, aspect="auto")
     ax.set_xticks(range(len(pivot.columns)), pivot.columns)
-    ax.set_yticks(range(len(pivot.index)), pivot.index)
+    ax.set_yticks(range(len(pivot.index)), [COUNTRY_NAME.get(c, c) for c in pivot.index])
     for i in range(pivot.shape[0]):
         for j in range(pivot.shape[1]):
             v = pivot.to_numpy()[i, j]
@@ -150,7 +150,7 @@ def plot_feature_space(table: str = "FAD", block: str = "family") -> Path:
         ax.scatter(
             grp["trend_strength"],
             grp["seasonal_strength"],
-            label=country,
+            label=COUNTRY_NAME.get(country, country),
             color=colors.get(country, UACJ_BLUE),
             s=40,
             alpha=0.8,
@@ -195,9 +195,9 @@ def plot_cross_correlation(category: str = "F3", table: str = "FAD") -> Path:
             continue
     corr = pd.DataFrame(cols).corr()
     fig, ax = plt.subplots(figsize=(5.2, 4.4))
-    im = ax.imshow(corr.to_numpy(), cmap="RdBu_r", vmin=-1, vmax=1)
-    ax.set_xticks(range(len(corr)), corr.columns, rotation=45, ha="right")
-    ax.set_yticks(range(len(corr)), corr.index)
+    im = ax.imshow(corr.to_numpy(), cmap=DIV, vmin=-1, vmax=1)
+    ax.set_xticks(range(len(corr)), [COUNTRY_NAME.get(c, c) for c in corr.columns], rotation=45, ha="right")
+    ax.set_yticks(range(len(corr)), [COUNTRY_NAME.get(c, c) for c in corr.index])
     for i in range(len(corr)):
         for j in range(len(corr)):
             ax.text(j, i, f"{corr.to_numpy()[i, j]:.2f}", ha="center", va="center", fontsize=8)

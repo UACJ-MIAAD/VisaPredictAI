@@ -18,7 +18,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import seaborn as sns  # noqa: E402
 
-from vp_model.palette import BLUE, COUNTRY, DIV, GOLD, GRID, MID, REGIME, SEQ, WINE  # noqa: E402
+from vp_model.palette import BLUE, COUNTRY, DIV, GOLD, GRID, INK, MID, REGIME, SEQ, WINE  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
 FIG = ROOT / "reports" / "latex" / "Figures"
@@ -139,8 +139,9 @@ def fig_regime() -> None:
         left += comp[s].to_numpy()
     ax.set_xlim(0, 1)
     ax.set_xlabel("Fracción de meses en cada régimen")
-    ax.set_title("Composición de régimen por serie (preferencia familiar)", fontsize=10, color=BLUE)
-    ax.legend(ncol=4, loc="upper center", bbox_to_anchor=(0.5, 1.055), fontsize=8, frameon=False)
+    ax.set_title("Composición de régimen por serie (preferencia familiar)", fontsize=10, color=BLUE, pad=10)
+    # leyenda al pie (evita encimarse con el título arriba)
+    fig.legend(ncol=4, loc="lower center", bbox_to_anchor=(0.5, -0.015), fontsize=8, frameon=False)
     ax.tick_params(axis="y", labelsize=6.5)
     fig.savefig(FIG / "eda2_regime.pdf")
     plt.close(fig)
@@ -199,7 +200,7 @@ def fig_distributions() -> None:
     a2.text(
         0.03,
         0.95,
-        f"retrogresiones: {(d < 0).mean() * 100:.1f}\\%",
+        f"retrogresiones: {(d < 0).mean() * 100:.1f}%",
         transform=a2.transAxes,
         fontsize=7.5,
         va="top",
@@ -250,13 +251,19 @@ def fig_length_retro() -> None:
         f[f.delta < 0].groupby(["country", "category"]).agg(n=("delta", "size"), peor=("delta", "min")).reset_index()
     )
     retro["serie"] = retro.country.map(CNAME) + "/" + retro.category
+    retro["yr"] = -retro.peor / 365.25
     retro = retro.sort_values("peor")
-    a2.scatter(retro.n, -retro.peor / 365.25, c=[CCOL[c] for c in retro.country], s=40, edgecolor="white")
-    for _, r in retro.iterrows():
-        a2.annotate(r.serie, (r.n, -r.peor / 365.25), fontsize=6, xytext=(3, 2), textcoords="offset points")
+    a2.scatter(retro.n, retro.yr, c=[CCOL[c] for c in retro.country], s=40, edgecolor="white", zorder=3)
+    # etiquetar solo las series más extremas: el cúmulo se distingue por color (evita encimamiento)
+    for _, r in retro[retro.yr > 5.2].iterrows():
+        a2.annotate(r.serie, (r.n, r.yr), fontsize=6.5, xytext=(4, 2), textcoords="offset points", color=INK)
+    from matplotlib.lines import Line2D
+
+    handles = [Line2D([0], [0], marker="o", ls="", mfc=CCOL[a], mec="white", ms=6, label=CNAME[a]) for a in AREAS]
+    a2.legend(handles=handles, fontsize=6.5, loc="lower right", frameon=False, handletextpad=0.2)
     a2.set_xlabel("Número de retrogresiones")
     a2.set_ylabel("Mayor retroceso (años)")
-    a2.set_title("(b) Retrogresiones por serie", fontsize=9.5, color=BLUE)
+    a2.set_title("(b) Retrogresiones por serie  (solo se rotulan las series extremas)", fontsize=9, color=BLUE)
     fig.tight_layout()
     fig.savefig(FIG / "eda2_length_retro.pdf")
     plt.close(fig)
