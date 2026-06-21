@@ -117,7 +117,13 @@ jobs:
         pip install -e ".[model]"
         python experiments/generate_web_forecasts.py
 
-        # 5. Commit the refreshed CSVs/panel/forecasts (snapshots + DB are gitignored).
+        # 4c. Prospective scoring: now that this month's REAL cutoffs are in the
+        #     panel, grade every previously-frozen forecast whose target month just
+        #     landed (forecast_log.csv vs actuals) → reports/forecast_scorecard*.
+        #     This is the real-world 12-month accuracy, accruing one month at a time.
+        python experiments/score_forecasts.py
+
+        # 5. Commit the refreshed CSVs/panel/forecasts/scorecard (snapshots + DB gitignored).
         git config --local user.email "168046724+jrebull@users.noreply.github.com"
         git config --local user.name "Javier Rebull"
         git add -A

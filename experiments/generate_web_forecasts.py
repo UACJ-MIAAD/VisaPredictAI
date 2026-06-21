@@ -48,14 +48,20 @@ PROD: dict[str, tuple[str, ...]] = {"FAD": ("theta", "ets", "sarima"), "DFF": ("
 log = config.get_logger("web_forecasts")
 
 
-def _holdout_preds(model_set: tuple[str, ...], country: str, category: str, table: str):
+def _holdout_preds(model_set: tuple[str, ...], country: str, category: str, table: str, as_of: str | None = None):
     """(serie, dict modelo->pred 1-paso del hold-out). Lanza si la serie es muy corta.
 
     Walk-forward de 1 paso, leakage-free, **solo sobre los 24 meses de hold-out**
     (los modelos locales de darts exigen ``retrain=True``; 24 reentrenamientos por
     modelo es barato y es la ventana que calibra el conforme y da procedencia).
+
+    ``as_of`` (YYYY-MM) trunca la serie a ese mes inclusive para generar una añada
+    HISTÓRICA leakage-free (origen del pronóstico) y poder medirla contra los reales
+    ya observados — la base de la evaluación prospectiva.
     """
     ts = models.to_timeseries(dataset.load_series(country, category, table))
+    if as_of is not None:
+        ts = ts.drop_after(pd.Timestamp(as_of) + pd.offsets.MonthBegin(1))
     if len(ts) < config.MIN_TRAIN[table] + config.HOLDOUT + config.MIN_BACKTEST_BUFFER:
         raise ValueError(f"serie demasiado corta ({len(ts)})")
     split = ts.time_index[-config.HOLDOUT]
@@ -73,13 +79,16 @@ def _ensemble_point(values: list[np.ndarray]) -> np.ndarray:
     return np.median(np.vstack(values), axis=0)
 
 
-def _series_forecast(country: str, category: str, table: str) -> tuple[list[dict], dict] | None:
+def _series_forecast(
+    country: str, category: str, table: str, as_of: str | None = None
+) -> tuple[list[dict], dict] | None:
     model_set = PROD[table]
     try:
-        ts, hold_preds = _holdout_preds(model_set, country, category, table)
+        ts, hold_preds = _holdout_preds(model_set, country, category, table, as_of)
     except Exception as e:  # noqa: BLE001 — serie corta / sin F suficientes → respaldo web
         log.info("skip %s/%s/%s: %s", country, category, table, e)
         return None
+    origin = ts.end_time().strftime("%Y-%m")  # mes desde el que se pronostica (la "añada")
 
     # pronóstico ensamble del hold-out (mediana de los modelos en las fechas comunes)
     common = hold_preds[model_set[0]].time_index
@@ -119,6 +128,8 @@ def _series_forecast(country: str, category: str, table: str) -> tuple[list[dict
         grow = math.sqrt(h)  # error acumulado tipo random-walk
         rows.append(
             {
+                "origin": origin,
+                "h": h,
                 "country": country,
                 "category": category,
                 "table": table,
@@ -156,14 +167,32 @@ def _series_forecast(country: str, category: str, table: str) -> tuple[list[dict
     return rows, {f"{country}/{category}/{table}": meta}
 
 
-def run() -> tuple[Path, Path]:
+WEB_COLS = ["country", "category", "table", "date", "days", "lo80", "hi80", "lo95", "hi95"]
+LOG_COLS = ["origin", "h", *WEB_COLS]
+LOG_KEYS = ["origin", "country", "category", "table", "date"]
+
+
+def _append_log(rows: list[dict]) -> Path:
+    """Anexa la añada al ledger append-only ``reports/forecast_log.csv`` (idempotente
+    por (origin, serie, fecha-objetivo)). Es el registro inmutable de lo que
+    predijimos y desde cuándo — base de la evaluación prospectiva (``score_forecasts``)."""
+    log_path = REPORTS / "forecast_log.csv"
+    new = pd.DataFrame(rows)[LOG_COLS]
+    combined = pd.concat([pd.read_csv(log_path), new], ignore_index=True) if log_path.exists() else new
+    combined = combined.drop_duplicates(subset=LOG_KEYS, keep="last").sort_values(LOG_KEYS)
+    combined.to_csv(log_path, index=False)
+    log.info("ledger -> %s (%d filas, %d añadas)", log_path, len(combined), combined["origin"].nunique())
+    return log_path
+
+
+def run(as_of: str | None = None) -> tuple[Path, Path]:
     all_rows: list[dict] = []
     all_meta: dict = {}
     for table in config.TABLES:
         for block in ("family", "employment"):
             cat = dataset.list_series(table=table, block=block, countries=config.PILOT_COUNTRIES)
             for r in cat.itertuples():
-                out = _series_forecast(r.country, r.category, table)
+                out = _series_forecast(r.country, r.category, table, as_of)
                 if out is None:
                     continue
                 rows, meta = out
@@ -171,8 +200,11 @@ def run() -> tuple[Path, Path]:
                 all_meta.update(meta)
                 log.info("✓ %s/%s/%s (%d series acumuladas)", table, r.country, r.category, len(all_meta))
 
+    _append_log(all_rows)  # archiva la añada (cualquier as_of), SIEMPRE
+    # La añada en vivo (as_of=None) es además la que sirve la web.
+    if as_of is None:
+        pd.DataFrame(all_rows)[WEB_COLS].to_csv(REPORTS / "web_forecasts.csv", index=False)
     csv_path = REPORTS / "web_forecasts.csv"
-    pd.DataFrame(all_rows).to_csv(csv_path, index=False)
     meta_path = REPORTS / "web_forecasts_meta.json"
     meta_path.write_text(
         json.dumps(
@@ -196,4 +228,8 @@ def run() -> tuple[Path, Path]:
 
 
 if __name__ == "__main__":
-    run()
+    import sys
+
+    # Uso: python experiments/generate_web_forecasts.py [YYYY-MM]
+    # Sin arg → añada en vivo (sirve la web). Con arg → añada histórica para evaluación.
+    run(sys.argv[1] if len(sys.argv) > 1 else None)

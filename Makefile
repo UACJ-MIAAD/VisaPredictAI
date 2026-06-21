@@ -88,6 +88,9 @@ report:
 web-forecasts:  ## pronósticos futuros por serie para el demostrador web (tracked en MLflow)
 	$(PY) experiments/generate_web_forecasts.py
 
+score-forecasts:  ## evaluación PROSPECTIVA: pronósticos congelados vs cortes reales (scorecard + MLflow)
+	$(PY) experiments/score_forecasts.py
+
 lint:
 	$(PY) -m ruff check .
 
