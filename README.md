@@ -57,13 +57,16 @@ VisaPredictAI/
 ├── vp_model/                           # capa de modelado (PI-I) + palette.py (paleta única) + plots.py (figuras EDA)
 ├── make_*.py                           # generadores de figuras del .tex → reports/latex/Figures/ (data/eda/fe/result/hero/latinometrics)
 ├── experiments/                        # scripts de modelado/experimentación PI-I (run_*, improve_*, save_*, sync_*) — se corren desde la raíz
+│   ├── generate_web_forecasts.py       # pronósticos a 12 m por serie para la web + archiva la añada en el ledger (make web-forecasts)
+│   ├── score_forecasts.py              # evaluación PROSPECTIVA: ledger vs cortes reales (make score-forecasts; ver docs/FORECAST_EVAL.md)
+│   └── backfill_vintages.sh            # siembra reproducible del ledger (añada viva + históricas leakage-free + scoring)
 ├── tools/validate_structure.sh         # valida la estructura cookiecutter (make validate; gate de CI)
 ├── reports/latex/                      # ★ fuente LaTeX del entregable (Overleaf importa de aquí) + Figures/
 ├── tests/                              # pytest: parsers · extracción offline · contrato del panel + BD
 ├── data/snapshots/                     # HTML crudo congelado (gitignored; máster en S3)
 ├── data/raw/                           # CSVs por país (derivados de los snapshots, versionados)
 ├── data/processed/                     # visa_panel_long.csv (panel) + .duckdb/.parquet regenerables
-├── reports/ · docs/                    # auditorías · data_dictionary · er_diagram · ROADMAP
+├── reports/ · docs/                    # auditorías · web_forecasts/forecast_log/scorecard · data_dictionary · er_diagram · ROADMAP · FORECAST_EVAL
 ├── Makefile · pyproject.toml           # one-command ops + config ruff/mypy/pytest
 └── .github/workflows/                  # ci.yml (lint+type+test) · freeze_and_rebuild.yml (Action Lun-Vie 12pm ET, S3-driven)
 ```

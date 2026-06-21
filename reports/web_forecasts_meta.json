@@ -19,7 +19,7 @@
       "smape": 0.1899,
       "cov95_holdout": 1.0,
       "half95_1step_days": 150,
-      "half80_1step_days": 42
+      "half80_1step_days": 70
     },
     "all_chargeability/F2A/FAD": {
       "n_obs": 284,
@@ -33,7 +33,7 @@
       "smape": 0.7378,
       "cov95_holdout": 1.0,
       "half95_1step_days": 1084,
-      "half80_1step_days": 233
+      "half80_1step_days": 505
     },
     "all_chargeability/F2B/FAD": {
       "n_obs": 284,
@@ -47,7 +47,7 @@
       "smape": 0.1403,
       "cov95_holdout": 1.0,
       "half95_1step_days": 114,
-      "half80_1step_days": 21
+      "half80_1step_days": 53
     },
     "all_chargeability/F3/FAD": {
       "n_obs": 284,
@@ -61,7 +61,7 @@
       "smape": 0.3133,
       "cov95_holdout": 1.0,
       "half95_1step_days": 265,
-      "half80_1step_days": 69
+      "half80_1step_days": 123
     },
     "all_chargeability/F4/FAD": {
       "n_obs": 284,
@@ -75,7 +75,7 @@
       "smape": 0.1548,
       "cov95_holdout": 1.0,
       "half95_1step_days": 138,
-      "half80_1step_days": 15
+      "half80_1step_days": 64
     },
     "china/F1/FAD": {
       "n_obs": 247,
@@ -89,7 +89,7 @@
       "smape": 0.1904,
       "cov95_holdout": 1.0,
       "half95_1step_days": 140,
-      "half80_1step_days": 36
+      "half80_1step_days": 65
     },
     "china/F2A/FAD": {
       "n_obs": 247,
@@ -103,7 +103,7 @@
       "smape": 0.7388,
       "cov95_holdout": 1.0,
       "half95_1step_days": 1084,
-      "half80_1step_days": 231
+      "half80_1step_days": 504
     },
     "china/F2B/FAD": {
       "n_obs": 247,
@@ -117,7 +117,7 @@
       "smape": 0.1508,
       "cov95_holdout": 1.0,
       "half95_1step_days": 113,
-      "half80_1step_days": 21
+      "half80_1step_days": 53
     },
     "china/F3/FAD": {
       "n_obs": 247,
@@ -131,7 +131,7 @@
       "smape": 0.3129,
       "cov95_holdout": 1.0,
       "half95_1step_days": 264,
-      "half80_1step_days": 69
+      "half80_1step_days": 123
     },
     "china/F4/FAD": {
       "n_obs": 247,
@@ -145,7 +145,7 @@
       "smape": 0.1469,
       "cov95_holdout": 1.0,
       "half95_1step_days": 140,
-      "half80_1step_days": 14
+      "half80_1step_days": 65
     },
     "india/F1/FAD": {
       "n_obs": 284,
@@ -159,7 +159,7 @@
       "smape": 0.1904,
       "cov95_holdout": 1.0,
       "half95_1step_days": 149,
-      "half80_1step_days": 42
+      "half80_1step_days": 69
     },
     "india/F2A/FAD": {
       "n_obs": 284,
@@ -173,7 +173,7 @@
       "smape": 0.7378,
       "cov95_holdout": 1.0,
       "half95_1step_days": 1084,
-      "half80_1step_days": 233
+      "half80_1step_days": 505
     },
     "india/F2B/FAD": {
       "n_obs": 284,
@@ -187,7 +187,7 @@
       "smape": 0.1394,
       "cov95_holdout": 1.0,
       "half95_1step_days": 114,
-      "half80_1step_days": 21
+      "half80_1step_days": 53
     },
     "india/F3/FAD": {
       "n_obs": 284,
@@ -201,7 +201,7 @@
       "smape": 0.3135,
       "cov95_holdout": 1.0,
       "half95_1step_days": 265,
-      "half80_1step_days": 69
+      "half80_1step_days": 123
     },
     "india/F4/FAD": {
       "n_obs": 284,
@@ -215,7 +215,7 @@
       "smape": 0.1205,
       "cov95_holdout": 1.0,
       "half95_1step_days": 59,
-      "half80_1step_days": 22
+      "half80_1step_days": 28
     },
     "mexico/F1/FAD": {
       "n_obs": 284,
@@ -229,7 +229,7 @@
       "smape": 0.603,
       "cov95_holdout": 1.0,
       "half95_1step_days": 685,
-      "half80_1step_days": 108
+      "half80_1step_days": 319
     },
     "mexico/F2A/FAD": {
       "n_obs": 284,
@@ -243,7 +243,7 @@
       "smape": 0.7264,
       "cov95_holdout": 0.9583,
       "half95_1step_days": 868,
-      "half80_1step_days": 141
+      "half80_1step_days": 404
     },
     "mexico/F2B/FAD": {
       "n_obs": 284,
@@ -257,7 +257,7 @@
       "smape": 0.8332,
       "cov95_holdout": 1.0,
       "half95_1step_days": 532,
-      "half80_1step_days": 150
+      "half80_1step_days": 248
     },
     "mexico/F3/FAD": {
       "n_obs": 284,
@@ -271,7 +271,7 @@
       "smape": 0.6436,
       "cov95_holdout": 1.0,
       "half95_1step_days": 314,
-      "half80_1step_days": 140
+      "half80_1step_days": 146
     },
     "mexico/F4/FAD": {
       "n_obs": 284,
@@ -285,7 +285,7 @@
       "smape": 0.123,
       "cov95_holdout": 1.0,
       "half95_1step_days": 92,
-      "half80_1step_days": 7
+      "half80_1step_days": 43
     },
     "philippines/F1/FAD": {
       "n_obs": 284,
@@ -299,7 +299,7 @@
       "smape": 0.126,
       "cov95_holdout": 1.0,
       "half95_1step_days": 117,
-      "half80_1step_days": 14
+      "half80_1step_days": 54
     },
     "philippines/F2A/FAD": {
       "n_obs": 284,
@@ -313,7 +313,7 @@
       "smape": 0.738,
       "cov95_holdout": 1.0,
       "half95_1step_days": 1084,
-      "half80_1step_days": 233
+      "half80_1step_days": 505
     },
     "philippines/F2B/FAD": {
       "n_obs": 284,
@@ -327,7 +327,7 @@
       "smape": 0.1184,
       "cov95_holdout": 1.0,
       "half95_1step_days": 82,
-      "half80_1step_days": 14
+      "half80_1step_days": 38
     },
     "philippines/F3/FAD": {
       "n_obs": 284,
@@ -341,7 +341,7 @@
       "smape": 0.2446,
       "cov95_holdout": 1.0,
       "half95_1step_days": 177,
-      "half80_1step_days": 50
+      "half80_1step_days": 82
     },
     "philippines/F4/FAD": {
       "n_obs": 284,
@@ -355,7 +355,7 @@
       "smape": 0.5019,
       "cov95_holdout": 1.0,
       "half95_1step_days": 227,
-      "half80_1step_days": 80
+      "half80_1step_days": 106
     },
     "all_chargeability/EB2/FAD": {
       "n_obs": 215,
@@ -369,7 +369,7 @@
       "smape": 0.1949,
       "cov95_holdout": 1.0,
       "half95_1step_days": 99,
-      "half80_1step_days": 55
+      "half80_1step_days": 46
     },
     "all_chargeability/EB3/FAD": {
       "n_obs": 238,
@@ -383,7 +383,7 @@
       "smape": 0.8801,
       "cov95_holdout": 1.0,
       "half95_1step_days": 821,
-      "half80_1step_days": 375
+      "half80_1step_days": 382
     },
     "all_chargeability/EB3_OW/FAD": {
       "n_obs": 245,
@@ -397,7 +397,7 @@
       "smape": 0.1621,
       "cov95_holdout": 1.0,
       "half95_1step_days": 101,
-      "half80_1step_days": 53
+      "half80_1step_days": 47
     },
     "all_chargeability/EB4/FAD": {
       "n_obs": 215,
@@ -411,7 +411,7 @@
       "smape": 0.4193,
       "cov95_holdout": 1.0,
       "half95_1step_days": 532,
-      "half80_1step_days": 117
+      "half80_1step_days": 248
     },
     "all_chargeability/EB4_RW/FAD": {
       "n_obs": 215,
@@ -425,7 +425,7 @@
       "smape": 0.3929,
       "cov95_holdout": 0.9583,
       "half95_1step_days": 532,
-      "half80_1step_days": 71
+      "half80_1step_days": 248
     },
     "china/EB1/FAD": {
       "n_obs": 234,
@@ -439,7 +439,7 @@
       "smape": 0.1045,
       "cov95_holdout": 1.0,
       "half95_1step_days": 124,
-      "half80_1step_days": 16
+      "half80_1step_days": 58
     },
     "china/EB2/FAD": {
       "n_obs": 234,
@@ -453,7 +453,7 @@
       "smape": 0.1507,
       "cov95_holdout": 1.0,
       "half95_1step_days": 131,
-      "half80_1step_days": 47
+      "half80_1step_days": 61
     },
     "china/EB3/FAD": {
       "n_obs": 244,
@@ -467,7 +467,7 @@
       "smape": 0.2401,
       "cov95_holdout": 1.0,
       "half95_1step_days": 211,
-      "half80_1step_days": 81
+      "half80_1step_days": 98
     },
     "china/EB3_OW/FAD": {
       "n_obs": 244,
@@ -481,7 +481,7 @@
       "smape": 0.2152,
       "cov95_holdout": 1.0,
       "half95_1step_days": 356,
-      "half80_1step_days": 13
+      "half80_1step_days": 166
     },
     "china/EB4/FAD": {
       "n_obs": 215,
@@ -495,7 +495,7 @@
       "smape": 0.4193,
       "cov95_holdout": 1.0,
       "half95_1step_days": 532,
-      "half80_1step_days": 117
+      "half80_1step_days": 248
     },
     "china/EB4_RW/FAD": {
       "n_obs": 215,
@@ -509,7 +509,7 @@
       "smape": 0.3929,
       "cov95_holdout": 0.9583,
       "half95_1step_days": 532,
-      "half80_1step_days": 71
+      "half80_1step_days": 248
     },
     "india/EB1/FAD": {
       "n_obs": 234,
@@ -523,7 +523,7 @@
       "smape": 2.0457,
       "cov95_holdout": 1.0,
       "half95_1step_days": 3698,
-      "half80_1step_days": 169
+      "half80_1step_days": 1721
     },
     "india/EB2/FAD": {
       "n_obs": 234,
@@ -537,7 +537,7 @@
       "smape": 0.2354,
       "cov95_holdout": 1.0,
       "half95_1step_days": 357,
-      "half80_1step_days": 42
+      "half80_1step_days": 166
     },
     "india/EB3/FAD": {
       "n_obs": 244,
@@ -551,7 +551,7 @@
       "smape": 1.0219,
       "cov95_holdout": 1.0,
       "half95_1step_days": 1125,
-      "half80_1step_days": 190
+      "half80_1step_days": 524
     },
     "india/EB3_OW/FAD": {
       "n_obs": 244,
@@ -565,7 +565,7 @@
       "smape": 0.9387,
       "cov95_holdout": 1.0,
       "half95_1step_days": 1135,
-      "half80_1step_days": 164
+      "half80_1step_days": 529
     },
     "india/EB4/FAD": {
       "n_obs": 215,
@@ -579,7 +579,7 @@
       "smape": 0.4957,
       "cov95_holdout": 0.9583,
       "half95_1step_days": 519,
-      "half80_1step_days": 136
+      "half80_1step_days": 242
     },
     "india/EB4_RW/FAD": {
       "n_obs": 215,
@@ -593,7 +593,7 @@
       "smape": 0.4493,
       "cov95_holdout": 1.0,
       "half95_1step_days": 519,
-      "half80_1step_days": 110
+      "half80_1step_days": 242
     },
     "mexico/EB2/FAD": {
       "n_obs": 215,
@@ -607,7 +607,7 @@
       "smape": 0.1949,
       "cov95_holdout": 1.0,
       "half95_1step_days": 99,
-      "half80_1step_days": 55
+      "half80_1step_days": 46
     },
     "mexico/EB3/FAD": {
       "n_obs": 234,
@@ -621,7 +621,7 @@
       "smape": 0.8835,
       "cov95_holdout": 1.0,
       "half95_1step_days": 812,
-      "half80_1step_days": 370
+      "half80_1step_days": 378
     },
     "mexico/EB3_OW/FAD": {
       "n_obs": 244,
@@ -635,7 +635,7 @@
       "smape": 0.1689,
       "cov95_holdout": 1.0,
       "half95_1step_days": 113,
-      "half80_1step_days": 54
+      "half80_1step_days": 53
     },
     "mexico/EB4/FAD": {
       "n_obs": 215,
@@ -649,7 +649,7 @@
       "smape": 0.4904,
       "cov95_holdout": 1.0,
       "half95_1step_days": 532,
-      "half80_1step_days": 149
+      "half80_1step_days": 248
     },
     "mexico/EB4_RW/FAD": {
       "n_obs": 215,
@@ -663,7 +663,7 @@
       "smape": 0.4181,
       "cov95_holdout": 1.0,
       "half95_1step_days": 534,
-      "half80_1step_days": 90
+      "half80_1step_days": 248
     },
     "philippines/EB2/FAD": {
       "n_obs": 215,
@@ -677,7 +677,7 @@
       "smape": 0.1949,
       "cov95_holdout": 1.0,
       "half95_1step_days": 99,
-      "half80_1step_days": 55
+      "half80_1step_days": 46
     },
     "philippines/EB3/FAD": {
       "n_obs": 244,
@@ -691,7 +691,7 @@
       "smape": 0.7812,
       "cov95_holdout": 1.0,
       "half95_1step_days": 702,
-      "half80_1step_days": 372
+      "half80_1step_days": 327
     },
     "philippines/EB3_OW/FAD": {
       "n_obs": 244,
@@ -705,7 +705,7 @@
       "smape": 0.1831,
       "cov95_holdout": 1.0,
       "half95_1step_days": 195,
-      "half80_1step_days": 20
+      "half80_1step_days": 91
     },
     "philippines/EB4/FAD": {
       "n_obs": 215,
@@ -719,7 +719,7 @@
       "smape": 0.4193,
       "cov95_holdout": 1.0,
       "half95_1step_days": 532,
-      "half80_1step_days": 117
+      "half80_1step_days": 248
     },
     "philippines/EB4_RW/FAD": {
       "n_obs": 215,
@@ -733,7 +733,7 @@
       "smape": 0.3929,
       "cov95_holdout": 0.9583,
       "half95_1step_days": 532,
-      "half80_1step_days": 71
+      "half80_1step_days": 248
     },
     "all_chargeability/F1/DFF": {
       "n_obs": 118,
@@ -745,7 +745,7 @@
       "smape": 0.1048,
       "cov95_holdout": 1.0,
       "half95_1step_days": 94,
-      "half80_1step_days": 22
+      "half80_1step_days": 44
     },
     "all_chargeability/F2B/DFF": {
       "n_obs": 118,
@@ -757,7 +757,7 @@
       "smape": 0.0472,
       "cov95_holdout": 1.0,
       "half95_1step_days": 15,
-      "half80_1step_days": 10
+      "half80_1step_days": 7
     },
     "all_chargeability/F3/DFF": {
       "n_obs": 118,
@@ -769,7 +769,7 @@
       "smape": 0.3581,
       "cov95_holdout": 1.0,
       "half95_1step_days": 259,
-      "half80_1step_days": 82
+      "half80_1step_days": 120
     },
     "all_chargeability/F4/DFF": {
       "n_obs": 118,
@@ -781,7 +781,7 @@
       "smape": 0.0905,
       "cov95_holdout": 1.0,
       "half95_1step_days": 91,
-      "half80_1step_days": 9
+      "half80_1step_days": 42
     },
     "china/F1/DFF": {
       "n_obs": 118,
@@ -793,7 +793,7 @@
       "smape": 0.1048,
       "cov95_holdout": 1.0,
       "half95_1step_days": 94,
-      "half80_1step_days": 22
+      "half80_1step_days": 44
     },
     "china/F2B/DFF": {
       "n_obs": 118,
@@ -805,7 +805,7 @@
       "smape": 0.0472,
       "cov95_holdout": 1.0,
       "half95_1step_days": 15,
-      "half80_1step_days": 10
+      "half80_1step_days": 7
     },
     "china/F3/DFF": {
       "n_obs": 118,
@@ -817,7 +817,7 @@
       "smape": 0.3581,
       "cov95_holdout": 1.0,
       "half95_1step_days": 259,
-      "half80_1step_days": 82
+      "half80_1step_days": 120
     },
     "china/F4/DFF": {
       "n_obs": 118,
@@ -829,7 +829,7 @@
       "smape": 0.0905,
       "cov95_holdout": 1.0,
       "half95_1step_days": 91,
-      "half80_1step_days": 9
+      "half80_1step_days": 42
     },
     "india/F1/DFF": {
       "n_obs": 118,
@@ -841,7 +841,7 @@
       "smape": 0.1048,
       "cov95_holdout": 1.0,
       "half95_1step_days": 94,
-      "half80_1step_days": 22
+      "half80_1step_days": 44
     },
     "india/F2B/DFF": {
       "n_obs": 118,
@@ -853,7 +853,7 @@
       "smape": 0.0472,
       "cov95_holdout": 1.0,
       "half95_1step_days": 15,
-      "half80_1step_days": 10
+      "half80_1step_days": 7
     },
     "india/F3/DFF": {
       "n_obs": 118,
@@ -865,7 +865,7 @@
       "smape": 0.3581,
       "cov95_holdout": 1.0,
       "half95_1step_days": 259,
-      "half80_1step_days": 82
+      "half80_1step_days": 120
     },
     "india/F4/DFF": {
       "n_obs": 118,
@@ -877,7 +877,7 @@
       "smape": 0.1233,
       "cov95_holdout": 1.0,
       "half95_1step_days": 63,
-      "half80_1step_days": 31
+      "half80_1step_days": 29
     },
     "mexico/F1/DFF": {
       "n_obs": 118,
@@ -889,7 +889,7 @@
       "smape": 0.7219,
       "cov95_holdout": 1.0,
       "half95_1step_days": 794,
-      "half80_1step_days": 58
+      "half80_1step_days": 370
     },
     "mexico/F2B/DFF": {
       "n_obs": 118,
@@ -901,7 +901,7 @@
       "smape": 1.1479,
       "cov95_holdout": 1.0,
       "half95_1step_days": 833,
-      "half80_1step_days": 179
+      "half80_1step_days": 388
     },
     "mexico/F3/DFF": {
       "n_obs": 118,
@@ -913,7 +913,7 @@
       "smape": 0.0493,
       "cov95_holdout": 1.0,
       "half95_1step_days": 28,
-      "half80_1step_days": 6
+      "half80_1step_days": 13
     },
     "mexico/F4/DFF": {
       "n_obs": 118,
@@ -925,7 +925,7 @@
       "smape": 0.0099,
       "cov95_holdout": 1.0,
       "half95_1step_days": 7,
-      "half80_1step_days": 1
+      "half80_1step_days": 3
     },
     "philippines/F1/DFF": {
       "n_obs": 118,
@@ -949,7 +949,7 @@
       "smape": 0.0587,
       "cov95_holdout": 1.0,
       "half95_1step_days": 17,
-      "half80_1step_days": 13
+      "half80_1step_days": 8
     },
     "philippines/F3/DFF": {
       "n_obs": 118,
@@ -961,7 +961,7 @@
       "smape": 0.2589,
       "cov95_holdout": 1.0,
       "half95_1step_days": 210,
-      "half80_1step_days": 30
+      "half80_1step_days": 98
     },
     "philippines/F4/DFF": {
       "n_obs": 118,
@@ -973,7 +973,7 @@
       "smape": 0.6595,
       "cov95_holdout": 1.0,
       "half95_1step_days": 366,
-      "half80_1step_days": 97
+      "half80_1step_days": 170
     },
     "all_chargeability/EB3/DFF": {
       "n_obs": 117,
@@ -985,7 +985,7 @@
       "smape": 8.4321,
       "cov95_holdout": 1.0,
       "half95_1step_days": 17563,
-      "half80_1step_days": 35
+      "half80_1step_days": 8176
     },
     "all_chargeability/EB3_OW/DFF": {
       "n_obs": 117,
@@ -997,7 +997,7 @@
       "smape": 0.1908,
       "cov95_holdout": 1.0,
       "half95_1step_days": 202,
-      "half80_1step_days": 40
+      "half80_1step_days": 94
     },
     "china/EB1/DFF": {
       "n_obs": 82,
@@ -1009,7 +1009,7 @@
       "smape": 0.0938,
       "cov95_holdout": 1.0,
       "half95_1step_days": 150,
-      "half80_1step_days": 26
+      "half80_1step_days": 70
     },
     "china/EB2/DFF": {
       "n_obs": 118,
@@ -1021,7 +1021,7 @@
       "smape": 0.2284,
       "cov95_holdout": 1.0,
       "half95_1step_days": 123,
-      "half80_1step_days": 40
+      "half80_1step_days": 57
     },
     "china/EB3/DFF": {
       "n_obs": 118,
@@ -1033,7 +1033,7 @@
       "smape": 0.3664,
       "cov95_holdout": 1.0,
       "half95_1step_days": 309,
-      "half80_1step_days": 74
+      "half80_1step_days": 144
     },
     "china/EB3_OW/DFF": {
       "n_obs": 118,
@@ -1045,7 +1045,7 @@
       "smape": 0.3689,
       "cov95_holdout": 1.0,
       "half95_1step_days": 507,
-      "half80_1step_days": 36
+      "half80_1step_days": 236
     },
     "india/EB1/DFF": {
       "n_obs": 82,
@@ -1057,7 +1057,7 @@
       "smape": 0.6903,
       "cov95_holdout": 1.0,
       "half95_1step_days": 950,
-      "half80_1step_days": 156
+      "half80_1step_days": 442
     },
     "india/EB2/DFF": {
       "n_obs": 118,
@@ -1069,7 +1069,7 @@
       "smape": 0.3515,
       "cov95_holdout": 1.0,
       "half95_1step_days": 386,
-      "half80_1step_days": 60
+      "half80_1step_days": 180
     },
     "india/EB3/DFF": {
       "n_obs": 118,
@@ -1081,7 +1081,7 @@
       "smape": 0.1811,
       "cov95_holdout": 1.0,
       "half95_1step_days": 208,
-      "half80_1step_days": 37
+      "half80_1step_days": 97
     },
     "india/EB3_OW/DFF": {
       "n_obs": 118,
@@ -1093,7 +1093,7 @@
       "smape": 0.1811,
       "cov95_holdout": 1.0,
       "half95_1step_days": 208,
-      "half80_1step_days": 37
+      "half80_1step_days": 97
     },
     "mexico/EB3/DFF": {
       "n_obs": 118,
@@ -1105,7 +1105,7 @@
       "smape": 0.1049,
       "cov95_holdout": 1.0,
       "half95_1step_days": 117,
-      "half80_1step_days": 27
+      "half80_1step_days": 54
     },
     "mexico/EB3_OW/DFF": {
       "n_obs": 118,
@@ -1117,7 +1117,7 @@
       "smape": 0.1855,
       "cov95_holdout": 1.0,
       "half95_1step_days": 200,
-      "half80_1step_days": 29
+      "half80_1step_days": 93
     },
     "philippines/EB3/DFF": {
       "n_obs": 118,
@@ -1129,7 +1129,7 @@
       "smape": 0.1636,
       "cov95_holdout": 1.0,
       "half95_1step_days": 155,
-      "half80_1step_days": 39
+      "half80_1step_days": 72
     },
     "philippines/EB3_OW/DFF": {
       "n_obs": 118,
@@ -1141,7 +1141,7 @@
       "smape": 0.2237,
       "cov95_holdout": 1.0,
       "half95_1step_days": 356,
-      "half80_1step_days": 52
+      "half80_1step_days": 166
     }
   }
 }

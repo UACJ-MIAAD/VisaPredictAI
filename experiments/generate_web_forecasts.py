@@ -65,7 +65,10 @@ def _holdout_preds(model_set: tuple[str, ...], country: str, category: str, tabl
     """
     ts = models.to_timeseries(dataset.load_series(country, category, table))
     if as_of is not None:
-        ts = ts.drop_after(pd.Timestamp(as_of) + pd.offsets.MonthBegin(1))
+        cut = pd.Timestamp(as_of) + pd.offsets.MonthBegin(1)
+        if not (ts.start_time() < cut <= ts.end_time() + ts.freq):  # serie sin datos en ese origen
+            raise ValueError(f"as_of={as_of} fuera del rango de la serie")
+        ts = ts.drop_after(cut)
     if len(ts) < config.MIN_TRAIN[table] + config.HOLDOUT + config.MIN_BACKTEST_BUFFER:
         raise ValueError(f"serie demasiado corta ({len(ts)})")
     split = ts.time_index[-config.HOLDOUT]
@@ -86,12 +89,18 @@ def _ensemble_point(values: list[np.ndarray]) -> np.ndarray:
 def _series_forecast(
     country: str, category: str, table: str, as_of: str | None = None
 ) -> tuple[list[dict], dict] | None:
-    model_set = PROD[table]
+    """Error boundary: cualquier fallo de una serie/modelo (serie corta, ``as_of`` fuera
+    de rango, error numérico de SARIMA, etc.) la OMITE sin abortar la añada completa."""
     try:
-        ts, hold_preds = _holdout_preds(model_set, country, category, table, as_of)
-    except Exception as e:  # noqa: BLE001 — serie corta / sin F suficientes → respaldo web
+        return _compute_series_forecast(country, category, table, as_of)
+    except Exception as e:  # noqa: BLE001 — robustez: una serie que falla no tumba la corrida
         log.info("skip %s/%s/%s: %s", country, category, table, e)
         return None
+
+
+def _compute_series_forecast(country: str, category: str, table: str, as_of: str | None) -> tuple[list[dict], dict]:
+    model_set = PROD[table]
+    ts, hold_preds = _holdout_preds(model_set, country, category, table, as_of)
     origin = ts.end_time().strftime("%Y-%m")  # mes desde el que se pronostica (la "añada")
 
     # pronóstico ensamble del hold-out (mediana de los modelos en las fechas comunes)

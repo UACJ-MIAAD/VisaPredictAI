@@ -35,45 +35,10 @@ REPORTS = ROOT / "reports"
 log = config.get_logger("score_forecasts")
 
 
-def _actuals() -> dict[tuple[str, str, str, str], float]:
-    """Cortes reales (estado F) del panel: (país, categoría, tabla, 'YYYY-MM-01') -> días."""
-    con = dataset._connect()
-    try:
-        df = con.execute('SELECT country, category, "table", bulletin_date, days_since_base FROM mart_training_F').df()
-    finally:
-        con.close()
-    out: dict[tuple[str, str, str, str], float] = {}
-    for r in df.itertuples():
-        out[(r.country, r.category, r.table, pd.Timestamp(r.bulletin_date).strftime("%Y-%m-%d"))] = float(
-            r.days_since_base
-        )
-    return out
-
-
-def run() -> Path | None:
-    log_path = REPORTS / "forecast_log.csv"
-    if not log_path.exists():
-        log.warning("no hay ledger %s — corre generate_web_forecasts primero", log_path)
-        return None
-    fc = pd.read_csv(log_path)
-    actuals = _actuals()
-
-    # escala naïve in-sample hasta el origen, cacheada por (serie, origen) — leakage-free.
-    scale_cache: dict[tuple[str, str, str, str], float] = {}
-
-    def scale_for(country: str, category: str, table: str, origin: str) -> float:
-        key = (country, category, table, origin)
-        if key not in scale_cache:
-            try:
-                s = dataset.load_series(country, category, table)
-                cutoff = pd.Timestamp(origin) + pd.offsets.MonthBegin(1)  # incluye el mes de origen
-                scale_cache[key] = metrics.naive_scale_before(s, cutoff)
-            except Exception:  # noqa: BLE001
-                scale_cache[key] = 1.0
-        return scale_cache[key]
-
-    scored = []
-    pending = 0
+def _score_rows(fc: pd.DataFrame, actuals: dict, scale_for) -> tuple[list[dict], int]:
+    """Filas evaluables (objetivo ya realizado) + conteo de pendientes. Lógica pura,
+    separada de la E/S para poder probarla con datos sintéticos (ver ``demo``)."""
+    scored, pending = [], 0
     for r in fc.itertuples():
         actual = actuals.get((r.country, r.category, r.table, r.date))
         if actual is None:  # mes-objetivo aún no publicado, o no es estado F → no evaluable todavía
@@ -98,6 +63,32 @@ def run() -> Path | None:
                 "in95": int(r.lo95 <= actual <= r.hi95),
             }
         )
+    return scored, pending
+
+
+def run() -> Path | None:
+    log_path = REPORTS / "forecast_log.csv"
+    if not log_path.exists():
+        log.warning("no hay ledger %s — corre generate_web_forecasts primero", log_path)
+        return None
+    fc = pd.read_csv(log_path)
+    actuals = dataset.actuals_F()
+
+    # escala naïve in-sample hasta el origen, cacheada por (serie, origen) — leakage-free.
+    scale_cache: dict[tuple[str, str, str, str], float] = {}
+
+    def scale_for(country: str, category: str, table: str, origin: str) -> float:
+        key = (country, category, table, origin)
+        if key not in scale_cache:
+            try:
+                s = dataset.load_series(country, category, table)
+                cutoff = pd.Timestamp(origin) + pd.offsets.MonthBegin(1)  # incluye el mes de origen
+                scale_cache[key] = metrics.naive_scale_before(s, cutoff)
+            except Exception:  # noqa: BLE001
+                scale_cache[key] = 1.0
+        return scale_cache[key]
+
+    scored, pending = _score_rows(fc, actuals, scale_for)
 
     sdf = pd.DataFrame(scored)
     sdf.to_csv(REPORTS / "forecast_scorecard.csv", index=False)
@@ -158,5 +149,68 @@ def run() -> Path | None:
     return REPORTS / "forecast_scorecard.csv"
 
 
+def demo() -> None:
+    """Self-check de la lógica de scoring con datos sintéticos (sin BD ni modelos)."""
+    fc = pd.DataFrame(
+        [
+            # objetivo realizado, real dentro de ambas bandas, error 10 d, escala 100 → MASE 0.1
+            {
+                "origin": "2024-01",
+                "h": 1,
+                "country": "mexico",
+                "category": "F1",
+                "table": "FAD",
+                "date": "2024-02-01",
+                "days": 1000,
+                "lo80": 950,
+                "hi80": 1050,
+                "lo95": 900,
+                "hi95": 1100,
+            },
+            # objetivo realizado, real FUERA de la banda 80 pero dentro de 95
+            {
+                "origin": "2024-01",
+                "h": 2,
+                "country": "mexico",
+                "category": "F1",
+                "table": "FAD",
+                "date": "2024-03-01",
+                "days": 1000,
+                "lo80": 990,
+                "hi80": 1010,
+                "lo95": 900,
+                "hi95": 1100,
+            },
+            # objetivo aún no realizado → pendiente
+            {
+                "origin": "2024-01",
+                "h": 3,
+                "country": "mexico",
+                "category": "F1",
+                "table": "FAD",
+                "date": "2099-01-01",
+                "days": 1000,
+                "lo80": 950,
+                "hi80": 1050,
+                "lo95": 900,
+                "hi95": 1100,
+            },
+        ]
+    )
+    actuals = {
+        ("mexico", "F1", "FAD", "2024-02-01"): 1010.0,  # |error|=10
+        ("mexico", "F1", "FAD", "2024-03-01"): 1060.0,  # |error|=60, fuera de [990,1010], dentro de [900,1100]
+    }
+    scored, pending = _score_rows(fc, actuals, lambda *_: 100.0)
+    assert pending == 1, pending
+    assert len(scored) == 2, len(scored)
+    assert scored[0]["abs_err"] == 10 and abs(scored[0]["scaled_err"] - 0.1) < 1e-9
+    assert scored[0]["in80"] == 1 and scored[0]["in95"] == 1
+    assert scored[1]["in80"] == 0 and scored[1]["in95"] == 1  # cobertura 80 distingue de 95
+    print("OK — score_forecasts: pendientes y cobertura 80/95 + MASE correctos")
+
+
 if __name__ == "__main__":
-    run()
+    import sys
+
+    (demo if "--demo" in sys.argv else run)()

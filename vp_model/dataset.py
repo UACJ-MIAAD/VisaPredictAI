@@ -26,6 +26,24 @@ def _connect(db_path: str | Path | None = None) -> duckdb.DuckDBPyConnection:
     return duckdb.connect(str(path), read_only=True)
 
 
+def actuals_F(db_path: str | Path | None = None) -> dict[tuple[str, str, str, str], float]:
+    """Todos los cortes reales (estado F) del panel: (país, categoría, tabla, 'YYYY-MM-DD') → días.
+
+    API pública para la evaluación prospectiva (``experiments/score_forecasts``): compara
+    los pronósticos congelados contra el corte realmente publicado. Encapsula la conexión
+    read-only y la consulta (evita exponer ``_connect`` fuera del módulo).
+    """
+    con = _connect(db_path)
+    try:
+        df = con.execute('SELECT country, category, "table", bulletin_date, days_since_base FROM mart_training_F').df()
+    finally:
+        con.close()
+    return {
+        (r.country, r.category, r.table, pd.Timestamp(r.bulletin_date).strftime("%Y-%m-%d")): float(r.days_since_base)
+        for r in df.itertuples()
+    }
+
+
 def list_series(
     *,
     table: str | None = None,
