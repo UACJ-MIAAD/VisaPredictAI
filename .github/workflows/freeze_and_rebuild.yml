@@ -107,7 +107,17 @@ jobs:
         # spuriously fail it. The plain-script gate above already covers those.
         python -m pytest tests/test_database.py --cov-fail-under=0
 
-        # 5. Commit the refreshed CSVs/panel (snapshots + DB are gitignored).
+        # 4b. Regenerate the web demonstrator's production-model forecasts. Needs
+        #     the modeling deps; install CPU-only torch first so .[model] doesn't
+        #     pull the ~2 GB CUDA wheel. Produces reports/web_forecasts.csv (+meta)
+        #     — per-series 12-month forecasts (FAD: median Theta+ETS+SARIMA;
+        #     DFF: SARIMA; split-conformal 80/95% bands). The website fetches these
+        #     at build time. Per-series MASE/coverage land in the committed meta.json.
+        pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu
+        pip install -e ".[model]"
+        python experiments/generate_web_forecasts.py
+
+        # 5. Commit the refreshed CSVs/panel/forecasts (snapshots + DB are gitignored).
         git config --local user.email "168046724+jrebull@users.noreply.github.com"
         git config --local user.name "Javier Rebull"
         git add -A
@@ -116,6 +126,21 @@ jobs:
         else
           git commit -m "Add bulletin $(date -u +%Y-%m): refresh panel from frozen HTML"
           git push
+        fi
+
+    - name: Redeploy the website on a new bulletin (Netlify build hook)
+      # Only when a bulletin actually arrived. The web build re-fetches the panel
+      # + forecasts from this repo, so a redeploy ships the fresh data.
+      if: steps.run.outputs.new != '0' && steps.run.outputs.new != ''
+      env:
+        HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
+      run: |
+        if [ -n "$HOOK" ]; then
+          curl -fsS -X POST -d '{}' "$HOOK" && echo "Redeploy del sitio disparado (Netlify)."
+        else
+          echo "::warning::NETLIFY_BUILD_HOOK no configurado -- el sitio no se redesplegará solo."
+          echo "Crea un Build hook en Netlify (Site settings -> Build & deploy -> Build hooks)"
+          echo "y agrégalo como secret del repo: NETLIFY_BUILD_HOOK."
         fi
 
     - name: Email heartbeat via SES (every run -- no-op, new bulletin, or failure)
