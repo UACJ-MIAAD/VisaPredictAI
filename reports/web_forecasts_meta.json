@@ -1,0 +1,1203 @@
+{
+  "method": {
+    "FAD": "Mediana de Theta + ETS + SARIMA · intervalo conforme (95 %/80 %) ensanchado por √h",
+    "DFF": "SARIMA · intervalo conforme (95 %/80 %) ensanchado por √h"
+  },
+  "horizon_months": 12,
+  "base_date": "1975-01-01",
+  "n_series": 90,
+  "series": {
+    "all_chargeability/F1/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1092,
+      "smape": 0.2441,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 174,
+      "half80_1step_days": 103
+    },
+    "all_chargeability/F2A/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1229,
+      "smape": 0.3166,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 501,
+      "half80_1step_days": 44
+    },
+    "all_chargeability/F2B/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0718,
+      "smape": 0.1844,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 157,
+      "half80_1step_days": 42
+    },
+    "all_chargeability/F3/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1472,
+      "smape": 0.2568,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 265,
+      "half80_1step_days": 44
+    },
+    "all_chargeability/F4/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0981,
+      "smape": 0.2639,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 138,
+      "half80_1step_days": 56
+    },
+    "china/F1/FAD": {
+      "n_obs": 259,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.115,
+      "smape": 0.2547,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 164,
+      "half80_1step_days": 104
+    },
+    "china/F2A/FAD": {
+      "n_obs": 259,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1262,
+      "smape": 0.3196,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 501,
+      "half80_1step_days": 43
+    },
+    "china/F2B/FAD": {
+      "n_obs": 259,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0691,
+      "smape": 0.1872,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 157,
+      "half80_1step_days": 44
+    },
+    "china/F3/FAD": {
+      "n_obs": 259,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1422,
+      "smape": 0.2552,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 264,
+      "half80_1step_days": 45
+    },
+    "china/F4/FAD": {
+      "n_obs": 259,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0991,
+      "smape": 0.2556,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 140,
+      "half80_1step_days": 57
+    },
+    "india/F1/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1029,
+      "smape": 0.2461,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 172,
+      "half80_1step_days": 108
+    },
+    "india/F2A/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.123,
+      "smape": 0.3165,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 501,
+      "half80_1step_days": 44
+    },
+    "india/F2B/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0718,
+      "smape": 0.1844,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 157,
+      "half80_1step_days": 42
+    },
+    "india/F3/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1469,
+      "smape": 0.2565,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 265,
+      "half80_1step_days": 44
+    },
+    "india/F4/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0495,
+      "smape": 0.14,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 109,
+      "half80_1step_days": 16
+    },
+    "mexico/F1/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.2329,
+      "smape": 0.7593,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 685,
+      "half80_1step_days": 176
+    },
+    "mexico/F2A/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1058,
+      "smape": 0.2916,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 346,
+      "half80_1step_days": 42
+    },
+    "mexico/F2B/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.3756,
+      "smape": 0.672,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 348,
+      "half80_1step_days": 133
+    },
+    "mexico/F3/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0776,
+      "smape": 0.2582,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 172,
+      "half80_1step_days": 35
+    },
+    "mexico/F4/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0255,
+      "smape": 0.0704,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 17,
+      "half80_1step_days": 7
+    },
+    "philippines/F1/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0527,
+      "smape": 0.1873,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 179,
+      "half80_1step_days": 20
+    },
+    "philippines/F2A/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1229,
+      "smape": 0.3165,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 501,
+      "half80_1step_days": 44
+    },
+    "philippines/F2B/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0787,
+      "smape": 0.1907,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 139,
+      "half80_1step_days": 55
+    },
+    "philippines/F3/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1399,
+      "smape": 0.4921,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 177,
+      "half80_1step_days": 118
+    },
+    "philippines/F4/FAD": {
+      "n_obs": 296,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.139,
+      "smape": 0.5062,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 188,
+      "half80_1step_days": 124
+    },
+    "all_chargeability/EB1/FAD": {
+      "n_obs": 193,
+      "last_month": "2023-09",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0373,
+      "smape": 0.0792,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 33,
+      "half80_1step_days": 19
+    },
+    "all_chargeability/EB2/FAD": {
+      "n_obs": 223,
+      "last_month": "2026-03",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0949,
+      "smape": 0.2246,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 181,
+      "half80_1step_days": 56
+    },
+    "all_chargeability/EB3/FAD": {
+      "n_obs": 250,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1388,
+      "smape": 0.4568,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 821,
+      "half80_1step_days": 56
+    },
+    "all_chargeability/EB3_OW/FAD": {
+      "n_obs": 257,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0477,
+      "smape": 0.1366,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 93,
+      "half80_1step_days": 46
+    },
+    "all_chargeability/EB4/FAD": {
+      "n_obs": 227,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1634,
+      "smape": 0.4174,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 532,
+      "half80_1step_days": 60
+    },
+    "all_chargeability/EB4_RW/FAD": {
+      "n_obs": 227,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1588,
+      "smape": 0.4047,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 532,
+      "half80_1step_days": 85
+    },
+    "china/EB1/FAD": {
+      "n_obs": 246,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0392,
+      "smape": 0.0806,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 53,
+      "half80_1step_days": 21
+    },
+    "china/EB2/FAD": {
+      "n_obs": 246,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0611,
+      "smape": 0.1888,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 131,
+      "half80_1step_days": 60
+    },
+    "china/EB3/FAD": {
+      "n_obs": 256,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0666,
+      "smape": 0.1978,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 170,
+      "half80_1step_days": 50
+    },
+    "china/EB3_OW/FAD": {
+      "n_obs": 256,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.067,
+      "smape": 0.2484,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 354,
+      "half80_1step_days": 44
+    },
+    "china/EB4/FAD": {
+      "n_obs": 227,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1634,
+      "smape": 0.4174,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 532,
+      "half80_1step_days": 60
+    },
+    "china/EB4_RW/FAD": {
+      "n_obs": 227,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1588,
+      "smape": 0.4047,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 532,
+      "half80_1step_days": 85
+    },
+    "china/EB5_TEA/FAD": {
+      "n_obs": 96,
+      "last_month": "2015-08",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0237,
+      "smape": 0.0507,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 110,
+      "half80_1step_days": 0
+    },
+    "india/EB1/FAD": {
+      "n_obs": 246,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0699,
+      "smape": 0.1851,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 309,
+      "half80_1step_days": 16
+    },
+    "india/EB2/FAD": {
+      "n_obs": 245,
+      "last_month": "2026-06",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0799,
+      "smape": 0.3357,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 324,
+      "half80_1step_days": 54
+    },
+    "india/EB3/FAD": {
+      "n_obs": 256,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0812,
+      "smape": 0.1899,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 97,
+      "half80_1step_days": 47
+    },
+    "india/EB3_OW/FAD": {
+      "n_obs": 256,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0584,
+      "smape": 0.1522,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 84,
+      "half80_1step_days": 35
+    },
+    "india/EB4/FAD": {
+      "n_obs": 227,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1934,
+      "smape": 0.4942,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 519,
+      "half80_1step_days": 115
+    },
+    "india/EB4_RW/FAD": {
+      "n_obs": 227,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1812,
+      "smape": 0.4625,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 519,
+      "half80_1step_days": 105
+    },
+    "mexico/EB1/FAD": {
+      "n_obs": 193,
+      "last_month": "2023-09",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0373,
+      "smape": 0.0792,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 33,
+      "half80_1step_days": 19
+    },
+    "mexico/EB2/FAD": {
+      "n_obs": 223,
+      "last_month": "2026-03",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0949,
+      "smape": 0.2246,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 181,
+      "half80_1step_days": 56
+    },
+    "mexico/EB3/FAD": {
+      "n_obs": 246,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1528,
+      "smape": 0.4509,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 812,
+      "half80_1step_days": 52
+    },
+    "mexico/EB3_OW/FAD": {
+      "n_obs": 256,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0472,
+      "smape": 0.1346,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 100,
+      "half80_1step_days": 50
+    },
+    "mexico/EB4/FAD": {
+      "n_obs": 227,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.2091,
+      "smape": 0.4503,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 532,
+      "half80_1step_days": 120
+    },
+    "mexico/EB4_RW/FAD": {
+      "n_obs": 227,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.206,
+      "smape": 0.4412,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 534,
+      "half80_1step_days": 90
+    },
+    "philippines/EB1/FAD": {
+      "n_obs": 193,
+      "last_month": "2023-09",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0373,
+      "smape": 0.0792,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 33,
+      "half80_1step_days": 19
+    },
+    "philippines/EB2/FAD": {
+      "n_obs": 223,
+      "last_month": "2026-03",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0949,
+      "smape": 0.2246,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 181,
+      "half80_1step_days": 56
+    },
+    "philippines/EB3/FAD": {
+      "n_obs": 256,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.0806,
+      "smape": 0.3497,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 702,
+      "half80_1step_days": 30
+    },
+    "philippines/EB3_OW/FAD": {
+      "n_obs": 256,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.04,
+      "smape": 0.1605,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 195,
+      "half80_1step_days": 20
+    },
+    "philippines/EB4/FAD": {
+      "n_obs": 227,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1634,
+      "smape": 0.4174,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 532,
+      "half80_1step_days": 60
+    },
+    "philippines/EB4_RW/FAD": {
+      "n_obs": 227,
+      "last_month": "2026-07",
+      "models": [
+        "theta",
+        "ets",
+        "sarima"
+      ],
+      "mase": 0.1588,
+      "smape": 0.4047,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 532,
+      "half80_1step_days": 85
+    },
+    "all_chargeability/F1/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0634,
+      "smape": 0.1494,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 192,
+      "half80_1step_days": 25
+    },
+    "all_chargeability/F2B/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0806,
+      "smape": 0.1482,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 141,
+      "half80_1step_days": 62
+    },
+    "all_chargeability/F3/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.2098,
+      "smape": 0.3437,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 259,
+      "half80_1step_days": 79
+    },
+    "all_chargeability/F4/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.1719,
+      "smape": 0.2495,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 93,
+      "half80_1step_days": 69
+    },
+    "china/F1/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0634,
+      "smape": 0.1494,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 192,
+      "half80_1step_days": 25
+    },
+    "china/F2B/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0806,
+      "smape": 0.1482,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 141,
+      "half80_1step_days": 62
+    },
+    "china/F3/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.2098,
+      "smape": 0.3437,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 259,
+      "half80_1step_days": 79
+    },
+    "china/F4/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.1719,
+      "smape": 0.2495,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 93,
+      "half80_1step_days": 69
+    },
+    "india/F1/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0634,
+      "smape": 0.1494,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 192,
+      "half80_1step_days": 25
+    },
+    "india/F2B/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0806,
+      "smape": 0.1482,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 141,
+      "half80_1step_days": 62
+    },
+    "india/F3/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.2098,
+      "smape": 0.3437,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 259,
+      "half80_1step_days": 79
+    },
+    "india/F4/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.1433,
+      "smape": 0.1129,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 55,
+      "half80_1step_days": 21
+    },
+    "mexico/F1/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.135,
+      "smape": 0.5424,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 152,
+      "half80_1step_days": 117
+    },
+    "mexico/F2B/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.2343,
+      "smape": 0.7669,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 332,
+      "half80_1step_days": 138
+    },
+    "mexico/F3/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0134,
+      "smape": 0.0395,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 23,
+      "half80_1step_days": 6
+    },
+    "mexico/F4/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0008,
+      "smape": 0.0015,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 1,
+      "half80_1step_days": 0
+    },
+    "philippines/F1/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0021,
+      "smape": 0.0065,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 3,
+      "half80_1step_days": 2
+    },
+    "philippines/F2B/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0184,
+      "smape": 0.0499,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 15,
+      "half80_1step_days": 11
+    },
+    "philippines/F3/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.1102,
+      "smape": 0.4366,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 210,
+      "half80_1step_days": 72
+    },
+    "philippines/F4/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.1051,
+      "smape": 0.4775,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 306,
+      "half80_1step_days": 83
+    },
+    "all_chargeability/EB3/DFF": {
+      "n_obs": 125,
+      "last_month": "2026-03",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0503,
+      "smape": 0.0989,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 91,
+      "half80_1step_days": 29
+    },
+    "all_chargeability/EB3_OW/DFF": {
+      "n_obs": 129,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0769,
+      "smape": 0.1837,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 196,
+      "half80_1step_days": 35
+    },
+    "china/EB1/DFF": {
+      "n_obs": 94,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0499,
+      "smape": 0.1085,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 114,
+      "half80_1step_days": 35
+    },
+    "china/EB3/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.1339,
+      "smape": 0.2849,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 357,
+      "half80_1step_days": 31
+    },
+    "china/EB5_NONRC/DFF": {
+      "n_obs": 73,
+      "last_month": "2021-11",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.1705,
+      "smape": 0.1367,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 213,
+      "half80_1step_days": 20
+    },
+    "china/EB5_RC/DFF": {
+      "n_obs": 78,
+      "last_month": "2022-04",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0398,
+      "smape": 0.0377,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 27,
+      "half80_1step_days": 11
+    },
+    "india/EB1/DFF": {
+      "n_obs": 94,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.1428,
+      "smape": 0.4238,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 649,
+      "half80_1step_days": 79
+    },
+    "india/EB2/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.1624,
+      "smape": 0.3873,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 289,
+      "half80_1step_days": 67
+    },
+    "india/EB3/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0586,
+      "smape": 0.2204,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 244,
+      "half80_1step_days": 41
+    },
+    "india/EB3_OW/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0586,
+      "smape": 0.2204,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 244,
+      "half80_1step_days": 41
+    },
+    "mexico/EB3/DFF": {
+      "n_obs": 126,
+      "last_month": "2026-03",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0504,
+      "smape": 0.099,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 91,
+      "half80_1step_days": 29
+    },
+    "mexico/EB3_OW/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0768,
+      "smape": 0.183,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 194,
+      "half80_1step_days": 32
+    },
+    "philippines/EB3/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0392,
+      "smape": 0.1321,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 85,
+      "half80_1step_days": 52
+    },
+    "philippines/EB3_OW/DFF": {
+      "n_obs": 130,
+      "last_month": "2026-07",
+      "models": [
+        "sarima"
+      ],
+      "mase": 0.0687,
+      "smape": 0.2679,
+      "cov95_holdout": 1.0,
+      "half95_1step_days": 356,
+      "half80_1step_days": 75
+    }
+  }
+}

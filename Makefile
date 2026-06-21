@@ -85,6 +85,9 @@ compare:
 report:
 	$(PY) -m vp_model.report
 
+web-forecasts:  ## pronósticos futuros por serie para el demostrador web (tracked en MLflow)
+	$(PY) experiments/generate_web_forecasts.py
+
 lint:
 	$(PY) -m ruff check .
 
