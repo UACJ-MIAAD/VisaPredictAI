@@ -110,6 +110,13 @@ MIN_BACKTEST_BUFFER = 6  # colchón extra para que una serie sea evaluable
 MIN_TRAINABLE_EVALUABLE = MIN_TRAIN["FAD"] + HOLDOUT  # 84: ventana + holdout
 MAX_INTERPOLABLE_GAP = 3  # huecos <= 3 meses se interpolan; más largos, NaN
 ALPHA = 0.05  # intervalos de predicción al 95%
+# Banda de predicción al 80 % del demostrador web = half95 * BAND80_RATIO.
+# La banda 80 % conforme directa sub-cubre (P80(|resid|) ≪ P97.5 con cola pesada).
+# BAND80_RATIO se calibra en un split temporal DISJUNTO (las añadas BAND80_CAL_VINTAGES)
+# y se VALIDA en las añadas restantes → la cobertura 80 % reportada es out-of-sample, NO
+# circular. Re-derivar con `experiments/derive_band80_ratio.py` cuando crezca el histórico.
+BAND80_RATIO = 0.4744
+BAND80_CAL_VINTAGES = ("2024-07", "2025-01")  # añadas de calibración (excluidas del cov80 honesto)
 
 
 def seed_everything(seed: int = RANDOM_SEED) -> None:

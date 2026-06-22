@@ -1,7 +1,22 @@
 {
   "what": "evaluación prospectiva (pronóstico congelado vs corte realmente publicado)",
+  "caveat": "backfill leakage-free; NO equivale a haber servido los pronósticos en tiempo real",
   "n_scored": 2944,
   "n_pending": 1256,
+  "n_vintages_total": 10,
+  "n_vintages_effective": 3,
+  "scored_by_vintage": {
+    "2015-08": 0,
+    "2021-11": 0,
+    "2022-04": 0,
+    "2023-09": 0,
+    "2024-07": 1006,
+    "2025-01": 962,
+    "2025-07": 976,
+    "2026-03": 0,
+    "2026-06": 0,
+    "2026-07": 0
+  },
   "vintages": [
     "2015-08",
     "2021-11",
@@ -18,7 +33,7 @@
     "n": 2944,
     "mae_days": 145.7,
     "mase": 0.3452,
-    "cov80": 0.797,
+    "cov80": 0.804,
     "cov95": 0.924
   },
   "by_horizon": {
@@ -26,7 +41,7 @@
       "n": 250,
       "mae_days": 22.0,
       "mase": 0.053,
-      "cov80": 0.924,
+      "cov80": 0.928,
       "cov95": 0.968
     },
     "2": {
@@ -40,14 +55,14 @@
       "n": 240,
       "mae_days": 84.8,
       "mase": 0.2028,
-      "cov80": 0.821,
+      "cov80": 0.825,
       "cov95": 0.933
     },
     "4": {
       "n": 245,
       "mae_days": 99.8,
       "mase": 0.2506,
-      "cov80": 0.808,
+      "cov80": 0.812,
       "cov95": 0.918
     },
     "5": {
@@ -61,14 +76,14 @@
       "n": 245,
       "mae_days": 132.8,
       "mase": 0.3259,
-      "cov80": 0.788,
+      "cov80": 0.804,
       "cov95": 0.927
     },
     "7": {
       "n": 245,
       "mae_days": 131.7,
       "mase": 0.3318,
-      "cov80": 0.8,
+      "cov80": 0.804,
       "cov95": 0.931
     },
     "8": {
@@ -82,28 +97,28 @@
       "n": 240,
       "mae_days": 216.1,
       "mase": 0.5038,
-      "cov80": 0.688,
+      "cov80": 0.7,
       "cov95": 0.925
     },
     "10": {
       "n": 240,
       "mae_days": 232.8,
       "mase": 0.5493,
-      "cov80": 0.721,
+      "cov80": 0.746,
       "cov95": 0.896
     },
     "11": {
       "n": 245,
       "mae_days": 238.7,
       "mase": 0.5674,
-      "cov80": 0.759,
+      "cov80": 0.767,
       "cov95": 0.898
     },
     "12": {
       "n": 244,
       "mae_days": 256.8,
       "mase": 0.6242,
-      "cov80": 0.709,
+      "cov80": 0.721,
       "cov95": 0.877
     }
   },
@@ -112,15 +127,25 @@
       "n": 1240,
       "mae_days": 131.5,
       "mase": 0.3809,
-      "cov80": 0.76,
+      "cov80": 0.765,
       "cov95": 0.89
     },
     "FAD": {
       "n": 1704,
       "mae_days": 156.0,
       "mase": 0.3193,
-      "cov80": 0.823,
+      "cov80": 0.833,
       "cov95": 0.949
     }
+  },
+  "band80_calibration": {
+    "cal_vintages": [
+      "2024-07",
+      "2025-01"
+    ],
+    "ratio": 0.4744,
+    "n_heldout": 976,
+    "cov80_heldout": 0.812,
+    "note": "BAND80_RATIO se calibra en cal_vintages; cov80_heldout es la cobertura 80 % OUT-OF-SAMPLE (overall.cov80 incluye la calibración y es optimista)."
   }
 }

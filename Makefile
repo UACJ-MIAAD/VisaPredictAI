@@ -10,6 +10,9 @@ help:
 	@echo "eda      - regenerate the EDA figures (needs model-install + db)"
 	@echo "compare  - walk-forward comparison of the 8 models -> reports/model_comparison.csv"
 	@echo "report   - results table + holdout figure from the comparison"
+	@echo "web-forecasts   - per-series 12-month forecasts for the web demo + archive vintage (needs db)"
+	@echo "score-forecasts - prospective scoring: frozen forecasts vs realized cutoffs (needs db + ledger)"
+	@echo "derive-band80   - re-derive BAND80_RATIO on a disjoint split (read-only; prints held-out cov80)"
 	@echo "test-model - run modeling tests with vp_model coverage (needs model-install)"
 	@echo "update   - refresh local AFTER the CI committed a new bulletin (pull + snapshots + db + figures)"
 	@echo "freeze   - fetch only newly published bulletins to data/snapshots/ (network; skip-if-exists)"
@@ -90,6 +93,9 @@ web-forecasts:  ## pronósticos futuros por serie para el demostrador web (track
 
 score-forecasts:  ## evaluación PROSPECTIVA: pronósticos congelados vs cortes reales (scorecard + MLflow)
 	$(PY) experiments/score_forecasts.py
+
+derive-band80:  ## re-deriva BAND80_RATIO en split disjunto (read-only; imprime cov80 held-out)
+	$(PY) experiments/derive_band80_ratio.py
 
 lint:
 	$(PY) -m ruff check .

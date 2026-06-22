@@ -14,19 +14,25 @@ explícitamente para que un `dvc add data/` accidental nunca los mueva. El *bloa
 las **figuras binarias**, ya resueltas (gitignored; regenerar con `make figures`).
 
 Los binarios derivados del panel —**`visapredict.duckdb`** (esquema estrella) y
-**`visa_panel_long.parquet`**— también quedan **gitignored**: se reconstruyen byte
-a byte desde el CSV con `make db`, así que versionarlos solo añadiría *bloat* sin
-ganar reproducibilidad. El CSV abierto sigue siendo la fuente de verdad.
+**`visa_panel_long.parquet`**— quedan **gitignored de git** pero **SÍ se versionan con
+DVC** a S3 (pointers `*.dvc` commiteados). Son reconstruibles byte a byte desde el CSV
+con `make db`, así que git no los carga; DVC los conserva por conveniencia (un clon con
+credenciales S3 hace `dvc pull` en vez de re-`make db`). El CSV abierto sigue siendo la
+fuente de verdad versionada en git.
 
-## Para qué se reserva DVC (próximo semestre, modelado)
+## Qué versiona DVC HOY (activo)
 
-DVC es la herramienta correcta para los artefactos que llegarán con la fase de
-modelado, igual que en EpiForecast-MX (que versiona `models.dvc`, `checkpoints/`,
-PDFs grandes en S3):
+La fase de modelado ya llegó, así que DVC **ya está en uso**. Pointers `*.dvc` commiteados
+(ver `git ls-files '*.dvc'`):
 
-- **checkpoints de modelos** (LSTM, ARIMA-LSTM, DeepAR…)
-- **pronósticos y artefactos grandes** que no deben vivir en git
-- **datasets derivados pesados** (features, splits walk-forward)
+- **`models.dvc`** — checkpoints/finalistas de modelos (no reproducibles barato).
+- **`mlflow.db.dvc`** — historia de experimentos MLflow (no reproducible en git).
+- **`data/processed/visa_panel_long.parquet.dvc`** y **`…/visapredict.duckdb.dvc`** —
+  binarios derivados; también reconstruibles con `make db`, versionados en DVC por conveniencia.
+
+El remoto es S3 (`make sync` → `dvc push` + commit de los pointers). Un clon que quiera los
+binarios sin re-construir hace `dvc pull` **con credenciales S3 del proyecto**; sin ellas,
+`make db` los regenera (parquet/duckdb) — los `models/`/`mlflow.db` solo vía `dvc pull`.
 
 ## Cómo activarlo cuando haga falta
 

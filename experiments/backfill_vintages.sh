@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Siembra REPRODUCIBLE del ledger de evaluación prospectiva (reports/forecast_log.csv).
 #
-# La añada en vivo (origen = último mes F de cada serie) la produce el pipeline normal;
-# aquí añadimos añadas HISTÓRICAS leakage-free (`as_of`) para que el scorecard tenga
-# objetivos ya realizados y arroje métricas desde hoy (en vez de esperar 12 meses).
-# Todo sale del pipeline (generate_web_forecasts.py) — sin parches manuales. El ledger
-# es idempotente (dedup por origen+serie+fecha), así que re-correr no duplica.
+# La añada EN VIVO usa, por serie, su PROPIO último mes F como origen. La mayoría de las
+# series termina en el último boletín (p.ej. 2026-07), pero las series mayormente Current
+# terminan antes → producen orígenes 2026-06, 2026-03, 2023-09, 2022-04, 2021-11, 2015-08.
+# Por eso la corrida en vivo, ELLA SOLA, genera ~7 añadas distintas. Sumando las 3 añadas
+# HISTÓRICAS leakage-free de abajo (as_of), el ledger reproducible tiene 10 añadas.
+# Todo sale del pipeline (generate_web_forecasts.py, semilla fija) — sin parches manuales.
+# El ledger es idempotente (dedup por origen+serie+fecha), así que re-correr no duplica.
 #
+# PRERREQUISITO: la BD DuckDB debe existir → `make panel && make db` en un clon nuevo.
 # Uso:  bash experiments/backfill_vintages.sh        (corre desde la raíz del repo)
 #       PY=python bash experiments/backfill_vintages.sh   (override del intérprete)
 set -euo pipefail

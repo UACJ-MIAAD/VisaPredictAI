@@ -1,5 +1,9 @@
 # Local quality gate before each commit. Install once with: pre-commit install
 # Run on everything with: pre-commit run --all-files
+# Los hooks corren en Python 3.14 (igual que el runtime): ruff con target py314 emite
+# `except A, B:` (PEP 758), que un hook en py<3.14 no parsea (rompía debug-statements).
+default_language_version:
+  python: python3.14
 repos:
   # ── ruff: lint + format ──────────────────────────────────────────
   - repo: https://github.com/astral-sh/ruff-pre-commit

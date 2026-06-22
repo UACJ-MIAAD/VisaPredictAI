@@ -14,7 +14,8 @@ Por cada fila del ledger cuyo mes-objetivo ya tiene un corte real (estado F en e
 Agrega global, por horizonte h=1..12 y por tabla. Salidas:
   • reports/forecast_scorecard.csv       — una fila por predicción ya evaluable
   • reports/forecast_scorecard_meta.json — agregados (MAE/MASE/cobertura, n)
-y registra los agregados en MLflow (experimento "web_forecast_scoring").
+Tracking MLflow (experimento "web_forecast_scoring") es para desarrollo local; el registro
+DURABLE es el scorecard commiteado en git (en CI el staging MLflow es efímero).
 
 Al inicio de una añada nada está realizado aún → n=0 (correcto): la medición se
 acumula mes a mes. Corre en ``ante``:  ante/bin/python experiments/score_forecasts.py
@@ -105,14 +106,32 @@ def run() -> Path | None:
     overall = agg(sdf) if len(sdf) else {"n": 0}
     by_h = {int(h): agg(g) for h, g in sdf.groupby("h")} if len(sdf) else {}
     by_table = {t: agg(g) for t, g in sdf.groupby("table")} if len(sdf) else {}
+    # cov80 HELD-OUT: cobertura de la banda 80 % sobre las añadas NO usadas para calibrar
+    # BAND80_RATIO → out-of-sample, no circular (overall.cov80 sí incluye calibración).
+    heldout = sdf[~sdf["origin"].isin(config.BAND80_CAL_VINTAGES)] if len(sdf) else sdf
+    # n efectivo por añada: muchas añadas (orígenes con último-F antiguo) NO aportan filas
+    # evaluables (sus meses-objetivo caen en régimen C/U) → honestidad: el grueso del n
+    # viene de pocas añadas recientes. Se reporta el desglose para no inflar la amplitud.
+    scored_by_vintage = {o: int((sdf["origin"] == o).sum()) for o in sorted(fc["origin"].unique())} if len(sdf) else {}
     meta = {
         "what": "evaluación prospectiva (pronóstico congelado vs corte realmente publicado)",
+        "caveat": "backfill leakage-free; NO equivale a haber servido los pronósticos en tiempo real",
         "n_scored": int(len(sdf)),
         "n_pending": int(pending),
+        "n_vintages_total": int(fc["origin"].nunique()),
+        "n_vintages_effective": int(sum(1 for c in scored_by_vintage.values() if c > 0)),
+        "scored_by_vintage": scored_by_vintage,
         "vintages": sorted(fc["origin"].unique().tolist()),
         "overall": overall,
         "by_horizon": by_h,
         "by_table": by_table,
+        "band80_calibration": {
+            "cal_vintages": list(config.BAND80_CAL_VINTAGES),
+            "ratio": config.BAND80_RATIO,
+            "n_heldout": int(len(heldout)),
+            "cov80_heldout": round(float(heldout["in80"].mean()), 3) if len(heldout) else None,
+            "note": "BAND80_RATIO se calibra en cal_vintages; cov80_heldout es la cobertura 80 % OUT-OF-SAMPLE (overall.cov80 incluye la calibración y es optimista).",
+        },
     }
     (REPORTS / "forecast_scorecard_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
 

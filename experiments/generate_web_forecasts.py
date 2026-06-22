@@ -11,16 +11,19 @@ Modelo de producción por tabla (coincide con los ganadores del entregable):
   • FAD → mediana de {Theta, ETS, SARIMA}  (el ensamble que supera al global en FAD)
   • DFF → SARIMA                            (imbatible en DFF)
 
-Intervalo de predicción: **conforme dividido** (split conformal, ``intervals.conformal``,
-mecanismo model-agnostic del proyecto) calibrado sobre los residuales de 1 paso del
-hold-out, ensanchado a lo largo del horizonte por √h (crecimiento tipo random-walk del
-error acumulado). Mecanismo y ganadores alineados con el .tex (§4.3.2).
+Intervalo de predicción: **conforme dividido** (split conformal, ``intervals.conformal``)
+calibrado sobre los residuales de **1 paso** del hold-out. ⚠️ La garantía de cobertura
+conforme es de 1 paso; el ensanchado por **√h** a 12 meses es una **heurística** (crecimiento
+random-walk del error acumulado), NO transfiere la garantía a multi-paso — la cobertura
+real se mide en el scorecard (`score_forecasts.py`; ≈0.92 para la banda 95 %).
 
 Salidas (tidy, versionadas en git como el resto de reports/):
   • reports/web_forecasts.csv       — country,category,table,date,days,lo80,hi80,lo95,hi95
   • reports/web_forecasts_meta.json — método + métricas hold-out por serie (procedencia)
 
-Cada serie se registra en MLflow vía ``tracking.log_run`` (experimento "web_forecasts").
+Tracking MLflow vía ``tracking.log_run`` (experimento "web_forecasts") es para **desarrollo
+local**; en CI el staging es efímero — el registro DURABLE de procedencia es el CSV/JSON
+commiteado en git + el git_sha que ``tracking`` graba en cada record.
 
 Corre en ``ante`` desde la raíz:  ante/bin/python experiments/generate_web_forecasts.py
 """
@@ -43,10 +46,8 @@ warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
 HORIZON = 12
-# Razón banda-80 % / banda-95 %, CALIBRADA empíricamente = P80(|error|/half95) sobre las
-# 976 observaciones prospectivas (la razón gaussiana 0.654 sobre-cubría al 90 %; con
-# residuales de cola pesada la 80 % real es más estrecha). Da cobertura 80 % ≈ 80 %.
-BAND80_RATIO = 0.4655
+# Razón banda-80 %/95 % calibrada en split disjunto (config.BAND80_RATIO; ver
+# experiments/derive_band80_ratio.py). NO se re-define aquí para evitar circularidad.
 # modelo(s) de producción por tabla — punto = mediana del conjunto (1 elem = ese modelo).
 PROD: dict[str, tuple[str, ...]] = {"FAD": ("theta", "ets", "sarima"), "DFF": ("sarima",)}
 log = config.get_logger("web_forecasts")
@@ -118,8 +119,8 @@ def _compute_series_forecast(country: str, category: str, table: str, as_of: str
     )
     # La banda 80 % conforme directa corría estrecha (cobertura prospectiva ~58 %):
     # con residuales de cola pesada, el P80(|resid|) queda diminuto frente al P97.5.
-    # Se ancla al 95 % (bien calibrado) por un factor calibrado en datos prospectivos.
-    half80 = half95 * BAND80_RATIO
+    # Se ancla al 95 % por un factor calibrado en split disjunto (config.BAND80_RATIO).
+    half80 = half95 * config.BAND80_RATIO
 
     # métricas de procedencia (hold-out)
     insample = ts.split_before(ts.time_index[-config.HOLDOUT])[0]
@@ -200,6 +201,7 @@ def _append_log(rows: list[dict]) -> Path:
 
 
 def run(as_of: str | None = None) -> tuple[Path, Path]:
+    config.seed_everything()  # reproducibilidad: misma semilla para todo lo estocástico
     all_rows: list[dict] = []
     all_meta: dict = {}
     for table in config.TABLES:
