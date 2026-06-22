@@ -2408,6 +2408,13 @@ distribution shift,'' en \textit{Advances in Neural Information Processing Syste
 \item\label{bib:46} S. Hoo, S. M\"uller, D. Salinas, y F. Hutter, ``The tabular
 foundation model TabPFN outperforms specialized time series forecasting models,''
 \textit{arXiv:2501.02945}, 2025.
+\item\label{bib:47} M. Zaharia \textit{et al.}, ``Accelerating the machine learning
+lifecycle with MLflow,'' \textit{IEEE Data Engineering Bulletin}, vol. 41, n.\textsuperscript{o} 4,
+pp. 39--45, 2018.
+\item\label{bib:48} R. Kuprieiev \textit{et al.}, ``DVC: Data Version Control --- Git
+for data \& models,'' Iterative, software de c\'odigo abierto, 2024. [En l\'inea]. Disponible: \url{https://dvc.org}
+\item\label{bib:49} M. Raasveldt y H. M\"uhleisen, ``DuckDB: An embeddable analytical
+database,'' en \textit{Proc.\ ACM SIGMOD Int.\ Conf.\ on Management of Data}, 2019, pp.\ 1981--1984.
 \end{enumerate}
 
 % ============================================================
@@ -2500,6 +2507,219 @@ panel. Material descriptivo del proyecto personal del autor, \textbf{no parte de
 entregable académico evaluado}. Fuente: captura del portal.}
 \label{fig:portal_visapredict}
 \end{figure}
+
+\section{A.4 Plataforma de operaciones de aprendizaje autom\'atico (MLOps)}
+
+El sistema no se limita al modelo: se sostiene sobre una plataforma de operaciones de
+aprendizaje autom\'atico (\textit{machine learning operations}, MLOps) que reproduce,
+versiona, eval\'ua, audita y publica el flujo completo de extremo a extremo, en
+coherencia con la metodolog\'ia CRISP-DM~\cita{1}. La Figura~\ref{fig:mlops_arch} resume
+la arquitectura: una cadena de datos congelados $\rightarrow$ almac\'en $\rightarrow$
+modelado $\rightarrow$ campe\'on desplegado $\rightarrow$ demostrador, con dos capas
+transversales —seguimiento/versionado y guardarra\'iles autom\'aticos— y un lazo de
+retroalimentaci\'on que califica las predicciones contra la realidad conforme llegan
+nuevos boletines.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  font=\footnotesize,
+  stage/.style={rectangle, rounded corners=2pt, draw=uacjblue, fill=uacjblue!10,
+    text width=2.25cm, align=center, minimum height=1.15cm, inner sep=3pt},
+  band/.style={rectangle, rounded corners=2pt, draw=uacjgray, fill=uacjgray!12,
+    text width=13.6cm, align=center, minimum height=0.78cm, inner sep=4pt},
+  flow/.style={-{Stealth[length=2mm]}, uacjblue, thick},
+  back/.style={-{Stealth[length=2mm]}, uacjgray, thick, dashed},
+]
+  \node[stage] (d) at (0,0)    {Snapshots HTML\\(S3, congelados)};
+  \node[stage] (p) at (3.1,0)  {DAG \texttt{dvc repro}\\datos $\to$ almac\'en};
+  \node[stage] (m) at (6.2,0)  {Pool de 21 modelos\\\textit{walk-forward}};
+  \node[stage] (c) at (9.3,0)  {Campe\'on\\(manifiesto)};
+  \node[stage] (w) at (12.4,0) {Demostrador web\\+ \textit{leaderboard}};
+  \draw[flow] (d)--(p); \draw[flow] (p)--(m); \draw[flow] (m)--(c); \draw[flow] (c)--(w);
+  \draw[back] (w) to[out=90, in=90, looseness=0.55]
+    node[above, font=\scriptsize]{\textit{ledger} prospectivo $\to$ reevaluaci\'on} (m);
+  \node[band] (t) at (6.2,-1.7) {\textbf{Seguimiento y versionado:}\;
+    MLflow (431 corridas registradas) \;\textbullet\; DVC (datos y modelos $\to$ S3)};
+  \node[band] (g) at (6.2,-2.75) {\textbf{Guardarra\'iles autom\'aticos:}\;
+    consistencia \;\textbullet\; regresi\'on de modelos \;\textbullet\; monitor de \textit{drift}
+    \;\textbullet\; \textit{model card}};
+\end{tikzpicture}
+\caption[Arquitectura de la plataforma MLOps]{Arquitectura de extremo a extremo: la cadena
+de datos congelados, almac\'en dimensional, modelado y despliegue (arriba), con las capas
+transversales de seguimiento/versionado y guardarra\'iles autom\'aticos, y el lazo de
+retroalimentaci\'on que reeval\'ua el sistema contra los cortes reales de cada
+bolet\'in nuevo.}
+\label{fig:mlops_arch}
+\end{figure}
+
+La Tabla~\ref{tab:mlops_pilares} enumera los seis componentes de la plataforma, cada uno
+reproducible con un \'unico comando.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Componentes de la plataforma MLOps]{Los seis componentes de la plataforma, su
+funci\'on y el comando que los reproduce. Cada uno deja un artefacto versionado y se ejecuta
+en integraci\'on continua.}
+\label{tab:mlops_pilares}
+\begin{tabular}{@{}p{3.0cm} p{7.6cm} p{2.9cm}@{}}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Componente} & \textbf{Funci\'on} & \textbf{Comando} \\ \midrule
+Pipeline reproducible & Reconstruye toda la cadena de datos de forma determinista, solo lo que cambi\'o & \texttt{make repro} \\
+Seguimiento de experimentos & Registra cada corrida con par\'ametros, m\'etricas y procedencia & \texttt{make compare} \\
+Almac\'en dimensional & Carga el panel en un esquema estrella con restricciones de integridad & \texttt{make db} \\
+Campe\'on--retador & Eval\'ua la receta desplegada frente a alternativas y emite un veredicto & \texttt{make challenger} \\
+Tarjeta de modelo & Genera la ficha del sistema con su linaje reproducible & \texttt{make model-card} \\
+Monitor de \textit{drift} & Vigila degradaci\'on de desempe\~no, cobertura y datos & \texttt{make drift} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{A.5 Pipeline reproducible y versionado de datos}
+
+La cadena de datos abiertos se declara como un grafo de dependencias versionado con la
+herramienta de control de versiones de datos (\textit{Data Version Control}, DVC~\cita{48}).
+El comando \texttt{dvc repro} reconstruye \textit{en orden y solo lo que cambi\'o} la
+secuencia \texttt{scrape} $\to$ \texttt{panel} $\to$ \{\texttt{bulletins}, almac\'en,
+cifras canónicas\}, con la carpeta de \textit{snapshots} HTML congelados como ra\'iz
+determinista (el \'unico paso con red queda fuera del grafo). Los artefactos abiertos
+(panel y tablas en formato CSV) permanecen versionados en Git como entregable descargable,
+mientras que los binarios derivados se respaldan en almacenamiento de objetos. Un archivo
+de bloqueo (\texttt{dvc.lock}) fija el \textit{hash} de cada entrada y salida del grafo:
+es la prueba de reproducibilidad, pues ata cada resultado al estado exacto de c\'odigo y
+datos que lo gener\'o. Dos ejecuciones consecutivas confirman el determinismo (la segunda
+no recomputa nada) y un mismo \textit{rebuild} produce datos id\'enticos byte a byte.
+
+\section{A.6 Seguimiento de experimentos}
+
+Cada corrida de modelado se registra en un almac\'en de experimentos gestionado con
+MLflow~\cita{47}: par\'ametros, m\'etricas (MASE, sMAPE, cobertura), identificador de
+\textit{commit} de Git y artefactos asociados. En total se conservan \textbf{431 corridas}
+trazables a lo largo de las campa\~nas de comparaci\'on, ajuste y ensamble. La
+Figura~\ref{fig:mlflow_runs} muestra el registro de una de las campa\~nas profundas, con
+sus quince corridas y la procedencia de cada una; esta trazabilidad permite reconstruir
+cualquier resultado reportado a partir del c\'odigo exacto que lo produjo.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.96\textwidth]{mlops_mlflow_deep.png}
+\caption[Registro de experimentos en MLflow]{Registro de la campa\~na de modelos profundos
+globales en el almac\'en de experimentos: quince corridas (variantes de NHITS, TiDE, PatchTST
+y BiTCN) con su nombre, fecha y procedencia, sobre un total de 431 corridas conservadas.
+Fuente: captura de la interfaz de MLflow del proyecto.}
+\label{fig:mlflow_runs}
+\end{figure}
+
+\section{A.7 Almac\'en dimensional en estrella}
+
+El panel se carga en un almac\'en dimensional en estrella implementado sobre la base de
+datos anal\'itica embebida DuckDB~\cita{49}. El modelo —ya presentado en la
+Figura~\ref{fig:schema_er}— comprende siete dimensiones, dos tablas de hechos y vistas de
+gobernanza, con restricciones de clave e integridad que act\'uan como contrato de calidad
+al cargar. La Figura~\ref{fig:duckdb_ui} muestra el explorador interactivo del almac\'en con
+sus tablas y vistas. A modo de ejemplo, la siguiente consulta resume las observaciones
+entrenables (estado \textit{F}) por bloque y tipo de tabla directamente desde un \textit{mart},
+con el resultado en la Tabla~\ref{tab:duckdb_query}:
+
+\begin{verbatim}
+SELECT block, "table" AS tabla, count(*) AS series,
+       sum(n_trainable) AS obs_F,
+       round(100.0*sum(n_trainable)/sum(n_obs),1) AS pct_F
+FROM mart_series_summary GROUP BY block, "table"
+ORDER BY obs_F DESC;
+\end{verbatim}
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Resultado de la consulta de resumen]{Salida real de la consulta anterior sobre el
+almac\'en: observaciones entrenables por bloque y tabla. La suma de \texttt{obs\_F}
+(6744+3700+3145+2169) reproduce las 15\,758 observaciones entrenables del panel.}
+\label{tab:duckdb_query}
+\begin{tabular}{@{}l l r r r@{}}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{block} & \textbf{tabla} & \textbf{series} & \textbf{obs\_F} & \textbf{pct\_F} \\ \midrule
+family     & FAD & 25 & 6\,744 & 96.4 \\
+employment & FAD & 80 & 3\,700 & 32.6 \\
+family     & DFF & 25 & 3\,145 & 96.8 \\
+employment & DFF & 64 & 2\,169 & 38.1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.96\textwidth]{mlops_duckdb_ui.png}
+\caption[Explorador del almac\'en DuckDB]{Interfaz del almac\'en DuckDB con el esquema
+estrella cargado: las siete dimensiones, dos tablas de hechos, tablas de gobernanza y vistas
+\textit{/marts} visibles en el explorador. Fuente: captura de la interfaz de DuckDB.}
+\label{fig:duckdb_ui}
+\end{figure}
+
+\section{A.8 Guardarra\'iles autom\'aticos y selecci\'on del modelo desplegado}
+
+La plataforma incorpora cuatro guardarra\'iles que se ejecutan en integraci\'on continua y
+\textbf{rompen la construcci\'on} ante cualquier desviaci\'on (Tabla~\ref{tab:guardrails}).
+El guardi\'an de consistencia computa las cifras canónicas del proyecto desde una fuente
+\'unica de verdad y verifica que el documento entregable, el portal y la documentaci\'on
+declaren \textit{el mismo n\'umero}; la prueba de regresi\'on de modelos fija el error de
+una rejilla determinista y falla si un cambio de c\'odigo lo degrada; el monitor de
+\textit{drift} vigila desempe\~no, cobertura y movimientos sin precedente del \'ultimo
+bolet\'in; y la tarjeta de modelo se regenera con su linaje (\textit{commit} de Git y
+\textit{hash} del panel) para no quedar obsoleta.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Guardarra\'iles autom\'aticos]{Los cuatro guardarra\'iles autom\'aticos, su
+disparador y d\'onde se ejecutan. Todos act\'uan como contrato verificable, no como
+documentaci\'on pasiva.}
+\label{tab:guardrails}
+\begin{tabular}{@{}p{3.0cm} p{7.8cm} p{2.7cm}@{}}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Guardarra\'il} & \textbf{Qu\'e verifica} & \textbf{D\'onde corre} \\ \midrule
+Consistencia & Toda cifra del documento, portal y docs coincide con la fuente \'unica de verdad & CI + previo a \textit{push} \\
+Regresi\'on de modelos & El error de hold-out de una rejilla fija no se degrada & CI (capa de modelado) \\
+Monitor de \textit{drift} & Desempe\~no, cobertura y datos del \'ultimo bolet\'in & Proceso mensual \\
+Tarjeta de modelo & La ficha del sistema no diverge de las cifras canónicas & CI (capa base) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La receta desplegada no se fija a mano: es un \textbf{dato versionado} (un manifiesto) que
+solo cambia mediante un procedimiento auditado de campe\'on--retador. Este eval\'ua la receta
+en producci\'on frente a un conjunto de alternativas sobre el hold-out reservado, mediante una
+prueba de rangos con signo de Wilcoxon por serie con control del error por comparaciones
+m\'ultiples, y emite un veredicto: una alternativa solo se recomienda si supera al campe\'on
+con significancia y un margen material. El veredicto vigente \textbf{mantiene la receta
+desplegada en ambas tablas} —su error medio de hold-out es de $0.1116$ (FAD) y $0.0996$
+(DFF)—, lo que justifica estad\'isticamente el modelo en producci\'on. La
+Figura~\ref{fig:mlflow_champion} muestra el registro de este veredicto en el almac\'en de
+experimentos.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.90\textwidth]{mlops_mlflow_champion.png}
+\caption[Veredicto campe\'on--retador registrado]{Registro del procedimiento campe\'on--retador
+en el almac\'en de experimentos: las recetas desplegadas para FAD y DFF con su error medio de
+hold-out, conservadas como corridas trazables. Fuente: captura de la interfaz de MLflow.}
+\label{fig:mlflow_champion}
+\end{figure}
+
+\section{A.9 Integraci\'on y entrega continua}
+
+Todo lo anterior se ejecuta en integraci\'on continua. Un primer flujo valida cada cambio de
+c\'odigo (lint, verificaci\'on de tipos, suite de pruebas con piso de cobertura, la capa de
+modelado y el guardi\'an de consistencia); un segundo flujo, disparado al publicarse un
+bolet\'in nuevo, reconstruye el panel y el almac\'en de forma incremental, regenera los
+pron\'osticos del demostrador, califica las predicciones previamente congeladas contra los
+cortes reci\'en realizados, actualiza las cifras canónicas y la tarjeta de modelo, ejecuta el
+monitor de \textit{drift} y, si todo pasa, redepliega el demostrador. As\'i, el sistema se
+mantiene reproducible, auditado y al d\'ia sin intervenci\'on manual.
 
 % ============================================================
 % ACERCA DEL AUTOR Y DEL ASESOR DE TESIS
