@@ -2,7 +2,7 @@
 # Override the interpreter with: make test PY=python
 PY ?= ante/bin/python
 
-.PHONY: help install model-install freeze scrape panel db news figures audit test test-model lint typecheck check all update eda compare report validate
+.PHONY: help install model-install freeze scrape panel db news figures audit test test-model lint typecheck check all update eda compare report validate key-facts consistency
 
 help:
 	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"
@@ -106,6 +106,12 @@ auto-arima:  ## baseline Auto-ARIMA (AICc) bajo el walk-forward del pool -> repo
 paper-figures:  ## regenera las figuras del paper MICAI desde el pipeline -> reports/paper_micai/Figures/
 	$(PY) reports/paper_micai/make_paper_figures.py
 
+key-facts:  ## regenera la fuente única de verdad reports/key_facts.json (+ macros .tex) del pipeline
+	$(PY) experiments/build_key_facts.py
+
+consistency:  ## GUARDIÁN: web/LaTeX/paper/README/docs deben dar el MISMO número (vs key_facts.json)
+	$(PY) tools/check_consistency.py
+
 lint:
 	$(PY) -m ruff check .
 
@@ -115,7 +121,7 @@ typecheck:
 validate:
 	bash tools/validate_structure.sh
 
-check: validate lint typecheck test
+check: validate consistency lint typecheck test
 
 all: freeze scrape panel db test figures audit
 

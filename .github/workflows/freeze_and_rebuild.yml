@@ -123,7 +123,11 @@ jobs:
         #     This is the real-world 12-month accuracy, accruing one month at a time.
         python experiments/score_forecasts.py
 
-        # 5. Commit the refreshed CSVs/panel/forecasts/scorecard (snapshots + DB gitignored).
+        # 4d. Refresh the single source of truth (reports/key_facts.json) from the new
+        #     data + scorecard, so the consistency guard (CI) keeps the prose honest.
+        python experiments/build_key_facts.py
+
+        # 5. Commit the refreshed CSVs/panel/forecasts/scorecard/key_facts (snapshots + DB gitignored).
         git config --local user.email "168046724+jrebull@users.noreply.github.com"
         git config --local user.name "Javier Rebull"
         git add -A

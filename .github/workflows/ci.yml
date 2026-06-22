@@ -70,3 +70,26 @@ jobs:
 
       - name: Modeling tests + vp_model coverage
         run: make test-model PY=python
+
+  # Guardián de consistencia (la máxima del proyecto): web/LaTeX/paper/README/docs deben
+  # dar el MISMO número que reports/key_facts.json. Lightweight: solo pyyaml + el JSON
+  # committeado. Checkout del repo web tolerante (si es privado/inaccesible, se omiten sus
+  # chequeos y el job sigue validando los artefactos del repo de datos).
+  consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Checkout the web repo (best-effort, for cross-repo claims)
+        uses: actions/checkout@v5
+        continue-on-error: true
+        with:
+          repository: UACJ-MIAAD/VisaPredictAI_WEB
+          path: web_repo
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - run: pip install pyyaml
+      - name: Check artifact consistency
+        env:
+          VP_WEB_DIR: web_repo
+        run: python tools/check_consistency.py

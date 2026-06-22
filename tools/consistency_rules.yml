@@ -1,0 +1,70 @@
+# Reglas del guardián de consistencia (la MÁXIMA: todo 100% alineado SIEMPRE).
+# Las corre tools/check_consistency.py contra reports/key_facts.json (fuente de verdad,
+# generada por experiments/build_key_facts.py). `{fact}` se sustituye por su valor.
+#
+# Tipos de regla:
+#   forbidden : el patrón NO debe aparecer en ningún artefacto de `in` (drift/claim viejo).
+#               Se omiten comentarios LaTeX (líneas que empiezan con %).
+#   required  : al menos UNA de `forms` debe aparecer en el grupo de `in`.
+#   numeric   : donde aparezca `label` (1 grupo de captura numérico, tolerante a separadores
+#               LaTeX 27{,}289 / 27\,289), el número debe igualar el `fact`.
+#
+# Nota: las forbidden se aplican SOLO a los artefactos publicados (deliverable, paper, web),
+# NO a las meta-docs (docs/PAPER_PROSPECTIVE_DRAFT) que citan los claims-malos como ejemplo.
+
+artifacts:
+  deliverable: ["reports/latex/ProyectoI_VisaPredictAI.tex"]
+  paper: ["reports/paper_micai/paper.tex", "reports/paper_micai/README.md"]
+  readmes: ["README.md"]
+  web: ["../VisaPredictAI_web/content/source.html", "../VisaPredictAI_web/content/en/capi.html", "../VisaPredictAI_web/content/en/datos.html", "../VisaPredictAI_web/content/datos.html"]
+
+forbidden:
+  - pattern: 'holgura|holgada'
+    in: [deliverable, paper]
+    reason: 'el deep NO gana DFF "con holgura"; es ventaja modesta ~11% y frágil'
+  - pattern: 'gana en DFF e iguala en FAD'
+    in: [deliverable, paper]
+    reason: 'frase vieja triunfalista; usar "supera por un margen modesto en DFF"'
+  - pattern: '\b15\s*\\?,?\s*%\s*mejor'
+    in: [deliverable, paper]
+    reason: 'el margen DFF reconciliado es ~11% vs Auto-ARIMA, no "15% mejor" vs baseline débil'
+  - pattern: '(BiTCN|deep|profund)\w*[^.]{0,45}\b23\s*\\?,?\s*%|\b23\s*\\?,?\s*%[^.]{0,45}(BiTCN|DFF|deep)'
+    in: [deliverable, paper, readmes]
+    reason: 'el "23%" provenía de CatBoost (baseline débil); el margen real es ~11%'
+  - pattern: 'modela\w*\s+(las\s+)?194\s+series|194\s+series\s+modela'
+    in: [deliverable, paper, readmes, web]
+    reason: '194 son ESTRUCTURALES; solo ~74 evaluables (>=84 obs F)'
+
+required:
+  - fact: n_series_structural
+    forms: ['{n_series_structural}\s+series', '{n_series_structural}[^.0-9]{0,15}estructural']
+    in: [deliverable, paper]
+    reason: 'el tamaño del panel (194 series) debe figurar'
+  - fact: deep_dff_margin_pct
+    forms: ['{deep_dff_margin_pct}\s*\\?,?\s*\\?%', '\\sim\s*\$?{deep_dff_margin_pct}']
+    in: [deliverable, paper]
+    reason: 'el margen DFF reconciliado (~11%) debe figurar'
+  - fact: autoarima_dff_mean
+    forms: ['Auto-?ARIMA']
+    in: [deliverable, paper]
+    reason: 'el baseline clásico afinado (Auto-ARIMA) debe estar citado'
+  - fact: n_series_evaluable
+    forms: ['{n_series_evaluable}\s+(series\s+)?(plenamente\s+)?evaluabl', 'evaluabl\w*[^.]{0,25}{n_series_evaluable}']
+    in: [paper]
+    reason: 'el paper debe distinguir 74 evaluables de 194 estructurales'
+  - fact: prosp_n_scored
+    forms: ['2\{?,?\}?944', '{prosp_n_scored}']
+    in: [paper]
+    reason: 'el tamaño de la evaluación prospectiva (2944) debe figurar en el paper'
+
+numeric:
+  # obs TOTAL del panel: "27,289 obs/observaciones/filas" pero NO "obs entrenables" (eso es F)
+  - fact: n_obs
+    label: '([0-9]{2}[.,{}\\\s]*[0-9]{3})\s*~?(?:obs|observaci|filas|rows)\b(?![^<\n]{0,15}entrenabl)'
+    in: [deliverable, paper, readmes, web]
+    reason: 'conteo de observaciones TOTAL del panel'
+  # obs ENTRENABLES (estado F): "15,758 obs entrenables" / "... entrenables"
+  - fact: n_obs_F
+    label: '([0-9]{2}[.,{}\\\s]*[0-9]{3})\s*~?(?:obs\s*)?entrenabl'
+    in: [deliverable, paper, readmes, web]
+    reason: 'conteo de observaciones entrenables (estado F)'

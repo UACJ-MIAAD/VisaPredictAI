@@ -1,0 +1,38 @@
+{
+  "_source": "experiments/build_key_facts.py — NO editar a mano",
+  "n_series_structural": 194,
+  "n_series_with_F": 136,
+  "n_series_evaluable": 74,
+  "n_obs": 27289,
+  "n_obs_F": 15758,
+  "pct_trainable_F": 58,
+  "date_first": "2001-12",
+  "date_last": "2026-07",
+  "prosp_n_scored": 2944,
+  "prosp_mae_days": 146,
+  "prosp_mase": 0.345,
+  "prosp_cov95": 0.92,
+  "prosp_cov80_heldout": 0.81,
+  "prosp_n_vintages_effective": 3,
+  "band80_ratio": 0.4744,
+  "ets_fad_mean": 0.119,
+  "theta_fad_mean": 0.118,
+  "ets_dff_mean": 0.106,
+  "theta_dff_mean": 0.107,
+  "autoarima_fad_mean": 0.161,
+  "autoarima_fad_median": 0.135,
+  "autoarima_dff_mean": 0.101,
+  "autoarima_dff_median": 0.086,
+  "mcs_fad": [
+    "ets",
+    "theta"
+  ],
+  "mcs_dff": [
+    "ets",
+    "theta"
+  ],
+  "bitcn_dff_mean": 0.09,
+  "autobitcn_fad_mean": 0.112,
+  "fad_champion_mase": 0.117,
+  "deep_dff_margin_pct": 11
+}
