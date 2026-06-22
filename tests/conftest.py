@@ -21,6 +21,7 @@ _MODEL_TESTS = [
     "test_missingness.py",
     "test_feature_select.py",
     "test_ensemble.py",
+    "test_forecast_scoring.py",  # importa score_forecasts → vp_model.metrics → darts
 ]
 
 # `statsmodels` es del extra `model`; su ausencia marca el job base sin la capa de modelado.

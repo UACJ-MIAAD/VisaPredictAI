@@ -17,6 +17,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))  # para que score_forecasts resuelva `import tracking` (módulo raíz)
 _spec = importlib.util.spec_from_file_location("score_forecasts", ROOT / "experiments" / "score_forecasts.py")
+assert _spec is not None and _spec.loader is not None  # narrow para mypy + falla claro si no carga
 sf = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(sf)
 
