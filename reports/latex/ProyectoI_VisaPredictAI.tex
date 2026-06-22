@@ -205,9 +205,10 @@ profundas—. A estos se sumaron \textbf{versiones globales} de las redes, entre
 todo el panel a la vez. El sistema se entrena exclusivamente sobre las observaciones con fecha
 específica y cuantifica la incertidumbre con intervalos de predicción al 95\,\% de cobertura
 empírica verificada. Los resultados muestran que el desempeño \textbf{depende del régimen}:
-el aprendizaje profundo global supera con holgura a los modelos parsimoniosos en las series
-cortas (DFF) e iguala su desempeño en las series largas (FAD), donde un modelo simple ya es
-prácticamente óptimo. El error alcanzado se aproxima al límite irreducible de estas series
+el aprendizaje profundo global supera por un margen modesto ($\sim$11\,\% en media, frente a
+un Auto-ARIMA afinado) a los modelos parsimoniosos en las series cortas (DFF) —una ventaja
+sensible a la agregación y sobre una muestra efectiva pequeña— e iguala su desempeño en las
+series largas (FAD), donde un modelo simple ya es prácticamente óptimo. El error alcanzado se aproxima al límite irreducible de estas series
 fuertemente tendenciales con retrocesos abruptos.
 
 \vspace{0.6em}
@@ -1756,14 +1757,19 @@ de hiperparámetros} con Optuna (búsqueda con validación interna, sin tocar el
 lleva a \textbf{AutoBiTCN a MASE $=0.112$ y AutoTiDE a $0.115$}, a la altura de ETS y Theta
 ($0.117$). Es decir, en FAD \textbf{un único modelo profundo global, bien regularizado,
 iguala a los modelos parsimoniosos}: ni los supera ni queda por debajo de forma
-apreciable. \textbf{En DFF, en cambio, el aprendizaje profundo gana con holgura}: BiTCN
-global supera por sí solo a todos los estadísticos y árboles —MASE $=0.090$ frente al
-hold-out del mejor parsimonioso de cobertura completa (ETS $=0.106$, Theta $=0.107$),
-$\sim$15\,\% mejor— (SARIMA no es referencia válida en DFF: es
-numéricamente frágil, con MASE $=1.66$ sobre las 25 series y un aparente $0.100$ solo sobre
-las 13 que sobrevive, sesgo de supervivencia). La lectura es que el aprendizaje profundo
-\textit{iguala} a los clásicos en series largas (FAD) y los \textit{supera} en series
-cortas (DFF), donde el entrenamiento global presta señal entre series. Y cuando aporta, la
+apreciable. \textbf{En DFF, en cambio, el aprendizaje profundo mantiene una ventaja
+modesta}: BiTCN global —MASE $=0.090$ en media— supera al mejor parsimonioso de cobertura
+completa, que tras añadir un \textbf{Auto-ARIMA con selección de orden por AICc} (MASE media
+$=0.101$, mejor que ETS $=0.106$ y Theta $=0.107$) bajo el mismo walk-forward, queda en
+$\sim$11\,\% —no el $15$\,\% que sugería compararlo contra baselines más débiles— (SARIMA no
+es referencia válida en DFF: numéricamente frágil, MASE $=1.66$ sobre las 25 series y un
+aparente $0.100$ solo sobre las 13 que sobrevive, sesgo de supervivencia). \textbf{La
+ventaja es además sensible a la agregación}: por mediana el Auto-ARIMA ($0.086$) iguala a
+BiTCN ($0.090$), y las $\sim$25 series familiares de DFF colapsan a $\sim$14 distintas al
+descontar la pseudo-replicación del corte mundial compartido, por lo que la muestra efectiva
+es pequeña. La lectura es que el aprendizaje profundo \textit{iguala} a los clásicos en
+series largas (FAD) y los supera por un \textit{margen modesto y frágil} en series cortas
+(DFF), donde el entrenamiento global presta señal entre series. Y cuando aporta, la
 ventaja \textbf{no viene de la capacidad del modelo sino de cómo se entrena}: de forma
 global (todas las series a la vez), sobre la primera diferencia, con normalización por
 serie y con sus hiperparámetros ajustados sin fuga. Sin esos cuatro ingredientes, las
@@ -1792,16 +1798,18 @@ fecha de prioridad se expresa en años.}
 \textit{Confirmación multi-semilla:} para caracterizar la estabilidad,
 ambos resultados se reentrenaron con \textbf{cinco semillas independientes} (Figura~\ref{fig:multiseed}), variando tanto
 la inicialización de pesos como la búsqueda de hiperparámetros (muestreo TPE con semilla
-distinta por corrida). En DFF la ventaja es \textbf{holgada y estable}: BiTCN promedia MASE
-$=0.090$ con desviación $0.0003$ —intervalo de confianza del $95$\,\% $[0.0897,\,0.0901]$—,
-muy por debajo del mejor parsimonioso ($0.106$). En FAD el resultado es un \textbf{empate
+distinta por corrida). En DFF la ventaja es \textbf{modesta pero estable entre semillas}:
+BiTCN promedia MASE $=0.090$ con desviación $0.0003$ —intervalo de confianza del $95$\,\%
+$[0.0897,\,0.0901]$—, por encima del mejor clásico afinado (Auto-ARIMA $=0.101$ en media,
+$\sim$11\,\%). En FAD el resultado es un \textbf{empate
 estadístico}: AutoBiTCN promedia $0.112$ con desviación $0.008$ —intervalo
 $[0.102,\,0.122]$—, un rango que contiene el listón parsimonioso ($0.117$); ni el modelo
 profundo ni la parsimonia ganan de forma distinguible. La variación entre corridas a
 semilla fija refleja el nondeterminismo del acelerador, acotado por el propio intervalo. La
-lectura honesta, por tanto, es que el aprendizaje profundo \textbf{gana en DFF e iguala en
-FAD}: la capacidad adicional rinde donde los datos son escasos y la presta el panel, no
-donde la serie larga ya hace excelente a un modelo simple.
+lectura honesta, por tanto, es que el aprendizaje profundo \textbf{supera por un margen
+modesto en DFF e iguala en FAD}: la capacidad adicional rinde —de forma acotada y frágil—
+donde los datos son escasos y la presta el panel, no donde la serie larga ya hace excelente
+a un modelo simple.
 
 \begin{figure}[H]
 \centering
@@ -2119,12 +2127,14 @@ debajo del hold-out del mejor parsimonioso de cobertura completa (ETS $0.106$)�
 AutoBiTCN \textbf{empata} con ETS/Theta en FAD ($0.112$ frente a $0.117$).
 
 \paragraph{Veredicto: depende del régimen.} Una validación con cinco semillas precisa esta
-lectura: en DFF la ventaja del modelo profundo es \textbf{holgada y estable} (media
-$0.090\pm0.0003$, intervalo de confianza enteramente por debajo del listón), y en FAD es un
-\textbf{empate estadístico} (media $0.112\pm0.008$, intervalo $[0.102,\,0.122]$ que contiene
-el listón $0.117$). \textbf{El aprendizaje profundo gana en DFF} (series cortas, donde el
-entrenamiento global presta señal entre series) \textbf{e iguala a la parsimonia en FAD}
-(series largas, donde un modelo simple ya es óptimo). Cuando aporta, la ventaja \textbf{no
+lectura: en DFF la ventaja del modelo profundo es \textbf{modesta pero estable entre
+semillas} (media $0.090\pm0.0003$), $\sim$11\,\% sobre el mejor clásico afinado (Auto-ARIMA
+$0.101$ en media) —ventaja sensible a la agregación (por mediana empata) y sobre una muestra
+efectiva pequeña ($\sim$14 series DFF distintas)—, y en FAD es un \textbf{empate estadístico}
+(media $0.112\pm0.008$, intervalo $[0.102,\,0.122]$ que contiene el listón $0.117$).
+\textbf{El aprendizaje profundo supera por un margen modesto y frágil en DFF} (series cortas,
+donde el entrenamiento global presta señal entre series) \textbf{e iguala a la parsimonia en
+FAD} (series largas, donde un modelo simple ya es óptimo). Cuando aporta, la ventaja \textbf{no
 proviene de la capacidad del modelo sino de cómo se entrena} —de forma global, sobre
 incrementos y con escalado por serie, según se detalla en §2.2—. La respuesta a
 ``¿conviene la IA?'', por tanto, es \textit{matizada}: sí en series cortas entrenada como un

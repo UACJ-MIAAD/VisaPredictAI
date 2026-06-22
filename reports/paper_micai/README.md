@@ -44,7 +44,7 @@ distintos, no solo color), PDF vectorial.
   prospectivo MASE 0.345 / MAE 146 d como titular; gap 3× **declarado**.
 - **cov95 = 0.92 < nominal** reportado como under-coverage honesta; banda 80 % calibrada en
   split disjunto (cov80 held-out 0.81), no circular.
-- **FAD = empate, no victoria**; deep gana solo DFF (~15 %); resultado *depende del régimen*.
+- **FAD = empate** (deep AutoBiTCN 0.112 ≈ ETS/Theta; Auto-ARIMA 0.161 peor); **DFF = ventaja modesta y frágil** del deep (BiTCN 0.090 vs Auto-ARIMA 0.101 media, ~11 %; sensible a la agregación, muestra efectiva ~14 series). MCS = {ETS, Theta} en ambas.
 - **`\paragraph{Leakage prevention}`** (ventana expansible, lags pre-origen, rollout recursivo,
   escala MASE pre-origen, congelado en fecha de origen) + máscara F-only explícita.
 - **√h = heurístico** (sin garantía multi-paso); cobertura empírica reportada, no "garantizada".

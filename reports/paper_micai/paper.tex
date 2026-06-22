@@ -70,13 +70,14 @@ the cutoffs actually published afterwards. On 2{,}944 prospectively scored
 forecasts the mean absolute error is 146~days and the scaled error (MASE) 0.345,
 degrading smoothly from one to twelve months ahead yet remaining below the
 seasonal-naïve baseline (MASE~$<1$) at every horizon. 95\% prediction intervals
-attain 0.92 empirical coverage (under the nominal level, reported as such). Our
-central finding is a negative one, consistent with the M4/M5 competitions: once a
-tuned classical baseline (order-selected Auto-ARIMA, ETS, Theta) is included, no
-model class consistently beats well-tuned parsimonious statistics on either
-table---globally trained deep models are competitive but not superior, and their
-apparent edge on the shorter Dates-for-Filing series does not survive a strong
-classical baseline. We release the panel, code, and a reproducible evaluation pipeline.
+attain 0.92 empirical coverage (under the nominal level, reported as such).
+Consistent with the M4/M5 competitions, well-tuned parsimonious statistics are hard
+to beat: per series, ETS and Theta form the model confidence set, and a tuned
+Auto-ARIMA is a strong baseline. The globally trained deep model only \emph{matches}
+them on the longer Final-Action-Dates series; it retains a modest ($\approx$11\% in
+the mean) edge on the shorter Dates-for-Filing series, but that edge is sensitive to
+the aggregation and rests on a small effective sample. We release the panel, code,
+and a reproducible evaluation pipeline.
 \keywords{Time-series forecasting \and Prospective evaluation \and Conformal
 prediction \and Open dataset \and Immigration analytics \and Reproducibility}
 \end{abstract}
@@ -125,8 +126,8 @@ keep~\cite{makridakis2020,makridakis2022}; Montero-Manso and Hyndman~\cite{monte
 formalize when a single \emph{global} model trained across many series outperforms
 per-series \emph{local} models. Our result (Sec.~\ref{sec:results}) is consistent
 with this literature and with the M4/M5 ``simple-beats-complex'' finding: global deep
-models reach parity but do not dominate well-tuned statistical baselines here. The
-Monash archive~\cite{godahewa2021} popularized
+models match the tuned statistical baselines on one table and hold only a modest edge
+on the other. The Monash archive~\cite{godahewa2021} popularized
 standardized multi-series benchmarking, which we follow.
 
 \paragraph{Models and intervals.} We compare exponential smoothing and Theta,
@@ -234,14 +235,12 @@ the model \emph{actually deployed}.
 series: ETS/Theta reach a hold-out MASE of $\approx$0.117 on family FAD and
 gradient-boosted trees are competitive on DFF. Locally trained deep models fail on
 the short individual series. Trained \emph{globally} (across series, on differenced
-and per-series-normalized targets, with hyper-parameter search), deep models recover
-to \emph{parity} with the parsimonious baselines: BiTCN reaches MASE $0.090$ on DFF
-and an AutoBiTCN configuration reaches $0.114$ on FAD, with a seed confidence
-interval that contains the ETS/Theta value of $0.117$. Both are \emph{ties}: the
-global deep model matches but does not beat the tuned classical suite on either
-table (the DFF figure equals the best classical, Sec.~``Tuned classical baseline''),
-and a per-table Diebold--Mariano test finds no significant FAD separation from the
-champions. We emphasize that this
+and per-series-normalized targets, with hyper-parameter search), deep models recover:
+on FAD an AutoBiTCN configuration reaches mean MASE $0.112$, a seed confidence
+interval that contains the ETS/Theta value of $0.117$---a \emph{tie}; a per-table
+Diebold--Mariano test finds no significant FAD separation. On DFF, BiTCN reaches mean
+MASE $0.090$, ahead of the best classical baseline; the size of that lead and its
+robustness are examined with a tuned Auto-ARIMA below. We emphasize that this
 hold-out MASE is a \emph{selection signal}, not a prediction of live accuracy; the
 honest out-of-sample number is three times larger (Sec.~\ref{sec:prospective}).
 
@@ -284,16 +283,18 @@ Nemenyi-connected groups. ETS and Theta lead and form the confidence set.}
 
 \paragraph{Tuned classical baseline.} To guard against beating weak baselines, we
 add an order-selected Auto-ARIMA (AICc grid search on the pre-hold-out window, same
-walk-forward). Its median hold-out MASE is \textbf{0.135} on FAD---better than the
-fixed ARIMA/SARIMA but still behind ETS (0.105) and Theta (0.114)---and
-\textbf{0.086} on DFF. The DFF value is the key caveat: it \emph{matches or beats}
-the globally trained deep model (BiTCN, 0.090) and the fixed ARIMA (0.087). In other
-words, once a properly tuned classical baseline is included, the deep model's
-apparent DFF advantage---measured earlier against gradient-boosted trees
-($\approx$0.116)---does not survive. Consistent with the M4/M5 findings, no model
-class consistently dominates well-tuned parsimonious statistics on this panel; we
-therefore present the deep results as \emph{competitive, not superior}, and treat the
-DFF comparison as inconclusive pending confirmation (see threats to validity).
+walk-forward). On FAD its mean MASE is 0.161 (median 0.135)---\emph{worse} than ETS
+(0.106) and Theta (0.107), which confirms them as the FAD champions and the deep
+model as their tie. On DFF, Auto-ARIMA is the strongest classical (mean 0.101, median
+0.086), so the deep model's DFF lead, originally stated against gradient-boosted
+trees ($\approx$0.116), narrows to $\approx$11\% against this tuned baseline
+(BiTCN~0.090 vs.\ 0.101 in the mean). That lead is moreover \emph{aggregation
+sensitive}: under the median, Auto-ARIMA (0.086) ties BiTCN (0.090), and the
+$\approx$25 DFF family series collapse to only $\approx$14 distinct series once the
+shared-world-cutoff pseudo-replication is removed (Sec.~\ref{sec:discussion}). We
+therefore present the DFF result as a \emph{modest, fragile} edge on a small
+effective sample rather than a decisive win---in line with the M4/M5 lesson that
+well-tuned parsimony is hard to beat.
 % =====================================================================
 \section{Out-of-Sample Prospective Evaluation}
 \label{sec:prospective}
@@ -378,11 +379,12 @@ dated origin (vertical marker), and the 12-month forecast with 80\%/95\% bands.}
 \section{Discussion}
 \label{sec:discussion}
 
-The central, defensible message is a negative one in the M4/M5 tradition: on this
-panel, a well-tuned parsimonious suite (ETS, Theta, order-selected Auto-ARIMA) is
-not consistently beaten by gradient-boosted trees or by globally trained deep models,
-the latter only reaching parity on both tables once a strong classical baseline is in
-the comparison. The prospective protocol additionally exposes a $3\times$ optimism in
+The central, defensible message is conservative, in the M4/M5 tradition: on this
+panel a well-tuned parsimonious suite (ETS, Theta, order-selected Auto-ARIMA) is hard
+to beat. The globally trained deep model matches it on FAD and holds only a modest,
+aggregation-sensitive edge on DFF ($\approx$11\% in the mean over a small effective
+sample); neither gradient-boosted trees nor deep learning dominate the tuned
+statistical baselines. The prospective protocol additionally exposes a $3\times$ optimism in
 the retrospective hold-out number---a discrepancy that any single-split benchmark
 hides and that practitioners deploying such systems must know.
 
@@ -406,9 +408,9 @@ We release an open, audited multi-series panel of U.S. Visa Bulletin priority da
 and a leakage-free \emph{prospective} evaluation protocol that scores frozen
 forecasts against subsequently published cutoffs. The honest out-of-sample accuracy
 (MAE~146~days, MASE~0.345, beating the seasonal naïve at every horizon) and the
-finding that well-tuned parsimonious models are not beaten by deep learning on this
-panel are, we argue, more useful to practitioners than a single optimistic hold-out
-number. Future work integrates the
+finding that well-tuned parsimonious models are, at worst, only modestly behind deep
+learning on this panel are, we argue, more useful to practitioners than a single
+optimistic hold-out number. Future work integrates the
 1992--2001 archival period, models regime transitions ($C\!\leftrightarrow\!F\!\leftrightarrow\!U$),
 and replaces the $\sqrt{h}$ interval heuristic with multi-step conformal methods.
 

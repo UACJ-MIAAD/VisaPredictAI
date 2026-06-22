@@ -73,7 +73,7 @@ prospectivo 0.345 NO son comparables: 1-paso repetido vs 1–12-pasos genuino).*
   **`cov80_heldout` (out-of-sample, ≈0.81)** y marcar el overall como optimista.
 - ❌ "bandas conformes con garantía a 12 meses" → son 1-paso ⋅ √h (heurístico).
 - ❌ "194 series modeladas" → 194 **estructurales**; 74 plenamente evaluables (≥84 obs F).
-- ❌ "deep gana DFF 23 %" → usar **15 %** (cifra del cuerpo del `.tex`; 22 % es vs otra baseline).
+- ❌ "deep gana DFF 23 %/15 %" → tras añadir **Auto-ARIMA afinado** (media 0.101), la ventaja DFF es **~11 % y frágil** (BiTCN 0.090 vs 0.101); sensible a la agregación (por mediana empata) y sobre ~14 series distintas. FAD = empate. MCS = {ETS, Theta}.
 - ❌ "tracked in MLflow" como procedencia de CI → el registro durable es el scorecard en git + git_sha.
 - ⚠️ "base de datos 1992–2026" → decisión editorial del autor (marco 1992 + caveat dic-2001 presente);
   para MICAI, considerar decir "dic-2001→2026 (FAD publicadas desde 1992)".
