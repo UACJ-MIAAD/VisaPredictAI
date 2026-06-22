@@ -1,0 +1,86 @@
+{
+  "ranking": {
+    "FAD": {
+      "n_series": 25,
+      "n_models": 20,
+      "friedman_p": 2.9619123354199737e-74,
+      "avg_rank": {
+        "ets": 2.08,
+        "theta": 2.32,
+        "arima": 3.88,
+        "rlinear": 4.84,
+        "nlinear": 4.92,
+        "catboost": 6.64,
+        "kalman": 7.16,
+        "xgboost": 8.4,
+        "lightgbm": 8.48,
+        "arima_lstm": 11.12,
+        "chronos": 11.24,
+        "tide": 11.68,
+        "dlinear": 11.8,
+        "nbeats": 13.36,
+        "nhits": 13.56,
+        "prophet": 16.08,
+        "lstm": 17.28,
+        "deepar": 17.44,
+        "naive": 17.88,
+        "tft": 19.84
+      },
+      "mcs_alpha10": [
+        "ets",
+        "theta"
+      ]
+    },
+    "DFF": {
+      "n_series": 25,
+      "n_models": 18,
+      "friedman_p": 1.3676627431512413e-63,
+      "avg_rank": {
+        "ets": 2.92,
+        "catboost": 3.6,
+        "theta": 3.92,
+        "xgboost": 4.76,
+        "nlinear": 5.28,
+        "rlinear": 5.6,
+        "lightgbm": 5.8,
+        "kalman": 6.4,
+        "chronos": 9.52,
+        "tide": 10.84,
+        "dlinear": 11.56,
+        "nhits": 11.84,
+        "nbeats": 12.28,
+        "naive": 12.64,
+        "prophet": 13.52,
+        "deepar": 16.2,
+        "lstm": 16.44,
+        "tft": 17.88
+      },
+      "mcs_alpha10": [
+        "ets",
+        "theta"
+      ]
+    }
+  },
+  "dm": {
+    "FAD": {
+      "best_deep": "AutoBiTCN",
+      "best_parsimony": "sarima",
+      "n_pairs": 600,
+      "mae_deep": 41.0,
+      "mae_parsimony": 48.6,
+      "dm_stat": -1.985,
+      "dm_p": 0.0477,
+      "holm_significant": true
+    },
+    "DFF": {
+      "best_deep": "PatchTST",
+      "best_parsimony": "arima",
+      "n_pairs": 580,
+      "mae_deep": 28.3,
+      "mae_parsimony": 31.7,
+      "dm_stat": 2.14,
+      "dm_p": 0.0328,
+      "holm_significant": true
+    }
+  }
+}

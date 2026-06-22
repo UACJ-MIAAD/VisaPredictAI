@@ -97,6 +97,12 @@ score-forecasts:  ## evaluación PROSPECTIVA: pronósticos congelados vs cortes 
 derive-band80:  ## re-deriva BAND80_RATIO en split disjunto (read-only; imprime cov80 held-out)
 	$(PY) experiments/derive_band80_ratio.py
 
+significance:  ## Friedman-Nemenyi + MCS + DM para el paper (read-only; figura CD)
+	$(PY) experiments/significance_tables.py
+
+auto-arima:  ## baseline Auto-ARIMA (AICc) bajo el walk-forward del pool -> reports/auto_arima_baseline.csv
+	$(PY) experiments/auto_arima_baseline.py
+
 paper-figures:  ## regenera las figuras del paper MICAI desde el pipeline -> reports/paper_micai/Figures/
 	$(PY) reports/paper_micai/make_paper_figures.py
 

@@ -45,10 +45,15 @@ Evaluation Protocol for Forecasting U.S. Visa Bulletin Priority Dates}
 \author{Anonymous Author(s)}
 \authorrunning{Anonymous}
 \institute{Affiliations withheld for double-blind review}
-% >>> CAMERA-READY (swap in for the final version):
-% \author{Javier A. Rebull\inst{1}\and Vicente Garc\'ia\inst{1}}
-% \authorrunning{Rebull and Garc\'ia}
-% \institute{Universidad Aut\'onoma de Ciudad Ju\'arez, M\'exico \\ \email{...}}
+% >>> CAMERA-READY (uncomment for the final version; comment out the REVIEW block above):
+% \author{Javier A. Rebull Saucedo\inst{1}\orcidID{0000-0000-0000-0000} \and
+%   Vicente Garc\'ia Jim\'enez\inst{1}\orcidID{0000-0000-0000-0000}}
+% \authorrunning{J. A. Rebull and V. Garc\'ia}
+% \institute{Maestr\'ia en Inteligencia Artificial y Anal\'itica de Datos (MIAAD),
+%   Universidad Aut\'onoma de Ciudad Ju\'arez, Ciudad Ju\'arez, Chihuahua, M\'exico \\
+%   \email{al263483@alumnos.uacj.mx}, \email{vicente.jimenez@uacj.mx}}
+% (Fill in real ORCIDs before submission. Requires \usepackage{orcidlink} or the
+%  llncs \orcidID macro; remove \orcidID if unavailable.)
 
 \maketitle
 
@@ -66,10 +71,12 @@ forecasts the mean absolute error is 146~days and the scaled error (MASE) 0.345,
 degrading smoothly from one to twelve months ahead yet remaining below the
 seasonal-naïve baseline (MASE~$<1$) at every horizon. 95\% prediction intervals
 attain 0.92 empirical coverage (under the nominal level, reported as such). Our
-central finding is regime-dependent: globally trained deep models improve on
-parsimonious statistical baselines for the shorter Dates-for-Filing series
-($\approx$15\%) but only tie them for the longer Final-Action-Dates series. We
-release the panel, code, and a reproducible evaluation pipeline.
+central finding is a negative one, consistent with the M4/M5 competitions: once a
+tuned classical baseline (order-selected Auto-ARIMA, ETS, Theta) is included, no
+model class consistently beats well-tuned parsimonious statistics on either
+table---globally trained deep models are competitive but not superior, and their
+apparent edge on the shorter Dates-for-Filing series does not survive a strong
+classical baseline. We release the panel, code, and a reproducible evaluation pipeline.
 \keywords{Time-series forecasting \and Prospective evaluation \and Conformal
 prediction \and Open dataset \and Immigration analytics \and Reproducibility}
 \end{abstract}
@@ -116,9 +123,10 @@ the scientific claim.
 simple statistical methods are hard to beat and that complexity must earn its
 keep~\cite{makridakis2020,makridakis2022}; Montero-Manso and Hyndman~\cite{montero2021}
 formalize when a single \emph{global} model trained across many series outperforms
-per-series \emph{local} models. Our regime-dependent result (Sec.~\ref{sec:results})
-is consistent with this literature: global deep models help only where series are
-short and share structure. The Monash archive~\cite{godahewa2021} popularized
+per-series \emph{local} models. Our result (Sec.~\ref{sec:results}) is consistent
+with this literature and with the M4/M5 ``simple-beats-complex'' finding: global deep
+models reach parity but do not dominate well-tuned statistical baselines here. The
+Monash archive~\cite{godahewa2021} popularized
 standardized multi-series benchmarking, which we follow.
 
 \paragraph{Models and intervals.} We compare exponential smoothing and Theta,
@@ -226,16 +234,66 @@ the model \emph{actually deployed}.
 series: ETS/Theta reach a hold-out MASE of $\approx$0.117 on family FAD and
 gradient-boosted trees are competitive on DFF. Locally trained deep models fail on
 the short individual series. Trained \emph{globally} (across series, on differenced
-and per-series-normalized targets, with hyper-parameter search), deep models recover:
-on DFF they improve on the best non-deep model by $\approx$15\% (e.g.\ BiTCN
-$0.090$ vs.\ $0.106$ MASE), whereas \textbf{on FAD they only tie}---an
-AutoBiTCN configuration reaches $0.114$ with a seed confidence interval that
-contains the ETS/Theta value of $0.117$. We therefore report the result as
-\emph{regime-dependent} rather than as a deep-learning win, and a per-table
-Diebold--Mariano test finds no significant FAD separation. We emphasize that this
+and per-series-normalized targets, with hyper-parameter search), deep models recover
+to \emph{parity} with the parsimonious baselines: BiTCN reaches MASE $0.090$ on DFF
+and an AutoBiTCN configuration reaches $0.114$ on FAD, with a seed confidence
+interval that contains the ETS/Theta value of $0.117$. Both are \emph{ties}: the
+global deep model matches but does not beat the tuned classical suite on either
+table (the DFF figure equals the best classical, Sec.~``Tuned classical baseline''),
+and a per-table Diebold--Mariano test finds no significant FAD separation from the
+champions. We emphasize that this
 hold-out MASE is a \emph{selection signal}, not a prediction of live accuracy; the
 honest out-of-sample number is three times larger (Sec.~\ref{sec:prospective}).
 
+\paragraph{Statistical significance.} A Friedman test over the per-series hold-out
+MASE of the local pool rejects equal performance in both tables ($p<10^{-60}$;
+Table~\ref{tab:significance}). With a Nemenyi post-hoc (Fig.~\ref{fig:cd}) and a
+90\% Model Confidence Set~\cite{demsar2006}, the \emph{only} models that survive in
+both tables are \textbf{ETS and Theta}; SARIMA, the gradient-boosted trees, and all
+locally trained deep models are excluded. The globally trained deep model does beat
+the SARIMA baseline on FAD (Diebold--Mariano with HLN correction, $p=0.05$), but it
+does not enter the $\{$ETS, Theta$\}$ confidence set---consistent with our framing
+of FAD as a tie. On DFF the \emph{global} deep model (a separate training regime)
+reaches MASE~0.090, on par with the best classical baselines rather than ahead of
+them (see the tuned-baseline paragraph below).
+
+\begin{table}[t]\centering\footnotesize
+\caption{Friedman--Nemenyi over the per-series hold-out MASE of the model pool.
+Lower mean rank is better; $^\star$ marks membership in the 90\% Model Confidence
+Set. The Friedman $p$ rejects equal performance; only ETS and Theta enter the MCS.}
+\label{tab:significance}
+\begin{tabular}{llll}
+\toprule
+Table & \#models & Friedman $p$ & Top-6 by mean rank (MCS $^\star$) \\
+\midrule
+FAD & 20 & $3{\times}10^{-74}$ & ets (2.1$^\star$), theta (2.3$^\star$), arima (3.9), rlinear (4.8), nlinear (4.9), catboost (6.6) \\
+DFF & 18 & $1{\times}10^{-63}$ & ets (2.9$^\star$), catboost (3.6), theta (3.9$^\star$), xgboost (4.8), nlinear (5.3), rlinear (5.6) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.92\textwidth]{fig_cd_diagram.pdf}
+% ALT-TEXT: Demsar critical-difference diagram for the 20 FAD models; ETS (2.1) and
+% Theta (2.3) at the best end, connected bars show statistically tied groups.
+\caption{Critical-difference diagram (FAD): mean ranks of the model pool with
+Nemenyi-connected groups. ETS and Theta lead and form the confidence set.}
+\label{fig:cd}
+\end{figure}
+
+\paragraph{Tuned classical baseline.} To guard against beating weak baselines, we
+add an order-selected Auto-ARIMA (AICc grid search on the pre-hold-out window, same
+walk-forward). Its median hold-out MASE is \textbf{0.135} on FAD---better than the
+fixed ARIMA/SARIMA but still behind ETS (0.105) and Theta (0.114)---and
+\textbf{0.086} on DFF. The DFF value is the key caveat: it \emph{matches or beats}
+the globally trained deep model (BiTCN, 0.090) and the fixed ARIMA (0.087). In other
+words, once a properly tuned classical baseline is included, the deep model's
+apparent DFF advantage---measured earlier against gradient-boosted trees
+($\approx$0.116)---does not survive. Consistent with the M4/M5 findings, no model
+class consistently dominates well-tuned parsimonious statistics on this panel; we
+therefore present the deep results as \emph{competitive, not superior}, and treat the
+DFF comparison as inconclusive pending confirmation (see threats to validity).
 % =====================================================================
 \section{Out-of-Sample Prospective Evaluation}
 \label{sec:prospective}
@@ -320,22 +378,25 @@ dated origin (vertical marker), and the 12-month forecast with 80\%/95\% bands.}
 \section{Discussion}
 \label{sec:discussion}
 
-The central, defensible message is contingent, not triumphal: globally trained deep
-models earn their complexity only on the shorter DFF series, while parsimonious
-statistical models match them on the longer FAD series. The prospective protocol
-exposes a $3\times$ optimism in the retrospective hold-out number---a discrepancy
-that any single-split benchmark hides and that practitioners deploying such systems
-must know.
+The central, defensible message is a negative one in the M4/M5 tradition: on this
+panel, a well-tuned parsimonious suite (ETS, Theta, order-selected Auto-ARIMA) is
+not consistently beaten by gradient-boosted trees or by globally trained deep models,
+the latter only reaching parity on both tables once a strong classical baseline is in
+the comparison. The prospective protocol additionally exposes a $3\times$ optimism in
+the retrospective hold-out number---a discrepancy that any single-split benchmark
+hides and that practitioners deploying such systems must know.
 
 \paragraph{Threats to validity.} (1)~Multi-step intervals use a $\sqrt{h}$ heuristic
 without a multi-step coverage guarantee; observed 95\% coverage falls from
 $\approx$0.97 to $\approx$0.88 across horizons. (2)~The effective prospective sample
 is three recent vintages; broader temporal coverage will accrue as live vintages
-accumulate. (3)~``All-Chargeability'' rows can duplicate per-country rows when a
-world cutoff is shared, inflating effective independence; we flag this
-pseudo-replication for the aggregate. (4)~Deep results depend on a single
-accelerator and a fixed seed set. (5)~Some statistical models converge only on
-series subsets (survivorship), disclosed where aggregates are averaged.
+accumulate. (3)~\textbf{Pseudo-replication is severe for DFF}: when a world cutoff is
+shared, the ``All-Chargeability'' row is identical to the per-country rows, so the
+$\approx$25 DFF family series reduce to only $\approx$5--7 distinct series; DFF
+conclusions therefore rest on a small effective sample and pairwise DFF comparisons
+should be read as indicative. (4)~Deep results depend on a single accelerator and a
+fixed seed set. (5)~Some statistical models converge only on series subsets
+(survivorship), disclosed where aggregates are averaged.
 
 % =====================================================================
 \section{Conclusions}
@@ -345,8 +406,9 @@ We release an open, audited multi-series panel of U.S. Visa Bulletin priority da
 and a leakage-free \emph{prospective} evaluation protocol that scores frozen
 forecasts against subsequently published cutoffs. The honest out-of-sample accuracy
 (MAE~146~days, MASE~0.345, beating the seasonal naïve at every horizon) and the
-regime-dependent value of global deep learning are, we argue, more useful to
-practitioners than a single optimistic hold-out number. Future work integrates the
+finding that well-tuned parsimonious models are not beaten by deep learning on this
+panel are, we argue, more useful to practitioners than a single optimistic hold-out
+number. Future work integrates the
 1992--2001 archival period, models regime transitions ($C\!\leftrightarrow\!F\!\leftrightarrow\!U$),
 and replaces the $\sqrt{h}$ interval heuristic with multi-step conformal methods.
 
