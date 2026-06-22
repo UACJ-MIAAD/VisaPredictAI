@@ -1,0 +1,78 @@
+# Pipeline reproducible como DAG. `dvc repro` reconstruye TODA la cadena de datos
+# abiertos + la fuente de verdad de cifras, en orden y solo lo que cambió, de forma
+# determinista. La raíz es data/snapshots/ (HTML congelado, parseo OFFLINE) — la única
+# fetch en vivo es freeze_snapshots.py (red), que queda FUERA del DAG a propósito.
+#
+# Política (ver docs/DVC.md): los artefactos abiertos (CSV/JSON/key_facts) llevan
+# `cache: false` -> se quedan versionados en git (siguen siendo el entregable
+# descargable sin DVC). Los binarios derivados (duckdb/parquet) van a la cache DVC -> S3.
+# Los comandos usan el venv del proyecto (ante/); correr con `make repro` o `ante/bin/dvc repro`.
+#
+# Las figuras del .tex NO están aquí: necesitan el extra de modelado (.[model]); se
+# regeneran con los `make_*figures.py` / `make figures`, no en este DAG de datos puros.
+
+stages:
+  scrape:
+    desc: Parsea los snapshots HTML congelados OFFLINE -> 11 CSV por país (empleo+familiar+DV)
+    cmd: ante/bin/python scrape_all.py
+    deps:
+      - scrape_all.py
+      - visa_common.py
+      - scrape_visa_bulletins.py
+      - scrape_family_visa_bulletins.py
+      - scrape_dv_visa_bulletins.py
+      - data/snapshots
+    outs:
+      - data/raw:
+          cache: false
+
+  panel:
+    desc: Consolida los CSV por país en el panel largo y_{p,c,b,t}
+    cmd: ante/bin/python build_panel.py
+    deps:
+      - build_panel.py
+      - data/raw
+    outs:
+      - data/processed/visa_panel_long.csv:
+          cache: false
+
+  bulletins:
+    desc: Feed compacto del último boletín que consume el sitio
+    cmd: ante/bin/python build_bulletins_json.py
+    deps:
+      - build_bulletins_json.py
+      - data/processed/visa_panel_long.csv
+    outs:
+      - data/processed/bulletins.json:
+          cache: false
+
+  database:
+    desc: Carga el almacén estrella DuckDB + export Parquet (binarios -> cache DVC/S3)
+    cmd: ante/bin/python build_database.py
+    deps:
+      - build_database.py
+      - schema.sql
+      - config.py
+      - data/processed/visa_panel_long.csv
+      - data/raw
+    outs:
+      - data/processed/visapredict.duckdb
+      - data/processed/visa_panel_long.parquet
+
+  key_facts:
+    desc: Fuente ÚNICA de verdad de las cifras (la consume el guardián de consistencia)
+    cmd: ante/bin/python experiments/build_key_facts.py
+    deps:
+      - experiments/build_key_facts.py
+      - vp_model/config.py
+      - data/processed/visa_panel_long.csv
+      - reports/forecast_scorecard_meta.json
+      - reports/auto_arima_baseline.csv
+      - reports/significance_summary.json
+      - reports/campaign_pool_FAD_family.csv
+      - reports/campaign_pool_DFF_family.csv
+    outs:
+      - reports/key_facts.json:
+          cache: false
+      - reports/latex/key_facts.tex:
+          cache: false

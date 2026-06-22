@@ -1,7 +1,8 @@
 # Patterns DVC must ignore. Learn more: https://dvc.org/doc/user-guide/dvcignore
 #
-# GUARDRAIL: the open-data CSVs are the project's deliverable and stay versioned
-# in git (directly downloadable, no DVC/S3 needed). Keep them out of DVC so a
-# stray `dvc add data/` never moves them out of git.
-data/*.csv
-data/**/*.csv
+# NOTE: the open-data CSVs are the project's deliverable and stay versioned in git
+# (directly downloadable, no DVC/S3 needed). They are NOT pattern-ignored anymore —
+# dvc.yaml declares them as `cache: false` pipeline outputs, which is the precise
+# mechanism that keeps them DAG-tracked yet living in git (and a stray `dvc add` on a
+# path already owned by a stage is rejected by DVC). A blanket data/**/*.csv ignore
+# would instead make DVC refuse to track them as stage outputs at all.

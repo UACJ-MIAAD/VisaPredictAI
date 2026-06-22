@@ -1,8 +1,9 @@
 # One-command operations for the VisaPredictAI pipeline.
 # Override the interpreter with: make test PY=python
 PY ?= ante/bin/python
+DVC ?= ante/bin/dvc
 
-.PHONY: help install model-install freeze scrape panel db news figures audit test test-model lint typecheck check all update eda compare report validate key-facts consistency
+.PHONY: help install model-install freeze scrape panel db news repro repro-force dag figures audit test test-model lint typecheck check all update eda compare report validate key-facts consistency
 
 help:
 	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"
@@ -49,6 +50,15 @@ db:
 
 news:
 	$(PY) build_bulletins_json.py
+
+repro:  ## reconstruye TODO el DAG de datos determinísticamente (solo lo que cambió) con DVC
+	$(DVC) repro
+
+repro-force:  ## fuerza re-ejecutar todas las etapas del DAG (ignora la cache)
+	$(DVC) repro --force
+
+dag:  ## imprime el grafo de dependencias del pipeline
+	$(DVC) dag
 
 # Local refresh after the CI Action commits a new bulletin: pull the new
 # CSVs/panel/news, sync the new frozen HTML from S3, rebuild the DuckDB and

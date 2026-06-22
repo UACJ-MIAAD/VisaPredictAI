@@ -19,10 +19,23 @@ delta_days: +avanzó / -retrocedió (movimiento = lo noticiable). null si no com
 """
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
+
+
+def _generated_utc(latest_month: str) -> str:
+    """Recency stamp for the feed. Defaults to the latest bulletin month (the real
+    measure of how fresh the data is — a rebuild from the same bulletins is equally
+    fresh), so the artifact is DETERMINISTIC for `dvc repro`. SOURCE_DATE_EPOCH
+    (reproducible-builds standard) overrides it if an exact build instant is wanted."""
+    epoch = os.environ.get("SOURCE_DATE_EPOCH")
+    if epoch:
+        return datetime.fromtimestamp(int(epoch), UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return f"{latest_month}-01T00:00:00Z"
+
 
 PANEL = Path("data/processed/visa_panel_long.csv")
 OUT = Path("data/processed/bulletins.json")
@@ -76,7 +89,7 @@ def main() -> None:
     OUT.write_text(
         json.dumps(
             {
-                "generated_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "generated_utc": _generated_utc(latest),
                 "latest_month": latest,
                 "available_months": window,  # newest last
                 "months": months,

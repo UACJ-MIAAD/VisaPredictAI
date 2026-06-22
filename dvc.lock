@@ -1,0 +1,146 @@
+schema: '2.0'
+stages:
+  scrape:
+    cmd: ante/bin/python scrape_all.py
+    deps:
+    - path: data/snapshots
+      hash: md5
+      md5: 5a3caf6ab1f8627fa5f8a1062deae256.dir
+      size: 33093464
+      nfiles: 298
+    - path: scrape_all.py
+      hash: md5
+      md5: ec6bda1b1f63f8e031ff339f168824fa
+      size: 3281
+    - path: scrape_dv_visa_bulletins.py
+      hash: md5
+      md5: cb72bd91ba3ef7d15c5e5440bb81864a
+      size: 9288
+    - path: scrape_family_visa_bulletins.py
+      hash: md5
+      md5: 378379deddbbc65505ea37f3c3cadb93
+      size: 5762
+    - path: scrape_visa_bulletins.py
+      hash: md5
+      md5: 390b7a847c9102f78c1ed3abc9adfe75
+      size: 7478
+    - path: visa_common.py
+      hash: md5
+      md5: 4c9b10adc4189e28a962e1a02f30ab85
+      size: 9416
+    outs:
+    - path: data/raw
+      hash: md5
+      md5: 1b41019c3c06978d7e07e968a0a248f5.dir
+      size: 2326826
+      nfiles: 11
+  panel:
+    cmd: ante/bin/python build_panel.py
+    deps:
+    - path: build_panel.py
+      hash: md5
+      md5: 8632798be4b606c200e056c8342a3029
+      size: 6651
+    - path: data/raw
+      hash: md5
+      md5: 1b41019c3c06978d7e07e968a0a248f5.dir
+      size: 2326826
+      nfiles: 11
+    outs:
+    - path: data/processed/visa_panel_long.csv
+      hash: md5
+      md5: 6f25df6b8f09b898c247f292255dabc3
+      size: 1571572
+  bulletins:
+    cmd: ante/bin/python build_bulletins_json.py
+    deps:
+    - path: build_bulletins_json.py
+      hash: md5
+      md5: 3c54b55829ea222020d57d564dffeb69
+      size: 3825
+    - path: data/processed/visa_panel_long.csv
+      hash: md5
+      md5: 6f25df6b8f09b898c247f292255dabc3
+      size: 1571572
+    outs:
+    - path: data/processed/bulletins.json
+      hash: md5
+      md5: 5624378bfeac572f57d62148092e7f24
+      size: 607668
+  database:
+    cmd: ante/bin/python build_database.py
+    deps:
+    - path: build_database.py
+      hash: md5
+      md5: c0ba13fd5f489a09e7627429ab1b314a
+      size: 14004
+    - path: config.py
+      hash: md5
+      md5: 778ba8ac61044551258c0ca323101219
+      size: 1947
+    - path: data/processed/visa_panel_long.csv
+      hash: md5
+      md5: 6f25df6b8f09b898c247f292255dabc3
+      size: 1571572
+    - path: data/raw
+      hash: md5
+      md5: 1b41019c3c06978d7e07e968a0a248f5.dir
+      size: 2326826
+      nfiles: 11
+    - path: schema.sql
+      hash: md5
+      md5: 528d8cd9be5c202473b00b6f68a7e8de
+      size: 11437
+    outs:
+    - path: data/processed/visa_panel_long.parquet
+      hash: md5
+      md5: 4be1f471052e70048c310198ffaa39ea
+      size: 95849
+    - path: data/processed/visapredict.duckdb
+      hash: md5
+      md5: 5621f67712bcfc68892431ee09756dd2
+      size: 11284480
+  key_facts:
+    cmd: ante/bin/python experiments/build_key_facts.py
+    deps:
+    - path: data/processed/visa_panel_long.csv
+      hash: md5
+      md5: 6f25df6b8f09b898c247f292255dabc3
+      size: 1571572
+    - path: experiments/build_key_facts.py
+      hash: md5
+      md5: 72bd2184fd8f49cb1568edf5f9a453a4
+      size: 4570
+    - path: reports/auto_arima_baseline.csv
+      hash: md5
+      md5: e01afaf8e48623af40926cf151bb8692
+      size: 1846
+    - path: reports/campaign_pool_DFF_family.csv
+      hash: md5
+      md5: 4162a429b43d674fa0891b88a93e19a7
+      size: 119924
+    - path: reports/campaign_pool_FAD_family.csv
+      hash: md5
+      md5: 4a5c9e2f541b22a9f93a4c920e59bfeb
+      size: 130965
+    - path: reports/forecast_scorecard_meta.json
+      hash: md5
+      md5: 945e85cea7e6cb8926aa871096d21d1a
+      size: 2892
+    - path: reports/significance_summary.json
+      hash: md5
+      md5: a0861523cee935eb90c99c7ee4af33bd
+      size: 1828
+    - path: vp_model/config.py
+      hash: md5
+      md5: bc470d30aa1b61fb6981ed34e07ec2fd
+      size: 8709
+    outs:
+    - path: reports/key_facts.json
+      hash: md5
+      md5: ccdd5541b79c21ae3287bf8559b003a6
+      size: 894
+    - path: reports/latex/key_facts.tex
+      hash: md5
+      md5: 21e83155a00c46e4a905a165dd709722
+      size: 1124
