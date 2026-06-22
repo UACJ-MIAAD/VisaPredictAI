@@ -58,9 +58,12 @@ required:
     reason: 'el tamaño de la evaluación prospectiva (2944) debe figurar en el paper'
 
 numeric:
-  # obs TOTAL del panel: "27,289 obs/observaciones/filas" pero NO "obs entrenables" (eso es F)
+  # obs TOTAL del panel: "27,289 obs/observaciones/observations/filas/rows" pero NO "obs
+  # entrenables" (eso es F). OJO: \w* tras "observaci"/"observation" es OBLIGATORIO — un \b
+  # tras "observaci" NUNCA cierra en "observaci|ones" (ambos \w) y dejaba esas líneas (ES y
+  # el paper inglés "observations") SIN proteger (hallazgo del audit dúo, jun-2026).
   - fact: n_obs
-    label: '([0-9]{2}[.,{}\\\s]*[0-9]{3})\s*~?(?:obs|observaci|filas|rows)\b(?![^<\n]{0,15}entrenabl)'
+    label: '([0-9]{2}[.,{}\\\s]*[0-9]{3})\s*~?(?:obs\.?|observaci\w*|observation\w*|filas|rows|registros)(?![^<\n]{0,15}entrenabl)'
     in: [deliverable, paper, readmes, web]
     reason: 'conteo de observaciones TOTAL del panel'
   # obs ENTRENABLES (estado F): "15,758 obs entrenables" / "... entrenables"

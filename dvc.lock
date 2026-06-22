@@ -56,8 +56,8 @@ stages:
     deps:
     - path: build_bulletins_json.py
       hash: md5
-      md5: 3c54b55829ea222020d57d564dffeb69
-      size: 3825
+      md5: 99d5bb0444373e56650e7bbb53c08d98
+      size: 3826
     - path: data/processed/visa_panel_long.csv
       hash: md5
       md5: 6f25df6b8f09b898c247f292255dabc3
@@ -96,10 +96,6 @@ stages:
       hash: md5
       md5: 4be1f471052e70048c310198ffaa39ea
       size: 95849
-    - path: data/processed/visapredict.duckdb
-      hash: md5
-      md5: 5621f67712bcfc68892431ee09756dd2
-      size: 11284480
   key_facts:
     cmd: ante/bin/python experiments/build_key_facts.py
     deps:

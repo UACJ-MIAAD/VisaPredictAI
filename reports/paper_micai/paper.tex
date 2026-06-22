@@ -245,16 +245,21 @@ hold-out MASE is a \emph{selection signal}, not a prediction of live accuracy; t
 honest out-of-sample number is three times larger (Sec.~\ref{sec:prospective}).
 
 \paragraph{Statistical significance.} A Friedman test over the per-series hold-out
-MASE of the local pool rejects equal performance in both tables ($p<10^{-60}$;
-Table~\ref{tab:significance}). With a Nemenyi post-hoc (Fig.~\ref{fig:cd}) and a
+MASE of the local pool rejects equal performance in both tables ($p<10^{-28}$;
+Table~\ref{tab:significance}). We deduplicate the cross-sectional pseudo-replicates
+first---the worldwide cut-off is repeated identically across several countries, so the
+25 family cells reduce to about 14--15 \emph{distinct} series---which is why the DFF
+test runs on fewer effective series. With a Nemenyi post-hoc (Fig.~\ref{fig:cd}) and a
 90\% Model Confidence Set~\cite{demsar2006}, the \emph{only} models that survive in
 both tables are \textbf{ETS and Theta}; SARIMA, the gradient-boosted trees, and all
-locally trained deep models are excluded. The globally trained deep model does beat
-the SARIMA baseline on FAD (Diebold--Mariano with HLN correction, $p=0.05$), but it
-does not enter the $\{$ETS, Theta$\}$ confidence set---consistent with our framing
-of FAD as a tie. On DFF the \emph{global} deep model (a separate training regime)
-reaches MASE~0.090, on par with the best classical baselines rather than ahead of
-them (see the tuned-baseline paragraph below).
+locally trained deep models are excluded. The globally trained deep model edges the
+SARIMA baseline on FAD (Diebold--Mariano, $p\approx0.01$), but the result is \emph{not
+robust} to which near-tied deep model is designated (an alternative gives $p\approx0.23$)
+and the deep model does not enter the $\{$ETS, Theta$\}$ confidence set---consistent with
+our framing of FAD as a tie. On DFF the \emph{global} deep model (a separate training
+regime) reaches MASE~0.090, on par with the best classical baselines rather than ahead of
+them, and its edge is likewise not robust to deep-model choice ($p$ from 0.007 to 0.08;
+see the tuned-baseline paragraph below).
 
 \begin{table}[t]\centering\footnotesize
 \caption{Friedman--Nemenyi over the per-series hold-out MASE of the model pool.
@@ -266,7 +271,7 @@ Set. The Friedman $p$ rejects equal performance; only ETS and Theta enter the MC
 Table & \#models & Friedman $p$ & Top-6 by mean rank (MCS $^\star$) \\
 \midrule
 FAD & 20 & $3{\times}10^{-74}$ & ets (2.1$^\star$), theta (2.3$^\star$), arima (3.9), rlinear (4.8), nlinear (4.9), catboost (6.6) \\
-DFF & 18 & $1{\times}10^{-63}$ & ets (2.9$^\star$), catboost (3.6), theta (3.9$^\star$), xgboost (4.8), nlinear (5.3), rlinear (5.6) \\
+DFF & 18 & $1{\times}10^{-29}$ & ets (2.9$^\star$), catboost (3.9), theta (4.3$^\star$), xgboost (4.6), rlinear (5.6), nlinear (5.8) \\
 \bottomrule
 \end{tabular}
 \end{table}

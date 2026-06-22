@@ -82,7 +82,12 @@ def main() -> int:
         val = facts.get(r["fact"], "")
         forms = [re.compile(fr.replace("{" + r["fact"] + "}", re.escape(fmt(val))), re.IGNORECASE) for fr in r["forms"]]
         for g in r["in"]:
-            blobs = [f.read_text(errors="ignore") for f in sets.get(g, [])]
+            # strip LaTeX comment lines (igual que forbidden/numeric) — un claim requerido
+            # NO debe contar como presente si solo vive en una línea comentada con %.
+            blobs = [
+                "\n".join(ln for ln in f.read_text(errors="ignore").splitlines() if not ln.lstrip().startswith("%"))
+                for f in sets.get(g, [])
+            ]
             if not blobs:
                 continue
             joined = "\n".join(blobs)

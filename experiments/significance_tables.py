@@ -35,11 +35,18 @@ def _ranking(table: str) -> dict:
     # toma la mejor (menor) hold_mase por modelo-serie (selección determinista).
     piv = df.groupby(["country", "category", "model"])["hold_mase"].min().unstack("model")
     piv = piv.dropna(axis=1, how="any")  # solo modelos evaluados en TODAS las series
+    # DEDUP pseudo-replicación: el corte mundial se replica idéntico en varios países (India,
+    # China, All-Charg comparten valores para algunas categorías) → filas idénticas en TODOS los
+    # modelos. Inflarían N y estrecharían la diferencia crítica de Nemenyi. Conservar las series
+    # DISTINTAS (hallazgo del audit dúo: 25 -> ~14 DFF / ~15 FAD efectivas).
+    n_raw = int(piv.shape[0])
+    piv = piv.drop_duplicates()
     fr = significance.friedman_nemenyi(piv)
     losses = {m: piv[m].to_numpy() for m in piv.columns}
     mcs = significance.model_confidence_set(losses, alpha=0.10)
     return {
         "n_series": int(piv.shape[0]),
+        "n_series_raw": n_raw,
         "n_models": int(piv.shape[1]),
         "friedman_p": fr["friedman_p"],
         "avg_rank": fr["avg_rank"].round(2).to_dict(),
@@ -50,34 +57,72 @@ def _ranking(table: str) -> dict:
     }
 
 
+def _distinct_series(f: pd.DataFrame) -> set[tuple[str, str]]:
+    """Series DISTINTAS por firma de su vector de cortes reales (`actual`). El corte mundial se
+    replica idéntico en varios países → esas series son pseudo-réplicas; conservar una por firma
+    para no inflar la N efectiva del DM (que asume observaciones no replicadas)."""
+    base = f[["country", "category", "date", "actual"]].drop_duplicates()
+    keep: set[tuple[str, str]] = set()
+    seen: set[tuple] = set()
+    for (c, cat), g in base.groupby(["country", "category"]):
+        sig = tuple(g.sort_values("date")["actual"].round(3).tolist())
+        if sig not in seen:
+            seen.add(sig)
+            keep.add((c, cat))
+    return keep
+
+
 def _dm_deep_vs_parsimony(table: str) -> dict:
-    """DM (squared-error) + Holm: mejor deep global vs mejor parsimonia, pareado por celda."""
+    """DM (squared-error): mejor deep global vs mejor parsimonia, pareado por celda, sobre las
+    series DISTINTAS (sin pseudo-replicación del corte mundial). Una sola comparación, así que
+    NO se aplica Holm (corrección de familia de tamaño 1 = no-op); se reporta el p crudo."""
     f = pd.read_csv(REPORTS / f"finalist_forecasts_{table}.csv")
+    n_raw = int(f.groupby(["country", "category"]).ngroups)
+    keep = _distinct_series(f)
+    f = f[[(c, cat) in keep for c, cat in zip(f.country, f.category, strict=True)]].reset_index(drop=True)
     f["ae"] = (f["forecast"] - f["actual"]).abs()
     key = ["country", "category", "date"]
     deep_models = [m for m in f.model.unique() if m in {"BiTCN", "AutoBiTCN", "NHITS", "PatchTST", "TiDE"}]
     pars_models = [m for m in f.model.unique() if m in {"arima", "sarima", "catboost", "lightgbm", "kalman"}]
     mean_ae = f.groupby("model")["ae"].mean()
-    best_deep = min(deep_models, key=lambda m: mean_ae.get(m, np.inf))
+    deep_ranked = sorted(deep_models, key=lambda m: mean_ae.get(m, np.inf))
     best_pars = min(pars_models, key=lambda m: mean_ae.get(m, np.inf))
-    # alinear por celda-fecha común
-    a = f[f.model == best_deep].set_index(key)["forecast"].rename("d")
-    b = f[f.model == best_pars].set_index(key)["forecast"].rename("p")
-    act = f[f.model == best_deep].set_index(key)["actual"].rename("y")
-    j = pd.concat([a, b, act], axis=1).dropna()
-    e_deep = (j["d"] - j["y"]).to_numpy()
-    e_pars = (j["p"] - j["y"]).to_numpy()
-    dm, pval = significance.dm_test(e_deep, e_pars, power=2)
-    holm = significance.holm({f"{best_deep}_vs_{best_pars}": pval})
+
+    def _dm_vs(dmn: str) -> tuple[int, float, float, float, float]:
+        a = f[f.model == dmn].set_index(key)["forecast"].rename("d")
+        b = f[f.model == best_pars].set_index(key)["forecast"].rename("p")
+        act = f[f.model == dmn].set_index(key)["actual"].rename("y")
+        jj = pd.concat([a, b, act], axis=1).dropna()
+        ed = (jj["d"] - jj["y"]).to_numpy()
+        ep = (jj["p"] - jj["y"]).to_numpy()
+        dm, pv = significance.dm_test(ed, ep, power=2)
+        return int(len(jj)), float(np.abs(ed).mean()), float(np.abs(ep).mean()), round(dm, 3), round(pv, 4)
+
+    best_deep = deep_ranked[0]
+    n_pairs, mae_d, mae_p, dm, pval = _dm_vs(best_deep)
+    # PRUEBA DE ROBUSTEZ: el 2.º mejor deep (casi empatado en MAE) puede dar un p MUY distinto
+    # — esa sensibilidad de selección ES la fragilidad reportada en el cuerpo. robust = ambos <0.05.
+    alt = deep_ranked[1] if len(deep_ranked) > 1 else best_deep
+    _, _, _, _, pval_alt = _dm_vs(alt)
+    robust = bool(pval < 0.05 and pval_alt < 0.05)
     return {
         "best_deep": best_deep,
         "best_parsimony": best_pars,
-        "n_pairs": int(len(j)),
-        "mae_deep": round(float(np.abs(e_deep).mean()), 1),
-        "mae_parsimony": round(float(np.abs(e_pars).mean()), 1),
-        "dm_stat": round(dm, 3),
-        "dm_p": round(pval, 4),
-        "holm_significant": holm[f"{best_deep}_vs_{best_pars}"][1],
+        "n_series_distinct": len(keep),
+        "n_series_raw": n_raw,
+        "n_pairs": n_pairs,
+        "mae_deep": round(mae_d, 1),
+        "mae_parsimony": round(mae_p, 1),
+        "dm_stat": dm,
+        "dm_p": pval,
+        "alt_deep": alt,
+        "alt_dm_p": pval_alt,
+        "robust_significant": robust,
+        "note": (
+            "DM sobre series DISTINTAS (sin pseudo-replicacion). UNA comparacion -> sin Holm. "
+            "La significancia NO es robusta a la eleccion del modelo profundo: "
+            f"{best_deep} p={pval} pero {alt} (casi empatado en MAE) p={pval_alt}."
+        ),
     }
 
 

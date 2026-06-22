@@ -47,7 +47,7 @@ stages:
           cache: false
 
   database:
-    desc: Carga el almacén estrella DuckDB + export Parquet (binarios -> cache DVC/S3)
+    desc: Carga el almacén estrella DuckDB + export Parquet (Parquet -> cache DVC/S3)
     cmd: ante/bin/python build_database.py
     deps:
       - build_database.py
@@ -55,8 +55,12 @@ stages:
       - config.py
       - data/processed/visa_panel_long.csv
       - data/raw
+    # El .duckdb NO se declara como out: el archivo DuckDB embebe orden interno/timestamps y
+    # NO es byte-determinista, así que rastrearlo hacía que `dvc repro` nunca quedara limpio y
+    # re-empujaba un binario distinto a S3 cada corrida (hallazgo del audit dúo). Es un efecto
+    # secundario del cmd, gitignored y reconstruible. El Parquet SÍ es determinista -> es el
+    # único binario versionado en la cache DVC.
     outs:
-      - data/processed/visapredict.duckdb
       - data/processed/visa_panel_long.parquet
 
   key_facts:

@@ -2,6 +2,7 @@
   "ranking": {
     "FAD": {
       "n_series": 25,
+      "n_series_raw": 25,
       "n_models": 20,
       "friedman_p": 2.9619123354199737e-74,
       "avg_rank": {
@@ -32,28 +33,29 @@
       ]
     },
     "DFF": {
-      "n_series": 25,
+      "n_series": 14,
+      "n_series_raw": 25,
       "n_models": 18,
-      "friedman_p": 1.3676627431512413e-63,
+      "friedman_p": 1.2209907760082599e-29,
       "avg_rank": {
-        "ets": 2.92,
-        "catboost": 3.6,
-        "theta": 3.92,
-        "xgboost": 4.76,
-        "nlinear": 5.28,
-        "rlinear": 5.6,
-        "lightgbm": 5.8,
-        "kalman": 6.4,
-        "chronos": 9.52,
-        "tide": 10.84,
-        "dlinear": 11.56,
-        "nhits": 11.84,
-        "nbeats": 12.28,
-        "naive": 12.64,
-        "prophet": 13.52,
-        "deepar": 16.2,
-        "lstm": 16.44,
-        "tft": 17.88
+        "ets": 2.86,
+        "catboost": 3.86,
+        "theta": 4.29,
+        "xgboost": 4.57,
+        "rlinear": 5.64,
+        "nlinear": 5.79,
+        "lightgbm": 6.21,
+        "kalman": 6.86,
+        "chronos": 9.79,
+        "dlinear": 10.93,
+        "tide": 11.07,
+        "naive": 11.5,
+        "nhits": 11.93,
+        "nbeats": 12.29,
+        "prophet": 13.0,
+        "lstm": 16.07,
+        "deepar": 16.57,
+        "tft": 17.79
       },
       "mcs_alpha10": [
         "ets",
@@ -65,22 +67,32 @@
     "FAD": {
       "best_deep": "AutoBiTCN",
       "best_parsimony": "sarima",
-      "n_pairs": 600,
+      "n_series_distinct": 15,
+      "n_series_raw": 25,
+      "n_pairs": 360,
       "mae_deep": 41.0,
-      "mae_parsimony": 48.6,
-      "dm_stat": -1.985,
-      "dm_p": 0.0477,
-      "holm_significant": true
+      "mae_parsimony": 50.5,
+      "dm_stat": -2.62,
+      "dm_p": 0.0092,
+      "alt_deep": "BiTCN",
+      "alt_dm_p": 0.2277,
+      "robust_significant": false,
+      "note": "DM sobre series DISTINTAS (sin pseudo-replicacion). UNA comparacion -> sin Holm. La significancia NO es robusta a la eleccion del modelo profundo: AutoBiTCN p=0.0092 pero BiTCN (casi empatado en MAE) p=0.2277."
     },
     "DFF": {
-      "best_deep": "PatchTST",
+      "best_deep": "BiTCN",
       "best_parsimony": "arima",
-      "n_pairs": 580,
-      "mae_deep": 28.3,
-      "mae_parsimony": 31.7,
-      "dm_stat": 2.14,
-      "dm_p": 0.0328,
-      "holm_significant": true
+      "n_series_distinct": 14,
+      "n_series_raw": 25,
+      "n_pairs": 332,
+      "mae_deep": 27.6,
+      "mae_parsimony": 30.0,
+      "dm_stat": 2.74,
+      "dm_p": 0.0065,
+      "alt_deep": "PatchTST",
+      "alt_dm_p": 0.0837,
+      "robust_significant": false,
+      "note": "DM sobre series DISTINTAS (sin pseudo-replicacion). UNA comparacion -> sin Holm. La significancia NO es robusta a la eleccion del modelo profundo: BiTCN p=0.0065 pero PatchTST (casi empatado en MAE) p=0.0837."
     }
   }
 }

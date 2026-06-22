@@ -2540,7 +2540,7 @@ nuevos boletines.
   \draw[back] (w) to[out=90, in=90, looseness=0.55]
     node[above, font=\scriptsize]{\textit{ledger} prospectivo $\to$ reevaluaci\'on} (m);
   \node[band] (t) at (6.2,-1.7) {\textbf{Seguimiento y versionado:}\;
-    MLflow (431 corridas registradas) \;\textbullet\; DVC (datos y modelos $\to$ S3)};
+    MLflow (m\'as de 2\,400 corridas) \;\textbullet\; DVC (datos y modelos $\to$ S3)};
   \node[band] (g) at (6.2,-2.75) {\textbf{Guardarra\'iles autom\'aticos:}\;
     consistencia \;\textbullet\; regresi\'on de modelos \;\textbullet\; monitor de \textit{drift}
     \;\textbullet\; \textit{model card}};
@@ -2596,9 +2596,9 @@ no recomputa nada) y un mismo \textit{rebuild} produce datos id\'enticos byte a 
 
 Cada corrida de modelado se registra en un almac\'en de experimentos gestionado con
 MLflow~\cita{47}: par\'ametros, m\'etricas (MASE, sMAPE, cobertura), identificador de
-\textit{commit} de Git y artefactos asociados. En total se conservan \textbf{431 corridas}
-trazables a lo largo de las campa\~nas de comparaci\'on, ajuste y ensamble. La
-Figura~\ref{fig:mlflow_runs} muestra el registro de una de las campa\~nas profundas, con
+\textit{commit} de Git y artefactos asociados. En total se conservan \textbf{m\'as de
+2\,400 corridas} trazables a lo largo de las campa\~nas de comparaci\'on, ajuste y ensamble.
+La Figura~\ref{fig:mlflow_runs} muestra el registro de una de las campa\~nas profundas, con
 sus quince corridas y la procedencia de cada una; esta trazabilidad permite reconstruir
 cualquier resultado reportado a partir del c\'odigo exacto que lo produjo.
 
@@ -2607,7 +2607,7 @@ cualquier resultado reportado a partir del c\'odigo exacto que lo produjo.
 \includegraphics[width=0.96\textwidth]{mlops_mlflow_deep.png}
 \caption[Registro de experimentos en MLflow]{Registro de la campa\~na de modelos profundos
 globales en el almac\'en de experimentos: quince corridas (variantes de NHITS, TiDE, PatchTST
-y BiTCN) con su nombre, fecha y procedencia, sobre un total de 431 corridas conservadas.
+y BiTCN) con su nombre, fecha y procedencia, parte de las m\'as de 2\,400 corridas conservadas.
 Fuente: captura de la interfaz de MLflow del proyecto.}
 \label{fig:mlflow_runs}
 \end{figure}
@@ -2618,8 +2618,7 @@ El panel se carga en un almac\'en dimensional en estrella implementado sobre la 
 datos anal\'itica embebida DuckDB~\cita{49}. El modelo —ya presentado en la
 Figura~\ref{fig:schema_er}— comprende siete dimensiones, dos tablas de hechos y vistas de
 gobernanza, con restricciones de clave e integridad que act\'uan como contrato de calidad
-al cargar. La Figura~\ref{fig:duckdb_ui} muestra el explorador interactivo del almac\'en con
-sus tablas y vistas. A modo de ejemplo, la siguiente consulta resume las observaciones
+al cargar. A modo de ejemplo, la siguiente consulta resume las observaciones
 entrenables (estado \textit{F}) por bloque y tipo de tabla directamente desde un \textit{mart},
 con el resultado en la Tabla~\ref{tab:duckdb_query}:
 
@@ -2649,15 +2648,6 @@ employment & DFF & 64 & 2\,169 & 38.1 \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.96\textwidth]{mlops_duckdb_ui.png}
-\caption[Explorador del almac\'en DuckDB]{Interfaz del almac\'en DuckDB con el esquema
-estrella cargado: las siete dimensiones, dos tablas de hechos, tablas de gobernanza y vistas
-\textit{/marts} visibles en el explorador. Fuente: captura de la interfaz de DuckDB.}
-\label{fig:duckdb_ui}
-\end{figure}
 
 \section{A.8 Guardarra\'iles autom\'aticos y selecci\'on del modelo desplegado}
 
