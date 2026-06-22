@@ -50,3 +50,18 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+
+  # ── pre-PUSH: guardián de consistencia (la máxima del proyecto) ───────────
+  # En push, NO en cada commit: escanear los 7 artefactos en cada commit chico
+  # sería lento. Frena un push que reventaría el job `consistency` de CI. Lee el
+  # repo web hermano (../VisaPredictAI_web) si está presente; si no, valida solo
+  # este repo. Activar con: pre-commit install --hook-type pre-push
+  - repo: local
+    hooks:
+      - id: consistency
+        name: guardián de consistencia (web/LaTeX/paper/README/docs vs key_facts.json)
+        entry: ante/bin/python tools/check_consistency.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
