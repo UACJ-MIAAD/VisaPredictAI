@@ -1,0 +1,49 @@
+{
+  "drift_detected": true,
+  "performance": {
+    "status": "ok",
+    "latest_vintage": "2025-07",
+    "latest_mase": 0.3813,
+    "baseline_mase": 0.3282,
+    "perf_ratio": 1.162,
+    "latest_cov95": 0.951,
+    "performance_drift": false,
+    "coverage_drift": false
+  },
+  "data": {
+    "status": "ok",
+    "latest_month": "2026-07-01",
+    "flagged": [
+      {
+        "series": "all_chargeability/F1/FAD",
+        "delta_days": 153,
+        "hist_median_delta": 16,
+        "mad": 16.0
+      },
+      {
+        "series": "china/EB1/FAD",
+        "delta_days": 61,
+        "hist_median_delta": 0,
+        "mad": 7.0
+      },
+      {
+        "series": "china/F1/FAD",
+        "delta_days": 153,
+        "hist_median_delta": 16,
+        "mad": 16.0
+      },
+      {
+        "series": "india/F1/FAD",
+        "delta_days": 153,
+        "hist_median_delta": 16,
+        "mad": 16.0
+      },
+      {
+        "series": "philippines/F3/FAD",
+        "delta_days": 92,
+        "hist_median_delta": 7,
+        "mad": 7.0
+      }
+    ]
+  }
+}

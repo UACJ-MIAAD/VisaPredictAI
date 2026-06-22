@@ -131,6 +131,11 @@ jobs:
         #     so it never drifts from the source of truth.
         python experiments/build_model_card.py
 
+        # 4f. ML drift monitor: performance/coverage on the prospective ledger + data drift in
+        #     the new bulletin. Not a gate (never fails the step); its summary is surfaced in the
+        #     SES email below so a human reviews any flagged movement.
+        python experiments/check_drift.py | tee /tmp/drift.txt || true
+
         # 5. Commit the refreshed CSVs/panel/forecasts/scorecard/key_facts (snapshots + DB gitignored).
         git config --local user.email "168046724+jrebull@users.noreply.github.com"
         git config --local user.name "Javier Rebull"
@@ -169,13 +174,20 @@ jobs:
         # we control) so it passes the recipient's SPF/DMARC -- sending From the
         # uacj address via SES was hard-failing Microsoft 365's SPF and getting
         # dropped. In sandbox the To (al263483@...) stays a verified identity.
+        #
+        # One-line ML drift status from the monitor (reports/drift_report.json), surfaced so a
+        # human reviews any flagged bulletin movement. python is already on PATH in this job.
+        DRIFT_LINE="n/d (sin reporte este run)"
+        if [ -f reports/drift_report.json ]; then
+          DRIFT_LINE=$(python -c "import json;d=json.load(open('reports/drift_report.json'));p=d.get('performance',{});n=len(d.get('data',{}).get('flagged',[]));s='DRIFT DETECTADO' if d.get('drift_detected') else 'sin novedad';print(s+' -- desempeno x'+str(p.get('perf_ratio','?'))+', '+str(n)+' serie(s) con movimiento sin precedente')")
+        fi
         cat > /tmp/ses.json <<JSON
         {
           "FromEmailAddress": "VisaPredict CI <noreply@visapredictai.com>",
           "Destination": {"ToAddresses": ["al263483@alumnos.uacj.mx"]},
           "Content": {"Simple": {
             "Subject": {"Data": "VisaPredict | corrida $JOB_STATUS — $NEW boletín(es) nuevo(s)"},
-            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nLogs: $RUN_URL"}}
+            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nDrift ML: $DRIFT_LINE\nLogs: $RUN_URL"}}
           }}
         }
         JSON
