@@ -97,6 +97,9 @@ score-forecasts:  ## evaluación PROSPECTIVA: pronósticos congelados vs cortes 
 derive-band80:  ## re-deriva BAND80_RATIO en split disjunto (read-only; imprime cov80 held-out)
 	$(PY) experiments/derive_band80_ratio.py
 
+paper-figures:  ## regenera las figuras del paper MICAI desde el pipeline -> reports/paper_micai/Figures/
+	$(PY) reports/paper_micai/make_paper_figures.py
+
 lint:
 	$(PY) -m ruff check .
 

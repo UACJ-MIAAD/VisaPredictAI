@@ -9,6 +9,9 @@ figures/
 !reports/latex/Figures/
 !reports/latex/Figures/**
 reports/latex/Figures/.DS_Store
+# Figuras del paper MICAI (PDF vectoriales; Overleaf las importa de GitHub igual que el deliverable)
+!reports/paper_micai/Figures/
+!reports/paper_micai/Figures/**
 
 # Tooling caches / coverage artifacts
 .coverage
