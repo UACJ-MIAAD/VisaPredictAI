@@ -1,0 +1,16 @@
+{
+  "FAD": {
+    "models": [
+      "theta",
+      "ets",
+      "sarima"
+    ],
+    "agg": "median"
+  },
+  "DFF": {
+    "models": [
+      "sarima"
+    ],
+    "agg": "median"
+  }
+}

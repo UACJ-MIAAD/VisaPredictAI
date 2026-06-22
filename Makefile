@@ -3,7 +3,7 @@
 PY ?= ante/bin/python
 DVC ?= ante/bin/dvc
 
-.PHONY: help install model-install freeze scrape panel db news repro repro-force dag figures audit test test-model lint typecheck check all update eda compare report validate key-facts consistency
+.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger figures audit test test-model lint typecheck check all update eda compare report validate key-facts consistency
 
 help:
 	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"
@@ -60,6 +60,9 @@ repro-force:  ## fuerza re-ejecutar todas las etapas del DAG (ignora la cache)
 dag:  ## imprime el grafo de dependencias del pipeline
 	$(DVC) dag
 
+challenger:  ## evalúa campeón vs retadores (Wilcoxon+Holm) -> reports/champion_challenger.{json,md}
+	$(PY) experiments/run_champion_challenger.py --mlflow
+
 # Local refresh after the CI Action commits a new bulletin: pull the new
 # CSVs/panel/news, sync the new frozen HTML from S3, rebuild the DuckDB and
 # figures (both gitignored/regenerable). Mirrors EpiForecast's `update-week`.
@@ -86,7 +89,7 @@ test-model:
 		tests/test_dataset.py tests/test_eda_preprocess.py tests/test_models.py \
 		tests/test_walkforward.py tests/test_intervals_significance.py tests/test_config_report.py \
 		tests/test_features.py tests/test_missingness.py tests/test_feature_select.py \
-		tests/test_ensemble.py tests/test_model_regression.py
+		tests/test_ensemble.py tests/test_model_regression.py tests/test_champion.py
 
 # Reproducir los resultados (requiere `make model-install` + `make db`):
 eda:

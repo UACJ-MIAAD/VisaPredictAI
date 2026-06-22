@@ -40,7 +40,7 @@ import pandas as pd
 from darts import TimeSeries
 
 import tracking
-from vp_model import config, dataset, intervals, metrics, models
+from vp_model import champion, config, dataset, intervals, metrics, models
 
 warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent.parent
@@ -48,8 +48,12 @@ REPORTS = ROOT / "reports"
 HORIZON = 12
 # Razón banda-80 %/95 % calibrada en split disjunto (config.BAND80_RATIO; ver
 # experiments/derive_band80_ratio.py). NO se re-define aquí para evitar circularidad.
-# modelo(s) de producción por tabla — punto = mediana del conjunto (1 elem = ese modelo).
-PROD: dict[str, tuple[str, ...]] = {"FAD": ("theta", "ets", "sarima"), "DFF": ("sarima",)}
+# Receta de producción por tabla — leída del MANIFIESTO campeón (champion_manifest.json),
+# que es la receta desplegada versionada. El harness campeón-retador
+# (experiments/run_champion_challenger.py --promote) es lo ÚNICO que la cambia, de forma
+# auditada. Punto = mediana del conjunto (1 elemento = ese modelo). Fallback a la receta
+# histórica si el manifiesto no existe.
+PROD: dict[str, tuple[str, ...]] = {t: r.models for t, r in champion.load_manifest().items()}
 log = config.get_logger("web_forecasts")
 
 
