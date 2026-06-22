@@ -127,6 +127,10 @@ jobs:
         #     data + scorecard, so the consistency guard (CI) keeps the prose honest.
         python experiments/build_key_facts.py
 
+        # 4e. Regenerate the auto-derived model card (numbers from key_facts + lineage stamp)
+        #     so it never drifts from the source of truth.
+        python experiments/build_model_card.py
+
         # 5. Commit the refreshed CSVs/panel/forecasts/scorecard/key_facts (snapshots + DB gitignored).
         git config --local user.email "168046724+jrebull@users.noreply.github.com"
         git config --local user.name "Javier Rebull"

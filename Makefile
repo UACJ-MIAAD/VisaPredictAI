@@ -3,7 +3,7 @@
 PY ?= ante/bin/python
 DVC ?= ante/bin/dvc
 
-.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger figures audit test test-model lint typecheck check all update eda compare report validate key-facts consistency
+.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger model-card figures audit test test-model lint typecheck check all update eda compare report validate key-facts consistency
 
 help:
 	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"
@@ -62,6 +62,9 @@ dag:  ## imprime el grafo de dependencias del pipeline
 
 challenger:  ## evalúa campeón vs retadores (Wilcoxon+Holm) -> reports/champion_challenger.{json,md}
 	$(PY) experiments/run_champion_challenger.py --mlflow
+
+model-card:  ## regenera reports/MODEL_CARD.md (tarjeta de modelo + linaje) desde key_facts
+	$(PY) experiments/build_model_card.py
 
 # Local refresh after the CI Action commits a new bulletin: pull the new
 # CSVs/panel/news, sync the new frozen HTML from S3, rebuild the DuckDB and
