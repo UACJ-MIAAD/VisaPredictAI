@@ -1,5 +1,5 @@
 {
-  "drift_detected": true,
+  "drift_detected": false,
   "performance": {
     "status": "ok",
     "latest_vintage": "2025-07",

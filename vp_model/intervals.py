@@ -4,7 +4,10 @@
    ``num_samples``) de las que se leen los cuantiles 2.5% y 97.5%. Cubre los modelos
    estadísticos y el de red neuronal.
 2. Conforme (split conformal): model-agnostic; usa los errores absolutos del tramo de
-   calibración para fijar un semiancho con cobertura garantizada bajo intercambiabilidad.
+   calibración para fijar un semiancho. La garantía teórica de cobertura del conforme exige
+   INTERCAMBIABILIDAD, que estas series (con tendencia y cambios de régimen) NO satisfacen;
+   por eso se reporta la cobertura nominal 95% como objetivo y la EMPÍRICA medida (≈0.89 FAD,
+   ≈0.83 DFF por colas pesadas), no una cobertura garantizada. Ver ``metrics.pi_coverage``.
 
 Nota: el Monte Carlo dropout que contemplaba el Anteproyecto NO está disponible en
 darts 0.44.1 para un RNN determinista (``num_samples>1`` exige un modelo

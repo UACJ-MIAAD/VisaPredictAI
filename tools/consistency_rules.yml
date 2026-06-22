@@ -16,7 +16,8 @@ artifacts:
   deliverable: ["reports/latex/ProyectoI_VisaPredictAI.tex"]
   paper: ["reports/paper_micai/paper.tex", "reports/paper_micai/README.md"]
   readmes: ["README.md"]
-  web: ["../VisaPredictAI_web/content/source.html", "../VisaPredictAI_web/content/en/capi.html", "../VisaPredictAI_web/content/en/datos.html", "../VisaPredictAI_web/content/datos.html"]
+  # content/source.html = la fuente ES (incluye #datos); el ES no tiene un datos.html aparte.
+  web: ["../VisaPredictAI_web/content/source.html", "../VisaPredictAI_web/content/en/capi.html", "../VisaPredictAI_web/content/en/datos.html"]
 
 forbidden:
   - pattern: 'holgura|holgada'

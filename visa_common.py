@@ -22,6 +22,11 @@ SITE_ROOT = "https://travel.state.gov/"
 # "All Chargeability Areas Except Those Listed".
 SCRAPER_COUNTRIES = ["india", "china", "mexico", "philippines", "row"]
 DATE_FMT = "%d%b%y"
+# A published cell may carry a footnote marker ("15JUL05*", "01MAY16 1"); the exact strptime
+# would drop it to UNK. As a FALLBACK (only after the exact parse fails) we extract the first
+# DDMMMYY token so a footnoted date is still recognized. No effect on current data (0 footnoted
+# cells today); robustness against format drift (audit finding).
+_DATE_TOKEN = re.compile(r"\d{1,2}[A-Z]{3}\d{2}")
 REQUEST_TIMEOUT = 30
 MAX_RETRIES = 6  # a couple of months (e.g. 2007-12) hit an intermittent redirect loop
 # A handful of months can fail transiently (a redirect loop, a 5xx); the run
@@ -135,8 +140,18 @@ def string_to_datetime(date_str: str, bulletin_date: datetime) -> None | datetim
     try:
         d = datetime.strptime(s, DATE_FMT)
     except ValueError:
-        return None
-    if d.year > bulletin_date.year + 1:
+        m = _DATE_TOKEN.search(su)  # fallback: a footnoted date like "15JUL05*"
+        if not m:
+            return None
+        try:
+            d = datetime.strptime(m.group(), DATE_FMT)
+        except ValueError:
+            return None
+    # %y century pivot: a FAD/DFF cutoff is never AFTER its own bulletin (you process dates
+    # from years ago), so any parsed date later than the bulletin is a wrong 20xx pivot of a
+    # 19xx date -> correct by -100 years. Pivot on the full date (not year>bulletin+1, which
+    # let a date one year in the future slip through; latent until 2027, fixed by the audit).
+    if d > bulletin_date:
         d = d.replace(year=d.year - 100)
     return d
 
@@ -167,7 +182,7 @@ def classify_status(date_str) -> str:
         datetime.strptime(str(date_str).strip(), DATE_FMT)
         return "F"
     except ValueError:
-        return "UNK"
+        return "F" if _DATE_TOKEN.search(s) else "UNK"  # footnoted date ("15JUL05*") still F
 
 
 def norm_label(s) -> str:

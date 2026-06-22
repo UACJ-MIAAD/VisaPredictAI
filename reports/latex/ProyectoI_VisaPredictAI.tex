@@ -1494,12 +1494,16 @@ estacional calculado \textit{solo} sobre el tramo de entrenamiento, por lo que e
 que $1$ significa superar a la línea base ingenua. Es, así, la métrica idónea para promediar el
 desempeño sobre un panel de series heterogéneas.
 
-\paragraph{Selección del modelo y modelo de producción.} El sistema no fija un único modelo: para
-cada serie despliega el de menor MASE en la región de validación, sin tocar nunca el conjunto de
-prueba. Como el ganador varía entre series (hipótesis H2), el sistema en producción es en realidad
-una \textbf{cartera} —un modelo por combinación país-categoría-tabla, con su intervalo de
-predicción conforme—. La significancia de las diferencias entre modelos se contrasta de antemano
-con las pruebas de la §2.2, para no confundir ruido con mejora.
+\paragraph{Selección del modelo y modelo de producción.} La \textbf{metodología} de evaluación no
+fija un único modelo: para cada serie identifica el de menor MASE en la región de validación, sin
+tocar nunca el conjunto de prueba. Como el ganador varía entre series (hipótesis H2), la selección
+óptima es en realidad una \textbf{cartera} —un modelo por combinación país-categoría-tabla, con su
+intervalo de predicción conforme—. El \textbf{demostrador desplegado}, en cambio, sirve por
+robustez y simplicidad una \textbf{receta campeona por tabla} (Final Action Dates: mediana de
+Theta+ETS+SARIMA; Dates for Filing: SARIMA), versionada y revisada por el procedimiento
+campeón-retador del Apéndice~A.8; la cartera por serie queda como hallazgo de la evaluación y
+trabajo de despliegue futuro. La significancia de las diferencias entre modelos se contrasta de
+antemano con las pruebas de la §2.2, para no confundir ruido con mejora.
 
 El Algoritmo~\ref{alg:walkforward} resume el procedimiento de validación: en cada origen del
 hold-out el modelo se entrena \textit{solo} con el pasado, predice un paso y deriva su
@@ -2122,9 +2126,9 @@ FAD. El vuelco llega con un cuarto resultado, el más contundente: (iv) entrenad
 \textbf{global} (todas las series a la vez), sobre la \textbf{primera diferencia}, con
 \textbf{normalización por serie} y con sus \textbf{hiperparámetros optimizados} sin fuga,
 el mismo tipo de red que fracasaba localmente pasa a \textbf{competir con los parsimoniosos
-y superarlos donde los datos escasean}: BiTCN logra MASE $=0.090$ en DFF —$\sim$15\,\% por
-debajo del hold-out del mejor parsimonioso de cobertura completa (ETS $0.106$)— mientras que
-AutoBiTCN \textbf{empata} con ETS/Theta en FAD ($0.112$ frente a $0.117$).
+y superarlos donde los datos escasean}: BiTCN logra MASE $=0.090$ en DFF —por debajo del mejor
+parsimonioso de cobertura completa, con el margen reconciliado que cuantifica el veredicto
+abajo— mientras que AutoBiTCN \textbf{empata} con ETS/Theta en FAD ($0.112$ frente a $0.117$).
 
 \paragraph{Veredicto: depende del régimen.} Una validación con cinco semillas precisa esta
 lectura: en DFF la ventaja del modelo profundo es \textbf{modesta pero estable entre

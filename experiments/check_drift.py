@@ -24,10 +24,15 @@ ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.csv"
 
-# Umbrales (conservadores; el objetivo es señalar, no alarmar por ruido).
+# Umbrales (el objetivo es señalar un cambio SISTÉMICO, no alarmar por movimientos rutinarios).
+# DATA_K subió de 5 a 8 y la ALARMA de datos ahora se gatea por conteo: avances de 150+ días en
+# una F1 son normales, así que 1-5 series marcadas NO disparan "drift" (solo se LISTAN); la
+# bandera se enciende si >=DATA_MIN_FLAGGED series se mueven sin precedente a la vez (evento
+# sistémico) o si hay drift de desempeño/cobertura. Ajustado tras el audit (fatiga de alertas).
 PERF_RATIO = 1.5  # MASE del último vintage > 1.5× el baseline -> drift de desempeño
 COV95_FLOOR = 0.85  # cov95 del último vintage < 0.85 -> drift de cobertura
-DATA_K = 5.0  # |delta del último mes| > 5× MAD histórica -> movimiento sin precedente
+DATA_K = 8.0  # |delta del último mes| > 8× MAD histórica -> movimiento sin precedente
+DATA_MIN_FLAGGED = 8  # nº de series con movimiento sin precedente para considerarlo SISTÉMICO
 
 
 def _performance_and_coverage() -> dict:
@@ -85,7 +90,8 @@ def _data_drift() -> dict:
 def check() -> dict:
     perf = _performance_and_coverage()
     data = _data_drift()
-    drift = bool(perf.get("performance_drift") or perf.get("coverage_drift") or data.get("flagged"))
+    systemic_data = len(data.get("flagged", [])) >= DATA_MIN_FLAGGED
+    drift = bool(perf.get("performance_drift") or perf.get("coverage_drift") or systemic_data)
     report = {"drift_detected": drift, "performance": perf, "data": data}
     REPORTS.mkdir(exist_ok=True)
     (REPORTS / "drift_report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")

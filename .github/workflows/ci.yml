@@ -68,6 +68,14 @@ jobs:
           python build_panel.py
           python build_database.py
 
+      - name: Key facts are re-derivable from the data (JSON == pipeline)
+        # The consistency job checks prose-vs-JSON; this closes the loop by checking
+        # JSON-vs-DATA — regenerate the source of truth from the freshly built panel +
+        # committed reports and fail if the committed key_facts.json drifted from it.
+        run: |
+          python experiments/build_key_facts.py
+          git diff --exit-code reports/key_facts.json reports/latex/key_facts.tex
+
       - name: Modeling tests + vp_model coverage
         run: make test-model PY=python
 

@@ -278,6 +278,10 @@ def d10_reconcile(p):
     add(f"- Diferencia: **{diff}** (esperada ≥0 por dedup de clave May-2022) ")
     if diff < 0:
         flag("CRIT", "panel tiene más F que las fuentes (imposible)")
+    # también el lado positivo: una diferencia grande = pérdida de masa en build_panel (el modo
+    # de fallo que este guard debe vigilar); el dedup conocido es pequeño (audit).
+    elif diff > 50:
+        flag("WARN", f"el panel perdió {diff} filas F respecto a las fuentes (¿más que el dedup esperado?)")
 
 
 # ------------------------------------------------------- 11. coverage matrix
