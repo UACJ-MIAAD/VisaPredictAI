@@ -86,7 +86,7 @@ test-model:
 		tests/test_dataset.py tests/test_eda_preprocess.py tests/test_models.py \
 		tests/test_walkforward.py tests/test_intervals_significance.py tests/test_config_report.py \
 		tests/test_features.py tests/test_missingness.py tests/test_feature_select.py \
-		tests/test_ensemble.py
+		tests/test_ensemble.py tests/test_model_regression.py
 
 # Reproducir los resultados (requiere `make model-install` + `make db`):
 eda:
