@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import subprocess
 import time
 from pathlib import Path
@@ -60,7 +61,7 @@ def log_run(
     """
     STAGING.mkdir(exist_ok=True)
     sha, dirty = _git()
-    clean_metrics = {k: float(v) for k, v in metrics.items() if v is not None and float(v) == float(v)}
+    clean_metrics = {k: float(v) for k, v in metrics.items() if v is not None and math.isfinite(float(v))}
     stamp = ts if ts is not None else time.time()
     payload = {"experiment": experiment, "run_name": run_name, "params": params, "metrics": clean_metrics}
     rec_id = hashlib.sha1(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]

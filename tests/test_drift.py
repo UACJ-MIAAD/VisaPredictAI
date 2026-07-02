@@ -12,12 +12,16 @@ check_drift = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(check_drift)
 
 
-def test_check_returns_wellformed_report() -> None:
-    r = check_drift.check()
+def test_check_returns_wellformed_report(tmp_path) -> None:
+    check_drift.REPORTS = tmp_path  # H4: NO escribir en el repo real (el cron lo commitearía)
+    try:
+        r = check_drift.check()
+    finally:
+        check_drift.REPORTS = ROOT / "reports"
     assert isinstance(r["drift_detected"], bool)
     assert "performance" in r and "data" in r
-    # el reporte se escribe en disco
-    assert (ROOT / "reports" / "drift_report.json").exists()
+    # el reporte se escribe en disco (en el tmp del test)
+    assert (tmp_path / "drift_report.json").exists()
 
 
 def test_data_drift_flags_have_schema() -> None:

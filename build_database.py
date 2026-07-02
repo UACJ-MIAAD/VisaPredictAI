@@ -282,7 +282,12 @@ def main() -> None:
     con = duckdb.connect(str(DUCKDB_PATH))
     try:
         build(con, df, dv)
-        con.execute(f"COPY (SELECT * FROM v_panel_long) TO '{PARQUET_PATH.as_posix()}' (FORMAT parquet)")
+        con.execute(
+            # ORDER BY explícito: el determinismo byte-a-byte del Parquet (en que se apoya
+            # dvc.yaml) no debe depender del orden de escaneo interno de DuckDB (H2)
+            f'COPY (SELECT * FROM v_panel_long ORDER BY country, block, category, "table", bulletin_date) '
+            f"TO '{PARQUET_PATH.as_posix()}' (FORMAT parquet)"
+        )
         tables = [
             "dim_area",
             "dim_category",

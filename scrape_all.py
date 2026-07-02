@@ -49,10 +49,13 @@ def main() -> None:
             continue
         # Sección objetivo (panel): su fallo SÍ es un mes perdido.
         try:
-            emp_tables.extend(parse_tables(soup, ym, emp.is_employment_section))
-            fam_tables.extend(parse_tables(soup, ym, fam.is_family_section))
+            e_parsed = parse_tables(soup, ym, emp.is_employment_section)
+            f_parsed = parse_tables(soup, ym, fam.is_family_section)
         except Exception as exc:
             failed.append((path.name, str(exc)[:60]))
+        else:  # all-or-nothing REAL: si familia truena, empleo no queda medio-poblado (H1)
+            emp_tables.extend(e_parsed)
+            fam_tables.extend(f_parsed)
         # Diversity Visa: AISLADO -- un fallo aquí NO marca el mes como perdido ni cuenta
         # contra el gate del panel (antes un IndexError de DV tiraba el mes entero).
         try:

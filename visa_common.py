@@ -7,6 +7,7 @@ keeps only what genuinely differs (section detection, category mapping, output
 columns).
 """
 
+import logging
 import re
 import time
 from datetime import datetime
@@ -26,7 +27,8 @@ DATE_FMT = "%d%b%y"
 # would drop it to UNK. As a FALLBACK (only after the exact parse fails) we extract the first
 # DDMMMYY token so a footnoted date is still recognized. No effect on current data (0 footnoted
 # cells today); robustness against format drift (audit finding).
-_DATE_TOKEN = re.compile(r"\d{1,2}[A-Z]{3}\d{2}")
+_DATE_TOKEN = re.compile(r"\d{1,2}[A-Z]{3}\d{2}(?!\d)")  # (?!\d): un futuro 01JAN2015 NO es 01JAN20
+logger = logging.getLogger(__name__)
 REQUEST_TIMEOUT = 30
 MAX_RETRIES = 6  # a couple of months (e.g. 2007-12) hit an intermittent redirect loop
 # A handful of months can fail transiently (a redirect loop, a 5xx); the run
@@ -151,7 +153,10 @@ def string_to_datetime(date_str: str, bulletin_date: datetime) -> None | datetim
     # from years ago), so any parsed date later than the bulletin is a wrong 20xx pivot of a
     # 19xx date -> correct by -100 years. Pivot on the full date (not year>bulletin+1, which
     # let a date one year in the future slip through; latent until 2027, fixed by the audit).
-    if d > bulletin_date:
+    if (d.year, d.month) > (bulletin_date.year, bulletin_date.month):
+        # comparar por MES: el boletín se fecha al día 1, y una celda legítima del propio
+        # mes del boletín (día >= 2) NO debe corregirse -100 años (hallazgo H1)
+        logger.info("pivote de siglo: %s > boletín %s -> -100 años", s, f"{bulletin_date:%Y-%m}")
         d = d.replace(year=d.year - 100)
     return d
 

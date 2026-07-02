@@ -54,6 +54,7 @@ def classify_eb_category(raw) -> None | str:
     s = norm_label(raw)
     if not s:
         return None
+    s = s.rstrip("*† ")  # tolera footnotes tipo '4th*' (la familia ya sufrió '2A*') (H3)
     # Numbered preferences
     if s == "1st":
         return "EB1"

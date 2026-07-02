@@ -10,6 +10,7 @@ naming) is shared.
 """
 
 from datetime import datetime
+from pathlib import Path
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -17,7 +18,7 @@ import pandas as pd
 
 from config import UACJ_AMARILLO, UACJ_AZUL, UACJ_GRIS, UACJ_NEGRO
 
-TODAY = datetime(2026, 2, 13)
+TODAY = datetime.now()  # la línea 'Hoy' debe ser HOY, no una fecha congelada (H4)
 
 COUNTRIES = ["India", "China", "Mexico", "Philippines", "RoW"]
 COUNTRY_NAMES_ES = {
@@ -123,6 +124,7 @@ def plot_block(block: dict) -> None:
             axs[j // ncols, j % ncols].set_visible(False)
 
         plt.tight_layout()
+        Path("figures").mkdir(exist_ok=True)  # gitignored: no existe en un clon fresco (H4)
         plt.savefig(f"figures/{country}{block['suffix']}_visa_wait_times.png", dpi=150)
         plt.close()
 

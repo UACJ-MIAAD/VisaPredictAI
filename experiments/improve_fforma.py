@@ -71,7 +71,7 @@ def _evaluate(table: str) -> dict:
     sel_mase, fixed_mase, oracle_mase = [], [], []
     for i, uid in enumerate(series):
         tr = [j for j in range(len(series)) if j != i]
-        clf = XGBClassifier(n_estimators=60, max_depth=3, learning_rate=0.1, verbosity=0)
+        clf = XGBClassifier(n_estimators=60, max_depth=3, learning_rate=0.1, verbosity=0, random_state=42)
         clf.fit(Xa[tr], y[tr])
         chosen = labels[int(clf.predict(Xa[i : i + 1])[0])]
         sel_mase.append(mase[uid][chosen])

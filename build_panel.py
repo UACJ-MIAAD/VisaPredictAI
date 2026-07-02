@@ -65,7 +65,11 @@ def load_employment() -> pd.DataFrame:
         df["country"] = canon
         df["block"] = "employment"
         df["category"] = df["EB_level"].astype(str)  # ya es código canónico EB1..EB5_*
-        df["table"] = df["table_type"].map(TABLE_MAP)  # FAD + DFF (DFF desde Oct-2015)
+        df["table"] = df["table_type"].map(TABLE_MAP)
+        if df["table"].isna().any():  # H2: un table_type nuevo debe explotar, no mapear a NaN
+            raise SystemExit(
+                f"table_type desconocido: {sorted(df.loc[df.table.isna(), 'table_type'].unique())}"
+            )  # FAD + DFF (DFF desde Oct-2015)
         frames.append(df)
     return pd.concat(frames, ignore_index=True)
 
@@ -81,6 +85,8 @@ def load_family() -> pd.DataFrame:
         df["block"] = "family"
         df["category"] = "F" + df["F_level"].astype(str)
         df["table"] = df["table_type"].map(TABLE_MAP)
+        if df["table"].isna().any():  # H2: un table_type nuevo debe explotar, no mapear a NaN
+            raise SystemExit(f"table_type desconocido: {sorted(df.loc[df.table.isna(), 'table_type'].unique())}")
         frames.append(df)
     return pd.concat(frames, ignore_index=True)
 
@@ -93,6 +99,13 @@ def main() -> None:
     # minority to NaT, so parse each value on its own.
     panel["bulletin_date"] = pd.to_datetime(panel["bulletin_date"], errors="coerce", format="mixed")
     panel["priority_date"] = pd.to_datetime(panel["priority_date"], errors="coerce", format="mixed")
+
+    # H2: una fecha F malformada coercionada a NaT violaría days_iff_F LEJOS de la causa
+    # (en el CHECK de DuckDB) — abortar aquí con las filas culpables.
+    bad_f = panel[(panel["status"] == "F") & panel["priority_date"].isna()]
+    if not bad_f.empty:
+        ex = bad_f[["country", "category", "table", "bulletin_date", "raw_value"]].head(5)
+        raise SystemExit(f"{len(bad_f)} filas status=F con priority_date imparseable:\n{ex}")
 
     # The dependent variable lives ONLY on status 'F'. For C/U/NA the priority
     # date carries no predictive meaning (C was flattened to the bulletin date
