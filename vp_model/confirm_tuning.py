@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from vp_model import dataset, tune, walkforward
+from vp_model import dataset, significance, tune, walkforward
 from vp_model.config import get_logger
 
 log = get_logger("confirm_tuning")
@@ -62,7 +62,14 @@ def confirm() -> pd.DataFrame:
 
 
 def summary(df: pd.DataFrame) -> pd.DataFrame:
-    """Media de hold-MASE tuned vs default por modelo×tabla + veredicto de aceptación."""
+    """Media de hold-MASE tuned vs default por modelo×tabla + veredicto de aceptación.
+
+    B2: pseudo-réplicas del corte mundial colapsadas antes de promediar.
+    """
+    if {"country", "category", "model"} <= set(df.columns):
+        df, n_raw, n_eff = significance.dedup_series(df, value="default_hold_mase")
+        if n_eff < n_raw:
+            log.info("dedup pseudo-réplicas: %d series -> %d efectivas", n_raw, n_eff)
     g = (
         df.groupby(["model", "table"])
         .agg(tuned=("tuned_hold_mase", "mean"), default=("default_hold_mase", "mean"), n=("country", "count"))

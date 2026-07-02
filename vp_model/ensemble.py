@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from vp_model import dataset
+from vp_model import dataset, significance
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
 
@@ -56,6 +56,10 @@ def _per_series_oracle(df: pd.DataFrame) -> pd.DataFrame:
 def analyze(table: str = "FAD") -> list[Strategy]:
     """Compara mejor-global vs selección-por-serie vs oráculo sobre el CSV de 21 modelos."""
     df = pd.read_csv(REPORTS / f"model_comparison_{table}21.csv")
+    # B2: las medias de las estrategias no deben sobreponderar el corte mundial
+    df, n_raw, n_eff = significance.dedup_series(df, value="hold_mase")
+    if n_eff < n_raw:
+        print(f"[ensemble] dedup pseudo-réplicas: {n_raw} series -> {n_eff} efectivas")
     name, gb = _global_best(df)
     sel = _per_series_selection(df)
     orc = _per_series_oracle(df)

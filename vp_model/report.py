@@ -50,7 +50,16 @@ PRETTY = {
 
 
 def ranking(df: pd.DataFrame) -> pd.DataFrame:
-    """Promedio de métricas por modelo, ordenado por MASE de selección."""
+    """Promedio de métricas por modelo, ordenado por MASE de selección.
+
+    B2: pseudo-réplicas del corte mundial colapsadas antes de promediar.
+    """
+    if {"country", "category"} <= set(df.columns):
+        from vp_model import significance
+
+        df, n_raw, n_eff = significance.dedup_series(df, value="hold_mase")
+        if n_eff < n_raw:
+            print(f"[ranking] dedup pseudo-réplicas: {n_raw} series -> {n_eff} efectivas")
     agg = (
         df.groupby("model")[["sel_mase", "hold_mase", "sel_smape", "hold_smape"]]
         .mean()

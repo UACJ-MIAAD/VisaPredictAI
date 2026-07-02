@@ -70,6 +70,23 @@ class Verdict:
     champion_median: float
     challengers: list[dict] = field(default_factory=list)
     promote: dict | None = None  # el retador recomendado, o None = mantener al campeón
+    n_series_raw: int = 0  # series antes del dedup de pseudo-réplicas (B2)
+    n_series_effective: int = 0  # series DISTINTAS que alimentan el Wilcoxon
+
+
+def replica_representatives(table: str) -> list[tuple[str, str]]:
+    """Una serie representante por clase de pseudo-réplica del corte mundial (B2).
+
+    Series cuyos valores REALES del hold-out son idénticos fecha a fecha comparten el
+    corte mundial (India/China/All-Charg. en varias categorías); contarlas todas hace
+    anticonservador el Wilcoxon que decide qué receta se despliega a la web. Firma =
+    vector de ``actual`` por fecha (mismo criterio que ``significance_tables``).
+    """
+    fc = pd.read_csv(REPORTS / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
+    sig = fc.drop_duplicates(subset=["country", "category", "date"]).pivot_table(
+        index=["country", "category"], columns="date", values="actual"
+    )
+    return list(sig[~sig.duplicated()].index)
 
 
 def recipe_series_mase(table: str, recipe: Recipe) -> pd.Series:
@@ -119,6 +136,11 @@ def _compare(champ: pd.Series, chall: pd.Series) -> dict:
 def evaluate(table: str, champion: Recipe, challengers: list[Recipe] | None = None) -> Verdict:
     chall_recipes = challengers or [Recipe(m, a) for m, a in CHALLENGERS.get(table, [])]
     champ_mase = recipe_series_mase(table, champion)
+    # B2: el Wilcoxon del gate corre SOLO sobre series distintas (una representante por
+    # clase de pseudo-réplica); filtrar al campeón basta — _compare intersecta índices.
+    n_raw = len(champ_mase)
+    reps = replica_representatives(table)
+    champ_mase = champ_mase[champ_mase.index.isin(reps)]
     rows = [_compare(champ_mase, recipe_series_mase(table, r)) for r in chall_recipes]
 
     adj = significance.holm({r["challenger"]: r["wilcoxon_p"] for r in rows}, alpha=HOLM_ALPHA)
@@ -137,6 +159,8 @@ def evaluate(table: str, champion: Recipe, challengers: list[Recipe] | None = No
         champion_median=round(float(champ_mase.median()), 4),
         challengers=sorted(rows, key=lambda r: r["mean"]),
         promote=best,
+        n_series_raw=n_raw,
+        n_series_effective=len(champ_mase),
     )
 
 

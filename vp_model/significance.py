@@ -139,6 +139,24 @@ def friedman_nemenyi(scores: pd.DataFrame) -> FriedmanResult:
     return {"friedman_stat": float(stat), "friedman_p": float(p), "avg_rank": avg_rank, "nemenyi": nemenyi}
 
 
+def dedup_series(
+    df: pd.DataFrame, value: str = "hold_mase", keys: tuple[str, ...] = ("country", "category")
+) -> tuple[pd.DataFrame, int, int]:
+    """Colapsa pseudo-réplicas del corte mundial a UNA representante (B2).
+
+    Varias series (India/China/All-Charg. en ciertas categorías) comparten el corte
+    mundial: sus vectores de ``value`` por modelo son idénticos fila a fila. Contarlas
+    todas infla n, estrecha los tests pareados (Wilcoxon/Nemenyi anticonservadores) y
+    sobrepondera el corte mundial en las medias. Devuelve
+    ``(df_filtrado, n_series_raw, n_series_efectivas)``; el llamador debe REPORTAR el
+    n efectivo junto a cada media.
+    """
+    piv = df.pivot_table(index=list(keys), columns="model", values=value)
+    keep = piv[~piv.duplicated()].index
+    out = df[df.set_index(list(keys)).index.isin(keep)]
+    return out, int(len(piv)), int(len(keep))
+
+
 def demo() -> None:
     """Self-check: DM detecta un modelo claramente peor; Holm endurece p-valores."""
     rng = np.random.default_rng(1)

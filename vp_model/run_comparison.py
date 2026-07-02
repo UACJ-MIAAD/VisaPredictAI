@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from vp_model import config, dataset, walkforward
+from vp_model import config, dataset, significance, walkforward
 
 log = config.get_logger(__name__)
 
@@ -114,7 +114,15 @@ def _tracking():
 
 
 def summary(df: pd.DataFrame) -> pd.DataFrame:
-    """Ranking de modelos por MASE de selección promedio (menor es mejor)."""
+    """Ranking de modelos por MASE de selección promedio (menor es mejor).
+
+    B2: colapsa las pseudo-réplicas del corte mundial a una representante antes de
+    promediar (si no, el corte mundial pesa varias veces en la media) y anota el n.
+    """
+    if {"country", "category"} <= set(df.columns):
+        df, n_raw, n_eff = significance.dedup_series(df, value="hold_mase")
+        if n_eff < n_raw:
+            log.info("dedup pseudo-réplicas: %d series -> %d efectivas", n_raw, n_eff)
     return (
         df.groupby("model")[["sel_mase", "hold_mase", "sel_smape", "hold_smape"]]
         .mean()
