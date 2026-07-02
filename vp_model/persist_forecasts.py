@@ -27,6 +27,10 @@ def run(table: str = "FAD", block: str = "family", models_set: tuple[str, ...] =
     cat = dataset.list_series(table=table, block=block)
     rows = []
     for r in cat.itertuples():
+        # B1: persistir SOLO fechas con observación F real. El `actual` de los meses
+        # interpolados por `to_timeseries` no es verdad publicada y contaminaba a los
+        # consumidores (ensembles, DM, champion) que puntúan contra esta columna.
+        fdates = dataset.load_series(r.country, r.category, table).index
         for m in models_set:
             try:
                 ts, fc = walkforward.run_forecasts(m, r.country, r.category, table)
@@ -37,11 +41,12 @@ def run(table: str = "FAD", block: str = "family", models_set: tuple[str, ...] =
             hold_fc = fc.split_before(split)[1]
             actual = ts.slice_intersect(hold_fc)
             dates = actual.time_index
-            af = actual.values().flatten()
-            ff = hold_fc.slice_intersect(actual).values().flatten()
+            fmask = dates.isin(fdates)
+            af = actual.values().flatten()[fmask]
+            ff = hold_fc.slice_intersect(actual).values().flatten()[fmask]
             rows += [
                 {"model": m, "country": r.country, "category": r.category, "date": d, "actual": a, "forecast": f}
-                for d, a, f in zip(dates, af, ff, strict=True)
+                for d, a, f in zip(dates[fmask], af, ff, strict=True)
             ]
         log.info("hold-out forecasts: %s/%s listo", r.country, r.category)
     out = REPORTS / f"holdout_forecasts_{table}.csv"

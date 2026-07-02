@@ -33,17 +33,27 @@ class Interval:
 
 
 def conformal(
-    point_forecast: TimeSeries, calib_actual: TimeSeries, calib_pred: TimeSeries, alpha: float = ALPHA
+    point_forecast: TimeSeries,
+    calib_actual: TimeSeries,
+    calib_pred: TimeSeries,
+    alpha: float = ALPHA,
+    calib_dates=None,
 ) -> Interval:
     """Split conformal: PI = pronóstico ± cuantil(1-alpha) de |error| en calibración.
 
     Model-agnostic: sirve para cualquier modelo del catálogo a partir de su backtest.
     El semiancho es el cuantil empírico de los residuales absolutos de calibración,
-    con la pequeña corrección de tamaño finito (n+1).
+    con la pequeña corrección de tamaño finito (n+1). ``calib_dates`` restringe la
+    calibración a observaciones F reales (B1): los residuales sobre meses interpolados
+    son artificialmente pequeños y estrecharían el intervalo.
     """
     common = calib_actual.slice_intersect(calib_pred)
     resid = np.abs(common.values().flatten() - calib_pred.slice_intersect(common).values().flatten())
+    if calib_dates is not None:
+        resid = resid[common.time_index.isin(calib_dates)]
     n = len(resid)
+    if n == 0:
+        raise ValueError("sin residuales de calibración sobre fechas F reales")
     # Cuantil conforme con corrección finita: ceil((n+1)(1-alpha))/n.
     q_level = min(1.0, np.ceil((n + 1) * (1 - alpha)) / n)
     half = float(np.quantile(resid, q_level))

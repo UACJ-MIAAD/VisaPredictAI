@@ -33,9 +33,14 @@ def evaluate(csv: Path = CSV) -> pd.DataFrame:
         full = dataset.load_series(country, category, "FAD").astype("float64")  # escala del train
         g = g.sort_values("ds")
         scale = naive_scale_before(full, g["ds"].min())  # por fecha, fuente única
-        y = g["y"].to_numpy()
+        # B1: misma máscara F que eval_global_deep — los meses interpolados del CSV
+        # global dan continuidad al entrenamiento pero no son objetivo predictivo.
+        fmask = g["ds"].isin(full.index).to_numpy()
+        if not fmask.any():
+            continue
+        y = g["y"].to_numpy()[fmask]
         for m in models:
-            f = g[m].to_numpy()
+            f = g[m].to_numpy()[fmask]
             mae = float(np.mean(np.abs(y - f)))
             rows.append(
                 {

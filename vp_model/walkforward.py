@@ -99,12 +99,20 @@ def backtest(model_name: str, country: str, category: str, table: str, model: ob
     si es ``None`` se usa ``build_model(model_name)`` con los defaults de config.
     """
     ts, forecasts = run_forecasts(model_name, country, category, table, model)
+    # B1: las métricas se evalúan SOLO sobre observaciones F reales. `ts` viene rellenado
+    # por `to_timeseries` (continuidad para entrenar); puntuar los meses interpolados
+    # deprimía el error y hacía la vía local incomparable con la global (que ya enmascara
+    # en `eval_neuralforecast.eval_global_deep`). La escala del MASE usa la MISMA fuente
+    # única que la vía global: naïve estacional sobre la serie F cruda pre-hold-out.
+    raw = dataset.load_series(country, category, table).astype("float64")
+    fdates = raw.index
     split = ts.time_index[-HOLDOUT]
+    scale = metrics.naive_scale_before(raw, split)
     sel_fc, hold_fc = forecasts.split_before(split)
     insample = ts.drop_after(split)
 
     # Dimensión PROBABILÍSTICA (US-L1): intervalo de predicción CONFORME universal —
-    # calibrado con los residuales de la región de selección, válido para CUALQUIER
+    # calibrado con los residuales F de la región de selección, válido para CUALQUIER
     # modelo a partir de sus pronósticos puntuales, sin reentrenar. Mide la calidad del
     # intervalo al 95% en el hold-out con MSIS (métrica oficial del M5), interval score
     # y cobertura empírica. Así la comparación deja de ser solo puntual.
@@ -112,21 +120,21 @@ def backtest(model_name: str, country: str, category: str, table: str, model: ob
     sel_actual = ts.slice_intersect(sel_fc)
     prob: dict[str, float] = {}
     try:
-        iv = intervals.conformal(hold_fc, sel_actual, sel_fc)
+        iv = intervals.conformal(hold_fc, sel_actual, sel_fc, calib_dates=fdates)
         prob = {
-            "msis": metrics.msis(hold_actual, iv.lower, iv.upper, insample),
-            "interval_score": metrics.interval_score(hold_actual, iv.lower, iv.upper),
-            "coverage": metrics.pi_coverage(hold_actual, iv.lower, iv.upper),
+            "msis": metrics.msis(hold_actual, iv.lower, iv.upper, insample, dates=fdates, scale=scale),
+            "interval_score": metrics.interval_score(hold_actual, iv.lower, iv.upper, dates=fdates),
+            "coverage": metrics.pi_coverage(hold_actual, iv.lower, iv.upper, dates=fdates),
         }
     except ValueError, IndexError:
         prob = {"msis": float("nan"), "interval_score": float("nan"), "coverage": float("nan")}
-    holdout = {**metrics.compute(hold_actual, hold_fc, insample), **prob}
+    holdout = {**metrics.compute(hold_actual, hold_fc, insample, dates=fdates, scale=scale), **prob}
     return BacktestResult(
         model=model_name,
         country=country,
         category=category,
         table=table,
-        selection=metrics.compute(sel_actual, sel_fc, insample),
+        selection=metrics.compute(sel_actual, sel_fc, insample, dates=fdates, scale=scale),
         holdout=holdout,
     )
 

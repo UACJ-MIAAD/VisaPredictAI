@@ -46,31 +46,80 @@ def naive_scale_before(full: pd.Series, cutoff, m: int = SEASONAL_M) -> float:
     return seasonal_naive_mae(train, m)
 
 
-def compute(actual: TimeSeries, pred: TimeSeries, insample: TimeSeries) -> dict[str, float]:
+def _aligned(
+    actual: TimeSeries, pred: TimeSeries, dates: pd.DatetimeIndex | None = None
+) -> tuple[np.ndarray, np.ndarray]:
+    """Pares (real, pronóstico) alineados por fecha; si ``dates`` se da, filtra a esas fechas.
+
+    ``dates`` es el índice de observaciones F REALES: los meses que ``to_timeseries``
+    interpola para dar continuidad al entrenamiento no son objetivo predictivo y NO
+    deben puntuarse (B1 — misma máscara que ``eval_neuralforecast.eval_global_deep``).
+    """
+    common = actual.slice_intersect(pred)
+    p = pred.slice_intersect(common)
+    a = common.values().flatten()
+    f = p.values().flatten()
+    if dates is not None:
+        m = common.time_index.isin(dates)
+        a, f = a[m], f[m]
+    return a, f
+
+
+def compute(
+    actual: TimeSeries,
+    pred: TimeSeries,
+    insample: TimeSeries,
+    dates: pd.DatetimeIndex | None = None,
+    scale: float | None = None,
+) -> dict[str, float]:
     """MAE/RMSE/sMAPE/MASE de un pronóstico contra el real.
 
     ``insample`` es la serie de entrenamiento; MASE la usa para escalar por el error
     del naïve estacional dentro de la muestra (Hyndman & Koehler).
+
+    ``dates``: si se da, las métricas se evalúan SOLO sobre esas fechas (observaciones
+    F reales; B1). ``scale`` permite fijar el denominador del MASE desde fuera (p. ej.
+    ``naive_scale_before`` sobre la serie F cruda, la misma fuente única de la vía
+    global) — sin él se usa el naïve estacional de ``insample``.
     """
-    common = actual.slice_intersect(pred)
-    pred = pred.slice_intersect(common)
+    if dates is None:
+        common = actual.slice_intersect(pred)
+        pred = pred.slice_intersect(common)
+        return {
+            "mae": float(mae(common, pred)),
+            "rmse": float(rmse(common, pred)),
+            "smape": float(smape(common, pred)),
+            "mase": float(mase(common, pred, insample, m=SEASONAL_M)),
+            "n": len(common),
+        }
+    a, f = _aligned(actual, pred, dates)
+    if not len(a):
+        return {"mae": float("nan"), "rmse": float("nan"), "smape": float("nan"), "mase": float("nan"), "n": 0}
+    err = np.abs(a - f)
+    mae_v = float(np.mean(err))
+    s = scale if scale is not None else _seasonal_naive_mae(insample)
     return {
-        "mae": float(mae(common, pred)),
-        "rmse": float(rmse(common, pred)),
-        "smape": float(smape(common, pred)),
-        "mase": float(mase(common, pred, insample, m=SEASONAL_M)),
-        "n": len(common),
+        "mae": mae_v,
+        "rmse": float(np.sqrt(np.mean((a - f) ** 2))),
+        # convención darts: sMAPE en 0–200 (no fracción), para que las tablas no mezclen escalas
+        "smape": float(200.0 * np.mean(err / (np.abs(a) + np.abs(f) + 1e-9))),
+        "mase": mae_v / s,
+        "n": int(len(a)),
     }
 
 
-def pi_coverage(actual: TimeSeries, lower: TimeSeries, upper: TimeSeries) -> float:
+def pi_coverage(
+    actual: TimeSeries, lower: TimeSeries, upper: TimeSeries, dates: pd.DatetimeIndex | None = None
+) -> float:
     """Cobertura empírica de un intervalo de predicción: fracción de reales dentro.
 
-    Para un PI al 95% bien calibrado debería rondar 0.95.
+    Para un PI al 95% bien calibrado debería rondar 0.95. ``dates`` restringe la
+    medición a observaciones F reales (B1).
     """
-    a = actual.slice_intersect(lower).values().flatten()
-    lo = lower.slice_intersect(actual).values().flatten()
-    hi = upper.slice_intersect(actual).values().flatten()
+    a, lo = _aligned(actual, lower, dates)
+    _, hi = _aligned(actual, upper, dates)
+    if not len(a):
+        return float("nan")
     return float(((a >= lo) & (a <= hi)).mean())
 
 
@@ -79,24 +128,41 @@ def _seasonal_naive_mae(insample: TimeSeries, m: int = SEASONAL_M) -> float:
     return seasonal_naive_mae(insample.values().flatten(), m)
 
 
-def interval_score(actual: TimeSeries, lower: TimeSeries, upper: TimeSeries, alpha: float = 0.05) -> float:
+def interval_score(
+    actual: TimeSeries,
+    lower: TimeSeries,
+    upper: TimeSeries,
+    alpha: float = 0.05,
+    dates: pd.DatetimeIndex | None = None,
+) -> float:
     """Interval score de Gneiting-Raftery para un intervalo al (1-alpha) (menor es mejor).
 
     IS = (u - l) + (2/alpha)(l - y)·1{y<l} + (2/alpha)(y - u)·1{y>u}: penaliza la
     amplitud y, con fuerza 2/alpha, cada real que cae fuera del intervalo.
+    ``dates`` restringe la medición a observaciones F reales (B1).
     """
-    a = actual.slice_intersect(lower).values().flatten()
-    lo = lower.slice_intersect(actual).values().flatten()
-    hi = upper.slice_intersect(actual).values().flatten()
+    a, lo = _aligned(actual, lower, dates)
+    _, hi = _aligned(actual, upper, dates)
+    if not len(a):
+        return float("nan")
     width = hi - lo
     below = (2.0 / alpha) * (lo - a) * (a < lo)
     above = (2.0 / alpha) * (a - hi) * (a > hi)
     return float(np.mean(width + below + above))
 
 
-def msis(actual: TimeSeries, lower: TimeSeries, upper: TimeSeries, insample: TimeSeries, alpha: float = 0.05) -> float:
+def msis(
+    actual: TimeSeries,
+    lower: TimeSeries,
+    upper: TimeSeries,
+    insample: TimeSeries,
+    alpha: float = 0.05,
+    dates: pd.DatetimeIndex | None = None,
+    scale: float | None = None,
+) -> float:
     """Mean Scaled Interval Score (M5): interval score escalado por el naïve estacional."""
-    return interval_score(actual, lower, upper, alpha) / _seasonal_naive_mae(insample)
+    s = scale if scale is not None else _seasonal_naive_mae(insample)
+    return interval_score(actual, lower, upper, alpha, dates) / s
 
 
 def crps(actual: TimeSeries, samples: TimeSeries) -> float:

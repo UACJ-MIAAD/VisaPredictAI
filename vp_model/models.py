@@ -101,6 +101,10 @@ def to_timeseries(series: pd.Series) -> TimeSeries:
     Reusa el criterio de huecos de ``preprocess`` (interpola cortos, deja largos);
     los NaN residuales se rellenan para que los modelos que no toleran huecos puedan
     entrenar. La conversión a float evita el dtype entero que rompe algunos modelos.
+
+    ⚠️ Los valores rellenados existen SOLO para dar continuidad al entrenamiento:
+    NO son objetivo predictivo y la evaluación los enmascara (B1 — `walkforward.backtest`
+    puntúa únicamente sobre las fechas F reales de `dataset.load_series`).
     """
     regular = preprocess.to_regular_monthly(series).astype("float64")
     ts = TimeSeries.from_series(regular)
