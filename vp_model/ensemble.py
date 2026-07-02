@@ -35,8 +35,12 @@ class Strategy:
 
 
 def _global_best(df: pd.DataFrame) -> tuple[str, pd.DataFrame]:
-    """Mejor modelo global por MASE de hold-out promedio; devuelve nombre + sus filas."""
-    by_model = df.groupby("model")["hold_mase"].mean().sort_values()
+    """Mejor modelo global elegido por MASE de SELECCIÓN; se reporta su hold-out.
+
+    B5: elegir por ``hold_mase`` y reportar ese mismo ``hold_mase`` era selección
+    sobre el test set (cota optimista, incomparable con "selección por serie", que
+    sí elige leakage-free por ``sel_mase``)."""
+    by_model = df.groupby("model")["sel_mase"].mean().sort_values()
     best = by_model.index[0]
     return best, df[df.model == best]
 
@@ -56,8 +60,18 @@ def _per_series_oracle(df: pd.DataFrame) -> pd.DataFrame:
 def analyze(table: str = "FAD") -> list[Strategy]:
     """Compara mejor-global vs selección-por-serie vs oráculo sobre el CSV de 21 modelos."""
     df = pd.read_csv(REPORTS / f"model_comparison_{table}21.csv")
-    # B2: las medias de las estrategias no deben sobreponderar el corte mundial
-    df, n_raw, n_eff = significance.dedup_series(df, value="hold_mase")
+    # B2: las medias de las estrategias no deben sobreponderar el corte mundial. La firma
+    # métrica (dedup_series) NO detecta estas réplicas (comparten el corte reciente pero
+    # no la historia → la escala del MASE difiere); la firma por `actual` del hold-out sí.
+    try:
+        from vp_model.champion import replica_representatives
+
+        reps = set(replica_representatives(table))
+        n_raw = df.groupby(["country", "category"]).ngroups
+        df = df[[(c, cat) in reps for c, cat in zip(df.country, df.category, strict=True)]]
+        n_eff = df.groupby(["country", "category"]).ngroups
+    except FileNotFoundError:  # sin holdout_forecasts_*: fallback a la firma métrica
+        df, n_raw, n_eff = significance.dedup_series(df, value="hold_mase")
     if n_eff < n_raw:
         print(f"[ensemble] dedup pseudo-réplicas: {n_raw} series -> {n_eff} efectivas")
     name, gb = _global_best(df)
