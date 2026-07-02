@@ -56,8 +56,8 @@ stages:
     deps:
     - path: build_bulletins_json.py
       hash: md5
-      md5: 99d5bb0444373e56650e7bbb53c08d98
-      size: 3826
+      md5: a7d1f8ecd6483e53f6ddc3cd5d929ba3
+      size: 4017
     - path: data/processed/visa_panel_long.csv
       hash: md5
       md5: 6f25df6b8f09b898c247f292255dabc3
@@ -65,8 +65,8 @@ stages:
     outs:
     - path: data/processed/bulletins.json
       hash: md5
-      md5: 5624378bfeac572f57d62148092e7f24
-      size: 607668
+      md5: 8e55bf29f3fcb28fe2c07e4efad57c4b
+      size: 607669
   database:
     cmd: ante/bin/python build_database.py
     deps:

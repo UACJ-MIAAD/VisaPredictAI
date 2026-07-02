@@ -86,6 +86,8 @@ def main() -> None:
         months[m] = month_rows(by_month[m], prev)
 
     latest = all_months[-1]
+    # trailing newline: sin él, el end-of-file-fixer de pre-commit "corregía" el archivo
+    # tras cada `dvc repro` y el hash del lock quedaba perpetuamente desfasado (E2).
     OUT.write_text(
         json.dumps(
             {
@@ -95,7 +97,8 @@ def main() -> None:
                 "months": months,
             },
             ensure_ascii=False,
-        ),
+        )
+        + "\n",
         encoding="utf-8",
     )
     print(f"{OUT}: {latest} · {len(months[latest])} series · ventana {len(window)} meses")
