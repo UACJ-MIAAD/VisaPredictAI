@@ -79,27 +79,33 @@ jobs:
         new=$(cat /tmp/new_count)
         echo "new=$new" >> "$GITHUB_OUTPUT"   # surfaced to the email step below
 
-        if [ "$new" = "0" ]; then
-          echo "No new bulletin this run -- nothing to rebuild."
+        # A3: rebuild when a month was JUST frozen *or* when a previously frozen
+        # month never made it into the committed panel (self-healing: a run that
+        # died mid-rebuild used to leave `new=0` forever and the job green).
+        stale=$(python tools/check_ingestion.py --mode pending)
+        if [ "$new" = "0" ] && [ "$stale" = "fresh" ]; then
+          echo "No new bulletin and panel up to date -- nothing to rebuild."
           exit 0
         fi
-        echo "$new new bulletin(s) frozen -- backing up and rebuilding."
+        echo "$new new bulletin(s) frozen (panel: $stale) -- rebuilding."
 
-        # 1. Push the new raw HTML to S3 (immutable backup).
-        aws s3 sync data/snapshots/ s3://visapredictai-raw-snapshots/raw-html/
-
-        # 2. Rebuild CSVs/panel/DuckDB OFFLINE from the frozen snapshots.
+        # 1. Rebuild CSVs/panel/DuckDB OFFLINE from the frozen snapshots.
+        #    (The S3 backup sync moved to AFTER the commit: pushing unvalidated
+        #    HTML first left a poisoned/never-ingested month frozen forever.)
         pip install -e ".[dev]"        # duckdb + pytest for the DB rebuild/gate
         python scrape_all.py           # parse snapshots -> per-country CSVs (no network)
         python build_panel.py          # -> data/processed/visa_panel_long.csv
         python build_bulletins_json.py # -> data/processed/bulletins.json (website news feed)
 
-        # 3. Quality gate -- nothing is committed unless these pass.
+        # 2. Quality gate -- nothing is committed unless these pass.
         python tests/test_parsers.py
         python tests/test_extraction.py
         python tests/test_panel_integrity.py
+        # A2: the frozen month MUST be in the rebuilt panel. Without this a new
+        # bulletin that parses to 0 rows ended as "nothing to commit" + green job.
+        python tools/check_ingestion.py --mode assert
 
-        # 4. Refresh the DuckDB star schema and validate it accepts the new data
+        # 3. Refresh the DuckDB star schema and validate it accepts the new data
         #    (the .duckdb/.parquet stay gitignored -- regenerable with `make db`).
         python build_database.py
         # --cov-fail-under=0: this targeted DB-contract run doesn't import the
@@ -146,6 +152,11 @@ jobs:
           git commit -m "Add bulletin $(date -u +%Y-%m): refresh panel from frozen HTML"
           git push
         fi
+
+        # 6. ONLY NOW back the validated raw HTML up to S3 (A3). If anything above
+        #    failed, nothing was synced: the next run re-fetches the month from the
+        #    live site (bulletins stay published for months) and retries everything.
+        aws s3 sync data/snapshots/ s3://visapredictai-raw-snapshots/raw-html/
 
     - name: Redeploy the website on a new bulletin (Netlify build hook)
       # Only when a bulletin actually arrived. The web build re-fetches the panel
