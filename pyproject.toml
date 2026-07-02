@@ -9,6 +9,8 @@ license-files = ["LICENSE"]
 authors = [{ name = "Javier Augusto Rebull Saucedo" }]
 dependencies = [
     "beautifulsoup4==4.14.3",
+    # runtime, no dev: build_database.py corre en el cron semanal con `pip install -e .` (E3)
+    "duckdb==1.5.3",
     "matplotlib==3.10.8",
     "pandas==3.0.0",
     "requests==2.32.5",
@@ -18,11 +20,11 @@ dependencies = [
 [project.optional-dependencies]
 # Single source of truth for the dev toolchain — Makefile and CI install via
 # `pip install -e .[dev]`, so a version bump happens here and nowhere else.
-dev = ["ruff==0.15.17", "mypy==2.1.0", "pytest==9.1.0", "pytest-cov==7.1.0", "duckdb==1.5.3"]
+# pyyaml: lo importa tools/check_consistency.py (make check + hook pre-push + CI).
+dev = ["ruff==0.15.17", "mypy==2.1.0", "pytest==9.1.0", "pytest-cov==7.1.0", "pyyaml==6.0.3"]
 # Modeling stage (Proyecto de Innovación Tecnológica I). Heavy; installed on demand
 # with `pip install -e .[model]`, not pulled by CI. darts/xgboost se añaden en Épica D.
 model = [
-    "duckdb==1.5.3",
     "statsmodels==0.14.6",
     "darts==0.44.1",
     "xgboost==3.2.0",
@@ -40,6 +42,9 @@ model = [
     "lightgbm==4.6.0",
     "catboost==1.2.10",
     "scikit-posthocs==0.14.0",
+    # figuras del entregable (make_eda_figures / make_fe_figures) — no declarado rompía
+    # la regeneración de 12 figuras en un env limpio (E3)
+    "seaborn==0.13.2",
 ]
 
 [build-system]

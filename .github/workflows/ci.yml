@@ -95,6 +95,8 @@ jobs:
       - name: Install with modeling extra
         run: |
           python -m pip install --upgrade pip
+          # E3: wheel CPU primero — sin el índice, .[model] bajaba el torch CUDA (~2 GB) en cada push
+          pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu
           pip install -e ".[dev,model]"
 
       - name: Build the panel + DuckDB warehouse (modeling reads from it)
@@ -140,7 +142,7 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: '3.14'
-      - run: pip install pyyaml
+      - run: pip install pyyaml==6.0.3   # mismo pin que [dev] (E3)
       - name: Check artifact consistency
         env:
           VP_WEB_DIR: web_repo
