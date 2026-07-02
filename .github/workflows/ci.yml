@@ -102,6 +102,16 @@ jobs:
           python build_panel.py
           python build_database.py
 
+      - name: DVC lock matches the committed pipeline (E2)
+        # scrape/database quedan fuera: sus deps (snapshots privados) / outs (cache S3)
+        # no existen en CI. Los tres stages git-only prueban que dvc.lock no está stale
+        # (antes llevaba semanas desfasado y nada lo detectaba).
+        run: |
+          pip install "dvc==3.67.1"
+          out=$(dvc status --json panel bulletins key_facts)
+          echo "$out"
+          [ "$out" = "{}" ] || { echo "::error::dvc.lock desfasado del pipeline commiteado — corre make repro y commitea el lock"; exit 1; }
+
       - name: Key facts are re-derivable from the data (JSON == pipeline)
         # The consistency job checks prose-vs-JSON; this closes the loop by checking
         # JSON-vs-DATA — regenerate the source of truth from the freshly built panel +

@@ -26,8 +26,8 @@ stages:
       size: 7478
     - path: visa_common.py
       hash: md5
-      md5: 4c9b10adc4189e28a962e1a02f30ab85
-      size: 9416
+      md5: 2b67827c6711724da5de20a52776df9a
+      size: 10467
     outs:
     - path: data/raw
       hash: md5
@@ -105,8 +105,8 @@ stages:
       size: 1571572
     - path: experiments/build_key_facts.py
       hash: md5
-      md5: 72bd2184fd8f49cb1568edf5f9a453a4
-      size: 4570
+      md5: b82711dfb60001df86c729c606a055ef
+      size: 5425
     - path: reports/auto_arima_baseline.csv
       hash: md5
       md5: e01afaf8e48623af40926cf151bb8692
@@ -121,12 +121,12 @@ stages:
       size: 130965
     - path: reports/forecast_scorecard_meta.json
       hash: md5
-      md5: 945e85cea7e6cb8926aa871096d21d1a
-      size: 2892
+      md5: e869aff57e5c65e6e7c512fce7e3ec69
+      size: 2911
     - path: reports/significance_summary.json
       hash: md5
-      md5: a0861523cee935eb90c99c7ee4af33bd
-      size: 1828
+      md5: 99f8ee6d67df459ddeb20fdb34fc8ddb
+      size: 2561
     - path: vp_model/config.py
       hash: md5
       md5: bc470d30aa1b61fb6981ed34e07ec2fd

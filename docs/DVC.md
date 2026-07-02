@@ -9,16 +9,20 @@ del repo hermano EpiForecast-MX al caso de visas.
 Los CSV por país (`data/raw/`) y el panel (`data/processed/`) son el **entregable de
 datos abiertos** del proyecto: cualquiera los descarga directamente del repositorio,
 sin necesitar DVC ni credenciales de un remoto S3. Versionarlos con DVC los sacaría
-de git y **rompería esa accesibilidad**. El `.dvcignore` (`data/**/*.csv`) los protege
-explícitamente para que un `dvc add data/` accidental nunca los mueva. El *bloat* histórico de git venía de
+de git y **rompería esa accesibilidad**. Lo que los protege es que `dvc.yaml` los declara
+como **salidas `cache: false` del DAG**: DVC los rastrea por hash pero viven en git, y un
+`dvc add data/` accidental es **rechazado** (la ruta ya pertenece a un stage). El
+`.dvcignore` ya NO usa el patrón `data/**/*.csv` (impediría rastrearlos como salidas;
+ver la nota dentro del propio `.dvcignore`). El *bloat* histórico de git venía de
 las **figuras binarias**, ya resueltas (gitignored; regenerar con `make figures`).
 
-Los binarios derivados del panel —**`visapredict.duckdb`** (esquema estrella) y
-**`visa_panel_long.parquet`**— quedan **gitignored de git** pero **SÍ se versionan con
-DVC** a S3 (pointers `*.dvc` commiteados). Son reconstruibles byte a byte desde el CSV
-con `make db`, así que git no los carga; DVC los conserva por conveniencia (un clon con
-credenciales S3 hace `dvc pull` en vez de re-`make db`). El CSV abierto sigue siendo la
-fuente de verdad versionada en git.
+De los binarios derivados del panel, **solo `visa_panel_long.parquet`** se versiona
+en la cache DVC → S3 (es byte-determinista; salida con cache del stage `database`).
+**`visapredict.duckdb` NO se versiona en absoluto**: embebe orden interno/timestamps y no
+es byte-determinista, así que declararlo como `out` dejaba `dvc repro` perpetuamente
+sucio (decisión documentada en `dvc.yaml`). Es un efecto secundario del stage,
+gitignored y reconstruible con `make db`. El CSV abierto sigue siendo la fuente de
+verdad versionada en git.
 
 ## Qué versiona DVC HOY (activo)
 
