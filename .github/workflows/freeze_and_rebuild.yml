@@ -57,6 +57,7 @@ jobs:
     permissions:
       contents: write  # commit + push del panel refrescado
       issues: write    # abrir/append del issue de fallo
+      id-token: write  # F2: token OIDC para asumir el role (sin keys estáticas)
 
     steps:
     - name: Checkout repository
@@ -73,10 +74,13 @@ jobs:
         pip install -e .   # runtime deps from pyproject (single source of truth)
 
     - name: Configure AWS credentials
+      # F2: OIDC role de corta vida con política mínima (Put/Get/List + ses:SendEmail,
+      # SIN DeleteObject) en lugar de access keys estáticas con s3:*Object — un repo
+      # comprometido ya no puede destruir el archivo S3 (la fuente de verdad).
       uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4
       with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        role-to-assume: arn:aws:iam::564141855321:role/gh-actions-visapredict
+        role-session-name: freeze-and-rebuild
         aws-region: us-east-1
 
     - name: Freeze a newly published bulletin, then rebuild only if one arrived
