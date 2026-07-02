@@ -11,9 +11,16 @@ bulletin page ONCE and never overwrites: a page already on disk is frozen.
 ponytail: skip-if-exists IS the immutability -- no versioning logic, no hashing.
 The 5 dead-on-live pages won't appear in extract_month_links(); fetch those from
 Wayback by hand and drop them in data/snapshots/ once.
+
+A1 hardening: every candidate page must pass _looks_like_bulletin() BEFORE it is
+written -- a 200 that is really a WAF/maintenance/soft-404 page would otherwise be
+mummified forever by skip-if-exists (and synced to S3, the source of truth).
+Writes are wire bytes (resp.content, no re-decode) and atomic (tmp + os.replace),
+so a killed run never leaves a truncated snapshot that skip-if-exists protects.
 """
 
 import logging
+import os
 import time
 from pathlib import Path
 
@@ -26,16 +33,35 @@ SNAP_DIR = Path("data/snapshots")
 logger = logging.getLogger(__name__)
 
 
-def fetch_text(url: str) -> str:
+def _looks_like_bulletin(content: bytes) -> bool:
+    """Cheap sanity gate before freezing a page forever.
+
+    Empirical over the full 25-year archive (298 snapshots): every real monthly
+    bulletin carries BOTH markers; the site-wide nav template does mention
+    "Visa Bulletin", so a soft-404/maintenance page could carry that one, but
+    never "chargeability". Only known exception:
+    update-on-july-visa-availability.html (2007 special announcement, already
+    frozen -- skip-if-exists means it is never re-fetched or re-validated).
+    """
+    t = content.decode("utf-8", errors="replace").lower()
+    return "visa bulletin" in t and "chargeability" in t
+
+
+def fetch_bytes(url: str) -> bytes:
     """Raw GET with the same retry+backoff get_soup uses -- a few months hit an
-    intermittent redirect loop (e.g. 2007-12) that clears on retry. Kept raw
-    (not BeautifulSoup-reserialized) so the snapshot is the wire bytes."""
+    intermittent redirect loop (e.g. 2007-12) that clears on retry. Returns
+    resp.content (true wire bytes: no charset re-decode that could momify
+    mojibake). Content that fails _looks_like_bulletin() is treated as a
+    transient failure (WAF page) and retried; after MAX_RETRIES it raises, so
+    the Action fails LOUD instead of freezing garbage."""
     last: Exception = RuntimeError(f"no fetch attempt for {url}")
     for attempt in range(MAX_RETRIES):
         try:
             resp = requests.get(url, timeout=REQUEST_TIMEOUT)
             resp.raise_for_status()
-            return resp.text
+            if not _looks_like_bulletin(resp.content):
+                raise ValueError(f"200 sin marcadores de boletín (WAF/mantenimiento?): {url}")
+            return resp.content
         except Exception as exc:  # noqa: BLE001 -- mirror get_soup: retry any transient blip
             last = exc
             time.sleep(2 * (attempt + 1))
@@ -49,7 +75,10 @@ def main() -> None:
         dest = SNAP_DIR / Path(link).name
         if dest.exists():
             continue  # already frozen -- fixed page, never re-fetch
-        dest.write_text(fetch_text(SITE_ROOT + link), encoding="utf-8")
+        content = fetch_bytes(SITE_ROOT + link)
+        tmp = dest.with_name(dest.name + ".part")
+        tmp.write_bytes(content)
+        os.replace(tmp, dest)  # atomic: never a truncated snapshot on disk
         new += 1
     logger.info("%d new snapshots; %d total in %s", new, len(list(SNAP_DIR.glob("*.html"))), SNAP_DIR)
     print(new)  # stdout (logging/tqdm go to stderr) -- the CI step gates rebuild on this count
