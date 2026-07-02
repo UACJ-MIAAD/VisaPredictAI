@@ -35,6 +35,9 @@ forbidden:
   - pattern: 'modela\w*\s+(las\s+)?194\s+series|194\s+series\s+modela'
     in: [deliverable, paper, readmes, web]
     reason: '194 son ESTRUCTURALES; solo ~74 evaluables (>=84 obs F)'
+  - pattern: 'FAD[^.;]{0,90}0\.10[67]|0\.10[67][^.;]{0,60}\bFAD\b'
+    in: [deliverable, paper, readmes]
+    reason: '0.106/0.107 son los hold-out DFF de ETS/Theta; los campeones FAD valen 0.119/0.118 (misatribución detectada en audit 2-jul-2026)'
 
 required:
   - fact: n_series_structural
