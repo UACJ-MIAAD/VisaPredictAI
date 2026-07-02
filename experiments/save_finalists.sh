@@ -2,8 +2,11 @@
 # Guarda TODOS los modelos finalistas (globales deep + locales por serie) para comparar,
 # graficar y explotar; exporta sus pronósticos hold-out; y sincroniza modelos+forecasts a S3.
 # Correr en background:  bash experiments/save_finalists.sh > reports/finalists.log 2>&1
-set -u
-cd "$(dirname "$0")"
+# Los `|| true` por paso son deliberados (un paso caído no aborta la colección), por eso el
+# guard de venvs es obligatorio: sin él, un cwd/venv equivocado era un no-op "exitoso" (E1).
+set -uo pipefail
+cd "$(dirname "$0")/.."
+[ -x ante/bin/python ] && [ -x ante_nf/bin/python ] || { echo "ERROR: faltan venvs ante/ y/o ante_nf/ en la raíz" >&2; exit 1; }
 rm -f models/manifest.jsonl   # manifiesto fresco
 echo "=== GUARDAR FINALISTAS $(date) ==="
 echo ">>> [1/4] modelos GLOBALES deep (ante_nf)"

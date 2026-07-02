@@ -5,10 +5,13 @@
 # Cada paso es independiente (|| true): un fallo no aborta la campaña. Correr en background:
 #   bash experiments/run_campaign.sh > reports/campaign.log 2>&1
 # Al terminar: ante_nf/bin/python experiments/sync_mlflow.py  &&  mlflow ui --backend-store-uri sqlite:///mlflow.db
-set -u
-cd "$(dirname "$0")"
+set -uo pipefail
+cd "$(dirname "$0")/.."   # los intérpretes y las rutas de salida viven en la RAÍZ del repo
 ANTE=ante/bin/python
 NF=ante_nf/bin/python
+# Guard fail-loud: sin esto, con el cwd/venv equivocado los `|| true` de abajo convertían
+# TODA la campaña en un no-op silencioso que imprimía éxito (E1).
+[ -x "$ANTE" ] && [ -x "$NF" ] || { echo "ERROR: faltan venvs ante/ y/o ante_nf/ en la raíz" >&2; exit 1; }
 SEEDS="1 2 3 4 5"
 echo "=== CAMPAÑA arranca $(date) ==="
 

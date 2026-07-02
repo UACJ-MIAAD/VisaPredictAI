@@ -10,9 +10,10 @@
 # El ledger es idempotente (dedup por origen+serie+fecha), así que re-correr no duplica.
 #
 # PRERREQUISITO: la BD DuckDB debe existir → `make panel && make db` en un clon nuevo.
-# Uso:  bash experiments/backfill_vintages.sh        (corre desde la raíz del repo)
+# Uso:  bash experiments/backfill_vintages.sh        (desde cualquier cwd; se ancla a la raíz)
 #       PY=python bash experiments/backfill_vintages.sh   (override del intérprete)
 set -euo pipefail
+cd "$(dirname "$0")/.."
 PY=${PY:-ante/bin/python}
 
 # Añadas históricas a sembrar (origen del pronóstico). Cada una predice 12 meses ya
