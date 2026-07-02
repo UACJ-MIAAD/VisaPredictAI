@@ -73,34 +73,57 @@ def _distinct_series(f: pd.DataFrame) -> set[tuple[str, str]]:
 
 
 def _dm_deep_vs_parsimony(table: str) -> dict:
-    """DM (squared-error): mejor deep global vs mejor parsimonia, pareado por celda, sobre las
-    series DISTINTAS (sin pseudo-replicación del corte mundial). Una sola comparación, así que
-    NO se aplica Holm (corrección de familia de tamaño 1 = no-op); se reporta el p crudo."""
-    f = pd.read_csv(REPORTS / f"finalist_forecasts_{table}.csv")
+    """DM (squared-error) sobre errores ESCALADOS por el naïve de cada serie: mejor deep
+    global vs mejor clásico, pareado por celda, sobre las series DISTINTAS.
+
+    B3 (tres correcciones de honestidad):
+      1. La baraja clásica INCLUYE a los campeones ETS/Theta (antes se excluían: el DM
+         "deep vs parsimonia" corría contra un clásico debilitado por construcción).
+      2. Los clásicos vienen del PROTOCOLO OFICIAL (``holdout_forecasts_*``: walk-forward
+         con retrain=True), no del fit único "para visualización" de export_forecasts.
+      3. Los errores se escalan por el naïve estacional de cada serie — en días crudos
+         India F4 (nivel ~10⁴) dominaba el estadístico.
+    Una sola comparación → sin Holm (familia de tamaño 1); se reporta el p crudo.
+    Caveat documentado: los errores serie×fecha se concatenan como si fueran
+    independientes (el mismo mes golpea a todas las series); el p es aproximado."""
+    from vp_model import dataset
+    from vp_model.metrics import naive_scale_before
+
+    deep_src = pd.read_csv(REPORTS / f"finalist_forecasts_{table}.csv")
+    cols = ["model", "country", "category", "date", "forecast", "actual"]
+    f_deep = deep_src[deep_src.model.isin({"BiTCN", "AutoBiTCN", "NHITS", "PatchTST", "TiDE"})][cols]
+    f_pars = pd.read_csv(REPORTS / f"holdout_forecasts_{table}.csv")[cols]
+    f = pd.concat([f_deep, f_pars], ignore_index=True)
     n_raw = int(f.groupby(["country", "category"]).ngroups)
     keep = _distinct_series(f)
     f = f[[(c, cat) in keep for c, cat in zip(f.country, f.category, strict=True)]].reset_index(drop=True)
-    f["ae"] = (f["forecast"] - f["actual"]).abs()
+    scales = {
+        (c, cat): naive_scale_before(
+            dataset.load_series(c, cat, table).astype("float64"), pd.Timestamp(g["date"].min())
+        )
+        for (c, cat), g in f.groupby(["country", "category"])
+    }
+    f["scale"] = [scales[(c, cat)] for c, cat in zip(f.country, f.category, strict=True)]
+    f["ae"] = (f["forecast"] - f["actual"]).abs() / f["scale"]
     key = ["country", "category", "date"]
-    deep_models = [m for m in f.model.unique() if m in {"BiTCN", "AutoBiTCN", "NHITS", "PatchTST", "TiDE"}]
-    pars_models = [m for m in f.model.unique() if m in {"arima", "sarima", "catboost", "lightgbm", "kalman"}]
+    deep_models = sorted(f_deep.model.unique())
+    pars_models = sorted(f_pars.model.unique())  # incluye ets/theta (campeones)
     mean_ae = f.groupby("model")["ae"].mean()
     deep_ranked = sorted(deep_models, key=lambda m: mean_ae.get(m, np.inf))
     best_pars = min(pars_models, key=lambda m: mean_ae.get(m, np.inf))
 
     def _dm_vs(dmn: str) -> tuple[int, float, float, float, float]:
-        a = f[f.model == dmn].set_index(key)["forecast"].rename("d")
+        a = f[f.model == dmn].set_index(key)
         b = f[f.model == best_pars].set_index(key)["forecast"].rename("p")
-        act = f[f.model == dmn].set_index(key)["actual"].rename("y")
-        jj = pd.concat([a, b, act], axis=1).dropna()
-        ed = (jj["d"] - jj["y"]).to_numpy()
-        ep = (jj["p"] - jj["y"]).to_numpy()
+        jj = a[["forecast", "actual", "scale"]].join(b, how="inner").dropna()
+        ed = ((jj["forecast"] - jj["actual"]) / jj["scale"]).to_numpy()
+        ep = ((jj["p"] - jj["actual"]) / jj["scale"]).to_numpy()
         dm, pv = significance.dm_test(ed, ep, power=2)
         return int(len(jj)), float(np.abs(ed).mean()), float(np.abs(ep).mean()), round(dm, 3), round(pv, 4)
 
     best_deep = deep_ranked[0]
-    n_pairs, mae_d, mae_p, dm, pval = _dm_vs(best_deep)
-    # PRUEBA DE ROBUSTEZ: el 2.º mejor deep (casi empatado en MAE) puede dar un p MUY distinto
+    n_pairs, smae_d, smae_p, dm, pval = _dm_vs(best_deep)
+    # PRUEBA DE ROBUSTEZ: el 2.º mejor deep (casi empatado) puede dar un p MUY distinto
     # — esa sensibilidad de selección ES la fragilidad reportada en el cuerpo. robust = ambos <0.05.
     alt = deep_ranked[1] if len(deep_ranked) > 1 else best_deep
     _, _, _, _, pval_alt = _dm_vs(alt)
@@ -111,17 +134,19 @@ def _dm_deep_vs_parsimony(table: str) -> dict:
         "n_series_distinct": len(keep),
         "n_series_raw": n_raw,
         "n_pairs": n_pairs,
-        "mae_deep": round(mae_d, 1),
-        "mae_parsimony": round(mae_p, 1),
+        "mase_deep": round(smae_d, 4),
+        "mase_parsimony": round(smae_p, 4),
         "dm_stat": dm,
         "dm_p": pval,
         "alt_deep": alt,
         "alt_dm_p": pval_alt,
         "robust_significant": robust,
         "note": (
-            "DM sobre series DISTINTAS (sin pseudo-replicacion). UNA comparacion -> sin Holm. "
-            "La significancia NO es robusta a la eleccion del modelo profundo: "
-            f"{best_deep} p={pval} pero {alt} (casi empatado en MAE) p={pval_alt}."
+            "DM sobre errores escalados por naive de serie, clasicos del protocolo oficial "
+            "(holdout_forecasts, incl. ets/theta), series DISTINTAS, UNA comparacion -> sin Holm. "
+            "Errores serie x fecha concatenados (independencia aproximada). "
+            "Robustez a la eleccion del deep: "
+            f"{best_deep} p={pval} vs {alt} p={pval_alt}."
         ),
     }
 
