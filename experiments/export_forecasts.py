@@ -72,8 +72,9 @@ def _local_rows(table: str) -> list[dict]:
                             "actual": float(av),
                         }
                     )
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as e:  # noqa: BLE001
+                # B6: un modelo que falla ya no desaparece del CSV sin registro
+                print(f"[export_forecasts] FAIL {name} {r.country}/{r.category}: {type(e).__name__}: {str(e)[:80]}")
     return rows
 
 

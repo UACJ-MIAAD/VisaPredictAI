@@ -98,6 +98,34 @@ def run(
                 )
             except Exception as e:  # noqa: BLE001 — una serie/modelo que falle no debe abortar el barrido
                 log.warning("%s/%s/%s %-11s FAIL %s: %s", country, category, table, name, type(e).__name__, str(e)[:80])
+                # B6: fila NaN en vez de omisión — un modelo que revienta en las series
+                # difíciles promediaba solo las fáciles (sesgo de supervivencia invisible).
+                rows.append(
+                    {
+                        "run_id": run_id,
+                        "model": name,
+                        "country": country,
+                        "category": category,
+                        "table": table,
+                        **{
+                            k: float("nan")
+                            for k in (
+                                "sel_mase",
+                                "sel_smape",
+                                "sel_mae",
+                                "sel_rmse",
+                                "hold_mase",
+                                "hold_smape",
+                                "hold_mae",
+                                "hold_rmse",
+                                "hold_msis",
+                                "hold_interval_score",
+                                "hold_coverage",
+                            )
+                        },
+                        "secs": round(time.time() - t0, 1),
+                    }
+                )
     return pd.DataFrame(rows)
 
 
@@ -123,6 +151,10 @@ def summary(df: pd.DataFrame) -> pd.DataFrame:
         df, n_raw, n_eff = significance.dedup_series(df, value="hold_mase")
         if n_eff < n_raw:
             log.info("dedup pseudo-réplicas: %d series -> %d efectivas", n_raw, n_eff)
+    # B6: visibilizar fallos — la media de un modelo con NaN cubre menos series
+    fails = df.groupby("model")["hold_mase"].apply(lambda s: int(s.isna().sum()))
+    for m, k in fails[fails > 0].items():
+        log.warning("modelo %s: %d serie(s) FALLIDA(s) — su media cubre menos series", m, k)
     return (
         df.groupby("model")[["sel_mase", "hold_mase", "sel_smape", "hold_smape"]]
         .mean()
