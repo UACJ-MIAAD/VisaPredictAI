@@ -17,7 +17,7 @@ artifacts:
   paper: ["reports/paper_micai/paper.tex", "reports/paper_micai/README.md"]
   readmes: ["README.md"]
   # content/source.html = la fuente ES (incluye #datos); el ES no tiene un datos.html aparte.
-  web: ["../VisaPredictAI_web/content/source.html", "../VisaPredictAI_web/content/en/capi.html", "../VisaPredictAI_web/content/en/datos.html"]
+  web: ["../VisaPredictAI_web/content/source.html", "../VisaPredictAI_web/content/en/capi.html", "../VisaPredictAI_web/content/en/datos.html", "../VisaPredictAI_web/content/en/mlops.html", "../VisaPredictAI_web/content/en/modelo.html"]
 
 forbidden:
   - pattern: 'holgura|holgada'
@@ -38,6 +38,9 @@ forbidden:
   - pattern: 'FAD[^.;]{0,90}0\.10[67]|0\.10[67][^.;]{0,60}\bFAD\b'
     in: [deliverable, paper, readmes]
     reason: '0.106/0.107 son los hold-out DFF de ETS/Theta; los campeones FAD valen 0.119/0.118 (misatribución detectada en audit 2-jul-2026)'
+  - pattern: '\b65\b[^%<]{0,12}(pruebas|tests|pytest)|metric-num">65<'
+    in: [deliverable, paper, readmes, web]
+    reason: 'el conteo "65 tests" quedó fósil (la suite colecta 139); actualizar al conteo real al citar la suite (audit 2-jul-2026)'
 
 required:
   - fact: n_series_structural
