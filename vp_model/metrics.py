@@ -21,19 +21,27 @@ from darts import TimeSeries
 from darts.metrics import mae, mase, rmse, smape
 
 from vp_model.config import SEASONAL_PERIOD as SEASONAL_M
+from vp_model.config import get_logger
+
+log = get_logger("metrics")
 
 
 def seasonal_naive_mae(values: np.ndarray, m: int = SEASONAL_M) -> float:
     """MAE del naïve estacional in-sample = denominador del MASE/MSIS. ÚNICA fuente.
 
-    Robusta a NaN y a escala cero: si el resultado no es finito o no es positivo
-    (p. ej. serie de 1 punto, o todos los valores iguales) devuelve 1.0 en vez de NaN/0,
-    evitando MASE NaN o división por cero silenciosos.
+    B4: una escala degenerada (serie de 1 punto, o constante) devuelve **NaN con
+    warning**, no 1.0 — el fallback silencioso convertía el "MASE" en MAE en días
+    (~10³) y contaminaba las medias agregadas sin dejar rastro. Los agregadores
+    pandas (`mean()`) omiten NaN, así que la serie degenerada queda excluida del
+    MASE pero conserva sus demás métricas.
     """
     v = np.asarray(values, dtype="float64")
     diffs = np.abs(v[m:] - v[:-m]) if len(v) > m else np.abs(np.diff(v))
     s = float(np.mean(diffs)) if len(diffs) else 0.0
-    return s if np.isfinite(s) and s > 0 else 1.0
+    if np.isfinite(s) and s > 0:
+        return s
+    log.warning("escala naïve degenerada (n=%d, s=%r) — MASE indefinido para esta serie", len(v), s)
+    return float("nan")
 
 
 def naive_scale_before(full: pd.Series, cutoff, m: int = SEASONAL_M) -> float:

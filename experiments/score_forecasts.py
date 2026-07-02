@@ -85,14 +85,22 @@ def run() -> Path | None:
                 s = dataset.load_series(country, category, table)
                 cutoff = pd.Timestamp(origin) + pd.offsets.MonthBegin(1)  # incluye el mes de origen
                 scale_cache[key] = metrics.naive_scale_before(s, cutoff)
-            except Exception:  # noqa: BLE001
-                scale_cache[key] = 1.0
+            except Exception as e:  # noqa: BLE001
+                # B4: el fallback silencioso scale=1.0 convertía el MASE prospectivo en
+                # días crudos (~10³) y fluía a key_facts→web/LaTeX/paper sin señal.
+                # NaN excluye la fila del MASE (pandas mean omite NaN) sin perder su
+                # cobertura; el conteo se reporta en el meta como n_no_scale.
+                log.warning("sin escala para %s/%s/%s@%s: %s — fila sin MASE", country, category, table, origin, e)
+                scale_cache[key] = float("nan")
         return scale_cache[key]
 
     scored, pending = _score_rows(fc, actuals, scale_for)
 
     sdf = pd.DataFrame(scored)
     sdf.to_csv(REPORTS / "forecast_scorecard.csv", index=False)
+    n_no_scale = int(sdf["scaled_err"].isna().sum()) if len(sdf) else 0
+    if n_no_scale:
+        log.warning("%d fila(s) evaluable(s) sin escala naïve válida (excluidas del MASE)", n_no_scale)
 
     def agg(d: pd.DataFrame) -> dict:
         return {
@@ -117,6 +125,7 @@ def run() -> Path | None:
         "what": "evaluación prospectiva (pronóstico congelado vs corte realmente publicado)",
         "caveat": "backfill leakage-free; NO equivale a haber servido los pronósticos en tiempo real",
         "n_scored": int(len(sdf)),
+        "n_no_scale": n_no_scale,
         "n_pending": int(pending),
         "n_vintages_total": int(fc["origin"].nunique()),
         "n_vintages_effective": int(sum(1 for c in scored_by_vintage.values() if c > 0)),
