@@ -1,4 +1,12 @@
-"""Entrenamiento GLOBAL de transformers/MLP modernos vía neuralforecast (Nixtla).
+"""⚠️ DEPRECATED (B7, 2-jul-2026) — NO USAR. Sustituido por ``run_global_deep.py``.
+
+Este pipeline temprano produjo el claim RETRACTADO "deep gana en ambas tablas
+(0.108/0.088)": interpola los meses Current sin límite (los puntúa como verdad),
+no fija semillas, y su evaluador asumía FAD. ``run_global_deep.py`` (C-encoding,
+multi-semilla, F-mask en evaluación) es el camino vigente. Se conserva solo como
+registro histórico del experimento; borrar cuando el paper quede aceptado.
+
+Entrenamiento GLOBAL de transformers/MLP modernos vía neuralforecast (Nixtla).
 
 Corre en el venv AISLADO ``ante_nf`` (neuralforecast exige pandas<3, incompatible con
 el pandas 3.0.0 del pipeline principal). Es además la implementación de la estrategia

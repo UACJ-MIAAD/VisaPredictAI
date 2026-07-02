@@ -13,7 +13,7 @@ ante/bin/python experiments/run_ensembles.py --mlflow
 
 | Grupo | Scripts |
 |---|---|
-| Entrenamiento global deep | `run_global_deep.py` · `run_deep_pi.py` · `run_neuralforecast.py` |
+| Entrenamiento global deep | `run_global_deep.py` · `run_deep_pi.py` (`run_neuralforecast.py` está **DEPRECATED**: produjo el claim retractado; ver su docstring) |
 | Mejoras / ensembles | `improve_*.py` · `run_ensembles.py` · `aggregate_seeds.py` |
 | Finalistas / export | `save_finalists*.py` · `export_forecasts.py` · `eval_deep_pi.py` |
 | Orquestadores (bash) | `run_campaign.sh` · `run_experiments.sh` · `run_overnight_global.sh` · `save_finalists.sh` |
