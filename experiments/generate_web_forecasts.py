@@ -194,11 +194,15 @@ LOG_KEYS = ["origin", "country", "category", "table", "date"]
 def _append_log(rows: list[dict]) -> Path:
     """Anexa la añada al ledger append-only ``reports/forecast_log.csv`` (idempotente
     por (origin, serie, fecha-objetivo)). Es el registro inmutable de lo que
-    predijimos y desde cuándo — base de la evaluación prospectiva (``score_forecasts``)."""
+    predijimos y desde cuándo — base de la evaluación prospectiva (``score_forecasts``).
+
+    C3: ``keep="first"`` — un pronóstico ya congelado NUNCA se sobrescribe. Con
+    ``keep="last"`` un re-run (código/semilla distinta) reemplazaba añadas ya
+    archivadas e invalidaba la evaluación prospectiva."""
     log_path = REPORTS / "forecast_log.csv"
     new = pd.DataFrame(rows)[LOG_COLS]
     combined = pd.concat([pd.read_csv(log_path), new], ignore_index=True) if log_path.exists() else new
-    combined = combined.drop_duplicates(subset=LOG_KEYS, keep="last").sort_values(LOG_KEYS)
+    combined = combined.drop_duplicates(subset=LOG_KEYS, keep="first").sort_values(LOG_KEYS)
     combined.to_csv(log_path, index=False)
     log.info("ledger -> %s (%d filas, %d añadas)", log_path, len(combined), combined["origin"].nunique())
     return log_path
@@ -220,30 +224,49 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
                 all_meta.update(meta)
                 log.info("✓ %s/%s/%s (%d series acumuladas)", table, r.country, r.category, len(all_meta))
 
-    _append_log(all_rows)  # archiva la añada (cualquier as_of), SIEMPRE
-    # La añada en vivo (as_of=None) es además la que sirve la web.
-    if as_of is None:
-        pd.DataFrame(all_rows)[WEB_COLS].to_csv(REPORTS / "web_forecasts.csv", index=False)
+    # C2: gate de salida — un env roto a medias (dep faltante, BD vieja) produce una
+    # añada casi vacía vía los error-boundaries por serie. NO publicar, NO archivar:
+    # el ledger es inmutable (C3) y una añada parcial congelada lo contamina para siempre.
     csv_path = REPORTS / "web_forecasts.csv"
     meta_path = REPORTS / "web_forecasts_meta.json"
-    meta_path.write_text(
-        json.dumps(
-            {
-                "method": {
-                    "FAD": "Mediana de Theta + ETS + SARIMA · intervalo conforme (95 %/80 %) ensanchado por √h",
-                    "DFF": "SARIMA · intervalo conforme (95 %/80 %) ensanchado por √h",
-                },
-                "horizon_months": HORIZON,
-                "base_date": "1975-01-01",
-                "n_series": len(all_meta),
-                "series": all_meta,
-            },
-            ensure_ascii=False,
-            indent=2,
+    expected = json.loads(meta_path.read_text())["n_series"] if meta_path.exists() else 0
+    if expected and len(all_meta) < 0.9 * expected:
+        raise SystemExit(
+            f"ABORT: solo {len(all_meta)} series pronosticadas (<90% de las {expected} del run previo) "
+            "— entorno roto a medias; no se publica ni se archiva la añada"
         )
-        + "\n"
-    )
-    log.info("escrito -> %s (%d filas, %d series)", csv_path, len(all_rows), len(all_meta))
+
+    _append_log(all_rows)  # archiva la añada (cualquier as_of)
+    # La añada en vivo (as_of=None) es además la que sirve la web; el meta describe el
+    # CSV vivo, así que un backfill histórico NO debe reescribirlo (C3).
+    if as_of is None:
+        pd.DataFrame(all_rows)[WEB_COLS].to_csv(csv_path, index=False)
+        # método derivado del manifiesto campeón (PROD), no prosa congelada (C3)
+        pretty = {"theta": "Theta", "ets": "ETS", "sarima": "SARIMA", "arima": "ARIMA", "kalman": "Kalman"}
+        method = {
+            t: (("Mediana de " if len(PROD[t]) > 1 else "") + " + ".join(pretty.get(m, m) for m in PROD[t]))
+            + " · intervalo conforme (95 %/80 %) ensanchado por √h"
+            for t in config.TABLES
+        }
+        meta_path.write_text(
+            json.dumps(
+                {
+                    "method": method,
+                    "horizon_months": HORIZON,
+                    "base_date": "1975-01-01",
+                    "n_series": len(all_meta),
+                    "series": all_meta,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n"
+        )
+        log.info("escrito -> %s (%d filas, %d series)", csv_path, len(all_rows), len(all_meta))
+    else:
+        log.info(
+            "añada histórica %s archivada en el ledger (%d series); web_forecasts.csv intacto", as_of, len(all_meta)
+        )
     return csv_path, meta_path
 
 

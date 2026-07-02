@@ -18,6 +18,9 @@ PY=${PY:-ante/bin/python}
 
 # Añadas históricas a sembrar (origen del pronóstico). Cada una predice 12 meses ya
 # observados → 100 % evaluables. Ampliar/recortar según se quiera más cobertura.
+# ⚠️ CAVEAT (C3): estas 3 añadas caen DENTRO del hold-out que seleccionó a la receta
+# campeona → su "MASE prospectivo" es parcialmente in-selección (optimista). Las añadas
+# genuinamente prospectivas son las que el cron congela a partir del despliegue (jun-2026+).
 VINTAGES=(2024-07 2025-01 2025-07)
 
 echo "[backfill] live vintage (also serves the web) ..."
