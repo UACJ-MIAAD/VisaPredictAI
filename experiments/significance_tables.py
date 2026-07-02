@@ -34,6 +34,10 @@ def _ranking(table: str) -> dict:
     # una fila por (serie, modelo); pivot a serie×modelo. Si hay corridas repetidas,
     # toma la mejor (menor) hold_mase por modelo-serie (selección determinista).
     piv = df.groupby(["country", "category", "model"])["hold_mase"].min().unstack("model")
+    # B6 dejó filas TODO-NaN para las series estructurales no evaluables (antes ni
+    # aparecían): quitarlas ANTES del filtro de columnas, o el dropna(axis=1) de abajo
+    # tiraría TODOS los modelos (cada columna tiene NaN en esas filas).
+    piv = piv.dropna(axis=0, how="all")
     piv = piv.dropna(axis=1, how="any")  # solo modelos evaluados en TODAS las series
     # DEDUP pseudo-replicación: el corte mundial se replica idéntico en varios países (India,
     # China, All-Charg comparten valores para algunas categorías) → filas idénticas en TODOS los
