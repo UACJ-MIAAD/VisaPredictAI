@@ -7,7 +7,7 @@ Dimensions:
   2  Bulletin-level completeness (accordion vs dead months)
   3  Series inventory (length, span, gaps per series)
   4  Status distribution (F/C/U/UNK)
-  5  Temporal gaps (classified)
+  5  (fusionada en 3: huecos por serie en el inventario)
   6  Key uniqueness
   7  Date validity (range, priority<=bulletin, base non-negative)
   8  DFF vs FAD coherence (DFF priority should be >= FAD priority)
@@ -186,8 +186,11 @@ def d7_validity(p):
         flag("CRIT", f"{neg} days_since_base negativos")
     # priority within plausible year range
     yr = f.priority_date.dt.year
-    bad_yr = f[(yr < 1975) | (yr > 2026)]
-    add(f"- priority_date fuera de [1975,2026]: **{len(bad_yr)}** {'✓' if len(bad_yr) == 0 else '✗'}")
+    ceiling = int(p.bulletin_date.dt.year.max())  # techo = último boletín, no un año congelado
+    bad_yr = f[(yr < 1975) | (yr > ceiling)]
+    add(f"- priority_date fuera de [1975,{ceiling}]: **{len(bad_yr)}** {'✓' if len(bad_yr) == 0 else '✗'}")
+    if len(bad_yr):
+        flag("CRIT", f"{len(bad_yr)} priority_date fuera de [1975,{ceiling}]")  # E5: antes imprimía ✗ sin flag
     # priority should not exceed the bulletin month (final action can't be in the future)
     future = f[f.priority_date > f.bulletin_date]
     add(f"- priority_date > bulletin_date (fecha futura): **{len(future)}**")
@@ -204,6 +207,19 @@ def d7_validity(p):
     badC = int(((p.status == "C") & (p.raw_value.astype(str).str.upper() != "C")).sum())
     badU = int(((p.status == "U") & (p.raw_value.astype(str).str.upper() != "U")).sum())
     add(f"- status=C con raw≠'C': {badC} · status=U con raw≠'U': {badU}")
+    # E5: contrato central del panel (days_iff_F / pdate_iff_F + dominio de status) —
+    # una fila status='X' o un F sin fecha eran invisibles para la auditoría.
+    dom = int((~p.status.isin(["F", "C", "U", "UNK"])).sum())
+    add(f"- status fuera del dominio {{F,C,U,UNK}}: **{dom}** {'✓' if dom == 0 else '✗'}")
+    if dom:
+        flag("CRIT", f"{dom} filas con status fuera de dominio")
+    f_null = int(((p.status == "F") & (p.priority_date.isna() | p.days_since_base.isna())).sum())
+    nf_val = int(((p.status != "F") & (p.priority_date.notna() | p.days_since_base.notna())).sum())
+    add(
+        f"- contrato days_iff_F: F sin fecha/días **{f_null}** · no-F con fecha/días **{nf_val}** {'✓' if f_null + nf_val == 0 else '✗'}"
+    )
+    if f_null or nf_val:
+        flag("CRIT", f"contrato days_iff_F violado (F nulos={f_null}, no-F con valor={nf_val})")
 
 
 # ------------------------------------------------------- 8. DFF vs FAD
@@ -295,11 +311,27 @@ def d11_matrix(inv):
 
 
 # ------------------------------------------------------- 12. trainability
-def d12_train(inv):
-    sec(12, "Vista previa de entrenabilidad (corridas F continuas)")
+def _max_f_run(dates) -> int:
+    """Corrida máxima de meses F CONSECUTIVOS (huecos > 1 mes cortan la corrida)."""
+    if len(dates) == 0:
+        return 0
+    d = sorted(pd.Timestamp(x).to_period("M") for x in dates)
+    best = cur = 1
+    for a, b in zip(d, d[1:], strict=False):
+        cur = cur + 1 if (b - a).n == 1 else 1
+        best = max(best, cur)
+    return best
+
+
+def d12_train(inv, p):
+    sec(12, "Vista previa de entrenabilidad (F totales y corrida F continua máxima)")
+    f = p[p.status == "F"]
+    runs = f.groupby(["country", "block", "category", "table"]).bulletin_date.apply(lambda s: _max_f_run(s.values))
     for thr in [24, 60, 120]:
         n = int((inv.n_F >= thr).sum())
-        add(f"- Series con ≥ {thr} observaciones F: **{n}** / {len(inv)}")
+        r = int((runs >= thr).sum())
+        # E5: n_F total ≠ entrenable — una serie rota en tramos pasaba como continua
+        add(f"- Series con ≥ {thr} obs F: **{n}** / {len(inv)} · con corrida F CONTINUA ≥ {thr}: **{r}**")
     add(
         "",
         "- Las series con n_F bajo (EB-5 set-asides, categorías sin columna "
@@ -326,7 +358,7 @@ def main():
     d9_jumps(p)
     d10_reconcile(p)
     d11_matrix(inv)
-    d12_train(inv)
+    d12_train(inv, p)
 
     # veredicto
     crit = [m for s, m in FLAGS if s == "CRIT"]
@@ -344,7 +376,9 @@ def main():
     print(f"✓ {OUT} ({len(L)} líneas)")
     print("\n".join(f"  [{s}] {m}" for s, m in FLAGS) or "  sin flags")
     print(f"\nVEREDICTO: {veredicto}  (crit={len(crit)} warn={len(warn)} info={len(info)})")
+    # E5: la auditoría tiene dientes — con críticos, `make audit` / `make all` DEBEN romper.
+    return 1 if crit else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
