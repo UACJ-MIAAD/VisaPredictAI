@@ -15,13 +15,13 @@
   "prosp_cov80_heldout": 0.81,
   "prosp_n_vintages_effective": 3,
   "band80_ratio": 0.4744,
-  "ets_fad_mean": 0.119,
-  "theta_fad_mean": 0.118,
-  "ets_dff_mean": 0.106,
-  "theta_dff_mean": 0.107,
-  "autoarima_fad_mean": 0.161,
-  "autoarima_fad_median": 0.135,
-  "autoarima_dff_mean": 0.101,
+  "ets_fad_mean": 0.112,
+  "theta_fad_mean": 0.111,
+  "ets_dff_mean": 0.104,
+  "theta_dff_mean": 0.105,
+  "autoarima_fad_mean": 0.154,
+  "autoarima_fad_median": 0.112,
+  "autoarima_dff_mean": 0.099,
   "autoarima_dff_median": 0.086,
   "mcs_fad": [
     "ets",
@@ -33,6 +33,6 @@
   ],
   "bitcn_dff_mean": 0.09,
   "autobitcn_fad_mean": 0.112,
-  "fad_champion_mase": 0.117,
-  "deep_dff_margin_pct": 11
+  "fad_champion_mase": 0.109,
+  "deep_dff_margin_pct": 9
 }

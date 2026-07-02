@@ -205,7 +205,7 @@ profundas—. A estos se sumaron \textbf{versiones globales} de las redes, entre
 todo el panel a la vez. El sistema se entrena exclusivamente sobre las observaciones con fecha
 específica y cuantifica la incertidumbre con intervalos de predicción al 95\,\% de cobertura
 empírica verificada. Los resultados muestran que el desempeño \textbf{depende del régimen}:
-el aprendizaje profundo global supera por un margen modesto ($\sim$11\,\% en media, frente a
+el aprendizaje profundo global supera por un margen modesto ($\sim$9\,\% en media, frente a
 un Auto-ARIMA afinado) a los modelos parsimoniosos en las series cortas (DFF) —una ventaja
 sensible a la agregación y sobre una muestra efectiva pequeña— e iguala su desempeño en las
 series largas (FAD), donde un modelo simple ya es prácticamente óptimo. El error alcanzado se aproxima al límite irreducible de estas series
@@ -1191,7 +1191,7 @@ desmiente su aparente ventaja.
 exponencial con tendencia amortiguada\cita{15}\cita{16}, la descomposición de Theta\cita{17} y el filtro de Kalman\cita{18} comparten
 una virtud decisiva: \textbf{pocos parámetros}. Se eligen justo para el régimen observado, donde
 un modelo simple y bien regularizado es difícil de batir. El resultado lo confirma: \textbf{ETS y
-Theta encabezan FAD} (MASE $0.117$), por delante de todos los modelos de mayor capacidad. Es el
+Theta encabezan FAD} (MASE $\approx 0.11$), por delante de todos los modelos de mayor capacidad. Es el
 hallazgo contraintuitivo del proyecto: aquí, menos es más.
 
 \paragraph{Aditivo: Prophet \cita{19}.} Descompone la serie en tendencia, estacionalidad y puntos
@@ -1553,11 +1553,11 @@ $\mathrm{CD}$ & diferencia crítica de la prueba de Nemenyi \\
 
 La Tabla~\ref{tab:comparacion_modelos} presenta el desempeño promedio de los 21
 modelos sobre las 25 series. Los modelos estadísticos parsimoniosos lideran:
-\textbf{ETS con tendencia amortiguada y Theta empatan en el primer lugar}
-(MASE $=0.117$), seguidos de cerca por \textbf{CatBoost} sobre deltas ($0.124$), SARIMA
-($0.139$) y ARIMA ($0.157$). Los árboles de potenciación de gradiente, una vez
+\textbf{Theta y ETS con tendencia amortiguada encabezan}
+(MASE $=0.109$ y $0.110$), seguidos de cerca por \textbf{CatBoost} sobre deltas ($0.122$), SARIMA
+($0.131$) y ARIMA ($0.154$). Los árboles de potenciación de gradiente, una vez
 formulados sobre la primera diferencia (para que puedan extrapolar la tendencia),
-resultan plenamente competitivos: CatBoost, XGBoost ($0.159$) y LightGBM ($0.173$)
+resultan plenamente competitivos: CatBoost, XGBoost ($0.159$) y LightGBM ($0.177$)
 figuran en la primera mitad de la tabla. En el otro extremo, los modelos de redes
 neuronales \textit{entrenados localmente} (LSTM, DeepAR y el Temporal Fusion
 Transformer) caen \textbf{por debajo del naïve estacional}, con el TFT en último lugar
@@ -1582,37 +1582,37 @@ por el naïve estacional; menor es mejor. Chronos es zero-shot (sin entrenar).}
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Modelo} & \textbf{MASE sel.} & \textbf{MASE hold-out} & \textbf{sMAPE sel.} & \textbf{sMAPE hold-out} \\ \midrule
-ETS (damped) & \textbf{0.117} & 0.119 & 0.41 & 0.30 \\
-Theta & \textbf{0.117} & \textbf{0.118} & 0.41 & 0.30 \\
-CatBoost & 0.124 & 0.164 & 0.47 & 0.42 \\
-SARIMA & 0.139 & 0.142 & 0.54 & 0.37 \\
-ARIMA & 0.157 & 0.145 & 0.60 & 0.38 \\
-XGBoost & 0.159 & 0.208 & 0.69 & 0.52 \\
-NLinear & 0.160 & 0.165 & 0.62 & 0.44 \\
-LightGBM & 0.173 & 0.195 & 0.70 & 0.52 \\
-Kalman & 0.183 & 0.178 & 0.69 & 0.48 \\
-Chronos (zero-shot) & 0.225 & 0.293 & 0.74 & 0.73 \\
-ARIMA-LSTM & 0.428 & 0.746 & 1.39 & 1.79 \\
-RLinear (ridge) & 0.443 & 0.147 & 2.00 & 0.38 \\
-TiDE & 0.463 & 0.340 & 1.69 & 0.91 \\
-DLinear & 0.470 & 0.318 & 1.64 & 0.81 \\
-N-HiTS & 0.505 & 0.395 & 1.83 & 1.03 \\
-Prophet & 0.572 & 0.789 & 2.00 & 2.04 \\
-N-BEATS & 0.657 & 0.401 & 2.31 & 1.05 \\
-Naïve estacional & 1.074 & 1.304 & 3.53 & 3.34 \\
-DeepAR & 1.348 & 1.495 & 4.57 & 3.75 \\
-LSTM & 1.401 & 1.502 & 4.40 & 3.63 \\
-TFT & 2.612 & 2.317 & 9.62 & 6.21 \\
+Theta & \textbf{0.109} & \textbf{0.111} & 0.43 & 0.30 \\
+ETS (damped) & 0.110 & 0.112 & 0.43 & 0.30 \\
+CatBoost & 0.122 & 0.156 & 0.50 & 0.43 \\
+SARIMA & 0.131 & 0.135 & 0.53 & 0.37 \\
+ARIMA & 0.154 & 0.138 & 0.63 & 0.38 \\
+NLinear & 0.158 & 0.158 & 0.64 & 0.44 \\
+XGBoost & 0.159 & 0.195 & 0.73 & 0.52 \\
+Kalman & 0.176 & 0.169 & 0.72 & 0.48 \\
+LightGBM & 0.177 & 0.185 & 0.72 & 0.52 \\
+Chronos (zero-shot) & 0.205 & 0.275 & 0.76 & 0.73 \\
+ARIMA-LSTM & 0.385 & 0.690 & 1.43 & 1.79 \\
+DLinear & 0.437 & 0.298 & 1.69 & 0.81 \\
+TiDE & 0.440 & 0.321 & 1.72 & 0.90 \\
+N-HiTS & 0.484 & 0.371 & 1.91 & 1.04 \\
+RLinear (ridge) & 0.491 & 0.139 & 2.10 & 0.38 \\
+Prophet & 0.544 & 0.748 & 2.07 & 2.04 \\
+N-BEATS & 0.618 & 0.373 & 2.41 & 1.04 \\
+Naïve estacional & 0.938 & 1.227 & 3.61 & 3.34 \\
+LSTM & 1.152 & 1.417 & 4.46 & 3.63 \\
+DeepAR & 1.172 & 1.426 & 4.66 & 3.75 \\
+TFT & 2.344 & 2.195 & 9.67 & 6.21 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 Respecto a las hipótesis del Anteproyecto: la hipótesis H1 (que el mejor modelo no
 lineal mejora al lineal en proporción material) \textit{no} se sostiene, aunque el
-margen es estrecho: el mejor no lineal (CatBoost sobre deltas, MASE $=0.124$) queda muy
-cerca pero no supera a los parsimoniosos ETS y Theta ($0.117$). La hipótesis H2
+margen es estrecho: el mejor no lineal (CatBoost sobre deltas, MASE $=0.122$) queda muy
+cerca pero no supera a los parsimoniosos Theta y ETS ($0.109$--$0.110$). La hipótesis H2
 (heterogeneidad por país-categoría-tabla) sí se sostiene: el modelo ganador varía por
-serie (CatBoost en 11, ETS en 8, Theta en 6), repartido entre un árbol y la familia
+serie (CatBoost en 11, ETS en 9, Theta en 5), repartido entre un árbol y la familia
 estadística. La significancia de las diferencias se contrasta con la prueba de
 Diebold-Mariano \cita{35} (corrección de Holm) y, dado el tamaño del pool, con el conjunto de
 confianza de modelos (Model Confidence Set) \cita{36} y el ranking de Friedman-Nemenyi
@@ -1621,10 +1621,10 @@ confianza de modelos (Model Confidence Set) \cita{36} y el ranking de Friedman-N
 \paragraph{Resultados sobre la tabla DFF.} Como FAD y DFF se evalúan por separado, el
 mismo protocolo (los 21 modelos) se aplicó a las 25 series DFF de preferencia familiar
 (Tabla~\ref{tab:comparacion_dff}). El patrón confirma el de FAD: lideran de nuevo los
-modelos parsimoniosos y los árboles sobre deltas, con \textbf{CatBoost} a la cabeza
-(MASE de selección $=0.116$), seguido muy de cerca por ETS ($0.117$) y Theta ($0.119$);
+modelos parsimoniosos, con \textbf{ETS y Theta} a la cabeza
+(MASE de selección $=0.090$), seguidos muy de cerca por \textbf{CatBoost} sobre deltas ($0.094$);
 en estas series más cortas (disponibles solo desde octubre de 2015) los árboles
-—CatBoost, LightGBM ($0.131$) y XGBoost ($0.134$)— escalan posiciones respecto a FAD,
+—CatBoost, LightGBM ($0.106$) y XGBoost ($0.109$)— escalan posiciones respecto a FAD,
 coherente con su robustez ante muestras pequeñas; la Figura~\ref{fig:ranking} resume el
 desempeño de todo el repertorio sobre ambas tablas. El ganador por serie vuelve a
 repartirse (H2): CatBoost en 10 series, ARIMA en 7 y Theta en 6. Más relevante aún es la
@@ -1652,26 +1652,26 @@ ninguna. El hold-out de SARIMA solo cubre 13 series (sesgo de supervivencia).}
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Modelo} & \textbf{MASE sel.} & \textbf{MASE hold-out} & \textbf{sMAPE sel.} & \textbf{sMAPE hold-out} & \textbf{$n$} \\ \midrule
-CatBoost & \textbf{0.116} & 0.113 & 0.24 & 0.25 & 25 \\
-ETS (damped) & 0.117 & \textbf{0.106} & 0.23 & 0.23 & 25 \\
-Theta & 0.119 & 0.107 & 0.24 & 0.24 & 25 \\
-LightGBM & 0.131 & 0.127 & 0.27 & 0.29 & 25 \\
-ARIMA & 0.133 & 0.107 & 0.26 & 0.24 & 20 \\
-XGBoost & 0.134 & 0.127 & 0.27 & 0.29 & 25 \\
-NLinear & 0.164 & 0.129 & 0.33 & 0.28 & 25 \\
-Chronos (zero-shot) & 0.175 & 0.214 & 0.34 & 0.47 & 25 \\
-Kalman & 0.207 & 0.132 & 0.43 & 0.30 & 25 \\
-Prophet & 0.368 & 0.409 & 0.72 & 0.91 & 25 \\
-N-HiTS & 0.527 & 0.281 & 1.00 & 0.64 & 25 \\
-TiDE & 0.645 & 0.278 & 1.20 & 0.62 & 25 \\
-N-BEATS & 0.672 & 0.388 & 1.30 & 0.84 & 25 \\
-DLinear & 1.215 & 0.323 & 2.26 & 0.69 & 25 \\
-Naïve estacional & 1.392 & 0.843 & 2.81 & 1.92 & 25 \\
-SARIMA & 1.655 & 0.100 & 0.51 & 0.26 & 13 \\
-DeepAR & 2.349 & 1.743 & 4.98 & 4.97 & 25 \\
-RLinear (ridge) & 2.370 & 0.136 & 2.75 & 0.31 & 25 \\
-LSTM & 2.483 & 1.712 & 5.24 & 4.55 & 25 \\
-TFT & 3.214 & 2.768 & 6.60 & 7.23 & 25 \\
+ETS (damped) & \textbf{0.090} & \textbf{0.104} & 0.24 & 0.23 & 25 \\
+Theta & 0.090 & 0.105 & 0.24 & 0.24 & 25 \\
+CatBoost & 0.094 & 0.111 & 0.24 & 0.25 & 25 \\
+ARIMA & 0.099 & 0.107 & 0.26 & 0.24 & 20 \\
+LightGBM & 0.106 & 0.124 & 0.28 & 0.29 & 25 \\
+XGBoost & 0.109 & 0.125 & 0.28 & 0.29 & 25 \\
+NLinear & 0.124 & 0.127 & 0.34 & 0.28 & 25 \\
+Chronos (zero-shot) & 0.130 & 0.209 & 0.34 & 0.47 & 25 \\
+Kalman & 0.165 & 0.129 & 0.44 & 0.30 & 25 \\
+Prophet & 0.279 & 0.404 & 0.74 & 0.91 & 25 \\
+N-HiTS & 0.403 & 0.276 & 1.04 & 0.64 & 25 \\
+TiDE & 0.493 & 0.274 & 1.23 & 0.62 & 25 \\
+N-BEATS & 0.525 & 0.383 & 1.34 & 0.84 & 25 \\
+DLinear & 0.915 & 0.318 & 2.29 & 0.69 & 25 \\
+Naïve estacional & 1.036 & 0.822 & 2.82 & 1.92 & 25 \\
+SARIMA & 1.699 & 0.100 & 0.51 & 0.26 & 13 \\
+DeepAR & 1.759 & 1.723 & 5.04 & 4.97 & 25 \\
+LSTM & 1.872 & 1.679 & 5.30 & 4.55 & 25 \\
+TFT & 2.265 & 2.703 & 6.42 & 7.23 & 25 \\
+RLinear (ridge) & 2.515 & 0.133 & 2.80 & 0.31 & 25 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1717,20 +1717,20 @@ XGBoost de $0.208$ a $0.152$ ($-27$\,\%) y CatBoost de $0.164$ a $0.137$ ($-17$\
 DFF la ganancia es de $4$ a $15$\,\%. Los seis casos mejoran y se aceptan. Ahora bien,
 la optimización \textit{cierra la brecha pero no cambia el veredicto}: los árboles
 tuneados (FAD $0.137$--$0.152$) siguen por encima de los parsimoniosos ETS y Theta
-($0.118$), y en DFF ($0.109$) por encima de SARIMA. La capacidad adicional bien regulada
+($0.112$), y en DFF ($0.109$) por encima del listón re-derivado. La capacidad adicional bien regulada
 acerca al modelo complejo, no lo hace superar al simple.
 
 \paragraph{Combinación de modelos y distribución predictiva.} Se evaluaron, también sin
 fuga, estrategias de conjunto sobre los pronósticos del hold-out \cita{38}. La
 \textit{selección por serie} (elegir para cada serie el modelo de menor error de
-selección) \textit{empeora} respecto al mejor modelo global ($+9.5$\,\% en FAD,
-$+10.5$\,\% en DFF): el criterio de selección no generaliza al hold-out con series tan
+selección) \textit{empeora} respecto al mejor modelo global ($+8.1$\,\% en FAD,
+$+4.4$\,\% en DFF, sobre las series distintas): el criterio de selección no generaliza al hold-out con series tan
 cortas. La media o mediana de un conjunto amplio de siete modelos también queda por
 detrás, arrastrada por los miembros débiles. Solo una \textbf{combinación curada de los
-modelos fuertes} aporta valor: la mediana de Theta, ETS y SARIMA alcanza MASE $=0.1115$
-en FAD, superando por $\sim$5\,\% al mejor modelo parsimonioso individual ($0.117$); en
+modelos fuertes} aporta valor: la mediana de Theta, ETS y SARIMA alcanza MASE $=0.1165$
+en FAD sobre las series distintas, superando por $\sim$5\,\% al mejor modelo individual en ese mismo conjunto ($0.1229$); en
 DFF, en cambio, ninguna combinación de modelos por serie mejora a sus miembros. La cota de un selector perfecto (oráculo)
-es apenas $0.112$ en FAD, lo que confirma que hay poco margen por ganar. En cuanto a la
+es apenas $0.1154$ en FAD, lo que confirma que hay poco margen por ganar. En cuanto a la
 \textit{distribución predictiva completa}, medida con el CRPS (\textit{Continuous Ranked Probability Score}) \cita{39} sobre los
 modelos con muestreo nativo, los clásicos producen distribuciones mucho más fieles que
 la red neuronal: SARIMA ($48.0$ días) $\approx$ ARIMA ($49.1$) $\ll$ DeepAR ($174.5$).
@@ -1759,16 +1759,16 @@ y de empleo con \textbf{normalización por serie} —para que convivan sus disti
 escalas— da a cada serie más señal y baja BiTCN a $0.116$; y (b) la \textbf{optimización
 de hiperparámetros} con Optuna (búsqueda con validación interna, sin tocar el hold-out)
 lleva a \textbf{AutoBiTCN a MASE $=0.112$ y AutoTiDE a $0.115$}, a la altura de ETS y Theta
-($0.117$). Es decir, en FAD \textbf{un único modelo profundo global, bien regularizado,
+($0.111$--$0.112$). Es decir, en FAD \textbf{un único modelo profundo global, bien regularizado,
 iguala a los modelos parsimoniosos}: ni los supera ni queda por debajo de forma
 apreciable. \textbf{En DFF, en cambio, el aprendizaje profundo mantiene una ventaja
 modesta}: BiTCN global —MASE $=0.090$ en media— supera al mejor parsimonioso de cobertura
 completa, que tras añadir un \textbf{Auto-ARIMA con selección de orden por AICc} (MASE media
-$=0.101$, mejor que ETS $=0.106$ y Theta $=0.107$) bajo el mismo walk-forward, queda en
-$\sim$11\,\% —no el $15$\,\% que sugería compararlo contra baselines más débiles— (SARIMA no
-es referencia válida en DFF: numéricamente frágil, MASE $=1.66$ sobre las 25 series y un
+$=0.099$, mejor que ETS $=0.104$ y Theta $=0.105$) bajo el mismo walk-forward, queda en
+$\sim$9\,\% —no el $15$\,\% que sugería compararlo contra baselines más débiles— (SARIMA no
+es referencia válida en DFF: numéricamente frágil, MASE $=1.70$ sobre las 25 series y un
 aparente $0.100$ solo sobre las 13 que sobrevive, sesgo de supervivencia). \textbf{La
-ventaja es además sensible a la agregación}: por mediana el Auto-ARIMA ($0.086$) iguala a
+ventaja es además sensible a la agregación}: por mediana el Auto-ARIMA ($0.086$) incluso supera por poco a
 BiTCN ($0.090$), y las $\sim$25 series familiares de DFF colapsan a $\sim$14 distintas al
 descontar la pseudo-replicación del corte mundial compartido, por lo que la muestra efectiva
 es pequeña. La lectura es que el aprendizaje profundo \textit{iguala} a los clásicos en
@@ -1804,10 +1804,10 @@ ambos resultados se reentrenaron con \textbf{cinco semillas independientes} (Fig
 la inicialización de pesos como la búsqueda de hiperparámetros (muestreo TPE con semilla
 distinta por corrida). En DFF la ventaja es \textbf{modesta pero estable entre semillas}:
 BiTCN promedia MASE $=0.090$ con desviación $0.0003$ —intervalo de confianza del $95$\,\%
-$[0.0897,\,0.0901]$—, por encima del mejor clásico afinado (Auto-ARIMA $=0.101$ en media,
-$\sim$11\,\%). En FAD el resultado es un \textbf{empate
+$[0.0897,\,0.0901]$—, por encima del mejor clásico afinado (Auto-ARIMA $=0.099$ en media,
+$\sim$9\,\%). En FAD el resultado es un \textbf{empate
 estadístico}: AutoBiTCN promedia $0.112$ con desviación $0.008$ —intervalo
-$[0.102,\,0.122]$—, un rango que contiene el listón parsimonioso ($0.117$); ni el modelo
+$[0.102,\,0.122]$—, un rango que contiene el listón parsimonioso ($0.112$); ni el modelo
 profundo ni la parsimonia ganan de forma distinguible. La variación entre corridas a
 semilla fija refleja el nondeterminismo del acelerador, acotado por el propio intervalo. La
 lectura honesta, por tanto, es que el aprendizaje profundo \textbf{supera por un margen
@@ -1867,9 +1867,9 @@ modelos heterogéneos, selección de modelo por serie basada en características
 (meta-aprendizaje) y un segundo \textit{foundation model} preentrenado (TabPFN-TS)
 \cita{46}, evaluado en modo zero-shot sobre el panel. Ninguna rompe la frontera de exactitud puntual
 en FAD: el \textit{stacking} y el meta-aprendizaje sobreajustan con apenas $25$ series, y
-TabPFN-TS alcanza un MASE de $0.1155$ —a la altura del listón parsimonioso ($0.117$), pero
+TabPFN-TS alcanza un MASE de $0.1155$ —cerca del listón parsimonioso ($0.112$), pero
 sin descender al nivel de la frontera de error que marcan el mejor modelo profundo global y
-el oráculo de selección perfecta ($\approx 0.112$)—. Que un modelo preentrenado, \textbf{sin ajuste alguno a estos datos}, iguale a
+el oráculo de selección perfecta ($\approx 0.115$)—. Que un modelo preentrenado, \textbf{sin ajuste alguno a estos datos}, iguale a
 los mejores modelos entrenados a medida es la evidencia más clara de que el sistema ya
 opera cerca de su error irreducible en FAD: las retrogresiones —saltos abruptos por
 agotamiento de cuotas— son, por naturaleza, impredecibles, y el margen restante en el punto
@@ -1880,7 +1880,7 @@ calibración de la incertidumbre, donde la inferencia conforme adaptativa sí ap
 \centering
 \caption[Modelos profundos globales (FAD)]{Modelos profundos entrenados de forma global
 sobre las 25 series FAD familiares y el efecto acumulado de las técnicas de
-entrenamiento. MASE de hold-out; el listón parsimonioso es ETS/Theta $=0.117$. La
+entrenamiento. MASE de hold-out; el listón parsimonioso es ETS/Theta $=0.112$. La
 optimización de hiperparámetros lleva a un único modelo profundo (AutoBiTCN) a la altura
 del listón (empate estadístico en FAD).}
 \label{tab:global_deep}
@@ -1895,7 +1895,7 @@ BiTCN & + agrupado + norma por serie & 0.116 \\
 AutoTiDE & + optimización (Optuna) & 0.115 \\ \midrule
 \rowcolor{uacjyellow!25}
 AutoBiTCN & + optimización (Optuna) & \textbf{0.112} \\ \midrule
-ETS / Theta \textit{(listón)} & estadístico, por serie & \textit{0.117} \\ \bottomrule
+ETS / Theta \textit{(listón)} & estadístico, por serie & \textit{0.112} \\ \bottomrule
 \end{tabular}
 \end{table}
 
@@ -2109,8 +2109,8 @@ seis familias bajo un protocolo de validación temporal sin fuga de información
 \paragraph{Hallazgo principal: por serie, la parsimonia gana.} Contra la intuición de que
 ``más capacidad es mejor'', evaluados \textit{por serie} —para fechas de prioridad cortas,
 con tendencia fuerte, estacionalidad casi nula y retrogresiones ocasionales—, \textbf{los
-modelos parsimoniosos encabezan}. ETS amortiguado y Theta lideran FAD (MASE $=0.117$),
-CatBoost sobre deltas lidera DFF ($0.116$), y todos mejoran al naïve estacional por un
+modelos parsimoniosos encabezan}. Theta y ETS amortiguado lideran FAD (MASE $=0.109$--$0.110$)
+y encabezan también DFF ($0.090$, con CatBoost sobre deltas muy cerca, $0.094$), y todos mejoran al naïve estacional por un
 margen amplio. Las redes profundas entrenadas \textit{localmente} (LSTM, DeepAR, TFT) caen
 por debajo del naïve: con 125 a 290 observaciones por serie su capacidad se traduce en
 sobreajuste, no en exactitud.
@@ -2128,14 +2128,14 @@ FAD. El vuelco llega con un cuarto resultado, el más contundente: (iv) entrenad
 el mismo tipo de red que fracasaba localmente pasa a \textbf{competir con los parsimoniosos
 y superarlos donde los datos escasean}: BiTCN logra MASE $=0.090$ en DFF —por debajo del mejor
 parsimonioso de cobertura completa, con el margen reconciliado que cuantifica el veredicto
-abajo— mientras que AutoBiTCN \textbf{empata} con ETS/Theta en FAD ($0.112$ frente a $0.117$).
+abajo— mientras que AutoBiTCN \textbf{empata} con ETS/Theta en FAD ($0.112$ frente a $0.111$--$0.112$).
 
 \paragraph{Veredicto: depende del régimen.} Una validación con cinco semillas precisa esta
 lectura: en DFF la ventaja del modelo profundo es \textbf{modesta pero estable entre
-semillas} (media $0.090\pm0.0003$), $\sim$11\,\% sobre el mejor clásico afinado (Auto-ARIMA
-$0.101$ en media) —ventaja sensible a la agregación (por mediana empata) y sobre una muestra
+semillas} (media $0.090\pm0.0003$), $\sim$9\,\% sobre el mejor clásico afinado (Auto-ARIMA
+$0.099$ en media) —ventaja sensible a la agregación (por mediana el clásico gana por poco) y sobre una muestra
 efectiva pequeña ($\sim$14 series DFF distintas)—, y en FAD es un \textbf{empate estadístico}
-(media $0.112\pm0.008$, intervalo $[0.102,\,0.122]$ que contiene el listón $0.117$).
+(media $0.112\pm0.008$, intervalo $[0.102,\,0.122]$ que contiene el listón $0.112$).
 \textbf{El aprendizaje profundo supera por un margen modesto y frágil en DFF} (series cortas,
 donde el entrenamiento global presta señal entre series) \textbf{e iguala a la parsimonia en
 FAD} (series largas, donde un modelo simple ya es óptimo). Cuando aporta, la ventaja \textbf{no

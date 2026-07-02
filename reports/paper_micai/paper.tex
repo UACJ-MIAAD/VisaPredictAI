@@ -74,7 +74,7 @@ attain 0.92 empirical coverage (under the nominal level, reported as such).
 Consistent with the M4/M5 competitions, well-tuned parsimonious statistics are hard
 to beat: per series, ETS and Theta form the model confidence set, and a tuned
 Auto-ARIMA is a strong baseline. The globally trained deep model only \emph{matches}
-them on the longer Final-Action-Dates series; it retains a modest ($\approx$11\% in
+them on the longer Final-Action-Dates series; it retains a modest ($\approx$9\% in
 the mean) edge on the shorter Dates-for-Filing series, but that edge is sensitive to
 the aggregation and rests on a small effective sample. We release the panel, code,
 and a reproducible evaluation pipeline.
@@ -232,12 +232,12 @@ the model \emph{actually deployed}.
 \label{sec:results}
 
 \paragraph{Per-series benchmark.} Under walk-forward, parsimony is hard to beat per
-series: ETS/Theta reach a hold-out MASE of $\approx$0.117 on family FAD and
+series: ETS/Theta reach a hold-out MASE of $\approx$0.112 on family FAD and
 gradient-boosted trees are competitive on DFF. Locally trained deep models fail on
 the short individual series. Trained \emph{globally} (across series, on differenced
 and per-series-normalized targets, with hyper-parameter search), deep models recover:
 on FAD an AutoBiTCN configuration reaches mean MASE $0.112$, a seed confidence
-interval that contains the ETS/Theta value of $0.117$---a \emph{tie}; a per-table
+interval that contains the ETS/Theta value of $\approx$0.112---a \emph{tie}; a per-table
 Diebold--Mariano test finds no significant FAD separation. On DFF, BiTCN reaches mean
 MASE $0.090$, ahead of the best classical baseline; the size of that lead and its
 robustness are examined with a tuned Auto-ARIMA below. We emphasize that this
@@ -252,14 +252,15 @@ first---the worldwide cut-off is repeated identically across several countries, 
 test runs on fewer effective series. With a Nemenyi post-hoc (Fig.~\ref{fig:cd}) and a
 90\% Model Confidence Set~\cite{demsar2006}, the \emph{only} models that survive in
 both tables are \textbf{ETS and Theta}; SARIMA, the gradient-boosted trees, and all
-locally trained deep models are excluded. The globally trained deep model edges the
-SARIMA baseline on FAD (Diebold--Mariano, $p\approx0.01$), but the result is \emph{not
-robust} to which near-tied deep model is designated (an alternative gives $p\approx0.23$)
+locally trained deep models are excluded. Against the strongest classical under the same protocol (Theta), the globally
+trained deep model shows no significant FAD separation (Diebold--Mariano on
+per-series-scaled errors, $p\approx0.86$),
 and the deep model does not enter the $\{$ETS, Theta$\}$ confidence set---consistent with
 our framing of FAD as a tie. On DFF the \emph{global} deep model (a separate training
 regime) reaches MASE~0.090, on par with the best classical baselines rather than ahead of
-them, and its edge is likewise not robust to deep-model choice ($p$ from 0.007 to 0.08;
-see the tuned-baseline paragraph below).
+them, and its edge is not robust to deep-model choice ($p\approx0.04$ against the best
+classical, but $p\approx0.53$ for the near-tied alternative deep model; see the
+tuned-baseline paragraph below).
 
 \begin{table}[t]\centering\footnotesize
 \caption{Friedman--Nemenyi over the per-series hold-out MASE of the model pool.
@@ -288,13 +289,13 @@ Nemenyi-connected groups. ETS and Theta lead and form the confidence set.}
 
 \paragraph{Tuned classical baseline.} To guard against beating weak baselines, we
 add an order-selected Auto-ARIMA (AICc grid search on the pre-hold-out window, same
-walk-forward). On FAD its mean MASE is 0.161 (median 0.135)---\emph{worse} than ETS
-(0.119) and Theta (0.118), which confirms them as the FAD champions and the deep
-model as their tie. On DFF, Auto-ARIMA is the strongest classical (mean 0.101, median
+walk-forward). On FAD its mean MASE is 0.154 (median 0.112)---\emph{worse} than ETS
+(0.112) and Theta (0.111), which confirms them as the FAD champions and the deep
+model as their tie. On DFF, Auto-ARIMA is the strongest classical (mean 0.099, median
 0.086), so the deep model's DFF lead, originally stated against gradient-boosted
-trees ($\approx$0.116), narrows to $\approx$11\% against this tuned baseline
-(BiTCN~0.090 vs.\ 0.101 in the mean). That lead is moreover \emph{aggregation
-sensitive}: under the median, Auto-ARIMA (0.086) ties BiTCN (0.090), and the
+trees ($\approx$0.111), narrows to $\approx$9\% against this tuned baseline
+(BiTCN~0.090 vs.\ 0.099 in the mean). That lead is moreover \emph{aggregation
+sensitive}: under the median, Auto-ARIMA (0.086) slightly beats BiTCN (0.090), and the
 $\approx$25 DFF family series collapse to only $\approx$14 distinct series once the
 shared-world-cutoff pseudo-replication is removed (Sec.~\ref{sec:discussion}). We
 therefore present the DFF result as a \emph{modest, fragile} edge on a small
@@ -315,7 +316,7 @@ forecasts (Table~\ref{tab:prospective}), the mean absolute error is
 horizon (Fig.~\ref{fig:prospective} (left)): from $\approx$20~days / MASE~0.05 at one month to
 $\approx$351~days / MASE~0.75 at twelve months. Crucially, MASE stays
 \emph{below~1} at every horizon---the forecasts beat the seasonal-naïve baseline
-even a year out. The retrospective hold-out MASE (0.117) and the prospective MASE
+even a year out. The retrospective hold-out MASE (0.112) and the prospective MASE
 (0.345) differ by $\approx$3$\times$; this gap is expected (repeated one-step vs.\
 genuine one-to-twelve-step extrapolation through retrogression shocks) and is
 disclosed rather than hidden.
@@ -387,7 +388,7 @@ dated origin (vertical marker), and the 12-month forecast with 80\%/95\% bands.}
 The central, defensible message is conservative, in the M4/M5 tradition: on this
 panel a well-tuned parsimonious suite (ETS, Theta, order-selected Auto-ARIMA) is hard
 to beat. The globally trained deep model matches it on FAD and holds only a modest,
-aggregation-sensitive edge on DFF ($\approx$11\% in the mean over a small effective
+aggregation-sensitive edge on DFF ($\approx$9\% in the mean over a small effective
 sample); neither gradient-boosted trees nor deep learning dominate the tuned
 statistical baselines. The prospective protocol additionally exposes a $3\times$ optimism in
 the retrospective hold-out number---a discrepancy that any single-split benchmark

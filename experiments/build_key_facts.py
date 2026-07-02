@@ -95,7 +95,9 @@ def _models() -> dict:
     # Si se re-corre el deep, actualizar aquí y reconciliar artefactos.
     out["bitcn_dff_mean"] = 0.090
     out["autobitcn_fad_mean"] = 0.112
-    out["fad_champion_mase"] = 0.117  # listón parsimonioso ETS/Theta en FAD
+    # listón parsimonioso FAD = mejor sel_mase de {ets, theta} (re-derivado post-B1,
+    # 2-jul-2026: la máscara F bajó el listón de 0.117 a 0.109)
+    out["fad_champion_mase"] = 0.109
     # margen DFF del deep vs el mejor clásico afinado (Auto-ARIMA media), en %
     out["deep_dff_margin_pct"] = int(
         round(100 * (out["autoarima_dff_mean"] - out["bitcn_dff_mean"]) / out["autoarima_dff_mean"])

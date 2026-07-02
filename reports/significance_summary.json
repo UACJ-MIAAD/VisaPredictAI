@@ -66,33 +66,33 @@
   "dm": {
     "FAD": {
       "best_deep": "AutoBiTCN",
-      "best_parsimony": "sarima",
+      "best_parsimony": "theta",
       "n_series_distinct": 15,
       "n_series_raw": 25,
       "n_pairs": 360,
-      "mae_deep": 41.0,
-      "mae_parsimony": 50.5,
-      "dm_stat": -2.62,
-      "dm_p": 0.0092,
+      "mase_deep": 0.1166,
+      "mase_parsimony": 0.1158,
+      "dm_stat": 0.176,
+      "dm_p": 0.8604,
       "alt_deep": "BiTCN",
-      "alt_dm_p": 0.2277,
+      "alt_dm_p": 0.119,
       "robust_significant": false,
-      "note": "DM sobre series DISTINTAS (sin pseudo-replicacion). UNA comparacion -> sin Holm. La significancia NO es robusta a la eleccion del modelo profundo: AutoBiTCN p=0.0092 pero BiTCN (casi empatado en MAE) p=0.2277."
+      "note": "DM sobre errores escalados por naive de serie, clasicos del protocolo oficial (holdout_forecasts, incl. ets/theta), series DISTINTAS, UNA comparacion -> sin Holm. Errores serie x fecha concatenados (independencia aproximada). Robustez a la eleccion del deep: AutoBiTCN p=0.8604 vs BiTCN p=0.119."
     },
     "DFF": {
       "best_deep": "BiTCN",
       "best_parsimony": "arima",
       "n_series_distinct": 14,
       "n_series_raw": 25,
-      "n_pairs": 332,
-      "mae_deep": 27.6,
-      "mae_parsimony": 30.0,
-      "dm_stat": 2.74,
-      "dm_p": 0.0065,
+      "n_pairs": 312,
+      "mase_deep": 0.0847,
+      "mase_parsimony": 0.0943,
+      "dm_stat": 2.109,
+      "dm_p": 0.0358,
       "alt_deep": "PatchTST",
-      "alt_dm_p": 0.0837,
+      "alt_dm_p": 0.5286,
       "robust_significant": false,
-      "note": "DM sobre series DISTINTAS (sin pseudo-replicacion). UNA comparacion -> sin Holm. La significancia NO es robusta a la eleccion del modelo profundo: BiTCN p=0.0065 pero PatchTST (casi empatado en MAE) p=0.0837."
+      "note": "DM sobre errores escalados por naive de serie, clasicos del protocolo oficial (holdout_forecasts, incl. ets/theta), series DISTINTAS, UNA comparacion -> sin Holm. Errores serie x fecha concatenados (independencia aproximada). Robustez a la eleccion del deep: BiTCN p=0.0358 vs PatchTST p=0.5286."
     }
   }
 }
