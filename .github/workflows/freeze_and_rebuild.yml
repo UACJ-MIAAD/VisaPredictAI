@@ -19,6 +19,12 @@ on:
 # F4: permisos mínimos por job — el gate no necesita nada; solo `update` escribe.
 permissions: {}
 
+# A5: nunca dos corridas simultáneas (la ventana freeze→push dura 15-30+ min con torch;
+# un run manual encima de un cron era una carrera con push rechazado → activaba A3).
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   # DST-safe gate: only proceed when it is actually 12:00 in New York (so the
   # off-season trigger is dropped). Manual runs always pass.
@@ -32,8 +38,12 @@ jobs:
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
           echo "proceed=true" >> "$GITHUB_OUTPUT"; exit 0
         fi
+        # A5: aceptar 12 Y 13 — los crons de GitHub se retrasan rutinariamente y el
+        # gate exacto (h==12) dejaba días SIN corrida ni heartbeat. Costo: en verano
+        # ambos disparos pasan (12:xx y 13:xx) → una segunda corrida no-op barata,
+        # serializada por el bloque `concurrency` e idempotente por skip-if-exists.
         h=$(TZ=America/New_York date +%H)
-        if [ "$h" = "12" ]; then
+        if [ "$h" = "12" ] || [ "$h" = "13" ]; then
           echo "proceed=true" >> "$GITHUB_OUTPUT"
         else
           echo "proceed=false" >> "$GITHUB_OUTPUT"
@@ -78,7 +88,9 @@ jobs:
         # freeze's skip-if-exists fetches ONLY a month not already frozen.
         aws s3 sync s3://visapredictai-raw-snapshots/raw-html/ data/snapshots/ --quiet
         python freeze_snapshots.py > /tmp/new_count   # crashes fail the step under set -e
-        new=$(cat /tmp/new_count)
+        # A5: robusto a stdout espurio (un warning de una dep rompía el [ "$new" = "0" ])
+        new=$(tail -1 /tmp/new_count)
+        [[ "$new" =~ ^[0-9]+$ ]] || { echo "::error::conteo de freeze no numérico: '$new'"; exit 1; }
         echo "new=$new" >> "$GITHUB_OUTPUT"   # surfaced to the email step below
 
         # A3: rebuild when a month was JUST frozen *or* when a previously frozen
@@ -147,11 +159,14 @@ jobs:
         # 5. Commit the refreshed CSVs/panel/forecasts/scorecard/key_facts (snapshots + DB gitignored).
         git config --local user.email "168046724+jrebull@users.noreply.github.com"
         git config --local user.name "Javier Rebull"
-        git add -A
+        # A5: pathspecs explícitos — `git add -A` tras instalar torch y correr 5 scripts
+        # podía colar cualquier artefacto suelto no-gitignored al repo de historia limpia.
+        git add data/raw data/processed reports
         if git diff --cached --quiet; then
           echo "New HTML frozen but parsed data unchanged -- nothing to commit."
         else
           git commit -m "Add bulletin $(date -u +%Y-%m): refresh panel from frozen HTML"
+          git pull --rebase origin main   # A5: un push a main durante los ~20 min de corrida ya no tumba el job
           git push
         fi
 

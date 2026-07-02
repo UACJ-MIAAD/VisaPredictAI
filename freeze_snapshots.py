@@ -30,6 +30,10 @@ from tqdm import tqdm
 from visa_common import MAX_RETRIES, REQUEST_TIMEOUT, SITE_ROOT, extract_month_links
 
 SNAP_DIR = Path("data/snapshots")
+# A4: piso conocido del índice de boletines (~298 en jul-2026, solo crece). Si el sitio
+# renombra el markup del acordeón, extract_month_links() devuelve [] y el cron se vuelve
+# un no-op perpetuo con heartbeat verde "0 nuevos" — abortar ruidosamente en su lugar.
+MIN_INDEX_LINKS = 290
 logger = logging.getLogger(__name__)
 
 
@@ -70,8 +74,14 @@ def fetch_bytes(url: str) -> bytes:
 
 def main() -> None:
     SNAP_DIR.mkdir(parents=True, exist_ok=True)
+    links = extract_month_links()
+    if len(links) < MIN_INDEX_LINKS:
+        raise SystemExit(
+            f"ERROR: el índice de boletines devolvió {len(links)} links (< piso {MIN_INDEX_LINKS}) — "
+            "¿cambió el markup de travel.state.gov? Abortando para no volverse un no-op silencioso."
+        )
     new = 0
-    for link in tqdm(extract_month_links(), desc="Freezing raw HTML"):
+    for link in tqdm(links, desc="Freezing raw HTML"):
         dest = SNAP_DIR / Path(link).name
         if dest.exists():
             continue  # already frozen -- fixed page, never re-fetch
