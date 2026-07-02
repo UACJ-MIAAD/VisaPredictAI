@@ -15,6 +15,7 @@ Uso (ante):  ante/bin/python experiments/build_key_facts.py   (o `make key-facts
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -24,6 +25,17 @@ from vp_model import config
 ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
 DATA = ROOT / "data" / "processed" / "visa_panel_long.csv"
+
+
+def _prev_facts() -> dict:
+    """key_facts.json previo (versionado): fallback cuando falta un insumo (C1).
+
+    En el runner del Action un CSV intermedio ausente NO debe tumbar el pipeline
+    semanal: se conservan las cifras previas con un warning ruidoso. Si tampoco hay
+    key_facts previo, el KeyError posterior aborta (mejor explotar que inventar).
+    """
+    p = REPORTS / "key_facts.json"
+    return json.loads(p.read_text()) if p.exists() else {}
 
 
 def _dataset() -> dict:
@@ -58,11 +70,19 @@ def _prospective() -> dict:
 
 def _models() -> dict:
     out: dict = {}
+    prev = _prev_facts()
     for tbl in ("FAD", "DFF"):
-        p = pd.read_csv(REPORTS / f"campaign_pool_{tbl}_family.csv")
-        mean = p.groupby("model").hold_mase.mean()
-        out[f"ets_{tbl.lower()}_mean"] = round(float(mean.get("ets", float("nan"))), 3)
-        out[f"theta_{tbl.lower()}_mean"] = round(float(mean.get("theta", float("nan"))), 3)
+        path = REPORTS / f"campaign_pool_{tbl}_family.csv"
+        keys = (f"ets_{tbl.lower()}_mean", f"theta_{tbl.lower()}_mean")
+        if path.exists():
+            mean = pd.read_csv(path).groupby("model").hold_mase.mean()
+            out[keys[0]] = round(float(mean.get("ets", float("nan"))), 3)
+            out[keys[1]] = round(float(mean.get("theta", float("nan"))), 3)
+        else:
+            # C1: insumo ausente (runner limpio / campaña no re-corrida) — degradar, no crashear
+            print(f"WARN: {path.name} ausente; se conservan {keys} del key_facts previo", file=sys.stderr)
+            for k in keys:
+                out[k] = prev[k]
     aa = pd.read_csv(REPORTS / "auto_arima_baseline.csv")
     for tbl in ("FAD", "DFF"):
         d = aa[aa.table == tbl].hold_mase

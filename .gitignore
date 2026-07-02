@@ -91,6 +91,7 @@ models/
 /models
 campaign.log
 
-reports/campaign_pool_*.csv
+# campaign_pool_*.csv SE VERSIONAN (C1): son la procedencia de las cifras canónicas
+# (ets/theta hold_mase) y build_key_facts.py los lee en el runner limpio del Action.
 ante_tab/
 ante_tfm/
