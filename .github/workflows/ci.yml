@@ -16,16 +16,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # F1: backstop server-side del hook commit-msg (tools/check_no_coauthor.sh). El hook
+  # Backstop server-side del hook commit-msg (tools/check_no_coauthor.sh). El hook
   # local es opt-in y evadible con --no-verify; este job escanea los mensajes de los
-  # commits del push/PR con el MISMO patrón. Repo de autoría única (jrebull).
-  no-ai-coauthor:
+  # commits del push/PR con el MISMO patrón (mantenerlos alineados).
+  commit-policy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
         with:
           fetch-depth: 0
-      - name: Scan pushed commit messages for AI co-author traces
+      - name: Commit message policy
         env:
           BEFORE: ${{ github.event.before }}
           BASE_REF: ${{ github.base_ref }}
@@ -42,12 +42,12 @@ jobs:
           fail=0
           for c in $(git rev-list "$range" 2>/dev/null); do
             if git log -1 --format='%B' "$c" | grep -qiE "$PATTERN"; then
-              echo "::error::Commit $c contiene rastro de co-autoría de IA en su mensaje:"
+              echo "::error::Commit $c no cumple la política de mensajes del repo:"
               git log -1 --format='  %h %s' "$c"
               fail=1
             fi
           done
-          [ "$fail" = "0" ] && echo "✓ mensajes limpios en $range"
+          [ "$fail" = "0" ] && echo "✓ mensajes conformes en $range"
           exit "$fail"
 
   lint-and-test:
