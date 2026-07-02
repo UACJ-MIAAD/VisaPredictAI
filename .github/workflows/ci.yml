@@ -16,6 +16,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # F1: backstop server-side del hook commit-msg (tools/check_no_coauthor.sh). El hook
+  # local es opt-in y evadible con --no-verify; este job escanea los mensajes de los
+  # commits del push/PR con el MISMO patrón. Repo de autoría única (jrebull).
+  no-ai-coauthor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Scan pushed commit messages for AI co-author traces
+        env:
+          BEFORE: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          PATTERN='co-authored-by|@anthropic|anthropic\.com|generated with .*claude|claude code|claude-session|claude\.ai|noreply@anthropic'
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "$BASE_REF" --quiet
+            range="origin/$BASE_REF..HEAD"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$BEFORE" 2>/dev/null; then
+            range="$BEFORE..HEAD"
+          else
+            range="HEAD~20..HEAD"   # primer push / force-push: ventana razonable
+          fi
+          fail=0
+          for c in $(git rev-list "$range" 2>/dev/null); do
+            if git log -1 --format='%B' "$c" | grep -qiE "$PATTERN"; then
+              echo "::error::Commit $c contiene rastro de co-autoría de IA en su mensaje:"
+              git log -1 --format='  %h %s' "$c"
+              fail=1
+            fi
+          done
+          [ "$fail" = "0" ] && echo "✓ mensajes limpios en $range"
+          exit "$fail"
+
   lint-and-test:
     runs-on: ubuntu-latest
     steps:
