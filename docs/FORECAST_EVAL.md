@@ -26,7 +26,7 @@ mundo real.
 ## Modelo de producción (por qué NO es el ganador del entregable)
 
 El entregable concluye que el **deep global (BiTCN)** gana en DFF y **empata** en FAD
-(AutoBiTCN 0.114 ± 0.008, IC que contiene a ETS/Theta 0.117). Aun así, el demostrador web
+(AutoBiTCN 0.112 ± 0.008, IC que contiene a ETS/Theta 0.117). Aun así, el demostrador web
 sirve **mediana(Theta + ETS + SARIMA)** en FAD y **SARIMA** en DFF. Es una decisión
 deliberada, no un descuido:
 
