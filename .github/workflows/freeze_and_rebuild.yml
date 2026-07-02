@@ -16,9 +16,8 @@ on:
     - cron: '0 16 * * 1-5'  # noon ET while daylight saving (Mar-Nov), Mon-Fri
     - cron: '0 17 * * 1-5'  # noon ET while standard time (Nov-Mar), Mon-Fri
 
-permissions:
-  contents: write
-  issues: write   # to open/append a failure-alert issue
+# F4: permisos mínimos por job — el gate no necesita nada; solo `update` escribe.
+permissions: {}
 
 jobs:
   # DST-safe gate: only proceed when it is actually 12:00 in New York (so the
@@ -45,13 +44,16 @@ jobs:
     needs: gate
     if: needs.gate.outputs.proceed == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # commit + push del panel refrescado
+      issues: write    # abrir/append del issue de fallo
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v5
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
 
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
       with:
         python-version: '3.14'   # match the dev environment (pandas 3.x) for reproducibility
 
@@ -61,7 +63,7 @@ jobs:
         pip install -e .   # runtime deps from pyproject (single source of truth)
 
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -206,7 +208,7 @@ jobs:
 
     - name: Alert on failure (open or append a tracking issue)
       if: failure()
-      uses: actions/github-script@v8
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
       with:
         script: |
           const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
