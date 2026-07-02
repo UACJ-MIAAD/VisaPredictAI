@@ -12,6 +12,7 @@ Lee solo CSVs ya versionados en reports/. Corre en `ante` (vp_model + matplotlib
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import matplotlib
@@ -47,8 +48,13 @@ plt.rcParams.update(
 )
 
 
+# D5 (regla #0): listones desde la fuente única de verdad, no hardcodeados.
+# Semántica = caption del .tex: "listón parsimonioso (ETS/Theta en FAD, ETS en DFF)".
+_KF = json.loads((REP / "key_facts.json").read_text())
+
+
 def _liston(table: str) -> float:
-    return 0.117 if table == "FAD" else 0.106  # hold-out del mejor parsimonioso (ETS)
+    return float(_KF["fad_champion_mase"] if table == "FAD" else _KF["ets_dff_mean"])
 
 
 # ---------- F1: ranking MASE de los 21 modelos ----------
@@ -162,8 +168,9 @@ def fig_multiseed() -> None:
     from scipy import stats
 
     specs = [
-        ("FAD", "global_FAD_camp_auto_s*.csv", "AutoBiTCN", 0.117, 0.113),
-        ("DFF", "global_DFF_camp_diff_s*.csv", "BiTCN", 0.106, None),
+        # oráculo 0.113 = corrida de selección perfecta (aggregate_seeds); no vive en key_facts
+        ("FAD", "global_FAD_camp_auto_s*.csv", "AutoBiTCN", _liston("FAD"), 0.113),
+        ("DFF", "global_DFF_camp_diff_s*.csv", "BiTCN", _liston("DFF"), None),
     ]
     fig, ax = plt.subplots(figsize=(6.4, 3.4))
     ypos, labels = [], []
@@ -544,8 +551,8 @@ if __name__ == "__main__":
     fig_backtest_grid("FAD")
     fig_backtest_grid("DFF")
     fig_cd_diagram()
-    fig_error_heatmap()
     for t in ("FAD", "DFF"):
         forecast_vs_actual_rows(t).to_csv(REP / f"forecast_vs_actual_{t}.csv", index=False)
         print(f"tabla {t} -> reports/forecast_vs_actual_{t}.csv")
+    fig_error_heatmap()  # DESPUÉS de regenerar los CSV que lee (antes iba un run desfasado)
     print("Figuras en", FIG)

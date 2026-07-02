@@ -71,6 +71,21 @@ def _star(d: ImageDraw.ImageDraw, cx: int, cy: int, r: float, fill) -> None:
     d.polygon(pts, fill=fill)
 
 
+MES = {
+    1: "enero",
+    2: "febrero",
+    3: "marzo",
+    4: "abril",
+    5: "mayo",
+    6: "junio",
+    7: "julio",
+    8: "agosto",
+    9: "septiembre",
+    10: "octubre",
+    11: "noviembre",
+    12: "diciembre",
+}
+
 NAME = {
     "mexico": "México",
     "philippines": "Filipinas",
@@ -128,10 +143,13 @@ def fig_backlog(category="F4", table="FAD", highlight="mexico", out="latam_backl
     ax.set_xticks([])
     ax.set_yticks([])
 
+    # D5 (regla #0): el titular se deriva de los MISMOS datos que las barras — nada congelado.
+    hl_years = round(bl[highlight])
+    min_years = int(min(bl.values()))
     fig.text(
         0.012,
         1.05,
-        "Una petición de hermano en México espera 25 años para una visa",
+        f"Una petición de hermano en México espera {hl_years} años para una visa",
         fontsize=15.5,
         fontweight="bold",
         color=INK,
@@ -141,7 +159,7 @@ def fig_backlog(category="F4", table="FAD", highlight="mexico", out="latam_backl
         0.012,
         0.99,
         "Atraso vigente de la cola familiar F4 (hermanos de ciudadanos) por país o área de "
-        "cargabilidad — ninguna de las cinco baja de 17 años",
+        f"cargabilidad — ninguna de las cinco baja de {min_years} años",
         fontsize=10.5,
         color=GRAY,
         ha="left",
@@ -149,7 +167,7 @@ def fig_backlog(category="F4", table="FAD", highlight="mexico", out="latam_backl
     fig.text(
         0.012,
         -0.04,
-        "Fuente: U.S. Department of State, Visa Bulletin (Final Action Dates, julio 2026).  "
+        f"Fuente: U.S. Department of State, Visa Bulletin (Final Action Dates, {MES[last.month]} {last.year}).  "
         "Atraso = mes del boletín − fecha de prioridad vigente.  *Agrupación residual, no un país.",
         fontsize=7.6,
         color=GRAY,
