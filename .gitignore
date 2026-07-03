@@ -33,14 +33,6 @@ CLAUDE.md
 # Microsoft Office temp/lock files
 ~$*
 
-# Materiales de referencia del curso (PDFs/DOCX de terceros, ejemplos) — no es el entregable.
-docs/ProyectoInnovaTecI/
-
-# Notas internas de investigación (revisiones de literatura, análisis de brechas) — no
-# forman parte del entregable público; `epiforecast_gap_analysis` además es contexto interno.
-reports/epiforecast_gap_analysis.md
-reports/litreview_*.md
-
 # Regenerated star-schema DB and typed export (open CSV is the versioned source;
 # rebuild with `make db`). Kept out of git to avoid binary bloat.
 data/processed/*.duckdb
@@ -89,5 +81,7 @@ campaign.log
 
 # campaign_pool_*.csv SE VERSIONAN (C1): son la procedencia de las cifras canónicas
 # (ets/theta hold_mase) y build_key_facts.py los lee en el runner limpio del Action.
+# Venvs efímeros de experimentos con deps en conflicto (TabPFN/TimesFM) — recrear
+# solo si se re-corre improve_tabpfn/improve_timesfm (ver sus docstrings).
 ante_tab/
 ante_tfm/

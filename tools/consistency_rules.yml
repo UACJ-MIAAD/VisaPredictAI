@@ -10,7 +10,7 @@
 #               LaTeX 27{,}289 / 27\,289), el número debe igualar el `fact`.
 #
 # Nota: las forbidden se aplican SOLO a los artefactos publicados (deliverable, paper, web),
-# NO a las meta-docs (docs/PAPER_PROSPECTIVE_DRAFT) que citan los claims-malos como ejemplo.
+# NO a las meta-docs (reports/paper_micai/PAPER_PROSPECTIVE_DRAFT) que citan los claims-malos como ejemplo.
 
 artifacts:
   deliverable: ["reports/latex/ProyectoI_VisaPredictAI.tex"]

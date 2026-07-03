@@ -37,7 +37,7 @@ distintos, no solo color), PDF vectorial.
 
 ## Defensas de revisor ya incorporadas
 
-(ver el análisis completo en `docs/PAPER_PROSPECTIVE_DRAFT.md` y la auditoría)
+(ver el análisis completo en `PAPER_PROSPECTIVE_DRAFT.md` (este directorio) y la auditoría)
 
 - **Reencuadre como paper de aplicación** (dataset + protocolo prospectivo), no de métodos.
 - **Números honestos:** hold-out MASE 0.117 marcado como *señal de selección, no precisión live*;
