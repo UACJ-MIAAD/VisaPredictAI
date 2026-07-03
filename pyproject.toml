@@ -81,6 +81,8 @@ exclude = ['ante', 'tests/fixtures']
 testpaths = ["tests"]
 addopts = [
     "-q",
+    # Dotted module form (path form registers nothing in pytest-cov): floors the
+    # three parsing modules only, same contract as pre-restructure.
     "--cov=vp_data.visa_common",
     "--cov=pipeline.scrape_visa_bulletins",
     "--cov=pipeline.scrape_family_visa_bulletins",
