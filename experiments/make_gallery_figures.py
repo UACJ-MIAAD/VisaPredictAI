@@ -75,12 +75,17 @@ def _load() -> tuple[pd.DataFrame, dict]:
     return df, facts
 
 
-def _save(fig: plt.Figure, name: str) -> None:
+def _save(fig: plt.Figure, name: str) -> plt.Figure:
+    """Guarda el par PDF-vector + PNG-300dpi y DEVUELVE la figura viva.
+
+    El caller cierra (``plt.close``); ``build_eda_report`` la re-usa tal cual como
+    página vectorial del reporte (cero re-rasterización = cero pérdida de nitidez).
+    """
     FIG_PNG.mkdir(parents=True, exist_ok=True)
     fig.savefig(FIG_TEX / f"eda3_{name}.pdf", bbox_inches="tight")
     fig.savefig(FIG_PNG / f"{name}.png", bbox_inches="tight", dpi=300)
-    plt.close(fig)
     print(f"eda3_{name} OK")
+    return fig
 
 
 def _header(fig: plt.Figure, headline: str, sub: str, y: float = 1.02, dy: float = 0.055) -> None:
@@ -101,7 +106,7 @@ def _footer(fig: plt.Figure, vintage: str, extra: str = "", y: float = -0.045) -
 
 
 # ---------------------------------------------------------------------------- G1
-def g01_panel(df: pd.DataFrame, facts: dict) -> None:
+def g01_panel(df: pd.DataFrame, facts: dict) -> plt.Figure:
     """El panel completo en una sola imagen: 194 series × 296 meses."""
     months = pd.period_range(df.bulletin_date.min(), df.bulletin_date.max(), freq="M")
     m_idx = {p: i for i, p in enumerate(months)}
@@ -203,11 +208,11 @@ def g01_panel(df: pd.DataFrame, facts: dict) -> None:
         bbox_to_anchor=(0.5, 0.038),
     )
     _footer(fig, facts["vintage"], "Blanco = la serie no existe ese mes (p. ej. DFF antes de 2015).", y=0.022)
-    _save(fig, "g01_panel")
+    return _save(fig, "g01_panel")
 
 
 # ---------------------------------------------------------------------------- G2
-def g02_trayectorias(df: pd.DataFrame, facts: dict) -> None:
+def g02_trayectorias(df: pd.DataFrame, facts: dict) -> plt.Figure:
     """Un cuarto de siglo de fila: las 25 series familiares FAD, anotadas."""
     f = df[(df.status == "F") & (df.block == "family") & (df.table == "FAD")].copy()
     f["years"] = 1975 + f.days_since_base / 365.25
@@ -276,11 +281,11 @@ def g02_trayectorias(df: pd.DataFrame, facts: dict) -> None:
         "la cola casi nunca corre, y a veces retrocede.",
     )
     _footer(fig, facts["vintage"])
-    _save(fig, "g02_trayectorias")
+    return _save(fig, "g02_trayectorias")
 
 
 # ---------------------------------------------------------------------------- G3
-def g03_backlog(df: pd.DataFrame, facts: dict) -> None:
+def g03_backlog(df: pd.DataFrame, facts: dict) -> plt.Figure:
     """¿Cuántos años de fila? — matriz Latinometrics familia + empleo."""
     bt = pd.DataFrame(facts["backlog_today"])
     bt = bt[bt.table == "FAD"]
@@ -350,11 +355,11 @@ def g03_backlog(df: pd.DataFrame, facts: dict) -> None:
         dy=0.045,
     )
     _footer(fig, facts["vintage"], "Atraso = mes del boletín − fecha de prioridad vigente.", y=0.015)
-    _save(fig, "g03_backlog")
+    return _save(fig, "g03_backlog")
 
 
 # ---------------------------------------------------------------------------- G4
-def g04_retros(facts: dict) -> None:
+def g04_retros(facts: dict) -> plt.Figure:
     """Los meses en que el sistema se rompió: TODAS las retrogresiones."""
     ev = pd.DataFrame(facts["retro_events"])
     ev["date_ts"] = pd.to_datetime(ev.date + "-01")
@@ -403,11 +408,11 @@ def g04_retros(facts: dict) -> None:
         "el tamaño es proporcional al retroceso.",
     )
     _footer(fig, facts["vintage"], y=-0.085)
-    _save(fig, "g04_retros")
+    return _save(fig, "g04_retros")
 
 
 # ---------------------------------------------------------------------------- G5
-def g05_brecha(facts: dict) -> None:
+def g05_brecha(facts: dict) -> plt.Figure:
     """La brecha entre las dos tablas: dumbbell FAD ↔ DFF hoy."""
     bt = pd.DataFrame(facts["backlog_today"])
     wide = bt.pivot_table(index=["country", "block", "category"], columns="table", values="backlog_years")
@@ -454,11 +459,11 @@ def g05_brecha(facts: dict) -> None:
         dy=0.04,
     )
     _footer(fig, facts["vintage"], "Series con ambas tablas publicadas hoy.", y=0.02)
-    _save(fig, "g05_brecha")
+    return _save(fig, "g05_brecha")
 
 
 # ---------------------------------------------------------------------------- G6
-def g06_pulso_fiscal(df: pd.DataFrame, facts: dict) -> None:
+def g06_pulso_fiscal(df: pd.DataFrame, facts: dict) -> plt.Figure:
     """El pulso del año fiscal: avance mediano mes × año fiscal."""
     f = df[df.status == "F"].sort_values("bulletin_date").copy()
     f["delta"] = f.groupby(["country", "block", "category", "table"])["days_since_base"].diff()
@@ -530,11 +535,11 @@ def g06_pulso_fiscal(df: pd.DataFrame, facts: dict) -> None:
         dy=0.035,
     )
     _footer(fig, facts["vintage"], "Escala de color recortada al percentil 98.", y=0.03)
-    _save(fig, "g06_pulso_fiscal")
+    return _save(fig, "g06_pulso_fiscal")
 
 
 # ---------------------------------------------------------------------------- G7
-def g07_leadlag(df: pd.DataFrame, facts: dict) -> None:
+def g07_leadlag(df: pd.DataFrame, facts: dict) -> plt.Figure:
     """¿Quién se mueve primero? Correlación cruzada con retardos entre áreas."""
     f = df[(df.status == "F") & (df.block == "family") & (df.table == "FAD")].sort_values("bulletin_date").copy()
     f["delta"] = f.groupby(["country", "category"])["days_since_base"].diff()
@@ -586,12 +591,12 @@ def g07_leadlag(df: pd.DataFrame, facts: dict) -> None:
         y=0.99,
         dy=0.075,
     )
-    _footer(fig, facts["vintage"], y=0.0)
-    _save(fig, "g07_leadlag")
+    _footer(fig, facts["vintage"], y=-0.075)
+    return _save(fig, "g07_leadlag")
 
 
 # ---------------------------------------------------------------------------- G8
-def g08_congelados(facts: dict) -> None:
+def g08_congelados(facts: dict) -> plt.Figure:
     """Los meses congelados: % de meses sin movimiento por serie."""
     census = pd.DataFrame(facts["series"])
     g = census[(census.block == "family") & (census.table == "FAD")].copy()
@@ -630,11 +635,11 @@ def g08_congelados(facts: dict) -> None:
         dy=0.04,
     )
     _footer(fig, facts["vintage"], y=0.02)
-    _save(fig, "g08_congelados")
+    return _save(fig, "g08_congelados")
 
 
 # ---------------------------------------------------------------------------- G9
-def g09_estacionariedad(facts: dict) -> None:
+def g09_estacionariedad(facts: dict) -> plt.Figure:
     """Censo de estacionariedad: ADF vs KPSS, 74 series juzgadas de un vistazo."""
     census = pd.DataFrame(facts["series"])
     ev = census[census.verdict.notna()].copy()
@@ -708,11 +713,11 @@ def g09_estacionariedad(facts: dict) -> None:
         dy=0.06,
     )
     _footer(fig, facts["vintage"], "Jitter leve: los p-values saturan en los bordes.", y=-0.02)
-    _save(fig, "g09_estacionariedad")
+    return _save(fig, "g09_estacionariedad")
 
 
 # ---------------------------------------------------------------------------- G10
-def g10_dv(facts: dict) -> None:
+def g10_dv(facts: dict) -> plt.Figure:
     """La lotería también hace fila: rangos de corte DV por región."""
     dv = pd.read_csv(ROOT / "data" / "raw" / "dv_visa_rank_timecourse.csv", parse_dates=["visa_bulletin_date"])
     dv = dv[dv.status == "F"].copy()
@@ -761,11 +766,11 @@ def g10_dv(facts: dict) -> None:
         + "). Es un NÚMERO de sorteo, no una fecha: hecho descriptivo separado, fuera del objetivo predictivo.",
     )
     _footer(fig, facts["vintage"], "El diente de sierra es el ciclo del año fiscal: el corte sube y se reinicia.")
-    _save(fig, "g10_dv")
+    return _save(fig, "g10_dv")
 
 
 # ---------------------------------------------------------------------------- G11
-def g11_completitud(facts: dict) -> None:
+def g11_completitud(facts: dict) -> plt.Figure:
     """Radiografía de completitud de las 194 series estructurales."""
     census = pd.DataFrame(facts["series"]).copy()
     census["pct_F"] = census.n_F / census.n_total
@@ -848,20 +853,27 @@ def g11_completitud(facts: dict) -> None:
         dy=0.04,
     )
     _footer(fig, facts["vintage"], "Cobertura escalonada: estructural → con fechas → evaluable.", y=-0.055)
-    _save(fig, "g11_completitud")
+    return _save(fig, "g11_completitud")
 
 
 if __name__ == "__main__":
     df, facts = _load()
-    g01_panel(df, facts)
-    g02_trayectorias(df, facts)
-    g03_backlog(df, facts)
-    g04_retros(facts)
-    g05_brecha(facts)
-    g06_pulso_fiscal(df, facts)
-    g07_leadlag(df, facts)
-    g08_congelados(facts)
-    g09_estacionariedad(facts)
-    g10_dv(facts)
-    g11_completitud(facts)
+    for fn in (
+        g01_panel,
+        g02_trayectorias,
+        g06_pulso_fiscal,
+        g07_leadlag,
+    ):
+        plt.close(fn(df, facts))
+    for fn2 in (g03_backlog,):
+        plt.close(fn2(df, facts))
+    for fn3 in (
+        g04_retros,
+        g05_brecha,
+        g08_congelados,
+        g09_estacionariedad,
+        g10_dv,
+        g11_completitud,
+    ):
+        plt.close(fn3(facts))
     print("Galería EDA en", FIG_TEX, "y", FIG_PNG)
