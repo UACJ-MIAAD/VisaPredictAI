@@ -7,6 +7,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # L2: el cron de datos pushea con GITHUB_TOKEN (no dispara `on: push` por la regla
+  # anti-recursión de GitHub) y en su lugar invoca `gh workflow run ci.yml` tras el push.
+  workflow_dispatch:
 
 permissions:
   contents: read
