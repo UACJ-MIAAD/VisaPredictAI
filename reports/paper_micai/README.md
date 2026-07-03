@@ -30,8 +30,8 @@ reports/paper_micai/
 ```bash
 make paper-figures        # = ante/bin/python reports/paper_micai/make_paper_figures.py
 ```
-Lee `reports/forecast_scorecard_meta.json` (evaluación prospectiva),
-`reports/web_forecasts.csv` y `data/processed/visa_panel_long.csv`. Cero placeholders;
+Lee `reports/prospective/forecast_scorecard_meta.json` (evaluación prospectiva),
+`reports/prospective/web_forecasts.csv` y `data/processed/visa_panel_long.csv`. Cero placeholders;
 si los datos cambian, las figuras se actualizan. Estilo LNCS B/N-safe (líneas/marcadores
 distintos, no solo color), PDF vectorial.
 

@@ -1,6 +1,6 @@
 """CRPS de los modelos DISTRIBUCIONALES clásicos sobre el hold-out (deuda-2, 2-jul-2026).
 
-Regenera ``reports/crps_fad.csv`` (model, country, category, crps) — el insumo del panel
+Regenera ``reports/eval/crps_fad.csv`` (model, country, category, crps) — el insumo del panel
 CRPS de ``make_result_figures.fig_coverage_crps`` y de la prosa del entregable ("SARIMA
 48 / ARIMA 49 / DeepAR 174 días"). El CSV original fue una corrida one-off sin escritor
 versionado; este script la hace reproducible y, tras B1, la puntúa SOLO sobre fechas F
@@ -43,7 +43,7 @@ def main() -> None:
                 c = float("nan")
             rows.append({"model": m, "country": r.country, "category": r.category, "crps": c})
             log.info("%s/%s %-8s CRPS=%.1f", r.country, r.category, m, c)
-    out = ROOT / "reports" / f"crps_{args.table.lower()}.csv"
+    out = ROOT / "reports" / "eval" / f"crps_{args.table.lower()}.csv"
     pd.DataFrame(rows).to_csv(out, index=False)
     df = pd.DataFrame(rows)
     log.info("escrito -> %s · medias: %s", out, df.groupby("model").crps.mean().round(1).to_dict())

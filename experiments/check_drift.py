@@ -1,6 +1,6 @@
 """Monitor de drift de ML (distinto del guardián de consistencia, que vigila CIFRAS).
 
-Vigila tres derivas y emite ``reports/drift_report.json`` + un resumen legible. NO es un gate
+Vigila tres derivas y emite ``reports/governance/drift_report.json`` + un resumen legible. NO es un gate
 (no rompe el build): es observabilidad. En la Action del boletín, si marca drift, el correo
 SES lo destaca para que un humano lo revise.
 
@@ -36,7 +36,7 @@ DATA_MIN_FLAGGED = 8  # nº de series con movimiento sin precedente para conside
 
 
 def _performance_and_coverage() -> dict:
-    sc = REPORTS / "forecast_scorecard.csv"
+    sc = REPORTS / "prospective" / "forecast_scorecard.csv"
     if not sc.exists():
         return {"status": "sin_ledger"}
     df = pd.read_csv(sc)
@@ -93,8 +93,8 @@ def check() -> dict:
     systemic_data = len(data.get("flagged", [])) >= DATA_MIN_FLAGGED
     drift = bool(perf.get("performance_drift") or perf.get("coverage_drift") or systemic_data)
     report = {"drift_detected": drift, "performance": perf, "data": data}
-    REPORTS.mkdir(exist_ok=True)
-    (REPORTS / "drift_report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
+    (REPORTS / "governance").mkdir(parents=True, exist_ok=True)
+    (REPORTS / "governance" / "drift_report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     return report
 
 

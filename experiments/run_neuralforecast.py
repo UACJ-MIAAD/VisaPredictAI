@@ -13,7 +13,7 @@ el pandas 3.0.0 del pipeline principal). Es además la implementación de la est
 GLOBAL (Montero-Manso & Hyndman 2021): un solo modelo aprende sobre las 25 series del
 panel apiladas, de modo que las series cortas piden prestada señal al resto.
 
-Salida: ``reports/neuralforecast_forecasts.csv`` (unique_id, ds, modelo, pronóstico a
+Salida: ``reports/eval/neuralforecast_forecasts.csv`` (unique_id, ds, modelo, pronóstico a
 1 paso sobre el hold-out de 24 meses), que el entorno principal evalúa con las MISMAS
 métricas (MASE/CRPS/...) para comparar de forma justa contra el pool local.
 
@@ -29,7 +29,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
-OUT = ROOT / "reports" / "neuralforecast_forecasts.csv"
+OUT = ROOT / "reports" / "eval" / "neuralforecast_forecasts.csv"
 PILOT = ("mexico", "india", "china", "philippines", "all_chargeability")
 HOLDOUT = 24
 

@@ -59,7 +59,7 @@ def _per_series_oracle(df: pd.DataFrame) -> pd.DataFrame:
 
 def analyze(table: str = "FAD") -> list[Strategy]:
     """Compara mejor-global vs selección-por-serie vs oráculo sobre el CSV de 21 modelos."""
-    df = pd.read_csv(REPORTS / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
+    df = pd.read_csv(REPORTS / "eval" / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
     # B2: las medias de las estrategias no deben sobreponderar el corte mundial. La firma
     # métrica (dedup_series) NO detecta estas réplicas (comparten el corte reciente pero
     # no la historia → la escala del MASE difiere); la firma por `actual` del hold-out sí.
@@ -96,7 +96,7 @@ def analyze(table: str = "FAD") -> list[Strategy]:
 
 def selection_table(table: str = "FAD") -> pd.DataFrame:
     """Qué modelo se eligió por serie y su error de hold-out (para auditar la selección)."""
-    df = pd.read_csv(REPORTS / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
+    df = pd.read_csv(REPORTS / "eval" / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
     sel = _per_series_selection(df)[["country", "category", "model", "sel_mase", "hold_mase"]]
     return sel.sort_values(["country", "category"]).reset_index(drop=True)
 
@@ -111,7 +111,7 @@ def curated_combination(table: str = "FAD", subset: tuple[str, ...] = STRONG_SET
     """Combinación de un subconjunto curado de modelos fuertes (mediana por defecto)."""
     from vp_model.metrics import naive_scale_before
 
-    fc = pd.read_csv(REPORTS / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
+    fc = pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
     sub = fc[fc.model.isin(subset)]
     comb = (
         sub.groupby(["country", "category", "date"])
@@ -136,14 +136,14 @@ def curated_combination(table: str = "FAD", subset: tuple[str, ...] = STRONG_SET
 def combinations(table: str = "FAD") -> list[Strategy]:
     """Evalúa combinaciones de pronósticos (media/mediana) sobre los forecasts persistidos.
 
-    Requiere ``reports/holdout_forecasts_{table}.csv`` (de ``persist_forecasts``). La media
+    Requiere ``reports/eval/holdout_forecasts_{table}.csv`` (de ``persist_forecasts``). La media
     y la mediana se calculan POR fecha×serie sobre el set curado; el error se promedia por
     serie escalando por el naïve estacional in-sample (leakage-free: la escala usa solo el
     tramo previo al hold-out). Devuelve [] si no existe el CSV (aún no persistido).
     """
     from vp_model.metrics import naive_scale_before
 
-    path = REPORTS / f"holdout_forecasts_{table}.csv"
+    path = REPORTS / "eval" / f"holdout_forecasts_{table}.csv"
     if not path.exists():
         return []
     fc = pd.read_csv(path, parse_dates=["date"])

@@ -34,7 +34,7 @@ Texto base (ajustar al estilo del deliverable):
 > MASE 0.05; h=12: MAE ~351 d, MASE 0.75, aún < 1 = supera al naïve estacional). La banda de
 > predicción al 95 % cubrió empíricamente el **92 %** (bajo el nominal; ver Amenazas).
 
-**Tabla propuesta — desempeño prospectivo por horizonte** (datos en `reports/forecast_scorecard_meta.json`):
+**Tabla propuesta — desempeño prospectivo por horizonte** (datos en `reports/prospective/forecast_scorecard_meta.json`):
 
 | h (meses) | n | MAE (días) | MASE | cobertura 95 % |
 |---|---|---|---|---|

@@ -50,7 +50,7 @@ plt.rcParams.update(
 
 # D5 (regla #0): listones desde la fuente única de verdad, no hardcodeados.
 # Semántica = caption del .tex: "listón parsimonioso (ETS/Theta en FAD, ETS en DFF)".
-_KF = json.loads((REP / "key_facts.json").read_text())
+_KF = json.loads((REP / "governance" / "key_facts.json").read_text())
 
 
 def _liston(table: str) -> float:
@@ -61,7 +61,7 @@ def _liston(table: str) -> float:
 def fig_ranking() -> None:
     fig, axes = plt.subplots(1, 2, figsize=(7.2, 4.2))
     for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
-        df = pd.read_csv(REP / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
+        df = pd.read_csv(REP / "eval" / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
         m = df.groupby("model")["hold_mase"].mean().sort_values(ascending=False)
         m = m[m <= 0.40]  # recorta off-scale (TFT 2.6, LSTM/DeepAR ~0.4+); se anota aparte
         n_off = df.groupby("model")["hold_mase"].mean().gt(0.40).sum()
@@ -109,7 +109,7 @@ def fig_forecast() -> None:
     fig, axes = plt.subplots(1, 2, figsize=(7.4, 3.6))
     for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
         col = picks[table][0]
-        d = pd.read_csv(REP / f"deep_pi_{table}.csv", parse_dates=["ds"])
+        d = pd.read_csv(REP / "eval" / f"deep_pi_{table}.csv", parse_dates=["ds"])
         # serie con más puntos en el hold-out (la más informativa de graficar)
         uid = d.groupby("unique_id").size().idxmax()
         g = d[d.unique_id == uid].sort_values("ds")
@@ -232,7 +232,7 @@ def _bitcn_crps(table: str) -> float:
     """CRPS de BiTCN (2·media pinball sobre cuantiles), idéntico a experiments/eval_deep_pi.py, F-only por serie."""
     from vp_model import dataset
 
-    d = pd.read_csv(REP / f"deep_pi_{table}.csv", parse_dates=["ds"])
+    d = pd.read_csv(REP / "eval" / f"deep_pi_{table}.csv", parse_dates=["ds"])
     levels = {95: (0.025, 0.975), 90: (0.05, 0.95), 80: (0.10, 0.90), 50: (0.25, 0.75)}
     crps = []
     for uid, g in d.groupby("unique_id"):
@@ -254,7 +254,7 @@ def _bitcn_crps(table: str) -> float:
 
 
 def fig_coverage_crps() -> None:
-    cov = pd.read_csv(REP / "conformal_coverage.csv").set_index("table")
+    cov = pd.read_csv(REP / "eval" / "conformal_coverage.csv").set_index("table")
     fig, (axc, axr) = plt.subplots(1, 2, figsize=(7.4, 3.5))
     # (a) cobertura
     tables = ["FAD", "DFF"]
@@ -276,7 +276,7 @@ def fig_coverage_crps() -> None:
     axc.set_title("(a) Calibración conforme adaptativa")
     # leyenda al pie de la figura (fuera del área de barras, evita encimarse con DFF)
     # (b) CRPS por modelo (FAD): clásicos + el deep ganador (BiTCN, calculado desde sus cuantiles)
-    crps = pd.read_csv(REP / "crps_fad.csv").groupby("model")["crps"].mean()
+    crps = pd.read_csv(REP / "eval" / "crps_fad.csv").groupby("model")["crps"].mean()
     crps["BiTCN"] = _bitcn_crps("FAD")
     keep = [m for m in ["BiTCN", "sarima", "arima", "deepar"] if m in crps.index]
     crps = crps[keep].sort_values()
@@ -320,7 +320,7 @@ BASE = pd.Timestamp("1975-01-01")
 def fig_backtest_grid(table: str) -> None:
     from vp_model import dataset
 
-    d = pd.read_csv(REP / f"deep_pi_{table}.csv", parse_dates=["ds"])
+    d = pd.read_csv(REP / "eval" / f"deep_pi_{table}.csv", parse_dates=["ds"])
     fig, axes = plt.subplots(5, 5, figsize=(9.6, 10.4), sharex=True)
     for r, (acode, aname) in enumerate(AREAS):
         for c, cat in enumerate(CATS):
@@ -386,7 +386,7 @@ def forecast_vs_actual_rows(table: str) -> pd.DataFrame:
     """Por serie: último mes F del hold-out (fecha real vs pronosticada, Δ días) + MAE en días."""
     from vp_model import dataset
 
-    d = pd.read_csv(REP / f"deep_pi_{table}.csv", parse_dates=["ds"])
+    d = pd.read_csv(REP / "eval" / f"deep_pi_{table}.csv", parse_dates=["ds"])
     rows = []
     for acode, aname in AREAS:
         for cat in CATS:
@@ -421,7 +421,7 @@ def _avg_ranks(table: str):
     """Rangos promedio por modelo (1=mejor) sobre las series con cobertura completa + CD de Nemenyi."""
     from scipy.stats import friedmanchisquare, studentized_range
 
-    df = pd.read_csv(REP / f"model_comparison_{table}21.csv")
+    df = pd.read_csv(REP / "eval" / f"model_comparison_{table}21.csv")
     piv = df.pivot_table(index=["country", "category"], columns="model", values="hold_mase")
     piv = piv.dropna(axis=1)  # solo modelos presentes en TODAS las series (bloques completos)
     ranks = piv.rank(axis=1, ascending=True)  # 1 = menor MASE = mejor
@@ -513,7 +513,7 @@ def fig_error_heatmap() -> None:
     fig, axes = plt.subplots(1, 2, figsize=(7.6, 3.8))
     anames = [a[1] for a in AREAS]
     for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
-        d = pd.read_csv(REP / f"forecast_vs_actual_{table}.csv")
+        d = pd.read_csv(REP / "prospective" / f"forecast_vs_actual_{table}.csv")
         d["area"] = pd.Categorical(d["area"], [a[1] for a in AREAS], ordered=True)
         m = d.pivot_table(index="area", columns="cat", values="mae_dias", observed=True).reindex(anames)[CATS]
         ax.grid(False)
@@ -552,7 +552,7 @@ if __name__ == "__main__":
     fig_backtest_grid("DFF")
     fig_cd_diagram()
     for t in ("FAD", "DFF"):
-        forecast_vs_actual_rows(t).to_csv(REP / f"forecast_vs_actual_{t}.csv", index=False)
-        print(f"tabla {t} -> reports/forecast_vs_actual_{t}.csv")
+        forecast_vs_actual_rows(t).to_csv(REP / "prospective" / f"forecast_vs_actual_{t}.csv", index=False)
+        print(f"tabla {t} -> reports/prospective/forecast_vs_actual_{t}.csv")
     fig_error_heatmap()  # DESPUÉS de regenerar los CSV que lee (antes iba un run desfasado)
     print("Figuras en", FIG)

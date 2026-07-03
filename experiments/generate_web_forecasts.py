@@ -18,8 +18,8 @@ random-walk del error acumulado), NO transfiere la garantía a multi-paso — la
 real se mide en el scorecard (`score_forecasts.py`; ≈0.92 para la banda 95 %).
 
 Salidas (tidy, versionadas en git como el resto de reports/):
-  • reports/web_forecasts.csv       — country,category,table,date,days,lo80,hi80,lo95,hi95
-  • reports/web_forecasts_meta.json — método + métricas hold-out por serie (procedencia)
+  • reports/prospective/web_forecasts.csv       — country,category,table,date,days,lo80,hi80,lo95,hi95
+  • reports/prospective/web_forecasts_meta.json — método + métricas hold-out por serie (procedencia)
 
 Tracking MLflow vía ``tracking.log_run`` (experimento "web_forecasts") es para **desarrollo
 local**; en CI el staging es efímero — el registro DURABLE de procedencia es el CSV/JSON
@@ -192,14 +192,15 @@ LOG_KEYS = ["origin", "country", "category", "table", "date"]
 
 
 def _append_log(rows: list[dict]) -> Path:
-    """Anexa la añada al ledger append-only ``reports/forecast_log.csv`` (idempotente
+    """Anexa la añada al ledger append-only ``reports/prospective/forecast_log.csv`` (idempotente
     por (origin, serie, fecha-objetivo)). Es el registro inmutable de lo que
     predijimos y desde cuándo — base de la evaluación prospectiva (``score_forecasts``).
 
     C3: ``keep="first"`` — un pronóstico ya congelado NUNCA se sobrescribe. Con
     ``keep="last"`` un re-run (código/semilla distinta) reemplazaba añadas ya
     archivadas e invalidaba la evaluación prospectiva."""
-    log_path = REPORTS / "forecast_log.csv"
+    log_path = REPORTS / "prospective" / "forecast_log.csv"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     new = pd.DataFrame(rows)[LOG_COLS]
     combined = pd.concat([pd.read_csv(log_path), new], ignore_index=True) if log_path.exists() else new
     combined = combined.drop_duplicates(subset=LOG_KEYS, keep="first").sort_values(LOG_KEYS)
@@ -227,8 +228,8 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
     # C2: gate de salida — un env roto a medias (dep faltante, BD vieja) produce una
     # añada casi vacía vía los error-boundaries por serie. NO publicar, NO archivar:
     # el ledger es inmutable (C3) y una añada parcial congelada lo contamina para siempre.
-    csv_path = REPORTS / "web_forecasts.csv"
-    meta_path = REPORTS / "web_forecasts_meta.json"
+    csv_path = REPORTS / "prospective" / "web_forecasts.csv"
+    meta_path = REPORTS / "prospective" / "web_forecasts_meta.json"
     expected = json.loads(meta_path.read_text())["n_series"] if meta_path.exists() else 0
     if expected and len(all_meta) < 0.9 * expected:
         raise SystemExit(

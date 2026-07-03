@@ -86,7 +86,9 @@ def main() -> None:
         for _, r in out.iterrows():
             preds.append({"item_id": r["item_id"], "timestamp": r["timestamp"], "forecast": float(r[col])})
     fc = pd.DataFrame(preds)
-    fc.to_csv(ROOT / "reports" / f"tabpfn_forecasts_{args.table}.csv", index=False)  # no perder las predicciones
+    fc.to_csv(
+        ROOT / "reports" / "eval" / f"tabpfn_forecasts_{args.table}.csv", index=False
+    )  # no perder las predicciones
 
     # eval F-only por serie (la fecha del hold-out debe ser F real); actuals desde el parquet
     raw = pd.read_parquet(PANEL)
@@ -105,7 +107,7 @@ def main() -> None:
     mase = float(np.mean(mases))
     import json
 
-    kf = json.loads(Path("reports/key_facts.json").read_text())
+    kf = json.loads(Path("reports/governance/key_facts.json").read_text())
     liston = kf["fad_champion_mase"] if args.table == "FAD" else kf["bitcn_dff_mean"]
     print(f"\n=== TabPFN-TS {args.table} ({len(mases)} series) ===")
     print(f"  MASE {mase:.4f}  vs listón {liston}  -> {'MEJORA' if mase < liston else 'no mejora'}")

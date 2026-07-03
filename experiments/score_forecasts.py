@@ -2,7 +2,7 @@
 
 El MASE del entregable es *retrospectivo* (hold-out: el modelo "predice" meses ya
 conocidos). Esto es lo contrario: toma cada pronóstico **congelado** en
-``reports/forecast_log.csv`` (lo que predijimos y desde qué mes — la "añada") y lo
+``reports/prospective/forecast_log.csv`` (lo que predijimos y desde qué mes — la "añada") y lo
 compara con el **corte realmente publicado** después, conforme llegan los boletines.
 Es la única medida honesta de qué tan bueno es el pronóstico a 12 meses en el mundo real.
 
@@ -12,8 +12,8 @@ Por cada fila del ledger cuyo mes-objetivo ya tiene un corte real (estado F en e
   • cobertura: ¿el real cayó dentro de la banda 80 % / 95 %?
 
 Agrega global, por horizonte h=1..12 y por tabla. Salidas:
-  • reports/forecast_scorecard.csv       — una fila por predicción ya evaluable
-  • reports/forecast_scorecard_meta.json — agregados (MAE/MASE/cobertura, n)
+  • reports/prospective/forecast_scorecard.csv       — una fila por predicción ya evaluable
+  • reports/prospective/forecast_scorecard_meta.json — agregados (MAE/MASE/cobertura, n)
 Tracking MLflow (experimento "web_forecast_scoring") es para desarrollo local; el registro
 DURABLE es el scorecard commiteado en git (en CI el staging MLflow es efímero).
 
@@ -68,7 +68,7 @@ def _score_rows(fc: pd.DataFrame, actuals: dict, scale_for) -> tuple[list[dict],
 
 
 def run() -> Path | None:
-    log_path = REPORTS / "forecast_log.csv"
+    log_path = REPORTS / "prospective" / "forecast_log.csv"
     if not log_path.exists():
         log.warning("no hay ledger %s — corre generate_web_forecasts primero", log_path)
         return None
@@ -97,7 +97,7 @@ def run() -> Path | None:
     scored, pending = _score_rows(fc, actuals, scale_for)
 
     sdf = pd.DataFrame(scored)
-    sdf.to_csv(REPORTS / "forecast_scorecard.csv", index=False)
+    sdf.to_csv(REPORTS / "prospective" / "forecast_scorecard.csv", index=False)
     n_no_scale = int(sdf["scaled_err"].isna().sum()) if len(sdf) else 0
     if n_no_scale:
         log.warning("%d fila(s) evaluable(s) sin escala naïve válida (excluidas del MASE)", n_no_scale)
@@ -142,7 +142,9 @@ def run() -> Path | None:
             "note": "BAND80_RATIO se calibra en cal_vintages; cov80_heldout es la cobertura 80 % OUT-OF-SAMPLE (overall.cov80 incluye la calibración y es optimista).",
         },
     }
-    (REPORTS / "forecast_scorecard_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
+    (REPORTS / "prospective" / "forecast_scorecard_meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2) + "\n"
+    )
 
     if len(sdf):
         tracking.log_run(
@@ -174,7 +176,7 @@ def run() -> Path | None:
         )
     else:
         log.info("PROSPECTIVO: 0 objetivos realizados aún (%d pendientes) — se acumula con cada boletín", pending)
-    return REPORTS / "forecast_scorecard.csv"
+    return REPORTS / "prospective" / "forecast_scorecard.csv"
 
 
 def demo() -> None:

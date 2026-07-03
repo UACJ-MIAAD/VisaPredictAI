@@ -30,7 +30,7 @@ from vp_data.config import DEAD_MONTHS
 from vp_data.config import PANEL_PATH as PANEL
 from vp_data.config import RAW_DIR as RAW
 
-OUT = Path("reports/mega_audit_report.md")
+OUT = Path("reports/governance/mega_audit_report.md")
 
 L: list[str] = []  # report lines
 FLAGS: list[tuple[str, str]] = []  # (severity, message)

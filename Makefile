@@ -9,7 +9,7 @@ help:
 	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"
 	@echo "model-install - install the modeling extra too (darts/torch/xgboost/prophet)"
 	@echo "eda      - regenerate the EDA figures (needs model-install + db)"
-	@echo "compare  - walk-forward comparison of the 8 models -> reports/model_comparison.csv"
+	@echo "compare  - walk-forward comparison of the 8 models -> reports/eval/model_comparison.csv"
 	@echo "report   - results table + holdout figure from the comparison"
 	@echo "web-forecasts   - per-series 12-month forecasts for the web demo + archive vintage (needs db)"
 	@echo "score-forecasts - prospective scoring: frozen forecasts vs realized cutoffs (needs db + ledger)"
@@ -60,10 +60,10 @@ repro-force:  ## fuerza re-ejecutar todas las etapas del DAG (ignora la cache)
 dag:  ## imprime el grafo de dependencias del pipeline
 	$(DVC) dag
 
-challenger:  ## evalúa campeón vs retadores (Wilcoxon+Holm) -> reports/champion_challenger.{json,md}
+challenger:  ## evalúa campeón vs retadores (Wilcoxon+Holm) -> reports/governance/champion_challenger.{json,md}
 	$(PY) experiments/run_champion_challenger.py --mlflow
 
-model-card:  ## regenera reports/MODEL_CARD.md (tarjeta de modelo + linaje) desde key_facts
+model-card:  ## regenera reports/governance/MODEL_CARD.md (tarjeta de modelo + linaje) desde key_facts
 	$(PY) experiments/build_model_card.py
 
 drift:  ## monitor de drift ML (desempeño+cobertura del ledger + datos del último boletín)
@@ -119,13 +119,13 @@ derive-band80:  ## re-deriva BAND80_RATIO en split disjunto (read-only; imprime 
 significance:  ## Friedman-Nemenyi + MCS + DM para el paper (read-only; figura CD)
 	$(PY) experiments/significance_tables.py
 
-auto-arima:  ## baseline Auto-ARIMA (AICc) bajo el walk-forward del pool -> reports/auto_arima_baseline.csv
+auto-arima:  ## baseline Auto-ARIMA (AICc) bajo el walk-forward del pool -> reports/eval/auto_arima_baseline.csv
 	$(PY) experiments/auto_arima_baseline.py
 
 paper-figures:  ## regenera las figuras del paper MICAI desde el pipeline -> reports/paper_micai/Figures/
 	$(PY) reports/paper_micai/make_paper_figures.py
 
-key-facts:  ## regenera la fuente única de verdad reports/key_facts.json (+ macros .tex) del pipeline
+key-facts:  ## regenera la fuente única de verdad reports/governance/key_facts.json (+ macros .tex) del pipeline
 	$(PY) experiments/build_key_facts.py
 
 consistency:  ## GUARDIÁN: web/LaTeX/paper/README/docs deben dar el MISMO número (vs key_facts.json)

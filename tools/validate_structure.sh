@@ -15,12 +15,12 @@ fail=0
 required=(
   data/raw data/processed docs tests tools experiments
   pipeline vp_data vp_model
-  reports/latex/Figures reports/campaign .github/workflows
+  reports/latex/Figures reports/campaign reports/eval reports/prospective reports/governance .github/workflows
   Makefile pyproject.toml README.md schema.sql dvc.yaml
   pipeline/freeze_snapshots.py pipeline/scrape_all.py
   pipeline/build_panel.py pipeline/build_database.py pipeline/mega_audit.py
   vp_data/config.py vp_data/visa_common.py vp_data/tracking.py
-  reports/latex/ProyectoI_VisaPredictAI.tex
+  reports/latex/ProyectoI_VisaPredictAI.tex reports/governance/key_facts.json
 )
 for p in "${required[@]}"; do
   if [ ! -e "$p" ]; then echo "FALTA: $p"; fail=1; fi

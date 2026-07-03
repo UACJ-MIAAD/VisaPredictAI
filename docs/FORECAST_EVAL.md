@@ -18,9 +18,9 @@ mundo real.
 
 | Pieza | Qué hace |
 |---|---|
-| `experiments/generate_web_forecasts.py` | Genera la añada y la archiva en `reports/forecast_log.csv`. Sin argumentos = añada **en vivo** (sirve la web). Con `YYYY-MM` = añada **histórica** leakage-free (trunca la serie a ese mes con `as_of`). |
-| `reports/forecast_log.csv` | Ledger inmutable: `origin, h, country, category, table, date, days, lo80, hi80, lo95, hi95`. Idempotente (dedup por `origin+serie+fecha`). |
-| `experiments/score_forecasts.py` (`make score-forecasts`) | Califica el ledger vs los cortes reales (`dataset.actuals_F()`). Escribe `reports/forecast_scorecard.csv` (una fila por predicción evaluable) + `_meta.json` (agregados global / por horizonte / por tabla). Tracking MLflow (`web_forecast_scoring`) es local-dev; el registro durable es el scorecard en git. `--demo` corre un self-check sintético. |
+| `experiments/generate_web_forecasts.py` | Genera la añada y la archiva en `reports/prospective/forecast_log.csv`. Sin argumentos = añada **en vivo** (sirve la web). Con `YYYY-MM` = añada **histórica** leakage-free (trunca la serie a ese mes con `as_of`). |
+| `reports/prospective/forecast_log.csv` | Ledger inmutable: `origin, h, country, category, table, date, days, lo80, hi80, lo95, hi95`. Idempotente (dedup por `origin+serie+fecha`). |
+| `experiments/score_forecasts.py` (`make score-forecasts`) | Califica el ledger vs los cortes reales (`dataset.actuals_F()`). Escribe `reports/prospective/forecast_scorecard.csv` (una fila por predicción evaluable) + `_meta.json` (agregados global / por horizonte / por tabla). Tracking MLflow (`web_forecast_scoring`) es local-dev; el registro durable es el scorecard en git. `--demo` corre un self-check sintético. |
 | `experiments/backfill_vintages.sh` | Siembra **reproducible**: añada en vivo + añadas históricas (`2024-07, 2025-01, 2025-07`) + scoring. Todo sale del pipeline, sin parches. |
 
 ## Modelo de producción (por qué NO es el ganador del entregable)
@@ -51,7 +51,7 @@ make install model-install                  # venv + deps de modelado (darts/tor
 make panel db                               # data/processed/visapredict.duckdb (lo lee el scorer)
 
 # 1. Sembrar el ledger COMPLETO (10 añadas) + scoring, todo del pipeline con semilla fija:
-rm -f reports/forecast_log.csv reports/forecast_scorecard*.{csv,json}
+rm -f reports/prospective/forecast_log.csv reports/prospective/forecast_scorecard*.{csv,json}
 bash experiments/backfill_vintages.sh       # añada viva (→7 orígenes) + 3 históricas + scoring (~25 min CPU)
 
 # 2. (opcional) re-derivar el ratio de la banda 80 % en split disjunto:

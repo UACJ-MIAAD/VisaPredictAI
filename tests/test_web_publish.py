@@ -94,10 +94,10 @@ def test_ledger_is_append_only_and_immutable(tmp_path, monkeypatch):
     monkeypatch.setattr(gwf, "REPORTS", tmp_path)
     gwf._append_log([ROW])
     gwf._append_log([{**ROW, "days": 999}])  # re-run con otro valor: NO debe sobrescribir (C3)
-    led = pd.read_csv(tmp_path / "forecast_log.csv")
+    led = pd.read_csv(tmp_path / "prospective" / "forecast_log.csv")
     assert len(led) == 1 and led.days.iloc[0] == 100
     gwf._append_log([{**ROW, "date": "2026-09-01", "h": 2}])  # fecha nueva sí se anexa
-    assert len(pd.read_csv(tmp_path / "forecast_log.csv")) == 2
+    assert len(pd.read_csv(tmp_path / "prospective" / "forecast_log.csv")) == 2
 
 
 def test_ensemble_point_is_elementwise_median():

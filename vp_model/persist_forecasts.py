@@ -5,7 +5,7 @@ de pronósticos es un mecanismo distinto (reduce varianza) y la sabiduría de la
 M-competencias dice que la media simple suele ser robusta. Eso exige los pronósticos,
 no solo las métricas, así que aquí se corre el walk-forward del set curado y se guardan
 los pronósticos de los últimos 24 meses (hold-out) en formato largo:
-``reports/holdout_forecasts_{table}.csv`` con (model, country, category, date, actual,
+``reports/eval/holdout_forecasts_{table}.csv`` con (model, country, category, date, actual,
 forecast). El conjunto curado son los mejores puntuales (estadísticos + GBMs ganadores).
 """
 
@@ -49,7 +49,8 @@ def run(table: str = "FAD", block: str = "family", models_set: tuple[str, ...] =
                 for d, a, f in zip(dates[fmask], af, ff, strict=True)
             ]
         log.info("hold-out forecasts: %s/%s listo", r.country, r.category)
-    out = REPORTS / f"holdout_forecasts_{table}.csv"
+    out = REPORTS / "eval" / f"holdout_forecasts_{table}.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_csv(out, index=False)
     log.info("escrito -> %s (%d filas)", out, len(rows))
     return out

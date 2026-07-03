@@ -118,7 +118,9 @@ def main() -> None:
                     metrics={"coverage95": cov, "width_scaled": w},
                     tags={"layer": "improve", "technique": "conformal"},
                 )
-    pd.DataFrame(rows).to_csv(REPORTS / "conformal_coverage.csv", index=False)  # artefacto reproducible del claim ACI
+    pd.DataFrame(rows).to_csv(
+        REPORTS / "eval" / "conformal_coverage.csv", index=False
+    )  # artefacto reproducible del claim ACI
 
 
 if __name__ == "__main__":

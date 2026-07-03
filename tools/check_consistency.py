@@ -2,7 +2,7 @@
 """Guardián de consistencia entre TODOS los artefactos (la máxima del proyecto).
 
 Verifica que web / LaTeX entregable / paper / READMEs / docs digan el MISMO número y no
-arrastren claims viejos. Fuente de verdad: ``reports/key_facts.json`` (generada por
+arrastren claims viejos. Fuente de verdad: ``reports/governance/key_facts.json`` (generada por
 ``experiments/build_key_facts.py``). Reglas: ``tools/consistency_rules.yml``.
 
 Falla (exit 1) si: (a) un patrón `forbidden` aparece, (b) un `required` falta, o (c) un
@@ -48,7 +48,7 @@ def _resolve(globs: list[str]) -> list[Path]:
 
 def main() -> int:
     quiet = "--quiet" in sys.argv
-    facts = json.loads((ROOT / "reports" / "key_facts.json").read_text())
+    facts = json.loads((ROOT / "reports" / "governance" / "key_facts.json").read_text())
     rules = yaml.safe_load((ROOT / "tools" / "consistency_rules.yml").read_text())
     sets = {name: _resolve(globs) for name, globs in rules["artifacts"].items()}
 
@@ -136,10 +136,10 @@ def main() -> int:
         print(f"\n✗ CONSISTENCIA ROTA — {len(violations)} violación(es) en {n_files} archivos:\n")
         for v in violations:
             print("  " + v)
-        print("\nReconcilia los artefactos a reports/key_facts.json (la fuente de verdad) y reintenta.")
+        print("\nReconcilia los artefactos a reports/governance/key_facts.json (la fuente de verdad) y reintenta.")
         return 1
     print(
-        f"✓ Consistencia OK — {n_files} artefactos alineados con reports/key_facts.json"
+        f"✓ Consistencia OK — {n_files} artefactos alineados con reports/governance/key_facts.json"
         + (" (repo web omitido)" if web_missing else "")
     )
     return 0

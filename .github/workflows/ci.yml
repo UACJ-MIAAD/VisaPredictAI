@@ -123,13 +123,13 @@ jobs:
         # committed reports and fail if the committed key_facts.json drifted from it.
         run: |
           python experiments/build_key_facts.py
-          git diff --exit-code reports/key_facts.json reports/latex/key_facts.tex
+          git diff --exit-code reports/governance/key_facts.json reports/latex/key_facts.tex
 
       - name: Modeling tests + vp_model coverage
         run: make test-model PY=python
 
   # Guardián de consistencia (la máxima del proyecto): web/LaTeX/paper/README/docs deben
-  # dar el MISMO número que reports/key_facts.json. Lightweight: solo pyyaml + el JSON
+  # dar el MISMO número que reports/governance/key_facts.json. Lightweight: solo pyyaml + el JSON
   # committeado. Checkout del repo web tolerante (si es privado/inaccesible, se omiten sus
   # chequeos y el job sigue validando los artefactos del repo de datos).
   consistency:

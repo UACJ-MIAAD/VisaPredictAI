@@ -105,12 +105,8 @@ stages:
       size: 1589531
     - path: experiments/build_key_facts.py
       hash: md5
-      md5: f251f7516cc3dcd80bdfb382de6113d0
-      size: 7958
-    - path: reports/auto_arima_baseline.csv
-      hash: md5
-      md5: baaa017975481eba22b2a8a264132c23
-      size: 1849
+      md5: c22cb994fd79f90c54c1e6b3eed53146
+      size: 8033
     - path: reports/campaign/campaign_pool_DFF_family.csv
       hash: md5
       md5: a6ff7fe43ed3e7077b023440a1443d91
@@ -159,20 +155,24 @@ stages:
       hash: md5
       md5: 713335d9b70049229f84cc0f818757a3
       size: 57112
-    - path: reports/forecast_scorecard_meta.json
+    - path: reports/eval/auto_arima_baseline.csv
       hash: md5
-      md5: e869aff57e5c65e6e7c512fce7e3ec69
-      size: 2911
-    - path: reports/significance_summary.json
+      md5: baaa017975481eba22b2a8a264132c23
+      size: 1849
+    - path: reports/eval/significance_summary.json
       hash: md5
       md5: ac15e4acb1bfac2c3d8e4f3a8634bafd
       size: 2746
+    - path: reports/prospective/forecast_scorecard_meta.json
+      hash: md5
+      md5: e869aff57e5c65e6e7c512fce7e3ec69
+      size: 2911
     - path: vp_model/config.py
       hash: md5
       md5: bc470d30aa1b61fb6981ed34e07ec2fd
       size: 8709
     outs:
-    - path: reports/key_facts.json
+    - path: reports/governance/key_facts.json
       hash: md5
       md5: bb7da59a6050f92755e1f4e6b094afd3
       size: 893

@@ -16,6 +16,6 @@ ante/bin/python experiments/save_finalists.py || true
 echo ">>> [3/4] pronosticos finalistas -> CSV tidy (ante)"
 ante/bin/python experiments/export_forecasts.py || true
 echo ">>> [4/4] commit forecasts + sync (DVC->S3 + git)"
-git add reports/finalist_forecasts_*.csv 2>/dev/null
+git add reports/eval/finalist_forecasts_*.csv 2>/dev/null
 bash experiments/sync_all.sh "finalistas: $(ls models -R 2>/dev/null | grep -c model) modelos + forecasts ($(date +%Y-%m-%d))" || true
 echo "=== FINALISTAS LISTOS $(date) ==="

@@ -1,6 +1,6 @@
 """Fuente ÚNICA de verdad de las cifras del proyecto, generada del pipeline.
 
-Produce ``reports/key_facts.json`` (consumido por ``tools/check_consistency.py``) y
+Produce ``reports/governance/key_facts.json`` (consumido por ``tools/check_consistency.py``) y
 ``reports/latex/key_facts.tex`` (macros \\newcommand para que el LaTeX pueda \\input la
 fuente en vez de hardcodear números). TODO se computa de los datos/reportes, incluidas
 las cifras del run profundo multi-semilla (de los CSV de la campaña) y el listón
@@ -34,7 +34,7 @@ def _prev_facts() -> dict:
     semanal: se conservan las cifras previas con un warning ruidoso. Si tampoco hay
     key_facts previo, el KeyError posterior aborta (mejor explotar que inventar).
     """
-    p = REPORTS / "key_facts.json"
+    p = REPORTS / "governance" / "key_facts.json"
     return json.loads(p.read_text()) if p.exists() else {}
 
 
@@ -65,7 +65,7 @@ def _dataset() -> dict:
 
 
 def _prospective() -> dict:
-    m = json.loads((REPORTS / "forecast_scorecard_meta.json").read_text())
+    m = json.loads((REPORTS / "prospective" / "forecast_scorecard_meta.json").read_text())
     o = m["overall"]
     return {
         "prosp_n_scored": int(o["n"]),
@@ -124,12 +124,12 @@ def _models() -> dict:
                 out[k] = prev[k]
             if tbl == "FAD":
                 out["fad_champion_mase"] = prev["fad_champion_mase"]
-    aa = pd.read_csv(REPORTS / "auto_arima_baseline.csv")
+    aa = pd.read_csv(REPORTS / "eval" / "auto_arima_baseline.csv")
     for tbl in ("FAD", "DFF"):
         d = aa[aa.table == tbl].hold_mase
         out[f"autoarima_{tbl.lower()}_mean"] = round(float(d.mean()), 3)
         out[f"autoarima_{tbl.lower()}_median"] = round(float(d.median()), 3)
-    sig = json.loads((REPORTS / "significance_summary.json").read_text())
+    sig = json.loads((REPORTS / "eval" / "significance_summary.json").read_text())
     out["mcs_fad"] = sorted(sig["ranking"]["FAD"]["mcs_alpha10"])
     out["mcs_dff"] = sorted(sig["ranking"]["DFF"]["mcs_alpha10"])
     # Cifras del run profundo multi-semilla, derivadas de los CSV de la campaña con la
@@ -154,7 +154,7 @@ def build() -> dict:
         **_prospective(),
         **_models(),
     }
-    (REPORTS / "key_facts.json").write_text(json.dumps(facts, indent=2, ensure_ascii=False) + "\n")
+    (REPORTS / "governance" / "key_facts.json").write_text(json.dumps(facts, indent=2, ensure_ascii=False) + "\n")
 
     # macros LaTeX (\factNObs, \factProspMASE, …) — camelCase del key
     def macro(k: str) -> str:

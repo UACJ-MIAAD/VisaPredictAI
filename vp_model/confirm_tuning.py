@@ -5,7 +5,7 @@ El tuner optimiza un objetivo de validación interna; eso NO basta para aceptar 
 COMPLETO con los hiperparámetros tuneados sobre cada serie del grupo y se compara el MASE
 de HOLD-OUT contra el de los defaults (tomado del CSV de 21 modelos). Solo se ACEPTA el
 tuning si mejora en hold-out; si no, se conserva el default. Escribe
-``reports/tuning_confirmation.csv``.
+``reports/eval/tuning_confirmation.csv``.
 """
 
 from __future__ import annotations
@@ -25,13 +25,13 @@ REPORTS = Path(__file__).resolve().parent.parent / "reports"
 
 def _default_holdout(model: str, table: str, block: str) -> dict[tuple[str, str], float]:
     """hold_mase por (país, categoría) de los defaults, del CSV de 21 modelos."""
-    df = pd.read_csv(REPORTS / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
+    df = pd.read_csv(REPORTS / "eval" / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
     d = df[df.model == model]
     return {(r.country, r.category): r.hold_mase for r in d.itertuples()}
 
 
 def confirm() -> pd.DataFrame:
-    tuned = json.loads((REPORTS / "tuned_params.json").read_text())
+    tuned = json.loads((REPORTS / "eval" / "tuned_params.json").read_text())
     rows = []
     for model, groups in tuned.items():
         for key, info in groups.items():
@@ -57,7 +57,7 @@ def confirm() -> pd.DataFrame:
                     log.warning("skip %s %s/%s: %s", model, r.country, r.category, e)
             log.info("confirmado %s · %s", model, key)
     df = pd.DataFrame(rows)
-    df.to_csv(REPORTS / "tuning_confirmation.csv", index=False)
+    df.to_csv(REPORTS / "eval" / "tuning_confirmation.csv", index=False)
     return df
 
 

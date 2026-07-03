@@ -66,11 +66,14 @@ VisaPredictAI/
 ├── tools/validate_structure.sh         # valida la estructura cookiecutter + whitelist de raíz (make validate; gate de CI)
 ├── reports/latex/                      # ★ fuente LaTeX del entregable (Overleaf importa de aquí) + Figures/
 ├── reports/campaign/                   # procedencia de la campaña de modelado (pools 21 modelos + barridos deep por semilla)
+├── reports/eval/                       # evaluación retrospectiva (comparaciones, significancia, tuning, PI, CRPS, holdouts)
+├── reports/prospective/                # ledger prospectivo (web_forecasts, forecast_log, scorecard, vs_actual)
+├── reports/governance/                 # fuente de verdad y veredictos (key_facts, MODEL_CARD, champion, drift, auditorías)
 ├── tests/                              # pytest: parsers · extracción offline · contrato del panel + BD
 ├── data/snapshots/                     # HTML crudo congelado (gitignored; máster en S3)
 ├── data/raw/                           # CSVs por país (derivados de los snapshots, versionados)
 ├── data/processed/                     # visa_panel_long.csv (panel) + .duckdb/.parquet regenerables
-├── reports/ · docs/                    # auditorías · web_forecasts/forecast_log/scorecard · data_dictionary · er_diagram · ROADMAP · FORECAST_EVAL
+├── docs/                               # data_dictionary · er_diagram · ROADMAP · FORECAST_EVAL · DVC · CONSISTENCY
 ├── Makefile · pyproject.toml           # one-command ops + config ruff/mypy/pytest
 ├── schema.sql · dvc.yaml               # DDL del almacén estrella · DAG reproducible (dvc repro)
 └── .github/workflows/                  # ci.yml (lint+type+test) · freeze_and_rebuild.yml (Action Lun-Vie 12pm ET, S3-driven) · watchdog.yml

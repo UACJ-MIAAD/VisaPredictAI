@@ -1,6 +1,6 @@
 """Evalúa los intervalos conformes del ganador profundo: cobertura 95%, interval score (MSIS) y CRPS.
 
-Lee ``reports/deep_pi_{table}.csv`` (punto + cuantiles conformes ya reintegrados a nivel) y
+Lee ``reports/eval/deep_pi_{table}.csv`` (punto + cuantiles conformes ya reintegrados a nivel) y
 calcula, por serie y promedio sobre el bloque familiar:
   * cobertura empírica del PI 95% (fracción de y dentro de [lo95, hi95]; objetivo 0.95),
   * MSIS (mean scaled interval score, M5) al 95%, escalado por el naïve estacional (= escala MASE),
@@ -40,7 +40,7 @@ def main() -> None:
     args = ap.parse_args()
     from vp_model import dataset
 
-    df = pd.read_csv(f"reports/deep_pi_{args.table}.csv", parse_dates=["ds"])
+    df = pd.read_csv(f"reports/eval/deep_pi_{args.table}.csv", parse_dates=["ds"])
     model = next(c for c in df.columns if "-" not in c and c not in ("unique_id", "ds", "y"))
     rows = []
     for uid, g in df.groupby("unique_id"):

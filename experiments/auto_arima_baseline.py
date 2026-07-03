@@ -6,7 +6,7 @@ protocolo idéntico (``walkforward.backtest``), así su MASE es comparable fila 
 ``campaign_pool``. statsforecast/pmdarima no compilan en py3.14/macOS, así que la
 selección usa ``statsmodels`` (ya instalado).
 
-Salida: reports/auto_arima_baseline.csv (country,category,table,order,hold_mase) + un
+Salida: reports/eval/auto_arima_baseline.csv (country,category,table,order,hold_mase) + un
 resumen (mediana por tabla) para citar en el paper junto a ETS/Theta.
 
 Uso (ante):  ante/bin/python experiments/auto_arima_baseline.py
@@ -74,7 +74,7 @@ def run() -> Path:
             except Exception as e:  # noqa: BLE001
                 log.info("skip %s/%s/%s: %s", table, r.country, r.category, e)
     df = pd.DataFrame(rows)
-    out = REPORTS / "auto_arima_baseline.csv"
+    out = REPORTS / "eval" / "auto_arima_baseline.csv"
     df.to_csv(out, index=False)
     summary = df.groupby("table")["hold_mase"].median().round(4).to_dict()
     log.info("Auto-ARIMA mediana hold MASE por tabla: %s (n=%d)", summary, len(df))

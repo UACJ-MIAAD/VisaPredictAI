@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Siembra REPRODUCIBLE del ledger de evaluación prospectiva (reports/forecast_log.csv).
+# Siembra REPRODUCIBLE del ledger de evaluación prospectiva (reports/prospective/forecast_log.csv).
 #
 # La añada EN VIVO usa, por serie, su PROPIO último mes F como origen. La mayoría de las
 # series termina en el último boletín (p.ej. 2026-07), pero las series mayormente Current

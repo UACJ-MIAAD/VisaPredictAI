@@ -41,7 +41,7 @@ def _features(s: np.ndarray) -> list[float]:
 
 
 def _evaluate(table: str) -> dict:
-    fc = pd.read_csv(REPORTS / f"finalist_forecasts_{table}.csv", parse_dates=["date"])
+    fc = pd.read_csv(REPORTS / "eval" / f"finalist_forecasts_{table}.csv", parse_dates=["date"])
     pool_all = sorted(fc.model.unique())  # todos los finalistas disponibles (deep + local)
     series, X, mase, fcast = [], [], {}, {}
     for (country, category), g in fc.groupby(["country", "category"]):

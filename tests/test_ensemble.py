@@ -14,6 +14,7 @@ from vp_model import dataset, ensemble  # noqa: E402
 
 def _write_forecasts(path, model_to_fc, actual=11.0):
     """CSV de hold-out sintético: 1 serie, 2 fechas, modelos con pronóstico constante."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     dates = pd.to_datetime(["2024-01-01", "2024-02-01"])
     rows = [
         {"country": "mexico", "category": "F1", "date": d, "model": m, "actual": actual, "forecast": fc}
@@ -26,7 +27,7 @@ def _write_forecasts(path, model_to_fc, actual=11.0):
 def test_curated_combination_median(tmp_path, monkeypatch):
     """La combinación toma la MEDIANA por fecha y escala por el naïve estacional previo."""
     monkeypatch.setattr(ensemble, "REPORTS", tmp_path)
-    _write_forecasts(tmp_path / "holdout_forecasts_FAD.csv", {"theta": 10.0, "ets": 12.0, "sarima": 20.0})
+    _write_forecasts(tmp_path / "eval" / "holdout_forecasts_FAD.csv", {"theta": 10.0, "ets": 12.0, "sarima": 20.0})
     # serie con escala naïve conocida: incrementos de 1 -> seasonal_naive_mae sobre tramo previo
     s = pd.Series(np.arange(120.0), index=pd.date_range("2014-01-01", periods=120, freq="MS"))
     monkeypatch.setattr(dataset, "load_series", lambda *a, **k: s)

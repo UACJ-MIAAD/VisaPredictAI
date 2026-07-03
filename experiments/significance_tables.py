@@ -3,10 +3,10 @@
 
 Entradas (read-only):
   • reports/campaign/campaign_pool_{FAD,DFF}_family.csv  — hold_mase por (modelo, serie) → ranking
-  • reports/finalist_forecasts_{FAD,DFF}.csv    — forecast/actual por fecha → DM pareado
+  • reports/eval/finalist_forecasts_{FAD,DFF}.csv    — forecast/actual por fecha → DM pareado
 
 Salidas:
-  • reports/significance_summary.json           — todos los números (procedencia)
+  • reports/eval/significance_summary.json           — todos los números (procedencia)
   • reports/paper_micai/Figures/fig_cd_diagram.pdf  — diagrama de diferencia crítica (FAD)
   • imprime un fragmento LaTeX listo para pegar en el paper.
 
@@ -93,10 +93,10 @@ def _dm_deep_vs_parsimony(table: str) -> dict:
     from vp_model import dataset
     from vp_model.metrics import naive_scale_before
 
-    deep_src = pd.read_csv(REPORTS / f"finalist_forecasts_{table}.csv")
+    deep_src = pd.read_csv(REPORTS / "eval" / f"finalist_forecasts_{table}.csv")
     cols = ["model", "country", "category", "date", "forecast", "actual"]
     f_deep = deep_src[deep_src.model.isin({"BiTCN", "AutoBiTCN", "NHITS", "PatchTST", "TiDE"})][cols]
-    f_pars = pd.read_csv(REPORTS / f"holdout_forecasts_{table}.csv")[cols]
+    f_pars = pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv")[cols]
     f = pd.concat([f_deep, f_pars], ignore_index=True)
     n_raw = int(f.groupby(["country", "category"]).ngroups)
     keep = _distinct_series(f)
@@ -198,7 +198,7 @@ def main() -> None:
         summary["ranking"][tbl] = {k: v for k, v in r.items() if not k.startswith("_")}
         summary["dm"][tbl] = _dm_deep_vs_parsimony(tbl)
     _cd_diagram(rank["FAD"])
-    (REPORTS / "significance_summary.json").write_text(json.dumps(summary, indent=2, default=str) + "\n")
+    (REPORTS / "eval" / "significance_summary.json").write_text(json.dumps(summary, indent=2, default=str) + "\n")
     print(json.dumps(summary, indent=2, default=str))
     print("\n=== LaTeX (pegar en paper.tex) ===\n" + _latex(summary))
 

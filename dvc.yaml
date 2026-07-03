@@ -70,9 +70,9 @@ stages:
       - experiments/build_key_facts.py
       - vp_model/config.py
       - data/processed/visa_panel_long.csv
-      - reports/forecast_scorecard_meta.json
-      - reports/auto_arima_baseline.csv
-      - reports/significance_summary.json
+      - reports/prospective/forecast_scorecard_meta.json
+      - reports/eval/auto_arima_baseline.csv
+      - reports/eval/significance_summary.json
       # SOLO los insumos canónicos (no el dir completo: las corridas exploratorias
       # que caen en reports/campaign no deben churnear el lock — mordió 2 veces el 3-jul)
       - reports/campaign/campaign_pool_FAD_family.csv
@@ -88,7 +88,7 @@ stages:
       - reports/campaign/global_FAD_camp_auto_s4.csv
       - reports/campaign/global_FAD_camp_auto_s5.csv
     outs:
-      - reports/key_facts.json:
+      - reports/governance/key_facts.json:
           cache: false
       - reports/latex/key_facts.tex:
           cache: false

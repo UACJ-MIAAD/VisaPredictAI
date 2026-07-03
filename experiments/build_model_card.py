@@ -1,7 +1,7 @@
-"""Genera reports/MODEL_CARD.md — tarjeta de modelo (estilo Google Model Cards) AUTO-derivada
+"""Genera reports/governance/MODEL_CARD.md — tarjeta de modelo (estilo Google Model Cards) AUTO-derivada
 de los artefactos canónicos, con un bloque de LINAJE reproducible.
 
-Toda cifra sale de ``reports/key_facts.json`` (la fuente única de verdad → la tarjeta queda
+Toda cifra sale de ``reports/governance/key_facts.json`` (la fuente única de verdad → la tarjeta queda
 automáticamente alineada con el guardián de consistencia); la receta campeona, del manifiesto
 y del veredicto campeón-retador; el linaje (git sha + hash del panel) se sella al generar.
 
@@ -32,10 +32,10 @@ def _panel_hash() -> str:
 
 
 def build() -> str:
-    kf = _load("key_facts.json")
-    cc = _load("champion_challenger.json")
-    manifest = _load("champion_manifest.json")
-    sig = _load("significance_summary.json")
+    kf = _load("governance/key_facts.json")
+    cc = _load("governance/champion_challenger.json")
+    manifest = _load("governance/champion_manifest.json")
+    sig = _load("eval/significance_summary.json")
     sha, _dirty = tracking._git()  # el flag dirty se omite: la tarjeta se genera pre-commit
 
     def recipe(table: str) -> str:
@@ -53,7 +53,7 @@ def build() -> str:
 
 > Tarjeta auto-generada por `experiments/build_model_card.py` a partir de los artefactos
 > canónicos. **No editar a mano** — se regenera con `make model-card`. Toda cifra proviene de
-> `reports/key_facts.json` (fuente única de verdad).
+> `reports/governance/key_facts.json` (fuente única de verdad).
 
 ## 1. Detalles del modelo
 - **Sistema:** predictor del U.S. Visa Bulletin — panel multiserie `y_{{p,c,b,t}}` (país × categoría × tabla × mes).
@@ -90,10 +90,11 @@ def build() -> str:
 - Solo modela estado F; C/U son anotación descriptiva, no objetivo.
 - Las retrogresiones por cuota son reales y el modelo debe tolerarlas; no constituye consejo legal.
 """
-    (REPORTS / "MODEL_CARD.md").write_text(md)
+    (REPORTS / "governance").mkdir(parents=True, exist_ok=True)
+    (REPORTS / "governance" / "MODEL_CARD.md").write_text(md)
     return md
 
 
 if __name__ == "__main__":
     build()
-    print(f"escrito {REPORTS / 'MODEL_CARD.md'}")
+    print(f"escrito {REPORTS / 'governance' / 'MODEL_CARD.md'}")

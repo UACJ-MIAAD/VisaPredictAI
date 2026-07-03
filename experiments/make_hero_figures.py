@@ -33,7 +33,7 @@ def _yr(days):
 
 
 def fig_hero(country="philippines", category="F3", table="FAD", out="results_hero_forecast.pdf") -> None:
-    d = pd.read_csv(ROOT / "reports" / f"deep_pi_{table}.csv", parse_dates=["ds"])
+    d = pd.read_csv(ROOT / "reports" / "eval" / f"deep_pi_{table}.csv", parse_dates=["ds"])
     g = d[d.unique_id == f"{country}/family/{category}"].sort_values("ds")
     full = dataset.load_series(country, category, table).astype("float64")
     g = g[g.ds.isin(full.index)]

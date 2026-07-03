@@ -1,5 +1,5 @@
 # Reglas del guardián de consistencia (la MÁXIMA: todo 100% alineado SIEMPRE).
-# Las corre tools/check_consistency.py contra reports/key_facts.json (fuente de verdad,
+# Las corre tools/check_consistency.py contra reports/governance/key_facts.json (fuente de verdad,
 # generada por experiments/build_key_facts.py). `{fact}` se sustituye por su valor.
 #
 # Tipos de regla:

@@ -54,7 +54,7 @@ def deep_plus_parsimony(table: str, deep_glob: str, deep_col: str, stat_models, 
     ``deep_glob``: patrón de los CSV de forecast profundo (p.ej. 'global_FAD_camp_diff_s1.csv').
     ``deep_col``: columna del modelo profundo. ``stat_models``: lista de modelos del pool.
     """
-    hf = REPORTS / f"holdout_forecasts_{table}.csv"
+    hf = REPORTS / "eval" / f"holdout_forecasts_{table}.csv"
     deep_csv = REPORTS / "campaign" / deep_glob
     if not hf.exists() or not deep_csv.exists():
         print(f"  deep+parsimony {table}: faltan CSV ({hf.name} / {deep_glob}) — omitido")

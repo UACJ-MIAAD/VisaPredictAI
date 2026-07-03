@@ -1,9 +1,9 @@
 """Comparación del catálogo de modelos (21) por walk-forward (US-F1, US-A3).
 
 Corre el catálogo sobre un conjunto de series y consolida las métricas en
-``reports/model_comparison.csv`` (una fila por modelo×serie, con ``run_id`` para
+``reports/eval/model_comparison.csv`` (una fila por modelo×serie, con ``run_id`` para
 trazar la corrida). Además registra la procedencia completa de cada corrida en el
-ledger append-only ``reports/experiment_runs.jsonl`` (run_id, commit git, semilla,
+ledger append-only ``reports/eval/experiment_runs.jsonl`` (run_id, commit git, semilla,
 versiones, hiperparámetros) — reproducibilidad auditable.
 
 Uso:
@@ -26,8 +26,8 @@ from vp_model import config, dataset, significance, walkforward
 log = config.get_logger(__name__)
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
-OUT = REPORTS / "model_comparison.csv"
-LEDGER = REPORTS / "experiment_runs.jsonl"
+OUT = REPORTS / "eval" / "model_comparison.csv"
+LEDGER = REPORTS / "eval" / "experiment_runs.jsonl"
 
 
 def run(
@@ -173,7 +173,7 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument("--table", default="FAD", choices=list(config.TABLES))
     p.add_argument("--block", default="family", choices=["family", "employment"])
-    p.add_argument("--out", default=None, help="ruta del CSV de salida (por defecto reports/model_comparison.csv)")
+    p.add_argument("--out", default=None, help="ruta del CSV de salida (por defecto reports/eval/model_comparison.csv)")
     p.add_argument(
         "--models",
         nargs="+",

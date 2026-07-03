@@ -8,7 +8,7 @@
 ## Cómo funciona
 
 ```
-datos/reportes ──► experiments/build_key_facts.py ──► reports/key_facts.json   (FUENTE DE VERDAD)
+datos/reportes ──► experiments/build_key_facts.py ──► reports/governance/key_facts.json   (FUENTE DE VERDAD)
                                                   └──► reports/latex/key_facts.tex (macros \factXxx)
                                                               │
 tools/consistency_rules.yml ──► tools/check_consistency.py ──┤ compara los artefactos
@@ -16,7 +16,7 @@ tools/consistency_rules.yml ──► tools/check_consistency.py ──┤ compa
         web / ProyectoI.tex / paper.tex / README / docs  ──► ✓ o ✗ (falla el build)
 ```
 
-- **`reports/key_facts.json`** — cifras canónicas **computadas del pipeline** (n series, obs,
+- **`reports/governance/key_facts.json`** — cifras canónicas **computadas del pipeline** (n series, obs,
   %F, rango de fechas, MASE/MAE/cobertura prospectivos, medias por modelo, MCS, márgenes
   deep-vs-parsimonia, BAND80\_RATIO). **No editar a mano** — `make key-facts` lo regenera.
 - **`tools/consistency_rules.yml`** — reglas: `forbidden` (claims viejos prohibidos),

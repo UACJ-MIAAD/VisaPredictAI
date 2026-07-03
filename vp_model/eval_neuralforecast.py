@@ -1,6 +1,6 @@
 """Evalúa los pronósticos globales de neuralforecast con NUESTRAS métricas.
 
-Lee ``reports/neuralforecast_forecasts.csv`` (producido en el venv aislado ``ante_nf``
+Lee ``reports/eval/neuralforecast_forecasts.csv`` (producido en el venv aislado ``ante_nf``
 por ``run_neuralforecast.py``) y calcula MASE/sMAPE/MAE/RMSE sobre el hold-out para
 cada modelo global (PatchTST, iTransformer, NHITS...), de forma comparable al pool
 local. Cierra el puente entre los dos entornos: entrenamiento global en pandas<3,
@@ -17,7 +17,7 @@ import pandas as pd
 from vp_model.metrics import naive_scale_before
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
-CSV = REPORTS / "neuralforecast_forecasts.csv"
+CSV = REPORTS / "eval" / "neuralforecast_forecasts.csv"
 NON_MODEL = {"index", "unique_id", "ds", "cutoff", "y"}
 
 

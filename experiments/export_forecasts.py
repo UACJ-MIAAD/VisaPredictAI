@@ -1,6 +1,6 @@
 """Exporta los pronósticos hold-out de los finalistas a un CSV tidy para comparar/graficar.
 
-Genera ``reports/finalist_forecasts_{table}.csv`` en formato largo:
+Genera ``reports/eval/finalist_forecasts_{table}.csv`` en formato largo:
 ``model, type, country, category, date, forecast, actual`` — listo para pandas/seaborn:
 cada finalista (local por serie + deep global) sobre los 24 meses de hold-out, evaluado F-only.
 
@@ -111,7 +111,7 @@ def _deep_rows(table: str) -> list[dict]:
 def main() -> None:
     for table in config.TABLES:
         rows = _local_rows(table) + _deep_rows(table)
-        out = REPORTS / f"finalist_forecasts_{table}.csv"
+        out = REPORTS / "eval" / f"finalist_forecasts_{table}.csv"
         pd.DataFrame(rows).to_csv(out, index=False)
         print(f"{table}: {len(rows)} filas, {pd.DataFrame(rows)['model'].nunique()} modelos -> {out.name}")
 

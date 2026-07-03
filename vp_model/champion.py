@@ -8,7 +8,7 @@ un **veredicto de promoción**.
 
 La promoción está **gateada**: un retador se RECOMIENDA solo si le gana al campeón con
 significancia ajustada por Holm Y un margen medio material; el cambio real es una edición
-explícita y auditada del manifiesto (`reports/champion_manifest.json`), NUNCA automática.
+explícita y auditada del manifiesto (`reports/governance/champion_manifest.json`), NUNCA automática.
 La confirmación PROSPECTIVA (sobre el ledger congelado) requiere desplegar el retador en
 sombra primero — el ledger hoy solo califica al campeón — y queda anotada como pendiente.
 """
@@ -26,7 +26,7 @@ from vp_model import dataset, significance
 from vp_model.metrics import naive_scale_before
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
-MANIFEST = REPORTS / "champion_manifest.json"
+MANIFEST = REPORTS / "governance" / "champion_manifest.json"
 
 # Baraja de retadores por tabla: cada uno es (modelos, agregación). Un modelo único = receta
 # de un solo elemento (la agregación es irrelevante). Solo modelos presentes en los forecasts
@@ -82,7 +82,7 @@ def replica_representatives(table: str) -> list[tuple[str, str]]:
     anticonservador el Wilcoxon que decide qué receta se despliega a la web. Firma =
     vector de ``actual`` por fecha (mismo criterio que ``significance_tables``).
     """
-    fc = pd.read_csv(REPORTS / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
+    fc = pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
     sig = fc.drop_duplicates(subset=["country", "category", "date"]).pivot_table(
         index=["country", "category"], columns="date", values="actual"
     )
@@ -93,10 +93,10 @@ def recipe_series_mase(table: str, recipe: Recipe) -> pd.Series:
     """MASE de hold-out por serie de una receta, leakage-free.
 
     Reconstruye el punto de la receta (mediana/media de sus modelos por serie×fecha) sobre
-    ``reports/holdout_forecasts_{table}.csv`` y escala por el naïve estacional in-sample
+    ``reports/eval/holdout_forecasts_{table}.csv`` y escala por el naïve estacional in-sample
     calculado SOLO con el tramo previo al hold-out (misma fuente que el resto del proyecto).
     """
-    fc = pd.read_csv(REPORTS / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
+    fc = pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
     missing = set(recipe.models) - set(fc.model.unique())
     if missing:
         raise ValueError(f"receta {recipe.name}: modelos ausentes en holdout_forecasts_{table}: {sorted(missing)}")

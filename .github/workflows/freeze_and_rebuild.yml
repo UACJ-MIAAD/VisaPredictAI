@@ -182,7 +182,7 @@ jobs:
 
         # 4b. Regenerate the web demonstrator's production-model forecasts. Needs
         #     the modeling deps; install CPU-only torch first so .[model] doesn't
-        #     pull the ~2 GB CUDA wheel. Produces reports/web_forecasts.csv (+meta)
+        #     pull the ~2 GB CUDA wheel. Produces reports/prospective/web_forecasts.csv (+meta)
         #     — per-series 12-month forecasts (FAD: median Theta+ETS+SARIMA;
         #     DFF: SARIMA; split-conformal 80/95% bands). The website fetches these
         #     at build time. Per-series MASE/coverage land in the committed meta.json.
@@ -192,10 +192,10 @@ jobs:
 
         # 4c. Prospective scoring: now that this month's REAL cutoffs are in the
         #     panel, grade every previously-frozen forecast whose target month just
-        #     landed (forecast_log.csv vs actuals) → reports/forecast_scorecard*.
+        #     landed (forecast_log.csv vs actuals) → reports/prospective/forecast_scorecard*.
         python experiments/score_forecasts.py
 
-        # 4d. Refresh the single source of truth (reports/key_facts.json) from the new
+        # 4d. Refresh the single source of truth (reports/governance/key_facts.json) from the new
         #     data + scorecard, so the consistency guard (CI) keeps the prose honest.
         python experiments/build_key_facts.py
 
@@ -263,11 +263,11 @@ jobs:
         # uacj address via SES was hard-failing Microsoft 365's SPF and getting
         # dropped. In sandbox the To (al263483@...) stays a verified identity.
         #
-        # One-line ML drift status from the monitor (reports/drift_report.json), surfaced so a
+        # One-line ML drift status from the monitor (reports/governance/drift_report.json), surfaced so a
         # human reviews any flagged bulletin movement. python is already on PATH in this job.
         DRIFT_LINE="n/d (sin reporte este run)"
-        if [ -f reports/drift_report.json ]; then
-          DRIFT_LINE=$(python -c "import json;d=json.load(open('reports/drift_report.json'));p=d.get('performance',{});n=len(d.get('data',{}).get('flagged',[]));s='DRIFT DETECTADO' if d.get('drift_detected') else 'sin novedad';print(s+' -- desempeno x'+str(p.get('perf_ratio','?'))+', '+str(n)+' serie(s) con movimiento sin precedente')")
+        if [ -f reports/governance/drift_report.json ]; then
+          DRIFT_LINE=$(python -c "import json;d=json.load(open('reports/governance/drift_report.json'));p=d.get('performance',{});n=len(d.get('data',{}).get('flagged',[]));s='DRIFT DETECTADO' if d.get('drift_detected') else 'sin novedad';print(s+' -- desempeno x'+str(p.get('perf_ratio','?'))+', '+str(n)+' serie(s) con movimiento sin precedente')")
         fi
         # L2: veredicto del guardián de consistencia (regla #0) sobre el dato recién
         # comiteado — el push del cron no dispara CI, así que este correo es donde

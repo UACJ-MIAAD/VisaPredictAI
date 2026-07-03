@@ -2,7 +2,7 @@
 
 Investigación (M4-weekly): el stacking vía lasso de modelos heterogéneos (RNN global + Theta +
 TBATS + DHR-ARIMA) batió a todos los benchmarks. Aquí se aplica a nuestros finalistas
-(AutoBiTCN/BiTCN global + Theta/ETS/SARIMA/CatBoost) sobre ``reports/finalist_forecasts_{table}.csv``.
+(AutoBiTCN/BiTCN global + Theta/ETS/SARIMA/CatBoost) sobre ``reports/eval/finalist_forecasts_{table}.csv``.
 
 Leakage-free: por serie, el hold-out de 24m se parte en CALIBRACIÓN (primera mitad, aprende los
 pesos lasso) y TEST (segunda mitad, evalúa). El baseline justo = el mejor modelo base sobre el
@@ -29,7 +29,7 @@ BASE = ("AutoBiTCN", "BiTCN", "theta", "ets", "sarima", "catboost")
 
 
 def _evaluate(table: str) -> dict:
-    fc = pd.read_csv(REPORTS / f"finalist_forecasts_{table}.csv", parse_dates=["date"])
+    fc = pd.read_csv(REPORTS / "eval" / f"finalist_forecasts_{table}.csv", parse_dates=["date"])
     wide = fc.pivot_table(index=["country", "category", "date"], columns="model", values="forecast")
     actual = fc.pivot_table(index=["country", "category", "date"], columns="model", values="actual").iloc[:, 0]
     base = [b for b in BASE if b in wide.columns]

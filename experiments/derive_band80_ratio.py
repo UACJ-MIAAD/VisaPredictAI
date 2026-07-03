@@ -26,7 +26,7 @@ REPORTS = Path(__file__).resolve().parent.parent / "reports"
 
 
 def derive() -> dict:
-    log = pd.read_csv(REPORTS / "forecast_log.csv")
+    log = pd.read_csv(REPORTS / "prospective" / "forecast_log.csv")
     actuals = dataset.actuals_F()
     cal_set = set(config.BAND80_CAL_VINTAGES)
 

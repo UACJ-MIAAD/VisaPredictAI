@@ -6,7 +6,7 @@ calibran sobre el tramo de entrenamiento que precede a cada cutoff). Reintegra T
 cuantiles a nivel (Δ → nivel con el último real, 1 paso) y guarda un CSV ancho que el entorno
 principal evalúa con cobertura empírica, interval score (MSIS) y CRPS aproximado por cuantiles.
 
-Corre en ``ante_nf``. Salida: ``reports/deep_pi_{table}.csv`` (unique_id, ds, y, <model>,
+Corre en ``ante_nf``. Salida: ``reports/eval/deep_pi_{table}.csv`` (unique_id, ds, y, <model>,
 <model>-lo-95, <model>-hi-95, ... para cada nivel).
 
 Uso:  ante_nf/bin/python experiments/run_deep_pi.py --table DFF --model BiTCN --max-steps 800
@@ -81,7 +81,7 @@ def main() -> None:
     out = cv[["unique_id", "ds", "y", *qcols]].copy()
     # la `y` del cv es Δy (objetivo diferenciado); guardar el NIVEL real para evaluar.
     out["y"] = np.array([lvl.get(k, np.nan) for k in zip(out["unique_id"], out["ds"], strict=True)])
-    path = Path(__file__).resolve().parent.parent / "reports" / f"deep_pi_{args.table}.csv"
+    path = Path(__file__).resolve().parent.parent / "reports" / "eval" / f"deep_pi_{args.table}.csv"
     out.to_csv(path, index=False)
     print(f"guardado {path.name} ({len(out)} filas, cols {qcols})")
 

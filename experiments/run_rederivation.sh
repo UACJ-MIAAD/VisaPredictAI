@@ -48,8 +48,8 @@ run bash experiments/run_campaign.sh
 
 stage 2 "proyección pools -> model_comparison_*21.csv (consumidores: ensemble/tuning/figuras)"
 for t in FAD DFF; do
-  run cp "reports/campaign/campaign_pool_${t}_family.csv" "reports/model_comparison_${t}21.csv"
-  run cp "reports/campaign/campaign_pool_${t}_employment.csv" "reports/model_comparison_EB_${t}21.csv"
+  run cp "reports/campaign/campaign_pool_${t}_family.csv" "reports/eval/model_comparison_${t}21.csv"
+  run cp "reports/campaign/campaign_pool_${t}_employment.csv" "reports/eval/model_comparison_EB_${t}21.csv"
 done
 
 stage 3 "finalistas (modelos deep+locales) + holdout_forecasts frescos"

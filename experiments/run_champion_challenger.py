@@ -4,8 +4,8 @@
     ante/bin/python experiments/run_champion_challenger.py --mlflow   # + staging MLflow
     ante/bin/python experiments/run_champion_challenger.py --promote  # aplica al manifiesto si gana un retador
 
-Escribe ``reports/champion_challenger.json`` (+ ``.md`` legible). La promoción real edita
-``reports/champion_manifest.json`` SOLO con ``--promote`` y SOLO si el retador es promovible
+Escribe ``reports/governance/champion_challenger.json`` (+ ``.md`` legible). La promoción real edita
+``reports/governance/champion_manifest.json`` SOLO con ``--promote`` y SOLO si el retador es promovible
 (Holm-significativo + margen medio material). El demostrador (``generate_web_forecasts.py``)
 lee su receta de ese manifiesto, así que promover = un cambio de config versionado y auditado.
 """
@@ -69,8 +69,11 @@ def main() -> int:
         }
         for v in verdicts
     }
-    (REPORTS / "champion_challenger.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
-    (REPORTS / "champion_challenger.md").write_text(_markdown(verdicts))
+    (REPORTS / "governance").mkdir(parents=True, exist_ok=True)
+    (REPORTS / "governance" / "champion_challenger.json").write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    )
+    (REPORTS / "governance" / "champion_challenger.md").write_text(_markdown(verdicts))
 
     for v in verdicts:
         rec = v.promote["challenger"] if v.promote else "mantener campeón"
@@ -82,7 +85,7 @@ def main() -> int:
                 params={"table": v.table, "champion": v.champion},
                 metrics={"champion_mean_mase": v.champion_mean, "champion_median_mase": v.champion_median},
                 tags={"promote": str(bool(v.promote))},
-                artifacts=[str(REPORTS / "champion_challenger.json")],
+                artifacts=[str(REPORTS / "governance" / "champion_challenger.json")],
             )
 
     if args.promote:
