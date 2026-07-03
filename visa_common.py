@@ -128,6 +128,37 @@ def report_failures(failed: list[tuple[str, str]], logger) -> None:
         )
 
 
+def check_country_coverage(country: str, country_df: pd.DataFrame, all_months: set, logger) -> None:
+    """K2: per-(country, month) accounting the gates were blind to.
+
+    A renamed country header ('CHINA-mainland born' → something without the
+    substring) or a duplicated header makes extract_country_data skip that
+    column with a mute ``continue`` — the country vanishes from that month on
+    with every downstream gate green (they check the month-union, not who
+    carries it). Old bulletins legitimately lack some columns (China has no own
+    EB column before 2005-04), so historical gaps are a one-line WARNING; but
+    the NEWEST parsed month missing a country is a live parser regression and
+    aborts before writing.
+    """
+    got = set(pd.to_datetime(country_df["visa_bulletin_date"]).dropna())
+    missing = all_months - got
+    if not all_months:
+        return
+    newest = max(all_months)
+    if newest not in got:
+        raise SystemExit(
+            f"{country}: sin datos en el mes más reciente ({newest:%Y-%m}) — "
+            "¿cambió el header de país en la fuente? Se aborta sin escribir."
+        )
+    if missing:
+        logger.warning(
+            "%s: %d/%d meses sin columna propia (viejos formatos: esperado; vigilar si crece)",
+            country,
+            len(missing),
+            len(all_months),
+        )
+
+
 # ---- cell parsing / annotation -----------------------------------------
 def string_to_datetime(date_str: str, bulletin_date: datetime) -> None | datetime:
     """Convert a published cell to a date. 'C' -> bulletin date (legacy

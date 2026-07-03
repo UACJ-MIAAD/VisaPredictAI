@@ -15,6 +15,7 @@ from visa_common import (
     SCRAPER_COUNTRIES,
     SITE_ROOT,
     annotate_dates,
+    check_country_coverage,
     extract_datetime_from_link,
     extract_month_links,
     get_soup,
@@ -125,8 +126,12 @@ def write_csvs(all_data: list[pd.DataFrame]) -> None:
     """Write one family CSV per country from the parsed tables. Shared by this
     script's main() and the single-fetch scrape_all.py driver."""
     RAW_DIR.mkdir(parents=True, exist_ok=True)
+    # K2: months carried by ANY parsed table — the yardstick each country is
+    # audited against (a vanished country column is invisible to the row gates).
+    all_months = {m for df in all_data for m in pd.to_datetime(df["visa_bulletin_date"]).dropna()}
     for country in tqdm(SCRAPER_COUNTRIES, desc="Extracting data for each country and computing backlogs"):
         country_df = extract_country_data(country, all_data)
+        check_country_coverage(country, country_df, all_months, logger)
         # Deterministic order (newest first, then table then category): a fully
         # specifying key, so a transient dropped month cannot cascade-reorder the
         # rest via an unstable sort.
