@@ -102,6 +102,16 @@ def test_min_rows():
     assert len(p) >= 20_000, f"panel demasiado pequeño ({len(p)} filas) — posible regresión"
 
 
+def test_min_trainable_fraction():
+    # K4: a classify_status regression degrading F -> UNK en masse passed every
+    # gate (rows stay, keys stay, months stay). The trainable fraction has never
+    # dipped below ~55% historically (57.7% today); 50% is a loose floor that
+    # only a real regression crosses.
+    p = _panel()
+    pct = (p.status == "F").mean()
+    assert pct >= 0.50, f"fracción entrenable F cayó a {pct:.1%} (< 50%) — ¿regresión de classify_status?"
+
+
 def test_min_series():
     # K1: the 20k row floor tolerated losing an entire country (~5k rows). The
     # structural series count is stable (194 today); a real drop means a country

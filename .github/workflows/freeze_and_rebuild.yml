@@ -123,6 +123,10 @@ jobs:
         # A2: the frozen month MUST be in the rebuilt panel. Without this a new
         # bulletin that parses to 0 rows ended as "nothing to commit" + green job.
         python tools/check_ingestion.py --mode assert
+        # K6: the 12-dimension audit has teeth (exit 1 on CRIT since E5) but only
+        # `make audit` ran it — offline, seconds, and its two gravest dimensions
+        # (unexplained missing months, source<->panel volume loss) are now CRIT.
+        python mega_audit.py
 
         # 3. Refresh the DuckDB star schema and validate it accepts the new data
         #    (the .duckdb/.parquet stay gitignored -- regenerable with `make db`).

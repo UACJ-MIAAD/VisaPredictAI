@@ -100,10 +100,12 @@ def d2_completeness(p):
     add(f"- Muertos confirmados (404 + Wayback-only): `{DEAD_MONTHS}`")
     unexpected = [m for m in absent if m not in DEAD_MONTHS]
     if unexpected:
-        flag("WARN", f"meses ausentes no explicados por los 5 muertos: {unexpected}")
+        # K5: un mes histórico desaparecido del panel es EXACTAMENTE la clase de
+        # fallo que este audit prometió atrapar — CRIT (exit 1), no WARN.
+        flag("CRIT", f"meses ausentes no explicados: {unexpected}")
         add(f"- ⚠️ Ausentes NO explicados: {unexpected}")
     else:
-        add("- ✓ Todos los meses ausentes del panel = los 5 muertos conocidos.")
+        add("- ✓ Sin meses ausentes inexplicados.")
 
 
 # ------------------------------------------------------- 3. series inventory
@@ -282,22 +284,27 @@ def d9_jumps(p, thresh_years=8):
 # ------------------------------------------------------- 10. reconciliation
 def d10_reconcile(p):
     sec(10, "Reconciliación fuente ↔ panel")
-    src_F = 0
+    # K5: reconciliar TODO el volumen por status, no solo F — perder miles de
+    # filas C/U era invisible para esta dimensión (y el piso de filas del gate
+    # las tolera). Umbral > 50 = CRIT: el único drop legítimo (dedup de clave
+    # May-2022) es de una decena de filas.
+    src_counts: dict[str, int] = {}
     for slug in COUNTRIES:
         for suf in ["", "_family"]:
             df = pd.read_csv(RAW / f"{slug}{suf}_visa_backlog_timecourse.csv")
-            src_F += int((df.status == "F").sum())
-    panel_F = int((p.status == "F").sum())
-    add(f"- Filas status=F en las 10 fuentes (suma): **{src_F:,}**")
-    add(f"- Filas status=F en el panel: **{panel_F:,}**")
-    diff = src_F - panel_F
-    add(f"- Diferencia: **{diff}** (esperada ≥0 por dedup de clave May-2022) ")
-    if diff < 0:
-        flag("CRIT", "panel tiene más F que las fuentes (imposible)")
-    # también el lado positivo: una diferencia grande = pérdida de masa en build_panel (el modo
-    # de fallo que este guard debe vigilar); el dedup conocido es pequeño (audit).
-    elif diff > 50:
-        flag("WARN", f"el panel perdió {diff} filas F respecto a las fuentes (¿más que el dedup esperado?)")
+            for status, n in df.status.value_counts().items():
+                src_counts[str(status)] = src_counts.get(str(status), 0) + int(n)
+    panel_counts = {str(k): int(v) for k, v in p.status.value_counts().items()}
+    add(f"- Filas por status en las 10 fuentes (suma): **{src_counts}**")
+    add(f"- Filas por status en el panel: **{panel_counts}**")
+    for status in sorted(set(src_counts) | set(panel_counts)):
+        diff = src_counts.get(status, 0) - panel_counts.get(status, 0)
+        if diff < 0:
+            flag("CRIT", f"panel tiene más filas {status} que las fuentes (imposible): {-diff}")
+        elif diff > 50:
+            flag("CRIT", f"el panel perdió {diff} filas {status} respecto a las fuentes (>> dedup esperado)")
+        elif diff > 0:
+            add(f"- Diferencia {status}: {diff} (dedup de clave, esperado y pequeño)")
 
 
 # ------------------------------------------------------- 11. coverage matrix
