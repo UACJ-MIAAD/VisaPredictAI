@@ -217,23 +217,48 @@ def norm_label(s) -> str:
 
 
 # ---- table parsing (pure: soup -> dataframes; testable offline) ---------
-def parse_tables(soup: BeautifulSoup, year_month, section_matcher) -> list[pd.DataFrame]:
+# J2: FAD/DFF used to be decided purely by table ORDINAL (1st match = FAD, 2nd =
+# DFF), so any extra <table> the source slips in before the real ones silently
+# shifted every label (FAD data published as DFF — corruption no gate catches).
+# Modern bulletins announce each table in the prose right before it; label by
+# that marker and keep the ordinal only as fallback for pre-2015 layouts.
+_TABLE_TYPE_MARKER = re.compile(r"(?i)final action|dates for filing")
+
+
+def parse_tables(soup: BeautifulSoup, year_month, section_matcher, label_by_marker: bool = True) -> list[pd.DataFrame]:
     """Parse the preference tables a ``section_matcher(rows) -> bool`` selects.
 
     Decoupled from fetching so it can be unit-tested with saved HTML fixtures
-    (no network). The first matching table is tagged ``final_action`` and the
-    second ``dates_for_filing`` (DFF tables exist only from Oct 2015 on; earlier
-    months have a single FAD table). ``section_matcher`` is what makes this
-    open to new sections (employment, family, …) without editing the parser.
+    (no network). Each matching table is tagged ``final_action`` or
+    ``dates_for_filing`` by the nearest preceding FAD/DFF heading (J2); when no
+    heading exists (pre-Oct-2015 layouts have a single unannounced FAD table)
+    the ordinal fallback applies. ``label_by_marker=False`` keeps the pure
+    ordinal labeling: the DV section's two tables are current-month ranks vs.
+    advance notification (not FAD/DFF), and the nearest preceding heading there
+    belongs to the FAMILY section, which would mislabel both. ``section_matcher``
+    is what makes this open to new sections (employment, family, …) without
+    editing the parser.
     """
     dfs = []
+    seen_types: set[str] = set()
     table_count = 0
     for table in soup.find_all("table"):
         rows = table.find_all("tr")
         if not section_matcher(rows):
             continue
         table_count += 1
-        table_type = "final_action" if table_count == 1 else "dates_for_filing"
+        marker = table.find_previous(string=_TABLE_TYPE_MARKER) if label_by_marker else None
+        if marker is not None:
+            table_type = "dates_for_filing" if "filing" in str(marker).lower() else "final_action"
+        else:
+            table_type = "final_action" if table_count == 1 else "dates_for_filing"
+            if label_by_marker and table_count >= 2:
+                logger.warning(
+                    "tabla %d de %s sin heading FAD/DFF: se etiqueta por ordinal (%s)",
+                    table_count,
+                    year_month,
+                    table_type,
+                )
 
         table_data = []
         for row in rows:
@@ -257,7 +282,13 @@ def parse_tables(soup: BeautifulSoup, year_month, section_matcher) -> list[pd.Da
         df.columns = df.columns.str.lower()
         dfs.append(df)
 
-        if table_count >= 2:
+        # J2: stop once both table types hold DATA (a stray note-table — which
+        # parses to 0 rows — no longer evicts the real DFF, which the hard
+        # `>= 2` break used to do); the cap of 4 scanned matches guards against
+        # pathological layouts.
+        if not df.empty:
+            seen_types.add(table_type)
+        if seen_types == {"final_action", "dates_for_filing"} or table_count >= 4:
             break
     return dfs
 

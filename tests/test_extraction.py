@@ -42,7 +42,9 @@ def _fam(name, ym, country="mexico"):
 
 
 def _dv(name, ym):
-    return dv.extract_dv_data(parse_tables(_soup(name), datetime(*ym), dv.is_dv_section))
+    # label_by_marker=False: igual que producción (J2) — las 2 tablas DV van por
+    # ordinal; el heading FAD/DFF más cercano pertenece a la sección familiar.
+    return dv.extract_dv_data(parse_tables(_soup(name), datetime(*ym), dv.is_dv_section, label_by_marker=False))
 
 
 def _dv_blob(name, ym):
@@ -109,6 +111,30 @@ def test_status_domain_offline():
         # by design in the legacy column, so we don't assert on non-F rows here).
         miss = (d.status.eq("F") & d.priority_date.isna()).sum()
         assert miss == 0, f"{name}: {miss} filas F sin fecha"
+
+
+# --- J2: a note-table can no longer shift the FAD/DFF labels --------------
+def test_note_table_does_not_shift_fad_dff_labels():
+    # Labels used to be pure ordinal (1st match = FAD, 2nd = DFF): a note-table
+    # slipped in BEFORE the real ones mislabeled everything and the hard 2-table
+    # break evicted the real DFF. With marker-based labeling the real tables
+    # keep their type and the DFF survives.
+    html = """
+    <html><body>
+    <table><tr><th>Employment-based note</th></tr><tr><td>prose, not data</td></tr></table>
+    <p>A. FINAL ACTION DATES FOR EMPLOYMENT-BASED PREFERENCE CASES</p>
+    <table><tr><th>Employment-based</th><th>All Chargeability Areas Except Those Listed</th></tr>
+    <tr><td>1st</td><td>C</td></tr></table>
+    <p>B. DATES FOR FILING OF EMPLOYMENT-BASED VISA APPLICATIONS</p>
+    <table><tr><th>Employment-based</th><th>All Chargeability Areas Except Those Listed</th></tr>
+    <tr><td>1st</td><td>01MAY16</td></tr></table>
+    </body></html>
+    """
+    dfs = parse_tables(BeautifulSoup(html, "html.parser"), datetime(2026, 7, 1), emp.is_employment_section)
+    types = [d["table_type"].iloc[0] for d in dfs if not d.empty]
+    assert "dates_for_filing" in types, "la DFF real fue expulsada por la tabla-nota"
+    real = [d for d in dfs if not d.empty and "1st" in d.iloc[:, 0].values]
+    assert [d["table_type"].iloc[0] for d in real] == ["final_action", "dates_for_filing"]
 
 
 # --- Diversity Visa: 6 regions, rank cut-offs (F) vs CURRENT (C) ----------

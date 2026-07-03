@@ -203,7 +203,10 @@ def extract_dv_blob(soup, year_month) -> pd.DataFrame:
 def extract_month_rows(soup, ym) -> pd.DataFrame:
     """DV rows for one bulletin: the structured table first, the 2001-2004
     single-cell 'blob' format as fallback. Shared by main() and scrape_all.py."""
-    rows = extract_dv_data(parse_tables(soup, ym, is_dv_section))
+    # label_by_marker=False (J2): DV's two tables are current-month vs advance
+    # notification, decided by ordinal; the nearest FAD/DFF heading belongs to
+    # the family section and would mislabel both.
+    rows = extract_dv_data(parse_tables(soup, ym, is_dv_section, label_by_marker=False))
     if rows.empty:  # 2001-2004 single-cell ("blob") format
         rows = extract_dv_blob(soup, ym)
     return rows
