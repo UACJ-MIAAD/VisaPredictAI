@@ -17,6 +17,7 @@ Corre en `ante`:  ante/bin/python experiments/make_gallery_figures.py  (o `make 
 from __future__ import annotations
 
 import json
+import textwrap
 from pathlib import Path
 
 import matplotlib
@@ -30,6 +31,7 @@ from matplotlib.colors import ListedColormap  # noqa: E402
 from matplotlib.offsetbox import AnnotationBbox, OffsetImage  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
+from vp_model import palette as _palette  # noqa: E402
 from vp_model.palette import (  # noqa: E402
     BLUE,
     COUNTRY,
@@ -57,6 +59,61 @@ EB = ["EB1", "EB2", "EB3", "EB4", "EB5"]
 style()
 plt.rcParams.update({"font.size": 9, "axes.grid": False})
 
+# --- Tema claro/oscuro -----------------------------------------------------------------
+# La galeria se emite DOS veces: clara (LaTeX/PDF/web claro) y oscura (web dark mode).
+# El tema oscuro canonico vive en vp_model.palette.DARK (fuente unica); aqui solo se
+# re-vinculan los nombres de color del modulo antes de cada pasada.
+PAPER = "#FFFFFF"
+UNK_FILL = "#EFEFEF"  # celdas U/sin dato (G1)
+NODATA = "#D9D9D9"  # barras "sin dato" (G11)
+QUAD_BLUE = "#DCE6F5"  # cuadrante sombreado (G9)
+DARK_MODE = False
+_LIGHT = {
+    "PAPER": PAPER,
+    "INK": INK,
+    "GRAY": GRAY,
+    "MID": MID,
+    "MUTE": MUTE,
+    "GRID": GRID,
+    "BLUE": BLUE,
+    "TEAL": TEAL,
+    "WINE": WINE,
+    "GOLD": GOLD,
+    "SLATE": SLATE,
+    "UNK_FILL": UNK_FILL,
+    "NODATA": NODATA,
+    "QUAD_BLUE": QUAD_BLUE,
+    "COUNTRY": COUNTRY,
+    "SEQ": SEQ,
+    "DIV": DIV,
+}
+
+
+def _apply_theme(dark: bool) -> None:
+    """Re-vincula los colores del modulo y los rcParams al tema pedido."""
+    global PAPER, INK, GRAY, MID, MUTE, GRID, BLUE, TEAL, WINE, GOLD, SLATE
+    global UNK_FILL, NODATA, QUAD_BLUE, COUNTRY, SEQ, DIV, DARK_MODE
+    src: dict = _palette.DARK if dark else _LIGHT
+    DARK_MODE = dark
+    PAPER, INK, GRAY, MID, MUTE, GRID = src["PAPER"], src["INK"], src["GRAY"], src["MID"], src["MUTE"], src["GRID"]
+    BLUE, TEAL, WINE, GOLD, SLATE = src["BLUE"], src["TEAL"], src["WINE"], src["GOLD"], src["SLATE"]
+    UNK_FILL, NODATA, QUAD_BLUE = src["UNK_FILL"], src["NODATA"], src["QUAD_BLUE"]
+    COUNTRY, SEQ, DIV = src["COUNTRY"], src["SEQ"], src["DIV"]
+    plt.rcParams.update(
+        {
+            "figure.facecolor": PAPER,
+            "axes.facecolor": PAPER,
+            "savefig.facecolor": PAPER,
+            "axes.edgecolor": MID,
+            "axes.labelcolor": INK,
+            "axes.titlecolor": BLUE,
+            "xtick.color": GRAY,
+            "ytick.color": GRAY,
+            "text.color": INK,
+            "grid.color": GRID,
+        }
+    )
+
 
 def _spread(vals: list[float], min_gap: float) -> list[float]:
     """Des-colisiona posiciones de etiquetas (preserva el orden, separa >= min_gap)."""
@@ -81,6 +138,12 @@ def _save(fig: plt.Figure, name: str) -> plt.Figure:
     El caller cierra (``plt.close``); ``build_eda_report`` la re-usa tal cual como
     página vectorial del reporte (cero re-rasterización = cero pérdida de nitidez).
     """
+    if DARK_MODE:
+        # variante web-oscura: solo PNG; el .tex y el reporte PDF viven en claro
+        (FIG_PNG / "dark").mkdir(parents=True, exist_ok=True)
+        fig.savefig(FIG_PNG / "dark" / f"{name}.png", bbox_inches="tight", dpi=300, facecolor=PAPER)
+        print(f"dark/{name} OK")
+        return fig
     FIG_PNG.mkdir(parents=True, exist_ok=True)
     fig.savefig(FIG_TEX / f"eda3_{name}.pdf", bbox_inches="tight")
     fig.savefig(FIG_PNG / f"{name}.png", bbox_inches="tight", dpi=300)
@@ -89,9 +152,18 @@ def _save(fig: plt.Figure, name: str) -> plt.Figure:
 
 
 def _header(fig: plt.Figure, headline: str, sub: str, y: float = 1.02, dy: float = 0.055) -> None:
-    """Titular-frase (el hallazgo) + bajada explicativa, estilo editorial."""
-    fig.text(0.01, y + dy, headline, fontsize=14, fontweight="bold", color=INK, ha="left")
-    fig.text(0.01, y, sub, fontsize=9.5, color=GRAY, ha="left")
+    """Titular-frase (el hallazgo) + bajada explicativa, estilo editorial.
+
+    Envuelve titular y bajada al ancho de la figura (sin corte de carro, una bajada
+    larga estiraba el bbox y encogia el plot). Las lineas extra crecen hacia ARRIBA
+    (va="bottom" + lift del titular) para no invadir los ejes.
+    """
+    w_in, h_in = fig.get_size_inches()
+    head = textwrap.fill(headline, width=max(28, int(w_in * 7.2)))
+    body = textwrap.fill(sub, width=max(50, int(w_in * 12.5)))
+    lift = body.count(chr(10)) * (0.175 / h_in)
+    fig.text(0.01, y + dy + lift, head, fontsize=14, fontweight="bold", color=INK, ha="left", va="bottom")
+    fig.text(0.01, y, body, fontsize=9.5, color=GRAY, ha="left", va="bottom")
 
 
 def _footer(fig: plt.Figure, vintage: str, extra: str = "", y: float = -0.045) -> None:
@@ -111,7 +183,7 @@ def g01_panel(df: pd.DataFrame, facts: dict) -> plt.Figure:
     months = pd.period_range(df.bulletin_date.min(), df.bulletin_date.max(), freq="M")
     m_idx = {p: i for i, p in enumerate(months)}
     # clases: 0 ausente · 1 F avanza · 2 F congelada · 3 F retrocede · 4 Current · 5 U/UNK
-    colors = ["#FFFFFF", BLUE, MUTE, WINE, TEAL, "#EFEFEF"]
+    colors = [PAPER, BLUE, MUTE, WINE, TEAL, UNK_FILL]
     df = df.sort_values("bulletin_date").copy()
     df["delta"] = df.groupby(["country", "block", "category", "table"])["days_since_base"].diff()
 
@@ -146,7 +218,7 @@ def g01_panel(df: pd.DataFrame, facts: dict) -> plt.Figure:
         key = (c, block, table)
         if key != prev:
             if prev is not None:
-                ax.axhline(i - 0.5, color="white", lw=1.4)
+                ax.axhline(i - 0.5, color=PAPER, lw=1.4)
             bounds.append(i)
             prev = key
     bounds.append(len(order))
@@ -199,7 +271,7 @@ def g01_panel(df: pd.DataFrame, facts: dict) -> plt.Figure:
             Patch(fc=MUTE, label="congelada"),
             Patch(fc=WINE, label="retrocede"),
             Patch(fc=TEAL, label="Current (sin atraso)"),
-            Patch(fc="#EFEFEF", ec=MID, lw=0.4, label="U / sin dato"),
+            Patch(fc=UNK_FILL, ec=MID, lw=0.4, label="U / sin dato"),
         ],
         loc="lower center",
         ncol=5,
@@ -371,7 +443,7 @@ def g04_retros(facts: dict) -> plt.Figure:
         s=8 + 55 * ev.years_lost / ev.years_lost.max(),
         c=[COUNTRY[c] for c in ev.country],
         alpha=0.65,
-        edgecolor="white",
+        edgecolor=PAPER,
         lw=0.4,
         zorder=3,
     )
@@ -396,7 +468,7 @@ def g04_retros(facts: dict) -> plt.Figure:
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
     handles = [
-        plt.Line2D([0], [0], marker="o", ls="", mfc=COUNTRY[c], mec="white", ms=6, label=COUNTRY_NAME[c]) for c in PILOT
+        plt.Line2D([0], [0], marker="o", ls="", mfc=COUNTRY[c], mec=PAPER, ms=6, label=COUNTRY_NAME[c]) for c in PILOT
     ]
     fig.legend(handles=handles, fontsize=7.6, frameon=False, loc="lower center", ncol=5, bbox_to_anchor=(0.5, -0.005))
     n = len(ev)
@@ -571,7 +643,7 @@ def g07_leadlag(df: pd.DataFrame, facts: dict) -> plt.Figure:
                 ha="center",
                 va="center",
                 fontsize=8,
-                color="white" if dark else INK,
+                color=PAPER if dark else INK,
             )
     cb = fig.colorbar(im, ax=ax, fraction=0.045)
     cb.set_label("mejor correlación (±6 meses)", fontsize=7.5)
@@ -649,13 +721,13 @@ def g09_estacionariedad(facts: dict) -> plt.Figure:
     ymax = 0.055
     fig, ax = plt.subplots(figsize=(7.0, 4.6))
     # cuadrante "diferenciar": ADF no rechaza raíz unitaria Y KPSS rechaza estacionariedad
-    ax.axhspan(0, 0.05, xmin=(0.05 + 0.03) / 1.06, color="#DCE6F5", alpha=0.6, zorder=0)
+    ax.axhspan(0, 0.05, xmin=(0.05 + 0.03) / 1.06, color=QUAD_BLUE, alpha=0.6, zorder=0)
     ax.scatter(
         x,
         y,
         c=[COUNTRY[c] for c in ev.country],
         s=44,
-        edgecolor="white",
+        edgecolor=PAPER,
         lw=0.6,
         alpha=0.9,
         zorder=3,
@@ -698,7 +770,7 @@ def g09_estacionariedad(facts: dict) -> plt.Figure:
     ax.set_xlim(-0.03, 1.03)
     ax.set_ylim(-0.003, ymax)
     handles = [
-        plt.Line2D([0], [0], marker="o", ls="", mfc=COUNTRY[c], mec="white", ms=6, label=COUNTRY_NAME[c]) for c in PILOT
+        plt.Line2D([0], [0], marker="o", ls="", mfc=COUNTRY[c], mec=PAPER, ms=6, label=COUNTRY_NAME[c]) for c in PILOT
     ]
     ax.legend(handles=handles, fontsize=7.4, frameon=False, loc="upper center", ncol=5, bbox_to_anchor=(0.5, 1.005))
     for sp in ("top", "right"):
@@ -778,7 +850,7 @@ def g11_completitud(facts: dict) -> plt.Figure:
     census = census.sort_values(["block", "pct_F"], key=lambda s: s.map(order_block) if s.name == "block" else s)
     census = census.reset_index(drop=True)
     fig, (ax, axh) = plt.subplots(1, 2, figsize=(9.2, 6.4), width_ratios=(2.1, 1), gridspec_kw={"wspace": 0.16})
-    colors = {"n_F": BLUE, "n_C": TEAL, "n_U": WINE, "n_UNK": "#D9D9D9"}
+    colors = {"n_F": BLUE, "n_C": TEAL, "n_U": WINE, "n_UNK": NODATA}
     left = np.zeros(len(census))
     for col, colr in colors.items():
         frac = census[col] / census.n_total
@@ -819,7 +891,7 @@ def g11_completitud(facts: dict) -> plt.Figure:
             Patch(fc=BLUE, label="F (fecha publicada — entrenable)"),
             Patch(fc=TEAL, label="C (Current)"),
             Patch(fc=WINE, label="U (Unavailable)"),
-            Patch(fc="#D9D9D9", label="sin dato"),
+            Patch(fc=NODATA, label="sin dato"),
         ],
         fontsize=7.2,
         frameon=False,
@@ -831,7 +903,7 @@ def g11_completitud(facts: dict) -> plt.Figure:
     )
     # panel derecho: continuidad de las series CON observaciones F + umbral evaluable
     ev = census[census.n_F > 0]
-    axh.hist(ev.continuity, bins=24, color=BLUE, edgecolor="white", lw=0.5)
+    axh.hist(ev.continuity, bins=24, color=BLUE, edgecolor=PAPER, lw=0.5)
     axh.set_xlabel("Continuidad del tramo F")
     axh.set_ylabel("Series")
     axh.grid(True, axis="y", color=GRID, lw=0.6)
@@ -856,24 +928,18 @@ def g11_completitud(facts: dict) -> plt.Figure:
     return _save(fig, "g11_completitud")
 
 
+def _run_all(df: pd.DataFrame, facts: dict) -> None:
+    for fn in (g01_panel, g02_trayectorias, g03_backlog, g06_pulso_fiscal, g07_leadlag):
+        plt.close(fn(df, facts))
+    for fn2 in (g04_retros, g05_brecha, g08_congelados, g09_estacionariedad, g10_dv, g11_completitud):
+        plt.close(fn2(facts))
+
+
 if __name__ == "__main__":
     df, facts = _load()
-    for fn in (
-        g01_panel,
-        g02_trayectorias,
-        g06_pulso_fiscal,
-        g07_leadlag,
-    ):
-        plt.close(fn(df, facts))
-    for fn2 in (g03_backlog,):
-        plt.close(fn2(df, facts))
-    for fn3 in (
-        g04_retros,
-        g05_brecha,
-        g08_congelados,
-        g09_estacionariedad,
-        g10_dv,
-        g11_completitud,
-    ):
-        plt.close(fn3(facts))
-    print("Galería EDA en", FIG_TEX, "y", FIG_PNG)
+    _apply_theme(dark=False)
+    _run_all(df, facts)
+    _apply_theme(dark=True)  # variante web-oscura -> reports/eda/gallery/dark/
+    _run_all(df, facts)
+    _apply_theme(dark=False)
+    print("Galería EDA (clara + oscura) en", FIG_TEX, "y", FIG_PNG)
