@@ -207,8 +207,8 @@ específica y cuantifica la incertidumbre con intervalos de predicción al 95\,\
 empírica verificada. Los resultados muestran que el desempeño \textbf{depende del régimen}:
 el aprendizaje profundo global supera por un margen modesto ($\sim$9\,\% en media, frente a
 un Auto-ARIMA afinado) a los modelos parsimoniosos en las series cortas (DFF) —una ventaja
-sensible a la agregación y sobre una muestra efectiva pequeña— e iguala su desempeño en las
-series largas (FAD), donde un modelo simple ya es prácticamente óptimo. El error alcanzado se aproxima al límite irreducible de estas series
+sensible a la agregación y sobre una muestra efectiva pequeña— y queda apenas por detrás de
+ellos en las series largas (FAD), donde un modelo simple ya es prácticamente óptimo. El error alcanzado se aproxima al límite irreducible de estas series
 fuertemente tendenciales con retrocesos abruptos.
 
 \vspace{0.6em}
@@ -1211,7 +1211,7 @@ acerca aún más, pero no los lleva a superar a los parsimoniosos.
 N-BEATS, N-HiTS y TFT \cita{23}\cita{24}\cita{25}\cita{26}\cita{27}\cita{28}\cita{29}\cita{30}.} Abarcan desde proyecciones lineales hasta
 arquitecturas de altísima capacidad. Se incluyen para responder \textit{empíricamente} si la
 capacidad ayuda. \textbf{Entrenadas por serie, fracasan}: con 130 a 296 observaciones se
-sobreajustan y caen por debajo del naïve (el TFT en último lugar, MASE $2.6$); la cascada
+sobreajustan y caen por debajo del naïve (el TFT en último lugar, MASE $2.4$ en FAD y $2.7$ en DFF); la cascada
 ARIMA-LSTM ni siquiera converge en las series cortas de DFF. DeepAR merece mención aparte: su
 parametrización probabilística sobre incrementos no se estabiliza, un límite del modelo más que de
 la implementación. La causa es estructural —faltan datos por serie para tanta capacidad— y solo se
@@ -1220,14 +1220,14 @@ revierte al entrenar de forma global (§2.2).
 \paragraph{Foundation model: Chronos en modo zero-shot.} Un transformador preentrenado\cita{31} sobre
 millones de series, evaluado \textit{sin ajuste alguno} a estos datos. Se incluye para medir
 cuánto vale la transferencia de conocimiento frente a la escasez. Su resultado es revelador: con
-MASE $0.225$ \textbf{supera a todas las redes profundas entrenadas localmente}, prueba de que la
+MASE $0.207$ \textbf{supera a todas las redes profundas entrenadas localmente}, prueba de que la
 transferencia vence al entrenamiento local cuando los datos escasean —aunque tampoco alcanza a los
 parsimoniosos.
 
 En conjunto, esta comparación de sesgos inductivos anticipa el resultado central del Capítulo de
 resultados: la alta capacidad solo rinde cuando se entrena \textbf{global} sobre el panel, sobre
 la primera diferencia y con normalización por serie, condición bajo la cual las redes profundas
-pasan de fracasar a igualar o superar a la parsimonia según el régimen (§2.2).
+pasan de fracasar a acercarse a la parsimonia o superarla según el régimen (§2.2).
 
 \subsection{1.3.2 Creación de la arquitectura general del sistema y definición del flujo de trabajo}
 
@@ -1696,7 +1696,7 @@ rangos de los modelos en las 25 series, seguida de la prueba posterior de Nemeny
 resultado: la prueba de Friedman rechaza la hipótesis de igualdad ($p<0.001$) en ambas
 tablas, y la barra de diferencia crítica (CD) une los modelos cuyo rango promedio no se
 distingue estadísticamente. \textbf{ETS amortiguado obtiene el mejor rango promedio} en FAD
-($2.04$) y DFF ($2.92$), acompañado de Theta y los árboles sobre deltas; las redes profundas
+($2.12$) y DFF ($2.86$), acompañado de Theta y los árboles sobre deltas; las redes profundas
 entrenadas por serie (LSTM, DeepAR, TFT) ocupan, junto al naïve, los últimos lugares.
 
 \begin{figure}[H]
@@ -1773,7 +1773,7 @@ aparente $0.100$ solo sobre las 13 que sobrevive, sesgo de supervivencia). \text
 ventaja es además sensible a la agregación}: por mediana el Auto-ARIMA ($0.086$) incluso supera por poco a
 BiTCN ($0.090$), y las $\sim$25 series familiares de DFF colapsan a $\sim$14 distintas al
 descontar la pseudo-replicación del corte mundial compartido, por lo que la muestra efectiva
-es pequeña. La lectura es que el aprendizaje profundo \textit{iguala} a los clásicos en
+es pequeña. La lectura es que el aprendizaje profundo \textit{queda apenas por detrás} de los clásicos en
 series largas (FAD) y los supera por un \textit{margen modesto y frágil} en series cortas
 (DFF), donde el entrenamiento global presta señal entre series. Y cuando aporta, la
 ventaja \textbf{no viene de la capacidad del modelo sino de cómo se entrena}: de forma
@@ -2146,7 +2146,7 @@ parsimonia en FAD} (series largas, donde un modelo simple ya es óptimo). Cuando
 proviene de la capacidad del modelo sino de cómo se entrena} —de forma global, sobre
 incrementos y con escalado por serie, según se detalla en §2.2—. La respuesta a
 ``¿conviene la IA?'', por tanto, es \textit{matizada}: sí en series cortas entrenada como un
-panel; en series largas, un modelo estadístico simple la iguala a una fracción del costo.
+panel; en series largas, un modelo estadístico simple rinde igual o mejor a una fracción del costo.
 
 \paragraph{Alcance, reproducibilidad y cobertura del sistema.} El veredicto anterior no es
 una carencia del trabajo sino un hallazgo validado: documenta, con un protocolo reproducible

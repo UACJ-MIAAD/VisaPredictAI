@@ -207,6 +207,8 @@ def main() -> None:
     df = run(series, tuple(args.models), meta["run_id"], track=args.mlflow)
     REPORTS.mkdir(parents=True, exist_ok=True)
     out = Path(args.out) if args.out else OUT
+    # Contrato: OVERWRITE (una sola corrida por CSV). Los consumidores igual filtran
+    # run_id == max() como defensa por si algún flujo futuro acumula corridas.
     df.to_csv(out, index=False)
 
     # Ledger append-only: procedencia + resumen de esta corrida.

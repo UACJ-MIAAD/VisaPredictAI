@@ -93,7 +93,8 @@ def _deep_seed_mean(table: str, prefix: str, model: str) -> float | None:
         if df.empty:
             return None
         return round(float(df.groupby("variant").hold_mase.mean().mean()), 3)
-    except Exception as exc:  # noqa: BLE001 — cualquier insumo/dep ausente degrada
+    except (ImportError, FileNotFoundError, OSError) as exc:  # insumo/dep ausente -> degradar
+        # (un rename de columna u otro bug estructural sí debe explotar, no degradar en silencio)
         print(f"WARN: deep {model}/{prefix}*/{table} no derivable ({exc}); se conserva el previo", file=sys.stderr)
         return None
 
@@ -114,7 +115,8 @@ def _models() -> dict:
                 # listón parsimonioso FAD = mejor sel_mase medio de {ets, theta},
                 # derivado del MISMO pool que la tabla de 21 modelos del .tex
                 sel = pool.groupby("model").sel_mase.mean()
-                out["fad_champion_mase"] = round(float(min(sel.get("ets"), sel.get("theta"))), 3)
+                candidates = [v for v in (sel.get("ets"), sel.get("theta")) if v is not None]
+                out["fad_champion_mase"] = round(float(min(candidates)), 3) if candidates else prev["fad_champion_mase"]
         else:
             # C1: insumo ausente (runner limpio / campaña no re-corrida) — degradar, no crashear
             print(f"WARN: {path.name} ausente; se conservan {keys} del key_facts previo", file=sys.stderr)

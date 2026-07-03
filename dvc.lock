@@ -105,17 +105,60 @@ stages:
       size: 1589531
     - path: experiments/build_key_facts.py
       hash: md5
-      md5: b521cd4c30c930c18a1ce050ac35dfc3
-      size: 7733
+      md5: f251f7516cc3dcd80bdfb382de6113d0
+      size: 7958
     - path: reports/auto_arima_baseline.csv
       hash: md5
       md5: baaa017975481eba22b2a8a264132c23
       size: 1849
-    - path: reports/campaign
+    - path: reports/campaign/campaign_pool_DFF_family.csv
       hash: md5
-      md5: 389a05fa769938efdea39fa30d9e03cc.dir
-      size: 4547887
-      nfiles: 74
+      md5: a6ff7fe43ed3e7077b023440a1443d91
+      size: 122924
+    - path: reports/campaign/campaign_pool_FAD_family.csv
+      hash: md5
+      md5: 6443ab6ac1d6f90d308411b85a8d80c3
+      size: 131021
+    - path: reports/campaign/global_DFF_camp_diff_s1.csv
+      hash: md5
+      md5: 82f8d74766b0e595a0fc5e078fbc2131
+      size: 68463
+    - path: reports/campaign/global_DFF_camp_diff_s2.csv
+      hash: md5
+      md5: 05b8df84f9e3a72bceb23a696a1a5d2b
+      size: 68317
+    - path: reports/campaign/global_DFF_camp_diff_s3.csv
+      hash: md5
+      md5: dd16bc46d45107223eae795c21347b05
+      size: 68328
+    - path: reports/campaign/global_DFF_camp_diff_s4.csv
+      hash: md5
+      md5: 8c41ba0292b6442f158fc2e3adbd4900
+      size: 67962
+    - path: reports/campaign/global_DFF_camp_diff_s5.csv
+      hash: md5
+      md5: f6cfa3f7451093d74d869f21981a7408
+      size: 68255
+    - path: reports/campaign/global_FAD_camp_auto_s1.csv
+      hash: md5
+      md5: 15dabfe62316bf1dc557d50d75ba08e2
+      size: 57097
+    - path: reports/campaign/global_FAD_camp_auto_s2.csv
+      hash: md5
+      md5: bd36b2050bae91b0f944c1d7677df2f8
+      size: 57148
+    - path: reports/campaign/global_FAD_camp_auto_s3.csv
+      hash: md5
+      md5: d7e2ccbd741172b5e8da9fc52d53c10d
+      size: 57096
+    - path: reports/campaign/global_FAD_camp_auto_s4.csv
+      hash: md5
+      md5: 1c03fa3544404f2fd641bf90b5019476
+      size: 57158
+    - path: reports/campaign/global_FAD_camp_auto_s5.csv
+      hash: md5
+      md5: 713335d9b70049229f84cc0f818757a3
+      size: 57112
     - path: reports/forecast_scorecard_meta.json
       hash: md5
       md5: e869aff57e5c65e6e7c512fce7e3ec69

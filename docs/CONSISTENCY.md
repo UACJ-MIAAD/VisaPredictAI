@@ -21,7 +21,7 @@ tools/consistency_rules.yml ──► tools/check_consistency.py ──┤ compa
   deep-vs-parsimonia, BAND80\_RATIO). **No editar a mano** — `make key-facts` lo regenera.
 - **`tools/consistency_rules.yml`** — reglas: `forbidden` (claims viejos prohibidos),
   `required` (cifras canónicas que DEBEN aparecer), `numeric` (un número etiquetado en la
-  prosa debe igualar la fuente; tolerante a separadores LaTeX `27{,}289`).
+  prosa debe igualar la fuente; tolerante a separadores LaTeX `27{,}611`).
 - **`tools/check_consistency.py`** (`make consistency`) — escanea los artefactos y **falla
   (exit 1)** ante cualquier violación, indicando archivo:línea y el motivo.
 

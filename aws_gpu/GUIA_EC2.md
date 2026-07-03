@@ -105,8 +105,8 @@ python train_gpu.py --panel $PANEL --table FAD --diff --local-scaler \
 
 ```bash
 # en tu Mac (comillas DOBLES: dejan expandir $GPU localmente y protegen el * para el shell remoto)
-scp -i "$KEY" "$GPU:~/run/aws_gpu/reports/global_*.csv" reports/
-scp -i "$KEY" "$GPU:~/run/aws_gpu/reports/chronos_*.csv" reports/
+scp -i "$KEY" "$GPU:~/run/aws_gpu/reports/global_*.csv" reports/campaign/
+scp -i "$KEY" "$GPU:~/run/aws_gpu/reports/chronos_*.csv" reports/campaign/
 ```
 
 ## 6. Evaluar localmente (entorno principal, como siempre)

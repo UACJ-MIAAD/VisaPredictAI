@@ -77,7 +77,6 @@ mlartifacts/
 # Modelos entrenados -> versionados con DVC, no git
 models/
 /models
-campaign.log
 
 # campaign_pool_*.csv SE VERSIONAN (C1): son la procedencia de las cifras canónicas
 # (ets/theta hold_mase) y build_key_facts.py los lee en el runner limpio del Action.

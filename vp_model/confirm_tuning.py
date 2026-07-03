@@ -25,7 +25,7 @@ REPORTS = Path(__file__).resolve().parent.parent / "reports"
 
 def _default_holdout(model: str, table: str, block: str) -> dict[tuple[str, str], float]:
     """hold_mase por (país, categoría) de los defaults, del CSV de 21 modelos."""
-    df = pd.read_csv(REPORTS / f"model_comparison_{table}21.csv")
+    df = pd.read_csv(REPORTS / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
     d = df[df.model == model]
     return {(r.country, r.category): r.hold_mase for r in d.itertuples()}
 

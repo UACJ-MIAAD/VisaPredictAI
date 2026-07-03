@@ -3,7 +3,7 @@
 PY ?= ante/bin/python
 DVC ?= ante/bin/dvc
 
-.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger model-card drift figures audit test test-model lint typecheck check all update eda compare report validate key-facts consistency
+.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger model-card drift figures audit test test-model lint typecheck check all update eda compare report validate key-facts consistency web-forecasts score-forecasts derive-band80 significance auto-arima paper-figures sync
 
 help:
 	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"

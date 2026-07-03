@@ -73,9 +73,20 @@ stages:
       - reports/forecast_scorecard_meta.json
       - reports/auto_arima_baseline.csv
       - reports/significance_summary.json
-      # el dir completo: además de los pools, ahora deriva el deep multi-semilla
-      # (bitcn/autobitcn) de los global_*_camp_*.csv
-      - reports/campaign
+      # SOLO los insumos canónicos (no el dir completo: las corridas exploratorias
+      # que caen en reports/campaign no deben churnear el lock — mordió 2 veces el 3-jul)
+      - reports/campaign/campaign_pool_FAD_family.csv
+      - reports/campaign/campaign_pool_DFF_family.csv
+      - reports/campaign/global_DFF_camp_diff_s1.csv
+      - reports/campaign/global_DFF_camp_diff_s2.csv
+      - reports/campaign/global_DFF_camp_diff_s3.csv
+      - reports/campaign/global_DFF_camp_diff_s4.csv
+      - reports/campaign/global_DFF_camp_diff_s5.csv
+      - reports/campaign/global_FAD_camp_auto_s1.csv
+      - reports/campaign/global_FAD_camp_auto_s2.csv
+      - reports/campaign/global_FAD_camp_auto_s3.csv
+      - reports/campaign/global_FAD_camp_auto_s4.csv
+      - reports/campaign/global_FAD_camp_auto_s5.csv
     outs:
       - reports/key_facts.json:
           cache: false

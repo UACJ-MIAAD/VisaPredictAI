@@ -32,11 +32,12 @@ ANTE=ante/bin/python
 NF=ante_nf/bin/python
 [ -x "$ANTE" ] && [ -x "$NF" ] || { echo "ERROR: faltan venvs ante/ y/o ante_nf/ en la raíz" >&2; exit 1; }
 
+FAILS=0
 stage() { echo ""; echo "##### [$1] $2 — $(date '+%F %T')"; }
-run()   { "$@" || echo "##### ETAPA FALLIDA (exit $?): $*"; }
+run()   { "$@" || { echo "##### ETAPA FALLIDA (exit $?): $*"; FAILS=$((FAILS+1)); }; }
 
 echo "=== RE-DERIVACIÓN arranca $(date) ==="
-$ANTE -c "import pandas as pd; p=pd.read_csv('data/processed/visa_panel_long.csv'); \
+run $ANTE -c "import pandas as pd; p=pd.read_csv('data/processed/visa_panel_long.csv'); \
 print(f'panel: {len(p):,} filas · {p.bulletin_date.nunique()} meses · F={int((p.status==\"F\").sum()):,}')"
 
 stage 0 "almacén fresco (el modelado lee DuckDB y aborta si está desfasado)"
@@ -90,4 +91,4 @@ $ANTE tools/check_consistency.py || echo "##### CONSISTENCIA ROTA: las cifras ca
 
 echo ""
 echo "=== RE-DERIVACIÓN termina $(date) ==="
-grep -c "ETAPA FALLIDA" reports/rederivation.log 2>/dev/null | xargs -I{} echo "etapas fallidas: {}"
+echo "etapas fallidas: $FAILS"

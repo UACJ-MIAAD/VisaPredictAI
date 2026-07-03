@@ -31,7 +31,7 @@ done
 allowed_root=(
   .claude .coverage .DS_Store .dvc .dvcignore .editorconfig .git .github
   .gitignore .mypy_cache .pre-commit-config.yaml .pytest_cache .python-version
-  .ruff_cache __pycache__
+  .ruff_cache __pycache__ htmlcov lightning_logs
   ante ante_nf ante_tab ante_tfm aws_gpu data docs experiments pipeline
   reports tests tools vp_data vp_model
   mlartifacts mlflow.db mlflow.db.dvc mlruns mlruns_staging models models.dvc
@@ -41,6 +41,7 @@ allowed_root=(
 )
 while IFS= read -r entry; do
   ok=0
+  case "$entry" in .coverage.*) ok=1 ;; esac   # shards de coverage paralelo
   for a in "${allowed_root[@]}"; do
     if [ "$entry" = "$a" ]; then ok=1; break; fi
   done

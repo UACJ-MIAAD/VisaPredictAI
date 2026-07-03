@@ -163,6 +163,7 @@ def _auto_config(trial):
         "max_steps": trial.suggest_categorical("max_steps", [500, 1000]),
         "scaler_type": trial.suggest_categorical("scaler_type", ["standard", "robust"]),
         "val_check_steps": 50,
+        "logger": False,  # el config del trial es la única fuente de kwargs de los Auto* (T2)
     }
 
 

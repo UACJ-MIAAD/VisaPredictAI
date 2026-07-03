@@ -59,7 +59,7 @@ def _per_series_oracle(df: pd.DataFrame) -> pd.DataFrame:
 
 def analyze(table: str = "FAD") -> list[Strategy]:
     """Compara mejor-global vs selección-por-serie vs oráculo sobre el CSV de 21 modelos."""
-    df = pd.read_csv(REPORTS / f"model_comparison_{table}21.csv")
+    df = pd.read_csv(REPORTS / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
     # B2: las medias de las estrategias no deben sobreponderar el corte mundial. La firma
     # métrica (dedup_series) NO detecta estas réplicas (comparten el corte reciente pero
     # no la historia → la escala del MASE difiere); la firma por `actual` del hold-out sí.
@@ -96,7 +96,7 @@ def analyze(table: str = "FAD") -> list[Strategy]:
 
 def selection_table(table: str = "FAD") -> pd.DataFrame:
     """Qué modelo se eligió por serie y su error de hold-out (para auditar la selección)."""
-    df = pd.read_csv(REPORTS / f"model_comparison_{table}21.csv")
+    df = pd.read_csv(REPORTS / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
     sel = _per_series_selection(df)[["country", "category", "model", "sel_mase", "hold_mase"]]
     return sel.sort_values(["country", "category"]).reset_index(drop=True)
 

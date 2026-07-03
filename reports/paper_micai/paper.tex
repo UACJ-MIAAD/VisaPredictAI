@@ -73,8 +73,8 @@ seasonal-naïve baseline (MASE~$<1$) at every horizon. 95\% prediction intervals
 attain 0.92 empirical coverage (under the nominal level, reported as such).
 Consistent with the M4/M5 competitions, well-tuned parsimonious statistics are hard
 to beat: per series, ETS and Theta form the model confidence set, and a tuned
-Auto-ARIMA is a strong baseline. The globally trained deep model only \emph{matches}
-them on the longer Final-Action-Dates series; it retains a modest ($\approx$9\% in
+Auto-ARIMA is a strong baseline. The globally trained deep model only \emph{approaches}
+them on the longer Final-Action-Dates series, without closing the gap; it retains a modest ($\approx$9\% in
 the mean) edge on the shorter Dates-for-Filing series, but that edge is sensitive to
 the aggregation and rests on a small effective sample. We release the panel, code,
 and a reproducible evaluation pipeline.
@@ -126,7 +126,7 @@ keep~\cite{makridakis2020,makridakis2022}; Montero-Manso and Hyndman~\cite{monte
 formalize when a single \emph{global} model trained across many series outperforms
 per-series \emph{local} models. Our result (Sec.~\ref{sec:results}) is consistent
 with this literature and with the M4/M5 ``simple-beats-complex'' finding: global deep
-models match the tuned statistical baselines on one table and hold only a modest edge
+models trail the tuned statistical baselines slightly on one table and hold only a modest edge
 on the other. The Monash archive~\cite{godahewa2021} popularized
 standardized multi-series benchmarking, which we follow.
 
@@ -256,11 +256,11 @@ test runs on fewer effective series. With a Nemenyi post-hoc (Fig.~\ref{fig:cd})
 both tables are \textbf{ETS and Theta}; SARIMA, the gradient-boosted trees, and all
 locally trained deep models are excluded. Against the strongest classical under the same protocol (Theta), the globally
 trained deep model shows no significant FAD separation (Diebold--Mariano on
-per-series-scaled errors, $p\approx0.86$),
+per-series-scaled errors, $p\approx0.85$),
 and the deep model does not enter the $\{$ETS, Theta$\}$ confidence set---consistent with
-our framing of FAD as a tie. On DFF the \emph{global} deep model (a separate training
-regime) reaches MASE~0.090, on par with the best classical baselines rather than ahead of
-them, and its edge is not robust to deep-model choice ($p\approx0.04$ against the best
+our framing that parsimony keeps a small FAD edge. On DFF the \emph{global} deep model (a separate training
+regime) reaches MASE~0.090, ahead of the best classical baseline in the mean but not under
+the median, and its edge is not robust to deep-model choice ($p\approx0.04$ against the best
 classical, but $p\approx0.53$ for the near-tied alternative deep model; see the
 tuned-baseline paragraph below).
 
@@ -389,7 +389,7 @@ dated origin (vertical marker), and the 12-month forecast with 80\%/95\% bands.}
 
 The central, defensible message is conservative, in the M4/M5 tradition: on this
 panel a well-tuned parsimonious suite (ETS, Theta, order-selected Auto-ARIMA) is hard
-to beat. The globally trained deep model matches it on FAD and holds only a modest,
+to beat. The globally trained deep model trails it slightly on FAD and holds only a modest,
 aggregation-sensitive edge on DFF ($\approx$9\% in the mean over a small effective
 sample); neither gradient-boosted trees nor deep learning dominate the tuned
 statistical baselines. The prospective protocol additionally exposes a $3\times$ optimism in
@@ -402,7 +402,7 @@ $\approx$0.97 to $\approx$0.88 across horizons. (2)~The effective prospective sa
 is three recent vintages; broader temporal coverage will accrue as live vintages
 accumulate. (3)~\textbf{Pseudo-replication is severe for DFF}: when a world cutoff is
 shared, the ``All-Chargeability'' row is identical to the per-country rows, so the
-$\approx$25 DFF family series reduce to only $\approx$5--7 distinct series; DFF
+$\approx$25 DFF family series reduce to only $\approx$14 distinct series; DFF
 conclusions therefore rest on a small effective sample and pairwise DFF comparisons
 should be read as indicative. (4)~Deep results depend on a single accelerator and a
 fixed seed set. (5)~Some statistical models converge only on series subsets

@@ -30,7 +30,7 @@ Los boletines son **fijos** una vez publicados, así que el pipeline es **increm
 - **Categorías:** Family-Sponsored (F1, F2A, F2B, F3, F4) y Employment-Based (EB-1 a EB-5 con subcategorías, 16 códigos canónicos).
 - **Diversity Visa (DV):** cortes de rango por 6 regiones (dataset aparte `fact_dv_rank`, valor = número de rango, no fecha).
 - **Dos tablas evaluadas por separado:** *Final Action Dates* (FAD) y *Dates for Filing* (DFF).
-- **Cobertura:** serie mensual homogénea desde **diciembre de 2001** hasta el presente (~290 observaciones por serie). Los boletines previos a 2001 existen solo en fuentes de archivo/estadística.
+- **Cobertura:** serie mensual homogénea desde **diciembre de 2001** hasta el presente (296 observaciones por serie; cobertura 100%). Los boletines previos a 2001 existen solo en fuentes de archivo/estadística.
 
 ## Qué es el Visa Bulletin
 

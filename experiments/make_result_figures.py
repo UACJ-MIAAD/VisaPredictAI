@@ -61,7 +61,7 @@ def _liston(table: str) -> float:
 def fig_ranking() -> None:
     fig, axes = plt.subplots(1, 2, figsize=(7.2, 4.2))
     for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
-        df = pd.read_csv(REP / f"model_comparison_{table}21.csv")
+        df = pd.read_csv(REP / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
         m = df.groupby("model")["hold_mase"].mean().sort_values(ascending=False)
         m = m[m <= 0.40]  # recorta off-scale (TFT 2.6, LSTM/DeepAR ~0.4+); se anota aparte
         n_off = df.groupby("model")["hold_mase"].mean().gt(0.40).sum()

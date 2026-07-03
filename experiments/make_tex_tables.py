@@ -63,8 +63,8 @@ def rows(table: str) -> str:
     out: list[str] = []
     best = True  # la primera fila (mejor MASE sel.) va en negritas, como en el texto
     for model, r in agg.iterrows():
-        name = DISPLAY.get(str(model), str(model))
-        if table == "DFF" and r.n == 0:
+        name = DISPLAY.get(str(model), str(model).replace("_", r"\_"))
+        if r.n == 0:
             continue  # no convergió en ninguna serie: se omite (nota en el caption)
         sel, hold = f"{r.sel_mase:.3f}", f"{r.hold_mase:.3f}"
         if best:

@@ -1,6 +1,6 @@
 """Agrega las corridas multi-semilla de los modelos profundos globales.
 
-Lee los CSV ``reports/global_{TABLE}_{prefix}{seed}.csv`` (uno por semilla, producidos
+Lee los CSV ``reports/campaign/global_{TABLE}_{prefix}{seed}.csv`` (uno por semilla, producidos
 por ``experiments/run_global_deep.py --seed N --suffix {prefix}{seed}``), calcula el MASE de
 hold-out por serie con las MISMAS métricas del proyecto (vía ``eval_neuralforecast``),
 promedia sobre el bloque familiar para obtener UN número por semilla, y reporta
