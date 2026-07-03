@@ -62,13 +62,18 @@ def profile_all(table: str | None = None, block: str | None = None) -> pd.DataFr
 
 
 def stationarity(country: str, category: str, table: str) -> dict[str, float | bool | str]:
-    """ADF + KPSS sobre una serie (US-C2).
+    """ADF + KPSS sobre una serie del almacén (US-C2). Delega en :func:`stationarity_of`."""
+    return stationarity_of(dataset.load_series(country, category, table))
+
+
+def stationarity_of(s: pd.Series) -> dict[str, float | bool | str]:
+    """ADF + KPSS + DF-GLS sobre una serie arbitraria (censo EDA panel-wide).
 
     ADF H0: tiene raíz unitaria (no estacionaria). KPSS H0: es estacionaria (en
     nivel). Sus H0 son opuestas, por eso se reportan juntas: el acuerdo entre ambas
     da el diagnóstico robusto que decide la diferenciación.
     """
-    s = dataset.load_series(country, category, table).astype("float64")
+    s = s.astype("float64")
     with warnings.catch_warnings():
         # KPSS satura el p-valor fuera de [0.01, 0.10]; el InterpolationWarning es esperado.
         warnings.simplefilter("ignore")
@@ -81,6 +86,9 @@ def stationarity(country: str, category: str, table: str) -> dict[str, float | b
 
             dfgls_p = float(DFGLS(s.to_numpy(), trend="ct").pvalue)
         except ImportError, ValueError:
+            # Degradación RUIDOSA: sin `arch` el censo pierde una columna entera y
+            # antes nadie se enteraba (NaN silencioso en 74 series).
+            warnings.warn("DF-GLS no disponible (falta `arch` o serie inválida); se reporta NaN", stacklevel=2)
             dfgls_p = float("nan")
     adf_stationary = adf_p < 0.05  # rechaza raíz unitaria
     kpss_stationary = kpss_p >= 0.05  # no rechaza estacionariedad

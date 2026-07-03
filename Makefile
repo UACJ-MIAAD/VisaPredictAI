@@ -3,12 +3,15 @@
 PY ?= ante/bin/python
 DVC ?= ante/bin/dvc
 
-.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger model-card drift figures audit test test-model lint typecheck check all update eda compare report validate key-facts consistency web-forecasts score-forecasts derive-band80 significance auto-arima paper-figures sync
+.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger model-card drift figures audit test test-model lint typecheck check all update eda eda-facts eda-all eda-report compare report validate key-facts consistency web-forecasts score-forecasts derive-band80 significance auto-arima paper-figures sync
 
 help:
 	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"
 	@echo "model-install - install the modeling extra too (darts/torch/xgboost/prophet)"
 	@echo "eda      - regenerate the EDA figures (needs model-install + db)"
+	@echo "eda-facts  - panel-wide EDA census -> reports/eda/eda_facts.json"
+	@echo "eda-all    - full EDA: census + per-series + distributional + gallery figures"
+	@echo "eda-report - standalone EDA PDF report -> reports/eda/eda_report.pdf"
 	@echo "compare  - walk-forward comparison of the 8 models -> reports/eval/model_comparison.csv"
 	@echo "report   - results table + holdout figure from the comparison"
 	@echo "web-forecasts   - per-series 12-month forecasts for the web demo + archive vintage (needs db)"
@@ -100,6 +103,16 @@ test-model:
 # Reproducir los resultados (requiere `make model-install` + `make db`):
 eda:
 	$(PY) -m vp_model.plots
+
+eda-facts:  ## censo estadístico EDA del panel completo -> reports/eda/eda_facts.json
+	$(PY) experiments/build_eda_facts.py
+
+eda-all: eda-facts eda  ## EDA COMPLETO: censo + figuras per-series + distribucionales + galería
+	$(PY) experiments/make_eda_figures.py
+	$(PY) experiments/make_gallery_figures.py
+
+eda-report:  ## reporte PDF standalone del EDA (galería + hallazgos) -> reports/eda/eda_report.pdf
+	$(PY) experiments/build_eda_report.py
 
 compare:
 	$(PY) -m vp_model.run_comparison

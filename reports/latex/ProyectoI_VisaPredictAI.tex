@@ -569,6 +569,64 @@ aplicadas.
 
 \subsection{1.2.1 Análisis exploratorio de datos (EDA)}
 
+\paragraph{Panorama del panel completo.} Antes de profundizar en el piloto, el EDA
+censa el panel íntegro: las $27{,}611$ observaciones de las 194 series estructurales
+a lo largo de los 296 boletines se condensan en la Figura~\ref{fig:eda_panel}, donde
+cada fila es una serie y cada celda un mes clasificado por su comportamiento. Dos
+rasgos dominan: el $58\,\%$ de las celdas tiene fecha publicada (estado $F$, las
+$15{,}931$ observaciones entrenables) y, dentro de ellas, en el $45\,\%$ de los meses
+la fecha \textbf{no se movió} — el congelamiento es el comportamiento típico del
+sistema y la vara natural de cualquier pronóstico. La Tabla~\ref{tab:eda_descriptiva}
+resume el censo por bloque y tabla, y la Figura~\ref{fig:eda_completitud} muestra la
+radiografía de completitud serie por serie. La cobertura es escalonada: 194 series
+estructurales $\rightarrow$ 136 con al menos una fecha $\rightarrow$ 74 plenamente
+evaluables $\rightarrow$ 25 piloto (familiar FAD), y es sobre este último nivel donde
+el EDA profundiza.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.96\textwidth]{eda3_g01_panel.pdf}
+\caption[El panel completo en una sola imagen]{Las $27{,}611$ observaciones del panel en
+una sola imagen: cada fila es una serie país~$\times$~categoría~$\times$~tabla y cada
+celda un boletín mensual, clasificado según si la fecha avanza, se congela, retrocede,
+está en \textit{Current} o no se publica. El blanco indica que la serie no existe ese
+mes (por ejemplo, DFF antes de octubre de 2015).}
+\label{fig:eda_panel}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Censo descriptivo del panel]{Censo descriptivo del panel por bloque y tabla:
+series estructurales, observaciones con fecha (estado $F$) y su proporción, avance
+mensual mediano, porcentaje de meses congelados (sin movimiento) y número total de
+retrogresiones. Derivado del censo automático del EDA.}
+\label{tab:eda_descriptiva}
+\begin{tabular}{llrrrrrr}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Bloque} & \textbf{Tabla} & \textbf{Series} & \textbf{Obs.~$F$} & \textbf{\%~$F$} &
+\textbf{Avance med.~(d)} & \textbf{\%~congelado} & \textbf{Retros} \\
+\midrule
+Familiar & FAD & 25 & 6\,864 & 96\,\% & 21 & 28\,\% & 126 \\
+Familiar & DFF & 25 & 3\,145 & 97\,\% & 0 & 66\,\% & 2 \\
+Empleo & FAD & 80 & 3\,753 & 32\,\% & 0 & 39\,\% & 199 \\
+Empleo & DFF & 64 & 2\,169 & 38\,\% & 0 & 77\,\% & 55 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{eda3_g11_completitud.pdf}
+\caption[Radiografía de completitud de las 194 series]{Composición de régimen
+($F$/$C$/$U$/sin dato) de las 194 series estructurales, ordenadas por proporción de
+fechas dentro de cada bloque (izquierda), y distribución de la continuidad del tramo
+con fechas (derecha). El bloque de empleo concentra los periodos \textit{Current} y
+\textit{Unavailable}; el familiar es casi íntegramente entrenable.}
+\label{fig:eda_completitud}
+\end{figure}
+
 El EDA cubre las 25 series FAD de preferencia familiar de las cinco áreas piloto.
 La Figura~\ref{fig:eda_pilot} muestra la categoría F3 a través de las cinco áreas:
 \textit{All Chargeability} avanza de forma suave y casi monótona, mientras que
@@ -681,6 +739,23 @@ México y Filipinas.}
 \label{fig:eda_len}
 \end{figure}
 
+A escala del panel completo, el censo registra 382 episodios de retrogresión —el
+$2.4$\,\% de los avances observados, frente al $1.3$\,\% del bloque familiar FAD—.
+La Figura~\ref{fig:eda_retros} los sitúa todos en el tiempo: la mayoría son
+correcciones menores, pero unos pocos son abruptos, con retrocesos de hasta $12.8$
+años en un solo mes. Esta cola extrema es precisamente lo que el sistema
+\textbf{no} promete predecir (los cambios de régimen quedan fuera del objetivo),
+pero sí debe tolerar sin degradarse.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{eda3_g04_retros.pdf}
+\caption[Cronología de las retrogresiones del panel]{Las 382 retrogresiones del panel
+completo (2001--2026): cada punto es un mes en que la fecha de una serie retrocedió;
+el tamaño es proporcional a la magnitud. Se anotan los cinco episodios mayores.}
+\label{fig:eda_retros}
+\end{figure}
+
 \paragraph{Estacionalidad y dependencia entre series.} La Figura~\ref{fig:eda_season} contrasta
 el avance por mes calendario: la estacionalidad anual es débil, con un ligero efecto del inicio
 del año fiscal (octubre). La Figura~\ref{fig:eda_corr2} muestra la correlación entre los
@@ -737,6 +812,23 @@ la cola izquierda corresponde a las retrogresiones.}
 \label{fig:eda_steps}
 \end{figure}
 
+\paragraph{La brecha entre las dos tablas.} Como FAD y DFF se modelan por separado,
+conviene dimensionar su distancia. La Figura~\ref{fig:eda_brecha} compara, serie por
+serie, el atraso vigente según cada tabla en el boletín más reciente: el calendario
+de presentación (DFF) antecede sistemáticamente a la acción final (FAD), con una
+brecha mediana cercana a siete meses y un máximo de dos años (Filipinas F1). La
+brecha no es constante entre series, lo que confirma que las dos tablas son procesos
+relacionados pero no intercambiables.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{eda3_g05_brecha.pdf}
+\caption[Brecha FAD--DFF por serie]{Atraso vigente por serie según la tabla que se
+mire, en el boletín más reciente: cada segmento une el atraso bajo DFF (presentación)
+con el atraso bajo FAD (acción final), para las series con ambas tablas publicadas.}
+\label{fig:eda_brecha}
+\end{figure}
+
 La descomposición STL (\textit{Seasonal-Trend decomposition using Loess})\cita{3} de una serie representativa (Figura~\ref{fig:eda_stl})
 confirma una tendencia creciente dominante y una componente estacional pequeña,
 con residuos volátiles concentrados en el periodo temprano. Las pruebas de
@@ -766,6 +858,90 @@ componente estacional y residuo (en años).}
 \caption[ACF y PACF]{Funciones de autocorrelación (ACF) y autocorrelación parcial
 (PACF) de la serie diferenciada México/F3/FAD.}
 \label{fig:eda_acf}
+\end{figure}
+
+El diagnóstico anterior no descansa en una sola serie: el censo automático del EDA
+aplica la misma batería (ADF, KPSS, DF-GLS, más Ljung-Box sobre los incrementos) a
+las \textbf{74 series plenamente evaluables} del panel. El veredicto es unánime en lo
+esencial: 71 series exigen diferenciación, 3 presentan señales mixtas (ADF y KPSS
+discrepan) y \textbf{ninguna} es estacionaria en nivel — el panel es integrado de
+orden~1 sin excepciones. La Tabla~\ref{tab:eda_estacionariedad} reporta el censo para
+las 25 series piloto; la prueba de Ljung-Box rechaza además el ruido blanco en la
+gran mayoría de los incrementos, confirmando estructura temporal aprovechable tras la
+diferenciación.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Censo de estacionariedad del piloto]{Censo de estacionariedad de las 25 series
+piloto (familiar, FAD): $p$-values de ADF ($H_0$: raíz unitaria), KPSS ($H_0$:
+estacionaria), DF-GLS y Ljung-Box (rezago 12, sobre incrementos), con el veredicto del
+acuerdo ADF+KPSS. Las 49 series evaluables restantes comparten el veredicto dominante.}
+\label{tab:eda_estacionariedad}
+\begin{tabular}{lrrrrl}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Serie} & \textbf{ADF} & \textbf{KPSS} & \textbf{DF-GLS} & \textbf{Ljung-Box} &
+\textbf{Veredicto} \\
+\midrule
+México F1 & 1.00 & $<$0.01 & 1.00 & $<$0.001 & diferenciar \\
+México F2A & 0.96 & $<$0.01 & 0.00 & 0.015 & diferenciar \\
+México F2B & 1.00 & $<$0.01 & 1.00 & 0.051 & diferenciar \\
+México F3 & 0.99 & $<$0.01 & 0.78 & $<$0.001 & diferenciar \\
+México F4 & 0.55 & $<$0.01 & 0.02 & 0.002 & diferenciar \\
+India F1 & 0.95 & $<$0.01 & 0.03 & $<$0.001 & diferenciar \\
+India F2A & 0.98 & $<$0.01 & 0.01 & 0.002 & diferenciar \\
+India F2B & 0.57 & $<$0.01 & 0.68 & $<$0.001 & diferenciar \\
+India F3 & 0.97 & $<$0.01 & 0.02 & 0.040 & diferenciar \\
+India F4 & 0.00 & $<$0.01 & 0.98 & 0.022 & mixto \\
+China F1 & 0.97 & $<$0.01 & 0.18 & $<$0.001 & diferenciar \\
+China F2A & 0.99 & $<$0.01 & 0.04 & 0.005 & diferenciar \\
+China F2B & 0.47 & $<$0.01 & 0.81 & $<$0.001 & diferenciar \\
+China F3 & 0.98 & $<$0.01 & 0.04 & 0.021 & diferenciar \\
+China F4 & 0.23 & $<$0.01 & 0.83 & 0.254 & diferenciar \\
+Filipinas F1 & 0.86 & $<$0.01 & 0.10 & 0.207 & diferenciar \\
+Filipinas F2A & 0.99 & $<$0.01 & 0.03 & $<$0.001 & diferenciar \\
+Filipinas F2B & 0.90 & $<$0.01 & 0.13 & 0.002 & diferenciar \\
+Filipinas F3 & 0.99 & $<$0.01 & 0.54 & $<$0.001 & diferenciar \\
+Filipinas F4 & 0.99 & $<$0.01 & 0.32 & 0.002 & diferenciar \\
+Resto del mundo F1 & 0.95 & $<$0.01 & 0.04 & $<$0.001 & diferenciar \\
+Resto del mundo F2A & 0.99 & $<$0.01 & 0.02 & 0.001 & diferenciar \\
+Resto del mundo F2B & 0.73 & $<$0.01 & 0.69 & $<$0.001 & diferenciar \\
+Resto del mundo F3 & 0.99 & $<$0.01 & 0.05 & 0.004 & diferenciar \\
+Resto del mundo F4 & 0.16 & $<$0.01 & 0.93 & 0.151 & diferenciar \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Bloque de empleo y sorteo de diversidad}
+
+El censo panorámico (Tabla~\ref{tab:eda_descriptiva} y
+Figura~\ref{fig:eda_completitud}) revela por qué el bloque de empleo requiere un
+tratamiento distinto: solo el $32$--$38\,\%$ de sus celdas tiene fecha publicada
+—las categorías EB transitan con frecuencia a \textit{Current} o
+\textit{Unavailable}— y, cuando la hay, el congelamiento domina ($39$--$77\,\%$ de
+los meses sin movimiento, con avance mediano de cero días). Sus retrogresiones son
+además más frecuentes que las familiares (254 episodios contra 128) y de gran
+magnitud (Figura~\ref{fig:eda_retros}). Estas propiedades justifican la cobertura
+escalonada: el bloque EB participa del almacén y del censo desde el primer día, y su
+evaluación predictiva se restringe a las series que superan el umbral de
+elegibilidad.
+
+Por último, el sorteo de diversidad (\textit{Diversity Visa}, DV) se explora como
+hecho descriptivo separado: su valor es un \textbf{número de rango} regional, no una
+fecha, por lo que queda fuera del objetivo predictivo. La Figura~\ref{fig:eda_dv}
+muestra sus $1{,}647$ observaciones: el corte sube dentro de cada año fiscal y se
+reinicia en octubre (diente de sierra), con África sistemáticamente en los cortes
+más altos.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{eda3_g10_dv.pdf}
+\caption[Rangos de corte del sorteo de diversidad]{Rango de corte del sorteo de
+diversidad por región (2001--2026). El patrón de diente de sierra corresponde al
+ciclo del año fiscal; el valor es un número de sorteo, no una fecha, y queda fuera
+del objetivo predictivo del sistema.}
+\label{fig:eda_dv}
 \end{figure}
 
 \subsubsection{Catálogo de características por serie}
@@ -1026,6 +1202,29 @@ para la categoría F3. India, China y All Chargeability co-mueven; México y Fil
 son independientes.}
 \label{fig:eda_cross}
 \end{figure}
+
+El censo extiende este análisis con correlación cruzada a retardos de $\pm 6$ meses
+sobre el bloque familiar FAD completo (Figura~\ref{fig:eda_leadlag}): en
+\textbf{todas} las parejas de áreas la mejor correlación ocurre en el retardo cero —
+el co-movimiento, donde existe, es contemporáneo y ningún área anticipa a otra. Esto
+descarta usar un país como indicador adelantado de otro y refuerza la decisión de
+modelar cada serie con su propia dinámica.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.62\textwidth]{eda3_g07_leadlag.pdf}
+\caption[Correlación cruzada con retardos entre áreas]{Mejor correlación cruzada de los
+avances entre áreas (familiar FAD, retardos de $\pm 6$ meses). En todas las parejas el
+máximo ocurre en el retardo cero: el co-movimiento es contemporáneo.}
+\label{fig:eda_leadlag}
+\end{figure}
+
+\paragraph{Nota sobre el EDA vivo.} Todo el análisis de esta sección —censo
+estadístico, figuras y un reporte ejecutivo en PDF— se regenera de forma automática
+con cada boletín nuevo dentro del mismo proceso continuo que actualiza la base de
+datos, con verificaciones que impiden publicar un análisis incompleto o inconsistente
+con la fuente única de cifras del proyecto. El reporte y el censo son consultables
+públicamente desde la aplicación de demostración (Apéndice~A).
 
 \subsection{1.2.2 Preprocesamiento de datos}
 

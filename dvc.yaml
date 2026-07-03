@@ -10,6 +10,8 @@
 #
 # Las figuras del .tex NO están aquí: necesitan el extra de modelado (.[model]); se
 # regeneran con los `make_*figures.py` / `make figures`, no en este DAG de datos puros.
+# El EDA vivo (reports/eda/: censo, galería, PDF) tampoco: misma razón (.[model]);
+# lo regenera el cron (bloque de modelado 4g) vía `make eda-all && make eda-report`.
 
 stages:
   scrape:

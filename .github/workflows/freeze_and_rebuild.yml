@@ -205,13 +205,28 @@ jobs:
         # 4f. ML drift monitor — not a gate; its summary goes in the SES email below.
         python experiments/check_drift.py | tee /tmp/drift.txt || true
 
+        # 4g. EDA vivo (plan EDA brutal 3-jul-2026): censo estadístico panel-wide,
+        #     suites de figuras (per-series, distribucional, galería insignia) y el
+        #     reporte PDF standalone. Sus gates internos (C2) abortan el bloque si el
+        #     censo o la galería salen mutilados — nada a medias llega al sitio.
+        #     El website fetchea reports/eda/eda_facts.json + eda_report.pdf.
+        python experiments/build_eda_facts.py
+        python -m vp_model.plots
+        python experiments/make_eda_figures.py
+        python experiments/make_gallery_figures.py
+        python experiments/build_eda_report.py
+        python tests/test_eda_facts.py
+        python tests/test_eda_report.py
+        EDA_LINE=$(python -c "import json;f=json.load(open('reports/eda/eda_facts.json'));p=f['panel'];print(f\"EDA {f['vintage']}: {p['n_series_structural']} series censadas, {p['n_series_evaluable']} evaluables, reporte OK\")")
+        echo "$EDA_LINE" > /tmp/eda.txt
+
         # L1: key_facts.json just changed — keep its DVC stage fresh too.
         dvc commit --force key_facts
         git add reports dvc.lock
         if git diff --cached --quiet; then
           echo "Forecasts/key facts unchanged -- nothing to commit."
         else
-          git commit -m "Update forecasts, scorecard and key facts"
+          git commit -m "Update forecasts, scorecard, key facts and EDA report"
           git pull --rebase origin main
           git push
           echo "pushed=true" >> "$GITHUB_OUTPUT"
@@ -277,13 +292,18 @@ jobs:
           # tr: sin comillas/backslashes que rompan el JSON del heredoc de SES
           CONS_LINE=$(tail -1 /tmp/consistency.txt | tr -d '"\\')
         fi
+        # EDA vivo (4g): censo + reporte regenerados con el boletín nuevo.
+        EDA_LINE="n/d (sin rebuild este run)"
+        if [ -f /tmp/eda.txt ]; then
+          EDA_LINE=$(tr -d '"\\' < /tmp/eda.txt)
+        fi
         cat > /tmp/ses.json <<JSON
         {
           "FromEmailAddress": "VisaPredict CI <noreply@visapredictai.com>",
           "Destination": {"ToAddresses": ["al263483@alumnos.uacj.mx"]},
           "Content": {"Simple": {
             "Subject": {"Data": "VisaPredict | corrida $JOB_STATUS — $NEW boletín(es) nuevo(s)"},
-            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nLogs: $RUN_URL"}}
+            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nEDA vivo: $EDA_LINE\nLogs: $RUN_URL"}}
           }}
         }
         JSON
