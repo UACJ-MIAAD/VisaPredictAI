@@ -99,6 +99,27 @@ def test_link_non_bulletins_stay_out():
     assert extract_datetime_from_link("visa-bulletin-for-notamonth-2020.html") is None
 
 
+def test_status_footnoted_regime_letters():
+    # J4: 'C*'/'U*' (a plausible footnote in a retrogression note) must keep
+    # the regime instead of falling to UNK — same tolerance dates and category
+    # labels already had.
+    assert classify_status("C*") == "C"
+    assert classify_status("U*") == "U"
+    assert classify_status("c† ") == "C"
+
+
+def test_family_footnote_parity_with_eb():
+    # J3: every family level tolerates a footnote marker, not just 2A/2B.
+    assert classify_family_category("F1*") == "1"
+    assert classify_family_category("1st*") == "1"
+    assert classify_family_category("2A*") == "2A"
+    assert classify_family_category("F2B*") == "2B"
+    assert classify_family_category("3rd*") == "3"
+    assert classify_family_category("F4*") == "4"
+    assert classify_family_category("4th*") == "4"
+    assert classify_family_category("family") is None  # header row still out
+
+
 def test_status_impossible_dates_are_unk():
     # J1: the token regex alone said F to date-shaped garbage while
     # string_to_datetime returned None -> one source typo (a real risk:

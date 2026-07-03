@@ -141,7 +141,7 @@ def string_to_datetime(date_str: str, bulletin_date: datetime) -> None | datetim
     if pd.isna(date_str):
         return None
     s = str(date_str).strip()
-    su = s.upper()
+    su = s.upper().rstrip("*† ")  # J4: a footnoted 'C*'/'U*' is still Current/Unavailable
     if su == "C":
         return bulletin_date
     if su in ("U", ""):
@@ -186,9 +186,12 @@ def classify_status(date_str) -> str:
     s = str(date_str).strip().upper()
     if s == "":
         return "UNK"
-    if s == "C":
+    # J4: the same footnote paranoia already applied to dates (_DATE_TOKEN) and
+    # category labels (rstrip in both classifiers) — status letters are the cells
+    # MOST likely to get an asterisk in a retrogression note, and 'C*' fell to UNK.
+    if s.rstrip("*† ") == "C":
         return "C"
-    if s == "U":
+    if s.rstrip("*† ") == "U":
         return "U"
     try:
         datetime.strptime(str(date_str).strip(), DATE_FMT)

@@ -45,11 +45,16 @@ def classify_family_category(raw) -> None | str:
     'family' spanning header). Codes match the legacy values: 1, 2A, 2B, 3, 4.
     """
     s = norm_label(raw)
+    # J3: same footnote tolerance as classify_eb_category (H3). The hardcoded
+    # '2a*'/'2b*' variants proved the source DOES footnote family rows; the
+    # other levels ('F1*', '4th*') simply hadn't happened yet and would have
+    # dropped the month for that series in silence.
+    s = s.rstrip("*† ")
     if s in ("1st", "f1"):
         return "1"
-    if s in ("2a", "2a*", "2nd-a", "2nda", "f2a", "f2a*"):
+    if s in ("2a", "2nd-a", "2nda", "f2a"):
         return "2A"
-    if s in ("2b", "2b*", "2nd-b", "2ndb", "f2b", "f2b*"):
+    if s in ("2b", "2nd-b", "2ndb", "f2b"):
         return "2B"
     if s in ("3rd", "f3"):
         return "3"
