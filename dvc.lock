@@ -10,24 +10,24 @@ stages:
       nfiles: 298
     - path: scrape_all.py
       hash: md5
-      md5: 268695d5f56571e5f2472300a61992b2
-      size: 3902
+      md5: ec5de6a6ec5f97ea8d0a4cc43685b881
+      size: 4170
     - path: scrape_dv_visa_bulletins.py
       hash: md5
-      md5: cb72bd91ba3ef7d15c5e5440bb81864a
-      size: 9288
+      md5: d95831c3d3e512023a141ef0199c1024
+      size: 9835
     - path: scrape_family_visa_bulletins.py
       hash: md5
-      md5: ae4faa71c867a7d75f028a737e9d9a8d
-      size: 6068
+      md5: e258bc19ed37603f6003aa07fc457575
+      size: 7117
     - path: scrape_visa_bulletins.py
       hash: md5
-      md5: 3af070b061f7f152f4007a73a9321b5c
-      size: 7877
+      md5: f41f6947e4dd22f4d3eb154b1eeb0837
+      size: 8236
     - path: visa_common.py
       hash: md5
-      md5: ddccc1776a0af12d6e039ecffd03e755
-      size: 11808
+      md5: 30777ee335faeff7412d1572de89fadd
+      size: 15396
     outs:
     - path: data/raw
       hash: md5
@@ -39,8 +39,8 @@ stages:
     deps:
     - path: build_panel.py
       hash: md5
-      md5: 83de8ddbe9dd673709888123c8c4e149
-      size: 8005
+      md5: bb513e295819b07e40afd8988863fa79
+      size: 9410
     - path: data/raw
       hash: md5
       md5: 559fa17329b318c28b0e2a3cc4f65718.dir
@@ -105,8 +105,8 @@ stages:
       size: 1589531
     - path: experiments/build_key_facts.py
       hash: md5
-      md5: 90638c523d75d3a1d09575bc8e36eefd
-      size: 5537
+      md5: 0381f91aa1387117728dec58067e82c4
+      size: 6092
     - path: reports/auto_arima_baseline.csv
       hash: md5
       md5: e75d53398fcf272005c62f43a946dbaf
