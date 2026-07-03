@@ -223,7 +223,7 @@ read-only (el driver de DuckDB lo rechaza).
 
 - **URL:** https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html
 - **Formato de fechas:** `DD-MMM-YY`
-- **Cobertura del pipeline:** serie mensual continua desde diciembre de 2001 hasta el boletín más reciente (98.3 % de los meses; los ausentes existen solo en el archivo legacy de Wayback).
+- **Cobertura del pipeline:** serie mensual continua desde diciembre de 2001 hasta el boletín más reciente (100 % de los meses; los cinco boletines retirados del sitio oficial se recuperaron manualmente del archivo histórico y viven en `data/snapshots/`).
 
 ## Contexto académico
 

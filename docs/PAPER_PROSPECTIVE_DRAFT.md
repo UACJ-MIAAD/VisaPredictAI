@@ -13,7 +13,7 @@ escritorio** (sin novedad metodológica). Reencuadrar a **paper de aplicación**
 contribuciones defendibles:
 
 1. **Dataset público nuevo y auditado** — panel multiserie homogéneo del U.S. Visa Bulletin
-   (194 series estructurales, 27,289 obs, dic-2001→2026), rico en retrogresiones, con
+   (194 series estructurales, 27,611 obs, dic-2001→2026 completo 296/296), rico en retrogresiones, con
    anotación de régimen C/F/U (MNAR-honesta) y reproducible (HTML congelado en S3 → rebuild
    offline). *Liderar con esto.*
 2. **Protocolo de evaluación PROSPECTIVA sobre pronósticos congelados** — la idea novedosa:

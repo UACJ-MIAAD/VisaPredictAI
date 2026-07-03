@@ -25,7 +25,7 @@ de país. Como el valor es entero y no fecha, **DV no cabe** en
 ## FASE 1 — Completitud de categorías  ✅ COMPLETA
 
 1. **✅ Diversity Visa modelada** — `scrape_dv_visa_bulletins.py` →
-   `data/raw/dv_visa_rank_timecourse.csv` (**1,617 filas · 6 regiones · 270 meses,
+   `data/raw/dv_visa_rank_timecourse.csv` (**1,647 filas · 6 regiones · 275 meses,
    2001-12→2026-07**, el mismo piso que el panel) cargado en el hecho separado
    **`fact_dv_rank`** + **`dim_region`** + vista `v_dv_long`, bajo PK/FK/CHECK.
 2. **✅ `dim_region`** (6 regiones) — separada de `dim_area`.

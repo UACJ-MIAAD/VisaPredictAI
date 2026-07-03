@@ -100,7 +100,7 @@ later.
 This paper addresses that gap with three contributions:
 \begin{enumerate}
   \item A \textbf{public, audited multi-series panel} $y_{p,c,b,t}$ (priority-date
-  days since a fixed epoch) covering 194 structural series and 27{,}289
+  days since a fixed epoch) covering 194 structural series and 27{,}611
   observations (Sec.~\ref{sec:data}), built from State-Department HTML frozen for
   reproducibility, with an explicit Current/Final/Unavailable regime annotation.
   \item A \textbf{per-series forecasting benchmark} under leakage-free expanding
@@ -165,10 +165,11 @@ regime transitions---an explicit scope limitation. To prevent target leakage,
 enforced by database constraints.
 
 The homogeneous monthly series the pipeline reconstructs spans
-\textbf{December~2001--2026} ($\approx$290 months); FAD have been published since
-1992, but the continuous machine-readable series begins in 2001 (the 1992--2001
-period is reserved for future archival integration). The panel contains
-\textbf{194 structural series and 27{,}289 observations}; of these, 136 series have
+\textbf{December~2001--2026} (296 months, complete: five bulletins withdrawn from
+the official site were recovered from the historical archive); FAD have been
+published since 1992, but the continuous machine-readable series begins in 2001
+(the 1992--2001 period is reserved for future archival integration). The panel contains
+\textbf{194 structural series and 27{,}611 observations}; of these, 136 series have
 at least one $F$ observation and \textbf{74 have $\geq$84 $F$ observations}
 (initial window plus hold-out) and are thus fully evaluable. We report results on
 the evaluable subset and never claim to ``model 194 series.'' Raw HTML is frozen in
