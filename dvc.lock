@@ -10,47 +10,47 @@ stages:
       nfiles: 298
     - path: scrape_all.py
       hash: md5
-      md5: 626296ec2cb407c01414bedcf2556f00
-      size: 3437
+      md5: 268695d5f56571e5f2472300a61992b2
+      size: 3902
     - path: scrape_dv_visa_bulletins.py
       hash: md5
       md5: cb72bd91ba3ef7d15c5e5440bb81864a
       size: 9288
     - path: scrape_family_visa_bulletins.py
       hash: md5
-      md5: 378379deddbbc65505ea37f3c3cadb93
-      size: 5762
+      md5: ae4faa71c867a7d75f028a737e9d9a8d
+      size: 6068
     - path: scrape_visa_bulletins.py
       hash: md5
-      md5: 8434f15b6f047f77dd8cdfb84c4abb8a
-      size: 7571
+      md5: 3af070b061f7f152f4007a73a9321b5c
+      size: 7877
     - path: visa_common.py
       hash: md5
-      md5: ff8e6f15f2daaa96e6323ba96ae55c26
-      size: 10890
+      md5: ddccc1776a0af12d6e039ecffd03e755
+      size: 11808
     outs:
     - path: data/raw
       hash: md5
-      md5: 1b41019c3c06978d7e07e968a0a248f5.dir
-      size: 2326826
+      md5: 559fa17329b318c28b0e2a3cc4f65718.dir
+      size: 2089449
       nfiles: 11
   panel:
     cmd: ante/bin/python build_panel.py
     deps:
     - path: build_panel.py
       hash: md5
-      md5: ce7460a82b6e754009d50a61a5d094b9
-      size: 7548
+      md5: 83de8ddbe9dd673709888123c8c4e149
+      size: 8005
     - path: data/raw
       hash: md5
-      md5: 1b41019c3c06978d7e07e968a0a248f5.dir
-      size: 2326826
+      md5: 559fa17329b318c28b0e2a3cc4f65718.dir
+      size: 2089449
       nfiles: 11
     outs:
     - path: data/processed/visa_panel_long.csv
       hash: md5
-      md5: 6f25df6b8f09b898c247f292255dabc3
-      size: 1571572
+      md5: 00115d2dd0b68f0b8e58ee41762fe09b
+      size: 1589531
   bulletins:
     cmd: ante/bin/python build_bulletins_json.py
     deps:
@@ -60,8 +60,8 @@ stages:
       size: 4017
     - path: data/processed/visa_panel_long.csv
       hash: md5
-      md5: 6f25df6b8f09b898c247f292255dabc3
-      size: 1571572
+      md5: 00115d2dd0b68f0b8e58ee41762fe09b
+      size: 1589531
     outs:
     - path: data/processed/bulletins.json
       hash: md5
@@ -76,16 +76,16 @@ stages:
       size: 14277
     - path: config.py
       hash: md5
-      md5: 778ba8ac61044551258c0ca323101219
-      size: 1947
+      md5: de3bfba4a3eb83b800debc65759ce1c4
+      size: 2143
     - path: data/processed/visa_panel_long.csv
       hash: md5
-      md5: 6f25df6b8f09b898c247f292255dabc3
-      size: 1571572
+      md5: 00115d2dd0b68f0b8e58ee41762fe09b
+      size: 1589531
     - path: data/raw
       hash: md5
-      md5: 1b41019c3c06978d7e07e968a0a248f5.dir
-      size: 2326826
+      md5: 559fa17329b318c28b0e2a3cc4f65718.dir
+      size: 2089449
       nfiles: 11
     - path: schema.sql
       hash: md5
@@ -94,39 +94,39 @@ stages:
     outs:
     - path: data/processed/visa_panel_long.parquet
       hash: md5
-      md5: 4be1f471052e70048c310198ffaa39ea
-      size: 95849
+      md5: f4adc3bee365e3aeb207f22c46e51e55
+      size: 98211
   key_facts:
     cmd: ante/bin/python experiments/build_key_facts.py
     deps:
     - path: data/processed/visa_panel_long.csv
       hash: md5
-      md5: 6f25df6b8f09b898c247f292255dabc3
-      size: 1571572
+      md5: 00115d2dd0b68f0b8e58ee41762fe09b
+      size: 1589531
     - path: experiments/build_key_facts.py
       hash: md5
-      md5: b82711dfb60001df86c729c606a055ef
-      size: 5425
+      md5: 90638c523d75d3a1d09575bc8e36eefd
+      size: 5537
     - path: reports/auto_arima_baseline.csv
       hash: md5
-      md5: e01afaf8e48623af40926cf151bb8692
-      size: 1846
+      md5: e75d53398fcf272005c62f43a946dbaf
+      size: 1848
     - path: reports/campaign_pool_DFF_family.csv
       hash: md5
-      md5: 4162a429b43d674fa0891b88a93e19a7
-      size: 119924
+      md5: d3bfca0ab145ab5cb2e5d0a9e7353d34
+      size: 122930
     - path: reports/campaign_pool_FAD_family.csv
       hash: md5
-      md5: 4a5c9e2f541b22a9f93a4c920e59bfeb
-      size: 130965
+      md5: c5ff72a4a36e6002c470d1794b044a3e
+      size: 131050
     - path: reports/forecast_scorecard_meta.json
       hash: md5
       md5: e869aff57e5c65e6e7c512fce7e3ec69
       size: 2911
     - path: reports/significance_summary.json
       hash: md5
-      md5: 99f8ee6d67df459ddeb20fdb34fc8ddb
-      size: 2561
+      md5: e5c7cc0cd172c56c4746f58aaeba1ae7
+      size: 2745
     - path: vp_model/config.py
       hash: md5
       md5: bc470d30aa1b61fb6981ed34e07ec2fd
@@ -134,9 +134,9 @@ stages:
     outs:
     - path: reports/key_facts.json
       hash: md5
-      md5: ccdd5541b79c21ae3287bf8559b003a6
-      size: 894
+      md5: d617d8b2105d30231e1a50f5dbd68bca
+      size: 893
     - path: reports/latex/key_facts.tex
       hash: md5
-      md5: 21e83155a00c46e4a905a165dd709722
-      size: 1124
+      md5: a0773a1fbd0cd60aa88a0addc460092b
+      size: 1123

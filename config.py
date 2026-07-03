@@ -38,8 +38,11 @@ CANONICAL_COUNTRY = {
 # visa-bulletin table_type -> short code.
 TABLE_MAP = {"final_action": "FAD", "dates_for_filing": "DFF"}
 
-# Months absent from the official site (404 + Wayback-only); see deep search.
-DEAD_MONTHS = ["2009-03", "2009-09", "2009-10", "2009-11", "2012-10"]
+# Months absent from the official site (404 + Wayback-only). The 5 dead months
+# (2009-03/09/10/11, 2012-10) were recovered by hand from the archive into
+# data/snapshots/ and are now parsed (I1) — coverage is 296/296, nothing is
+# whitelisted anymore. Kept as an (empty) hook for any future genuinely-dead month.
+DEAD_MONTHS: list[str] = []
 
 # UACJ / MIAAD institutional palette.
 UACJ_AZUL = "#003CA6"

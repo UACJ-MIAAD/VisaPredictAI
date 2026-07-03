@@ -97,7 +97,12 @@ def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataF
 
     # Preserve the raw published label before normalizing it, so
     # dim_category_alias can document 20 years of label drift (lineage).
-    country_df["raw_category"] = country_df["F_level"].astype(str).str.strip()
+    # Per-line rstrip: the 2009 archive bulletins publish multi-line labels with
+    # trailing spaces per line; leaving them writes line-trailing whitespace into
+    # the quoted CSV field, which the repo's whitespace hook then rewrites (churn).
+    country_df["raw_category"] = (
+        country_df["F_level"].astype(str).str.strip().str.replace(r"[ \t]+\n", "\n", regex=True)
+    )
 
     # Map the raw 'Family-Sponsored' label to a canonical level code
     # (1, 2A, 2B, 3, 4); drop rows that are not a family category.

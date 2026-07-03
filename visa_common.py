@@ -55,8 +55,15 @@ MONTH_MAP = {
 
 # ---- link discovery -----------------------------------------------------
 def extract_datetime_from_link(link: str) -> None | datetime:
-    """Parse 'visa-bulletin-for-<month>-<year>.html' into a datetime (day=1)."""
-    match = re.search(r"visa-bulletin-for-(\w+)-(\d{4})\.html$", link)
+    """Parse a bulletin filename into a datetime (day=1).
+
+    Accepts both naming variants the source has actually used:
+    'visa-bulletin-for-<month>-<year>.html' (canonical since ~2003) and
+    'visa-bulletin-<month>-<year>.html' (the 5 archive months recovered by hand:
+    2009-03/09/10/11 and 2012-10 — I1: the 'for-'-only regex silently ignored
+    those real, complete bulletins sitting in data/snapshots/ for months).
+    """
+    match = re.search(r"visa-bulletin(?:-for)?-(\w+)-(\d{4})\.html$", link)
     if not match:
         return None
     month_str, year = match.groups()

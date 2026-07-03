@@ -47,6 +47,13 @@ def main() -> None:
         except Exception as exc:
             failed.append((path.name, f"soup/ym: {str(exc)[:50]}"))
             continue
+        # I1: a snapshot whose filename doesn't map to a month used to flow on with
+        # ym=None and get dropped row-by-row downstream (notna filter) — zero rows,
+        # zero warnings. That silence hid 5 real, complete bulletins for months.
+        # Skip it HERE and say so; if it's a real bulletin, extend the regex.
+        if ym is None:
+            logger.warning("snapshot sin mes mapeable (se OMITE del panel): %s", path.name)
+            continue
         # Sección objetivo (panel): su fallo SÍ es un mes perdido.
         try:
             e_parsed = parse_tables(soup, ym, emp.is_employment_section)
