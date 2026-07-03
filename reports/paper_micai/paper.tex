@@ -233,12 +233,13 @@ the model \emph{actually deployed}.
 \label{sec:results}
 
 \paragraph{Per-series benchmark.} Under walk-forward, parsimony is hard to beat per
-series: ETS/Theta reach a hold-out MASE of $\approx$0.112 on family FAD and
+series: ETS/Theta reach a hold-out MASE of $\approx$0.113--0.114 on family FAD and
 gradient-boosted trees are competitive on DFF. Locally trained deep models fail on
 the short individual series. Trained \emph{globally} (across series, on differenced
 and per-series-normalized targets, with hyper-parameter search), deep models recover:
-on FAD an AutoBiTCN configuration reaches mean MASE $0.112$, a seed confidence
-interval that contains the ETS/Theta value of $\approx$0.112---a \emph{tie}; a per-table
+on FAD an AutoBiTCN configuration reaches mean MASE $0.121$, a seed confidence
+interval whose lower edge grazes the ETS/Theta value of $\approx$0.114---parsimony keeps
+a small edge; a per-table
 Diebold--Mariano test finds no significant FAD separation. On DFF, BiTCN reaches mean
 MASE $0.090$, ahead of the best classical baseline; the size of that lead and its
 robustness are examined with a tuned Auto-ARIMA below. We emphasize that this
@@ -290,9 +291,9 @@ Nemenyi-connected groups. ETS and Theta lead and form the confidence set.}
 
 \paragraph{Tuned classical baseline.} To guard against beating weak baselines, we
 add an order-selected Auto-ARIMA (AICc grid search on the pre-hold-out window, same
-walk-forward). On FAD its mean MASE is 0.154 (median 0.112)---\emph{worse} than ETS
-(0.112) and Theta (0.111), which confirms them as the FAD champions and the deep
-model as their tie. On DFF, Auto-ARIMA is the strongest classical (mean 0.099, median
+walk-forward). On FAD its mean MASE is 0.156 (median 0.114)---\emph{worse} than ETS
+(0.114) and Theta (0.113), which confirms them as the FAD champions, with the deep
+model close behind. On DFF, Auto-ARIMA is the strongest classical (mean 0.099, median
 0.086), so the deep model's DFF lead, originally stated against gradient-boosted
 trees ($\approx$0.111), narrows to $\approx$9\% against this tuned baseline
 (BiTCN~0.090 vs.\ 0.099 in the mean). That lead is moreover \emph{aggregation
@@ -317,7 +318,7 @@ forecasts (Table~\ref{tab:prospective}), the mean absolute error is
 horizon (Fig.~\ref{fig:prospective} (left)): from $\approx$20~days / MASE~0.05 at one month to
 $\approx$351~days / MASE~0.75 at twelve months. Crucially, MASE stays
 \emph{below~1} at every horizon---the forecasts beat the seasonal-naïve baseline
-even a year out. The retrospective hold-out MASE (0.112) and the prospective MASE
+even a year out. The retrospective hold-out MASE (0.113) and the prospective MASE
 (0.345) differ by $\approx$3$\times$; this gap is expected (repeated one-step vs.\
 genuine one-to-twelve-step extrapolation through retrogression shocks) and is
 disclosed rather than hidden.

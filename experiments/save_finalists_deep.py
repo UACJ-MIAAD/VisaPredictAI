@@ -57,6 +57,7 @@ def main() -> None:
             scaler_type="standard",
             random_seed=1,
             enable_progress_bar=False,
+            logger=False,
             enable_model_summary=False,
         )
         from collections.abc import Callable

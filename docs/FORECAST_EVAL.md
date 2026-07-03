@@ -25,12 +25,13 @@ mundo real.
 
 ## Modelo de producción (por qué NO es el ganador del entregable)
 
-El entregable concluye que el **deep global (BiTCN)** gana en DFF y **empata** en FAD
-(AutoBiTCN 0.112 ± 0.008, IC que contiene a ETS/Theta 0.117). Aun así, el demostrador web
+El entregable concluye que el **deep global (BiTCN)** gana en DFF y **queda apenas por
+detrás** en FAD (AutoBiTCN 0.121 ± 0.008; su IC roza el listón ETS/Theta 0.113–0.114 sin
+que la media lo alcance). Aun así, el demostrador web
 sirve **mediana(Theta + ETS + SARIMA)** en FAD y **SARIMA** en DFF. Es una decisión
 deliberada, no un descuido:
 
-- **FAD es un empate estadístico** → el deep no aporta ventaja significativa ahí.
+- **En FAD el deep no aporta ventaja** (la parsimonia conserva un margen pequeño).
 - **El deep necesita GPU + un segundo venv** (`ante_nf`, neuralforecast, pandas<3); el
   Action **semanal que regenera los pronósticos corre en CPU** (torch-CPU) y debe ser
   reproducible y barato. Servir BiTCN exigiría GPU en CI → frágil y costoso.

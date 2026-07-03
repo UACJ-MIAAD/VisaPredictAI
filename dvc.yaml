@@ -73,8 +73,9 @@ stages:
       - reports/forecast_scorecard_meta.json
       - reports/auto_arima_baseline.csv
       - reports/significance_summary.json
-      - reports/campaign/campaign_pool_FAD_family.csv
-      - reports/campaign/campaign_pool_DFF_family.csv
+      # el dir completo: además de los pools, ahora deriva el deep multi-semilla
+      # (bitcn/autobitcn) de los global_*_camp_*.csv
+      - reports/campaign
     outs:
       - reports/key_facts.json:
           cache: false

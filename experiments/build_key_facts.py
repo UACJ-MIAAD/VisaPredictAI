@@ -2,9 +2,9 @@
 
 Produce ``reports/key_facts.json`` (consumido por ``tools/check_consistency.py``) y
 ``reports/latex/key_facts.tex`` (macros \\newcommand para que el LaTeX pueda \\input la
-fuente en vez de hardcodear números). TODO se computa de los datos/reportes — nada se
-escribe a mano salvo unas pocas cifras del run profundo, marcadas como ``curated`` con
-su procedencia.
+fuente en vez de hardcodear números). TODO se computa de los datos/reportes, incluidas
+las cifras del run profundo multi-semilla (de los CSV de la campaña) y el listón
+parsimonioso (del pool FAD); si un insumo falta, se degrada al key_facts previo (C1).
 
 Regla del proyecto (máxima): si una cifra cambia aquí, ``check_consistency`` falla hasta
 que TODOS los artefactos (web/LaTeX/paper/RAG/README/docs) se reconcilien.
@@ -78,6 +78,26 @@ def _prospective() -> dict:
     }
 
 
+def _deep_seed_mean(table: str, prefix: str, model: str) -> float | None:
+    """Media multi-semilla del deep global (misma agregación que aggregate_seeds).
+
+    Import perezoso y tolerante: eval_neuralforecast arrastra la pila de modelado,
+    que no está instalada en todos los runners — sin ella (o sin los CSV de la
+    campaña) se devuelve None y el caller degrada al key_facts previo (patrón C1).
+    """
+    try:
+        from vp_model.eval_neuralforecast import eval_global_deep
+
+        df = eval_global_deep(table)
+        df = df[(df.block == "family") & (df.model == model) & df.variant.str.startswith(prefix)]
+        if df.empty:
+            return None
+        return round(float(df.groupby("variant").hold_mase.mean().mean()), 3)
+    except Exception as exc:  # noqa: BLE001 — cualquier insumo/dep ausente degrada
+        print(f"WARN: deep {model}/{prefix}*/{table} no derivable ({exc}); se conserva el previo", file=sys.stderr)
+        return None
+
+
 def _models() -> dict:
     out: dict = {}
     prev = _prev_facts()
@@ -85,14 +105,23 @@ def _models() -> dict:
         path = REPORTS / "campaign" / f"campaign_pool_{tbl}_family.csv"
         keys = (f"ets_{tbl.lower()}_mean", f"theta_{tbl.lower()}_mean")
         if path.exists():
-            mean = pd.read_csv(path).groupby("model").hold_mase.mean()
+            pool = pd.read_csv(path)
+            pool = pool[pool.run_id == pool.run_id.max()]  # última corrida, no el histórico acumulado
+            mean = pool.groupby("model").hold_mase.mean()
             out[keys[0]] = round(float(mean.get("ets", float("nan"))), 3)
             out[keys[1]] = round(float(mean.get("theta", float("nan"))), 3)
+            if tbl == "FAD":
+                # listón parsimonioso FAD = mejor sel_mase medio de {ets, theta},
+                # derivado del MISMO pool que la tabla de 21 modelos del .tex
+                sel = pool.groupby("model").sel_mase.mean()
+                out["fad_champion_mase"] = round(float(min(sel.get("ets"), sel.get("theta"))), 3)
         else:
             # C1: insumo ausente (runner limpio / campaña no re-corrida) — degradar, no crashear
             print(f"WARN: {path.name} ausente; se conservan {keys} del key_facts previo", file=sys.stderr)
             for k in keys:
                 out[k] = prev[k]
+            if tbl == "FAD":
+                out["fad_champion_mase"] = prev["fad_champion_mase"]
     aa = pd.read_csv(REPORTS / "auto_arima_baseline.csv")
     for tbl in ("FAD", "DFF"):
         d = aa[aa.table == tbl].hold_mase
@@ -101,13 +130,14 @@ def _models() -> dict:
     sig = json.loads((REPORTS / "significance_summary.json").read_text())
     out["mcs_fad"] = sorted(sig["ranking"]["FAD"]["mcs_alpha10"])
     out["mcs_dff"] = sorted(sig["ranking"]["DFF"]["mcs_alpha10"])
-    # Cifras del run profundo multi-semilla (curated; fuente: experiments/aggregate_seeds.py).
-    # Si se re-corre el deep, actualizar aquí y reconciliar artefactos.
-    out["bitcn_dff_mean"] = 0.090
-    out["autobitcn_fad_mean"] = 0.112
-    # listón parsimonioso FAD = mejor sel_mase de {ets, theta} (re-derivado post-B1,
-    # 2-jul-2026: la máscara F bajó el listón de 0.117 a 0.109)
-    out["fad_champion_mase"] = 0.109
+    # Cifras del run profundo multi-semilla, derivadas de los CSV de la campaña con la
+    # misma agregación que aggregate_seeds (media por semilla -> media entre semillas).
+    for key, args in (
+        ("bitcn_dff_mean", ("DFF", "camp_diff_s", "BiTCN")),
+        ("autobitcn_fad_mean", ("FAD", "camp_auto_s", "AutoBiTCN")),
+    ):
+        derived = _deep_seed_mean(*args)
+        out[key] = derived if derived is not None else prev[key]
     # margen DFF del deep vs el mejor clásico afinado (Auto-ARIMA media), en %
     out["deep_dff_margin_pct"] = int(
         round(100 * (out["autoarima_dff_mean"] - out["bitcn_dff_mean"]) / out["autoarima_dff_mean"])

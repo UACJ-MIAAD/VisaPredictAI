@@ -130,6 +130,7 @@ def _build_models(input_size: int, max_steps: int, n_series: int, seed: int = 1)
         random_seed=seed,
         enable_progress_bar=False,
         enable_model_summary=False,
+        logger=False,  # sin lightning_logs/ huérfanos en la raíz (T2)
     )
     builders = {
         "NHITS": lambda: NHITS(**c),
@@ -142,6 +143,7 @@ def _build_models(input_size: int, max_steps: int, n_series: int, seed: int = 1)
             random_seed=seed,
             enable_progress_bar=False,
             enable_model_summary=False,
+            logger=False,
             loss=DistributionLoss(distribution="Normal", level=[95]),
         ),
         "TiDE": lambda: TiDE(**c),

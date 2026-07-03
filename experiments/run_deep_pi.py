@@ -59,6 +59,7 @@ def main() -> None:
         scaler_type="standard",
         random_seed=args.seed,
         enable_progress_bar=False,
+        logger=False,
         enable_model_summary=False,
     )
     cls = {"BiTCN": BiTCN, "TiDE": TiDE, "NHITS": NHITS, "PatchTST": PatchTST}[args.model]
