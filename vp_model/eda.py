@@ -16,7 +16,6 @@ import pandas as pd
 from statsmodels.tsa.stattools import adfuller, kpss
 
 from vp_model import dataset
-from vp_model.config import MIN_TRAINABLE_EVALUABLE
 
 
 @dataclass(frozen=True)
@@ -51,7 +50,7 @@ def profile_series(country: str, category: str, table: str) -> SeriesProfile:
         n_retrogressions=int((diffs < 0).sum()),
         median_step_days=float(diffs.median()) if len(diffs) else 0.0,
         is_monotonic=bool(s.is_monotonic_increasing),
-        evaluable=len(s) >= MIN_TRAINABLE_EVALUABLE,
+        evaluable=dataset.is_evaluable(len(s), span, table),  # N1: definición única
     )
 
 

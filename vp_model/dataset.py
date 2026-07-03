@@ -48,6 +48,45 @@ def _connect(db_path: str | Path | None = None) -> duckdb.DuckDBPyConnection:
     return con
 
 
+def is_evaluable(n_trainable: int, span_months: int, table: str) -> bool:
+    """N1: LA definición única de serie "plenamente evaluable".
+
+    Antes convivían tres criterios divergentes: el claim publicado (≥84 obs F,
+    ``build_key_facts``), ``MIN_TRAINABLE_EVALUABLE`` (solo ``eda.py``) y el gate
+    real del walk-forward (span de calendario densificado ≥ MIN_TRAIN[tabla] +
+    HOLDOUT + colchón, ``walkforward.py``). Una serie podía contar en el "74
+    evaluables" y reventar en el walk-forward, o modelarse sin ser "evaluable".
+    Verificado sobre el panel vivo: las 74 series ≥84 F TAMBIÉN pasan el criterio
+    de span, así que la definición conjunta preserva el cohort publicado.
+    """
+    from vp_model.config import HOLDOUT, MIN_BACKTEST_BUFFER, MIN_TRAIN
+
+    return (
+        n_trainable >= MIN_TRAIN["FAD"] + HOLDOUT  # riqueza de datos (criterio publicado: 84 F)
+        and span_months >= MIN_TRAIN[table] + HOLDOUT + MIN_BACKTEST_BUFFER  # factibilidad walk-forward
+    )
+
+
+def evaluable_series(db_path: str | Path | None = None) -> pd.DataFrame:
+    """Catálogo de series evaluables según :func:`is_evaluable`, desde el mart.
+
+    El span se mide sobre las observaciones F (``mart_training_F``), que es la
+    serie que el walk-forward densifica — ``mart_series_summary`` abarca todos
+    los regímenes y sobreestimaría la factibilidad.
+    """
+    con = _connect(db_path)
+    try:
+        df = con.execute(
+            'SELECT country, block, category, "table", count(*) AS n_trainable, '
+            "datediff('month', min(bulletin_date), max(bulletin_date)) + 1 AS span_months "
+            'FROM mart_training_F GROUP BY country, block, category, "table"'
+        ).fetchdf()
+    finally:
+        con.close()
+    mask = [is_evaluable(int(r.n_trainable), int(r.span_months), r.table) for r in df.itertuples()]
+    return df[pd.Series(mask, index=df.index)].reset_index(drop=True)
+
+
 def actuals_F(db_path: str | Path | None = None) -> dict[tuple[str, str, str, str], float]:
     """Todos los cortes reales (estado F) del panel: (país, categoría, tabla, 'YYYY-MM-DD') → días.
 

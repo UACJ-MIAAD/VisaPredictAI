@@ -40,12 +40,22 @@ def _prev_facts() -> dict:
 
 def _dataset() -> dict:
     df = pd.read_csv(DATA)
-    f = df[df.status == "F"]
+    f = df[df.status == "F"].copy()
     fcount = f.groupby(["country", "category", "table"]).size()
+    # N1: definición ÚNICA de evaluable (vp_model.dataset.is_evaluable) — riqueza
+    # de datos (≥84 F, el criterio publicado) Y factibilidad del walk-forward
+    # (span F densificado). Verificado: mismo cohort de 74 series.
+    from vp_model.dataset import is_evaluable
+
+    per = pd.to_datetime(f.bulletin_date).dt.to_period("M")
+    f["_per"] = per
+    spans = f.groupby(["country", "category", "table"])["_per"].agg(lambda s: (s.max() - s.min()).n + 1)
+    tables = {k: k[2] for k in fcount.index}
+    n_eval = sum(1 for k in fcount.index if is_evaluable(int(fcount[k]), int(spans[k]), tables[k]))
     return {
         "n_series_structural": int(df.groupby(["country", "category", "table"]).ngroups),
         "n_series_with_F": int((fcount >= 1).sum()),
-        "n_series_evaluable": int((fcount >= config.MIN_TRAIN["FAD"] + config.HOLDOUT).sum()),  # >=84 F
+        "n_series_evaluable": int(n_eval),
         "n_obs": int(len(df)),
         "n_obs_F": int((df.status == "F").sum()),
         "pct_trainable_F": int(round(100 * (df.status == "F").mean())),
