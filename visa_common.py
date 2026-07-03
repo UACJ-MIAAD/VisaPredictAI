@@ -187,7 +187,19 @@ def classify_status(date_str) -> str:
         datetime.strptime(str(date_str).strip(), DATE_FMT)
         return "F"
     except ValueError:
-        return "F" if _DATE_TOKEN.search(s) else "UNK"  # footnoted date ("15JUL05*") still F
+        # J1: the token regex alone accepted impossible dates ("31JUN26", "00MAY16",
+        # "15XYZ05") as F while string_to_datetime returned None for them — one
+        # source typo then killed the whole cron via the panel's F-with-NaT
+        # fail-fast. Validate the token with strptime so both functions agree by
+        # construction: parseable footnoted date -> F, garbage -> UNK.
+        m = _DATE_TOKEN.search(s)
+        if not m:
+            return "UNK"
+        try:
+            datetime.strptime(m.group(), DATE_FMT)
+            return "F"  # footnoted date ("15JUL05*") still F
+        except ValueError:
+            return "UNK"
 
 
 def norm_label(s) -> str:

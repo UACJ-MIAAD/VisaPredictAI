@@ -41,6 +41,17 @@ def test_status_two_digit_year_boundary():
     assert classify_status("22JUN22") == "F"
 
 
+def test_status_impossible_dates_are_unk():
+    # J1: the token regex alone said F to date-shaped garbage while
+    # string_to_datetime returned None -> one source typo (a real risk:
+    # "religiuos" 2004, "4rd" 2003) killed the whole cron via the panel's
+    # F-with-NaT fail-fast. Both functions must agree: garbage -> UNK.
+    assert classify_status("31JUN08") == "UNK"  # June has 30 days
+    assert classify_status("00MAY16") == "UNK"  # day zero
+    assert classify_status("15XYZ05") == "UNK"  # not a month
+    assert classify_status("15JUL05*") == "F"  # genuine footnoted date still F
+
+
 # ---- classify_eb_category (16 canonical codes) -------------------------
 def test_eb_numbered():
     assert classify_eb_category("1st") == "EB1"
