@@ -25,7 +25,7 @@ import subprocess
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]  # raíz del repo (el paquete vive un nivel abajo)
 STAGING = ROOT / "mlruns_staging"
 
 
