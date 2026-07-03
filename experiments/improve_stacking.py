@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LassoCV
 
-import tracking
+from vp_data import tracking
 from vp_model import dataset
 from vp_model.metrics import naive_scale_before
 

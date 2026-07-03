@@ -14,13 +14,10 @@ se rompería o saltaría en el cron sin que nadie lo note.
 """
 
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from scrape_family_visa_bulletins import classify_family_category  # noqa: E402
-from scrape_visa_bulletins import classify_eb_category  # noqa: E402
-from visa_common import (  # noqa: E402
+from pipeline.scrape_family_visa_bulletins import classify_family_category  # noqa: E402
+from pipeline.scrape_visa_bulletins import classify_eb_category  # noqa: E402
+from vp_data.visa_common import (  # noqa: E402
     classify_status,
     extract_datetime_from_link,
     norm_label,

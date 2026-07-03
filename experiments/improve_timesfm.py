@@ -95,7 +95,7 @@ def main() -> None:
         import sys
 
         sys.path.insert(0, str(ROOT))
-        import tracking
+        from vp_data import tracking
 
         tracking.log_run(
             f"improve_{args.table}",

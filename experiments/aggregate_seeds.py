@@ -55,7 +55,7 @@ def main() -> None:
     print(f"  min/max : {vals.min():.4f} / {vals.max():.4f}")
 
     if args.mlflow:
-        import tracking
+        from vp_data import tracking
 
         tracking.log_run(
             f"deep_global_{args.table}",

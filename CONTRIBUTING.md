@@ -33,7 +33,7 @@ make audit            # auditorías -> reports/
   runtime, `[project.optional-dependencies].dev` para herramientas). No reintroducir
   `requirements.txt` ni *pins* duplicados.
 - **Datos:** los CSV de `data/raw/` se generan **solo** con los scrapers; no editarlos
-  a mano. El panel de `data/processed/` se genera con `build_panel.py`.
+  a mano. El panel de `data/processed/` se genera con `pipeline/build_panel.py`.
 - **Commits:** mensajes en inglés, imperativo y descriptivos.
 - **CI** (`ci.yml`) debe quedar en verde; el cron (`freeze_and_rebuild.yml`) aborta el
   commit diario si el gate de tests falla.

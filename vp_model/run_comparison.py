@@ -136,7 +136,7 @@ def _tracking():
     root = str(Path(__file__).resolve().parent.parent)
     if root not in sys.path:
         sys.path.insert(0, root)
-    import tracking
+    from vp_data import tracking
 
     return tracking
 

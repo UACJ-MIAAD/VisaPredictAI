@@ -9,7 +9,7 @@ escribe records JSONL en ``mlruns_staging/{experiment}.jsonl``; ``experiments/sy
 Cada record es idempotente vía ``rec_id`` (hash de contenido) → re-sincronizar no duplica.
 
 Uso:
-    import tracking
+    from vp_data import tracking
     tracking.log_run("pool_local", "ets_mexico_F1_FAD",
                      params={"model": "ets", "country": "mexico", "table": "FAD"},
                      metrics={"sel_mase": 0.117, "sel_smape": 0.30},

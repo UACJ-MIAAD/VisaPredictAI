@@ -25,7 +25,7 @@ from PIL import Image  # noqa: E402
 
 from vp_model.palette import BLUE, GRAY, MUTE, REGIME, STRIPE  # noqa: E402
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"
 # regímenes de celda (relleno pastel) desde la paleta canónica
 DATEC, CURC, UNAC, UNKC = REGIME["F"]["fill"], REGIME["C"]["fill"], REGIME["U"]["fill"], REGIME["UNK"]["fill"]

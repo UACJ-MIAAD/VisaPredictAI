@@ -15,7 +15,7 @@ DeepAR (probabilístico), TiDE, BiTCN, KAN, TimeMixer, NBEATSx, TimesNet. Cada u
 entrena aislado (un fallo no aborta el resto). Validación = ``cross_validation`` con
 n_windows=24, step=1, refit=False → idéntica al hold-out de 24 meses del pool local.
 
-Salida: ``reports/global_{table}_{levels|diff}.csv`` (unique_id, ds, y, <modelos>),
+Salida: ``reports/campaign/global_{table}_{levels|diff}.csv`` (unique_id, ds, y, <modelos>),
 SIEMPRE en espacio de NIVEL (la variante diff ya viene reintegrada), que el entorno
 principal evalúa con ``eval_neuralforecast`` usando las MISMAS métricas.
 
@@ -264,7 +264,7 @@ def main() -> None:
             print(f"  ✗ {name} FALLO: {type(e).__name__}: {str(e)[:120]}")
 
     suffix = args.suffix or ("diff" if args.diff else "levels")
-    out = ROOT / "reports" / f"global_{args.table}_{suffix}.csv"
+    out = ROOT / "reports" / "campaign" / f"global_{args.table}_{suffix}.csv"
     # solo las filas de hold-out (las últimas 24 por serie) llevan pronóstico
     merged = merged[merged.drop(columns=["unique_id", "ds", "y"]).notna().any(axis=1)]
     out.parent.mkdir(parents=True, exist_ok=True)

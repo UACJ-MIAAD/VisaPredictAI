@@ -110,7 +110,7 @@ def main() -> None:
     print(f"\n=== TabPFN-TS {args.table} ({len(mases)} series) ===")
     print(f"  MASE {mase:.4f}  vs listón {liston}  -> {'MEJORA' if mase < liston else 'no mejora'}")
     if args.mlflow:
-        import tracking
+        from vp_data import tracking
 
         tracking.log_run(
             f"improve_{args.table}",

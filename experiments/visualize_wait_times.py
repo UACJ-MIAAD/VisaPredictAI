@@ -1,12 +1,12 @@
 """Plot visa wait times per country from ``data/raw/`` into publication-ready
-PNGs under ``figures/`` (not versioned; regenerate on demand).
+PNGs under ``reports/figures/wait_times/`` (not versioned; regenerate on demand).
 
 One script, parameterized by ``block`` (employment / family): the two blocks
 differ only in their category levels/labels, subplot grid, and whether a Dates
 for Filing curve is drawn — everything else (palette, axes, "Hoy" line, output
 naming) is shared.
 
-    ante/bin/python visualize_wait_times.py
+    ante/bin/python experiments/visualize_wait_times.py   # desde la raíz del repo
 """
 
 from datetime import datetime
@@ -16,7 +16,7 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from config import UACJ_AMARILLO, UACJ_AZUL, UACJ_GRIS, UACJ_NEGRO
+from vp_data.config import UACJ_AMARILLO, UACJ_AZUL, UACJ_GRIS, UACJ_NEGRO
 
 TODAY = datetime.now()  # la línea 'Hoy' debe ser HOY, no una fecha congelada (H4)
 
@@ -124,8 +124,9 @@ def plot_block(block: dict) -> None:
             axs[j // ncols, j % ncols].set_visible(False)
 
         plt.tight_layout()
-        Path("figures").mkdir(exist_ok=True)  # gitignored: no existe en un clon fresco (H4)
-        plt.savefig(f"figures/{country}{block['suffix']}_visa_wait_times.png", dpi=150)
+        out = Path(__file__).resolve().parents[1] / "reports" / "figures" / "wait_times"
+        out.mkdir(parents=True, exist_ok=True)  # gitignored: no existe en un clon fresco (H4)
+        plt.savefig(out / f"{country}{block['suffix']}_visa_wait_times.png", dpi=150)
         plt.close()
 
 

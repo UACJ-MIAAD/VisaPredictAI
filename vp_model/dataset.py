@@ -20,8 +20,8 @@ from vp_model.config import PILOT_COUNTRIES, TABLES
 # fallback keeps the module importable if the repo-root config isn't on sys.path
 # (e.g. vp_model consumed as an installed package outside the repo).
 try:
-    from config import DUCKDB_PATH as DB_PATH
-    from config import PANEL_PATH as PANEL_CSV
+    from vp_data.config import DUCKDB_PATH as DB_PATH
+    from vp_data.config import PANEL_PATH as PANEL_CSV
 except ImportError:  # pragma: no cover
     DB_PATH = Path(__file__).resolve().parent.parent / "data" / "processed" / "visapredict.duckdb"
     PANEL_CSV = Path(__file__).resolve().parent.parent / "data" / "processed" / "visa_panel_long.csv"

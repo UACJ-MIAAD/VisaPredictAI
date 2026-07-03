@@ -14,7 +14,7 @@ modelado. Diseñada alrededor de los **dos entornos** del proyecto (incompatible
  (stdlib, env-agnóstico)   (records idempotentes)       (ingesta)          + mlartifacts/
 ```
 
-`tracking.py` es **stdlib pura** (sin mlflow ni vp_model) → corre idéntico en ambos venv y
+`vp_data/tracking.py` es **stdlib pura** (sin mlflow ni vp_model) → corre idéntico en ambos venv y
 escribe records JSONL. `experiments/sync_mlflow.py` (en `ante_nf`) los vuelca a MLflow, idempotente por
 `rec_id` (re-sincronizar no duplica). MLflow 3.x deprecó el file-store → **backend SQLite**.
 

@@ -2,7 +2,7 @@ name: Freeze new bulletin and rebuild
 
 # The monthly Visa Bulletins are FIXED once published, so there is no reason to
 # re-scrape all ~290 every day. This job is S3-driven: it pulls the frozen HTML
-# from S3, fetches ONLY a newly published month (freeze_snapshots.py,
+# from S3, fetches ONLY a newly published month (pipeline/freeze_snapshots.py,
 # skip-if-exists), and rebuilds the CSVs/panel/DuckDB **only when something new
 # arrived**. On a day with no new bulletin it is a cheap no-op. Runs Mon-Fri at
 # 12:00 PM America/New_York year-round (DST-safe, see the gate job below).
@@ -92,7 +92,7 @@ jobs:
         # The frozen HTML in S3 is the source of truth. Pull it down so
         # freeze's skip-if-exists fetches ONLY a month not already frozen.
         aws s3 sync s3://visapredictai-raw-snapshots/raw-html/ data/snapshots/ --quiet
-        python freeze_snapshots.py > /tmp/new_count   # crashes fail the step under set -e
+        python -m pipeline.freeze_snapshots > /tmp/new_count   # crashes fail the step under set -e
         # A5: robusto a stdout espurio (un warning de una dep rompía el [ "$new" = "0" ])
         new=$(tail -1 /tmp/new_count)
         [[ "$new" =~ ^[0-9]+$ ]] || { echo "::error::conteo de freeze no numérico: '$new'"; exit 1; }
@@ -116,9 +116,9 @@ jobs:
         #    (The S3 backup sync moved to AFTER the commit: pushing unvalidated
         #    HTML first left a poisoned/never-ingested month frozen forever.)
         pip install -e ".[dev]"        # duckdb + pytest for the DB rebuild/gate
-        python scrape_all.py           # parse snapshots -> per-country CSVs (no network)
-        python build_panel.py          # -> data/processed/visa_panel_long.csv
-        python build_bulletins_json.py # -> data/processed/bulletins.json (website news feed)
+        python -m pipeline.scrape_all           # parse snapshots -> per-country CSVs (no network)
+        python -m pipeline.build_panel          # -> data/processed/visa_panel_long.csv
+        python -m pipeline.build_bulletins_json # -> data/processed/bulletins.json (website news feed)
 
         # 2. Quality gate -- nothing is committed unless these pass.
         python tests/test_parsers.py
@@ -130,11 +130,11 @@ jobs:
         # K6: the 12-dimension audit has teeth (exit 1 on CRIT since E5) but only
         # `make audit` ran it — offline, seconds, and its two gravest dimensions
         # (unexplained missing months, source<->panel volume loss) are now CRIT.
-        python mega_audit.py
+        python -m pipeline.mega_audit
 
         # 3. Refresh the DuckDB star schema and validate it accepts the new data
         #    (the .duckdb/.parquet stay gitignored -- regenerable with `make db`).
-        python build_database.py
+        python -m pipeline.build_database
         # --cov-fail-under=0: this targeted DB-contract run doesn't import the
         # scraper modules, so the global 65% coverage gate (pyproject) would
         # spuriously fail it. The plain-script gate above already covers those.

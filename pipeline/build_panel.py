@@ -14,7 +14,7 @@ se conservan como anotación descriptiva en `status` / `raw_value` pero **no**
 son objetivo predictivo (formulación v5.1).
 
 Run from the repo root (after the scrapers have written `status`/`raw_value`):
-    ante/bin/python build_panel.py
+    ante/bin/python -m pipeline.build_panel
 Writes: data/processed/visa_panel_long.csv
 """
 
@@ -25,10 +25,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from config import BASE_EPOCH, TABLE_MAP
-from config import CANONICAL_COUNTRY as COUNTRIES
-from config import PANEL_PATH as OUT
-from config import RAW_DIR as RAW
+from vp_data.config import BASE_EPOCH, TABLE_MAP
+from vp_data.config import CANONICAL_COUNTRY as COUNTRIES
+from vp_data.config import PANEL_PATH as OUT
+from vp_data.config import RAW_DIR as RAW
 
 logger = logging.getLogger(__name__)
 BASE = pd.Timestamp(BASE_EPOCH)

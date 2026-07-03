@@ -8,7 +8,7 @@ the fact_dv_rank star table (grain: 6 regions x bulletin month). The structured
 table format is parsed first; the 2001-2004 single-cell "blob" format is the
 fallback (see extract_dv_blob).
 
-    ante/bin/python scrape_dv_visa_bulletins.py
+    ante/bin/python -m pipeline.scrape_dv_visa_bulletins
 """
 
 import logging
@@ -17,8 +17,8 @@ import re
 import pandas as pd
 from tqdm import tqdm
 
-from config import RAW_DIR
-from visa_common import (
+from vp_data.config import RAW_DIR
+from vp_data.visa_common import (
     SITE_ROOT,
     extract_datetime_from_link,
     extract_month_links,

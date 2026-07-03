@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pandas as pd
 
-import tracking
+from vp_data import tracking
 from vp_model import config, dataset, metrics
 
 ROOT = Path(__file__).resolve().parent.parent

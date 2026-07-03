@@ -21,13 +21,12 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 FIX = Path(__file__).resolve().parent / "fixtures"
 
-import scrape_dv_visa_bulletins as dv  # noqa: E402
-import scrape_family_visa_bulletins as fam  # noqa: E402
-import scrape_visa_bulletins as emp  # noqa: E402
-from visa_common import parse_tables  # noqa: E402
+from pipeline import scrape_dv_visa_bulletins as dv  # noqa: E402
+from pipeline import scrape_family_visa_bulletins as fam  # noqa: E402
+from pipeline import scrape_visa_bulletins as emp  # noqa: E402
+from vp_data.visa_common import parse_tables  # noqa: E402
 
 VALID_STATUS = {"C", "F", "U", "UNK"}
 

@@ -20,7 +20,7 @@ import seaborn as sns  # noqa: E402
 
 from vp_model.palette import BLUE, COUNTRY, DIV, GOLD, GRID, INK, MID, REGIME, SEQ, WINE  # noqa: E402
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"
 CCOL = COUNTRY
 CNAME = {

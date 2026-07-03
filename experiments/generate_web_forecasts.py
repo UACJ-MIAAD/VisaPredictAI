@@ -39,7 +39,7 @@ import numpy as np
 import pandas as pd
 from darts import TimeSeries
 
-import tracking
+from vp_data import tracking
 from vp_model import champion, config, dataset, intervals, metrics, models
 
 warnings.filterwarnings("ignore")

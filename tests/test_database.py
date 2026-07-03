@@ -6,7 +6,6 @@ PK/FK/CHECK constraints actually reject rows that violate the data contract — 
 the schema, not just pytest, enforces it.
 """
 
-import sys
 from pathlib import Path
 
 import duckdb
@@ -14,10 +13,9 @@ import pandas as pd
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
-from build_database import SCHEMA_PATH, SCHEMA_VERSION, _statements, build  # noqa: E402
-from config import DV_RANK_PATH, PANEL_PATH  # noqa: E402
+from pipeline.build_database import SCHEMA_PATH, SCHEMA_VERSION, _statements, build  # noqa: E402
+from vp_data.config import DV_RANK_PATH, PANEL_PATH  # noqa: E402
 
 
 def _loaded():

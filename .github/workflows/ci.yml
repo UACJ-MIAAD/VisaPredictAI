@@ -78,7 +78,7 @@ jobs:
         run: ruff format --check .
 
       - name: Type check (mypy)
-        run: mypy --ignore-missing-imports *.py vp_model/*.py tests/*.py
+        run: mypy --ignore-missing-imports vp_data/*.py pipeline/*.py vp_model/*.py tests/*.py
 
       - name: Tests + coverage gate (pytest)
         run: pytest
@@ -104,8 +104,8 @@ jobs:
 
       - name: Build the panel + DuckDB warehouse (modeling reads from it)
         run: |
-          python build_panel.py
-          python build_database.py
+          python -m pipeline.build_panel
+          python -m pipeline.build_database
 
       - name: DVC lock matches the committed pipeline (E2)
         # scrape/database quedan fuera: sus deps (snapshots privados) / outs (cache S3)

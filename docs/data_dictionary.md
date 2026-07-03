@@ -10,9 +10,9 @@ vive en [`schema.sql`](../schema.sql); este documento la describe en prosa, y el
 | Artefacto | Formato | Versionado | Cómo se genera |
 |---|---|---|---|
 | `data/raw/*.csv` | CSV | sí (git) | scrapers (`scrape_*_visa_bulletins.py`) — fuente inmutable |
-| `data/processed/visa_panel_long.csv` | CSV largo | **sí (git)** — entregable abierto | `build_panel.py` |
-| `data/processed/visapredict.duckdb` | DuckDB (estrella) | no (regenerable) | `build_database.py` / `make db` |
-| `data/processed/visa_panel_long.parquet` | Parquet tipado | no (regenerable) | `build_database.py` / `make db` |
+| `data/processed/visa_panel_long.csv` | CSV largo | **sí (git)** — entregable abierto | `pipeline/build_panel.py` |
+| `data/processed/visapredict.duckdb` | DuckDB (estrella) | no (regenerable) | `pipeline/build_database.py` / `make db` |
+| `data/processed/visa_panel_long.parquet` | Parquet tipado | no (regenerable) | `pipeline/build_database.py` / `make db` |
 
 El CSV plano es la **fuente de verdad abierta**; la base DuckDB y el Parquet se
 **reconstruyen** desde él con `make db` (por eso están gitignored: cero *bloat*

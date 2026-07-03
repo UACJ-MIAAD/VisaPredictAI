@@ -37,19 +37,19 @@ model-install:
 	$(PY) -m pip install -e ".[dev,model]"
 
 freeze:
-	$(PY) freeze_snapshots.py
+	$(PY) -m pipeline.freeze_snapshots
 
 scrape:
-	$(PY) scrape_all.py
+	$(PY) -m pipeline.scrape_all
 
 panel:
-	$(PY) build_panel.py
+	$(PY) -m pipeline.build_panel
 
 db:
-	$(PY) build_database.py
+	$(PY) -m pipeline.build_database
 
 news:
-	$(PY) build_bulletins_json.py
+	$(PY) -m pipeline.build_bulletins_json
 
 repro:  ## reconstruye TODO el DAG de datos determinísticamente (solo lo que cambió) con DVC
 	$(DVC) repro
@@ -75,15 +75,15 @@ drift:  ## monitor de drift ML (desempeño+cobertura del ledger + datos del últ
 update:
 	git pull origin main
 	aws s3 sync s3://visapredictai-raw-snapshots/raw-html/ data/snapshots/ --quiet
-	$(PY) build_database.py
-	$(PY) visualize_wait_times.py
+	$(PY) -m pipeline.build_database
+	$(PY) experiments/visualize_wait_times.py
 	@$(PY) -c "import pandas as pd; print('>>> Panel al día. Último boletín:', pd.read_csv('data/processed/visa_panel_long.csv').bulletin_date.max())"
 
 figures:
-	$(PY) visualize_wait_times.py
+	$(PY) experiments/visualize_wait_times.py
 
 audit:
-	$(PY) mega_audit.py
+	$(PY) -m pipeline.mega_audit
 
 test:
 	$(PY) -m pytest
@@ -135,7 +135,7 @@ lint:
 	$(PY) -m ruff check .
 
 typecheck:
-	$(PY) -m mypy --ignore-missing-imports *.py vp_model/*.py tests/*.py
+	$(PY) -m mypy --ignore-missing-imports vp_data/*.py pipeline/*.py vp_model/*.py tests/*.py
 
 validate:
 	bash tools/validate_structure.sh

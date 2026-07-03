@@ -2,7 +2,7 @@
 21 modelos) y Diebold-Mariano + Holm (deep global vs parsimonia). Datos ya existentes.
 
 Entradas (read-only):
-  • reports/campaign_pool_{FAD,DFF}_family.csv  — hold_mase por (modelo, serie) → ranking
+  • reports/campaign/campaign_pool_{FAD,DFF}_family.csv  — hold_mase por (modelo, serie) → ranking
   • reports/finalist_forecasts_{FAD,DFF}.csv    — forecast/actual por fecha → DM pareado
 
 Salidas:
@@ -30,7 +30,7 @@ FIGS = ROOT / "reports" / "paper_micai" / "Figures"
 
 def _ranking(table: str) -> dict:
     """Friedman-Nemenyi + MCS sobre la matriz serie×modelo de hold_mase del pool."""
-    df = pd.read_csv(REPORTS / f"campaign_pool_{table}_family.csv")
+    df = pd.read_csv(REPORTS / "campaign" / f"campaign_pool_{table}_family.csv")
     # una fila por (serie, modelo); pivot a serie×modelo. Si hay corridas repetidas,
     # toma la mejor (menor) hold_mase por modelo-serie (selección determinista).
     piv = df.groupby(["country", "category", "model"])["hold_mase"].min().unstack("model")

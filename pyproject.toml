@@ -52,10 +52,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-# Flat layout: only the importable libraries are packaged; the scrapers/audits/
-# visualizers are run as scripts (`python build_panel.py`), not imported.
-py-modules = ["config", "visa_common", "tracking"]
-packages = ["vp_model"]
+# Two packages: vp_data (data layer: config/visa_common/tracking) and vp_model
+# (modeling layer). Pipeline entry points live in pipeline/ and run as scripts.
+packages = ["vp_data", "vp_model", "pipeline"]
 
 [tool.ruff]
 line-length = 120
@@ -68,7 +67,7 @@ select = ["E4", "E7", "E9", "F", "W", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 # Audit/analysis scripts favor dense one-liners and f-strings for report text.
-"mega_audit.py" = ["E741"]
+"pipeline/mega_audit.py" = ["E741"]
 # xgboost se importa antes que torch a propósito (su OpenMP debe cargar primero, o
 # segfaultea en macOS); eso obliga un orden de imports que isort/E402 rechazarían.
 "vp_model/models.py" = ["E402", "I001"]
@@ -82,9 +81,9 @@ exclude = ['ante', 'tests/fixtures']
 testpaths = ["tests"]
 addopts = [
     "-q",
-    "--cov=visa_common",
-    "--cov=scrape_visa_bulletins",
-    "--cov=scrape_family_visa_bulletins",
+    "--cov=vp_data.visa_common",
+    "--cov=pipeline.scrape_visa_bulletins",
+    "--cov=pipeline.scrape_family_visa_bulletins",
     "--cov-report=term-missing",
 ]
 

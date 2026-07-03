@@ -54,7 +54,7 @@ binarios sin re-construir hace `dvc pull` **con credenciales S3 del proyecto**; 
                 json+.tex)   + parquet → cache DVC)
 ```
 
-- **Raíz = `data/snapshots/`** (HTML congelado). La única fetch en vivo es `freeze_snapshots.py`
+- **Raíz = `data/snapshots/`** (HTML congelado). La única fetch en vivo es `pipeline/freeze_snapshots.py`
   (red), que queda **fuera** del DAG a propósito: el DAG es 100 % offline y determinista.
 - **`cache: false`** en los artefactos abiertos (`data/raw`, panel CSV, `bulletins.json`,
   `key_facts.json/.tex`): el DAG los **rastrea por hash** (en `dvc.lock`) pero los deja
@@ -67,7 +67,7 @@ binarios sin re-construir hace `dvc pull` **con credenciales S3 del proyecto**; 
   salida del grafo. `make dag` imprime el grafo; `make repro-force` re-ejecuta todo.
 
 > Las **figuras del `.tex`** NO están en el DAG: necesitan el extra de modelado (`.[model]`);
-> se regeneran con `make_*figures.py` / `make figures`. El DAG cubre la cadena de **datos puros**.
+> se regeneran con `experiments/make_*_figures.py` / `make figures`. El DAG cubre la cadena de **datos puros**.
 
 ## Cómo activarlo cuando haga falta
 

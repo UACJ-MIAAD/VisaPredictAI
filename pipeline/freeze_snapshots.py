@@ -5,7 +5,7 @@ true scraping artifact (each month's fixed HTML page) was never saved -- and the
 live site already lost ~5 pages to rot (Wayback-only). This grabs each live
 bulletin page ONCE and never overwrites: a page already on disk is frozen.
 
-    ante/bin/python freeze_snapshots.py
+    ante/bin/python -m pipeline.freeze_snapshots
     aws s3 sync data/snapshots/ s3://<your-bucket>/raw-html/   # then push to S3
 
 ponytail: skip-if-exists IS the immutability -- no versioning logic, no hashing.
@@ -27,7 +27,7 @@ from pathlib import Path
 import requests
 from tqdm import tqdm
 
-from visa_common import (
+from vp_data.visa_common import (
     MAX_RETRIES,
     REQUEST_TIMEOUT,
     SITE_ROOT,

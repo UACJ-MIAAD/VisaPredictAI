@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import tracking  # noqa: E402
+from vp_data import tracking  # noqa: E402
 from vp_model import champion  # noqa: E402
 
 REPORTS = champion.REPORTS

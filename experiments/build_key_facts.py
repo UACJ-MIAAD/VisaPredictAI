@@ -82,7 +82,7 @@ def _models() -> dict:
     out: dict = {}
     prev = _prev_facts()
     for tbl in ("FAD", "DFF"):
-        path = REPORTS / f"campaign_pool_{tbl}_family.csv"
+        path = REPORTS / "campaign" / f"campaign_pool_{tbl}_family.csv"
         keys = (f"ets_{tbl.lower()}_mean", f"theta_{tbl.lower()}_mean")
         if path.exists():
             mean = pd.read_csv(path).groupby("model").hold_mase.mean()

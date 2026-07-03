@@ -59,8 +59,7 @@ def month_coverage_problems(panel: pd.DataFrame) -> list[str]:
 
 
 def snapshot_max() -> pd.Timestamp:
-    sys.path.insert(0, str(ROOT))
-    from visa_common import extract_datetime_from_link
+    from vp_data.visa_common import extract_datetime_from_link
 
     months = [extract_datetime_from_link(p.name) for p in SNAP_DIR.glob("*.html")]
     dated = [m for m in months if m is not None]

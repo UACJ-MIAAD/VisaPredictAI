@@ -2,7 +2,7 @@
 Bulletin and write one CSV per country to ``data/raw/``.
 
 Run from the repo root:
-    ante/bin/python scrape_family_visa_bulletins.py
+    ante/bin/python -m pipeline.scrape_family_visa_bulletins
 """
 
 import logging
@@ -10,8 +10,8 @@ import logging
 import pandas as pd
 from tqdm import tqdm
 
-from config import RAW_DIR
-from visa_common import (
+from vp_data.config import RAW_DIR
+from vp_data.visa_common import (
     SCRAPER_COUNTRIES,
     SITE_ROOT,
     annotate_dates,

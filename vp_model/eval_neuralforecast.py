@@ -70,7 +70,7 @@ def summary(df: pd.DataFrame) -> pd.DataFrame:
 def eval_global_deep(table: str = "FAD") -> pd.DataFrame:
     """Evalúa los CSV de ``run_global_deep`` (niveles y/o diff) con MASE por serie.
 
-    Lee ``reports/global_{table}_{levels,diff}.csv`` (unique_id=país/bloque/categoría,
+    Lee ``reports/campaign/global_{table}_{levels,diff}.csv`` (unique_id=país/bloque/categoría,
     ds, y real, columnas de modelo en NIVEL) y calcula MASE de hold-out por serie con la
     MISMA escala naïve estacional que el pool local, para comparar de forma justa contra
     ETS/Theta. Devuelve un DataFrame largo (variante, modelo, bloque, serie, MASE, sMAPE).
@@ -78,7 +78,7 @@ def eval_global_deep(table: str = "FAD") -> pd.DataFrame:
     from vp_model import dataset
 
     rows = []
-    for path in sorted(REPORTS.glob(f"global_{table}_*.csv")):
+    for path in sorted((REPORTS / "campaign").glob(f"global_{table}_*.csv")):
         variant = path.stem.replace(f"global_{table}_", "")
         df = pd.read_csv(path, parse_dates=["ds"])
         models = [c for c in df.columns if c not in ("unique_id", "ds", "y")]

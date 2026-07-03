@@ -10,7 +10,7 @@ A failed month drops from all three blocks (counted once, then the shared
 MAX_FETCH_FAILURES gate applies) — the same whole-month-drop the standalone
 scrapers use.
 
-    ante/bin/python scrape_all.py
+    ante/bin/python -m pipeline.scrape_all
 """
 
 import logging
@@ -18,11 +18,11 @@ import logging
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 
-import scrape_dv_visa_bulletins as dv
-import scrape_family_visa_bulletins as fam
-import scrape_visa_bulletins as emp
-from freeze_snapshots import SNAP_DIR
-from visa_common import extract_datetime_from_link, parse_tables, report_failures
+from pipeline import scrape_dv_visa_bulletins as dv
+from pipeline import scrape_family_visa_bulletins as fam
+from pipeline import scrape_visa_bulletins as emp
+from pipeline.freeze_snapshots import SNAP_DIR
+from vp_data.visa_common import extract_datetime_from_link, parse_tables, report_failures
 
 logger = logging.getLogger(__name__)
 

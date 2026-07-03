@@ -19,7 +19,7 @@ import pandas as pd  # noqa: E402
 from vp_model import dataset  # noqa: E402
 from vp_model.palette import BLUE, GRID, INK, MID, style  # noqa: E402
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"
 GRAY = MID  # gris medio para etiquetas de contexto
 style()

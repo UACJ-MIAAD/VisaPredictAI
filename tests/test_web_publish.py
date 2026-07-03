@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "experiments"))
 
-import freeze_snapshots  # noqa: E402
+from pipeline import freeze_snapshots  # noqa: E402
 
 
 # ---------------------------------------------------------------- freeze_snapshots

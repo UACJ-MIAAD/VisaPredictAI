@@ -1,7 +1,7 @@
 # Pipeline reproducible como DAG. `dvc repro` reconstruye TODA la cadena de datos
 # abiertos + la fuente de verdad de cifras, en orden y solo lo que cambió, de forma
 # determinista. La raíz es data/snapshots/ (HTML congelado, parseo OFFLINE) — la única
-# fetch en vivo es freeze_snapshots.py (red), que queda FUERA del DAG a propósito.
+# fetch en vivo es pipeline/freeze_snapshots.py (red), que queda FUERA del DAG a propósito.
 #
 # Política (ver docs/DVC.md): los artefactos abiertos (CSV/JSON/key_facts) llevan
 # `cache: false` -> se quedan versionados en git (siguen siendo el entregable
@@ -14,13 +14,13 @@
 stages:
   scrape:
     desc: Parsea los snapshots HTML congelados OFFLINE -> 11 CSV por país (empleo+familiar+DV)
-    cmd: ante/bin/python scrape_all.py
+    cmd: ante/bin/python -m pipeline.scrape_all
     deps:
-      - scrape_all.py
-      - visa_common.py
-      - scrape_visa_bulletins.py
-      - scrape_family_visa_bulletins.py
-      - scrape_dv_visa_bulletins.py
+      - pipeline/scrape_all.py
+      - vp_data/visa_common.py
+      - pipeline/scrape_visa_bulletins.py
+      - pipeline/scrape_family_visa_bulletins.py
+      - pipeline/scrape_dv_visa_bulletins.py
       - data/snapshots
     outs:
       - data/raw:
@@ -28,9 +28,9 @@ stages:
 
   panel:
     desc: Consolida los CSV por país en el panel largo y_{p,c,b,t}
-    cmd: ante/bin/python build_panel.py
+    cmd: ante/bin/python -m pipeline.build_panel
     deps:
-      - build_panel.py
+      - pipeline/build_panel.py
       - data/raw
     outs:
       - data/processed/visa_panel_long.csv:
@@ -38,9 +38,9 @@ stages:
 
   bulletins:
     desc: Feed compacto del último boletín que consume el sitio
-    cmd: ante/bin/python build_bulletins_json.py
+    cmd: ante/bin/python -m pipeline.build_bulletins_json
     deps:
-      - build_bulletins_json.py
+      - pipeline/build_bulletins_json.py
       - data/processed/visa_panel_long.csv
     outs:
       - data/processed/bulletins.json:
@@ -48,11 +48,11 @@ stages:
 
   database:
     desc: Carga el almacén estrella DuckDB + export Parquet (Parquet -> cache DVC/S3)
-    cmd: ante/bin/python build_database.py
+    cmd: ante/bin/python -m pipeline.build_database
     deps:
-      - build_database.py
+      - pipeline/build_database.py
       - schema.sql
-      - config.py
+      - vp_data/config.py
       - data/processed/visa_panel_long.csv
       - data/raw
     # El .duckdb NO se declara como out: el archivo DuckDB embebe orden interno/timestamps y
@@ -73,8 +73,8 @@ stages:
       - reports/forecast_scorecard_meta.json
       - reports/auto_arima_baseline.csv
       - reports/significance_summary.json
-      - reports/campaign_pool_FAD_family.csv
-      - reports/campaign_pool_DFF_family.csv
+      - reports/campaign/campaign_pool_FAD_family.csv
+      - reports/campaign/campaign_pool_DFF_family.csv
     outs:
       - reports/key_facts.json:
           cache: false

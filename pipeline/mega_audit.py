@@ -16,7 +16,7 @@ Dimensions:
   11 Category coverage matrix
   12 Trainability preview (continuous F runs per series)
 
-Run: ante/bin/python mega_audit.py
+Run: ante/bin/python -m pipeline.mega_audit
 """
 
 from __future__ import annotations
@@ -25,10 +25,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from config import CANONICAL_COUNTRY as COUNTRIES
-from config import DEAD_MONTHS
-from config import PANEL_PATH as PANEL
-from config import RAW_DIR as RAW
+from vp_data.config import CANONICAL_COUNTRY as COUNTRIES
+from vp_data.config import DEAD_MONTHS
+from vp_data.config import PANEL_PATH as PANEL
+from vp_data.config import RAW_DIR as RAW
 
 OUT = Path("reports/mega_audit_report.md")
 

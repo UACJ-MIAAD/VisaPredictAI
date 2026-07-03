@@ -20,7 +20,7 @@ for table in FAD DFF; do
   for block in family employment; do
     echo ">>> F1 pool21 $table/$block $(date)"
     $ANTE -m vp_model.run_comparison --country all --table "$table" --block "$block" --mlflow \
-      --out "reports/campaign_pool_${table}_${block}.csv" || true
+      --out "reports/campaign/campaign_pool_${table}_${block}.csv" || true
   done
 done
 

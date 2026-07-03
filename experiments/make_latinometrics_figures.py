@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw  # noqa: E402
 
 from vp_model.palette import BLUE, GRAY, INK, MID, MUTE, style  # noqa: E402
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"
 style()
 

@@ -1,7 +1,7 @@
 """Conformal avanzado para subir la cobertura del PI del ganador profundo (hoy 0.77–0.89 → 0.95).
 
 La investigación señaló EnbPI / Adaptive Conformal Inference (ACI) / CQR. Aquí se comparan,
-sobre los pronósticos puntuales del deep global (BiTCN, ``reports/global_{table}_camp_diff_s1.csv``):
+sobre los pronósticos puntuales del deep global (BiTCN, ``reports/campaign/global_{table}_camp_diff_s1.csv``):
   * split-conformal con el cuantil FINITE-SAMPLE correcto ceil((n+1)(1-α))/n de |residuales|,
   * ACI (Gibbs & Candès 2021): ajusta α_t online tras cada punto para clavar la cobertura,
 contra el baseline (neuralforecast conformal, cobertura 0.77 DFF / 0.89 FAD).
@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import tracking
+from vp_data import tracking
 from vp_model import dataset
 from vp_model.metrics import naive_scale_before
 
@@ -50,7 +50,7 @@ def _aci(res_cal: np.ndarray, res_test: np.ndarray, alpha: float, gamma: float =
 
 
 def _evaluate(table: str) -> dict:
-    deep = pd.read_csv(REPORTS / f"global_{table}_camp_diff_s1.csv", parse_dates=["ds"])
+    deep = pd.read_csv(REPORTS / "campaign" / f"global_{table}_camp_diff_s1.csv", parse_dates=["ds"])
     cov_split, cov_aci, w_split, w_aci = [], [], [], []
     for uid, g in deep.groupby("unique_id"):
         country, _b, category = uid.split("/")

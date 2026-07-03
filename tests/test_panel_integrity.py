@@ -18,10 +18,9 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.csv"
 
-from config import DEAD_MONTHS, DV_RANK_PATH  # noqa: E402
+from vp_data.config import DEAD_MONTHS, DV_RANK_PATH  # noqa: E402
 
 # Diversity-Visa coverage floors. DV is network-scraped and its early (blob) era
 # is partial, so the gate uses FLOORS (>=) that pin the established good state and

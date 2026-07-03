@@ -17,7 +17,7 @@ escritorio. Elige la que más te acomode; todas leen el **mismo archivo**.
 | **Contenido** | 11 tablas + 6 vistas/marts (esquema estrella) |
 | **Fuente de verdad** | `data/processed/visa_panel_long.csv` (versionado en git) |
 | **El `.duckdb`** | derivado y **regenerable** — está en `.gitignore` |
-| **Regenerar** | `make db` (corre `build_database.py`) |
+| **Regenerar** | `make db` (corre `pipeline/build_database.py`) |
 
 > El `.duckdb` y el `.parquet` se reconstruyen de cero con `make db`. Si los borras o
 > corrompes, no pasa nada. **Nunca edites la base a mano**: cambia el scraper o el CSV.

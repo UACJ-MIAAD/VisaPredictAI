@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
 sys.path.insert(0, str(ROOT))
-import tracking  # noqa: E402
+from vp_data import tracking  # noqa: E402
 
 
 def _load(name: str) -> dict:

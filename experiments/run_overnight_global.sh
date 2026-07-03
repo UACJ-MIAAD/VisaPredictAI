@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Corrida nocturna: entrenamiento GLOBAL profundo a escala, secuencial (sin contención CPU).
-# Lanzar SOLO cuando el barrido EB haya liberado la CPU. Salidas en reports/global_*.csv.
+# Lanzar SOLO cuando el barrido EB haya liberado la CPU. Salidas en reports/campaign/global_*.csv.
 # Variante DIFERENCIADA primero (la apuesta fuerte), luego niveles; FAD y DFF; familiar+EB apilados.
 # pipefail + `|| true` SOLO en el grep: un python caído propaga su exit code (E1).
 set -e -o pipefail

@@ -6,7 +6,7 @@ data contract on insert, then exports a typed Parquet copy of the panel view.
 Both outputs are regenerated artifacts (gitignored); the open CSV stays the
 versioned source of truth.
 
-    ante/bin/python build_database.py
+    ante/bin/python -m pipeline.build_database
 Writes: data/processed/visapredict.duckdb · data/processed/visa_panel_long.parquet
 """
 
@@ -21,10 +21,10 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from config import DUCKDB_PATH, DV_RANK_PATH, PANEL_PATH, PARQUET_PATH, RAW_DIR
+from vp_data.config import DUCKDB_PATH, DV_RANK_PATH, PANEL_PATH, PARQUET_PATH, RAW_DIR
 
 logger = logging.getLogger(__name__)
-SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
+SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schema.sql"
 SCHEMA_VERSION = 3  # bump on any structural schema change
 
 # Display names for the dimension rows (the panel stores only the slug/code).

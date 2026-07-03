@@ -24,7 +24,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from matplotlib.ticker import MaxNLocator  # noqa: E402
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 REP = ROOT / "reports"
 FIG = REP / "latex" / "Figures"
 from vp_model.palette import BLUE, GOLD, GRAY, GRID, INK, MID, MUTE, STRIPE, WARN  # noqa: E402
@@ -169,8 +169,8 @@ def fig_multiseed() -> None:
 
     specs = [
         # oráculo 0.113 = corrida de selección perfecta (aggregate_seeds); no vive en key_facts
-        ("FAD", "global_FAD_camp_auto_s*.csv", "AutoBiTCN", _liston("FAD"), 0.113),
-        ("DFF", "global_DFF_camp_diff_s*.csv", "BiTCN", _liston("DFF"), None),
+        ("FAD", "campaign/global_FAD_camp_auto_s*.csv", "AutoBiTCN", _liston("FAD"), 0.113),
+        ("DFF", "campaign/global_DFF_camp_diff_s*.csv", "BiTCN", _liston("DFF"), None),
     ]
     fig, ax = plt.subplots(figsize=(6.4, 3.4))
     ypos, labels = [], []

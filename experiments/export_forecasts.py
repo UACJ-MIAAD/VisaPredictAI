@@ -5,7 +5,7 @@ Genera ``reports/finalist_forecasts_{table}.csv`` en formato largo:
 cada finalista (local por serie + deep global) sobre los 24 meses de hold-out, evaluado F-only.
 
 Locales: walk-forward de 1 paso (``historical_forecasts``) sobre el hold-out. Deep: se leen
-los CSV de la campaña (``reports/global_{table}_camp_*.csv``), ya reintegrados a nivel.
+los CSV de la campaña (``reports/campaign/global_{table}_camp_*.csv``), ya reintegrados a nivel.
 
 Corre en ``ante``. Uso:  ante/bin/python experiments/export_forecasts.py
 """
@@ -81,7 +81,7 @@ def _local_rows(table: str) -> list[dict]:
 def _deep_rows(table: str) -> list[dict]:
     rows = []
     for name, suffix in DEEP.items():
-        path = REPORTS / f"global_{table}_{suffix}.csv"
+        path = REPORTS / "campaign" / f"global_{table}_{suffix}.csv"
         if not path.exists() or name not in pd.read_csv(path, nrows=1).columns:
             continue
         df = pd.read_csv(path, parse_dates=["ds"])
