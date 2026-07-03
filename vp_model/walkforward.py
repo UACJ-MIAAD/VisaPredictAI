@@ -173,7 +173,9 @@ def crps_holdout(model_name: str, country: str, category: str, table: str, num_s
     )
     if scaler is not None:
         samples = scaler.inverse_transform(samples)
-    return metrics.crps(ts.slice_intersect(samples), samples)
+    # B1: puntuar solo sobre fechas F reales (los meses interpolados no son objetivo)
+    fdates = dataset.load_series(country, category, table).index
+    return metrics.crps(ts.slice_intersect(samples), samples, dates=fdates)
 
 
 def demo() -> None:

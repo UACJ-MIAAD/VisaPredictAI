@@ -1712,12 +1712,12 @@ estadísticamente significativa en su rango. (a) FAD; (b) DFF.}
 potenciación de gradiente se optimizaron con \textit{Optuna} \cita{32} bajo el protocolo
 anidado de §1.4.3. La mejora se confirma \textit{sobre el conjunto reservado} —no solo
 sobre la validación interna—, por lo que no es un artefacto de sobreajuste a la métrica
-de selección: en FAD, LightGBM pasa de MASE de hold-out $0.195$ a $0.138$ ($-29$\,\%),
-XGBoost de $0.208$ a $0.152$ ($-27$\,\%) y CatBoost de $0.164$ a $0.137$ ($-17$\,\%); en
-DFF la ganancia es de $4$ a $15$\,\%. Los seis casos mejoran y se aceptan. Ahora bien,
+de selección: en FAD, LightGBM pasa de MASE de hold-out $0.195$ a $0.131$ ($-33$\,\%),
+XGBoost de $0.208$ a $0.144$ ($-31$\,\%) y CatBoost de $0.164$ a $0.129$ ($-21$\,\%); en
+DFF la ganancia es de $6$ a $16$\,\%. Los seis casos mejoran y se aceptan. Ahora bien,
 la optimización \textit{cierra la brecha pero no cambia el veredicto}: los árboles
-tuneados (FAD $0.137$--$0.152$) siguen por encima de los parsimoniosos ETS y Theta
-($0.112$), y en DFF ($0.109$) por encima del listón re-derivado. La capacidad adicional bien regulada
+tuneados (FAD $0.129$--$0.144$) siguen por encima de los parsimoniosos ETS y Theta
+($0.112$), y en DFF ($0.107$--$0.110$) por encima del listón re-derivado. La capacidad adicional bien regulada
 acerca al modelo complejo, no lo hace superar al simple.
 
 \paragraph{Combinación de modelos y distribución predictiva.} Se evaluaron, también sin
@@ -1831,9 +1831,9 @@ en FAD el intervalo contiene al listón, evidenciando un empate estadístico.}
 Dotado de intervalos conformes al $95$\,\% —calibrados sin fuga sobre el pasado de cada
 origen de pronóstico—, BiTCN produce una distribución predictiva \textbf{más afilada que la
 de los modelos clásicos}: su CRPS es de $22.6$ días en DFF y $31.5$ en FAD, frente a los
-$48$–$49$ de SARIMA y ARIMA y los $174$ del DeepAR entrenado localmente. La cobertura
+$48$–$49$ de SARIMA y ARIMA y los $175$ del DeepAR entrenado localmente. La cobertura
 empírica de esos intervalos es de
-$0.77$ (DFF) y $0.89$ (FAD), por debajo del $95$\,\% nominal —una sub-cobertura esperable de
+$0.80$ (DFF) y $0.89$ (FAD), por debajo del $95$\,\% nominal —una sub-cobertura esperable de
 la calibración conforme con pocas ventanas y series cortas, que se documenta con
 transparencia en lugar de declararse exacta—. La distribución predictiva del modelo global
 es, por tanto, más afilada que la de los clásicos (mejor CRPS), aunque sus intervalos
@@ -1843,7 +1843,7 @@ requieren más calibración para alcanzar la cobertura nominal.
 con \textit{inferencia conforme adaptativa} (Adaptive Conformal Inference) \cita{45}, que ajusta el
 nivel de error en línea tras cada origen de pronóstico en lugar de fijarlo de antemano. Con
 esta calibración —leakage-free, sobre el mismo ganador profundo— la cobertura empírica del
-intervalo al $95$\,\% subió de $0.77$ a $0.95$ en DFF y de $0.89$ a $0.92$ en FAD
+intervalo al $95$\,\% subió de $0.80$ a $0.95$ en DFF y de $0.89$ a $0.92$ en FAD
 (Figura~\ref{fig:coverage}), clavando
 el nivel nominal sin sacrificar el afilado de la distribución predictiva. Es el mecanismo
 que el sistema adopta para reportar intervalos con cobertura verificada.
@@ -2119,7 +2119,7 @@ sobreajuste, no en exactitud.
 respuesta: (i) un \textit{foundation model} preentrenado evaluado sin ajuste (Chronos)
 supera a todas las redes entrenadas localmente, mostrando que la transferencia vence a la
 escasez de datos donde el entrenamiento local fracasa; (ii) la optimización de
-hiperparámetros con Optuna mejora a los árboles hasta un $29$\,\% en hold-out, pero los
+hiperparámetros con Optuna mejora a los árboles hasta un $33$\,\% en hold-out, pero los
 acerca a los parsimoniosos sin superarlos; y (iii) ningún conjunto amplio mejora al mejor
 modelo, y solo una combinación curada de tres modelos fuertes araña un $5$\,\% adicional en
 FAD. El vuelco llega con un cuarto resultado, el más contundente: (iv) entrenado de forma

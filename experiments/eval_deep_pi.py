@@ -56,6 +56,13 @@ def main() -> None:
         # OJO: en el pipeline diferenciado, la columna `y` del CSV es Δy (objetivo de
         # entrenamiento), no el nivel. El nivel real del hold-out = la serie alineada por fecha.
         y = full.reindex(g["ds"]).to_numpy()
+        # B1: medir SOLO donde hay F real — reindex deja NaN en meses C/U y un NaN
+        # en la comparación contaba como "fuera del intervalo" (sesgaba cobertura abajo).
+        fin = np.isfinite(y)
+        if not fin.any():
+            continue
+        g = g[fin]
+        y = y[fin]
         lo95, hi95 = g[f"{model}-lo-95"].to_numpy(), g[f"{model}-hi-95"].to_numpy()
         cov = float(np.mean((y >= lo95) & (y <= hi95)))
         iscore = _interval_score(y, lo95, hi95, alpha=0.05)

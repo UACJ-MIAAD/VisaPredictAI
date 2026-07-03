@@ -103,7 +103,10 @@ def main() -> None:
         y = full.reindex(g["timestamp"]).to_numpy()
         mases.append(float(np.mean(np.abs(y - g["forecast"].to_numpy()))) / scale)
     mase = float(np.mean(mases))
-    liston = 0.117 if args.table == "FAD" else 0.090
+    import json
+
+    kf = json.loads(Path("reports/key_facts.json").read_text())
+    liston = kf["fad_champion_mase"] if args.table == "FAD" else kf["bitcn_dff_mean"]
     print(f"\n=== TabPFN-TS {args.table} ({len(mases)} series) ===")
     print(f"  MASE {mase:.4f}  vs listón {liston}  -> {'MEJORA' if mase < liston else 'no mejora'}")
     if args.mlflow:
