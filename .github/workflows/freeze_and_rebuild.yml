@@ -107,6 +107,10 @@ jobs:
           exit 0
         fi
         echo "$new new bulletin(s) frozen (panel: $stale) -- rebuilding."
+        # L4: the redeploy/model steps key on REBUILT, not on new>0 — the stale
+        # self-healing path used to rebuild the panel but never redeploy the site,
+        # leaving it a month behind exactly when publishing mattered most.
+        echo "rebuilt=true" >> "$GITHUB_OUTPUT"
 
         # 1. Rebuild CSVs/panel/DuckDB OFFLINE from the frozen snapshots.
         #    (The S3 backup sync moved to AFTER the commit: pushing unvalidated
@@ -136,6 +140,39 @@ jobs:
         # spuriously fail it. The plain-script gate above already covers those.
         python -m pytest tests/test_database.py --cov-fail-under=0
 
+        # 5. L1+L3: refresh dvc.lock for the DATA stages just regenerated and commit
+        #    the validated panel NOW — before the ~2 GB torch install and the
+        #    forecast scripts. A3's AC demanded this separation: a PyTorch-index
+        #    outage or a forecast bug used to hold the already-validated bulletin
+        #    (and its S3 backup) hostage indefinitely.
+        pip install "dvc==3.67.1"   # same pin as ci.yml
+        dvc commit --force scrape panel bulletins
+        git config --local user.email "168046724+jrebull@users.noreply.github.com"
+        git config --local user.name "Javier Rebull"
+        # A5: pathspecs explícitos — nada de `git add -A` en el repo de historia limpia.
+        git add data/raw data/processed dvc.lock
+        if git diff --cached --quiet; then
+          echo "New HTML frozen but parsed data unchanged -- nothing to commit."
+        else
+          git commit -m "Add bulletin $(date -u +%Y-%m): refresh panel from frozen HTML"
+          git pull --rebase origin main   # A5: un push a main durante los ~20 min de corrida ya no tumba el job
+          git push
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+        fi
+
+        # 6. Back the validated raw HTML up to S3 right after the data commit (A3/L3).
+        #    If anything above failed, nothing was synced: the next run re-fetches the
+        #    month from the live site and retries everything.
+        aws s3 sync data/snapshots/ s3://visapredictai-raw-snapshots/raw-html/
+
+    - name: Regenerate forecasts, scorecard and key facts (modeling block)
+      id: model
+      # L3: its failure opens the issue and skips the redeploy, but the bulletin
+      # data above is already committed, pushed and backed up.
+      if: steps.run.outputs.rebuilt == 'true'
+      run: |
+        set -eo pipefail
+
         # 4b. Regenerate the web demonstrator's production-model forecasts. Needs
         #     the modeling deps; install CPU-only torch first so .[model] doesn't
         #     pull the ~2 GB CUDA wheel. Produces reports/web_forecasts.csv (+meta)
@@ -149,40 +186,26 @@ jobs:
         # 4c. Prospective scoring: now that this month's REAL cutoffs are in the
         #     panel, grade every previously-frozen forecast whose target month just
         #     landed (forecast_log.csv vs actuals) → reports/forecast_scorecard*.
-        #     This is the real-world 12-month accuracy, accruing one month at a time.
         python experiments/score_forecasts.py
 
         # 4d. Refresh the single source of truth (reports/key_facts.json) from the new
         #     data + scorecard, so the consistency guard (CI) keeps the prose honest.
         python experiments/build_key_facts.py
 
-        # 4e. Regenerate the auto-derived model card (numbers from key_facts + lineage stamp)
-        #     so it never drifts from the source of truth.
+        # 4e. Regenerate the auto-derived model card (numbers from key_facts + lineage stamp).
         python experiments/build_model_card.py
 
-        # 4f. ML drift monitor: performance/coverage on the prospective ledger + data drift in
-        #     the new bulletin. Not a gate (never fails the step); its summary is surfaced in the
-        #     SES email below so a human reviews any flagged movement.
+        # 4f. ML drift monitor — not a gate; its summary goes in the SES email below.
         python experiments/check_drift.py | tee /tmp/drift.txt || true
 
-        # 5. L1: refresh dvc.lock for the three git-only stages whose deps/outs this
-        #    run just regenerated. Without this, the CI gate (`dvc status panel
-        #    bulletins key_facts`) turns red on the NEXT human push, weeks after the
-        #    cause. `dvc commit` records current hashes without re-running anything.
-        pip install "dvc==3.67.1"   # same pin as ci.yml
-        dvc commit --force scrape panel bulletins key_facts
-
-        # 6. Commit the refreshed CSVs/panel/forecasts/scorecard/key_facts (snapshots + DB gitignored).
-        git config --local user.email "168046724+jrebull@users.noreply.github.com"
-        git config --local user.name "Javier Rebull"
-        # A5: pathspecs explícitos — `git add -A` tras instalar torch y correr 5 scripts
-        # podía colar cualquier artefacto suelto no-gitignored al repo de historia limpia.
-        git add data/raw data/processed reports dvc.lock
+        # L1: key_facts.json just changed — keep its DVC stage fresh too.
+        dvc commit --force key_facts
+        git add reports dvc.lock
         if git diff --cached --quiet; then
-          echo "New HTML frozen but parsed data unchanged -- nothing to commit."
+          echo "Forecasts/key facts unchanged -- nothing to commit."
         else
-          git commit -m "Add bulletin $(date -u +%Y-%m): refresh panel from frozen HTML"
-          git pull --rebase origin main   # A5: un push a main durante los ~20 min de corrida ya no tumba el job
+          git commit -m "Update forecasts, scorecard and key facts"
+          git pull --rebase origin main
           git push
           echo "pushed=true" >> "$GITHUB_OUTPUT"
         fi
@@ -190,29 +213,25 @@ jobs:
         # L2: los pushes hechos con GITHUB_TOKEN NO disparan CI (anti-recursión de
         # GitHub), así que el commit de datos más importante del mes escapaba al
         # guardián de consistencia. Correrlo AQUÍ y surfacearlo en el correo SES:
-        # el drift mensual de n_obs (regla #0) debe verse el día que ocurre, no
-        # semanas después en el push humano siguiente. No es gate (|| true): que
-        # la prosa quede desfasada del dato nuevo es esperado; lo grave es no verlo.
+        # el drift mensual de n_obs (regla #0) debe verse el día que ocurre. No es
+        # gate (|| true): que la prosa quede desfasada del dato nuevo es esperado;
+        # lo grave es no verlo.
         python tools/check_consistency.py > /tmp/consistency.txt 2>&1 || true
         tail -5 /tmp/consistency.txt
 
-        # 7. ONLY NOW back the validated raw HTML up to S3 (A3). If anything above
-        #    failed, nothing was synced: the next run re-fetches the month from the
-        #    live site (bulletins stay published for months) and retries everything.
-        aws s3 sync data/snapshots/ s3://visapredictai-raw-snapshots/raw-html/
-
-    - name: "Run CI on the data commit (GITHUB_TOKEN pushes never fire on-push)"
+    - name: "Run CI on the cron's commits (GITHUB_TOKEN pushes never fire on-push)"
       # L2 (ideal): la mitad "correr CI de verdad". workflow_dispatch es la excepción
       # documentada a la regla anti-recursión, así que este disparo SÍ crea el run.
-      if: steps.run.outputs.pushed == 'true'
+      if: always() && (steps.run.outputs.pushed == 'true' || steps.model.outputs.pushed == 'true')
       env:
         GH_TOKEN: ${{ github.token }}
       run: gh workflow run ci.yml --ref main || echo "::warning::no se pudo disparar CI sobre el commit de datos"
 
-    - name: Redeploy the website on a new bulletin (Netlify build hook)
-      # Only when a bulletin actually arrived. The web build re-fetches the panel
-      # + forecasts from this repo, so a redeploy ships the fresh data.
-      if: steps.run.outputs.new != '0' && steps.run.outputs.new != ''
+    - name: Redeploy the website on a rebuild (Netlify build hook)
+      # L4: keyed on REBUILT (covers the stale self-healing path, which used to
+      # leave the site a month behind) and on the modeling block having produced
+      # fresh forecasts. The web build re-fetches panel + forecasts from this repo.
+      if: steps.run.outputs.rebuilt == 'true' && steps.model.outcome == 'success'
       env:
         HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
       run: |
