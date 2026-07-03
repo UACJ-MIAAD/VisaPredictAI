@@ -143,7 +143,8 @@ def page_summary(pdf: PdfPages, facts: dict) -> None:
         (
             f"{top.backlog_years:.0f} años",
             f"espera hoy la cola más larga ({country_es[top.country]} "
-            f"{top.category}); ninguna serie familiar baja de 2 años.",
+            f"{top.category}); ninguna serie familiar baja de "
+            f"{bt[bt.block == 'family'].backlog_years.min():.0f}.",
         ),
         (
             f"{n_diff}/{n_ev}",
