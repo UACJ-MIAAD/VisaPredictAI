@@ -46,8 +46,10 @@ PANEL_COLS = [
 ]
 
 
-def _require(df: pd.DataFrame, fp: Path) -> None:
-    missing = {"status", "raw_value", "table_type"} - set(df.columns)
+def _require(df: pd.DataFrame, fp: Path, level_col: str) -> None:
+    # O3: validate EVERY column the code actually indexes (a rename upstream used
+    # to die with a raw KeyError instead of this actionable message).
+    missing = {"status", "raw_value", "table_type", "priority_date", "visa_bulletin_date", level_col} - set(df.columns)
     if missing:
         raise SystemExit(
             f"{fp} no tiene las columnas {missing}. "
@@ -65,8 +67,11 @@ def load_employment() -> pd.DataFrame:
     frames = []
     for slug, canon in COUNTRIES.items():
         fp = RAW / f"{slug}_visa_backlog_timecourse.csv"
-        df = pd.read_csv(fp)
-        _require(df, fp)
+        # O3: keep_default_na=False en las columnas de texto — un literal "NA" en
+        # status/raw_value se coercionaba a NaN y borraba la anotación que el
+        # centinela UNK existe para proteger.
+        df = pd.read_csv(fp, dtype={"status": str, "raw_value": str}, keep_default_na=False, na_values=[""])
+        _require(df, fp, "EB_level")
         df = df.rename(columns={"visa_bulletin_date": "bulletin_date"})  # priority_date already named
         df["country"] = canon
         df["block"] = "employment"
@@ -84,8 +89,8 @@ def load_family() -> pd.DataFrame:
     frames = []
     for slug, canon in COUNTRIES.items():
         fp = RAW / f"{slug}_family_visa_backlog_timecourse.csv"
-        df = pd.read_csv(fp)
-        _require(df, fp)
+        df = pd.read_csv(fp, dtype={"status": str, "raw_value": str}, keep_default_na=False, na_values=[""])
+        _require(df, fp, "F_level")
         df = df.rename(columns={"visa_bulletin_date": "bulletin_date"})  # priority_date already named
         df["country"] = canon
         df["block"] = "family"
@@ -145,12 +150,23 @@ def main() -> None:
 
     # Defensive: the same canonical category can appear twice in one bulletin
     # during a label transition (e.g. the May-2022 EB-5 'Unreserved' split).
-    # Keep the first and report, so the panel key stays unique.
+    # O2: 'first' was arbitrary with respect to the regime — if the U-labeled
+    # duplicate came first in the source table, a trainable F observation was
+    # silently dropped. Prefer F > C > U > UNK, and abort if two Fs disagree
+    # (same series, same month, different published dates = source conflict a
+    # human must resolve, not a coin flip).
     key = ["country", "block", "category", "table", "bulletin_date"]
-    dup = panel.duplicated(subset=key, keep="first")
-    if dup.any():
-        logger.warning("%d filas duplicadas por clave colapsadas (keep=first)", int(dup.sum()))
-        panel = panel[~dup].reset_index(drop=True)
+    if panel.duplicated(subset=key).any():
+        conflict = panel[panel.status == "F"].groupby(key)["priority_date"].nunique()
+        if (conflict > 1).any():
+            raise SystemExit(
+                f"claves con DOS fechas F distintas en el mismo boletín: {conflict[conflict > 1].index.tolist()[:5]}"
+            )
+        rank = panel["status"].map({"F": 0, "C": 1, "U": 2, "UNK": 3})
+        order = panel.assign(_rank=rank).sort_values([*key, "_rank"])
+        dup = order.duplicated(subset=key, keep="first")
+        logger.warning("%d filas duplicadas por clave colapsadas (preferencia F>C>U>UNK)", int(dup.sum()))
+        panel = order[~dup].drop(columns="_rank").sort_values(key).reset_index(drop=True)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     panel.to_csv(OUT, index=False)

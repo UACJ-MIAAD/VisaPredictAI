@@ -5,6 +5,11 @@ scraper or in build_panel.py fails loudly. Suitable as a CI quality gate
 (run after build_panel.py, before committing the data).
 
     ante/bin/python tests/test_panel_integrity.py
+
+⚠️ CONTRATO plain-script (O6): el gate del cron (freeze_and_rebuild.yml) ejecuta
+este archivo como `python tests/<archivo>.py` SIN pytest — nada de fixtures,
+parametrize ni markers aquí: un test que dependa de pytest correría en CI pero
+se rompería o saltaría en el cron sin que nadie lo note.
 """
 
 import sys
@@ -74,6 +79,17 @@ def test_days_defined_iff_F():
     p = _panel()
     mismatch = int((p.days_since_base.notna() != (p.status == "F")).sum())
     assert mismatch == 0, f"{mismatch} filas con days_since_base mal definido"
+
+
+def test_days_since_base_arithmetic():
+    # O1: nothing re-verified the arithmetic after the build — a BASE_EPOCH
+    # change in config.py without a rebuild (or a calc regression) shifted the
+    # whole dependent variable with every gate green. Recompute from scratch.
+    p = _panel()
+    f = p[p.status == "F"]
+    expected = (f.priority_date - pd.Timestamp("1975-01-01")).dt.days
+    mismatches = int((f.days_since_base != expected).sum())
+    assert mismatches == 0, f"{mismatches} filas con days_since_base ≠ (priority_date - t0).days"
 
 
 def test_no_negative_days():

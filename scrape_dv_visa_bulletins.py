@@ -215,7 +215,12 @@ def extract_month_rows(soup, ym) -> pd.DataFrame:
 def finalize(frames: list[pd.DataFrame]) -> None:
     """Concatenate the per-month DV frames into the deduped, sorted CSV. Shared
     by main() and the single-fetch scrape_all.py driver."""
-    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    # J8: an empty list used to crash with a cryptic KeyError on
+    # df["visa_bulletin_date"] — if the DV parser fails on EVERY month (site
+    # redesign), fail as a gate message, not an accident.
+    if not frames:
+        raise SystemExit("el parser DV no extrajo NINGÚN mes — ¿rediseño del sitio? Se aborta sin escribir el CSV DV.")
+    df = pd.concat(frames, ignore_index=True)
     df = df[df["visa_bulletin_date"].notna()]
     # Deterministic order (newest first) and a unique (region, month) key.
     df = df.drop_duplicates(subset=["region", "visa_bulletin_date"], keep="first")

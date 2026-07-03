@@ -93,6 +93,11 @@ def _statements(sql: str):
     Strips ``--`` line comments first so a semicolon inside a comment (e.g. the
     ``y_{p,c,b,t};`` in a docstring) never splits a statement, then splits on
     the real statement terminators.
+
+    M6 ⚠️: this split is NOT string-literal-aware — a future ``;`` or ``--``
+    inside a quoted SQL literal in schema.sql would corrupt statements silently.
+    Keep literals free of both (today none exist), or replace this with a real
+    SQL splitter the day the DDL needs them.
     """
     no_comments = "\n".join(line.split("--", 1)[0] for line in sql.splitlines())
     for stmt in no_comments.split(";"):

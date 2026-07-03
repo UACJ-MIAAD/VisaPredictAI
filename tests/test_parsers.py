@@ -6,6 +6,11 @@ These are the pure functions the whole panel depends on.
 
 Runs with pytest *or* as a plain script (no pytest required):
     ante/bin/python tests/test_parsers.py
+
+⚠️ CONTRATO plain-script (O6): el gate del cron (freeze_and_rebuild.yml) ejecuta
+este archivo como `python tests/<archivo>.py` SIN pytest — nada de fixtures,
+parametrize ni markers aquí: un test que dependa de pytest correría en CI pero
+se rompería o saltaría en el cron sin que nadie lo note.
 """
 
 import sys

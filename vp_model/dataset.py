@@ -15,8 +15,16 @@ import pandas as pd
 
 from vp_model.config import PILOT_COUNTRIES, TABLES
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "processed" / "visapredict.duckdb"
-PANEL_CSV = Path(__file__).resolve().parent.parent / "data" / "processed" / "visa_panel_long.csv"
+# M6: single source of truth for the artifact paths — hand-rederiving them here
+# meant a PROCESSED_DIR move sent the modeling layer to a different file. The
+# fallback keeps the module importable if the repo-root config isn't on sys.path
+# (e.g. vp_model consumed as an installed package outside the repo).
+try:
+    from config import DUCKDB_PATH as DB_PATH
+    from config import PANEL_PATH as PANEL_CSV
+except ImportError:  # pragma: no cover
+    DB_PATH = Path(__file__).resolve().parent.parent / "data" / "processed" / "visapredict.duckdb"
+    PANEL_CSV = Path(__file__).resolve().parent.parent / "data" / "processed" / "visa_panel_long.csv"
 
 
 def _connect(db_path: str | Path | None = None) -> duckdb.DuckDBPyConnection:

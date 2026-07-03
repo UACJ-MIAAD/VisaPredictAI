@@ -7,6 +7,11 @@ real bulletin from a distinct format era; each test pins the behavior of one
 historical quirk so a future refactor can't silently regress it.
 
     ante/bin/python tests/test_extraction.py
+
+⚠️ CONTRATO plain-script (O6): el gate del cron (freeze_and_rebuild.yml) ejecuta
+este archivo como `python tests/<archivo>.py` SIN pytest — nada de fixtures,
+parametrize ni markers aquí: un test que dependa de pytest correría en CI pero
+se rompería o saltaría en el cron sin que nadie lo note.
 """
 
 import sys

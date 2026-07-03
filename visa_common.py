@@ -296,9 +296,9 @@ def parse_tables(soup: BeautifulSoup, year_month, section_matcher, label_by_mark
 
         table_data = []
         for row in rows:
-            th_cols = row.find_all("th")
-            td_cols = row.find_all("td")
-            cols = [ele.text.strip() for ele in th_cols + td_cols]
+            # J7: document order — concatenating th_cols + td_cols distorted the
+            # column order if a row ever mixed <td> before <th> (country shift).
+            cols = [ele.text.strip() for ele in row.find_all(["th", "td"])]
             table_data.append(cols)
 
         # A single-cell first row is a spanning header; drop it.

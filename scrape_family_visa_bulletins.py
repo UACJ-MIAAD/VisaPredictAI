@@ -91,8 +91,20 @@ def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataF
         country_data.append(sub)
 
     if not country_data:
+        # J8: schema in sync with the REAL output below (it had drifted: raw_value
+        # and status were missing, so a country with 0 family rows would write a
+        # CSV that build_panel then rejects with a KeyError far from the cause).
         return pd.DataFrame(
-            columns=["F_level", "priority_date", "visa_bulletin_date", "visa_wait_time", "table_type", "raw_category"]
+            columns=[
+                "F_level",
+                "priority_date",
+                "visa_bulletin_date",
+                "table_type",
+                "raw_value",
+                "status",
+                "visa_wait_time",
+                "raw_category",
+            ]
         )
 
     country_df = pd.concat(country_data, axis=0, ignore_index=True)

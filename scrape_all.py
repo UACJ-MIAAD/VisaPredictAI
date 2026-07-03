@@ -42,7 +42,10 @@ def main() -> None:
     dv_failed = []  # fallos SOLO del parser DV (dataset no-predictivo) -- NO contamina el panel
     for path in tqdm(snapshots, desc="Parsing frozen bulletins offline (employment + family + DV)"):
         try:
-            soup = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
+            # J6: errors="replace" — mismo criterio que el gate de freeze. Una página
+            # cp1252 pasaba el freeze (que valida con replace) y reventaba AQUÍ con
+            # decode estricto, convirtiendo un byte raro en un mes perdido.
+            soup = BeautifulSoup(path.read_text(encoding="utf-8", errors="replace"), "html.parser")
             ym = extract_datetime_from_link(path.name)
         except Exception as exc:
             failed.append((path.name, f"soup/ym: {str(exc)[:50]}"))
