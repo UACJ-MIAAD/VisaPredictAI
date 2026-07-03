@@ -79,15 +79,16 @@ subcategorías a su preferencia (todas las `EB5_*` cuentan bajo EB-5).
 Saca a **datos auditables** los 20 años de deriva de etiquetas que antes vivían
 enterrados en `classify_*()`: cada etiqueta cruda tal como el boletín la publicó,
 mapeada a su categoría canónica, con la ventana de meses en que se observó. Se
-construye desde la columna `raw_category` de los CSV crudos. **48 alias** sobre 21
-categorías (p. ej. `EB5_TEA` tuvo 7 grafías distintas 2001-2015).
+construye desde la columna `raw_category` de los CSV crudos. **~60 alias** sobre 21
+categorías (p. ej. `EB5_TEA` acumula ~12 grafías 2001-2015); el conteo exacto crece
+con el archivo — consultarlo vivo: `SELECT count(*) FROM dim_category_alias`.
 
 | Columna | Tipo | Notas |
 |---|---|---|
 | `alias_id` | INTEGER PK | surrogate |
 | `category_id` | INTEGER FK | → `dim_category` |
 | `raw_label` | VARCHAR | etiqueta publicada (whitespace colapsado) · UNIQUE(`category_id`,`raw_label`) |
-| `valid_from` / `valid_to` | DATE | primer/último mes observado (CHECK `from ≤ to`) |
+| `valid_from` / `valid_to` | DATE | primer/último mes observado (CHECK `from ≤ to`). ⚠️ Son *envelopes* min/máx, **no** vigencia SCD-2: ventanas del mismo canónico se solapan legítimamente y los huecos internos no se registran — no leerlas como rangos de vigencia exclusivos |
 | `n_months` | INTEGER | meses en que apareció (CHECK > 0) |
 
 Vista `v_category_alias` une el bridge con `dim_category` (expone `block` +
@@ -177,6 +178,8 @@ Vista `v_dv_long` = `fact_dv_rank ⨝ dim_region ⨝ dim_date`.
   (`year`/`month`/`quarter`) y `preference_level`.
 - **`mart_series_summary`** — resumen por serie (`n_obs`, `n_trainable`,
   `first_month`/`last_month`, `n_regimes`) para filtrar series *evaluables*.
+  ⚠️ `n_regimes` es **informativa** (ningún criterio de selección la consume hoy); el
+  criterio canónico de evaluable es `vp_model.dataset.is_evaluable()` (N1).
 
 ## Uso
 

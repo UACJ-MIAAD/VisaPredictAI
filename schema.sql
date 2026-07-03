@@ -142,7 +142,11 @@ CREATE TABLE dim_category_alias (
     valid_to     DATE     NOT NULL,
     n_months     INTEGER  NOT NULL CHECK (n_months > 0),
     UNIQUE (category_id, raw_label),
-    CHECK (valid_from <= valid_to)
+    CHECK (valid_from <= valid_to),
+    -- P1: n_months counts DISTINCT observed months, which can never exceed the
+    -- envelope span. (valid_from/valid_to are min/max envelopes, NOT SCD-2
+    -- validity ranges — windows of the same canonical overlap legitimately.)
+    CHECK (n_months <= datediff('month', valid_from, valid_to) + 1)
 );
 
 CREATE VIEW v_category_alias AS
