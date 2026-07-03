@@ -113,8 +113,8 @@ stages:
       size: 1849
     - path: reports/campaign
       hash: md5
-      md5: 808e7b79a1b8096df5a2a93111d2448d.dir
-      size: 4547927
+      md5: 389a05fa769938efdea39fa30d9e03cc.dir
+      size: 4547887
       nfiles: 74
     - path: reports/forecast_scorecard_meta.json
       hash: md5
