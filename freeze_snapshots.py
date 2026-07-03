@@ -27,7 +27,14 @@ from pathlib import Path
 import requests
 from tqdm import tqdm
 
-from visa_common import MAX_RETRIES, REQUEST_TIMEOUT, SITE_ROOT, extract_month_links
+from visa_common import (
+    MAX_RETRIES,
+    REQUEST_TIMEOUT,
+    SITE_ROOT,
+    extract_datetime_from_link,
+    extract_month_links,
+    report_failures,
+)
 
 SNAP_DIR = Path("data/snapshots")
 # A4: piso conocido del índice de boletines (~298 en jul-2026, solo crece). Si el sitio
@@ -66,6 +73,14 @@ def fetch_bytes(url: str) -> bytes:
             if not _looks_like_bulletin(resp.content):
                 raise ValueError(f"200 sin marcadores de boletín (WAF/mantenimiento?): {url}")
             return resp.content
+        except requests.HTTPError as exc:
+            # J5: mirror get_soup's fast-fail — a 4xx is permanent (a link published
+            # before the page exists, or a rotted old link); 6 retries only burn
+            # ~42s of backoff before failing anyway.
+            if exc.response is not None and 400 <= exc.response.status_code < 500:
+                raise
+            last = exc
+            time.sleep(2 * (attempt + 1))
         except Exception as exc:  # noqa: BLE001 -- mirror get_soup: retry any transient blip
             last = exc
             time.sleep(2 * (attempt + 1))
@@ -81,15 +96,29 @@ def main() -> None:
             "¿cambió el markup de travel.state.gov? Abortando para no volverse un no-op silencioso."
         )
     new = 0
+    failed: list[tuple[str, str]] = []  # J5: aislar fallos por link — el primero ya no mata el resto
     for link in tqdm(links, desc="Freezing raw HTML"):
         dest = SNAP_DIR / Path(link).name
         if dest.exists():
             continue  # already frozen -- fixed page, never re-fetch
-        content = fetch_bytes(SITE_ROOT + link)
+        # J5: an index entry with no mappable month (a special announcement) is
+        # not a bulletin — don't even attempt it, and say so.
+        if extract_datetime_from_link(link) is None:
+            logger.warning("link del índice sin mes mapeable (se omite): %s", link)
+            continue
+        try:
+            content = fetch_bytes(SITE_ROOT + link)
+        except Exception as exc:  # noqa: BLE001 -- collected and reported below
+            failed.append((link, str(exc)[:80]))
+            continue
         tmp = dest.with_name(dest.name + ".part")
         tmp.write_bytes(content)
         os.replace(tmp, dest)  # atomic: never a truncated snapshot on disk
         new += 1
+    # J5: same accounting every scraper uses — warn each failed link, abort loud
+    # (without printing a count) if so many failed that the source must be broken.
+    # A dead link no longer blocks freezing the months that come after it.
+    report_failures(failed, logger)
     logger.info("%d new snapshots; %d total in %s", new, len(list(SNAP_DIR.glob("*.html"))), SNAP_DIR)
     print(new)  # stdout (logging/tqdm go to stderr) -- the CI step gates rebuild on this count
 
