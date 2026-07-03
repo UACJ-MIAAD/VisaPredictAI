@@ -53,6 +53,12 @@ def _require(df: pd.DataFrame, fp: Path) -> None:
             f"{fp} no tiene las columnas {missing}. "
             f"Re-ejecuta los scrapers (que ya emiten status/raw_value/table_type) antes de build_panel."
         )
+    # K1: un CSV fuente solo-headers pasaba la validación de columnas y pd.concat
+    # lo tragaba sin ruido — un país entero desaparecía del panel con todos los
+    # gates en verde (probado empíricamente en la auditoría). Cero filas de datos
+    # en una fuente = regresión del parser, jamás un estado válido.
+    if df.empty:
+        raise SystemExit(f"{fp} tiene 0 filas de datos — regresión del scraper; se aborta sin escribir el panel.")
 
 
 def load_employment() -> pd.DataFrame:

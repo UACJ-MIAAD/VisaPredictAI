@@ -102,6 +102,28 @@ def test_min_rows():
     assert len(p) >= 20_000, f"panel demasiado pequeño ({len(p)} filas) — posible regresión"
 
 
+def test_min_series():
+    # K1: the 20k row floor tolerated losing an entire country (~5k rows). The
+    # structural series count is stable (194 today); a real drop means a country
+    # or category family vanished from the sources.
+    p = _panel()
+    n = p.groupby(["country", "block", "category", "table"]).ngroups
+    assert n >= 190, f"solo {n} series estructurales (< 190) — ¿desapareció un país/categoría?"
+
+
+def test_min_rows_per_country():
+    # K1: per-country floor — every chargeability area carries 5,098–5,596 rows
+    # today; below 4,500 means a parser regression gutted that country. This is
+    # the gate the audit proved missing: an empty source CSV passed everything.
+    p = _panel()
+    counts = p.country.value_counts()
+    expected = {"mexico", "india", "china", "philippines", "all_chargeability"}
+    missing = expected - set(counts.index)
+    assert not missing, f"países ausentes del panel: {sorted(missing)}"
+    low = {c: int(n) for c, n in counts.items() if n < 4_500}
+    assert not low, f"países con volumen degradado (< 4,500 filas): {low}"
+
+
 def test_no_unexpected_missing_months():
     # F1 fix: a chronically flaky month (e.g. 2007-12 hits a redirect loop and
     # fails all retries) must NOT drop silently from the daily commit. The
