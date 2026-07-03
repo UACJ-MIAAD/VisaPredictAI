@@ -111,6 +111,26 @@ def main() -> int:
                             f"NUMERIC    {f.relative_to(ROOT)}:{i}  '{r['fact']}' esperado {want}, encontrado {got}  — {r['reason']}\n    > {line.strip()[:120]}"
                         )
 
+    # 4) DECIMAL — como numeric pero para hechos con decimales (MASE, coberturas):
+    # int() truncaría 0.114 a 0, así que se compara como float con tolerancia de
+    # redondeo a los decimales del claim (0.090 == 0.09; 0.114 != 0.121).
+    for r in rules.get("decimal", []):
+        want = float(facts.get(r["fact"]))
+        rx = re.compile(r["label"], re.IGNORECASE)
+        for f in files_for(r["in"]):
+            for i, line in enumerate(f.read_text(errors="ignore").splitlines(), 1):
+                if line.lstrip().startswith("%"):
+                    continue
+                for m in rx.finditer(line):
+                    try:
+                        got_f = float(m.group(1))
+                    except ValueError:
+                        continue
+                    if abs(got_f - want) > 5e-4:  # tolera el redondeo del 3er decimal
+                        violations.append(
+                            f"DECIMAL    {f.relative_to(ROOT)}:{i}  '{r['fact']}' esperado {want}, encontrado {got_f}  — {r['reason']}\n    > {line.strip()[:120]}"
+                        )
+
     n_files = sum(len(v) for v in sets.values())
     if violations:
         print(f"\n✗ CONSISTENCIA ROTA — {len(violations)} violación(es) en {n_files} archivos:\n")
