@@ -78,7 +78,7 @@ jobs:
         run: ruff format --check .
 
       - name: Type check (mypy)
-        run: mypy --ignore-missing-imports vp_data/*.py pipeline/*.py vp_model/*.py tests/*.py
+        run: mypy --ignore-missing-imports --explicit-package-bases vp_data/*.py pipeline/*.py vp_model/*.py tests/*.py tools/*.py experiments/*.py
 
       - name: Tests + coverage gate (pytest)
         run: pytest

@@ -135,7 +135,7 @@ lint:
 	$(PY) -m ruff check .
 
 typecheck:
-	$(PY) -m mypy --ignore-missing-imports vp_data/*.py pipeline/*.py vp_model/*.py tests/*.py
+	$(PY) -m mypy --ignore-missing-imports --explicit-package-bases vp_data/*.py pipeline/*.py vp_model/*.py tests/*.py tools/*.py experiments/*.py
 
 validate:
 	bash tools/validate_structure.sh
