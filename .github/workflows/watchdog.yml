@@ -1,0 +1,54 @@
+name: Watchdog (dead-man's switch)
+
+# L6: the data cron only emits POSITIVE signals (SES email per run, issue on
+# failure). If GitHub's scheduler drops/delays both triggers past the DST gate,
+# or disables the schedule after repo inactivity, there is NO run, NO email and
+# NO issue — silence indistinguishable from "nothing new". This weekly check
+# fails (and opens an issue) when the last successful freeze_and_rebuild run is
+# older than 4 days (it runs Mon-Fri, so >4 days always means something broke).
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 15 * * 1'  # Mondays 15:00 UTC
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      issues: write
+    steps:
+      - name: Check the last successful data-cron run is recent
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
+        with:
+          script: |
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner, repo: context.repo.repo,
+              workflow_id: 'freeze_and_rebuild.yml', status: 'success', per_page: 1,
+            });
+            const last = data.workflow_runs[0];
+            const ageDays = last ? (Date.now() - new Date(last.run_started_at)) / 86400e3 : Infinity;
+            core.info(`última corrida verde: ${last ? last.run_started_at : 'NUNCA'} (${ageDays.toFixed(1)} días)`);
+            if (ageDays <= 4) return;
+            const body = `El cron de datos (**freeze_and_rebuild**) no tiene una corrida verde en ${ageDays.toFixed(1)} días (umbral: 4). ` +
+              `O el schedule está atorado/deshabilitado, o todas las corridas fallan. Revisar Actions.`;
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              labels: 'scrape-failure', state: 'open',
+            });
+            if (open.length) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: open[0].number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: 'Data cron silent for >4 days (watchdog)', body,
+                labels: ['scrape-failure'],
+              });
+            }
+            core.setFailed('cron de datos sin corrida verde reciente');

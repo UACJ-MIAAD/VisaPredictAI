@@ -154,7 +154,14 @@ jobs:
         if git diff --cached --quiet; then
           echo "New HTML frozen but parsed data unchanged -- nothing to commit."
         else
-          git commit -m "Add bulletin $(date -u +%Y-%m): refresh panel from frozen HTML"
+          # L7: name the month actually INGESTED (an August bulletin publishes
+          # mid-July: date -u said 2026-07) and be honest on the self-heal path.
+          mes=$(python -c "import pandas as pd; print(pd.to_datetime(pd.read_csv('data/processed/visa_panel_long.csv', usecols=['bulletin_date'])['bulletin_date']).max().strftime('%Y-%m'))")
+          if [ "$new" = "0" ]; then
+            git commit -m "Self-heal: reingest panel through $mes from frozen HTML"
+          else
+            git commit -m "Add bulletin $mes: refresh panel from frozen HTML"
+          fi
           git pull --rebase origin main   # A5: un push a main durante los ~20 min de corrida ya no tumba el job
           git push
           echo "pushed=true" >> "$GITHUB_OUTPUT"
@@ -280,7 +287,12 @@ jobs:
           }}
         }
         JSON
-        aws sesv2 send-email --region us-east-1 --cli-input-json file:///tmp/ses.json
+        # L7: si SES falla (cuota/sandbox), el job entero quedaba `failure` y el
+        # issue "scrape is failing" se abría con los datos perfectamente
+        # procesados — alerta con título mentiroso. El correo es observabilidad,
+        # no pipeline: degradar a warning (el watchdog L6 cubre el silencio).
+        aws sesv2 send-email --region us-east-1 --cli-input-json file:///tmp/ses.json \
+          || echo "::warning::el correo SES falló (los datos NO se afectan); revisar cuota/identidad SES"
 
     - name: Alert on failure (open or append a tracking issue)
       if: failure()
