@@ -13,6 +13,7 @@ Writes: data/processed/visapredict.duckdb · data/processed/visa_panel_long.parq
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -124,12 +125,13 @@ def _load_dv(con: duckdb.DuckDBPyConnection, dv: pd.DataFrame, dim_date: pd.Data
 
 def _load_aliases(con: duckdb.DuckDBPyConnection, dim_category: pd.DataFrame) -> None:
     """Build dim_category_alias from the raw per-country CSVs: every published
-    label -> canonical category, with the window of months it appeared. Skips
-    silently if the raw CSVs predate the ``raw_category`` lineage column."""
+    label -> canonical category, with the window of months it appeared."""
     frames = []
+    skipped = []
     for fp in sorted(RAW_DIR.glob("*_visa_backlog_timecourse.csv")):
         d = pd.read_csv(fp)
         if "raw_category" not in d.columns:
+            skipped.append(fp.name)
             continue
         if "F_level" in d.columns:
             d["code"] = "F" + d["F_level"].astype(str)
@@ -140,7 +142,16 @@ def _load_aliases(con: duckdb.DuckDBPyConnection, dim_category: pd.DataFrame) ->
         d["bulletin_date"] = pd.to_datetime(d["visa_bulletin_date"])
         d["raw_label"] = d["raw_category"].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
         frames.append(d[["block", "code", "raw_label", "bulletin_date"]])
+    # M4: an empty lineage bridge used to be a silent `return` — a scraper
+    # regression dropping raw_category degraded the warehouse with a green
+    # `make db`. All-or-nothing: either every source carries lineage or none
+    # (pre-migration clone); a mix is a regression and aborts.
+    if skipped and frames:
+        raise SystemExit(
+            f"raw_category ausente en {len(skipped)} de las fuentes ({skipped[:3]}…) — regresión del scraper"
+        )
     if not frames:
+        logger.warning("ninguna fuente trae raw_category: dim_category_alias queda VACÍA (build degradado)")
         return
 
     agg = (
@@ -277,17 +288,36 @@ def build(con: duckdb.DuckDBPyConnection, panel: pd.DataFrame, dv: pd.DataFrame 
 def main() -> None:
     df = pd.read_csv(PANEL_PATH, parse_dates=["bulletin_date", "priority_date"])
     dv = pd.read_csv(DV_RANK_PATH, parse_dates=["visa_bulletin_date"]) if DV_RANK_PATH.exists() else None
+    if dv is None:
+        # M4: a 9-table warehouse used to print success — a missing DV source is
+        # a degraded build and must be a conscious, visible decision.
+        logger.warning("DV ausente (%s): se construye SIN fact_dv_rank/dim_region — build degradado", DV_RANK_PATH)
     DUCKDB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    DUCKDB_PATH.unlink(missing_ok=True)  # clean rebuild (DuckDB would append otherwise)
-    con = duckdb.connect(str(DUCKDB_PATH))
+    # M1: build into temp names and os.replace on success. The old
+    # unlink-then-build destroyed the good warehouse FIRST, so a crash mid-build
+    # (Ctrl-C, OOM) left a partial DB that opens without complaint and an empty
+    # mart the modeling layer iterates over "successfully". The temp names match
+    # the gitignore patterns (*.duckdb / *.parquet) on purpose.
+    tmp_db = DUCKDB_PATH.with_name("visapredict.tmp.duckdb")
+    tmp_parquet = PARQUET_PATH.with_name("visa_panel_long.tmp.parquet")
+    tmp_db.unlink(missing_ok=True)
+    con = duckdb.connect(str(tmp_db))
     try:
         build(con, df, dv)
         con.execute(
             # ORDER BY explícito: el determinismo byte-a-byte del Parquet (en que se apoya
             # dvc.yaml) no debe depender del orden de escaneo interno de DuckDB (H2)
             f'COPY (SELECT * FROM v_panel_long ORDER BY country, block, category, "table", bulletin_date) '
-            f"TO '{PARQUET_PATH.as_posix()}' (FORMAT parquet)"
+            f"TO '{tmp_parquet.as_posix()}' (FORMAT parquet)"
         )
+        # M3: re-read what was written — a COPY truncated by a full disk used to
+        # leave a stale/corrupt parquet next to a fresh .duckdb, silently.
+        row = con.execute(f"SELECT count(*) FROM read_parquet('{tmp_parquet.as_posix()}')").fetchone()
+        n_parquet = row[0] if row else 0
+        row = con.execute("SELECT count(*) FROM fact_priority").fetchone()
+        n_fact = row[0] if row else 0
+        if n_parquet != n_fact:
+            raise SystemExit(f"Parquet truncado: {n_parquet} filas vs {n_fact} en fact_priority")
         tables = [
             "dim_area",
             "dim_category",
@@ -303,10 +333,13 @@ def main() -> None:
             row = con.execute(f"SELECT count(*) FROM {tbl}").fetchone()
             n = row[0] if row else 0
             logger.info(f"  {tbl:14s}: {n:>6,} filas")
-        logger.info(f"DuckDB escrito en {DUCKDB_PATH}")
-        logger.info(f"Parquet escrito en {PARQUET_PATH}")
     finally:
         con.close()
+    # M1: only a FULLY built and verified pair replaces the live files (atomic).
+    os.replace(tmp_db, DUCKDB_PATH)
+    os.replace(tmp_parquet, PARQUET_PATH)
+    logger.info(f"DuckDB escrito en {DUCKDB_PATH}")
+    logger.info(f"Parquet escrito en {PARQUET_PATH}")
 
 
 if __name__ == "__main__":

@@ -26,6 +26,10 @@ CREATE TABLE dim_area (
 -- columns let consumers roll a subcategory up to its parent preference:
 -- parent_code (EB5_RURAL -> EB5), preference_level (the INA preference 1..5),
 -- is_subcategory, and ina_basis (the statutory citation).
+-- M5 ⚠️: parent_code is an INFORMATIVE label, NOT a self-join key — 'F2' (parent
+-- of F2A/F2B) never appears as a row because the bulletin never publishes it, so
+-- a parent_code->code self-join silently drops F2A+F2B. The canonical roll-up
+-- key is (block, preference_level), which v_trainable_by_preference uses.
 CREATE TABLE dim_category (
     category_id       INTEGER  PRIMARY KEY,
     block             VARCHAR  NOT NULL CHECK (block IN ('employment', 'family')),
@@ -85,7 +89,13 @@ CREATE TABLE fact_priority (
     -- The dependent variable and the priority date are defined IFF status='F'.
     -- Named so a violation reports the exact invariant, not just the table.
     CONSTRAINT days_iff_F  CHECK ((status = 'F') = (days_since_base IS NOT NULL)),
-    CONSTRAINT pdate_iff_F CHECK ((status = 'F') = (priority_date  IS NOT NULL))
+    CONSTRAINT pdate_iff_F CHECK ((status = 'F') = (priority_date  IS NOT NULL)),
+    -- M5: the arithmetic contract of the dependent variable (t0 = 1975-01-01)
+    -- used to live only in build_panel.py; a BASE_EPOCH change without a rebuild
+    -- would shift the whole target with every gate green.
+    CONSTRAINT days_is_datediff CHECK (
+        days_since_base IS NULL OR days_since_base = datediff('day', DATE '1975-01-01', priority_date)
+    )
 );
 
 -- ─────────────────────────── PANEL VIEW ───────────────────────────
@@ -163,7 +173,8 @@ CREATE TABLE fact_dv_rank (
     exceptions   VARCHAR,
     PRIMARY KEY (region_id, date_id),
     -- The rank cut-off is defined IFF a specific number is published (status 'F').
-    CHECK ((status = 'F') = (rank_cutoff IS NOT NULL))
+    -- M5: named like days_iff_F/pdate_iff_F so a violation reports the invariant.
+    CONSTRAINT rank_iff_F CHECK ((status = 'F') = (rank_cutoff IS NOT NULL))
 );
 
 CREATE VIEW v_dv_long AS
@@ -181,9 +192,10 @@ JOIN dim_date   d ON d.date_id   = f.date_id;
 -- ─────────────────────────── GOVERNANCE & PROVENANCE ───────────────────────
 
 -- Structural schema version; bump on any change so consumers/migrations detect
--- drift. (One row.)
+-- drift. M5: PRIMARY KEY caps accumulation — fetchone() consumers read "the"
+-- version, so N silently accumulated rows would lie.
 CREATE TABLE schema_version (
-    version      INTEGER  NOT NULL,
+    version      INTEGER  PRIMARY KEY,
     description  VARCHAR  NOT NULL
 );
 

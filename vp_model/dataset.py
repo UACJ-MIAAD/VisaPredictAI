@@ -16,6 +16,7 @@ import pandas as pd
 from vp_model.config import PILOT_COUNTRIES, TABLES
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "processed" / "visapredict.duckdb"
+PANEL_CSV = Path(__file__).resolve().parent.parent / "data" / "processed" / "visa_panel_long.csv"
 
 
 def _connect(db_path: str | Path | None = None) -> duckdb.DuckDBPyConnection:
@@ -23,7 +24,28 @@ def _connect(db_path: str | Path | None = None) -> duckdb.DuckDBPyConnection:
     if not path.exists():
         raise FileNotFoundError(f"Almacén no encontrado en {path}. Corre `make db` para regenerarlo.")
     # ponytail: read-only — el modelado nunca escribe en el almacén (regla un-solo-escritor).
-    return duckdb.connect(str(path), read_only=True)
+    con = duckdb.connect(str(path), read_only=True)
+    # M2: etl_run se escribe al FINAL del build — es un centinela de completitud
+    # gratis que nadie consultaba: un build interrumpido dejaba un almacén parcial
+    # que abre sin queja y un catálogo vacío que el modelado itera "con éxito".
+    row = con.execute("SELECT count(*) FROM etl_run").fetchone()
+    if not row or row[0] != 1:
+        con.close()
+        raise RuntimeError(f"Almacén incompleto en {path} (etl_run vacío — build interrumpido). Corre `make db`.")
+    # M2: frescura DB↔CSV — un `git pull` que trae el boletín nuevo sin `make db`
+    # producía cifras del mes anterior sin ninguna señal. La gobernanza por fin se lee.
+    if (db_path is None or Path(db_path) == DB_PATH) and PANEL_CSV.exists():
+        row = con.execute("SELECT n_fact_priority, panel_ceiling FROM etl_run").fetchone()
+        assert row is not None
+        n_db, ceiling_db = int(row[0]), pd.Timestamp(row[1])
+        col = pd.to_datetime(pd.read_csv(PANEL_CSV, usecols=["bulletin_date"])["bulletin_date"])
+        if n_db != len(col) or ceiling_db != col.max():
+            con.close()
+            raise RuntimeError(
+                f"Almacén DESFASADO del panel CSV: DB {n_db} filas/tope {ceiling_db:%Y-%m} vs "
+                f"CSV {len(col)} filas/tope {col.max():%Y-%m}. Corre `make db` antes de modelar."
+            )
+    return con
 
 
 def actuals_F(db_path: str | Path | None = None) -> dict[tuple[str, str, str, str], float]:
