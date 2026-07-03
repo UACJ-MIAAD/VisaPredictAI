@@ -41,7 +41,7 @@ distintos, no solo color), PDF vectorial.
 
 - **Reencuadre como paper de aplicación** (dataset + protocolo prospectivo), no de métodos.
 - **Números honestos:** hold-out MASE 0.117 marcado como *señal de selección, no precisión live*;
-  prospectivo MASE 0.345 / MAE 146 d como titular; gap 3× **declarado**.
+  prospectivo MASE 0.347 / MAE 146 d como titular; gap 3× **declarado**.
 - **cov95 = 0.92 < nominal** reportado como under-coverage honesta; banda 80 % calibrada en
   split disjunto (cov80 held-out 0.81), no circular.
 - **FAD = la parsimonia conserva un margen pequeño** (deep AutoBiTCN 0.121 vs listón ETS/Theta 0.113–0.114; Auto-ARIMA 0.156 peor); **DFF = ventaja modesta y frágil** del deep (BiTCN 0.090 vs Auto-ARIMA 0.099 media, ~9 %; sensible a la agregación, muestra efectiva ~14 series). MCS = {ETS, Theta} en ambas.

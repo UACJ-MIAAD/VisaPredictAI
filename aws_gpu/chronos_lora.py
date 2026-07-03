@@ -132,7 +132,7 @@ if __name__ == "__main__":
     ap.add_argument("--panel", default="visa_panel_long.parquet")
     ap.add_argument("--table", default="FAD")
     ap.add_argument("--model", default="amazon/chronos-bolt-base")
-    ap.add_argument("--out-dir", default="reports")
+    ap.add_argument("--out-dir", default="reports/campaign")
     ap.add_argument("--epochs", type=int, default=3)
     a = ap.parse_args()
     {"zeroshot": zeroshot, "finetune": finetune, "selfcheck": lambda _: _selfcheck()}[a.cmd](a)

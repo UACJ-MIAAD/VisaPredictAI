@@ -98,6 +98,10 @@ required:
     forms: ['{theta_fad_mean}']
     in: [deliverable, paper]
     reason: 'el hold-out FAD de Theta debe figurar'
+  - fact: prosp_mase
+    forms: ['{prosp_mase}']
+    in: [paper]
+    reason: 'el MASE prospectivo (titular de honestidad del paper) debe coincidir con el scorecard vigente'
 
 numeric:
   # obs TOTAL del panel: "27,289 obs/observaciones/observations/filas/rows" pero NO "obs

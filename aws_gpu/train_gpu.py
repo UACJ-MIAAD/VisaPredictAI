@@ -13,7 +13,7 @@ La receta (idéntica al local, NO reinventar):
   * NORMALIZACIÓN POR SERIE (--local-scaler): arregla la escala mixta familiar/EB.
   * HPO sin fuga (--auto): AutoModels con Optuna; el hold-out de 24m NUNCA entra a la búsqueda.
 
-Salida: ``reports/global_{table}_{suffix}.csv`` (nivel real reintegrado), que el entorno
+Salida: ``reports/campaign/global_{table}_{suffix}.csv`` (nivel real reintegrado), que el entorno
 PRINCIPAL evalúa con ``vp_model.eval_neuralforecast`` usando las MISMAS métricas — así el
 frontier de GPU es comparable 1:1 contra ETS/Theta (0.118 FAD) y el AutoBiTCN local (0.108).
 
@@ -239,7 +239,7 @@ def run_seed(panel, table, block, diff, local, names, max_steps, seed, auto, num
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--panel", default="visa_panel_long.parquet")
-    ap.add_argument("--out-dir", default="reports")
+    ap.add_argument("--out-dir", default="reports/campaign")
     ap.add_argument("--table", default="FAD")
     ap.add_argument("--block", default="family", choices=["family", "employment", "both"])
     ap.add_argument(

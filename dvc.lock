@@ -165,7 +165,7 @@ stages:
       size: 2746
     - path: reports/prospective/forecast_scorecard_meta.json
       hash: md5
-      md5: e869aff57e5c65e6e7c512fce7e3ec69
+      md5: 3bc426bdbd9e46b3e5a50595c7c1c563
       size: 2911
     - path: vp_model/config.py
       hash: md5
@@ -174,9 +174,9 @@ stages:
     outs:
     - path: reports/governance/key_facts.json
       hash: md5
-      md5: bb7da59a6050f92755e1f4e6b094afd3
+      md5: 5567de14ada0ddc1540260d9ffaf27ac
       size: 893
     - path: reports/latex/key_facts.tex
       hash: md5
-      md5: 2c1747a3584b57394d4d8c9709ba4a0e
+      md5: 0e5c7aaaf554bd12f86ff84e608759a2
       size: 1123

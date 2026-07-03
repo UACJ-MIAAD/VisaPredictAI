@@ -66,8 +66,10 @@ reports/latex/*.out
 reports/latex/*.toc
 reports/latex/*.synctex.gz
 
-# Reportes de auditoría regenerables — no versionar (causan árbol sucio)
-reports/governance/*_audit_report.md
+# Reportes de auditoría regenerables — mega_audit SÍ se versiona (fuente RAG del VisaBot
+# y solo cambia cuando cambian los datos); los demás siguen fuera.
+reports/governance/mlops_audit_report.md
+reports/governance/solid_clean_audit_report.md
 
 # MLflow tracking (local file store) + staging — regenerable, no versionar en git
 mlruns/
