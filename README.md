@@ -68,7 +68,7 @@ VisaPredictAI/
 ├── data/processed/                     # visa_panel_long.csv (panel) + .duckdb/.parquet regenerables
 ├── reports/ · docs/                    # auditorías · web_forecasts/forecast_log/scorecard · data_dictionary · er_diagram · ROADMAP · FORECAST_EVAL
 ├── Makefile · pyproject.toml           # one-command ops + config ruff/mypy/pytest
-└── .github/workflows/                  # ci.yml (lint+type+test) · freeze_and_rebuild.yml (Action Lun-Vie 12pm ET, S3-driven)
+└── .github/workflows/                  # ci.yml (lint+type+test) · freeze_and_rebuild.yml (Action Lun-Vie 12pm ET, S3-driven) · watchdog.yml
 ```
 
 ## Arquitectura del pipeline
@@ -215,7 +215,7 @@ read-only (el driver de DuckDB lo rechaza).
 
 - **Tests** (`pytest`, gate de cobertura) sobre las funciones de parseo, la extracción offline (fixtures HTML) y el contrato del panel.
 - **CI** (`ci.yml`): `ruff` (lint + format) + `mypy` + tests en cada push/PR.
-- **Action Lun-Vie 12pm ET** (`freeze_and_rebuild.yml`): pull de S3 → congela el boletín nuevo (si hay) → reconstruye panel + DuckDB **solo cuando llega uno** → gate → commit. Notifica cada corrida por correo (AWS SES) y abre un issue si falla.
+- **Action Lun-Vie 12pm ET** (`freeze_and_rebuild.yml`): pull de S3 → congela el boletín nuevo (si hay) → reconstruye panel + DuckDB → **gates** (tests + completitud del mes por bloque×tabla + mega-auditoría) → **commit de datos + respaldo S3** → bloque de pronósticos con commit propio (su fallo no bloquea los datos). Notifica cada corrida por correo (AWS SES), dispara CI sobre sus commits y abre un issue si falla; un **watchdog semanal** (`watchdog.yml`) alerta si el cron lleva >4 días sin corrida verde.
 - **Respaldo inmutable**: el HTML crudo de cada mes se congela en `s3://visapredictai-raw-snapshots/raw-html/` (la fuente oficial pierde boletines viejos; el bucket no).
 - **Auditorías** programáticas de calidad de datos (`mega_audit.py`, 12 dimensiones).
 
