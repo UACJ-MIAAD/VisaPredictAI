@@ -490,6 +490,10 @@ def g05_brecha(facts: dict) -> plt.Figure:
     wide = bt.pivot_table(index=["country", "block", "category"], columns="table", values="backlog_years")
     wide = wide.dropna().reset_index()
     wide["gap"] = wide.FAD - wide.DFF
+    # la mediana del titular se calcula sobre TODAS las parejas vigentes, ANTES de
+    # truncar a las 22 mostradas (si no, el titular hereda el sesgo del top del chart
+    # y se desalinea del caption web, que deriva del censo completo — regla #0)
+    med_gap = float(wide.gap.median()) * 12
     wide = wide.sort_values("FAD").reset_index(drop=True)
     if len(wide) > 22:
         wide = wide.tail(22).reset_index(drop=True)
@@ -521,7 +525,6 @@ def g05_brecha(facts: dict) -> plt.Figure:
     ax.grid(True, axis="x", color=GRID, lw=0.6)
     for sp in ("top", "right", "left"):
         ax.spines[sp].set_visible(False)
-    med_gap = float(wide.gap.median()) * 12
     _header(
         fig,
         f"Presentar el trámite {med_gap:.0f} meses antes: eso vale la tabla DFF",
