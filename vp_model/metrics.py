@@ -54,6 +54,54 @@ def naive_scale_before(full: pd.Series, cutoff, m: int = SEASONAL_M) -> float:
     return seasonal_naive_mae(train, m)
 
 
+def mase_by_series(
+    frame: pd.DataFrame,
+    table: str,
+    *,
+    pred_col: str = "forecast",
+    date_col: str = "date",
+    actual_col: str | None = None,
+    m: int = SEASONAL_M,
+    min_points: int = 1,
+) -> pd.Series:
+    """Per-series MASE under the canonical F-only protocol (AP2) — THE single scorer.
+
+    Replaces the "group by series -> load raw F series -> F mask ->
+    ``naive_scale_before`` -> MAE/scale" loop that was copy-pasted across the repo
+    (champion, ensembles, improve_*, eval_deep_pi, figures, significance tables),
+    so the B1 mask is enforced structurally instead of by convention.
+
+    ``frame`` needs the columns ``country``, ``category``, ``date_col`` and
+    ``pred_col``. Rows whose date is not a real F observation are dropped (B1);
+    actuals come from the raw F series unless ``actual_col`` names a column that
+    already carries them. Series absent from the warehouse are skipped with a
+    warning; a degenerate naive scale yields NaN (see ``seasonal_naive_mae``).
+    Returns a Series of MASE values indexed by (country, category).
+    """
+    from vp_model import dataset  # lazy: keeps metrics importable without duckdb
+
+    out: dict[tuple[str, str], float] = {}
+    for (country, category), g in frame.groupby(["country", "category"], sort=True):
+        try:
+            full = dataset.load_series(country, category, table).astype("float64")
+        except KeyError:
+            log.warning("mase_by_series: %s/%s/%s not in the warehouse — skipped", country, category, table)
+            continue
+        g = g.assign(**{date_col: pd.to_datetime(g[date_col])}).sort_values(date_col)
+        g = g[g[date_col].isin(full.index)]  # B1: score only real F observations
+        if len(g) < min_points:
+            continue
+        y = g[actual_col].to_numpy(dtype="float64") if actual_col else full.reindex(g[date_col]).to_numpy()
+        f = g[pred_col].to_numpy(dtype="float64")
+        scale = naive_scale_before(full, g[date_col].min(), m)
+        out[(country, category)] = float(np.mean(np.abs(y - f))) / scale
+    if not out:
+        return pd.Series(dtype="float64", name=f"mase_{table}")
+    s = pd.Series(out, dtype="float64", name=f"mase_{table}")
+    s.index = s.index.set_names(["country", "category"])
+    return s
+
+
 def _aligned(
     actual: TimeSeries, pred: TimeSeries, dates: pd.DatetimeIndex | None = None
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -79,8 +127,9 @@ def compute(
     insample: TimeSeries,
     dates: pd.DatetimeIndex | None = None,
     scale: float | None = None,
+    scale1: float | None = None,
 ) -> dict[str, float]:
-    """MAE/RMSE/sMAPE/MASE de un pronóstico contra el real.
+    """MAE/RMSE/sMAPE/MASE (m=12) y MASE1 (m=1) de un pronóstico contra el real.
 
     ``insample`` es la serie de entrenamiento; MASE la usa para escalar por el error
     del naïve estacional dentro de la muestra (Hyndman & Koehler).
@@ -88,7 +137,9 @@ def compute(
     ``dates``: si se da, las métricas se evalúan SOLO sobre esas fechas (observaciones
     F reales; B1). ``scale`` permite fijar el denominador del MASE desde fuera (p. ej.
     ``naive_scale_before`` sobre la serie F cruda, la misma fuente única de la vía
-    global) — sin él se usa el naïve estacional de ``insample``.
+    global) — sin él se usa el naïve estacional de ``insample``. ``scale1`` es el
+    denominador análogo con m=1 (AI2: ``mase1`` contextualiza contra el random walk
+    sin alterar la métrica canónica).
     """
     if dates is None:
         common = actual.slice_intersect(pred)
@@ -98,20 +149,24 @@ def compute(
             "rmse": float(rmse(common, pred)),
             "smape": float(smape(common, pred)),
             "mase": float(mase(common, pred, insample, m=SEASONAL_M)),
+            "mase1": float(mase(common, pred, insample, m=1)),  # AI2
             "n": len(common),
         }
     a, f = _aligned(actual, pred, dates)
     if not len(a):
-        return {"mae": float("nan"), "rmse": float("nan"), "smape": float("nan"), "mase": float("nan"), "n": 0}
+        nan = float("nan")
+        return {"mae": nan, "rmse": nan, "smape": nan, "mase": nan, "mase1": nan, "n": 0}
     err = np.abs(a - f)
     mae_v = float(np.mean(err))
     s = scale if scale is not None else _seasonal_naive_mae(insample)
+    s1 = scale1 if scale1 is not None else _seasonal_naive_mae(insample, m=1)
     return {
         "mae": mae_v,
         "rmse": float(np.sqrt(np.mean((a - f) ** 2))),
         # convención darts: sMAPE en 0–200 (no fracción), para que las tablas no mezclen escalas
         "smape": float(200.0 * np.mean(err / (np.abs(a) + np.abs(f) + 1e-9))),
         "mase": mae_v / s,
+        "mase1": mae_v / s1,  # AI2
         "n": int(len(a)),
     }
 

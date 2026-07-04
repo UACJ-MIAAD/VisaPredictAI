@@ -3,7 +3,7 @@
 PY ?= ante/bin/python
 DVC ?= ante/bin/dvc
 
-.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger model-card drift figures audit test test-model lint typecheck check all update eda eda-facts eda-all eda-report fe-facts fe-figures fe-report fe-all compare report validate key-facts consistency web-forecasts score-forecasts derive-band80 significance auto-arima paper-figures sync
+.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger shadow model-card drift figures audit test test-model lint typecheck check all update eda eda-facts eda-all eda-report fe-facts fe-figures fe-report fe-all compare report validate key-facts consistency web-forecasts score-forecasts derive-band80 significance auto-arima paper-figures sync mlflow-sync
 
 help:
 	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"
@@ -69,6 +69,9 @@ dag:  ## imprime el grafo de dependencias del pipeline
 
 challenger:  ## evalúa campeón vs retadores (Wilcoxon+Holm) -> reports/governance/champion_challenger.{json,md}
 	$(PY) experiments/run_champion_challenger.py --mlflow
+
+shadow:  ## congela la añada del mejor retador en el shadow ledger (AO6) -> reports/prospective/forecast_log_shadow.csv
+	$(PY) experiments/freeze_shadow.py
 
 model-card:  ## regenera reports/governance/MODEL_CARD.md (tarjeta de modelo + linaje) desde key_facts
 	$(PY) experiments/build_model_card.py
@@ -176,3 +179,8 @@ all: freeze scrape panel db test figures audit
 
 sync:  ## todo machin: MLflow + DVC->S3 + git (tras una corrida)
 	bash experiments/sync_all.sh
+
+# AO9 (decision): MLflow is a manually-synced HISTORICAL ARCHIVE, not a live dashboard.
+# The durable/canonical record is the CSV/JSON committed in git; sync when you want the UI.
+mlflow-sync:  ## staging JSONL -> mlflow.db (archivo histórico; corre en ante_nf)
+	ante_nf/bin/python experiments/sync_mlflow.py

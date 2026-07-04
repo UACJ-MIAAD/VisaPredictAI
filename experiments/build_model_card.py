@@ -31,12 +31,21 @@ def _panel_hash() -> str:
     return hashlib.md5(p.read_bytes()).hexdigest()[:12] if p.exists() else "n/d"
 
 
+def _fmt(v) -> str:  # noqa: ANN001 — accepts int or the "n/d" degradation sentinel
+    """Thousands-comma for ints only; the C1 degradation ("n/d") passes through.
+
+    AP5: ``f"{v:,}"`` raised ValueError on the "n/d" fallback, so a missing
+    key_facts.json crashed the very code path meant to degrade gracefully.
+    """
+    return f"{v:,}" if isinstance(v, int) else str(v)
+
+
 def build() -> str:
     kf = _load("governance/key_facts.json")
     cc = _load("governance/champion_challenger.json")
     manifest = _load("governance/champion_manifest.json")
     sig = _load("eval/significance_summary.json")
-    sha, _dirty = tracking._git()  # el flag dirty se omite: la tarjeta se genera pre-commit
+    sha, _dirty = tracking.git_state()  # el flag dirty se omite: la tarjeta se genera pre-commit
 
     def recipe(table: str) -> str:
         r = manifest.get(table, {})
@@ -71,7 +80,7 @@ def build() -> str:
 - Categorías: familiares (F1–F4) y empleo (EB). Tablas: Final Action Dates (FAD) y Dates for Filing (DFF), evaluadas por separado.
 
 ## 4. Datos de entrenamiento
-- **Panel:** {kf.get("n_obs", "n/d"):,} observaciones · {kf.get("pct_trainable_F", "n/d")} % entrenables (estado F = {kf.get("n_obs_F", "n/d"):,}) · rango {kf.get("date_first", "?")} → {kf.get("date_last", "?")}.
+- **Panel:** {_fmt(kf.get("n_obs", "n/d"))} observaciones · {kf.get("pct_trainable_F", "n/d")} % entrenables (estado F = {_fmt(kf.get("n_obs_F", "n/d"))}) · rango {kf.get("date_first", "?")} → {kf.get("date_last", "?")}.
 - **Series:** {kf.get("n_series_structural", "n/d")} estructurales · {kf.get("n_series_evaluable", "n/d")} plenamente evaluables (≥84 obs F = ventana 60 + hold-out 24).
 - Fuente: U.S. Department of State, Visa Bulletin (HTML congelado, parseo offline reproducible).
 

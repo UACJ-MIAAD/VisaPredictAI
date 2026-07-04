@@ -3,6 +3,7 @@
     "champion": "median(theta+ets+sarima)",
     "champion_mean": 0.1183,
     "champion_median": 0.0955,
+    "champion_crps": null,
     "challengers": [
       {
         "challenger": "theta",
@@ -11,6 +12,12 @@
         "n_series": 15,
         "mean_margin_vs_champion": 0.0008,
         "wilcoxon_p": 0.22931,
+        "recipe": {
+          "models": [
+            "theta"
+          ],
+          "agg": "median"
+        },
         "holm_p": 1.0,
         "promotable": false
       },
@@ -21,6 +28,13 @@
         "n_series": 15,
         "mean_margin_vs_champion": -0.0002,
         "wilcoxon_p": 0.48871,
+        "recipe": {
+          "models": [
+            "theta",
+            "ets"
+          ],
+          "agg": "median"
+        },
         "holm_p": 1.0,
         "promotable": false
       },
@@ -31,6 +45,12 @@
         "n_series": 15,
         "mean_margin_vs_champion": -0.0012,
         "wilcoxon_p": 1.0,
+        "recipe": {
+          "models": [
+            "ets"
+          ],
+          "agg": "median"
+        },
         "holm_p": 1.0,
         "promotable": false
       },
@@ -41,6 +61,14 @@
         "n_series": 15,
         "mean_margin_vs_champion": -0.0066,
         "wilcoxon_p": 0.3028,
+        "recipe": {
+          "models": [
+            "theta",
+            "ets",
+            "sarima"
+          ],
+          "agg": "mean"
+        },
         "holm_p": 1.0,
         "promotable": false
       },
@@ -51,6 +79,15 @@
         "n_series": 15,
         "mean_margin_vs_champion": -0.011,
         "wilcoxon_p": 0.22931,
+        "recipe": {
+          "models": [
+            "theta",
+            "ets",
+            "sarima",
+            "arima"
+          ],
+          "agg": "median"
+        },
         "holm_p": 1.0,
         "promotable": false
       }
@@ -61,6 +98,7 @@
     "champion": "sarima",
     "champion_mean": 0.0996,
     "champion_median": 0.1076,
+    "champion_crps": null,
     "challengers": [
       {
         "challenger": "ets",
@@ -69,6 +107,12 @@
         "n_series": 10,
         "mean_margin_vs_champion": 0.0061,
         "wilcoxon_p": 0.10547,
+        "recipe": {
+          "models": [
+            "ets"
+          ],
+          "agg": "median"
+        },
         "holm_p": 0.25194,
         "promotable": false
       },
@@ -79,6 +123,14 @@
         "n_series": 10,
         "mean_margin_vs_champion": 0.005,
         "wilcoxon_p": 0.08398,
+        "recipe": {
+          "models": [
+            "sarima",
+            "ets",
+            "theta"
+          ],
+          "agg": "median"
+        },
         "holm_p": 0.25194,
         "promotable": false
       },
@@ -89,6 +141,13 @@
         "n_series": 10,
         "mean_margin_vs_champion": 0.0041,
         "wilcoxon_p": 0.03711,
+        "recipe": {
+          "models": [
+            "sarima",
+            "ets"
+          ],
+          "agg": "median"
+        },
         "holm_p": 0.14844,
         "promotable": false
       },
@@ -99,6 +158,12 @@
         "n_series": 10,
         "mean_margin_vs_champion": -0.0054,
         "wilcoxon_p": 1.0,
+        "recipe": {
+          "models": [
+            "catboost"
+          ],
+          "agg": "median"
+        },
         "holm_p": 1.0,
         "promotable": false
       }

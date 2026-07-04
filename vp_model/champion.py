@@ -16,7 +16,7 @@ sombra primero — el ledger hoy solo califica al campeón — y queda anotada c
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import pandas as pd
@@ -62,6 +62,11 @@ class Recipe:
         return self.models[0] if len(self.models) == 1 else f"{self.agg}({'+'.join(self.models)})"
 
 
+def recipe_from_dict(d: dict) -> Recipe:
+    """Rebuild a Recipe from its serialized form (AP4: the display name is for humans only)."""
+    return Recipe(tuple(d["models"]), d.get("agg", "median"))
+
+
 @dataclass
 class Verdict:
     table: str
@@ -74,7 +79,12 @@ class Verdict:
     n_series_effective: int = 0  # series DISTINTAS que alimentan el Wilcoxon
 
 
-def replica_representatives(table: str) -> list[tuple[str, str]]:
+def load_holdout_forecasts(table: str) -> pd.DataFrame:
+    """Persisted hold-out forecasts for a table (AP5: load ONCE per evaluate, not 7x)."""
+    return pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
+
+
+def replica_representatives(table: str, fc: pd.DataFrame | None = None) -> list[tuple[str, str]]:
     """Una serie representante por clase de pseudo-réplica del corte mundial (B2).
 
     Series cuyos valores REALES del hold-out son idénticos fecha a fecha comparten el
@@ -82,21 +92,24 @@ def replica_representatives(table: str) -> list[tuple[str, str]]:
     anticonservador el Wilcoxon que decide qué receta se despliega a la web. Firma =
     vector de ``actual`` por fecha (mismo criterio que ``significance_tables``).
     """
-    fc = pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
+    if fc is None:
+        fc = load_holdout_forecasts(table)
     sig = fc.drop_duplicates(subset=["country", "category", "date"]).pivot_table(
         index=["country", "category"], columns="date", values="actual"
     )
     return list(sig[~sig.duplicated()].index)
 
 
-def recipe_series_mase(table: str, recipe: Recipe) -> pd.Series:
+def recipe_series_mase(table: str, recipe: Recipe, fc: pd.DataFrame | None = None) -> pd.Series:
     """MASE de hold-out por serie de una receta, leakage-free.
 
     Reconstruye el punto de la receta (mediana/media de sus modelos por serie×fecha) sobre
     ``reports/eval/holdout_forecasts_{table}.csv`` y escala por el naïve estacional in-sample
     calculado SOLO con el tramo previo al hold-out (misma fuente que el resto del proyecto).
+    ``fc`` acepta el frame ya cargado (``load_holdout_forecasts``) para no releer el CSV.
     """
-    fc = pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
+    if fc is None:
+        fc = load_holdout_forecasts(table)
     missing = set(recipe.models) - set(fc.model.unique())
     if missing:
         raise ValueError(f"receta {recipe.name}: modelos ausentes en holdout_forecasts_{table}: {sorted(missing)}")
@@ -135,13 +148,19 @@ def _compare(champ: pd.Series, chall: pd.Series) -> dict:
 
 def evaluate(table: str, champion: Recipe, challengers: list[Recipe] | None = None) -> Verdict:
     chall_recipes = challengers or [Recipe(m, a) for m, a in CHALLENGERS.get(table, [])]
-    champ_mase = recipe_series_mase(table, champion)
+    fc = load_holdout_forecasts(table)  # AP5: one read serves champion + all challengers + B2
+    champ_mase = recipe_series_mase(table, champion, fc)
     # B2: el Wilcoxon del gate corre SOLO sobre series distintas (una representante por
     # clase de pseudo-réplica); filtrar al campeón basta — _compare intersecta índices.
     n_raw = len(champ_mase)
-    reps = replica_representatives(table)
+    reps = replica_representatives(table, fc)
     champ_mase = champ_mase[champ_mase.index.isin(reps)]
-    rows = [_compare(champ_mase, recipe_series_mase(table, r)) for r in chall_recipes]
+    rows = []
+    for rec in chall_recipes:
+        row = _compare(champ_mase, recipe_series_mase(table, rec, fc))
+        # AP4: carry the serialized Recipe so promotion/shadow never re-parse the display name.
+        row["recipe"] = asdict(rec)
+        rows.append(row)
 
     adj = significance.holm({r["challenger"]: r["wilcoxon_p"] for r in rows}, alpha=HOLM_ALPHA)
     for r in rows:
@@ -162,6 +181,33 @@ def evaluate(table: str, champion: Recipe, challengers: list[Recipe] | None = No
         n_series_raw=n_raw,
         n_series_effective=len(champ_mase),
     )
+
+
+def crps_champion(table: str) -> float | None:
+    """Mean champion CRPS for a table, if ``reports/eval/crps_champion.csv`` exists (AM5).
+
+    INFORMATIVE field of the verdict only — NOT part of the promotion gate (the gate stays
+    point-MASE + Wilcoxon/Holm). Degrades cleanly to None when the CSV is absent or its
+    schema is unexpected (it is produced by a separate CRPS pipeline).
+    """
+    path = REPORTS / "eval" / "crps_champion.csv"
+    if not path.exists():
+        return None
+    try:
+        df = pd.read_csv(path)
+        if "table" in df.columns:
+            df = df[df["table"] == table]
+        col = next((c for c in df.columns if "crps" in c.lower()), None)
+        if col is None or df.empty:
+            return None
+        # run_champion_crps.py appends a country=="ALL" aggregate row per table — prefer it
+        # over re-averaging the per-series rows (which would double-count the aggregate).
+        if "country" in df.columns and (df["country"] == "ALL").any():
+            df = df[df["country"] == "ALL"]
+        val = float(df[col].mean())
+        return round(val, 4) if val == val else None
+    except Exception:  # noqa: BLE001 — informative only; never break the verdict
+        return None
 
 
 def load_manifest() -> dict[str, Recipe]:

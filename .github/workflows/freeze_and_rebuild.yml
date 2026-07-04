@@ -193,6 +193,8 @@ jobs:
       # L3: its failure opens the issue and skips the redeploy, but the bulletin
       # data above is already committed, pushed and backed up.
       if: steps.run.outputs.rebuilt == 'true'
+      env:
+        GH_TOKEN: ${{ github.token }}   # AO8: gh issue create for the re-campaign trigger
       run: |
         set -eo pipefail
 
@@ -218,8 +220,34 @@ jobs:
         # 4e. Regenerate the auto-derived model card (numbers from key_facts + lineage stamp).
         python experiments/build_model_card.py
 
+        # 4e-bis (AO6a). Refresh the champion-challenger verdict every bulletin so the
+        # promotion recommendation never goes stale. NOT a gate (|| true): a failed
+        # verdict must not hold this month's forecasts hostage. Its governance
+        # artifacts (champion_challenger.{json,md}) ride the `git add reports` below.
+        python experiments/run_champion_challenger.py || true
+
+        # 4e-ter (AO6b). Shadow deployment: freeze the best challenger's vintage into
+        # the SEPARATE immutable shadow ledger (forecast_log_shadow.csv) so the
+        # promotion gate accumulates prospective evidence. Statistical re-fits only
+        # (minutes); non-blocking like the verdict itself.
+        python experiments/freeze_shadow.py || true
+
         # 4f. ML drift monitor — not a gate; its summary goes in the SES email below.
         python experiments/check_drift.py | tee /tmp/drift.txt || true
+
+        # 4f-bis (AO8). Re-campaign trigger, HUMAN-GATED: if performance drift has held
+        # for 3 consecutive vintages (drift_history.jsonl), open ONE tracking issue.
+        # It never launches a campaign — a human decides. Duplicate-guarded by title.
+        if python -c "import json,sys; r=json.load(open('reports/governance/drift_report.json')); sys.exit(0 if r.get('performance',{}).get('recampaign_due') else 1)"; then
+          title="re-campaign due: performance drift on 3+ consecutive vintages"
+          if [ -z "$(gh issue list --state open --search "re-campaign due in:title" --json number --jq '.[0].number // empty')" ]; then
+            gh issue create --title "$title" \
+              --body "The drift monitor flagged performance_drift on 3+ consecutive vintages (see reports/governance/drift_history.jsonl and drift_report.json). A re-derivation campaign is DUE but must be launched by a human (rule: never auto-run campaigns)." \
+              || echo "::warning::could not open the re-campaign issue"
+          else
+            echo "re-campaign issue already open -- not duplicating."
+          fi
+        fi
 
         # L1: key_facts.json just changed — keep its DVC stage fresh too.
         # (M2 audit 3-jul: el pip install -e ".[model]" de arriba re-resuelve deps y

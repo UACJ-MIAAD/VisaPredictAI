@@ -1,14 +1,17 @@
 """El catálogo de modelos tras una interfaz común (US-D1).
 
-El catálogo completo son **21 modelos** (``config.MODEL_NAMES``: +ETS, Theta, Kalman,
-DLinear, NLinear, RLinear, N-BEATS, N-HiTS, TiDE, LightGBM, CatBoost, TFT, Chronos). Los
-8 de referencia originales del Anteproyecto (§4.3) son el núcleo:
+El catálogo completo son **23 modelos** (``config.MODEL_NAMES``: +ETS, Theta, Kalman,
+DLinear, NLinear, RLinear, N-BEATS, N-HiTS, TiDE, LightGBM, CatBoost, TFT, Chronos, y
+los pisos honestos naive1/drift de AI1). Los 8 de referencia originales del
+Anteproyecto (§4.3) son el núcleo:
 
 Todos se exponen como modelos darts (misma API ``fit``/``predict``/
 ``historical_forecasts``), lo que da comparación justa, walk-forward y bandas
 probabilísticas sin reimplementar nada. Núcleo de referencia:
 
     naive       — naïve estacional (baseline; denominador de MASE)
+    naive1      — naïve no estacional (random walk; piso AI1)
+    drift       — random walk con deriva (piso AI1)
     arima       — ARIMA (lineal, no estacional)
     sarima      — SARIMA (estacionalidad anual)
     prophet     — Prophet (tendencia + estacionalidad con cambios de régimen)
@@ -16,6 +19,9 @@ probabilísticas sin reimplementar nada. Núcleo de referencia:
     deepar      — LSTM probabilístico estilo DeepAR (intervalos nativos)
     arima_lstm  — cascada: ARIMA + LSTM sobre los residuales
     xgboost     — XGBoost sobre rezagos + regresores de calendario
+
+AP3: ``_FACTORIES`` (dict nombre -> fábrica) es LA fuente del catálogo; ``build_model``
+es un lookup y un assert de import mantiene ``config.MODEL_NAMES`` sincronizado.
 
 Decisión (ponytail): darts cubre casi todo el catálogo; solo la cascada ARIMA-LSTM es
 código propio, y es un envoltorio delgado, no un modelo nuevo.
@@ -28,14 +34,16 @@ from __future__ import annotations
 # primero y aislado del bloque ordenado por isort.
 import xgboost  # noqa: F401
 
+import json
 from collections.abc import Callable
 from functools import partial
+from pathlib import Path
 from typing import Protocol
 
 import numpy as np
 import pandas as pd
 import torch
-from darts import TimeSeries
+from darts import TimeSeries, concatenate
 from darts.dataprocessing.transformers import Scaler
 from darts.models import (
     ARIMA,
@@ -45,7 +53,7 @@ from darts.models import (
     FourTheta,
     KalmanForecaster,
     LightGBMModel,
-    LinearRegressionModel,
+    NaiveDrift,
     NaiveSeasonal,
     NBEATSModel,
     NHiTSModel,
@@ -56,13 +64,18 @@ from darts.models import (
     TiDEModel,
     XGBModel,
 )
+from darts.models import SKLearnModel  # RegressionModel is deprecated in darts 0.44
 from darts.utils.likelihood_models import GaussianLikelihood
-from darts.utils.utils import ModelMode, SeasonalityMode
+from darts.utils.utils import ModelMode
+from sklearn.linear_model import Ridge
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 from vp_model import preprocess
 from vp_model.config import (
     HYPERPARAMS,
     MODEL_NAMES,
+    NN_RETRAIN,
     PROBABILISTIC,
     RANDOM_SEED,
     SEASONAL_PERIOD,
@@ -82,13 +95,16 @@ _TRAINER_KWARGS = {"enable_progress_bar": False, "accelerator": "cpu", "devices"
 class Forecaster(Protocol):
     """API común al catálogo de modelos (lo que usa el motor de walk-forward).
 
-    Mínima a propósito (``fit``/``predict``): el backtesting además llama
-    ``historical_forecasts`` de darts, cuya firma concreta varía por modelo y no se modela
-    en el Protocol (de ahí los ``# type: ignore[attr-defined]`` puntuales en walkforward/tune).
+    AP1: ``historical_forecasts`` entró al Protocol con firma laxa (``start`` +
+    ``**kwargs``, espejo de la convención darts), así mypy vuelve a vigilar los
+    call-sites del backtesting sin ``# type: ignore[attr-defined]``.
     """
 
     def fit(self, series: TimeSeries, **kwargs: object) -> object: ...
     def predict(self, n: int, **kwargs: object) -> TimeSeries: ...
+    def historical_forecasts(
+        self, series: TimeSeries, *, start: int | pd.Timestamp, **kwargs: object
+    ) -> TimeSeries: ...
 
 
 # Reexportados desde config para compatibilidad de la API pública del módulo
@@ -135,58 +151,97 @@ def _mlp(cls: type) -> Forecaster:
     return cls(**HYPERPARAMS["mlp"], random_state=RANDOM_SEED, pl_trainer_kwargs=_TRAINER_KWARGS)
 
 
-def build_model(name: str) -> Forecaster:
-    """Fábrica: nombre -> modelo darts fresco (sin entrenar)."""
-    # --- estadísticos parsimoniosos ---
-    if name == "naive":
-        return NaiveSeasonal(K=SEASONAL_PERIOD)
-    if name == "arima":
-        return ARIMA(**HYPERPARAMS["arima"])
-    if name == "sarima":
-        return ARIMA(**HYPERPARAMS["sarima"])
-    if name == "prophet":
-        return Prophet()
-    if name == "ets":
-        # ETS(A,Ad,N): tendencia aditiva amortiguada, sin estacionalidad (F_S~0).
-        return ExponentialSmoothing(trend=ModelMode.ADDITIVE, damped=True, seasonal=None)
-    if name == "theta":
-        # Familia Theta optimizada (FourTheta), sin componente estacional.
-        return FourTheta(season_mode=SeasonalityMode.NONE)
-    if name == "kalman":
-        return KalmanForecaster()
-    # --- redes recurrentes ---
-    if name == "lstm":
-        return _rnn(probabilistic=False)
-    if name == "deepar":
-        return _rnn(probabilistic=True)
-    if name == "arima_lstm":
-        return ArimaLstm()
-    # --- MLP / lineales modernos (torch) ---
-    if name == "dlinear":
-        return _mlp(DLinearModel)
-    if name == "nlinear":
-        return _mlp(NLinearModel)
-    if name == "nbeats":
-        return _mlp(NBEATSModel)
-    if name == "nhits":
-        return _mlp(NHiTSModel)
-    if name == "tide":
-        return _mlp(TiDEModel)
-    if name == "tft":
-        return TFTModel(**HYPERPARAMS["tft"], random_state=RANDOM_SEED, pl_trainer_kwargs=_TRAINER_KWARGS)
-    if name == "chronos":
-        return ChronosForecaster()
-    # --- regresión lineal (ridge en forma cerrada vía sklearn) ---
-    if name == "rlinear":
-        return LinearRegressionModel(**HYPERPARAMS["rlinear"])
-    # --- árboles: predicen el DELTA (Differenced) para poder extrapolar la tendencia ---
-    if name == "xgboost":
-        return Differenced(XGBModel(**HYPERPARAMS["trees"]))
-    if name == "lightgbm":
-        return Differenced(LightGBMModel(**HYPERPARAMS["trees"], verbose=-1))
-    if name == "catboost":
-        return Differenced(CatBoostModel(**HYPERPARAMS["trees"]))
-    raise ValueError(f"modelo desconocido: {name!r}. Opciones: {MODEL_NAMES}")
+_TUNED_PARAMS_PATH = Path(__file__).resolve().parent.parent / "reports" / "eval" / "tuned_params.json"
+
+
+def _tree_params(model: str, table: str | None) -> dict:
+    """AJ5: HPO winners (reports/eval/tuned_params.json) become the GBM defaults.
+
+    Without this the model-pool table compared an auto-selected ETS/Theta against
+    library-default trees. When a winning tuned entry exists for the (model, table)
+    cell it overrides the slow-learning bridge in ``HYPERPARAMS['trees']``
+    (lr=0.02 / 200 trees — see config); with ``table=None`` (callers that build a
+    model outside a table context) the bridge stands.
+    """
+    params = dict(HYPERPARAMS["trees"])
+    if table is not None and _TUNED_PARAMS_PATH.exists():
+        entry = json.loads(_TUNED_PARAMS_PATH.read_text()).get(model, {}).get(f"{table}_family", {})
+        if entry.get("improved"):
+            params.update(entry.get("best_params", {}))
+    return params
+
+
+def _ridge() -> SKLearnModel:
+    # AJ6: a REAL ridge — the docstring/deliverable say "ridge" but darts
+    # LinearRegressionModel is plain OLS. Lags are standardized inside the
+    # pipeline so the L2 penalty (alpha=1.0, sklearn default) is meaningful on
+    # levels of ~1e4 days; without scaling the penalty would be vacuous.
+    return SKLearnModel(model=make_pipeline(StandardScaler(), Ridge(alpha=1.0)), **HYPERPARAMS["rlinear"])
+
+
+def _prophet() -> Prophet:
+    # AJ7: Prophet defaults (25 changepoints over the first 80 % of the window)
+    # put ~1 changepoint every 2 observations on the shortest 60-month training
+    # windows — pure overfit. 8 potential changepoints keeps flexibility for the
+    # documented retrogression regimes (~1 per 2 years on the longest windows)
+    # while the default prior scale 0.05 (made explicit) shrinks unused ones.
+    return Prophet(n_changepoints=8, changepoint_prior_scale=0.05)
+
+
+# AP3: THE source of the catalog. Each factory receives the table (FAD/DFF) so
+# table-specific tuned hyperparameters can be routed (only the GBMs use it today, AJ5).
+# Adding a model = one entry here + its name in config.MODEL_NAMES (assert below).
+_FACTORIES: dict[str, Callable[[str | None], Forecaster]] = {
+    # --- parsimonious statistical models ---
+    "naive": lambda table: NaiveSeasonal(K=SEASONAL_PERIOD),
+    "naive1": lambda table: NaiveSeasonal(K=1),  # AI1: random-walk floor of the pool
+    "drift": lambda table: NaiveDrift(),  # AI1: random walk with drift
+    "arima": lambda table: ARIMA(**HYPERPARAMS["arima"]),
+    "sarima": lambda table: ARIMA(**HYPERPARAMS["sarima"]),
+    "prophet": lambda table: _prophet(),
+    "ets": lambda table: AutoETS(),  # AJ4: small AICc search over {trend x damped}
+    "theta": lambda table: AutoTheta(),  # AJ4: FourTheta.select_best_model
+    # AI4: dim_x=2 = local linear trend (level + slope); dim_x=1 was a local level
+    # unable to extrapolate the decades-long trend of these series.
+    "kalman": lambda table: KalmanForecaster(dim_x=2),
+    # --- recurrent nets (differenced, AJ1) ---
+    "lstm": lambda table: Differenced(_rnn(probabilistic=False)),
+    "deepar": lambda table: Differenced(_rnn(probabilistic=True)),
+    "arima_lstm": lambda table: ArimaLstm(),
+    # --- modern MLP / linear nets (torch; differenced, AJ1) ---
+    "dlinear": lambda table: Differenced(_mlp(DLinearModel)),
+    "nlinear": lambda table: Differenced(_mlp(NLinearModel)),
+    "nbeats": lambda table: Differenced(_mlp(NBEATSModel)),
+    "nhits": lambda table: Differenced(_mlp(NHiTSModel)),
+    "tide": lambda table: Differenced(_mlp(TiDEModel)),
+    "tft": lambda table: Differenced(
+        TFTModel(**HYPERPARAMS["tft"], random_state=RANDOM_SEED, pl_trainer_kwargs=_TRAINER_KWARGS)
+    ),
+    "chronos": lambda table: ChronosForecaster(),
+    # --- regularized linear regression (real ridge, AJ6) ---
+    "rlinear": lambda table: _ridge(),
+    # --- trees: predict the DELTA (Differenced) so they can extrapolate the trend ---
+    "xgboost": lambda table: Differenced(XGBModel(**_tree_params("xgboost", table))),
+    "lightgbm": lambda table: Differenced(LightGBMModel(**_tree_params("lightgbm", table), verbose=-1)),
+    "catboost": lambda table: Differenced(CatBoostModel(**_tree_params("catboost", table))),
+}
+
+# Catalog drift guard: config.MODEL_NAMES (ordering, dependency-light) and _FACTORIES
+# (factories) must be the SAME set — fail at import time, not mid-campaign.
+assert set(_FACTORIES) == set(MODEL_NAMES), (
+    f"catalog out of sync: _FACTORIES={sorted(_FACTORIES)} vs config.MODEL_NAMES={sorted(MODEL_NAMES)}"
+)
+
+
+def build_model(name: str, table: str | None = None) -> Forecaster:
+    """Factory: name -> fresh (untrained) model. Lookup over ``_FACTORIES`` (AP3).
+
+    ``table`` ("FAD"/"DFF") routes table-specific tuned hyperparameters to the
+    GBMs (AJ5); ``None`` keeps the bridge defaults from config.
+    """
+    if name not in _FACTORIES:
+        raise ValueError(f"modelo desconocido: {name!r}. Opciones: {MODEL_NAMES}")
+    return _FACTORIES[name](table)
 
 
 class ArimaLstm:
@@ -210,6 +265,16 @@ class ArimaLstm:
         self._resid_scaler = Scaler()
 
     def fit(self, series: TimeSeries, **kwargs: object) -> ArimaLstm:
+        # AJ3: fit is now called repeatedly (annual refit) — rebuild fresh
+        # sub-models so each refit trains from scratch instead of resuming.
+        self.arima = ARIMA(**HYPERPARAMS["arima"])
+        self.lstm = RNNModel(
+            model="LSTM",
+            **HYPERPARAMS["rnn_hybrid"],
+            random_state=RANDOM_SEED,
+            pl_trainer_kwargs=_TRAINER_KWARGS,
+        )
+        self._resid_scaler = Scaler()
         self.arima.fit(series)
         # Residual = real - ajuste ARIMA one-step sobre el histórico (sin reentrenar).
         fitted = self.arima.historical_forecasts(
@@ -230,28 +295,30 @@ class ArimaLstm:
         resid_fc = self._resid_scaler.inverse_transform(self.lstm.predict(n))
         return linear + resid_fc.slice_intersect(linear)
 
-    def historical_forecasts(
-        self,
-        series: TimeSeries,
-        *,
-        start: int,
-        forecast_horizon: int = 1,
-        stride: int = 1,
-        retrain: bool = False,
-        last_points_only: bool = True,
-        verbose: bool = False,
-        **kwargs: object,
-    ) -> TimeSeries:
-        """Walk-forward del híbrido: ajusta una vez sobre la ventana inicial y rueda.
+    def historical_forecasts(self, series: TimeSeries, *, start: int | pd.Timestamp, **kwargs: object) -> TimeSeries:
+        """Walk-forward of the hybrid with ANNUAL REFIT (AJ3), fixed 1-step horizon.
 
-        Reentrenar ARIMA+LSTM en cada origen es inviable; se fija el modelo sobre los
-        primeros ``start`` meses (leakage-free para la región de selección) y se
-        produce el pronóstico lineal + el de residuales a 1 paso de forma rodante.
+        Previously the cascade was fit ONCE on the initial window and rolled
+        frozen through ~15 years of origins. ARIMA+LSTM are now refit every
+        ``NN_RETRAIN`` months (same cost/validity compromise as the torch nets):
+        each block is forecast by a model trained ONLY on data before the block
+        (leakage-free). The darts convenience kwargs (retrain/stride/...) are
+        ignored: the cascade defines its own protocol.
         """
-        self.fit(series[:start])
+        start_idx = start if isinstance(start, int) else series.get_index_at_point(start)
+        blocks = []
+        for t0 in range(start_idx, len(series), NN_RETRAIN):
+            t1 = min(t0 + NN_RETRAIN, len(series))
+            blocks.append(self._block_forecasts(series, t0, t1))
+        return concatenate(blocks, axis=0) if len(blocks) > 1 else blocks[0]
+
+    def _block_forecasts(self, series: TimeSeries, t0: int, t1: int) -> TimeSeries:
+        """One-step forecasts for origins [t0, t1) with the model fitted on [:t0]."""
+        sub = series[:t1]
+        self.fit(series[:t0])
         linear = self.arima.historical_forecasts(
-            series,
-            start=start,
+            sub,
+            start=t0,
             forecast_horizon=1,
             stride=1,
             retrain=False,
@@ -260,14 +327,14 @@ class ArimaLstm:
         )
         # Residual histórico (real - ARIMA fijo) escalado con el scaler ya ajustado.
         arima_full = self.arima.historical_forecasts(
-            series,
+            sub,
             forecast_horizon=1,
             stride=1,
             retrain=False,
             last_points_only=True,
             verbose=False,
         )
-        resid = series.slice_intersect(arima_full) - arima_full.slice_intersect(series)
+        resid = sub.slice_intersect(arima_full) - arima_full.slice_intersect(sub)
         resid_scaled = self._resid_scaler.transform(resid)
         resid_fc = self._resid_scaler.inverse_transform(
             self.lstm.historical_forecasts(
@@ -304,35 +371,29 @@ class Differenced:
 
     def predict(self, n: int, **kwargs: object) -> TimeSeries:
         diff_fc = self.base.predict(n, **kwargs)
-        vals = self._last_level + np.cumsum(diff_fc.values().flatten())
+        # AJ2: per-SAMPLE reintegration (cumsum along the time axis) — a
+        # probabilistic base (deepar/tft) emits (time, component, samples) and the
+        # previous flatten collapsed the samples into one corrupt trajectory.
+        vals = self._last_level + np.cumsum(diff_fc.all_values(copy=False), axis=0)
         return TimeSeries.from_times_and_values(diff_fc.time_index, vals)
 
-    def historical_forecasts(
-        self,
-        series: TimeSeries,
-        *,
-        start: int,
-        forecast_horizon: int = 1,
-        stride: int = 1,
-        retrain: bool = True,
-        last_points_only: bool = True,
-        verbose: bool = False,
-        **kwargs: object,
-    ) -> TimeSeries:
-        # Backtest 1-paso sobre la serie diferenciada; cada delta pronosticado se reintegra
-        # sumándolo al ÚLTIMO nivel observado (causal: conocido en el origen). Leakage-free.
-        diff_fc = self.base.historical_forecasts(  # type: ignore[attr-defined]
-            series.diff(),
-            start=start,
-            forecast_horizon=1,
-            stride=1,
-            retrain=retrain,
-            last_points_only=True,
-            verbose=False,
-            **kwargs,
-        )
+    def historical_forecasts(self, series: TimeSeries, *, start: int | pd.Timestamp, **kwargs: object) -> TimeSeries:
+        # One-step backtest on the differenced series; each forecast delta is
+        # reintegrated onto the LAST observed level (causal: known at the origin).
+        # Leakage-free. Defaults identical to the wrapper's historical behavior
+        # (callers may override any of them).
+        kwargs.setdefault("forecast_horizon", 1)
+        kwargs.setdefault("stride", 1)
+        kwargs.setdefault("retrain", True)
+        kwargs.setdefault("last_points_only", True)
+        kwargs.setdefault("verbose", False)
+        diff_fc = self.base.historical_forecasts(series.diff(), start=start, **kwargs)
         prev_level = series.shift(1).slice_intersect(diff_fc)
-        return prev_level + diff_fc.slice_intersect(prev_level)
+        diff_al = diff_fc.slice_intersect(prev_level)
+        # numpy addition with broadcasting (t,1,1)+(t,1,s): also valid when the base
+        # emits samples (deepar/tft under AJ1+AJ2); s=1 reproduces the classic case.
+        vals = prev_level.all_values(copy=False) + diff_al.all_values(copy=False)
+        return TimeSeries.from_times_and_values(prev_level.time_index, vals)
 
 
 class ChronosForecaster:
@@ -340,11 +401,13 @@ class ChronosForecaster:
 
     No se entrena en la serie: un modelo preentrenado en millones de series condiciona
     sobre el contexto histórico y emite cuantiles. Aborda de raíz el problema de n
-    pequeño (n=125-290) que hunde a los modelos profundos entrenados localmente. La
-    canalización se cachea a nivel de clase (se descarga una sola vez). Corre en CPU.
+    pequeño (n=130-296) que hunde a los modelos profundos entrenados localmente. La
+    canalización se cachea a nivel de clase POR NOMBRE de modelo (AI5: el cache sin
+    key servía en silencio el primer checkpoint cargado a cualquier instancia con
+    otro modelo). Corre en CPU.
     """
 
-    _pipe: object = None
+    _pipes: dict[str, object] = {}
 
     def __init__(self, model: str | None = None) -> None:
         from vp_model.config import CHRONOS_MODEL
@@ -354,11 +417,11 @@ class ChronosForecaster:
 
     @classmethod
     def _pipeline(cls, model: str) -> object:
-        if cls._pipe is None:
+        if model not in cls._pipes:
             from chronos import BaseChronosPipeline
 
-            cls._pipe = BaseChronosPipeline.from_pretrained(model, device_map="cpu")
-        return cls._pipe
+            cls._pipes[model] = BaseChronosPipeline.from_pretrained(model, device_map="cpu")
+        return cls._pipes[model]
 
     def _q(self, context: np.ndarray, n: int) -> np.ndarray:
         _, mean = self._pipeline(self.model).predict_quantiles(  # type: ignore[attr-defined]
@@ -375,28 +438,111 @@ class ChronosForecaster:
         idx = pd.date_range(self._series.end_time(), periods=n + 1, freq=self._series.freq_str)[1:]
         return TimeSeries.from_times_and_values(idx, self._q(self._series.values().flatten(), n))
 
-    def historical_forecasts(
-        self,
-        series: TimeSeries,
-        *,
-        start: int,
-        forecast_horizon: int = 1,
-        stride: int = 1,
-        retrain: bool = False,
-        last_points_only: bool = True,
-        verbose: bool = False,
-        **kwargs: object,
-    ) -> TimeSeries:
+    def historical_forecasts(self, series: TimeSeries, *, start: int | pd.Timestamp, **kwargs: object) -> TimeSeries:
         # Pronóstico a 1 paso en cada origen condicionando SOLO sobre el pasado (zero-shot,
         # leakage-free por construcción): el contexto en el origen t son los datos [0:t].
+        # Los kwargs de conveniencia darts (retrain/stride/…) no aplican a un zero-shot.
+        start_idx = start if isinstance(start, int) else series.get_index_at_point(start)
         vals = series.values().flatten()
-        preds = [float(self._q(vals[:t], 1)[0]) for t in range(start, len(series))]
-        idx = series.time_index[start:]
+        preds = [float(self._q(vals[:t], 1)[0]) for t in range(start_idx, len(series))]
+        idx = series.time_index[start_idx:]
         return TimeSeries.from_times_and_values(idx, np.asarray(preds))
 
 
+class AutoTheta:
+    """FourTheta with DATA-DRIVEN variant selection (AJ4) instead of a fixed θ=2.
+
+    ``FourTheta.select_best_model`` (deterministic darts gridsearch on in-sample
+    fitted values) picks θ∈{0,1,2,3} plus the trend/model modes. In the
+    walk-forward the selection runs ONCE on the initial window
+    (``series[:start]`` — leakage-free for the selection region) and the winning
+    configuration is then refit at every origin like any cheap statistical model.
+    """
+
+    def __init__(self) -> None:
+        self._model: FourTheta | None = None
+
+    @staticmethod
+    def _select(train: TimeSeries) -> FourTheta:
+        # darts 0.44: select_best_model returns the gridsearch tuple
+        # (model, params, score) despite its annotation — keep the model only.
+        best = FourTheta.select_best_model(train, thetas=[0, 1, 2, 3])
+        return best[0] if isinstance(best, tuple) else best
+
+    def fit(self, series: TimeSeries, **kwargs: object) -> AutoTheta:
+        self._model = self._select(series)
+        self._model.fit(series)
+        return self
+
+    def predict(self, n: int, **kwargs: object) -> TimeSeries:
+        assert self._model is not None, "AutoTheta: fit first"
+        return self._model.predict(n)
+
+    def historical_forecasts(self, series: TimeSeries, *, start: int | pd.Timestamp, **kwargs: object) -> TimeSeries:
+        start_idx = start if isinstance(start, int) else series.get_index_at_point(start)
+        model = self._select(series[:start_idx])  # selection sees only pre-origin data
+        kwargs.setdefault("forecast_horizon", 1)
+        kwargs.setdefault("stride", 1)
+        kwargs.setdefault("retrain", True)
+        kwargs.setdefault("last_points_only", True)
+        kwargs.setdefault("verbose", False)
+        return model.historical_forecasts(series, start=start_idx, **kwargs)
+
+
+class AutoETS:
+    """ETS with a small AICc search over {trend x damped} (AJ4).
+
+    Non-seasonal candidates (F_S ~ 0 on these series): (N,N), (A,N), (A_d,N).
+    The AICc is computed with statsmodels on the training window ONLY; the winning
+    spec is refit at every origin through the darts wrapper. Previously the
+    catalog imposed ETS(A,A_d,N) on all 74 series alike.
+    """
+
+    # (darts ModelMode trend, damped) pairs; None maps to statsmodels trend=None.
+    _CANDIDATES = ((None, False), (ModelMode.ADDITIVE, False), (ModelMode.ADDITIVE, True))
+
+    def __init__(self) -> None:
+        self._model: ExponentialSmoothing | None = None
+
+    @classmethod
+    def _select(cls, train: TimeSeries) -> ExponentialSmoothing:
+        from statsmodels.tsa.holtwinters import ExponentialSmoothing as SmETS
+
+        y = train.values(copy=False).flatten().astype("float64")
+        best, best_aicc = (ModelMode.ADDITIVE, True), np.inf  # fallback = historical ETS(A,Ad,N)
+        for trend, damped in cls._CANDIDATES:
+            try:
+                res = SmETS(y, trend=None if trend is None else "add", damped_trend=damped, seasonal=None).fit()
+                aicc = float(res.aicc)
+            except Exception:  # noqa: BLE001 — unstable candidate -> discarded
+                continue
+            if np.isfinite(aicc) and aicc < best_aicc:
+                best_aicc, best = aicc, (trend, damped)
+        trend, damped = best
+        return ExponentialSmoothing(trend=ModelMode.NONE if trend is None else trend, damped=damped, seasonal=None)
+
+    def fit(self, series: TimeSeries, **kwargs: object) -> AutoETS:
+        self._model = self._select(series)
+        self._model.fit(series)
+        return self
+
+    def predict(self, n: int, **kwargs: object) -> TimeSeries:
+        assert self._model is not None, "AutoETS: fit first"
+        return self._model.predict(n)
+
+    def historical_forecasts(self, series: TimeSeries, *, start: int | pd.Timestamp, **kwargs: object) -> TimeSeries:
+        start_idx = start if isinstance(start, int) else series.get_index_at_point(start)
+        model = self._select(series[:start_idx])  # selection sees only pre-origin data
+        kwargs.setdefault("forecast_horizon", 1)
+        kwargs.setdefault("stride", 1)
+        kwargs.setdefault("retrain", True)
+        kwargs.setdefault("last_points_only", True)
+        kwargs.setdefault("verbose", False)
+        return model.historical_forecasts(series, start=start_idx, **kwargs)
+
+
 def registry() -> dict[str, Callable[[], Forecaster]]:
-    """Mapa nombre -> fábrica perezosa (un modelo nuevo por llamada)."""
+    """Mapa nombre -> fábrica perezosa (un modelo nuevo por llamada; deriva de ``_FACTORIES``)."""
     return {name: partial(build_model, name) for name in MODEL_NAMES}
 
 

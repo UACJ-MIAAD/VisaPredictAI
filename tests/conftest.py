@@ -24,6 +24,7 @@ _MODEL_TESTS = [
     "test_forecast_scoring.py",  # importa score_forecasts → vp_model.metrics → darts
     "test_model_regression.py",  # golden-master del walk-forward → vp_model + darts
     "test_champion.py",  # harness campeón-retador → vp_model + scipy
+    "test_pi_brutal.py",  # intervalos (épica AN) → vp_model.intervals + darts/scipy
 ]
 
 # `statsmodels` es del extra `model`; su ausencia marca el job base sin la capa de modelado.

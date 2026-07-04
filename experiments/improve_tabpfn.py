@@ -19,9 +19,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# vp_model.config is dependency-light (no darts/torch) and the project is installed
+# editable in every venv, so the protocol constant has ONE source (AP5).
+from vp_model.config import HOLDOUT
+
 ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
-HOLDOUT = 24
 
 
 def _panel(table: str) -> pd.DataFrame:

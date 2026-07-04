@@ -15,19 +15,25 @@ el compromiso estándar coste/validez para forecasting con NN.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 from darts import TimeSeries
 
 from vp_model import dataset, intervals, metrics, models
 from vp_model.config import (
     HOLDOUT,
+    LIKELIHOOD_MODELS,
     MIN_BACKTEST_BUFFER,
     MIN_TRAIN,
     NN_RETRAIN,
+    NUM_SAMPLES_POINT,
     PROBABILISTIC,
     RETRAIN_EACH_STEP,
+    get_logger,
 )
 from vp_model.feature_builder import FeatureBuilder
+
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -38,6 +44,13 @@ class BacktestResult:
     table: str
     selection: dict[str, float]  # métricas en la región de selección (pre-holdout)
     holdout: dict[str, float]  # métricas en los 24 meses reservados
+
+
+def _median_point(fc: TimeSeries) -> TimeSeries:
+    """Collapse a stochastic forecast to its per-step median (AJ2); no-op if deterministic."""
+    if fc.n_samples <= 1:
+        return fc
+    return fc.median(axis=2)
 
 
 def run_forecasts(
@@ -56,17 +69,26 @@ def run_forecasts(
     if len(ts) < min_train + HOLDOUT + MIN_BACKTEST_BUFFER:
         raise ValueError(f"serie demasiado corta ({len(ts)}) para min_train={min_train}+holdout={HOLDOUT}")
 
-    model = models.build_model(model_name) if model is None else model
+    # AP1: injected models (tuner templates, auto-arima) are typed `object` by their
+    # producers; the cast documents that they must satisfy the Forecaster protocol.
+    fc_model: models.Forecaster = (
+        models.build_model(model_name, table=table) if model is None else cast("models.Forecaster", model)
+    )
     retrain: bool | int = True if model_name in RETRAIN_EACH_STEP else NN_RETRAIN
     # historical_forecasts recibe future_covariates UNA vez (lo usa en fit y predict).
     cov = fe.covariates(ts)
-    extra = {"future_covariates": cov} if cov is not None else {}
+    extra: dict[str, object] = {"future_covariates": cov} if cov is not None else {}
+    if model_name in LIKELIHOOD_MODELS:
+        # AJ2: with the darts default num_samples=1, a SINGLE stochastic draw was
+        # serving as the point forecast; sample the predictive distribution instead
+        # and use its median as the point (collapsed in _median_point below).
+        extra["num_samples"] = NUM_SAMPLES_POINT
 
     # Escalado leakage-free para redes: Scaler ajustado solo en la ventana inicial.
     scaler = fe.fit_scaler(ts, min_train)
     ts_model = scaler.transform(ts) if scaler is not None else ts
 
-    forecasts = model.historical_forecasts(  # type: ignore[attr-defined]
+    forecasts = fc_model.historical_forecasts(
         ts_model,
         start=min_train,
         forecast_horizon=1,
@@ -78,7 +100,7 @@ def run_forecasts(
     )
     if scaler is not None:
         forecasts = scaler.inverse_transform(forecasts)
-    return ts, forecasts
+    return ts, _median_point(forecasts)
 
 
 def backtest(model_name: str, country: str, category: str, table: str, model: object | None = None) -> BacktestResult:
@@ -100,6 +122,9 @@ def backtest(model_name: str, country: str, category: str, table: str, model: ob
     fdates = raw.index
     split = ts.time_index[-HOLDOUT]
     scale = metrics.naive_scale_before(raw, split)
+    # AI2: naive-1 (random walk) scale in parallel — contextualizes the m=12 MASE
+    # without touching the canonical figures (extra `mase1` key/column).
+    scale1 = metrics.naive_scale_before(raw, split, m=1)
     sel_fc, hold_fc = forecasts.split_before(split)
     insample = ts.drop_after(split)
 
@@ -118,15 +143,26 @@ def backtest(model_name: str, country: str, category: str, table: str, model: ob
             "interval_score": metrics.interval_score(hold_actual, iv.lower, iv.upper, dates=fdates),
             "coverage": metrics.pi_coverage(hold_actual, iv.lower, iv.upper, dates=fdates),
         }
-    except ValueError, IndexError:
+    except (ValueError, IndexError) as e:
+        # AP5: the NaN degradation was SILENT — without a trace one cannot tell
+        # "series with too few F residuals to calibrate" from a conformal bug.
+        log.warning(
+            "conformal PI failed for %s/%s/%s/%s (%s: %s) — probabilistic metrics set to NaN",
+            model_name,
+            country,
+            category,
+            table,
+            type(e).__name__,
+            e,
+        )
         prob = {"msis": float("nan"), "interval_score": float("nan"), "coverage": float("nan")}
-    holdout = {**metrics.compute(hold_actual, hold_fc, insample, dates=fdates, scale=scale), **prob}
+    holdout = {**metrics.compute(hold_actual, hold_fc, insample, dates=fdates, scale=scale, scale1=scale1), **prob}
     return BacktestResult(
         model=model_name,
         country=country,
         category=category,
         table=table,
-        selection=metrics.compute(sel_actual, sel_fc, insample, dates=fdates, scale=scale),
+        selection=metrics.compute(sel_actual, sel_fc, insample, dates=fdates, scale=scale, scale1=scale1),
         holdout=holdout,
     )
 
@@ -146,11 +182,11 @@ def crps_holdout(model_name: str, country: str, category: str, table: str, num_s
     fe = FeatureBuilder(model_name)
     ts = fe.to_timeseries(dataset.load_series(country, category, table))
     split = ts.time_index[-HOLDOUT]
-    model = models.build_model(model_name)
+    model = models.build_model(model_name, table=table)
     retrain: bool | int = True if model_name in RETRAIN_EACH_STEP else NN_RETRAIN
     scaler = fe.fit_scaler(ts, len(ts) - HOLDOUT)
     ts_model = scaler.transform(ts) if scaler is not None else ts
-    samples = model.historical_forecasts(  # type: ignore[attr-defined]
+    samples = model.historical_forecasts(
         ts_model,
         start=split,
         forecast_horizon=1,

@@ -28,8 +28,11 @@ REPORTS = champion.REPORTS
 def _markdown(verdicts: list[champion.Verdict]) -> str:
     lines = ["# Campeón–retador — veredicto de promoción", ""]
     for v in verdicts:
+        crps = champion.crps_champion(v.table)
+        crps_note = f" · CRPS {crps} (informativo)" if crps is not None else ""
         lines += [
-            f"## {v.table} — campeón `{v.champion}` (MASE media {v.champion_mean} · mediana {v.champion_median})",
+            f"## {v.table} — campeón `{v.champion}` "
+            f"(MASE media {v.champion_mean} · mediana {v.champion_median}{crps_note})",
             "",
             "| retador | MASE media | margen vs campeón | Wilcoxon p | Holm p | ¿promovible? |",
             "|---|---|---|---|---|---|",
@@ -64,6 +67,9 @@ def main() -> int:
             "champion": v.champion,
             "champion_mean": v.champion_mean,
             "champion_median": v.champion_median,
+            # AM5: informative probabilistic metric (None when the CRPS CSV is absent).
+            # NOT a gate — promotion still rides on point MASE + Wilcoxon/Holm.
+            "champion_crps": champion.crps_champion(v.table),
             "challengers": v.challengers,
             "promote": v.promote,
         }
@@ -92,16 +98,11 @@ def main() -> int:
         changed = False
         for v in verdicts:
             if v.promote:
-                # reconstruye la receta ganadora desde su nombre canónico
-                name = v.promote["challenger"]
-                if "(" in name:
-                    agg, inside = name.split("(", 1)
-                    models = tuple(inside.rstrip(")").split("+"))
-                else:
-                    agg, models = "median", (name,)
-                champions[v.table] = champion.Recipe(models, agg)
+                # AP4: the winning Recipe travels serialized inside the verdict — the pretty
+                # display name is for humans only and is never parsed again.
+                champions[v.table] = champion.recipe_from_dict(v.promote["recipe"])
                 changed = True
-                print(f"  ↑ PROMOVIDO {v.table}: nuevo campeón = {name}")
+                print(f"  ↑ PROMOVIDO {v.table}: nuevo campeón = {v.promote['challenger']}")
         if changed:
             champion.save_manifest(champions)
             print(f"  manifiesto actualizado → {champion.MANIFEST}")

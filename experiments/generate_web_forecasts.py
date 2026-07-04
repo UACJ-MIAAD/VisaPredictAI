@@ -11,11 +11,23 @@ Modelo de producción por tabla (coincide con los ganadores del entregable):
   • FAD → mediana de {Theta, ETS, SARIMA}  (el ensamble que supera al global en FAD)
   • DFF → SARIMA                            (imbatible en DFF)
 
-Intervalo de predicción: **conforme dividido** (split conformal, ``intervals.conformal``)
-calibrado sobre los residuales de **1 paso** del hold-out. ⚠️ La garantía de cobertura
-conforme es de 1 paso; el ensanchado por **√h** a 12 meses es una **heurística** (crecimiento
-random-walk del error acumulado), NO transfiere la garantía a multi-paso — la cobertura
-real se mide en el scorecard (`score_forecasts.py`; ≈0.92 para la banda 95 %).
+Prediction interval (AN1/AN2/AN4):
+  • 1-step half-width: split conformal (``intervals.conformal``) calibrated on the
+    hold-out residuals of the deployed ensemble, **F-only** (``calib_dates`` = the raw
+    F index; interpolated C/U months are NOT scored nor calibrated on — B1). The
+    hold-out MASE/coverage in the meta use the same mask and the same naive scale as
+    ``walkforward.backtest``.
+  • Horizon growth: empirical per-horizon quantiles ``q_{table, level, h}`` from the
+    prospective ledger (``reports/prospective/pi_scale_by_h.json``, derived by
+    ``experiments/derive_band80_ratio.py`` on a disjoint vintage split). Documented
+    fallback: if the JSON is missing or has no cell for (table, level, h), the band
+    reverts to the legacy sqrt(h) heuristic with ``config.BAND80_RATIO`` for the 80 %
+    band. Real multi-step coverage is still measured by ``score_forecasts.py``.
+  • Per-series ACI (Gibbs & Candès): if the prospective ledger already scored >= 8
+    forecasts of a series, the conformal level is adapted from its hit history
+    (``intervals.aci_alpha``); otherwise the nominal ``config.ALPHA`` is used. The
+    gamma comes from ``reports/eval/aci_gamma.json`` (written by
+    ``experiments/improve_conformal.py``), default 0.05.
 
 Salidas (tidy, versionadas en git como el resto de reports/):
   • reports/prospective/web_forecasts.csv       — country,category,table,date,days,lo80,hi80,lo95,hi95
@@ -32,7 +44,6 @@ from __future__ import annotations
 
 import json
 import math
-import warnings
 from pathlib import Path
 
 import numpy as np
@@ -42,23 +53,62 @@ from darts import TimeSeries
 from vp_data import tracking
 from vp_model import champion, config, dataset, intervals, metrics, models
 
-warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
 HORIZON = 12
-# Razón banda-80 %/95 % calibrada en split disjunto (config.BAND80_RATIO; ver
-# experiments/derive_band80_ratio.py). NO se re-define aquí para evitar circularidad.
-# Receta de producción por tabla — leída del MANIFIESTO campeón (champion_manifest.json),
-# que es la receta desplegada versionada. El harness campeón-retador
-# (experiments/run_champion_challenger.py --promote) es lo ÚNICO que la cambia, de forma
-# auditada. Punto = mediana del conjunto (1 elemento = ese modelo). Fallback a la receta
-# histórica si el manifiesto no existe.
-PROD: dict[str, tuple[str, ...]] = {t: r.models for t, r in champion.load_manifest().items()}
+ACI_MIN_HITS = 8  # minimum scored ledger rows for a series before ACI kicks in (AN4)
+ACI_GAMMA_DEFAULT = 0.05
 log = config.get_logger("web_forecasts")
 
 
+def _load_pi_scales() -> dict | None:
+    """Per-horizon band scales q_{table, level, h} (AN2); None -> sqrt(h) fallback."""
+    path = REPORTS / "prospective" / "pi_scale_by_h.json"
+    if not path.exists():
+        log.warning("no %s — bands fall back to sqrt(h) growth (run derive_band80_ratio)", path.name)
+        return None
+    return json.loads(path.read_text())["scales"]
+
+
+def _load_aci_gamma() -> dict[str, float]:
+    """ACI step size per table, selected on calibration vintages by improve_conformal (AN4)."""
+    path = REPORTS / "eval" / "aci_gamma.json"
+    if not path.exists():
+        return {t: ACI_GAMMA_DEFAULT for t in config.TABLES}
+    raw = json.loads(path.read_text())
+    return {t: float(raw.get(t, ACI_GAMMA_DEFAULT)) for t in config.TABLES}
+
+
+def _ledger_hits() -> dict[tuple[str, str, str], list[int]]:
+    """Chronological in95 hit history per series from the prospective scorecard (AN4)."""
+    path = REPORTS / "prospective" / "forecast_scorecard.csv"
+    if not path.exists():
+        return {}
+    sc = pd.read_csv(path).sort_values(["target", "origin", "h"])
+    return {
+        (c, cat, t): g["in95"].astype(int).tolist() for (c, cat, t), g in sc.groupby(["country", "category", "table"])
+    }
+
+
+def _band_halfwidths(h: int, half95_1step: float, table: str, scales: dict | None) -> tuple[float, float, str]:
+    """(half80, half95, method) at horizon ``h`` from the 1-step conformal half-width.
+
+    Primary path (AN2): empirical ledger quantiles ``q_{table, level, h}``. Documented
+    fallback when the JSON or the (table, level, h) cell is missing (e.g. h beyond the
+    calibrated range, or a cell below the min-n floor): legacy sqrt(h) random-walk
+    growth with the scalar ``config.BAND80_RATIO`` for the 80 % band.
+    """
+    if scales is not None:
+        t = scales.get(table, {})
+        q80, q95 = t.get("80", {}).get(str(h)), t.get("95", {}).get(str(h))
+        if q80 is not None and q95 is not None:
+            return half95_1step * float(q80), half95_1step * float(q95), "q_h"
+    grow = math.sqrt(h)
+    return half95_1step * config.BAND80_RATIO * grow, half95_1step * grow, "sqrt_h"
+
+
 def _holdout_preds(model_set: tuple[str, ...], country: str, category: str, table: str, as_of: str | None = None):
-    """(serie, dict modelo->pred 1-paso del hold-out). Lanza si la serie es muy corta.
+    """(serie darts, serie F cruda, dict modelo->pred 1-paso del hold-out).
 
     Walk-forward de 1 paso, leakage-free, **solo sobre los 24 meses de hold-out**
     (los modelos locales de darts exigen ``retrain=True``; 24 reentrenamientos por
@@ -66,14 +116,18 @@ def _holdout_preds(model_set: tuple[str, ...], country: str, category: str, tabl
 
     ``as_of`` (YYYY-MM) trunca la serie a ese mes inclusive para generar una añada
     HISTÓRICA leakage-free (origen del pronóstico) y poder medirla contra los reales
-    ya observados — la base de la evaluación prospectiva.
+    ya observados — la base de la evaluación prospectiva. The raw F-only series is
+    returned alongside because its index is the B1 mask (calibration + scoring must
+    ignore the months ``to_timeseries`` interpolates).
     """
-    ts = models.to_timeseries(dataset.load_series(country, category, table))
+    raw = dataset.load_series(country, category, table).astype("float64")
+    ts = models.to_timeseries(raw)
     if as_of is not None:
         cut = pd.Timestamp(as_of) + pd.offsets.MonthBegin(1)
         if not (ts.start_time() < cut <= ts.end_time() + ts.freq):  # serie sin datos en ese origen
             raise ValueError(f"as_of={as_of} fuera del rango de la serie")
         ts = ts.drop_after(cut)
+        raw = raw[raw.index < cut]
     if len(ts) < config.MIN_TRAIN[table] + config.HOLDOUT + config.MIN_BACKTEST_BUFFER:
         raise ValueError(f"serie demasiado corta ({len(ts)})")
     split = ts.time_index[-config.HOLDOUT]
@@ -83,7 +137,7 @@ def _holdout_preds(model_set: tuple[str, ...], country: str, category: str, tabl
         preds[name] = m.historical_forecasts(  # type: ignore[attr-defined]
             ts, start=split, forecast_horizon=1, stride=1, retrain=True, last_points_only=True, verbose=False
         )
-    return ts, preds
+    return ts, raw, preds
 
 
 def _ensemble_point(values: list[np.ndarray]) -> np.ndarray:
@@ -92,21 +146,38 @@ def _ensemble_point(values: list[np.ndarray]) -> np.ndarray:
 
 
 def _series_forecast(
-    country: str, category: str, table: str, as_of: str | None = None
+    country: str,
+    category: str,
+    table: str,
+    as_of: str | None,
+    prod: dict[str, tuple[str, ...]],
+    pi_scales: dict | None,
+    aci_gamma: dict[str, float],
+    hits: dict[tuple[str, str, str], list[int]],
 ) -> tuple[list[dict], dict] | None:
     """Error boundary: cualquier fallo de una serie/modelo (serie corta, ``as_of`` fuera
     de rango, error numérico de SARIMA, etc.) la OMITE sin abortar la añada completa."""
     try:
-        return _compute_series_forecast(country, category, table, as_of)
+        return _compute_series_forecast(country, category, table, as_of, prod, pi_scales, aci_gamma, hits)
     except Exception as e:  # noqa: BLE001 — robustez: una serie que falla no tumba la corrida
         log.info("skip %s/%s/%s: %s", country, category, table, e)
         return None
 
 
-def _compute_series_forecast(country: str, category: str, table: str, as_of: str | None) -> tuple[list[dict], dict]:
-    model_set = PROD[table]
-    ts, hold_preds = _holdout_preds(model_set, country, category, table, as_of)
+def _compute_series_forecast(
+    country: str,
+    category: str,
+    table: str,
+    as_of: str | None,
+    prod: dict[str, tuple[str, ...]],
+    pi_scales: dict | None,
+    aci_gamma: dict[str, float],
+    hits: dict[tuple[str, str, str], list[int]],
+) -> tuple[list[dict], dict]:
+    model_set = prod[table]
+    ts, raw, hold_preds = _holdout_preds(model_set, country, category, table, as_of)
     origin = ts.end_time().strftime("%Y-%m")  # mes desde el que se pronostica (la "añada")
+    fdates = raw.index  # B1 mask: real F observations only (AN1)
 
     # pronóstico ensamble del hold-out (mediana de los modelos en las fechas comunes)
     common = hold_preds[model_set[0]].time_index
@@ -117,21 +188,44 @@ def _compute_series_forecast(country: str, category: str, table: str, as_of: str
     ens_hold_ts = TimeSeries.from_series(pd.Series(ens_hold, index=common))
     actual_ts = TimeSeries.from_series(actual)
 
-    # semiancho conforme de 1 paso al 95 % sobre el hold-out del ensamble.
-    half95 = (
-        (intervals.conformal(ens_hold_ts, actual_ts, ens_hold_ts, alpha=0.05).upper - ens_hold_ts).values().flatten()[0]
+    # AN4: per-series adaptive level from the prospective hit history (>= ACI_MIN_HITS
+    # scored ledger rows), else the nominal alpha. A miss streak lowers alpha_eff ->
+    # wider next-vintage bands; the live vintage (as_of=None) is the one being adapted.
+    # NOTE (interplay with q_h): the hit history pools ALL horizons (h1-only histories
+    # are too short: <=3 per series today), so ACI also reacts to multi-step misses that
+    # the q_h scales correct on average — a deliberate belt-and-suspenders overlap. The
+    # tempering knob is gamma (grid-selected on calibration vintages by
+    # improve_conformal -> aci_gamma.json); once q_h bands enter the ledger, the online
+    # hit stream self-corrects. alpha_eff is recorded in the meta for auditability.
+    hit_hist = hits.get((country, category, table), []) if as_of is None else []
+    alpha_eff = (
+        intervals.aci_alpha(hit_hist, alpha0=config.ALPHA, gamma=aci_gamma[table])
+        if len(hit_hist) >= ACI_MIN_HITS
+        else config.ALPHA
     )
-    # La banda 80 % conforme directa corría estrecha (cobertura prospectiva ~58 %):
-    # con residuales de cola pesada, el P80(|resid|) queda diminuto frente al P97.5.
-    # Se ancla al 95 % por un factor calibrado en split disjunto (config.BAND80_RATIO).
-    half80 = half95 * config.BAND80_RATIO
 
-    # métricas de procedencia (hold-out)
-    insample = ts.split_before(ts.time_index[-config.HOLDOUT])[0]
-    mt = metrics.compute(actual_ts, ens_hold_ts, insample)
+    # 1-step conformal half-width at alpha_eff, calibrated on F-only hold-out residuals
+    # of the deployed ensemble (AN1: without calib_dates the interpolated C/U months
+    # shrank the residuals and the bands).
+    half95 = (
+        (
+            intervals.conformal(ens_hold_ts, actual_ts, ens_hold_ts, alpha=alpha_eff, calib_dates=fdates).upper
+            - ens_hold_ts
+        )
+        .values()
+        .flatten()[0]
+    )
+
+    # métricas de procedencia (hold-out) — F-only + shared naive scale (same recipe as
+    # walkforward.backtest; without the mask the meta MASE/coverage were contaminated).
+    split = ts.time_index[-config.HOLDOUT]
+    scale = metrics.naive_scale_before(raw, split)
+    insample = ts.split_before(split)[0]
+    mt = metrics.compute(actual_ts, ens_hold_ts, insample, dates=fdates, scale=scale)
     lo95_h = ens_hold_ts - float(half95)
     hi95_h = ens_hold_ts + float(half95)
-    cov95 = metrics.pi_coverage(actual_ts, lo95_h, hi95_h)
+    cov95 = metrics.pi_coverage(actual_ts, lo95_h, hi95_h, dates=fdates)
+    n_f_holdout = int(common.isin(fdates).sum())
 
     # pronóstico FUTURO: ajustar cada modelo en TODA la serie y predecir 12 meses
     fut: list[np.ndarray] = []
@@ -143,8 +237,10 @@ def _compute_series_forecast(country: str, category: str, table: str, as_of: str
     future_idx = pd.date_range(ts.end_time() + ts.freq, periods=HORIZON, freq=ts.freq)
 
     rows = []
+    band_methods = set()
     for h, (d, pv) in enumerate(zip(future_idx, point, strict=True), start=1):
-        grow = math.sqrt(h)  # error acumulado tipo random-walk
+        half80_h, half95_h, band_method = _band_halfwidths(h, float(half95), table, pi_scales)
+        band_methods.add(band_method)
         rows.append(
             {
                 "origin": origin,
@@ -154,21 +250,28 @@ def _compute_series_forecast(country: str, category: str, table: str, as_of: str
                 "table": table,
                 "date": d.strftime("%Y-%m-%d"),
                 "days": int(round(pv)),
-                "lo80": int(round(pv - half80 * grow)),
-                "hi80": int(round(pv + half80 * grow)),
-                "lo95": int(round(pv - half95 * grow)),
-                "hi95": int(round(pv + half95 * grow)),
+                "lo80": int(round(pv - half80_h)),
+                "hi80": int(round(pv + half80_h)),
+                "lo95": int(round(pv - half95_h)),
+                "hi95": int(round(pv + half95_h)),
             }
         )
+    # AN7: a per-series hold-out coverage without its n would overstate precision; the
+    # Jeffreys CI is emitted alongside (n is small by construction — 24-month hold-out).
+    cov_ci = intervals.jeffreys_ci(int(round(cov95 * n_f_holdout)), n_f_holdout) if n_f_holdout else (None, None)
     meta = {
         "n_obs": len(ts),
+        "n_f_obs": int(len(raw)),
         "last_month": ts.end_time().strftime("%Y-%m"),
         "models": list(model_set),
         "mase": round(float(mt.get("mase", float("nan"))), 4),
         "smape": round(float(mt.get("smape", float("nan"))), 4),
         "cov95_holdout": round(float(cov95), 4),
+        "cov95_holdout_n": n_f_holdout,
+        "cov95_holdout_ci95": [round(c, 3) for c in cov_ci] if cov_ci[0] is not None else None,
+        "alpha_eff": round(float(alpha_eff), 4),
+        "band_method": sorted(band_methods),
         "half95_1step_days": int(round(half95)),
-        "half80_1step_days": int(round(half80)),
     }
     tracking.log_run(
         "web_forecasts",
@@ -181,7 +284,7 @@ def _compute_series_forecast(country: str, category: str, table: str, as_of: str
             "horizon": HORIZON,
         },
         metrics={"mase": meta["mase"], "smape": meta["smape"], "cov95": meta["cov95_holdout"], "n_obs": len(ts)},
-        tags={"kind": "web_forecast", "pi": "conformal_sqrt_h"},
+        tags={"kind": "web_forecast", "pi": "conformal_qh" if "q_h" in band_methods else "conformal_sqrt_h"},
     )
     return rows, {f"{country}/{category}/{table}": meta}
 
@@ -210,14 +313,26 @@ def _append_log(rows: list[dict]) -> Path:
 
 
 def run(as_of: str | None = None) -> tuple[Path, Path]:
+    import warnings
+
+    warnings.filterwarnings("ignore")  # AP5: scoped to the run, not an import side effect
     config.seed_everything()  # reproducibilidad: misma semilla para todo lo estocástico
+    # Receta de producción por tabla — leída del MANIFIESTO campeón (champion_manifest.json),
+    # que es la receta desplegada versionada. El harness campeón-retador
+    # (experiments/run_champion_challenger.py --promote) es lo ÚNICO que la cambia, de forma
+    # auditada. Punto = mediana del conjunto (1 elemento = ese modelo). Fallback a la receta
+    # histórica si el manifiesto no existe. (AP5: loaded here, not at import time.)
+    prod: dict[str, tuple[str, ...]] = {t: r.models for t, r in champion.load_manifest().items()}
+    pi_scales = _load_pi_scales()
+    aci_gamma = _load_aci_gamma()
+    hits = _ledger_hits()
     all_rows: list[dict] = []
     all_meta: dict = {}
     for table in config.TABLES:
         for block in ("family", "employment"):
             cat = dataset.list_series(table=table, block=block, countries=config.PILOT_COUNTRIES)
             for r in cat.itertuples():
-                out = _series_forecast(r.country, r.category, table, as_of)
+                out = _series_forecast(r.country, r.category, table, as_of, prod, pi_scales, aci_gamma, hits)
                 if out is None:
                     continue
                 rows, meta = out
@@ -242,11 +357,16 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
     # CSV vivo, así que un backfill histórico NO debe reescribirlo (C3).
     if as_of is None:
         pd.DataFrame(all_rows)[WEB_COLS].to_csv(csv_path, index=False)
-        # método derivado del manifiesto campeón (PROD), no prosa congelada (C3)
+        # método derivado del manifiesto campeón (prod), no prosa congelada (C3)
         pretty = {"theta": "Theta", "ets": "ETS", "sarima": "SARIMA", "arima": "ARIMA", "kalman": "Kalman"}
+        band_txt = (
+            "bandas por cuantil empírico por horizonte (ledger prospectivo)"
+            if pi_scales is not None
+            else "ensanchado por √h"
+        )
         method = {
-            t: (("Mediana de " if len(PROD[t]) > 1 else "") + " + ".join(pretty.get(m, m) for m in PROD[t]))
-            + " · intervalo conforme (95 %/80 %) ensanchado por √h"
+            t: (("Mediana de " if len(prod[t]) > 1 else "") + " + ".join(pretty.get(m, m) for m in prod[t]))
+            + f" · intervalo conforme (95 %/80 %) {band_txt}"
             for t in config.TABLES
         }
         meta_path.write_text(

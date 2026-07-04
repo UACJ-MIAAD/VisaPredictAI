@@ -27,11 +27,14 @@ from pathlib import Path
 
 import pandas as pd
 
+# vp_model.config is dependency-light (no darts/torch) and the project is installed
+# editable in every venv, so the protocol constant has ONE source (AP5).
+from vp_model.config import HOLDOUT
+
 ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
 OUT = ROOT / "reports" / "eval" / "neuralforecast_forecasts.csv"
 PILOT = ("mexico", "india", "china", "philippines", "all_chargeability")
-HOLDOUT = 24
 
 
 def load_panel(table: str, block: str) -> pd.DataFrame:

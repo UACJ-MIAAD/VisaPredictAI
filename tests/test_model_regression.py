@@ -11,6 +11,13 @@ absorbe ruido numérico de BLAS entre plataformas (macOS↔linux) pero no una re
 Regenerar el baseline a propósito (tras un cambio de metodología legítimo):
     ante/bin/python tests/test_model_regression.py --update
 y commitear ``tests/model_regression_baseline.json`` con una nota del porqué.
+
+Historial de regeneraciones intencionales:
+  * 2026-07-04 (plan MODELOS, épica AJ4): ets/theta pasaron a AutoETS/AutoTheta
+    (selección AICc / select_best_model sobre la ventana inicial) — sus celdas
+    cambian por diseño. De paso el baseline absorbe el micro-drift FAD (<0.6%,
+    dentro de tolerancia) que dejó la resurrección I1 de los 5 meses pre-2015
+    (solo tocó series FAD; el baseline previo era pre-resurrección).
 """
 
 from __future__ import annotations

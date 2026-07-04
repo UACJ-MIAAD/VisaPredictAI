@@ -56,8 +56,49 @@ def conformal(
         raise ValueError("sin residuales de calibración sobre fechas F reales")
     # Cuantil conforme con corrección finita: ceil((n+1)(1-alpha))/n.
     q_level = min(1.0, np.ceil((n + 1) * (1 - alpha)) / n)
-    half = float(np.quantile(resid, q_level))
+    # AN7: method="higher" (order statistic) — linear interpolation is anti-conservative
+    # with small n and breaks the finite-sample guarantee the (n+1) correction buys.
+    half = float(np.quantile(resid, q_level, method="higher"))
     return Interval(point_forecast - half, point_forecast + half, "conforme")
+
+
+def aci_alpha(hits, alpha0: float = ALPHA, gamma: float = 0.05) -> float:
+    """Effective miscoverage level after Adaptive Conformal Inference updates (AN4).
+
+    Pure function (Gibbs & Candès 2021): starting at ``alpha0``, replay the online
+    update ``alpha_{t+1} = alpha_t + gamma * (alpha0 - err_t)`` over the observed
+    ``hits`` sequence (truthy = the realized value fell inside the interval, so
+    ``err_t = 0``; falsy = miss, ``err_t = 1``). A run of misses LOWERS alpha
+    (wider future intervals); a run of hits raises it (narrower). The caller feeds
+    the per-series hit history from the prospective ledger, in chronological order,
+    and uses the returned level as the conformal alpha for the NEXT forecast.
+
+    Returns ``alpha0`` unchanged for an empty history. The result is clamped to
+    [1e-3, 0.999] so downstream quantiles stay well-defined.
+    """
+    a = float(alpha0)
+    for h in hits:
+        a += gamma * (alpha0 - (0.0 if h else 1.0))
+    return min(max(a, 1e-3), 0.999)
+
+
+def jeffreys_ci(k: int, n: int, conf: float = 0.95) -> tuple[float, float]:
+    """Jeffreys interval for a binomial proportion (AN7): Beta(k+1/2, n-k+1/2) quantiles.
+
+    Standard boundary convention: lower bound is 0 when ``k == 0`` and upper bound is
+    1 when ``k == n``. Every empirical coverage this project reports should carry this
+    CI together with ``n`` (a coverage without sample size is not a claim).
+    """
+    if n <= 0:
+        raise ValueError("jeffreys_ci requires n > 0")
+    if not 0 <= k <= n:
+        raise ValueError(f"k={k} out of range for n={n}")
+    from scipy.stats import beta
+
+    tail = (1.0 - conf) / 2.0
+    lo = 0.0 if k == 0 else float(beta.ppf(tail, k + 0.5, n - k + 0.5))
+    hi = 1.0 if k == n else float(beta.ppf(1.0 - tail, k + 0.5, n - k + 0.5))
+    return lo, hi
 
 
 def probabilistic(samples: TimeSeries, alpha: float = ALPHA) -> Interval:

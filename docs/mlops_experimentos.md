@@ -17,6 +17,18 @@ modelado. Diseñada alrededor de los **dos entornos** del proyecto (incompatible
 `vp_data/tracking.py` es **stdlib pura** (sin mlflow ni vp_model) → corre idéntico en ambos venv y
 escribe records JSONL. `experiments/sync_mlflow.py` (en `ante_nf`) los vuelca a MLflow, idempotente por
 `rec_id` (re-sincronizar no duplica). MLflow 3.x deprecó el file-store → **backend SQLite**.
+El sync preserva el **timestamp real** de cada corrida (`MlflowClient.create_run(start_time=ts)`,
+AO4): la UI ordena por la fecha del experimento, no por la fecha del sync.
+
+## ⚠️ Decisión (AO9): MLflow = archivo histórico, NO dashboard en vivo
+
+MLflow se sincroniza **manualmente** (`make mlflow-sync`, o como paso 1 de
+`experiments/sync_all.sh` / `make sync`), a demanda, cuando alguien quiere comparar corridas
+en la UI. **No** corre en el cron ni en CI (el staging JSONL allí es efímero). El registro
+**durable y canónico** de toda cifra publicada son los CSV/JSON commiteados en git
+(`reports/`) + el `git_sha` que `tracking.log_run` sella en cada record. Esto es una
+decisión, no una deriva: un MLflow "en vivo" exigiría un tracking server y credenciales en
+el cron a cambio de nada que el guardián de consistencia no cubra ya.
 
 ## Uso
 
@@ -24,7 +36,7 @@ escribe records JSONL. `experiments/sync_mlflow.py` (en `ante_nf`) los vuelca a 
 # 1. correr un barrido con tracking (cualquier env; ejemplo pool local)
 ante/bin/python -m vp_model.run_comparison --country all --table FAD --block family --mlflow
 
-# 2. sincronizar el staging a MLflow (en ante_nf)
+# 2. sincronizar el staging a MLflow (en ante_nf; equivale a `make mlflow-sync`)
 ante_nf/bin/python experiments/sync_mlflow.py
 
 # 3. abrir la UI para comparar corridas (filtra por params, ordena por métrica)
@@ -58,6 +70,25 @@ Modelos darts: `model.save("models/{tabla}/{modelo}_{pais}_{cat}/model.pkl")`. M
 (neuralforecast/darts-RNN): `.save()` genera `.ckpt`/`.pt`. Cada finalista se persiste, se
 versiona con DVC y se loguea como artifact en MLflow → cualquier número del `.tex` tiene su
 modelo recuperable.
+
+**Decisión (AO5): `models/` es un snapshot de campaña con acta de nacimiento, no shelf-ware
+mudo.** Hoy NADIE lo consume en producción — el demostrador web re-ajusta los modelos
+estadísticos en cada corrida (son baratos). Se conserva porque cada entrada de
+`models/manifest.jsonl` lleva `git_sha` + `git_dirty` + `panel_hash` (md5 del panel, mismo
+formato de 12 hex que la model card): cualquier pickle puede rastrearse hasta el código y
+los datos exactos que lo produjeron (`experiments/save_finalists.py`).
+
+## Despliegue en sombra (AO6)
+
+El cron refresca el veredicto campeón–retador cada boletín
+(`experiments/run_champion_challenger.py`) y congela además la añada del **mejor retador**
+en un ledger sombra separado e inmutable: `reports/prospective/forecast_log_shadow.csv`
+(`experiments/freeze_shadow.py`, `make shadow`; `shadow=true` + receta serializada por fila).
+Es un archivo APARTE a propósito: la clave de idempotencia del ledger campeón
+(origin/serie/fecha, `keep="first"`) haría colisionar filas sombra y campeón y una de las
+dos se perdería en silencio. El scorecard del campeón queda intacto por construcción
+(`score_forecasts.py` lee solo `forecast_log.csv`); puntuar la sombra para la confirmación
+prospectiva del gate de promoción es el siguiente paso natural de `score_forecasts.py`.
 
 ## Próximo (campaña F1–F3)
 Hook de `tracking` en `aggregate_seeds`/`run_global_deep` (deep), matriz de variantes

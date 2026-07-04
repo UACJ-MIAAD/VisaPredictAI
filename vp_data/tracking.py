@@ -29,8 +29,8 @@ ROOT = Path(__file__).resolve().parents[1]  # raíz del repo (el paquete vive un
 STAGING = ROOT / "mlruns_staging"
 
 
-def _git() -> tuple[str, bool]:
-    """(sha corto, dirty) para procedencia; tolerante si no hay git."""
+def git_state() -> tuple[str, bool]:
+    """(short sha, dirty) for provenance; tolerant when git is unavailable."""
     try:
         sha = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=ROOT, check=False
@@ -43,6 +43,10 @@ def _git() -> tuple[str, bool]:
         return sha or "unknown", dirty
     except Exception:  # noqa: BLE001 — el tracking nunca debe abortar la corrida
         return "unknown", True
+
+
+# Backwards-compat alias (AP5): external callers used the private name before the rename.
+_git = git_state
 
 
 def log_run(
@@ -60,7 +64,7 @@ def log_run(
     hace idempotente la sincronización.
     """
     STAGING.mkdir(exist_ok=True)
-    sha, dirty = _git()
+    sha, dirty = git_state()
     clean_metrics = {k: float(v) for k, v in metrics.items() if v is not None and math.isfinite(float(v))}
     stamp = ts if ts is not None else time.time()
     payload = {"experiment": experiment, "run_name": run_name, "params": params, "metrics": clean_metrics}

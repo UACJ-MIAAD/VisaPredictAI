@@ -192,7 +192,6 @@ def demo() -> None:
     fad = load_series("mexico", "F3", "FAD")
     dff = load_series("mexico", "F3", "DFF")
     assert fad.index.min() < dff.index.min(), "FAD debe empezar antes que DFF (2001 vs 2015)"
-    assert fad.is_monotonic_increasing is False or True  # solo carga; monotonía es de dominio
 
     # days_since_base nunca es negativo (t0=1975 antecede a toda prioridad real).
     assert (fad >= 0).all(), "días desde base no pueden ser negativos"

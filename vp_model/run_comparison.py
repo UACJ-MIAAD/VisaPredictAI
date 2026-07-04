@@ -1,4 +1,4 @@
-"""Comparación del catálogo de modelos (21) por walk-forward (US-F1, US-A3).
+"""Comparación del catálogo de modelos (``config.MODEL_NAMES``) por walk-forward (US-F1, US-A3).
 
 Corre el catálogo sobre un conjunto de series y consolida las métricas en
 ``reports/eval/model_comparison.csv`` (una fila por modelo×serie, con ``run_id`` para
@@ -65,6 +65,9 @@ def run(
                     "hold_msis": r.holdout.get("msis", float("nan")),
                     "hold_interval_score": r.holdout.get("interval_score", float("nan")),
                     "hold_coverage": r.holdout.get("coverage", float("nan")),
+                    # AI2: MASE against the naive-1 (random walk) scale, in parallel.
+                    "sel_mase1": r.selection.get("mase1", float("nan")),
+                    "hold_mase1": r.holdout.get("mase1", float("nan")),
                     "secs": round(time.time() - t0, 1),
                 }
                 rows.append(row)
@@ -74,6 +77,9 @@ def run(
                         f"pool_local_{table}",
                         f"{name}/{country}/{category}/{table}",
                         params={
+                            # AO1: campaign run_id — the join key across MLflow, the
+                            # comparison CSV and the experiment ledger.
+                            "run_id": run_id,
                             "model": name,
                             "country": country,
                             "category": category,
@@ -121,6 +127,8 @@ def run(
                                 "hold_msis",
                                 "hold_interval_score",
                                 "hold_coverage",
+                                "sel_mase1",
+                                "hold_mase1",
                             )
                         },
                         "secs": round(time.time() - t0, 1),
@@ -182,6 +190,11 @@ def _parse_args() -> argparse.Namespace:
         help="subconjunto de modelos a comparar",
     )
     p.add_argument("--mlflow", action="store_true", help="loguear cada backtest a tracking (JSONL -> MLflow)")
+    p.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="permite correr con el árbol git sucio (corrida exploratoria, NO canónica)",
+    )
     return p.parse_args()
 
 
@@ -192,6 +205,13 @@ def main() -> None:
     cat = dataset.list_series(table=args.table, block=args.block, countries=countries)
     series = [(r.country, r.category, r.table) for r in cat.itertuples()]
     meta = config.run_metadata()
+    if meta["git_dirty"] and not args.allow_dirty:
+        # AO3: a canonical campaign on a dirty tree is irreproducible — the git sha
+        # in the ledger would not correspond to the code that actually ran.
+        raise SystemExit(
+            "ABORT: dirty git tree — a campaign run would be irreproducible. "
+            "Commit your changes or pass --allow-dirty for an exploratory run."
+        )
     log.info(
         "run_id=%s · %d modelos × %d series (%s/%s/%s) · git=%s%s",
         meta["run_id"],

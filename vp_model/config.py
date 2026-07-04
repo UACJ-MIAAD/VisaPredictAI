@@ -40,6 +40,8 @@ TABLES = ("FAD", "DFF")
 # y candidatos modernos defendibles (DLinear/NLinear, GBMs, N-BEATS/N-HiTS/TiDE).
 MODEL_NAMES = (
     "naive",
+    "naive1",  # AI1: naïve no estacional (random walk) — piso honesto del pool
+    "drift",  # AI1: random walk con deriva — piso honesto para series con tendencia
     "arima",
     "sarima",
     "prophet",  # originales estadísticos
@@ -61,7 +63,9 @@ MODEL_NAMES = (
     "tft",  # Temporal Fusion Transformer (panel/covariables; transformer defendible)
     "chronos",  # foundation model zero-shot (Amazon Chronos-Bolt): transferencia, sin entrenar
 )
-CHRONOS_MODEL = "amazon/chronos-bolt-small"  # foundation zero-shot (ruteado por su clase wrapper)
+# AI5: bolt-base (~205M) replaces bolt-small — better zero-shot accuracy at the same
+# zero-training cost; the pipeline cache is keyed by model name (ChronosForecaster).
+CHRONOS_MODEL = "amazon/chronos-bolt-base"
 # Modelos con muestreo probabilístico nativo (CRPS/PI distribucional). 'sarima' se construye
 # como ARIMA estacional, así que también lo es en runtime (estaba ausente del set por omisión).
 PROBABILISTIC = frozenset({"deepar", "arima", "sarima"})
@@ -71,8 +75,11 @@ NEEDS_SCALING = frozenset({"lstm", "deepar", "dlinear", "nlinear", "nbeats", "nh
 RETRAIN_EACH_STEP = frozenset(
     {
         "naive",
+        "naive1",  # AI1
+        "drift",  # AI1
         "arima",
         "sarima",
+        "auto_arima",  # AI3: monthly retrain like arima/sarima (order fixed pre-hold-out)
         "prophet",
         "ets",
         "theta",
@@ -87,7 +94,18 @@ RETRAIN_EACH_STEP = frozenset(
 # nivel: los árboles no extrapolan fuera del rango de train y, sobre el nivel, se
 # saturan al máximo histórico (bug confirmado). Diferenciar es el fix gratuito.
 DIFFERENCED = frozenset({"xgboost", "lightgbm", "catboost"})
+# AJ1: local NNs also predict the first difference. Their MinMax scaler is fitted
+# ONCE on the initial window and never re-fitted, so on the level they spent ~15
+# years predicting outside [0, 1]; the diff of the (affine-)scaled series stays
+# bounded and stationary, which is what the nets can actually learn. Kept separate
+# from DIFFERENCED (trees) because tune/feature-lineage treat that set as "the GBMs".
+NN_DIFFERENCED = frozenset({"lstm", "deepar", "dlinear", "nlinear", "nbeats", "nhits", "tide", "tft"})
 NN_RETRAIN = 12  # las redes se reentrenan cada N meses (coste/validez)
+# AJ2: models whose forecast is a draw from a fitted likelihood. With the darts
+# default num_samples=1 a SINGLE stochastic draw was serving as the point forecast;
+# the walk-forward now samples the predictive distribution and uses its median.
+LIKELIHOOD_MODELS = frozenset({"deepar", "tft"})
+NUM_SAMPLES_POINT = 500  # samples drawn to form the median point forecast (AJ2)
 
 # AD8: política de covariables POR MODELO — explícita, no un accidente del código.
 # Hoy solo los árboles diferenciados reciben calendario (la campaña canónica se
@@ -106,7 +124,12 @@ HYPERPARAMS: dict[str, dict] = {
     "rnn": dict(input_chunk_length=24, training_length=36, hidden_dim=20, n_rnn_layers=1, n_epochs=60),
     "rnn_hybrid": dict(input_chunk_length=12, training_length=18, hidden_dim=20, n_epochs=60),
     # Árboles: lags + covariable de calendario; predicen delta (ver DIFFERENCED).
-    "trees": dict(lags=24, lags_future_covariates=[0], output_chunk_length=1),
+    # AJ5: learning_rate/n_estimators are the slow-learning BRIDGE defaults (library
+    # defaults — e.g. xgboost lr=0.3 — overfit 60–270-month windows and made the
+    # model-pool table compare a tuned ETS against untuned GBMs). When
+    # reports/eval/tuned_params.json has a winning entry for (model, table), the
+    # factory overrides these with the HPO winners (models._tree_params).
+    "trees": dict(lags=24, lags_future_covariates=[0], output_chunk_length=1, learning_rate=0.02, n_estimators=200),
     # Regresión lineal (ridge): forma cerrada, sin SGD ni early-stopping (sin leakage).
     "rlinear": dict(lags=24, output_chunk_length=1),
     # MLP/lineales y MLP residuales modernos (torch): ventana de entrada modesta.
@@ -171,9 +194,11 @@ def run_metadata() -> dict:
     puede atarse al código/config que la produjo.
     """
     import datetime
+    import hashlib
     import importlib.metadata
     import subprocess
     import sys
+    from pathlib import Path
 
     def _ver(pkg: str) -> str | None:
         try:
@@ -187,9 +212,16 @@ def run_metadata() -> dict:
         except subprocess.CalledProcessError, FileNotFoundError:
             return None
 
+    def _md5(path: Path) -> str | None:
+        # AO2: 12-hex md5, same convention as build_model_card._panel_hash so
+        # lineage stays joinable across governance artifacts. git sha != data:
+        # without these hashes a run could not be tied to the exact panel it saw.
+        return hashlib.md5(path.read_bytes()).hexdigest()[:12] if path.exists() else None
+
     sha = _git("rev-parse", "HEAD")
     dirty = _git("status", "--porcelain")
     ts = datetime.datetime.now().isoformat(timespec="seconds")
+    root = Path(__file__).resolve().parent.parent
     return {
         "run_id": ts.replace(":", "").replace("-", "") + (f"-{sha[:7]}" if sha else ""),
         "timestamp": ts,
@@ -207,9 +239,15 @@ def run_metadata() -> dict:
         "features": {
             "covariates": {m: list(c) for m, c in COVARIATES.items()},
             "differenced": sorted(DIFFERENCED),
+            "nn_differenced": sorted(NN_DIFFERENCED),  # AJ1
             "scaled": sorted(NEEDS_SCALING),
             "max_interpolable_gap": MAX_INTERPOLABLE_GAP,
             "base_epoch": BASE_EPOCH,
+        },
+        # AO2: data lineage — the code sha alone cannot reproduce a run.
+        "data_lineage": {
+            "panel_parquet_md5": _md5(root / "data" / "processed" / "visa_panel_long.parquet"),
+            "dvc_lock_md5": _md5(root / "dvc.lock"),
         },
     }
 

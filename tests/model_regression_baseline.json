@@ -1,12 +1,12 @@
 {
-  "mexico/F3/FAD/naive": 1.4515,
-  "mexico/F3/FAD/ets": 0.0764,
-  "mexico/F3/FAD/theta": 0.0762,
-  "mexico/F3/FAD/arima": 0.4195,
-  "mexico/F3/FAD/sarima": 0.3474,
+  "mexico/F3/FAD/naive": 1.465,
+  "mexico/F3/FAD/ets": 0.082,
+  "mexico/F3/FAD/theta": 0.0672,
+  "mexico/F3/FAD/arima": 0.4237,
+  "mexico/F3/FAD/sarima": 0.3524,
   "mexico/F1/DFF/naive": 0.9456,
-  "mexico/F1/DFF/ets": 0.1284,
-  "mexico/F1/DFF/theta": 0.1239,
+  "mexico/F1/DFF/ets": 0.1337,
+  "mexico/F1/DFF/theta": 0.1143,
   "mexico/F1/DFF/arima": 0.1339,
   "mexico/F1/DFF/sarima": 0.135
 }

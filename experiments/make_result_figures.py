@@ -138,30 +138,19 @@ def fig_forecast() -> None:
 
 # ---------- F3: IC multi-semilla deep vs listón ----------
 def _seed_mases(pattern: str, col: str, table: str) -> list[float]:
-    from vp_model import dataset
-    from vp_model.metrics import naive_scale_before
+    # AP2: delegates the per-series F-only scoring loop to the canonical scorer.
+    from vp_model.metrics import mase_by_series
 
     vals = []
     for p in sorted(REP.glob(pattern)):
         df = pd.read_csv(p, parse_dates=["ds"])
         if col not in df.columns:
             continue
-        ms = []
-        for uid, g in df.groupby("unique_id"):
-            country, _b, category = uid.split("/")
-            try:
-                full = dataset.load_series(country, category, table).astype("float64")
-            except KeyError:
-                continue
-            g = g.sort_values("ds")
-            g = g[g["ds"].isin(full.index)]
-            if len(g) < 2:
-                continue
-            scale = naive_scale_before(full, g["ds"].min())
-            y = full.reindex(g["ds"]).to_numpy()
-            ms.append(float(np.mean(np.abs(y - g[col].to_numpy()))) / scale)
-        if ms:
-            vals.append(float(np.mean(ms)))
+        parts = df["unique_id"].str.split("/", expand=True)  # country/block/category
+        frame = df.assign(country=parts[0], category=parts[2])
+        ms = mase_by_series(frame, table, pred_col=col, date_col="ds", min_points=2)
+        if len(ms):
+            vals.append(float(ms.mean()))
     return vals
 
 

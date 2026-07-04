@@ -2,8 +2,10 @@
 
 La investigación destacó TimesFM con in-context fine-tuning (ICF). El checkpoint ICF no es
 público; aquí se evalúa el TimesFM 2.5 BASE zero-shot (200M, torch, local — sin API ni cuota),
-con walk-forward de 1 paso sobre el hold-out de 24m por serie, contra el listón (FAD 0.117 /
-DFF 0.090). Evaluación F-only, leakage-free. Corre en ``ante_tfm``.
+con walk-forward de 1 paso sobre el hold-out de 24m por serie, contra el listón VIGENTE
+leído de ``reports/governance/key_facts.json`` (AI6: nunca cifras hardcodeadas — las
+anteriores eran de la era pre-B1). Evaluación F-only, leakage-free. Corre en
+``ante_tfm``.
 Uso:  ante_tfm/bin/python experiments/improve_timesfm.py [--table FAD] [--mlflow]
 """
 
@@ -88,7 +90,12 @@ def main() -> None:
         scale = _naive_scale(full[full.index < min(ds)].to_numpy())
         mases.append(float(np.mean(np.abs(y - f))) / scale)
     mase = float(np.mean(mases))
-    liston = 0.117 if args.table == "FAD" else 0.090
+    # AI6: the bar comes from the single source of truth (same pattern as
+    # improve_tabpfn) — the previously hardcoded bars were dead pre-B1 numbers.
+    import json
+
+    kf = json.loads((ROOT / "reports" / "governance" / "key_facts.json").read_text())
+    liston = kf["fad_champion_mase"] if args.table == "FAD" else kf["bitcn_dff_mean"]
     print(f"\n=== TimesFM 2.5 zero-shot {args.table} ({len(mases)} series) ===")
     print(f"  MASE {mase:.4f}  vs listón {liston}  -> {'MEJORA' if mase < liston else 'no mejora'}")
     if args.mlflow:

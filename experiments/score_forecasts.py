@@ -29,10 +29,11 @@ from pathlib import Path
 import pandas as pd
 
 from vp_data import tracking
-from vp_model import config, dataset, metrics
+from vp_model import config, dataset, intervals, metrics
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
+N_FLOOR = 30  # AN7: coverage blocks with n below this carry insufficient_n=true
 log = config.get_logger("score_forecasts")
 
 
@@ -103,13 +104,22 @@ def run() -> Path | None:
         log.warning("%d fila(s) evaluable(s) sin escala naïve válida (excluidas del MASE)", n_no_scale)
 
     def agg(d: pd.DataFrame) -> dict:
-        return {
-            "n": int(len(d)),
+        # AN7: every reported coverage carries a Jeffreys CI and its n; below the n floor
+        # the block is flagged insufficient_n (a coverage on a handful of points is noise).
+        n = int(len(d))
+        out: dict[str, object] = {
+            "n": n,
             "mae_days": round(float(d["abs_err"].mean()), 1),
             "mase": round(float(d["scaled_err"].mean()), 4),
             "cov80": round(float(d["in80"].mean()), 3),
             "cov95": round(float(d["in95"].mean()), 3),
         }
+        for col in ("in80", "in95"):
+            lo, hi = intervals.jeffreys_ci(int(d[col].sum()), n)
+            out[f"cov{col[2:]}_ci95"] = [round(lo, 3), round(hi, 3)]
+        if n < N_FLOOR:
+            out["insufficient_n"] = True
+        return out
 
     overall = agg(sdf) if len(sdf) else {"n": 0}
     by_h = {int(h): agg(g) for h, g in sdf.groupby("h")} if len(sdf) else {}
@@ -139,6 +149,12 @@ def run() -> Path | None:
             "ratio": config.BAND80_RATIO,
             "n_heldout": int(len(heldout)),
             "cov80_heldout": round(float(heldout["in80"].mean()), 3) if len(heldout) else None,
+            "cov80_heldout_ci95": (
+                [round(c, 3) for c in intervals.jeffreys_ci(int(heldout["in80"].sum()), len(heldout))]
+                if len(heldout)
+                else None
+            ),
+            "insufficient_n": len(heldout) < N_FLOOR,
             "note": "BAND80_RATIO se calibra en cal_vintages; cov80_heldout es la cobertura 80 % OUT-OF-SAMPLE (overall.cov80 incluye la calibración y es optimista).",
         },
     }
