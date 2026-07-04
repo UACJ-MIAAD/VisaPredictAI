@@ -65,7 +65,7 @@ DIV = LinearSegmentedColormap.from_list("uacj_div", [WINE, "#FFFFFF", BLUE])  # 
 # Espejo exacto de las claves de DARK para que _apply_theme() pueda re-vincular en ambas
 # direcciones desde UNA fuente. UNK_FILL reconciliado con REGIME["UNK"]["fill"] — había
 # DOS grises "sin dato" distintos (#EFEFEF vs #ECECEC) en el mismo documento.
-LIGHT = {
+LIGHT: dict = {
     "PAPER": "#FFFFFF",
     "INK": INK,
     "GRAY": GRAY,
@@ -91,7 +91,7 @@ LIGHT = {
 # tonos de dato se ACLARAN para conservar contraste; el amarillo UACJ no cambia. Usar
 # SOLO para artefactos que se muestran en pantalla oscura (galería web); el .tex y el
 # reporte PDF siguen en la paleta clara.
-DARK = {
+DARK: dict = {
     "PAPER": "#12161B",  # superficie de la figura (charcoal, no negro puro)
     "INK": "#E8EAED",
     "GRAY": "#A9B1BA",
