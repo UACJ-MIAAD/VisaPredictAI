@@ -82,8 +82,18 @@ def main() -> int:
         def _macro(k: str) -> str:
             # Espejo EXACTO de build_key_facts.macro(): dígitos deletreados (LaTeX
             # no admite dígitos en nombres de comando).
-            digits = {"0": "Zero", "1": "One", "2": "Two", "3": "Three", "4": "Four",
-                      "5": "Five", "6": "Six", "7": "Seven", "8": "Eight", "9": "Nine"}
+            digits = {
+                "0": "Zero",
+                "1": "One",
+                "2": "Two",
+                "3": "Three",
+                "4": "Four",
+                "5": "Five",
+                "6": "Six",
+                "7": "Seven",
+                "8": "Eight",
+                "9": "Nine",
+            }
             name = "fact" + "".join(w.capitalize() for w in k.split("_"))
             return "".join(digits.get(c, c) for c in name)
 
