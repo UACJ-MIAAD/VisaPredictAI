@@ -9,8 +9,11 @@ Nota de accesibilidad: la paleta COUNTRY tiene un par débil bajo deuteranopia
 (Filipinas teal vs Resto pizarra), por eso NINGUNA figura identifica series solo
 por color — siempre hay etiqueta directa, bandera o valor al lado del dato.
 
-Salida dual: reports/latex/Figures/eda3_g*.pdf (vector, .tex) y
-reports/eda/gallery/g*.png (300 dpi, reporte/web).
+Salida cuádruple (idioma × tema): la pasada ES-clara escribe reports/latex/Figures/
+eda3_g*.pdf (vector, .tex) + reports/eda/gallery/g*.png (300 dpi, reporte/web); las
+otras tres solo PNG — gallery/dark/ (web ES oscuro), gallery/en/ y gallery/en/dark/
+(web EN; las rutas /en/* servían PNGs con texto español rasterizado). El PDF del
+reporte y el .tex viven SOLO en español (entregable académico).
 Corre en `ante`:  ante/bin/python experiments/make_gallery_figures.py  (o `make eda-all`)
 """
 
@@ -115,6 +118,238 @@ def _apply_theme(dark: bool) -> None:
     )
 
 
+# --- Idioma ----------------------------------------------------------------------------
+# La galeria se emite en DOS idiomas (× dos temas = 4 pasadas). Todo texto visible vive
+# en TXT; el codigo consume el vinculo global T/CNAME/MESL que _apply_lang() re-apunta.
+# La terminologia EN es la MISMA que los captions del web (eda-gallery.tsx) — regla #0.
+LANG = "es"
+MES_EN = {
+    1: "January",
+    2: "February",
+    3: "March",
+    4: "April",
+    5: "May",
+    6: "June",
+    7: "July",
+    8: "August",
+    9: "September",
+    10: "October",
+    11: "November",
+    12: "December",
+}
+COUNTRY_NAME_EN = {
+    **COUNTRY_NAME,
+    "mexico": "Mexico",
+    "philippines": "Philippines",
+    "all_chargeability": "Rest of world",
+}
+TXT: dict[str, dict] = {
+    "es": {
+        "footer": "Fuente: U.S. Department of State, Visa Bulletin (dic 2001 – {mes} {anio}).",
+        "blk_family": "Familiar",
+        "blk_employment": "Empleo",
+        "g01_head": "{n} meses de fila en una sola imagen",
+        "g01_sub": "Cada fila es una serie país × categoría × tabla ({n} series); cada celda, "
+        "un boletín mensual. El {pct}% de los meses con fecha la fila no se movió.",
+        "leg_adv": "la fecha avanza",
+        "leg_frozen": "congelada",
+        "leg_retro": "retrocede",
+        "leg_current": "Current (sin atraso)",
+        "leg_nodata": "U / sin dato",
+        "g01_foot": "Blanco = la serie no existe ese mes (p. ej. DFF antes de 2015).",
+        "g02_ylabel": "Fecha de prioridad que se atiende (año)",
+        "g02_quake": "{mes} {anio}: {n} series\nretroceden {yrs} años acumulados",
+        "g02_pand": "pandemia:\n{pct} congelado",
+        "g02_head": "Un cuarto de siglo de fila, serie por serie",
+        "g02_sub": "Trayectoria de las 25 series familiares (FAD). El avance mediano es de {med} días por mes: "
+        "la cola casi nunca corre, y a veces retrocede.",
+        "g03_current": "todas las áreas\nen Current",
+        "g03_head": "{cf} {catf} espera {yf} años; {ce} {cate}, {ye}",
+        "g03_sub": "Años de atraso vigentes (FAD) por categoría y área de cargabilidad; México resaltado. "
+        "Las áreas en Current (sin atraso) no aparecen.",
+        "g03_foot": "Atraso = mes del boletín − fecha de prioridad vigente.",
+        "g04_note": "{name} ({table})\n{mes} {anio}: −{yrs} años",
+        "g04_ylabel": "Retroceso del mes (años)",
+        "g04_head": "{n} veces la fila retrocedió — y unas pocas fueron terremotos",
+        "g04_sub": "Cada punto es un mes de retrogresión en alguna de las series (el {pct}% de los avances "
+        "observados); el tamaño es proporcional al retroceso.",
+        "g05_gap": "la brecha más ancha: {yrs} años",
+        "g05_fad": "FAD (acción final)",
+        "g05_dff": "DFF (presentación)",
+        "g05_xlabel": "Años de atraso vigentes",
+        "g05_head": "Presentar el trámite {n} meses antes: eso vale la tabla DFF",
+        "g05_sub": "Atraso vigente por serie según la tabla que se mire: la acción final (FAD) siempre va detrás "
+        "del calendario de presentación (DFF).",
+        "g05_foot": "Series con ambas tablas publicadas hoy.",
+        "g06_cb": "avance mediano (días)",
+        "g06_era": "la era congelada: FY{a}–FY{b}",
+        "g06_months": ["oct", "nov", "dic", "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep"],
+        "g06_ylabel": "mediana\n(días)",
+        "g06_kick": "arranque del año fiscal",
+        "g06_head": "El año fiscal apenas late: el mes típico avanza entre {lo} y {hi} días",
+        "g06_sub": "Avance mediano del panel completo por mes (columnas en orden del año fiscal, octubre primero) "
+        "y por año fiscal (filas). No hay estacionalidad explotable — un hallazgo, no una carencia.",
+        "g06_foot": "Escala de color recortada al percentil 98.",
+        "g07_cb": "mejor correlación (±6 meses)",
+        "g07_lag_some": "Se anota el retardo cuando no es cero.",
+        "g07_lag_zero": "En TODAS las parejas el mejor retardo es 0: el co-movimiento es contemporáneo "
+        "— nadie anticipa a nadie.",
+        "g07_head": "Solo {n} pareja{s} de áreas se mueven de la mano",
+        "g07_sub": "Mejor correlación cruzada de los avances (familiar FAD, retardos de ±6 meses).\n"
+        "{lag_note} La heterogeneidad justifica modelar cada serie.",
+        "g08_panel": "panel completo\n(con empleo): {n}%",
+        "g08_xlabel": "Meses sin movimiento (% de los meses con fecha)",
+        "g08_head": "La serie familiar típica pasa {n}% de los meses congelada",
+        "g08_sub": "Porcentaje de meses en que la fecha no se movió (series familiares FAD). "
+        "Es la razón de que el pronóstico ingenuo sea tan difícil de vencer.",
+        "g09_diff": "diferenciar: {n} series",
+        "g09_mixed": "mixtas: {n} (ADF y KPSS discrepan)",
+        "g09_level": "estacionarias en nivel: {n}",
+        "g09_xlabel": "ADF p-value  (H$_0$: raíz unitaria)",
+        "g09_ylabel": "KPSS p-value\n(H$_0$: estacionaria)",
+        "g09_head": "{a} de {b} series evaluables exigen diferenciación",
+        "g09_sub": "ADF y KPSS coinciden: el panel es integrado de orden 1. Ninguna serie es estacionaria en nivel; "
+        "el eje KPSS se recorta a su zona de saturación (p≤0.05).",
+        "g09_foot": "Jitter leve: los p-values saturan en los bordes.",
+        "g10_regions": {
+            "africa": "África",
+            "asia": "Asia",
+            "europe": "Europa",
+            "north_america": "Norteamérica",
+            "oceania": "Oceanía",
+            "south_america_caribbean": "Sudamérica y Caribe",
+        },
+        "g10_ylabel": "Rango de corte publicado",
+        "g10_head": "La lotería también hace fila: {region} corta en {n} mil",
+        "g10_sub": "Rango de corte del sorteo de diversidad por región ({n} observaciones). Es un NÚMERO de "
+        "sorteo, no una fecha: hecho descriptivo separado, fuera del objetivo predictivo.",
+        "g10_foot": "El diente de sierra es el ciclo del año fiscal: el corte sube y se reinicia.",
+        "g11_xlabel": "Fracción de los meses de la serie",
+        "g11_F": "F (fecha publicada — entrenable)",
+        "g11_C": "C (Current)",
+        "g11_U": "U (Unavailable)",
+        "g11_nodata": "sin dato",
+        "g11_cont_x": "Continuidad del tramo F",
+        "g11_cont_y": "Series",
+        "g11_title": "{nf} series con fechas;\n{ne} plenamente evaluables",
+        "g11_head": "El {p}% del panel es entrenable — y está censado serie por serie",
+        "g11_sub": "Composición de régimen de las {n} series estructurales (izquierda, ordenadas "
+        "por % de fechas dentro de cada bloque) y continuidad del tramo con fechas (derecha).",
+        "g11_foot": "Cobertura escalonada: estructural → con fechas → evaluable.",
+    },
+    "en": {
+        "footer": "Source: U.S. Department of State, Visa Bulletin (Dec 2001 – {mes} {anio}).",
+        "blk_family": "Family",
+        "blk_employment": "Employment",
+        "g01_head": "{n} months in line, in a single image",
+        "g01_sub": "Each row is one country × category × table series ({n} series); each cell, "
+        "a monthly bulletin. In {pct}% of months with a date the line did not move.",
+        "leg_adv": "date advances",
+        "leg_frozen": "frozen",
+        "leg_retro": "retrogresses",
+        "leg_current": "Current (no backlog)",
+        "leg_nodata": "U / no data",
+        "g01_foot": "White = the series does not exist that month (e.g., DFF before 2015).",
+        "g02_ylabel": "Priority date being served (year)",
+        "g02_quake": "{mes} {anio}: {n} series\nretrogress {yrs} accumulated years",
+        "g02_pand": "pandemic:\n{pct} frozen",
+        "g02_head": "A quarter century in line, series by series",
+        "g02_sub": "Trajectories of the 25 family series (FAD). The median advance is {med} days per month: "
+        "the line almost never runs, and sometimes moves backwards.",
+        "g03_current": "all areas\nin Current",
+        "g03_head": "{cf} {catf} waits {yf} years; {ce} {cate}, {ye}",
+        "g03_sub": "Current backlog in years (FAD) by category and chargeability area; Mexico highlighted. "
+        "Areas in Current (no backlog) do not appear.",
+        "g03_foot": "Backlog = bulletin month − current priority date.",
+        "g04_note": "{name} ({table})\n{mes} {anio}: −{yrs} years",
+        "g04_ylabel": "Month's setback (years)",
+        "g04_head": "{n} times the line moved backwards — and a few were earthquakes",
+        "g04_sub": "Each dot is a month of retrogression in one of the series ({pct}% of observed movements); "
+        "size is proportional to the setback.",
+        "g05_gap": "the widest gap: {yrs} years",
+        "g05_fad": "FAD (final action)",
+        "g05_dff": "DFF (filing)",
+        "g05_xlabel": "Current backlog (years)",
+        "g05_head": "Filing {n} months earlier: that is what the DFF table is worth",
+        "g05_sub": "Current backlog per series depending on the table you look at: final action (FAD) always "
+        "trails the filing calendar (DFF).",
+        "g05_foot": "Series with both tables published today.",
+        "g06_cb": "median advance (days)",
+        "g06_era": "the frozen era: FY{a}–FY{b}",
+        "g06_months": ["Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep"],
+        "g06_ylabel": "median\n(days)",
+        "g06_kick": "fiscal-year kickoff",
+        "g06_head": "The fiscal year barely has a pulse: the typical month advances between {lo} and {hi} days",
+        "g06_sub": "Median advance of the full panel by month (columns in fiscal-year order, October first) "
+        "and by fiscal year (rows). There is no exploitable seasonality — a finding, not a shortcoming.",
+        "g06_foot": "Color scale clipped at the 98th percentile.",
+        "g07_cb": "best correlation (±6 months)",
+        "g07_lag_some": "The lag is annotated when it is not zero.",
+        "g07_lag_zero": "In ALL pairs the best lag is 0: co-movement is contemporaneous — no one leads anyone.",
+        "g07_head": "Only {n} pair{s} of areas move hand in hand",
+        "g07_sub": "Best cross-correlation of the advances (family FAD, lags of ±6 months).\n"
+        "{lag_note} The heterogeneity justifies modeling each series.",
+        "g08_panel": "full panel\n(incl. employment): {n}%",
+        "g08_xlabel": "Months without movement (% of months with a date)",
+        "g08_head": "The typical family series spends {n}% of its months frozen",
+        "g08_sub": "Percentage of months in which the date did not move (family FAD series). "
+        "It is the reason the naïve forecast is so hard to beat.",
+        "g09_diff": "differencing: {n} series",
+        "g09_mixed": "mixed: {n} (ADF and KPSS disagree)",
+        "g09_level": "stationary in level: {n}",
+        "g09_xlabel": "ADF p-value  (H$_0$: unit root)",
+        "g09_ylabel": "KPSS p-value\n(H$_0$: stationary)",
+        "g09_head": "{a} of {b} evaluable series demand differencing",
+        "g09_sub": "ADF and KPSS agree: the panel is integrated of order 1. No series is stationary in level; "
+        "the KPSS axis is clipped to its saturation zone (p≤0.05).",
+        "g09_foot": "Slight jitter: the p-values saturate at the edges.",
+        "g10_regions": {
+            "africa": "Africa",
+            "asia": "Asia",
+            "europe": "Europe",
+            "north_america": "North America",
+            "oceania": "Oceania",
+            "south_america_caribbean": "South America & Caribbean",
+        },
+        "g10_ylabel": "Published cutoff rank",
+        "g10_head": "The lottery waits in line too: {region} cuts at {n}k",
+        "g10_sub": "Diversity-lottery cutoff rank by region ({n} observations). It is a lottery NUMBER, not a "
+        "date: a separate descriptive fact, outside the predictive target.",
+        "g10_foot": "The sawtooth is the fiscal-year cycle: the cutoff climbs and resets.",
+        "g11_xlabel": "Fraction of the series' months",
+        "g11_F": "F (published date — trainable)",
+        "g11_C": "C (Current)",
+        "g11_U": "U (Unavailable)",
+        "g11_nodata": "no data",
+        "g11_cont_x": "Continuity of the F span",
+        "g11_cont_y": "Series",
+        "g11_title": "{nf} series with dates;\n{ne} fully evaluable",
+        "g11_head": "{p}% of the panel is trainable — and censused series by series",
+        "g11_sub": "Regime composition of the {n} structural series (left, sorted by % of dates within "
+        "each block) and continuity of the dated span (right).",
+        "g11_foot": "Tiered coverage: structural → with dates → evaluable.",
+    },
+}
+T: dict = TXT["es"]
+CNAME: dict[str, str] = COUNTRY_NAME
+MESL: dict[int, str] = MES
+
+
+def _apply_lang(lang: str) -> None:
+    """Re-vincula los textos visibles (T), nombres de país (CNAME) y meses (MESL)."""
+    global LANG, T, CNAME, MESL
+    LANG = lang
+    T = TXT[lang]
+    CNAME = COUNTRY_NAME if lang == "es" else COUNTRY_NAME_EN
+    MESL = MES if lang == "es" else MES_EN
+
+
+def _num(v: int) -> str:
+    """Separador de miles por idioma: 27 611 (es, espacio fino) / 27,611 (en)."""
+    s = f"{v:,}"
+    return s.replace(",", " ") if LANG == "es" else s
+
+
 def _spread(vals: list[float], min_gap: float) -> list[float]:
     """Des-colisiona posiciones de etiquetas (preserva el orden, separa >= min_gap)."""
     idx = np.argsort(vals)
@@ -138,11 +373,17 @@ def _save(fig: plt.Figure, name: str) -> plt.Figure:
     El caller cierra (``plt.close``); ``build_eda_report`` la re-usa tal cual como
     página vectorial del reporte (cero re-rasterización = cero pérdida de nitidez).
     """
-    if DARK_MODE:
-        # variante web-oscura: solo PNG; el .tex y el reporte PDF viven en claro
-        (FIG_PNG / "dark").mkdir(parents=True, exist_ok=True)
-        fig.savefig(FIG_PNG / "dark" / f"{name}.png", bbox_inches="tight", dpi=300, facecolor=PAPER)
-        print(f"dark/{name} OK")
+    if LANG == "en" or DARK_MODE:
+        # variantes solo-web (EN y/o oscura): solo PNG; el .tex y el reporte PDF
+        # viven en ES-claro (entregable académico en español)
+        sub = FIG_PNG
+        if LANG == "en":
+            sub = sub / "en"
+        if DARK_MODE:
+            sub = sub / "dark"
+        sub.mkdir(parents=True, exist_ok=True)
+        fig.savefig(sub / f"{name}.png", bbox_inches="tight", dpi=300, facecolor=PAPER)
+        print(f"{sub.relative_to(FIG_PNG)}/{name} OK")
         return fig
     FIG_PNG.mkdir(parents=True, exist_ok=True)
     fig.savefig(FIG_TEX / f"eda3_{name}.pdf", bbox_inches="tight")
@@ -168,9 +409,7 @@ def _header(fig: plt.Figure, headline: str, sub: str, y: float = 1.02, dy: float
 
 def _footer(fig: plt.Figure, vintage: str, extra: str = "", y: float = -0.045) -> None:
     per = pd.Period(vintage)
-    text = f"Fuente: U.S. Department of State, Visa Bulletin (dic 2001 – {MES[per.month]} {per.year})." + (
-        f"  {extra}" if extra else ""
-    )
+    text = T["footer"].format(mes=MESL[per.month], anio=per.year) + (f"  {extra}" if extra else "")
     fig.text(0.01, y, text, fontsize=7.4, color=GRAY, ha="left")
     # con pie largo la marca baja un renglón para no encimarse con el texto
     brand_y = y - 0.035 if len(text) > 80 else y
@@ -224,7 +463,7 @@ def g01_panel(df: pd.DataFrame, facts: dict) -> plt.Figure:
     bounds.append(len(order))
     for a, b in zip(bounds[:-1], bounds[1:], strict=True):
         c, block, _cat, table = order[a]
-        ax.text(-4, (a + b - 1) / 2, COUNTRY_NAME[c], ha="right", va="center", fontsize=6.4, color=INK)
+        ax.text(-4, (a + b - 1) / 2, CNAME[c], ha="right", va="center", fontsize=6.4, color=INK)
         labels_y.append(((a + b - 1) / 2, block, table))
     # bandas bloque×tabla a la derecha
     seen = set()
@@ -232,7 +471,7 @@ def g01_panel(df: pd.DataFrame, facts: dict) -> plt.Figure:
         if (block, table) not in seen:
             seen.add((block, table))
             n_rows = len([o for o in order if (o[1], o[3]) == (block, table)])
-            name = {"family": "Familiar", "employment": "Empleo"}[block]
+            name = T[f"blk_{block}"]
             ax.text(
                 len(months) + 3,
                 i + n_rows / 2 - 0.5,
@@ -259,19 +498,18 @@ def g01_panel(df: pd.DataFrame, facts: dict) -> plt.Figure:
     p = facts["panel"]
     _header(
         fig,
-        f"{p['n_obs']:,} meses de fila en una sola imagen".replace(",", " "),
-        f"Cada fila es una serie país × categoría × tabla ({p['n_series_structural']} series); cada celda, "
-        f"un boletín mensual. El {p['pct_frozen']:.0f}% de los meses con fecha la fila no se movió.",
+        T["g01_head"].format(n=_num(p["n_obs"])),
+        T["g01_sub"].format(n=p["n_series_structural"], pct=f"{p['pct_frozen']:.0f}"),
         y=0.975,
         dy=0.022,
     )
     fig.legend(
         handles=[
-            Patch(fc=BLUE, label="la fecha avanza"),
-            Patch(fc=MUTE, label="congelada"),
-            Patch(fc=WINE, label="retrocede"),
-            Patch(fc=TEAL, label="Current (sin atraso)"),
-            Patch(fc=UNK_FILL, ec=MID, lw=0.4, label="U / sin dato"),
+            Patch(fc=BLUE, label=T["leg_adv"]),
+            Patch(fc=MUTE, label=T["leg_frozen"]),
+            Patch(fc=WINE, label=T["leg_retro"]),
+            Patch(fc=TEAL, label=T["leg_current"]),
+            Patch(fc=UNK_FILL, ec=MID, lw=0.4, label=T["leg_nodata"]),
         ],
         loc="lower center",
         ncol=5,
@@ -279,7 +517,7 @@ def g01_panel(df: pd.DataFrame, facts: dict) -> plt.Figure:
         frameon=False,
         bbox_to_anchor=(0.5, 0.038),
     )
-    _footer(fig, facts["vintage"], "Blanco = la serie no existe ese mes (p. ej. DFF antes de 2015).", y=0.022)
+    _footer(fig, facts["vintage"], T["g01_foot"], y=0.022)
     return _save(fig, "g01_panel")
 
 
@@ -298,7 +536,7 @@ def g02_trayectorias(df: pd.DataFrame, facts: dict) -> plt.Figure:
     ys = _spread([ends[c] for c in PILOT], min_gap=1.6)
     for c, ylab in zip(PILOT, ys, strict=True):
         ax.annotate(
-            COUNTRY_NAME[c],
+            CNAME[c],
             (f.bulletin_date.max(), ylab),
             xytext=(8, 0),
             textcoords="offset points",
@@ -316,7 +554,7 @@ def g02_trayectorias(df: pd.DataFrame, facts: dict) -> plt.Figure:
     wd = pd.Timestamp(worst + "-01")
     ax.axvline(wd, color=WINE, lw=0.9, ls="--", alpha=0.8)
     ax.annotate(
-        f"{MES[wd.month]} {wd.year}: {n_hit} series\nretroceden {yrs_lost:.0f} años acumulados",
+        T["g02_quake"].format(mes=MESL[wd.month], anio=wd.year, n=n_hit, yrs=f"{yrs_lost:.0f}"),
         (wd, f.years.min() + 0.5),
         xytext=(14, 0),
         textcoords="offset points",
@@ -334,24 +572,19 @@ def g02_trayectorias(df: pd.DataFrame, facts: dict) -> plt.Figure:
     if frozen_win > float((f.delta == 0).mean()):
         ax.axvspan(pd.Timestamp("2020-04-01"), pd.Timestamp("2021-09-01"), color=GRID, alpha=0.6, zorder=0)
         ax.annotate(
-            f"pandemia:\n{frozen_win:.0%} congelado",
+            T["g02_pand"].format(pct=f"{frozen_win:.0%}"),
             (pd.Timestamp("2020-11-01"), f.years.max() - 2.0),
             ha="center",
             fontsize=7.4,
             color=GRAY,
         )
-    ax.set_ylabel("Fecha de prioridad que se atiende (año)")
+    ax.set_ylabel(T["g02_ylabel"])
     ax.set_xlim(f.bulletin_date.min(), f.bulletin_date.max() + pd.DateOffset(months=54))
     ax.grid(True, axis="y", color=GRID, lw=0.6)
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
     med = f.delta.median()
-    _header(
-        fig,
-        "Un cuarto de siglo de fila, serie por serie",
-        f"Trayectoria de las 25 series familiares (FAD). El avance mediano es de {med:.0f} días por mes: "
-        "la cola casi nunca corre, y a veces retrocede.",
-    )
+    _header(fig, T["g02_head"], T["g02_sub"].format(med=f"{med:.0f}"))
     _footer(fig, facts["vintage"])
     return _save(fig, "g02_trayectorias")
 
@@ -376,7 +609,7 @@ def g03_backlog(df: pd.DataFrame, facts: dict) -> plt.Figure:
                 ax.text(
                     0.5,
                     0.5,
-                    "todas las áreas\nen Current",
+                    T["g03_current"],
                     transform=ax.transAxes,
                     ha="center",
                     va="center",
@@ -419,14 +652,19 @@ def g03_backlog(df: pd.DataFrame, facts: dict) -> plt.Figure:
                 sp.set_visible(False)
     _header(
         fig,
-        f"{COUNTRY_NAME[top_f.country]} {top_f.category} espera {top_f.backlog_years:.0f} años; "
-        f"{COUNTRY_NAME[top_e.country]} {top_e.category.replace('EB', 'EB-')}, {top_e.backlog_years:.0f}",
-        "Años de atraso vigentes (FAD) por categoría y área de cargabilidad; México resaltado. "
-        "Las áreas en Current (sin atraso) no aparecen.",
+        T["g03_head"].format(
+            cf=CNAME[top_f.country],
+            catf=top_f.category,
+            yf=f"{top_f.backlog_years:.0f}",
+            ce=CNAME[top_e.country],
+            cate=top_e.category.replace("EB", "EB-"),
+            ye=f"{top_e.backlog_years:.0f}",
+        ),
+        T["g03_sub"],
         y=0.965,
         dy=0.045,
     )
-    _footer(fig, facts["vintage"], "Atraso = mes del boletín − fecha de prioridad vigente.", y=0.015)
+    _footer(fig, facts["vintage"], T["g03_foot"], y=0.015)
     return _save(fig, "g03_backlog")
 
 
@@ -453,8 +691,13 @@ def g04_retros(facts: dict) -> plt.Figure:
         # alterna la anotación arriba/abajo-derecha para no encimar los eventos cercanos
         dx, dy, ha = (10, -4, "left") if i % 2 == 0 else (-10, -16, "right")
         ax.annotate(
-            f"{COUNTRY_NAME[r.country]} {r.category.replace('EB', 'EB-')} ({r.table})\n"
-            f"{MES[d.month]} {d.year}: −{r.years_lost:.1f} años",
+            T["g04_note"].format(
+                name=f"{CNAME[r.country]} {r.category.replace('EB', 'EB-')}",
+                table=r.table,
+                mes=MESL[d.month],
+                anio=d.year,
+                yrs=f"{r.years_lost:.1f}",
+            ),
             (r.date_ts, r.years_lost),
             xytext=(dx, dy),
             textcoords="offset points",
@@ -463,22 +706,15 @@ def g04_retros(facts: dict) -> plt.Figure:
             ha=ha,
             arrowprops={"arrowstyle": "-", "color": MID, "lw": 0.7},
         )
-    ax.set_ylabel("Retroceso del mes (años)")
+    ax.set_ylabel(T["g04_ylabel"])
     ax.grid(True, axis="y", color=GRID, lw=0.6)
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
-    handles = [
-        plt.Line2D([0], [0], marker="o", ls="", mfc=COUNTRY[c], mec=PAPER, ms=6, label=COUNTRY_NAME[c]) for c in PILOT
-    ]
+    handles = [plt.Line2D([0], [0], marker="o", ls="", mfc=COUNTRY[c], mec=PAPER, ms=6, label=CNAME[c]) for c in PILOT]
     fig.legend(handles=handles, fontsize=7.6, frameon=False, loc="lower center", ncol=5, bbox_to_anchor=(0.5, -0.005))
     n = len(ev)
     pct = facts["panel"]["pct_retro"]
-    _header(
-        fig,
-        f"{n} veces la fila retrocedió — y unas pocas fueron terremotos",
-        f"Cada punto es un mes de retrogresión en alguna de las series (el {pct:.1f}% de los avances observados); "
-        "el tamaño es proporcional al retroceso.",
-    )
+    _header(fig, T["g04_head"].format(n=n), T["g04_sub"].format(pct=f"{pct:.1f}"))
     _footer(fig, facts["vintage"], y=-0.085)
     return _save(fig, "g04_retros")
 
@@ -502,11 +738,11 @@ def g05_brecha(facts: dict) -> plt.Figure:
         ax.plot([r.DFF, r.FAD], [i, i], color=MUTE, lw=2.2, zorder=1, solid_capstyle="round")
         ax.scatter(r.FAD, i, color=BLUE, s=42, zorder=3)
         ax.scatter(r.DFF, i, color=GOLD, s=42, zorder=3, edgecolor=INK, lw=0.4)
-        name = f"{COUNTRY_NAME[r.country]} {r.category.replace('EB', 'EB-')}"
+        name = f"{CNAME[r.country]} {r.category.replace('EB', 'EB-')}"
         ax.text(-0.4, i, name, ha="right", va="center", fontsize=7.6, color=INK)
     big = wide.loc[wide.gap.idxmax()]
     ax.annotate(
-        f"la brecha más ancha: {big.gap:.1f} años",
+        T["g05_gap"].format(yrs=f"{big.gap:.1f}"),
         (float(big.FAD), int(wide.gap.idxmax())),
         xytext=(26, 0),
         textcoords="offset points",
@@ -516,24 +752,17 @@ def g05_brecha(facts: dict) -> plt.Figure:
         color=GRAY,
         arrowprops={"arrowstyle": "-", "color": MID, "lw": 0.7},
     )
-    ax.scatter([], [], color=BLUE, s=42, label="FAD (acción final)")
-    ax.scatter([], [], color=GOLD, s=42, edgecolor=INK, lw=0.4, label="DFF (presentación)")
+    ax.scatter([], [], color=BLUE, s=42, label=T["g05_fad"])
+    ax.scatter([], [], color=GOLD, s=42, edgecolor=INK, lw=0.4, label=T["g05_dff"])
     ax.legend(fontsize=8, frameon=False, loc="lower right")
-    ax.set_xlabel("Años de atraso vigentes")
+    ax.set_xlabel(T["g05_xlabel"])
     ax.set_yticks([])
     ax.set_xlim(left=-6.5)
     ax.grid(True, axis="x", color=GRID, lw=0.6)
     for sp in ("top", "right", "left"):
         ax.spines[sp].set_visible(False)
-    _header(
-        fig,
-        f"Presentar el trámite {med_gap:.0f} meses antes: eso vale la tabla DFF",
-        "Atraso vigente por serie según la tabla que se mire: la acción final (FAD) siempre va detrás "
-        "del calendario de presentación (DFF).",
-        y=0.985,
-        dy=0.04,
-    )
-    _footer(fig, facts["vintage"], "Series con ambas tablas publicadas hoy.", y=0.02)
+    _header(fig, T["g05_head"].format(n=f"{med_gap:.0f}"), T["g05_sub"], y=0.985, dy=0.04)
+    _footer(fig, facts["vintage"], T["g05_foot"], y=0.02)
     return _save(fig, "g05_brecha")
 
 
@@ -556,7 +785,7 @@ def g06_pulso_fiscal(df: pd.DataFrame, facts: dict) -> plt.Figure:
     ax.set_yticks(range(len(piv.index)), [f"FY{y}" for y in piv.index], fontsize=6.4)
     ax.set_xticks([])
     cb = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.01, extend="both")
-    cb.set_label("avance mediano (días)", fontsize=7.5)
+    cb.set_label(T["g06_cb"], fontsize=7.5)
     # anotación derivada: la era congelada = la racha CONSECUTIVA más larga de años
     # fiscales con avance mediano <= 0 (texto sobre sus filas, que quedan en blanco)
     fy_med = piv.median(axis=1)
@@ -573,7 +802,7 @@ def g06_pulso_fiscal(df: pd.DataFrame, facts: dict) -> plt.Figure:
         ax.text(
             5.5,
             (y0 + y1) / 2,
-            f"la era congelada: FY{run[0]}–FY{run[-1]}",
+            T["g06_era"].format(a=run[0], b=run[-1]),
             fontsize=7.8,
             color=GRAY,
             ha="center",
@@ -584,14 +813,13 @@ def g06_pulso_fiscal(df: pd.DataFrame, facts: dict) -> plt.Figure:
     med.index = med.index.astype(int)
     med = med.reindex(fiscal_order)
     axm.bar(range(12), med.to_numpy(), color=[GOLD if m == 10 else BLUE for m in fiscal_order], alpha=0.9)
-    meses = ["oct", "nov", "dic", "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep"]
-    axm.set_xticks(range(12), meses, fontsize=7.5)
-    axm.set_ylabel("mediana\n(días)", fontsize=7)
+    axm.set_xticks(range(12), T["g06_months"], fontsize=7.5)
+    axm.set_ylabel(T["g06_ylabel"], fontsize=7)
     axm.grid(True, axis="y", color=GRID, lw=0.6)
     for sp in ("top", "right"):
         axm.spines[sp].set_visible(False)
     axm.annotate(
-        "arranque del año fiscal",
+        T["g06_kick"],
         (0.35, float(med.iloc[0]) * 0.92),
         xytext=(10, 0),
         textcoords="offset points",
@@ -601,15 +829,8 @@ def g06_pulso_fiscal(df: pd.DataFrame, facts: dict) -> plt.Figure:
         arrowprops={"arrowstyle": "-", "color": MID, "lw": 0.7},
     )
     lo, hi = float(med.min()), float(med.max())
-    _header(
-        fig,
-        f"El año fiscal apenas late: el mes típico avanza entre {lo:.0f} y {hi:.0f} días",
-        "Avance mediano del panel completo por mes (columnas en orden del año fiscal, octubre primero) "
-        "y por año fiscal (filas). No hay estacionalidad explotable — un hallazgo, no una carencia.",
-        y=0.945,
-        dy=0.035,
-    )
-    _footer(fig, facts["vintage"], "Escala de color recortada al percentil 98.", y=0.03)
+    _header(fig, T["g06_head"].format(lo=f"{lo:.0f}", hi=f"{hi:.0f}"), T["g06_sub"], y=0.945, dy=0.035)
+    _footer(fig, facts["vintage"], T["g06_foot"], y=0.03)
     return _save(fig, "g06_pulso_fiscal")
 
 
@@ -630,7 +851,7 @@ def g07_leadlag(df: pd.DataFrame, facts: dict) -> plt.Figure:
             best_r[i, j], best_l[i, j] = r, k
     fig, ax = plt.subplots(figsize=(5.6, 5.0))
     im = ax.imshow(best_r, cmap=SEQ, vmin=0, vmax=1)
-    names = [COUNTRY_NAME[c] for c in PILOT]
+    names = [CNAME[c] for c in PILOT]
     ax.set_xticks(range(n), names, rotation=30, ha="right", fontsize=8)
     ax.set_yticks(range(n), names, fontsize=8)
     any_lag = False
@@ -649,20 +870,14 @@ def g07_leadlag(df: pd.DataFrame, facts: dict) -> plt.Figure:
                 color=PAPER if dark else INK,
             )
     cb = fig.colorbar(im, ax=ax, fraction=0.045)
-    cb.set_label("mejor correlación (±6 meses)", fontsize=7.5)
+    cb.set_label(T["g07_cb"], fontsize=7.5)
     mask = ~np.eye(n, dtype=bool)
     strong = int((best_r[mask] > 0.5).sum() // 2)
-    lag_note = (
-        "Se anota el retardo cuando no es cero."
-        if any_lag
-        else "En TODAS las parejas el mejor retardo es 0: el co-movimiento es contemporáneo — nadie anticipa a nadie."
-    )
+    lag_note = T["g07_lag_some"] if any_lag else T["g07_lag_zero"]
     _header(
         fig,
-        f"Solo {strong} pareja{'s' if strong != 1 else ''} de áreas se mueven de la mano",
-        "Mejor correlación cruzada de los avances (familiar FAD, retardos de ±6 meses).\n"
-        + lag_note
-        + " La heterogeneidad justifica modelar cada serie.",
+        T["g07_head"].format(n=strong, s="s" if strong != 1 else ""),
+        T["g07_sub"].format(lag_note=lag_note),
         y=0.99,
         dy=0.075,
     )
@@ -675,7 +890,7 @@ def g08_congelados(facts: dict) -> plt.Figure:
     """Los meses congelados: % de meses sin movimiento por serie."""
     census = pd.DataFrame(facts["series"])
     g = census[(census.block == "family") & (census.table == "FAD")].copy()
-    g["name"] = g.country.map(COUNTRY_NAME) + " " + g.category
+    g["name"] = g.country.map(CNAME) + " " + g.category
     g = g.sort_values("pct_frozen")
     fig, ax = plt.subplots(figsize=(7.6, 6.0))
     ax.barh(range(len(g)), g.pct_frozen * 100, color=[COUNTRY[c] for c in g.country], height=0.68, zorder=2)
@@ -685,7 +900,7 @@ def g08_congelados(facts: dict) -> plt.Figure:
     panel_frozen = facts["panel"]["pct_frozen"]
     ax.axvline(panel_frozen, color=INK, lw=1.0, ls="--")
     ax.annotate(
-        f"panel completo\n(con empleo): {panel_frozen:.0f}%",
+        T["g08_panel"].format(n=f"{panel_frozen:.0f}"),
         (panel_frozen, 1.0),
         xytext=(8, 0),
         textcoords="offset points",
@@ -693,7 +908,7 @@ def g08_congelados(facts: dict) -> plt.Figure:
         color=INK,
         va="center",
     )
-    ax.set_xlabel("Meses sin movimiento (% de los meses con fecha)")
+    ax.set_xlabel(T["g08_xlabel"])
     ax.set_yticks([])
     ax.set_xlim(-16, 62)
     ax.grid(True, axis="x", color=GRID, lw=0.6)
@@ -701,14 +916,7 @@ def g08_congelados(facts: dict) -> plt.Figure:
         sp_obj = ax.spines[sp]
         sp_obj.set_visible(False)
     med = float(g.pct_frozen.median()) * 100
-    _header(
-        fig,
-        f"La serie familiar típica pasa {med:.0f}% de los meses congelada",
-        "Porcentaje de meses en que la fecha no se movió (series familiares FAD). "
-        "Es la razón de que el pronóstico ingenuo sea tan difícil de vencer.",
-        y=0.975,
-        dy=0.04,
-    )
+    _header(fig, T["g08_head"].format(n=f"{med:.0f}"), T["g08_sub"], y=0.975, dy=0.04)
     _footer(fig, facts["vintage"], y=0.02)
     return _save(fig, "g08_congelados")
 
@@ -739,7 +947,7 @@ def g09_estacionariedad(facts: dict) -> plt.Figure:
     ax.text(
         0.55,
         0.035,
-        f"diferenciar: {counts.get('difference', 0)} series",
+        T["g09_diff"].format(n=counts.get("difference", 0)),
         fontsize=10.5,
         fontweight="bold",
         color=BLUE,
@@ -750,7 +958,7 @@ def g09_estacionariedad(facts: dict) -> plt.Figure:
     if n_mixed:
         mixed = ev[ev.verdict == "mixed"]
         ax.annotate(
-            f"mixtas: {n_mixed} (ADF y KPSS discrepan)",
+            T["g09_mixed"].format(n=n_mixed),
             (float(mixed.adf_p.max()), float(mixed.kpss_p.mean())),
             xytext=(24, 16),
             textcoords="offset points",
@@ -761,33 +969,24 @@ def g09_estacionariedad(facts: dict) -> plt.Figure:
     ax.text(
         0.02,
         0.0515,
-        f"estacionarias en nivel: {counts.get('stationary', 0)}",
+        T["g09_level"].format(n=counts.get("stationary", 0)),
         fontsize=7.8,
         color=TEAL,
         va="top",
     )
     ax.axvline(0.05, color=MID, lw=0.8, ls=":")
     ax.axhline(0.05, color=MID, lw=0.8, ls=":")
-    ax.set_xlabel("ADF p-value  (H$_0$: raíz unitaria)")
-    ax.set_ylabel("KPSS p-value\n(H$_0$: estacionaria)")
+    ax.set_xlabel(T["g09_xlabel"])
+    ax.set_ylabel(T["g09_ylabel"])
     ax.set_xlim(-0.03, 1.03)
     ax.set_ylim(-0.003, ymax)
-    handles = [
-        plt.Line2D([0], [0], marker="o", ls="", mfc=COUNTRY[c], mec=PAPER, ms=6, label=COUNTRY_NAME[c]) for c in PILOT
-    ]
+    handles = [plt.Line2D([0], [0], marker="o", ls="", mfc=COUNTRY[c], mec=PAPER, ms=6, label=CNAME[c]) for c in PILOT]
     ax.legend(handles=handles, fontsize=7.4, frameon=False, loc="upper center", ncol=5, bbox_to_anchor=(0.5, 1.005))
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
     n_diff, n_tot = int(counts.get("difference", 0)), len(ev)
-    _header(
-        fig,
-        f"{n_diff} de {n_tot} series evaluables exigen diferenciación",
-        "ADF y KPSS coinciden: el panel es integrado de orden 1. Ninguna serie es estacionaria en nivel; "
-        "el eje KPSS se recorta a su zona de saturación (p≤0.05).",
-        y=0.99,
-        dy=0.06,
-    )
-    _footer(fig, facts["vintage"], "Jitter leve: los p-values saturan en los bordes.", y=-0.02)
+    _header(fig, T["g09_head"].format(a=n_diff, b=n_tot), T["g09_sub"], y=0.99, dy=0.06)
+    _footer(fig, facts["vintage"], T["g09_foot"], y=-0.02)
     return _save(fig, "g09_estacionariedad")
 
 
@@ -796,14 +995,7 @@ def g10_dv(facts: dict) -> plt.Figure:
     """La lotería también hace fila: rangos de corte DV por región."""
     dv = pd.read_csv(ROOT / "data" / "raw" / "dv_visa_rank_timecourse.csv", parse_dates=["visa_bulletin_date"])
     dv = dv[dv.status == "F"].copy()
-    region_es = {
-        "africa": "África",
-        "asia": "Asia",
-        "europe": "Europa",
-        "north_america": "Norteamérica",
-        "oceania": "Oceanía",
-        "south_america_caribbean": "Sudamérica y Caribe",
-    }
+    region_name = T["g10_regions"]
     palette = [BLUE, WINE, GOLD, TEAL, SLATE, MID]
     regions = sorted(dv.region.unique())
     fig, ax = plt.subplots(figsize=(8.6, 4.8))
@@ -816,7 +1008,7 @@ def g10_dv(facts: dict) -> plt.Figure:
     ys = _spread([ends[r] for r in regions], min_gap=3600)
     for i, (reg, ylab) in enumerate(zip(regions, ys, strict=True)):
         ax.annotate(
-            region_es.get(reg, reg.replace("_", " ").title()),
+            region_name.get(reg, reg.replace("_", " ").title()),
             (dv.visa_bulletin_date.max(), ylab),
             xytext=(8, 0),
             textcoords="offset points",
@@ -825,7 +1017,7 @@ def g10_dv(facts: dict) -> plt.Figure:
             fontweight="bold",
             va="center",
         )
-    ax.set_ylabel("Rango de corte publicado")
+    ax.set_ylabel(T["g10_ylabel"])
     ax.yaxis.set_major_formatter(lambda v, _: f"{int(v / 1000)}k" if v else "0")
     ax.set_xlim(dv.visa_bulletin_date.min(), dv.visa_bulletin_date.max() + pd.DateOffset(months=64))
     ax.grid(True, axis="y", color=GRID, lw=0.6)
@@ -835,12 +1027,10 @@ def g10_dv(facts: dict) -> plt.Figure:
     top = latest.loc[latest.rank_cutoff.idxmax()]
     _header(
         fig,
-        f"La lotería también hace fila: {region_es.get(top.region, top.region)} corta en "
-        f"{int(top.rank_cutoff / 1000)} mil",
-        f"Rango de corte del sorteo de diversidad por región ({facts['dv']['n_rows']:,} observaciones".replace(",", " ")
-        + "). Es un NÚMERO de sorteo, no una fecha: hecho descriptivo separado, fuera del objetivo predictivo.",
+        T["g10_head"].format(region=region_name.get(top.region, top.region), n=int(top.rank_cutoff / 1000)),
+        T["g10_sub"].format(n=_num(facts["dv"]["n_rows"])),
     )
-    _footer(fig, facts["vintage"], "El diente de sierra es el ciclo del año fiscal: el corte sube y se reinicia.")
+    _footer(fig, facts["vintage"], T["g10_foot"])
     return _save(fig, "g10_dv")
 
 
@@ -864,7 +1054,7 @@ def g11_completitud(facts: dict) -> plt.Figure:
     ax.text(
         -0.015,
         n_fam / 2,
-        "familiar",
+        T["blk_family"].lower(),
         rotation=90,
         va="center",
         ha="right",
@@ -875,7 +1065,7 @@ def g11_completitud(facts: dict) -> plt.Figure:
     ax.text(
         -0.015,
         (n_fam + len(census)) / 2,
-        "empleo",
+        T["blk_employment"].lower(),
         rotation=90,
         va="center",
         ha="right",
@@ -886,15 +1076,15 @@ def g11_completitud(facts: dict) -> plt.Figure:
     ax.set_xlim(0, 1)
     ax.set_ylim(-0.5, len(census) - 0.5)
     ax.set_yticks([])
-    ax.set_xlabel("Fracción de los meses de la serie")
+    ax.set_xlabel(T["g11_xlabel"])
     for sp in ("top", "right", "left"):
         ax.spines[sp].set_visible(False)
     ax.legend(
         handles=[
-            Patch(fc=BLUE, label="F (fecha publicada — entrenable)"),
-            Patch(fc=TEAL, label="C (Current)"),
-            Patch(fc=WINE, label="U (Unavailable)"),
-            Patch(fc=NODATA, label="sin dato"),
+            Patch(fc=BLUE, label=T["g11_F"]),
+            Patch(fc=TEAL, label=T["g11_C"]),
+            Patch(fc=WINE, label=T["g11_U"]),
+            Patch(fc=NODATA, label=T["g11_nodata"]),
         ],
         fontsize=7.2,
         frameon=False,
@@ -907,27 +1097,26 @@ def g11_completitud(facts: dict) -> plt.Figure:
     # panel derecho: continuidad de las series CON observaciones F + umbral evaluable
     ev = census[census.n_F > 0]
     axh.hist(ev.continuity, bins=24, color=BLUE, edgecolor=PAPER, lw=0.5)
-    axh.set_xlabel("Continuidad del tramo F")
-    axh.set_ylabel("Series")
+    axh.set_xlabel(T["g11_cont_x"])
+    axh.set_ylabel(T["g11_cont_y"])
     axh.grid(True, axis="y", color=GRID, lw=0.6)
     for sp in ("top", "right"):
         axh.spines[sp].set_visible(False)
     n_eval = facts["panel"]["n_series_evaluable"]
     axh.set_title(
-        f"{int((census.n_F > 0).sum())} series con fechas;\n{n_eval} plenamente evaluables",
+        T["g11_title"].format(nf=int((census.n_F > 0).sum()), ne=n_eval),
         fontsize=8.5,
         color=BLUE,
     )
     p = facts["panel"]
     _header(
         fig,
-        f"El {p['pct_trainable_F']}% del panel es entrenable — y está censado serie por serie",
-        f"Composición de régimen de las {p['n_series_structural']} series estructurales (izquierda, ordenadas "
-        "por % de fechas dentro de cada bloque) y continuidad del tramo con fechas (derecha).",
+        T["g11_head"].format(p=p["pct_trainable_F"]),
+        T["g11_sub"].format(n=p["n_series_structural"]),
         y=0.975,
         dy=0.04,
     )
-    _footer(fig, facts["vintage"], "Cobertura escalonada: estructural → con fechas → evaluable.", y=-0.055)
+    _footer(fig, facts["vintage"], T["g11_foot"], y=-0.055)
     return _save(fig, "g11_completitud")
 
 
@@ -940,9 +1129,13 @@ def _run_all(df: pd.DataFrame, facts: dict) -> None:
 
 if __name__ == "__main__":
     df, facts = _load()
+    # 4 pasadas idioma × tema; SOLO es-claro escribe los PDF del .tex y el reporte
+    for lang in ("es", "en"):
+        _apply_lang(lang)
+        _apply_theme(dark=False)
+        _run_all(df, facts)
+        _apply_theme(dark=True)  # web oscura -> gallery/dark/ (es) · gallery/en/dark/ (en)
+        _run_all(df, facts)
+    _apply_lang("es")
     _apply_theme(dark=False)
-    _run_all(df, facts)
-    _apply_theme(dark=True)  # variante web-oscura -> reports/eda/gallery/dark/
-    _run_all(df, facts)
-    _apply_theme(dark=False)
-    print("Galería EDA (clara + oscura) en", FIG_TEX, "y", FIG_PNG)
+    print("Galería EDA (es/en × clara/oscura) en", FIG_TEX, "y", FIG_PNG)
