@@ -15,7 +15,11 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.check_ingestion import MIN_ROWS_NEW_MONTH, month_coverage_problems  # noqa: E402
+from tools.check_ingestion import (  # noqa: E402
+    MIN_ROWS_NEW_MONTH,
+    model_artifacts_stale,
+    month_coverage_problems,
+)
 
 
 def _month(block_tables: list[tuple[str, str]], month: str, rows_per_combo: int) -> pd.DataFrame:
@@ -59,6 +63,33 @@ def test_only_newest_month_is_judged():
     old = _month([("employment", "FAD"), ("family", "FAD")], "2014-01-01", 30)
     new = _month(FULL, "2026-07-01", 30)
     assert month_coverage_problems(pd.concat([old, new], ignore_index=True)) == []
+
+
+# --- model_artifacts_stale (#17: auto-reparación del bloque de modelado) ---
+
+
+def test_model_artifacts_fresh():
+    assert model_artifacts_stale("2026-07", {"date_last": "2026-07"}, {"vintage": "2026-07"}) == []
+
+
+def test_model_artifacts_lag_both():
+    # Huella del fallo real: el mes entró al panel pero model/eda murieron después.
+    lagging = model_artifacts_stale("2026-08", {"date_last": "2026-07"}, {"vintage": "2026-07"})
+    assert len(lagging) == 2
+    assert any("key_facts" in item for item in lagging)
+    assert any("eda_facts" in item for item in lagging)
+
+
+def test_model_artifacts_lag_one():
+    # Solo el EDA (4g, continue-on-error) quedó atrás: también debe repararse.
+    lagging = model_artifacts_stale("2026-08", {"date_last": "2026-08"}, {"vintage": "2026-07"})
+    assert lagging == ["eda_facts vintage=2026-07"]
+
+
+def test_model_artifacts_missing_keys_are_stale():
+    # Un artefacto sin su campo de vintage cuenta como desfasado, no como fresco.
+    lagging = model_artifacts_stale("2026-08", {}, {})
+    assert len(lagging) == 2
 
 
 def _run():

@@ -103,6 +103,22 @@ jobs:
         # died mid-rebuild used to leave `new=0` forever and the job green).
         stale=$(python tools/check_ingestion.py --mode pending)
         if [ "$new" = "0" ] && [ "$stale" = "fresh" ]; then
+          # #17 (audit EDA 3-jul): datos al día, pero ¿y los artefactos derivados?
+          # Un paso model/eda que moría TRAS publicar los datos dejaba key_facts/
+          # eda_facts un mes atrás, y esta salida temprana los abandonaba hasta el
+          # boletín siguiente. Si van detrás del panel, re-disparar SOLO el bloque
+          # de modelado (rebuilt=true): sus commits de datos hacen no-op (diff
+          # vacío) y el modelado exige el .duckdb (gitignored) fresco — construirlo
+          # y validarlo aquí, igual que en la ruta de rebuild completo.
+          model=$(python tools/check_ingestion.py --mode model-pending)
+          if [ "$model" = "stale" ]; then
+            echo "Panel al dia pero key_facts/eda_facts van detras -- re-lanzando el bloque de modelado."
+            pip install -e ".[dev]"
+            python -m pipeline.build_database
+            python -m pytest tests/test_database.py --cov-fail-under=0
+            echo "rebuilt=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           echo "No new bulletin and panel up to date -- nothing to rebuild."
           exit 0
         fi

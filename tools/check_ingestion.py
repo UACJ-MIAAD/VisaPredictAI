@@ -11,7 +11,16 @@ nuevo del panel commiteado (data/processed/visa_panel_long.csv):
                    filas). Sin esto el job terminaba VERDE con "nothing to commit"
                    y el boletín jamás entraba.
 
-Uso:  python tools/check_ingestion.py --mode {pending,assert}
+Tercer modo (auto-reparación del MODELADO, pendiente #17 del audit EDA 3-jul):
+
+  --mode model-pending : imprime "stale" si los artefactos derivados comiteados
+                   (key_facts.json y eda_facts.json) van DETRÁS del panel — la
+                   huella de un paso model/eda que falló tras publicar los datos.
+                   Sin esto, la corrida siguiente hacía exit 0 por "fresh" y los
+                   forecasts/EDA del mes no se recuperaban hasta el boletín
+                   siguiente. "fresh" si ambos reflejan el vintage del panel.
+
+Uso:  python tools/check_ingestion.py --mode {pending,assert,model-pending}
 """
 
 from __future__ import annotations
@@ -73,10 +82,37 @@ def panel_max() -> pd.Timestamp:
     return pd.to_datetime(col).max()
 
 
+def model_artifacts_stale(panel_month: str, key_facts: dict, eda_facts: dict) -> list[str]:
+    """Artefactos derivados que van detrás del panel ([] = todo al día).
+
+    Pura sobre dicts para ser unit-testable: compara el vintage que cada artefacto
+    declara (derivado del panel al construirse) contra el mes tope del panel.
+    """
+    lagging: list[str] = []
+    if key_facts.get("date_last") != panel_month:
+        lagging.append(f"key_facts date_last={key_facts.get('date_last')}")
+    if eda_facts.get("vintage") != panel_month:
+        lagging.append(f"eda_facts vintage={eda_facts.get('vintage')}")
+    return lagging
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--mode", choices=("pending", "assert"), required=True)
+    ap.add_argument("--mode", choices=("pending", "assert", "model-pending"), required=True)
     mode = ap.parse_args().mode
+    if mode == "model-pending":
+        import json
+
+        month = f"{panel_max():%Y-%m}"
+        key = json.loads((ROOT / "reports" / "governance" / "key_facts.json").read_text())
+        eda = json.loads((ROOT / "reports" / "eda" / "eda_facts.json").read_text())
+        lagging = model_artifacts_stale(month, key, eda)
+        if lagging:
+            print("stale")
+            print(f"  panel en {month} pero: {'; '.join(lagging)}", file=sys.stderr)
+        else:
+            print("fresh")
+        return 0
     s, p = snapshot_max(), panel_max()
     ingested = p.to_period("M") >= s.to_period("M")
     if mode == "pending":
