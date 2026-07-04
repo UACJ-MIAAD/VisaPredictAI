@@ -89,3 +89,7 @@ models/
 # solo si se re-corre improve_tabpfn/improve_timesfm (ver sus docstrings).
 ante_tab/
 ante_tfm/
+
+# AQ campaign logs (transient; provenance lives in reports/campaign/ CSVs)
+reports/campaign_aq.log
+reports/campaign_aq_logs/

@@ -25,6 +25,29 @@ from vp_model import config, dataset, significance, walkforward
 
 log = config.get_logger(__name__)
 
+
+def _code_dirty() -> bool:
+    """True when CODE paths have uncommitted changes (AO3 guard).
+
+    reports/ and data/ are excluded on purpose: campaign stages rewrite tracked
+    outputs there (pools, comparisons, ledgers) and the guard must not abort a
+    campaign on its own earlier stages' artifacts. Tolerant when git is absent.
+    """
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["git", "status", "--porcelain", "--", ".", ":(exclude)reports", ":(exclude)data"],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parent.parent,
+            check=False,
+        ).stdout
+        return bool(out.strip())
+    except OSError:
+        return False
+
+
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
 OUT = REPORTS / "eval" / "model_comparison.csv"
 LEDGER = REPORTS / "eval" / "experiment_runs.jsonl"
@@ -205,11 +228,14 @@ def main() -> None:
     cat = dataset.list_series(table=args.table, block=args.block, countries=countries)
     series = [(r.country, r.category, r.table) for r in cat.itertuples()]
     meta = config.run_metadata()
-    if meta["git_dirty"] and not args.allow_dirty:
+    if _code_dirty() and not args.allow_dirty:
         # AO3: a canonical campaign on a dirty tree is irreproducible — the git sha
-        # in the ledger would not correspond to the code that actually ran.
+        # in the ledger would not correspond to the code that actually ran. Only
+        # CODE paths count: the campaign itself rewrites tracked outputs under
+        # reports/ (pools, comparisons) and regenerates data/ artifacts, and a
+        # multi-stage campaign must not abort on its own earlier stages' outputs.
         raise SystemExit(
-            "ABORT: dirty git tree — a campaign run would be irreproducible. "
+            "ABORT: dirty git tree (code paths) — a campaign run would be irreproducible. "
             "Commit your changes or pass --allow-dirty for an exploratory run."
         )
     log.info(
