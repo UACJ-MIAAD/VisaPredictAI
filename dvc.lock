@@ -113,16 +113,16 @@ stages:
       size: 1589531
     - path: experiments/build_key_facts.py
       hash: md5
-      md5: d320d86a3b58fa2db363849a958617c7
-      size: 9709
+      md5: b4ff41077b5467c626c4d8cfbc94d41e
+      size: 10131
     - path: reports/campaign/campaign_pool_DFF_family.csv
       hash: md5
-      md5: a6ff7fe43ed3e7077b023440a1443d91
-      size: 122924
+      md5: 22b6ddbceb09ecfb93cb8a8c07ceb651
+      size: 174079
     - path: reports/campaign/campaign_pool_FAD_family.csv
       hash: md5
-      md5: 6443ab6ac1d6f90d308411b85a8d80c3
-      size: 131021
+      md5: 4e2c6a39116ff0cfd7a1922937db5917
+      size: 186239
     - path: reports/campaign/global_DFF_camp_diff_s1.csv
       hash: md5
       md5: 82f8d74766b0e595a0fc5e078fbc2131
@@ -145,46 +145,46 @@ stages:
       size: 68255
     - path: reports/campaign/global_FAD_camp_auto_s1.csv
       hash: md5
-      md5: 15dabfe62316bf1dc557d50d75ba08e2
-      size: 57097
+      md5: 2e8a4821ee7b09b8024ac8b73ec6e028
+      size: 34681
     - path: reports/campaign/global_FAD_camp_auto_s2.csv
       hash: md5
-      md5: bd36b2050bae91b0f944c1d7677df2f8
-      size: 57148
+      md5: 04d8a70850cbb4bbfd39bbcd9abbd963
+      size: 34681
     - path: reports/campaign/global_FAD_camp_auto_s3.csv
       hash: md5
-      md5: d7e2ccbd741172b5e8da9fc52d53c10d
-      size: 57096
+      md5: 12a961d1c386ab880f2e3a33b7c486ca
+      size: 34710
     - path: reports/campaign/global_FAD_camp_auto_s4.csv
       hash: md5
-      md5: 1c03fa3544404f2fd641bf90b5019476
-      size: 57158
+      md5: c7653b8cfb76e2c53dd9e83a0cac07cd
+      size: 34679
     - path: reports/campaign/global_FAD_camp_auto_s5.csv
       hash: md5
-      md5: 713335d9b70049229f84cc0f818757a3
-      size: 57112
+      md5: fa71cf685378ae26965c6a7e3d292c75
+      size: 34662
     - path: reports/eval/auto_arima_baseline.csv
       hash: md5
-      md5: baaa017975481eba22b2a8a264132c23
-      size: 1849
+      md5: 147fee243ce8867583482f45decd7bac
+      size: 1907
     - path: reports/eval/significance_summary.json
       hash: md5
-      md5: ac15e4acb1bfac2c3d8e4f3a8634bafd
-      size: 2746
+      md5: f9a9aa44ea1b890e21836d1edf4bf7f8
+      size: 2859
     - path: reports/prospective/forecast_scorecard_meta.json
       hash: md5
-      md5: 38eb2b074a0bd9858595d96cd7bbfc3e
-      size: 2911
+      md5: 37771765d49ba185e49c24d52e6eb34e
+      size: 4775
     - path: vp_model/config.py
       hash: md5
-      md5: 5951bb620fffdc3adcfa757e89dded09
-      size: 10449
+      md5: eea77d410880c5e6877a6053a0020275
+      size: 13138
     outs:
     - path: reports/governance/key_facts.json
       hash: md5
-      md5: 2a565f04c83c9c209bda392603a8a430
-      size: 998
+      md5: bf2e6dff7d56e4cdee4b3e607e8dce23
+      size: 1091
     - path: reports/latex/key_facts.tex
       hash: md5
-      md5: 3ae0fd7ecce3e70b2f889e38bf4e9c8e
-      size: 1460
+      md5: ff60cae9cef5cbd4c3b9ec0719d19f39
+      size: 1625
