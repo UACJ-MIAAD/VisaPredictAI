@@ -3,7 +3,7 @@
   "caveat": "backfill leakage-free; NO equivale a haber servido los pronósticos en tiempo real",
   "n_scored": 2944,
   "n_no_scale": 0,
-  "n_pending": 1256,
+  "n_pending": 1268,
   "n_vintages_total": 10,
   "n_vintages_effective": 3,
   "scored_by_vintage": {

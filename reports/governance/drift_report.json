@@ -3,8 +3,8 @@
   "performance": {
     "status": "ok",
     "latest_vintage": "2025-07",
-    "latest_mase": 0.3813,
-    "baseline_mase": 0.3282,
+    "latest_mase": 0.3836,
+    "baseline_mase": 0.3303,
     "perf_ratio": 1.162,
     "latest_cov95": 0.951,
     "performance_drift": false,
