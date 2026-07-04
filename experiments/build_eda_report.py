@@ -99,9 +99,7 @@ TXT: dict[str, dict] = {
             "raros, pero de hasta {yrs:.1f} años en un solo mes."
         ),
         "f_backlog_big": "{yrs:.0f} años",
-        "f_backlog": (
-            "espera hoy la cola más larga ({pais} {cat}); ninguna serie familiar baja de {minyrs:.0f}."
-        ),
+        "f_backlog": ("espera hoy la cola más larga ({pais} {cat}); ninguna serie familiar baja de {minyrs:.0f}."),
         "f_diff": (
             "series evaluables exigen diferenciación (ADF+KPSS coinciden): el panel es "
             "integrado de orden 1, sin excepciones estacionarias."
@@ -113,8 +111,7 @@ TXT: dict[str, dict] = {
         ),
         "f_cover_big": "{ne} de {ns}",
         "f_cover": (
-            "series estructurales son plenamente evaluables (cobertura escalonada; "
-            "{nf} tienen al menos una fecha)."
+            "series estructurales son plenamente evaluables (cobertura escalonada; {nf} tienen al menos una fecha)."
         ),
         "met_title": "Notas metodológicas y linaje",
         "met_source_t": "Fuente y panel",
@@ -222,8 +219,7 @@ TXT: dict[str, dict] = {
         ),
         "met_notice_t": "Notice",
         "met_notice": (
-            "Academic, demonstrative document (UACJ · MIAAD). It is not immigration advice nor an "
-            "official prediction."
+            "Academic, demonstrative document (UACJ · MIAAD). It is not immigration advice nor an official prediction."
         ),
         "footer": "VisaPredict AI · Visa Bulletin EDA · {mes} {anio} cut",
         "meta_title": "VisaPredict AI — Visa Bulletin EDA ({mes} {anio} cut)",
