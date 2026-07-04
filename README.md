@@ -68,13 +68,14 @@ VisaPredictAI/
 ├── reports/campaign/                   # procedencia de la campaña de modelado (pools 21 modelos + barridos deep por semilla)
 ├── reports/eval/                       # evaluación retrospectiva (comparaciones, significancia, tuning, PI, CRPS, holdouts)
 ├── reports/prospective/                # ledger prospectivo (web_forecasts, forecast_log, scorecard, vs_actual)
-├── reports/governance/                 # fuente de verdad y veredictos (key_facts, MODEL_CARD, champion, drift, auditorías)
-├── reports/eda/                        # EDA vivo: eda_facts.json (censo 194 series) + gallery/ G1–G11 en 4 variantes (ES/EN × claro/oscuro) + eda_report.pdf
+├── reports/governance/                 # fuente de verdad y veredictos (key_facts, cleaning_ledger, MODEL_CARD, champion, drift, auditorías)
+├── reports/eda/                        # EDA vivo: eda_facts.json (censo 194 series) + gallery/ G1–G11 en 4 variantes (ES/EN × claro/oscuro) + eda_report.pdf (ES y EN)
+├── reports/fe/                         # FE vivo: fe_facts.json (decisiones magistrales + selección FRESH/mRMR) + gallery/ f01–f07 en 4 variantes + fe_report.pdf (ES y EN)
 ├── tests/                              # pytest: parsers · extracción offline · contrato del panel + BD
 ├── data/snapshots/                     # HTML crudo congelado (gitignored; máster en S3)
 ├── data/raw/                           # CSVs por país (derivados de los snapshots, versionados)
 ├── data/processed/                     # visa_panel_long.csv (panel) + .duckdb/.parquet regenerables
-├── docs/                               # data_dictionary · er_diagram · ROADMAP · FORECAST_EVAL · DVC · CONSISTENCY
+├── docs/                               # data_dictionary · er_diagram · ROADMAP · FORECAST_EVAL · DVC · CLEANING · CONSISTENCY
 ├── Makefile · pyproject.toml           # one-command ops + config ruff/mypy/pytest
 ├── schema.sql · dvc.yaml               # DDL del almacén estrella · DAG reproducible (dvc repro)
 └── .github/workflows/                  # ci.yml (lint+type+test) · freeze_and_rebuild.yml (Action Lun-Vie 12pm ET, S3-driven) · watchdog.yml
@@ -227,6 +228,7 @@ read-only (el driver de DuckDB lo rechaza).
 - **Action Lun-Vie 12pm ET** (`freeze_and_rebuild.yml`): pull de S3 → congela el boletín nuevo (si hay) → reconstruye panel + DuckDB → **gates** (tests + completitud del mes por bloque×tabla + mega-auditoría) → **commit de datos + respaldo S3** → bloque de pronósticos con commit propio (su fallo no bloquea los datos). Notifica cada corrida por correo (AWS SES), dispara CI sobre sus commits y abre un issue si falla; un **watchdog semanal** (`watchdog.yml`) alerta si el cron lleva >4 días sin corrida verde.
 - **Respaldo inmutable**: el HTML crudo de cada mes se congela en `s3://visapredictai-raw-snapshots/raw-html/` (la fuente oficial pierde boletines viejos; el bucket no).
 - **Auditorías** programáticas de calidad de datos (`pipeline/mega_audit.py`, 12 dimensiones).
+- **Política de limpieza central** ([`docs/CLEANING.md`](docs/CLEANING.md)): registro único de decisiones (`vp_data/cleaning.py`) + **ledger por build** (`reports/governance/cleaning_ledger.json`, determinista y versionado). La ingeniería de características vive en `vp_model/feature_builder.py` y publica su catálogo (`reports/fe/fe_facts.json`) y un reporte PDF bilingüe regenerados con cada boletín.
 
 ## Fuente de datos
 
