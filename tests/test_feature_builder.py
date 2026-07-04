@@ -15,8 +15,13 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# El job de CI de la capa de datos no instala el extra [model]; igual que el resto
+# de tests de modelado, este módulo se salta limpio si darts no está disponible.
+pytest.importorskip("darts")
 
 from vp_model import preprocess  # noqa: E402
 from vp_model.config import COVARIATES, DIFFERENCED, MAX_INTERPOLABLE_GAP  # noqa: E402

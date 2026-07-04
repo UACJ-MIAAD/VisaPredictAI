@@ -86,6 +86,13 @@ def test_family_domain_guard_aborts(tmp_path=None):
 def test_eda_clean_no_nan_preserves_observed_no_linear_ramp():
     # AB1: _clean produce serie completa, respeta lo observado y los huecos largos
     # ya NO son la rampa lineal (Kalman de espacio de estados, no interpolate()).
+    import pytest
+
+    pytest.importorskip("statsmodels")  # capa de modelado; el job de datos lo salta
+    from vp_data.config import DUCKDB_PATH
+
+    if not DUCKDB_PATH.exists():
+        pytest.skip("almacén DuckDB no construido en este job")
     from vp_model import dataset, preprocess
     from vp_model import series_characterization as features
 
