@@ -83,9 +83,21 @@ def _group_series(table: str, block: str) -> list[tuple[str, str, str]]:
     first and can kill hopeless trials early.
     """
     cat = dataset.list_series(table=table, block=block)
+    # The structural catalog includes series with zero F observations (e.g.
+    # all_chargeability/EB5_HIGHUNEMP/FAD) and short EB stubs — the tuner can
+    # only learn from evaluable series (caught live in the AQ campaign).
+    ev = dataset.evaluable_series()
+    ok = {
+        (r.country, r.category, r.table)
+        for r in ev.itertuples()
+        if r.table == table and (block is None or r.block == block)
+    }
     seen: set[tuple] = set()
     entries: list[tuple[str, str, str, int]] = []
     for r in cat.itertuples():
+        if (r.country, r.category, r.table) not in ok:
+            log.info("skip non-evaluable %s/%s/%s", r.country, r.category, r.table)
+            continue
         raw = dataset.load_series(r.country, r.category, r.table)
         sig = (r.category, tuple(raw.index.asi8), tuple(raw.to_numpy().tolist()))
         if sig in seen:
