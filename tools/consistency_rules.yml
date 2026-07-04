@@ -109,6 +109,10 @@ required:
     forms: ['\\input\{key_facts\}']
     in: [deliverable]
     reason: 'ProyectoI.tex debe hacer \input{key_facts} (cifras canónicas derivadas, no tipeadas)'
+  - fact: n_obs
+    forms: ['\\input\{fe_facts\}']
+    in: [deliverable]
+    reason: 'ProyectoI.tex debe hacer \input{fe_facts} (selección FRESH/mRMR derivada del catálogo FE)'
 
 numeric:
   # obs TOTAL del panel: "27,289 obs/observaciones/observations/filas/rows" pero NO "obs

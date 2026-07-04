@@ -290,8 +290,12 @@ def plot_changepoints(country: str = "mexico", category: str = "F3", table: str 
     return _save(fig, f"eda_changepoints_{country}_{category}_{table}.png")
 
 
-def plot_kalman_imputation(country: str = "china", category: str = "F1", table: str = "FAD") -> Path:
-    """Manejo MNAR de huecos: observaciones reales vs. relleno por suavizado de Kalman."""
+def plot_kalman_imputation(country: str = "mexico", category: str = "EB4_RW", table: str = "FAD") -> Path:
+    """Manejo MNAR de huecos: observaciones reales vs. relleno por suavizado de Kalman.
+
+    Default mexico/EB4_RW: la resurrección I1 dejó a china/F1 SIN huecos y la
+    figura mostraba "imputado (0)" — un ejemplar stale que nadie cazó (AE4).
+    """
     from vp_model import missingness as miss
 
     raw = miss._raw_monthly(dataset.load_series(country, category, table))

@@ -124,6 +124,8 @@
 % --- Cifras canónicas derivadas (AH1): key_facts.tex lo genera build_key_facts.py;
 %     una re-derivación actualiza estas macros sin tocar la prosa a mano. ---
 \input{key_facts}
+% --- Catálogo de FE (fe_facts.tex lo genera build_fe_facts.py): selección FRESH/mRMR. ---
+\input{fe_facts}
 
 \begin{document}
 
@@ -1158,19 +1160,31 @@ hacerlo por defecto.
 \subsubsection{Selección y des-redundancia de características}
 
 Con muestras de 130 a 296 observaciones por serie, cada grado de libertad cuenta, por
-lo que el conjunto unido de características (catch22, descriptores de pronóstico y
-variables de dominio) se somete a una etapa formal de selección en dos pasos. Primero,
-un filtro de relevancia univariada con corrección de multiplicidad de Benjamini-Yekutieli
+lo que el conjunto unido de características de caracterización (catch22 y descriptores
+de pronóstico y de diagnóstico) se somete a una etapa formal de selección en dos pasos.
+Primero, un filtro de relevancia univariada con corrección de multiplicidad de Benjamini-Yekutieli
 —el patrón del algoritmo FRESH \cita{10}— que controla la tasa de falso descubrimiento.
 Segundo, una des-redundancia por correlación de Spearman —en el espíritu de la selección
 de mínima redundancia y máxima relevancia (mRMR) \cita{11}— que conserva una sola
-característica representativa de cada grupo colineal; esto resuelve, por ejemplo, la
-duplicación entre el exponente de Hurst y las características de escalamiento de catch22.
-Para evitar fuga de información, la selección se ajusta únicamente con datos de
-entrenamiento dentro de cada partición del walk-forward. La decisión de no apilar
-bibliotecas completas de características (que serían cientos, con fuerte redundancia
-mutua) se apoya en la evidencia empírica de redundancia entre conjuntos de
-características \cita{12}: pocos descriptores bien elegidos superan a muchos correlacionados.
+característica representativa de cada grupo colineal. La selección se ejecuta como parte
+del catálogo vivo de ingeniería de características contra la dificultad real de
+pronóstico de cada serie (el MASE de hold-out del modelo campeón elegido en la región de
+selección, de modo que ningún dato del hold-out participa en elegir al campeón): de
+\feFactSelIn{} características candidatas sobre \feFactSelSeries{} series con campaña,
+solo \feFactSelRelevant{} sobrevive el control de falso descubrimiento
+(\texttt{\feFactSelName}, un descriptor catch22 de la distribución temporal de los
+avances extremos) — evidencia directa de que apilar bibliotecas completas de
+características (que serían cientos, con fuerte redundancia mutua) no aporta: pocos
+descriptores bien elegidos superan a muchos correlacionados \cita{12}.
+
+\paragraph{Nota sobre la ingeniería de características viva.} Igual que el EDA, la
+ingeniería de características y la limpieza mantienen un catálogo versionado
+—las \feFactNCleanDecisions{} decisiones de limpieza y \feFactNFeDecisions{} de
+características, cada una con el módulo que la implementa y la falla que previene, el
+registro de limpieza de cada consolidación y el resultado vigente de la selección— que
+se regenera de forma automática con cada boletín nuevo junto con su galería de figuras
+y un reporte ejecutivo en PDF, consultables públicamente desde la aplicación de
+demostración (Apéndice~A).
 
 \subsubsection{Métodos del estado del arte evaluados y descartados por diagnóstico}
 
@@ -1284,7 +1298,11 @@ lugar de propagar el error de valores inventados.
 \item \textbf{Regularización mensual.} Para los modelos que exigen frecuencia fija, las
 corridas de hasta tres meses sin fecha se interpolan; las más largas se conservan como
 faltantes (todo-o-nada por corrida), para no imponer una rampa artificial sobre años
-sin información.
+sin información. La Figura~\ref{fig:fe_gaps} ilustra la política completa sobre la
+serie con las corridas de ausencia más largas del panel, y la
+Figura~\ref{fig:fe_regime} muestra su contraparte de evaluación: los meses en
+régimen \textit{Current}/\textit{Unavailable} son anotación descriptiva y solo las
+fechas efectivamente publicadas se puntúan.
 \item \textbf{Estandarización.} Los modelos de redes neuronales requieren entradas
 escaladas. El estandarizador $z = (x-\mu)/\sigma$ ajusta $\mu$ y $\sigma$
 \textit{solo} sobre la ventana inicial de entrenamiento; calcularlos sobre el
@@ -1313,6 +1331,28 @@ círculo unitario diciembre y enero quedan adyacentes, evitando un orden falso e
 \label{fig:fe_calendar}
 \end{figure}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{fe_gaps.pdf}
+\caption[Política de huecos (MNAR)]{Política de huecos sobre México/EB4\_RW/FAD, la
+serie con las corridas de ausencia más largas del panel: las observaciones publicadas
+(puntos), las corridas cortas interpoladas para la rejilla de entrenamiento
+(segmentos), y las corridas largas que se conservan vacías —la imputación por Kalman
+existe solo para caracterizarlas en el EDA, jamás como insumo de entrenamiento.}
+\label{fig:fe_gaps}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{fe_regime.pdf}
+\caption[Régimen administrativo y máscara de evaluación]{Régimen administrativo de
+cada mes (fondos) y máscara de evaluación (franja inferior) sobre una serie de empleo
+con episodios \textit{Current} y \textit{Unavailable}: la línea existe solo donde hay
+fecha publicada y la evaluación puntúa únicamente esos meses; los rellenos de
+continuidad del entrenamiento nunca se califican.}
+\label{fig:fe_regime}
+\end{figure}
+
 Para verificar qué información usan efectivamente los modelos tabulares, la
 Figura~\ref{fig:fe_importance} reporta la importancia de características de un árbol de
 potenciación de gradiente (LightGBM) entrenado sobre el avance mensual: domina el avance del
@@ -1331,9 +1371,10 @@ rezagos del propio avance dominan; el calendario cíclico aporta una señal secu
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.86\textwidth]{eda_kalman_china_F1_FAD.png}
+\includegraphics[width=0.86\textwidth]{eda_kalman_mexico_EB4_RW_FAD.png}
 \caption[Huecos MNAR e imputación por Kalman]{Observaciones con fecha (puntos) y
-huecos MNAR imputados por suavizado de Kalman (marcadores) en China/F1/FAD. El
+huecos MNAR imputados por suavizado de Kalman (marcadores) en México/EB4\_RW/FAD,
+la serie con las corridas de ausencia más largas del panel. El
 modelado no usa estos valores imputados, sino una máscara de observación.}
 \label{fig:eda_kalman}
 \end{figure}
