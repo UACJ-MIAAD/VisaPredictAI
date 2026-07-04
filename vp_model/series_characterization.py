@@ -1,5 +1,9 @@
 """Caracterización feature-based de cada serie (EDA de panel, FPP3 cap. 4).
 
+AD6: antes se llamaba ``features.py``, un nombre que sugería el FE de modelado;
+esto es CARACTERIZACIÓN para EDA/reportes. El FE que consumen los modelos vive
+en ``vp_model.feature_builder``.
+
 Convierte el panel de 194 series en una tabla analizable: un vector de
 características por serie con fuerza de tendencia y estacionalidad, estructura de
 autocorrelación, entropía espectral, estabilidad, orden de diferenciación,
@@ -293,7 +297,8 @@ def advanced_table(table: str | None = None, block: str | None = None) -> pd.Dat
     return pd.DataFrame([asdict(advanced(r.country, r.category, r.table)) for r in cat.itertuples()])
 
 
-# Contrato de datos del "feature store" (MLOps): rangos/tipos válidos por columna.
+# Contrato de datos del catálogo de CARACTERIZACIÓN (no es un feature store de
+# modelado: los modelos consumen vp_model.feature_builder — AD6): rangos/tipos por columna.
 # Hecho a mano en vez de pandera para no añadir dependencia por lo que 20 líneas hacen.
 def validate_feature_table(df: pd.DataFrame) -> None:
     """Valida invariantes del catálogo de features; lanza AssertionError si se violan."""

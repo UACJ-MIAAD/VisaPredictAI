@@ -1,14 +1,13 @@
 """Preprocesamiento para modelado, sin fuga de información (US-C3).
 
-Cubre lo que pide §1.2.2 del formato de seguimiento: manejo de huecos, escalado y
-construcción de regresores. Las decisiones que tocan estadísticos del conjunto
-(escalado) se ajustan SOLO sobre el tramo de entrenamiento; ajustarlas sobre el
-total filtraría el futuro al pasado (leakage). El test `demo()` lo verifica.
+Cubre lo que pide §1.2.2 del formato de seguimiento: manejo de huecos,
+diferenciación y construcción de regresores de calendario. El escalado vive en
+``feature_builder``/walkforward (darts Scaler ajustado SOLO en la ventana
+inicial); toda decisión que toque estadísticos del conjunto se ajusta sobre el
+tramo de entrenamiento — ajustarla sobre el total filtraría el futuro al pasado.
 """
 
 from __future__ import annotations
-
-from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -39,23 +38,27 @@ def to_regular_monthly(series: pd.Series, max_gap: int = MAX_INTERPOLABLE_GAP) -
     return filled.where(keep, other=np.nan)
 
 
-@dataclass(frozen=True)
-class Standardizer:
-    """Estandarización z = (x - mu) / sigma con estadísticos del TRAIN únicamente."""
+# AD7: la clase Standardizer (z-score fit/transform propio) se ELIMINÓ — era una
+# segunda abstracción de escalado que ninguna ruta de producción usaba; el camino
+# real es darts Scaler ajustado solo en la ventana inicial (walkforward, ya
+# leakage-free). Una sola abstracción viva, no dos.
 
-    mean: float
-    std: float
 
-    @classmethod
-    def fit(cls, train: pd.Series) -> Standardizer:
-        std = float(train.std(ddof=0))
-        return cls(mean=float(train.mean()), std=std if std > 0 else 1.0)
+def difference(series: pd.Series) -> pd.Series:
+    """Primera diferencia Δy. Contraparte exacta de ``undifference`` (AD2).
 
-    def transform(self, x: pd.Series) -> pd.Series:
-        return (x - self.mean) / self.std
+    ÚNICA implementación pandas del transform más importante del proyecto; los
+    caminos deep (run_global_deep) la importan en vez de re-tipear ``.diff()``
+    con su propia semántica de NaN. El wrapper darts (models.Differenced) usa
+    ``TimeSeries.diff()`` con la MISMA semántica y reintegra con el mismo
+    contrato causal (anclar al último nivel observado).
+    """
+    return series.diff()
 
-    def inverse(self, z: pd.Series | np.ndarray) -> pd.Series | np.ndarray:
-        return z * self.std + self.mean
+
+def undifference(deltas: pd.Series, last_level: float) -> pd.Series:
+    """Reintegra deltas al nivel: cumsum anclado al último nivel OBSERVADO (causal)."""
+    return last_level + deltas.cumsum()
 
 
 def calendar_features(index: pd.DatetimeIndex) -> pd.DataFrame:
@@ -81,7 +84,7 @@ def calendar_features(index: pd.DatetimeIndex) -> pd.DataFrame:
 
 
 def demo() -> None:
-    """Self-check: interpolación acotada + escalado sin leakage."""
+    """Self-check: interpolación acotada + round-trip de diferenciación."""
     from vp_model import dataset
 
     raw = dataset.load_series("china", "F1", "FAD")  # tiene 5 huecos
@@ -94,22 +97,15 @@ def demo() -> None:
     s = pd.Series([0.0, np.nan, np.nan, np.nan, np.nan, 100.0], index=pd.date_range("2020-01-01", periods=6, freq="MS"))
     assert to_regular_monthly(s, max_gap=3).isna().sum() == 4
 
-    # Leakage: el estandarizador ajustado en train NO conoce la media del total.
+    # Round-trip exacto de difference/undifference (contrato AD2).
     full = dataset.load_series("mexico", "F3", "FAD").astype("float64")
-    train, test = full.iloc[:-24], full.iloc[-24:]
-    sc = Standardizer.fit(train)
-    assert abs(sc.mean - train.mean()) < 1e-9
-    assert abs(sc.mean - full.mean()) > 1.0, "la media de train != media del total (hay tendencia)"
-    # round-trip exacto.
-    z = sc.transform(test)
-    assert np.allclose(np.asarray(sc.inverse(z)), test.to_numpy())
+    d = difference(full)
+    back = undifference(d.iloc[1:], last_level=float(full.iloc[0]))
+    assert np.allclose(back.to_numpy(), full.iloc[1:].to_numpy())
 
     feats = calendar_features(full.index)
     assert list(feats.columns) == ["month_sin", "month_cos", "fiscal_sin", "fiscal_cos", "year"]
-    print(
-        f"OK — CN/F1/FAD regular {len(reg)} meses; scaler train mu={sc.mean:.0f} "
-        f"(total mu={full.mean():.0f}); {feats.shape[1]} regresores de calendario"
-    )
+    print(f"OK — CN/F1/FAD regular {len(reg)} meses; round-trip diff exacto; {feats.shape[1]} regresores de calendario")
 
 
 if __name__ == "__main__":

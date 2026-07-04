@@ -221,7 +221,10 @@ CREATE TABLE etl_run (
 -- ─────────────────────────── GOLD MARTS (modeling) ───────────────────────────
 
 -- The clean training set: only trainable ('F') observations with the dependent
--- variable and useful time features. This is what the modeling stage consumes.
+-- variable. The modeling stage reads (bulletin_date, days_since_base) from here;
+-- year/month/quarter/preference_level are for SQL exploration (DBeaver, marts),
+-- NOT the model features — feature engineering is Python-only, composed by
+-- vp_model/feature_builder.py from config's per-model policy (AD12).
 CREATE VIEW mart_training_F AS
 SELECT
     a.slug AS country, c.block AS block, c.code AS category, t.code AS "table",

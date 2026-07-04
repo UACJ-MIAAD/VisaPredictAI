@@ -86,7 +86,8 @@ def test_family_domain_guard_aborts(tmp_path=None):
 def test_eda_clean_no_nan_preserves_observed_no_linear_ramp():
     # AB1: _clean produce serie completa, respeta lo observado y los huecos largos
     # ya NO son la rampa lineal (Kalman de espacio de estados, no interpolate()).
-    from vp_model import dataset, features, preprocess
+    from vp_model import dataset, preprocess
+    from vp_model import series_characterization as features
 
     raw = dataset.load_series("china", "F1", "FAD")  # serie con huecos conocidos
     s = features._clean("china", "F1", "FAD")

@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from vp_model import dataset  # noqa: E402
+from vp_model.config import days_to_year  # noqa: E402
 from vp_model.palette import BLUE, GRID, INK, MID, style  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,7 +30,7 @@ CTX_START = pd.Timestamp("2019-01-01")
 
 
 def _yr(days):
-    return 1975 + days / 365.25
+    return days_to_year(days)  # AD3: epoch single-sourced (vp_model.config)
 
 
 def fig_hero(country="philippines", category="F3", table="FAD", out="results_hero_forecast.pdf") -> None:

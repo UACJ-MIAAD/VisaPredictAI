@@ -229,6 +229,8 @@ def main() -> None:
         parts = []
         for _uid, g in panel.groupby("unique_id"):
             g = g.sort_values("ds").copy()
+            # Contrato canónico = vp_model.preprocess.difference/undifference (AD2);
+            # re-tipeado aquí porque este venv no tiene vp_model (test lo ancla).
             g["y"] = g["y"].diff()
             parts.append(g.iloc[1:])  # descarta el primer NaN
         train = pd.concat(parts, ignore_index=True)

@@ -17,18 +17,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from darts import TimeSeries
-from darts.dataprocessing.transformers import Scaler
 
-from vp_model import dataset, intervals, metrics, models, preprocess
+from vp_model import dataset, intervals, metrics, models
 from vp_model.config import (
     HOLDOUT,
     MIN_BACKTEST_BUFFER,
     MIN_TRAIN,
-    NEEDS_SCALING,
     NN_RETRAIN,
     PROBABILISTIC,
     RETRAIN_EACH_STEP,
 )
+from vp_model.feature_builder import FeatureBuilder
 
 
 @dataclass(frozen=True)
@@ -41,10 +40,6 @@ class BacktestResult:
     holdout: dict[str, float]  # métricas en los 24 meses reservados
 
 
-def _covariates(ts: TimeSeries) -> TimeSeries:
-    return TimeSeries.from_dataframe(preprocess.calendar_features(ts.time_index))
-
-
 def run_forecasts(
     model_name: str, country: str, category: str, table: str, model: object | None = None
 ) -> tuple[TimeSeries, TimeSeries]:
@@ -52,8 +47,11 @@ def run_forecasts(
 
     Devuelve (ts, forecasts) leakage-free: cada origen solo ve el pasado. Lo usan
     ``backtest`` (para métricas) y la persistencia de pronósticos (para ensambles).
+    El FE (huecos, covariables, escalado) lo compone ``FeatureBuilder`` según la
+    política por modelo de config — mismo comportamiento, linaje explícito (AD1).
     """
-    ts = models.to_timeseries(dataset.load_series(country, category, table))
+    fe = FeatureBuilder(model_name)
+    ts = fe.to_timeseries(dataset.load_series(country, category, table))
     min_train = MIN_TRAIN[table]
     if len(ts) < min_train + HOLDOUT + MIN_BACKTEST_BUFFER:
         raise ValueError(f"serie demasiado corta ({len(ts)}) para min_train={min_train}+holdout={HOLDOUT}")
@@ -61,18 +59,12 @@ def run_forecasts(
     model = models.build_model(model_name) if model is None else model
     retrain: bool | int = True if model_name in RETRAIN_EACH_STEP else NN_RETRAIN
     # historical_forecasts recibe future_covariates UNA vez (lo usa en fit y predict).
-    # Los árboles (xgboost/lightgbm/catboost) usan regresores de calendario.
-    from vp_model.config import DIFFERENCED
-
-    extra = {"future_covariates": _covariates(ts)} if model_name in DIFFERENCED else {}
+    cov = fe.covariates(ts)
+    extra = {"future_covariates": cov} if cov is not None else {}
 
     # Escalado leakage-free para redes: Scaler ajustado solo en la ventana inicial.
-    scaler = None
-    ts_model = ts
-    if model_name in NEEDS_SCALING:
-        scaler = Scaler()
-        scaler.fit(ts[:min_train])
-        ts_model = scaler.transform(ts)
+    scaler = fe.fit_scaler(ts, min_train)
+    ts_model = scaler.transform(ts) if scaler is not None else ts
 
     forecasts = model.historical_forecasts(  # type: ignore[attr-defined]
         ts_model,
@@ -151,16 +143,13 @@ def crps_holdout(model_name: str, country: str, category: str, table: str, num_s
         raise ValueError(
             f"crps_holdout solo aplica a modelos distribucionales {sorted(PROBABILISTIC)}, no '{model_name}'"
         )
-    ts = models.to_timeseries(dataset.load_series(country, category, table))
+    fe = FeatureBuilder(model_name)
+    ts = fe.to_timeseries(dataset.load_series(country, category, table))
     split = ts.time_index[-HOLDOUT]
     model = models.build_model(model_name)
     retrain: bool | int = True if model_name in RETRAIN_EACH_STEP else NN_RETRAIN
-    scaler = None
-    ts_model = ts
-    if model_name in NEEDS_SCALING:
-        scaler = Scaler()
-        scaler.fit(ts[:-HOLDOUT])
-        ts_model = scaler.transform(ts)
+    scaler = fe.fit_scaler(ts, len(ts) - HOLDOUT)
+    ts_model = scaler.transform(ts) if scaler is not None else ts
     samples = model.historical_forecasts(  # type: ignore[attr-defined]
         ts_model,
         start=split,

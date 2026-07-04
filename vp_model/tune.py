@@ -21,6 +21,7 @@ import numpy as np
 
 from vp_model import config, dataset, models, walkforward
 from vp_model.config import RANDOM_SEED
+from vp_model.feature_builder import FeatureBuilder
 
 
 @dataclass(frozen=True)
@@ -96,7 +97,8 @@ def _val_mase(model_name: str, country: str, category: str, table: str, params: 
         return float("nan")
     val_start = len(sel) - _VAL
     model = models.build_model(model_name) if params is None else _build_tuned(model_name, dict(params))
-    extra = {"future_covariates": walkforward._covariates(ts)} if model_name in config.DIFFERENCED else {}
+    cov = FeatureBuilder(model_name).covariates(ts)  # política por modelo (AD1/AD8)
+    extra = {"future_covariates": cov} if cov is not None else {}
     # un solo ajuste sobre el tramo de entrenamiento (model es un union de forecasters de darts)
     model.fit(sel[:val_start], **extra)  # type: ignore[attr-defined]
     fc = model.historical_forecasts(  # type: ignore[attr-defined]

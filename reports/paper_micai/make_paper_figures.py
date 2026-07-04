@@ -19,14 +19,15 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from vp_model.config import BASE_EPOCH_YEAR, DAYS_PER_YEAR
 from vp_model.palette import BLUE, GRID, INK, MID, WINE
 
 ROOT = Path(__file__).resolve().parents[2]
 REPORTS = ROOT / "reports"
 FIGS = Path(__file__).resolve().parent / "Figures"
 FIGS.mkdir(exist_ok=True)
-DAYS_Y = 365.25
-BASE_YEAR = 1975  # t0 = 1975-01-01
+DAYS_Y = DAYS_PER_YEAR  # AD3: single-source
+BASE_YEAR = BASE_EPOCH_YEAR  # t0
 
 plt.rcParams.update(
     {

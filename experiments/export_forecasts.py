@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 
 from vp_model import config, dataset, models, walkforward
+from vp_model.feature_builder import FeatureBuilder
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
@@ -39,11 +40,11 @@ def _local_rows(table: str) -> list[dict]:
         ts = models.to_timeseries(dataset.load_series(r.country, r.category, table))
         split = ts.time_index[-walkforward.HOLDOUT]
         actual = ts[split:]
-        cov = {"future_covariates": walkforward._covariates(ts)}
         for name in LOCAL:
             try:
                 m = models.build_model(name)
-                fit_kw = cov if name in config.DIFFERENCED else {}
+                fcov = FeatureBuilder(name).covariates(ts)  # política por modelo (AD1/AD8)
+                fit_kw = {"future_covariates": fcov} if fcov is not None else {}
                 # ajustar una vez sobre el pre-hold-out, luego rodar 1-paso con retrain=False
                 # (rápido, para visualización; los MASE oficiales del .tex vienen del walk-forward).
                 m.fit(ts[: -walkforward.HOLDOUT], **fit_kw)  # type: ignore[attr-defined]

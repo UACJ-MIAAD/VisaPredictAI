@@ -35,6 +35,7 @@ from matplotlib.offsetbox import AnnotationBbox, OffsetImage  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
 from vp_model import palette as _palette  # noqa: E402
+from vp_model.config import DAYS_PER_YEAR, days_to_year  # noqa: E402
 from vp_model.palette import (  # noqa: E402
     BLUE,
     COUNTRY,
@@ -525,7 +526,7 @@ def g01_panel(df: pd.DataFrame, facts: dict) -> plt.Figure:
 def g02_trayectorias(df: pd.DataFrame, facts: dict) -> plt.Figure:
     """Un cuarto de siglo de fila: las 25 series familiares FAD, anotadas."""
     f = df[(df.status == "F") & (df.block == "family") & (df.table == "FAD")].copy()
-    f["years"] = 1975 + f.days_since_base / 365.25
+    f["years"] = days_to_year(f.days_since_base)  # AD3
     fig, ax = plt.subplots(figsize=(8.6, 4.9))
     for (c, _cat), s in f.groupby(["country", "category"]):
         s = s.sort_values("bulletin_date")
@@ -550,7 +551,7 @@ def g02_trayectorias(df: pd.DataFrame, facts: dict) -> plt.Figure:
     ev = ev[(ev.block == "family") & (ev.table == "FAD")]
     worst = ev.groupby("date").days.sum().idxmax()
     n_hit = int((ev.date == worst).sum())
-    yrs_lost = ev[ev.date == worst].days.sum() / 365.25
+    yrs_lost = ev[ev.date == worst].days.sum() / DAYS_PER_YEAR
     wd = pd.Timestamp(worst + "-01")
     ax.axvline(wd, color=WINE, lw=0.9, ls="--", alpha=0.8)
     ax.annotate(
@@ -673,7 +674,7 @@ def g04_retros(facts: dict) -> plt.Figure:
     """Los meses en que el sistema se rompió: TODAS las retrogresiones."""
     ev = pd.DataFrame(facts["retro_events"])
     ev["date_ts"] = pd.to_datetime(ev.date + "-01")
-    ev["years_lost"] = ev.days / 365.25
+    ev["years_lost"] = ev.days / DAYS_PER_YEAR
     fig, ax = plt.subplots(figsize=(8.6, 4.6))
     ax.scatter(
         ev.date_ts,

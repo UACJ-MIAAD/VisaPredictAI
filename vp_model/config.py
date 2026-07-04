@@ -89,6 +89,15 @@ RETRAIN_EACH_STEP = frozenset(
 DIFFERENCED = frozenset({"xgboost", "lightgbm", "catboost"})
 NN_RETRAIN = 12  # las redes se reentrenan cada N meses (coste/validez)
 
+# AD8: política de covariables POR MODELO — explícita, no un accidente del código.
+# Hoy solo los árboles diferenciados reciben calendario (la campaña canónica se
+# derivó así); rlinear y las NN van conscientemente sin covariables (añadirlas
+# invalidaría las cifras publicadas). ⚠️ 'year' (monótona, no acotada) sobre un
+# target diferenciado es un smell documentado: candidata a eliminarse en la
+# PRÓXIMA re-campaña (PENDIENTES), no antes — provenance de las cifras vigentes.
+COVARIATE_COLS = ("month_sin", "month_cos", "fiscal_sin", "fiscal_cos", "year")
+COVARIATES: dict[str, tuple[str, ...]] = {m: COVARIATE_COLS for m in sorted(DIFFERENCED)}
+
 # Hiperparámetros externalizados (antes hardcodeados dentro de build_model).
 HYPERPARAMS: dict[str, dict] = {
     "arima": dict(p=2, d=1, q=2),
@@ -193,6 +202,15 @@ def run_metadata() -> dict:
         },
         "walkforward": {"min_train": MIN_TRAIN, "holdout": HOLDOUT, "nn_retrain": NN_RETRAIN},
         "hyperparams": HYPERPARAMS,
+        # AD9: linaje de FE — sin esto una fila de métricas no puede atarse a las
+        # features que la produjeron (la versión viene de feature_builder).
+        "features": {
+            "covariates": {m: list(c) for m, c in COVARIATES.items()},
+            "differenced": sorted(DIFFERENCED),
+            "scaled": sorted(NEEDS_SCALING),
+            "max_interpolable_gap": MAX_INTERPOLABLE_GAP,
+            "base_epoch": BASE_EPOCH,
+        },
     }
 
 

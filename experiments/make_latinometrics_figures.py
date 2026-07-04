@@ -20,6 +20,7 @@ import pandas as pd  # noqa: E402
 from matplotlib.offsetbox import AnnotationBbox, OffsetImage  # noqa: E402
 from PIL import Image, ImageDraw  # noqa: E402
 
+from vp_model.config import DAYS_PER_YEAR  # noqa: E402
 from vp_model.palette import BLUE, GRAY, INK, MID, MUTE, style  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,7 +102,8 @@ def fig_backlog(category="F4", table="FAD", highlight="mexico", out="latam_backl
     last = g.bulletin_date.max()
     row = g[g.bulletin_date == last]
     bl = {
-        c: (row[row.country == c].bulletin_date.iloc[0] - row[row.country == c].priority_date.iloc[0]).days / 365.25
+        c: (row[row.country == c].bulletin_date.iloc[0] - row[row.country == c].priority_date.iloc[0]).days
+        / DAYS_PER_YEAR
         for c in NAME
         if len(row[row.country == c])
     }

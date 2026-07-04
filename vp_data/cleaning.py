@@ -111,7 +111,7 @@ CLEANING_DECISIONS: tuple[dict[str, str], ...] = (
     {
         "id": "eda_kalman",
         "title": "Caracterización EDA imputa con Kalman, nunca rampas sin tope",
-        "module": "vp_model/features.py:_clean · vp_model/missingness.py:kalman_impute",
+        "module": "vp_model/series_characterization.py:_clean · vp_model/missingness.py:kalman_impute",
         "rationale": (
             "STL/espectro/catch22 exigen series completas. Los huecos largos se imputan "
             "con suavizado de Kalman (espacio de estados, imputeTS::na_kalman), no con "
@@ -133,7 +133,7 @@ CLEANING_DECISIONS: tuple[dict[str, str], ...] = (
     {
         "id": "outliers_as_signal",
         "title": "Retrogresiones = señal; outliers se cuentan, jamás se recortan",
-        "module": "vp_model/features.py:count_outliers · pipeline/mega_audit.py:d9_jumps",
+        "module": "vp_model/series_characterization.py:count_outliers · pipeline/mega_audit.py:d9_jumps",
         "rationale": (
             "Las retrogresiones y saltos >8 años son eventos administrativos reales que "
             "el modelo debe tolerar (la tesis lo argumenta). Ningún paso winsoriza ni "

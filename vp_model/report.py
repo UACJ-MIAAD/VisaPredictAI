@@ -152,7 +152,7 @@ def feature_tables_latex(table: str = "FAD", block: str = "family") -> str:
     Tabla A = estructura temporal; Tabla B = anomalías y forma de la distribución.
     stability/lumpiness se omiten (dependientes de escala; viven en el CSV).
     """
-    from vp_model import features as feat
+    from vp_model import series_characterization as feat
 
     ft = feat.feature_table(table=table, block=block).copy()
     ft["cc"] = ft["country"].map(_CC)

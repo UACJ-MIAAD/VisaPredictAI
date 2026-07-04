@@ -15,7 +15,8 @@ from pathlib import Path
 
 import joblib
 
-from vp_model import config, dataset, models, walkforward
+from vp_model import config, dataset, models
+from vp_model.feature_builder import FeatureBuilder
 
 ROOT = Path(__file__).resolve().parent.parent
 MODELS = ROOT / "models"
@@ -38,11 +39,11 @@ def main() -> None:
         cat = dataset.list_series(table=table, block="family", countries=config.PILOT_COUNTRIES)
         for r in cat.itertuples():
             ts = models.to_timeseries(dataset.load_series(r.country, r.category, table))
-            extra = {"future_covariates": walkforward._covariates(ts)}
             for name in LOCAL:
                 try:
                     model = models.build_model(name)
-                    fit_kwargs = extra if name in config.DIFFERENCED else {}
+                    cov = FeatureBuilder(name).covariates(ts)  # política por modelo (AD1/AD8)
+                    fit_kwargs = {"future_covariates": cov} if cov is not None else {}
                     model.fit(ts, **fit_kwargs)  # type: ignore[attr-defined]
                     out = MODELS / table / "local" / name / f"{r.country}_{r.category}"
                     out.mkdir(parents=True, exist_ok=True)

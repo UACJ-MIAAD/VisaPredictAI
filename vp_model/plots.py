@@ -18,13 +18,15 @@ import matplotlib.pyplot as plt  # noqa: E402
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf  # noqa: E402
 from statsmodels.tsa.seasonal import STL  # noqa: E402
 
-from vp_model import config, dataset, eda, features, preprocess  # noqa: E402
-from vp_model.palette import BLUE, COUNTRY, COUNTRY_NAME, DIV, GOLD, GRAY, INK, MID, SEQ, WINE  # noqa: E402
+from vp_model import config, dataset, eda, preprocess  # noqa: E402
+from vp_model import series_characterization as features  # noqa: E402
+from vp_model.config import DAYS_PER_YEAR  # noqa: E402
+from vp_model.palette import BLUE, COUNTRY, COUNTRY_NAME, DIV, GOLD, GRAY, INK, MID, SEQ, WINE, YELLOW  # noqa: E402
 
 log = config.get_logger(__name__)
 
 # Aliases: el cuerpo histórico usa los nombres UACJ_*; apuntan a la paleta canónica.
-UACJ_BLUE, UACJ_YELLOW, UACJ_GRAY, UACJ_BLACK = BLUE, "#FFD600", GRAY, INK
+UACJ_BLUE, UACJ_YELLOW, UACJ_GRAY, UACJ_BLACK = BLUE, YELLOW, GRAY, INK  # AE3: sin hex suelto
 
 OUTDIR = Path(__file__).resolve().parent.parent / "reports" / "figures"
 
@@ -69,7 +71,7 @@ def plot_pilot_series(table: str = "FAD", category: str = "F3") -> Path:
             s = dataset.load_series(country, category, table)
         except KeyError:
             continue
-        ax.plot(s.index, s.to_numpy() / 365.25, label=COUNTRY_NAME[country], color=color, lw=1.3)
+        ax.plot(s.index, s.to_numpy() / DAYS_PER_YEAR, label=COUNTRY_NAME[country], color=color, lw=1.3)
     ax.set_title(f"Frente de fecha de prioridad — categoría {category}, tabla {table}")
     ax.set_xlabel("Mes del boletín")
     ax.set_ylabel("Años desde la época base (1975)")
@@ -148,7 +150,7 @@ def plot_decomposition(country: str = "mexico", category: str = "F3", table: str
         [(s, UACJ_BLUE), (res.trend, UACJ_BLACK), (res.seasonal, UACJ_GRAY), (res.resid, WINE)],
         strict=True,
     ):
-        ax.plot(comp.index, np.asarray(comp) / 365.25, color=color, lw=1.0)
+        ax.plot(comp.index, np.asarray(comp) / DAYS_PER_YEAR, color=color, lw=1.0)
     for ax, lbl in zip(axes, ["observado", "tendencia", "estacional", "residuo"], strict=True):
         ax.set_ylabel(lbl, fontsize=8)
     axes[0].set_title(f"Descomposición STL — {country}/{category}/{table} (años)")
@@ -269,12 +271,12 @@ def plot_changepoints(country: str = "mexico", category: str = "F3", table: str 
     anom = s[((resid - med).abs() > 3 * 1.4826 * mad) & (mad > 0)]
 
     fig, ax = plt.subplots(figsize=(8, 3.8))
-    ax.plot(s.index, s.to_numpy() / 365.25, color=UACJ_BLUE, lw=1.2, label="serie")
+    ax.plot(s.index, s.to_numpy() / DAYS_PER_YEAR, color=UACJ_BLUE, lw=1.2, label="serie")
     for b in bkps[:-1]:
         ax.axvline(s.index[min(b, len(s) - 1)], color=WINE, lw=1.1, ls="--")
     ax.scatter(
         anom.index,
-        anom.to_numpy() / 365.25,
+        anom.to_numpy() / DAYS_PER_YEAR,
         color=GOLD,
         s=18,
         zorder=3,
@@ -296,11 +298,11 @@ def plot_kalman_imputation(country: str = "china", category: str = "F1", table: 
     imp = miss.kalman_impute(raw)
     gaps = raw.isna()
     fig, ax = plt.subplots(figsize=(8, 3.4))
-    ax.plot(imp.index, imp.to_numpy() / 365.25, color=UACJ_GRAY, lw=1.0, ls=":", label="Kalman (relleno EDA)")
-    ax.scatter(raw.index[~gaps], raw[~gaps].to_numpy() / 365.25, color=UACJ_BLUE, s=8, label="observado (F)")
+    ax.plot(imp.index, imp.to_numpy() / DAYS_PER_YEAR, color=UACJ_GRAY, lw=1.0, ls=":", label="Kalman (relleno EDA)")
+    ax.scatter(raw.index[~gaps], raw[~gaps].to_numpy() / DAYS_PER_YEAR, color=UACJ_BLUE, s=8, label="observado (F)")
     ax.scatter(
         imp.index[gaps],
-        imp[gaps].to_numpy() / 365.25,
+        imp[gaps].to_numpy() / DAYS_PER_YEAR,
         color=WINE,
         s=26,
         marker="x",

@@ -27,6 +27,7 @@ from matplotlib.ticker import MaxNLocator  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 REP = ROOT / "reports"
 FIG = REP / "latex" / "Figures"
+from vp_model.config import BASE_EPOCH, days_to_year  # noqa: E402
 from vp_model.palette import BLUE, GOLD, GRAY, GRID, INK, MID, MUTE, STRIPE, WARN  # noqa: E402
 
 BLACK = INK  # alias: el cuerpo usa BLACK para el texto/línea dominante
@@ -101,7 +102,7 @@ def fig_ranking() -> None:
 
 # ---------- F2: pronóstico del ganador vs real + banda PI 95% ----------
 def _to_year(days: np.ndarray) -> np.ndarray:
-    return 1975 + np.asarray(days, dtype="float64") / 365.25
+    return days_to_year(np.asarray(days, dtype="float64"))  # AD3
 
 
 def fig_forecast() -> None:
@@ -314,7 +315,7 @@ CATS = ["F1", "F2A", "F2B", "F3", "F4"]
 HOLD_START = pd.Timestamp("2024-08-01")
 HOLD_END = pd.Timestamp("2026-07-01")
 WIN_START = pd.Timestamp("2022-08-01")  # 48 meses de ventana: 24 de contexto + 24 de hold-out
-BASE = pd.Timestamp("1975-01-01")
+BASE = pd.Timestamp(BASE_EPOCH)  # AD3: single-source t0
 
 
 def fig_backtest_grid(table: str) -> None:

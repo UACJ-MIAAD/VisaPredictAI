@@ -18,6 +18,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import seaborn as sns  # noqa: E402
 
+from vp_model.config import DAYS_PER_YEAR, days_to_year  # noqa: E402
 from vp_model.palette import BLUE, COUNTRY, DIV, GOLD, GRID, INK, MID, REGIME, SEQ, WINE  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,7 +44,7 @@ def _panel(table="FAD"):
     f["año"] = f.bulletin_date.dt.year
     f["mes"] = f.bulletin_date.dt.month
     f["pais"] = f.country.map(CNAME)
-    f["years"] = 1975 + f.days_since_base / 365.25
+    f["years"] = days_to_year(f.days_since_base)  # AD3
     return f
 
 
@@ -251,7 +252,7 @@ def fig_length_retro() -> None:
         f[f.delta < 0].groupby(["country", "category"]).agg(n=("delta", "size"), peor=("delta", "min")).reset_index()
     )
     retro["serie"] = retro.country.map(CNAME) + "/" + retro.category
-    retro["yr"] = -retro.peor / 365.25
+    retro["yr"] = -retro.peor / DAYS_PER_YEAR
     retro = retro.sort_values("peor")
     a2.scatter(retro.n, retro.yr, c=[CCOL[c] for c in retro.country], s=40, edgecolor="white", zorder=3)
     # etiquetar solo las series más extremas: el cúmulo se distingue por color (evita encimamiento)

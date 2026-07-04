@@ -48,8 +48,8 @@ stages:
       size: 11775
     - path: vp_data/cleaning.py
       hash: md5
-      md5: 190bb75f9cf3fbece42177af5a0bea15
-      size: 8116
+      md5: 80f9e162e85f2a5cc6da5d4b3303e79e
+      size: 8146
     outs:
     - path: data/processed/visa_panel_long.csv
       hash: md5
@@ -93,8 +93,8 @@ stages:
       size: 16582
     - path: schema.sql
       hash: md5
-      md5: 52e5aed9c151a8c1ae0ab2fef614c003
-      size: 12657
+      md5: 7af3a8448a51a09a2c43d0c4cdb1eef1
+      size: 12888
     - path: vp_data/config.py
       hash: md5
       md5: de3bfba4a3eb83b800debc65759ce1c4
@@ -177,8 +177,8 @@ stages:
       size: 2911
     - path: vp_model/config.py
       hash: md5
-      md5: 6328c5fd0825be01f60a425f8a506917
-      size: 9322
+      md5: 5951bb620fffdc3adcfa757e89dded09
+      size: 10449
     outs:
     - path: reports/governance/key_facts.json
       hash: md5

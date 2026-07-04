@@ -50,13 +50,14 @@ def test_regular_monthly_preserves_observed_and_caps_long_gaps() -> None:
     assert preprocess.to_regular_monthly(s2, max_gap=3).isna().sum() == 0
 
 
-def test_standardizer_no_leakage_and_roundtrip() -> None:
+def test_difference_undifference_roundtrip() -> None:
+    # AD7: Standardizer se eliminó (el escalado real es el darts Scaler de
+    # feature_builder, con su propio test de leakage). El contrato de preprocess
+    # ahora es la pareja difference/undifference (AD2).
     full = dataset.load_series("mexico", "F3", "FAD").astype("float64")
-    train, test = full.iloc[:-24], full.iloc[-24:]
-    sc = preprocess.Standardizer.fit(train)
-    assert abs(sc.mean - train.mean()) < 1e-9  # ajustado solo en train
-    assert abs(sc.mean - full.mean()) > 1.0  # != media del total (hay tendencia)
-    assert np.allclose(np.asarray(sc.inverse(sc.transform(test))), test.to_numpy())
+    d = preprocess.difference(full)
+    back = preprocess.undifference(d.iloc[1:], last_level=float(full.iloc[0]))
+    assert np.allclose(back.to_numpy(), full.iloc[1:].to_numpy())
 
 
 def test_calendar_features_shape() -> None:
