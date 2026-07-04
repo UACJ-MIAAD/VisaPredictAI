@@ -101,7 +101,8 @@ test-model:
 	$(PY) -m pytest -o addopts="" --cov=vp_model --cov-report=term-missing --cov-fail-under=55 \
 		tests/test_dataset.py tests/test_eda_preprocess.py tests/test_models.py \
 		tests/test_walkforward.py tests/test_intervals_significance.py tests/test_config_report.py \
-		tests/test_features.py tests/test_missingness.py tests/test_feature_select.py \
+		tests/test_series_characterization.py tests/test_missingness.py tests/test_feature_select.py \
+		tests/test_feature_builder.py \
 		tests/test_ensemble.py tests/test_model_regression.py tests/test_champion.py
 
 # Reproducir los resultados (requiere `make model-install` + `make db`):

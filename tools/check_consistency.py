@@ -127,6 +127,8 @@ def main() -> int:
     # 3) NUMERIC — todo número etiquetado debe igualar la fuente de verdad
     for r in rules.get("numeric", []):
         want = facts.get(r["fact"])
+        if want is None:  # fact ausente (p.ej. fe_facts sin generar) — no hay verdad que comparar
+            continue
         rx = re.compile(r["label"], re.IGNORECASE)
         for f in files_for(r["in"]):
             for i, line in enumerate(f.read_text(errors="ignore").splitlines(), 1):
@@ -143,7 +145,10 @@ def main() -> int:
     # int() truncaría 0.114 a 0, así que se compara como float con tolerancia de
     # redondeo a los decimales del claim (0.090 == 0.09; 0.114 != 0.121).
     for r in rules.get("decimal", []):
-        want = float(facts.get(r["fact"]))
+        raw = facts.get(r["fact"])
+        if raw is None:
+            continue
+        want = float(raw)
         rx = re.compile(r["label"], re.IGNORECASE)
         for f in files_for(r["in"]):
             for i, line in enumerate(f.read_text(errors="ignore").splitlines(), 1):
