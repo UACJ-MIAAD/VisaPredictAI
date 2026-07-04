@@ -382,7 +382,8 @@ def rank_check(
                 r = walkforward.backtest(
                     model_name, country, category, tb, model=_build_tuned(model_name, dict(t.params))
                 )
-            except (ValueError, KeyError) as e:
+            except Exception as e:  # noqa: BLE001 — provenance loop: a frozen series
+                # (CatBoostError "All train targets are equal") must not kill it.
                 log.warning("rank_check skip %s/%s: %s", country, category, e)
                 continue
             if not np.isnan(r.selection["mase"]):
