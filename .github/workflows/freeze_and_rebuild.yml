@@ -226,6 +226,11 @@ jobs:
         # puede desplazar las de dvc; re-pinnear es idempotente y tarda segundos.)
         pip install "dvc==3.67.1" --quiet
         dvc commit --force key_facts
+        # La identidad git del paso `run` solo se escribe en su sección de commit de
+        # datos, que la ruta self-heal (#17) salta con exit 0 — sin estas líneas el
+        # primer commit de este paso moría con "empty ident" (cazado en el estreno).
+        git config --local user.email "168046724+jrebull@users.noreply.github.com"
+        git config --local user.name "Javier Rebull"
         git add reports dvc.lock
         if git diff --cached --quiet; then
           echo "Forecasts/key facts unchanged -- nothing to commit."
@@ -272,6 +277,9 @@ jobs:
           exit 1
         fi
         python -c "import json;f=json.load(open('reports/eda/eda_facts.json'));p=f['panel'];print(f\"EDA {f['vintage']}: {p['n_series_structural']} series censadas, {p['n_series_evaluable']} evaluables, reporte OK\")" > /tmp/eda.txt
+        # Identidad propia: en la ruta self-heal ningún paso previo la configura.
+        git config --local user.email "168046724+jrebull@users.noreply.github.com"
+        git config --local user.name "Javier Rebull"
         git add reports
         if git diff --cached --quiet; then
           echo "EDA sin cambios -- nada que comitear."
