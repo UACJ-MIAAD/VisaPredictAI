@@ -32,6 +32,12 @@ def test_eda_facts_matches_key_facts():
     eda, key = json.loads(EDA.read_text()), json.loads(KEY.read_text())
     for k in SHARED_KEYS:
         assert eda["panel"][k] == key[k], f"regla #0 violada: {k} eda={eda['panel'][k]} key={key[k]}"
+    # claves del censo que el guardián vigila en prosa (audit 3-jul H3): misma derivación
+    assert eda["panel"]["n_months"] == key["n_months"]
+    assert len(eda["retro_events"]) == key["n_retro_events"]
+    assert eda["dv"]["n_rows"] == key["dv_n_rows"]
+    assert round(eda["panel"]["pct_frozen"]) == key["pct_frozen"]
+    assert round(eda["panel"]["pct_retro"], 1) == key["pct_retro"]
 
 
 def test_eda_facts_structure_is_consumable():

@@ -132,7 +132,7 @@ def eda_stationarity_rows() -> str:
         "philippines": "Filipinas",
         "all_chargeability": "Resto del mundo",
     }
-    verdict_es = {"difference": "diferenciar", "stationary": "estacionaria", "mixed": "mixto"}
+    verdict_es = {"difference": "diferenciar", "stationary": "estacionaria", "mixed": "mixto", "failed": "n/d"}
     out = [f"% --- tab:eda_estacionariedad: censo vintage {facts['vintage']} (make_tex_tables.py) ---"]
     order = {c: i for i, c in enumerate(name_es)}
     g = g.sort_values(["country", "category"], key=lambda s: s.map(order) if s.name == "country" else s)

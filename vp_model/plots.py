@@ -49,6 +49,12 @@ def _save(fig: plt.Figure, name: str) -> Path:
     path = OUTDIR / name
     fig.tight_layout()
     fig.savefig(path, bbox_inches="tight", dpi=SAVE_DPI)
+    # Audit 3-jul (H2): el .tex referencia estas figuras desde reports/latex/Figures;
+    # antes se copiaban a mano y el cron refrescaba solo eda2_/eda3_ — el capítulo
+    # mezclaba vintages. Doble escritura: la copia local (gitignored) y la del .tex.
+    tex_dir = OUTDIR.parent / "latex" / "Figures"
+    if tex_dir.is_dir() and (tex_dir / name).exists():
+        fig.savefig(tex_dir / name, bbox_inches="tight", dpi=SAVE_DPI)
     plt.close(fig)
     return path
 

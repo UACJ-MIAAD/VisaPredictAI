@@ -52,6 +52,12 @@ def _dataset() -> dict:
     spans = f.groupby(["country", "category", "table"])["_per"].agg(lambda s: (s.max() - s.min()).n + 1)
     tables = {k: k[2] for k in fcount.index}
     n_eval = sum(1 for k in fcount.index if is_evaluable(int(fcount[k]), int(spans[k]), tables[k]))
+    # Cifras del censo EDA que la prosa (web/.tex) cita: sin estas claves, el guardián
+    # era ciego a su drift (audit 3-jul H3). Misma derivación que build_eda_facts.
+    f_sorted = df[df.status == "F"].sort_values("bulletin_date").copy()
+    deltas = f_sorted.groupby(["country", "block", "category", "table"])["days_since_base"].diff().dropna()
+    dv_path = ROOT / "data" / "raw" / "dv_visa_rank_timecourse.csv"
+    n_dv = int(len(pd.read_csv(dv_path))) if dv_path.exists() else 0
     return {
         "n_series_structural": int(df.groupby(["country", "category", "table"]).ngroups),
         "n_series_with_F": int((fcount >= 1).sum()),
@@ -61,6 +67,11 @@ def _dataset() -> dict:
         "pct_trainable_F": int(round(100 * (df.status == "F").mean())),
         "date_first": df.bulletin_date.min()[:7],
         "date_last": df.bulletin_date.max()[:7],
+        "n_months": int(pd.to_datetime(df.bulletin_date).dt.to_period("M").nunique()),
+        "n_retro_events": int((deltas < 0).sum()),
+        "pct_retro": round(100 * float((deltas < 0).mean()), 1),
+        "pct_frozen": int(round(100 * float((deltas == 0).mean()))),
+        "dv_n_rows": n_dv,
     }
 
 

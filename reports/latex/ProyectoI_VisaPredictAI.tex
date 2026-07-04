@@ -573,8 +573,8 @@ aplicadas.
 censa el panel íntegro: las $27{,}611$ observaciones de las 194 series estructurales
 a lo largo de los 296 boletines se condensan en la Figura~\ref{fig:eda_panel}, donde
 cada fila es una serie y cada celda un mes clasificado por su comportamiento. Dos
-rasgos dominan: el $58\,\%$ de las celdas tiene fecha publicada (estado $F$, las
-$15{,}931$ observaciones entrenables) y, dentro de ellas, en el $45\,\%$ de los meses
+rasgos dominan: el $58$\,\% de las celdas tiene fecha publicada (estado $F$, las
+$15{,}931$ observaciones entrenables) y, dentro de ellas, en el $45$\,\% de los meses
 la fecha \textbf{no se movió} — el congelamiento es el comportamiento típico del
 sistema y la vara natural de cualquier pronóstico. La Tabla~\ref{tab:eda_descriptiva}
 resume el censo por bloque y tabla, y la Figura~\ref{fig:eda_completitud} muestra la
@@ -868,7 +868,10 @@ discrepan) y \textbf{ninguna} es estacionaria en nivel — el panel es integrado
 orden~1 sin excepciones. La Tabla~\ref{tab:eda_estacionariedad} reporta el censo para
 las 25 series piloto; la prueba de Ljung-Box rechaza además el ruido blanco en la
 gran mayoría de los incrementos, confirmando estructura temporal aprovechable tras la
-diferenciación.
+diferenciación. (El censo aplica Ljung-Box a rezago 12 sobre los incrementos
+observados, sin regularizar la malla mensual; el catálogo de características de la
+sección siguiente usa 24 rezagos sobre la serie regularizada, donde el rechazo es
+unánime — las dos lecturas son complementarias, no contradictorias.)
 
 \begin{table}[H]
 \centering
@@ -917,9 +920,9 @@ Resto del mundo F4 & 0.16 & $<$0.01 & 0.93 & 0.151 & diferenciar \\
 
 El censo panorámico (Tabla~\ref{tab:eda_descriptiva} y
 Figura~\ref{fig:eda_completitud}) revela por qué el bloque de empleo requiere un
-tratamiento distinto: solo el $32$--$38\,\%$ de sus celdas tiene fecha publicada
+tratamiento distinto: solo el $32$--$38$\,\% de sus celdas tiene fecha publicada
 —las categorías EB transitan con frecuencia a \textit{Current} o
-\textit{Unavailable}— y, cuando la hay, el congelamiento domina ($39$--$77\,\%$ de
+\textit{Unavailable}— y, cuando la hay, el congelamiento domina ($39$--$77$\,\% de
 los meses sin movimiento, con avance mediano de cero días). Sus retrogresiones son
 además más frecuentes que las familiares (254 episodios contra 128) y de gran
 magnitud (Figura~\ref{fig:eda_retros}). Estas propiedades justifican la cobertura
@@ -930,7 +933,7 @@ elegibilidad.
 Por último, el sorteo de diversidad (\textit{Diversity Visa}, DV) se explora como
 hecho descriptivo separado: su valor es un \textbf{número de rango} regional, no una
 fecha, por lo que queda fuera del objetivo predictivo. La Figura~\ref{fig:eda_dv}
-muestra sus $1{,}647$ observaciones: el corte sube dentro de cada año fiscal y se
+muestra las $1{,}647$ observaciones del sorteo: el corte sube dentro de cada año fiscal y se
 reinicia en octubre (diente de sierra), con África sistemáticamente en los cortes
 más altos.
 

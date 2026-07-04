@@ -205,28 +205,16 @@ jobs:
         # 4f. ML drift monitor — not a gate; its summary goes in the SES email below.
         python experiments/check_drift.py | tee /tmp/drift.txt || true
 
-        # 4g. EDA vivo (plan EDA brutal 3-jul-2026): censo estadístico panel-wide,
-        #     suites de figuras (per-series, distribucional, galería insignia) y el
-        #     reporte PDF standalone. Sus gates internos (C2) abortan el bloque si el
-        #     censo o la galería salen mutilados — nada a medias llega al sitio.
-        #     El website fetchea reports/eda/eda_facts.json + eda_report.pdf.
-        python experiments/build_eda_facts.py
-        python -m vp_model.plots
-        python experiments/make_eda_figures.py
-        python experiments/make_gallery_figures.py
-        python experiments/build_eda_report.py
-        python tests/test_eda_facts.py
-        python tests/test_eda_report.py
-        EDA_LINE=$(python -c "import json;f=json.load(open('reports/eda/eda_facts.json'));p=f['panel'];print(f\"EDA {f['vintage']}: {p['n_series_structural']} series censadas, {p['n_series_evaluable']} evaluables, reporte OK\")")
-        echo "$EDA_LINE" > /tmp/eda.txt
-
         # L1: key_facts.json just changed — keep its DVC stage fresh too.
+        # (M2 audit 3-jul: el pip install -e ".[model]" de arriba re-resuelve deps y
+        # puede desplazar las de dvc; re-pinnear es idempotente y tarda segundos.)
+        pip install "dvc==3.67.1" --quiet
         dvc commit --force key_facts
         git add reports dvc.lock
         if git diff --cached --quiet; then
           echo "Forecasts/key facts unchanged -- nothing to commit."
         else
-          git commit -m "Update forecasts, scorecard, key facts and EDA report"
+          git commit -m "Update forecasts, scorecard and key facts"
           git pull --rebase origin main
           git push
           echo "pushed=true" >> "$GITHUB_OUTPUT"
@@ -241,10 +229,47 @@ jobs:
         python tools/check_consistency.py > /tmp/consistency.txt 2>&1 || true
         tail -5 /tmp/consistency.txt
 
+    - name: EDA vivo (censo + figuras + reporte) — commit propio, no bloquea forecasts
+      id: eda
+      # 4g (plan EDA brutal, reestructurado tras el audit 3-jul H1): corre DESPUÉS del
+      # commit de modelado para que un fallo aquí no cancele la publicación del mes de
+      # forecasts/key_facts. continue-on-error: el redeploy de Netlify no depende del
+      # EDA; el correo SES reporta el fallo (marker en /tmp/eda.txt) y el humano decide.
+      if: steps.run.outputs.rebuilt == 'true'
+      continue-on-error: true
+      run: |
+        set -eo pipefail
+        run_eda() {
+          # Sus gates internos (C2) abortan si el censo o la galería salen mutilados.
+          # vp_model.plots ahora escribe TAMBIÉN a reports/latex/Figures (audit H2):
+          # sin eso, el .tex mezclaba figuras eda2/eda3 frescas con eda_* congeladas.
+          python experiments/build_eda_facts.py
+          python -m vp_model.plots
+          python experiments/make_eda_figures.py
+          python experiments/make_gallery_figures.py
+          python experiments/build_eda_report.py
+          python tests/test_eda_facts.py
+          python tests/test_eda_report.py
+        }
+        if ! run_eda; then
+          echo "EDA vivo: FALLÓ este run (artefactos del mes anterior siguen publicados; ver logs)" > /tmp/eda.txt
+          exit 1
+        fi
+        python -c "import json;f=json.load(open('reports/eda/eda_facts.json'));p=f['panel'];print(f\"EDA {f['vintage']}: {p['n_series_structural']} series censadas, {p['n_series_evaluable']} evaluables, reporte OK\")" > /tmp/eda.txt
+        git add reports
+        if git diff --cached --quiet; then
+          echo "EDA sin cambios -- nada que comitear."
+        else
+          git commit -m "Update living EDA (census, gallery, report)"
+          git pull --rebase origin main
+          git push
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: "Run CI on the cron's commits (GITHUB_TOKEN pushes never fire on-push)"
       # L2 (ideal): la mitad "correr CI de verdad". workflow_dispatch es la excepción
       # documentada a la regla anti-recursión, así que este disparo SÍ crea el run.
-      if: always() && (steps.run.outputs.pushed == 'true' || steps.model.outputs.pushed == 'true')
+      if: always() && (steps.run.outputs.pushed == 'true' || steps.model.outputs.pushed == 'true' || steps.eda.outputs.pushed == 'true')
       env:
         GH_TOKEN: ${{ github.token }}
       run: gh workflow run ci.yml --ref main || echo "::warning::no se pudo disparar CI sobre el commit de datos"

@@ -84,8 +84,8 @@ required:
     reason: 'el baseline clásico afinado (Auto-ARIMA) debe estar citado'
   - fact: n_series_evaluable
     forms: ['{n_series_evaluable}\s+(series\s+)?(plenamente\s+)?evaluabl', 'evaluabl\w*[^.]{0,25}{n_series_evaluable}']
-    in: [paper]
-    reason: 'el paper debe distinguir 74 evaluables de 194 estructurales'
+    in: [paper, deliverable, web]
+    reason: 'paper/deliverable/web deben distinguir 74 evaluables de 194 estructurales'
   - fact: prosp_n_scored
     forms: ['2\{?,?\}?944', '{prosp_n_scored}']
     in: [paper]
@@ -112,9 +112,40 @@ numeric:
     label: '([0-9]{2}[.,{}\\\s]*[0-9]{3})\s*~?(?:obs\.?|observaci\w*|observation\w*|filas|rows|registros)(?![^<\n]{0,15}entrenabl)'
     in: [deliverable, paper, readmes, web]
     reason: 'conteo de observaciones TOTAL del panel'
+  # --- Censo EDA (audit 3-jul H3): las cifras que la prosa web/.tex cita del censo ---
+  # dos formas (reglas separadas: la alternación rompería el grupo de captura). El
+  # conteo de instantáneas S3 ("298 boletines" en la capa BRONCE) es OTRO hecho
+  # (la fuente publica 1-2 meses por delante del panel) y no debe matchear.
+  - fact: n_months
+    label: '([0-9]{3})(?:\s*/\s*[0-9]{3}|\s+de\s+[0-9]{3})[\s\\,~]*(?:boletines|bulletins|meses|months)\b'
+    in: [deliverable, web]
+    reason: 'la cobertura de boletines (296) crece con cada boletín; toda mención ratio debe seguirla'
+  - fact: n_months
+    label: '(?:los|the)\s+([0-9]{3})\s+(?:boletines|bulletins)\b'
+    in: [deliverable, web]
+    reason: 'menciones sueltas "los 296 boletines" del censo'
+  - fact: pct_frozen
+    label: '\$([0-9]{2})\$\\,\\% de los meses'
+    in: [deliverable]
+    reason: 'el % de congelamiento del panel cambia con cada boletín'
+  - fact: n_retro_events
+    label: '([0-9]{3})\s+(?:historical\s+)?(?:retrogresiones|retrogressions|episodios\s+de\s+retrogresi)'
+    in: [deliverable, web]
+    reason: 'el conteo de retrogresiones del panel cambia con cada boletín'
+  # dv: el sustantivo es OBLIGATORIO (sin él, un AÑO "2003 ... Diversity" matcheaba)
+  - fact: dv_n_rows
+    label: '([0-9][.,{}\\\s]*[0-9]{3})\s*(?:observaciones|filas|rows|registros)[^0-9\n]{0,30}(?:sorteo|lottery|diversi)'
+    in: [deliverable, web]
+    reason: 'las filas del sorteo de diversidad crecen ~6 por boletín (forma ES)'
+  - fact: dv_n_rows
+    label: '([0-9][.,{}\\\s]*[0-9]{3})\s+Diversity\s+Visa'
+    in: [web]
+    reason: 'las filas del sorteo de diversidad (forma EN "1,647 Diversity Visa ... rows")'
   # obs ENTRENABLES (estado F): "15,758 obs entrenables" / "... entrenables"
+  # (audit EDA 3-jul, W-H2): el lado EN ("15,931 trainable obs") esquivaba el patrón
+  # solo-español — la reincidencia exacta del hallazgo del audit dúo de junio.
   - fact: n_obs_F
-    label: '([0-9]{2}[.,{}\\\s]*[0-9]{3})\s*~?(?:obs\s*)?entrenabl'
+    label: '([0-9]{2}[.,{}\\\s]*[0-9]{3})\s*~?(?:(?:obs\s*)?entrenabl|trainable\s*(?:obs|observation))'
     in: [deliverable, paper, readmes, web]
     reason: 'conteo de observaciones entrenables (estado F)'
 
@@ -122,6 +153,11 @@ numeric:
 # comparaba enteros y la prosa de resultados quedaba sin vigilar — "empata/0.225" vivieron
 # dos generaciones. Cada label captura UN número decimal en un contexto inequívoco.
 decimal:
+  # censo EDA: la fracción de retrogresiones citada en el deliverable
+  - fact: pct_retro
+    label: '\$([0-9]\.[0-9])\$\\,\\% de los avances'
+    in: [deliverable]
+    reason: 'el % de retrogresiones del panel cambia con cada boletín'
   # "listón parsimonioso ($0.114$)" — toda mención puntual del listón hold = ETS FAD
   - fact: ets_fad_mean
     label: 'listón parsimonioso \(\$([0-9.]+)\$\)'

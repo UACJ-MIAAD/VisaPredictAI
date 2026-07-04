@@ -98,17 +98,17 @@ def _formal_tests(df: pd.DataFrame, census: pd.DataFrame) -> pd.DataFrame:
         ].sort_values("bulletin_date")
         y = pd.Series(f.days_since_base.astype("float64").to_numpy(), index=pd.DatetimeIndex(f.bulletin_date))
         d = y.diff().dropna()
-        st = stationarity_of(y)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            lb_p = float(acorr_ljungbox(d, lags=[12], return_df=True).lb_pvalue.iloc[0])
-            arch_p = float(het_arch(d - d.mean(), nlags=12)[1])
-        out.append(
-            {
-                "country": r.country,
-                "block": r.block,
-                "category": r.category,
-                "table": r.table,
+        # Blindaje por serie (audit 3-jul M1): una serie casi-constante (empleo DFF,
+        # 77% congelado) puede reventar KPSS/DF-GLS/ARCH con LinAlgError cuando el
+        # cohort evaluable crezca. Un fallo puntual NO debe tumbar el censo del mes:
+        # se publica con veredicto centinela "failed" y el resto sigue.
+        try:
+            st = stationarity_of(y)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                lb_p = float(acorr_ljungbox(d, lags=[12], return_df=True).lb_pvalue.iloc[0])
+                arch_p = float(het_arch(d - d.mean(), nlags=12)[1])
+            rec = {
                 "adf_p": st["adf_pvalue"],
                 "kpss_p": st["kpss_pvalue"],
                 "dfgls_p": st["dfgls_pvalue"],
@@ -118,7 +118,11 @@ def _formal_tests(df: pd.DataFrame, census: pd.DataFrame) -> pd.DataFrame:
                 "skew": round(float(sps.skew(d)), 2),
                 "kurtosis": round(float(sps.kurtosis(d, fisher=False)), 1),
             }
-        )
+        except Exception as exc:  # noqa: BLE001 — el censo degrada, no explota
+            print(f"WARN: pruebas formales fallaron en {r.country}/{r.category}/{r.table}: {exc}", file=sys.stderr)
+            rec = {k: float("nan") for k in ("adf_p", "kpss_p", "dfgls_p", "lb_p", "arch_p", "skew", "kurtosis")}
+            rec["verdict"] = "failed"
+        out.append({"country": r.country, "block": r.block, "category": r.category, "table": r.table, **rec})
         if i % 20 == 0:
             print(f"  pruebas formales {i}/{len(todo)}", file=sys.stderr)
     return pd.DataFrame(out)
