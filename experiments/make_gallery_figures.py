@@ -352,6 +352,10 @@ def _load() -> tuple[pd.DataFrame, dict]:
     return df, facts
 
 
+# Figuras cuya version PDF consume el .tex (las 5 restantes solo existen como PNG web/reporte)
+TEX_PDFS = {"g01_panel", "g04_retros", "g05_brecha", "g07_leadlag", "g10_dv", "g11_completitud"}
+
+
 def _save(fig: plt.Figure, name: str) -> plt.Figure:
     """Guarda el par PDF-vector + PNG-300dpi y DEVUELVE la figura viva.
 
@@ -371,7 +375,10 @@ def _save(fig: plt.Figure, name: str) -> plt.Figure:
         print(f"{sub.relative_to(FIG_PNG)}/{name} OK")
         return fig
     FIG_PNG.mkdir(parents=True, exist_ok=True)
-    fig.savefig(FIG_TEX / f"eda3_{name}.pdf", bbox_inches="tight")
+    # PENDIENTES #13: el .tex solo referencia 6 de las 11 figuras; emitir PDF únicamente
+    # para esas (las demás vivían huérfanas en Figures/ y el sync de Overleaf las arrastraba).
+    if name in TEX_PDFS:
+        fig.savefig(FIG_TEX / f"eda3_{name}.pdf", bbox_inches="tight")
     fig.savefig(FIG_PNG / f"{name}.png", bbox_inches="tight", dpi=300)
     print(f"eda3_{name} OK")
     return fig

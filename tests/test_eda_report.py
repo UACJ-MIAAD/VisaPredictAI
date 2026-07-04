@@ -13,14 +13,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PDF = ROOT / "reports" / "eda" / "eda_report.pdf"
+PDF_EN = ROOT / "reports" / "eda" / "en" / "eda_report.pdf"
 FACTS = ROOT / "reports" / "eda" / "eda_facts.json"
 MIN_PAGES = 14  # portada + resumen + 11 figuras + notas
 
 
 def test_report_exists_and_fits_budget():
-    assert PDF.exists(), "falta reports/eda/eda_report.pdf (corre `make eda-report`)"
-    size = PDF.stat().st_size
-    assert 0 < size < 3_000_000, f"{size / 1e6:.1f} MB fuera de presupuesto (<3 MB)"
+    # PENDIENTES #14: la variante EN es parte del contrato (la sirve la página /en del sitio)
+    for pdf in (PDF, PDF_EN):
+        assert pdf.exists(), f"falta {pdf.relative_to(ROOT)} (corre `make eda-report`)"
+        size = pdf.stat().st_size
+        assert 0 < size < 3_000_000, f"{pdf.name}: {size / 1e6:.1f} MB fuera de presupuesto (<3 MB)"
+        assert pdf.read_bytes().startswith(b"%PDF-"), f"{pdf.name} no es un PDF"
 
 
 def test_report_structure_and_vintage():
@@ -45,5 +49,5 @@ def test_report_structure_and_vintage():
 if __name__ == "__main__":
     test_report_exists_and_fits_budget()
     test_report_structure_and_vintage()
-    print("OK — eda_report.pdf presente, dentro de presupuesto y con vintage alineado")
+    print("OK — eda_report.pdf ES+EN presentes, dentro de presupuesto y con vintage alineado")
     sys.exit(0)
