@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 pytest.importorskip("darts")
 
 from vp_model import preprocess  # noqa: E402
-from vp_model.config import COVARIATES, DIFFERENCED, MAX_INTERPOLABLE_GAP  # noqa: E402
+from vp_model.config import COVARIATES, DIFFERENCED, MAX_INTERPOLABLE_GAP, NN_DIFFERENCED  # noqa: E402
 from vp_model.config import HOLDOUT as CFG_HOLDOUT  # noqa: E402
 from vp_model.feature_builder import FE_DECISIONS, FeatureBuilder  # noqa: E402
 
@@ -53,7 +53,11 @@ def test_difference_round_trip_exact():
 
 
 def test_covariate_policy_per_model():
-    assert set(COVARIATES) == set(DIFFERENCED), "hoy SOLO los árboles diferenciados llevan covariables"
+    # Covariables: SOLO los árboles (AD8). OJO: "diferenciado" ya NO implica
+    # "lleva covariables" — las NN también predicen Δy (AJ1, NN_DIFFERENCED)
+    # pero van conscientemente sin calendario.
+    assert set(COVARIATES) == set(DIFFERENCED), "hoy SOLO los árboles llevan covariables (AD8)"
+    assert set(COVARIATES).isdisjoint(NN_DIFFERENCED), "las NN diferenciadas van sin covariables"
     assert FeatureBuilder("xgboost").covariate_cols == COVARIATES["xgboost"]
     for plain in ("ets", "theta", "rlinear", "tft"):
         assert FeatureBuilder(plain).covariate_cols == (), f"{plain} debe ir sin covariables (política AD8)"
@@ -61,10 +65,21 @@ def test_covariate_policy_per_model():
 
 def test_realized_lineage_complete():
     r = FeatureBuilder("lightgbm").realized()
-    assert r["differenced"] and not r["scaled"] and r["lags"] == 24
+    assert r["differenced"] and r["differenced_family"] == "trees" and not r["scaled"] and r["lags"] == 24
     assert r["max_interpolable_gap"] == MAX_INTERPOLABLE_GAP and r["fe_version"]
     ids = [d["id"] for d in FE_DECISIONS]
     assert len(ids) == len(set(ids)) and "differencing_trees" in ids
+
+
+def test_realized_lineage_nn_differenced():
+    # Leftover Oleada 1: el linaje reportaba differenced=False para las NN locales
+    # porque no conocía config.NN_DIFFERENCED (AJ1). Ahora el flag entra al linaje.
+    for nn in sorted(NN_DIFFERENCED):
+        r = FeatureBuilder(nn).realized()
+        assert r["differenced"], f"{nn} predice Δy (AJ1) y el linaje debe decirlo"
+        assert r["differenced_family"] == "nn"
+    ets = FeatureBuilder("ets").realized()
+    assert not ets["differenced"] and ets["differenced_family"] is None
 
 
 def test_scaler_fit_window_only():

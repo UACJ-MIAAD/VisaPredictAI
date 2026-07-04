@@ -17,4 +17,13 @@ ante/bin/python experiments/run_ensembles.py --mlflow
 | Mejoras / ensembles | `improve_*.py` · `run_ensembles.py` · `aggregate_seeds.py` |
 | Finalistas / export | `save_finalists*.py` · `export_forecasts.py` · `eval_deep_pi.py` |
 | Orquestadores (bash) | `run_rederivation.sh` (runbook completo post-cambio-de-datos) · `run_campaign.sh` · `run_experiments.sh` · `run_overnight_global.sh` · `save_finalists.sh` |
+| Modelos nuevos (épica AL) | `run_statsforecast.py` (AutoETS/AutoTheta/AutoCES/DOT, corre en `ante_nf`) · `run_global_gbm.py` (GBM GLOBAL sobre el panel apilado, receta M5) · `run_hurdle.py` (P(move)×magnitud) · `apply_cone_constraints.py` (proyección FAD≤DFF / país≤All-Charg. + contador de violaciones; herramienta+métrica, **NO** conectado al publicador web) |
 | Tracking / sync | `sync_mlflow.py` · `sync_all.sh` (el módulo `vp_data.tracking` lo comparte `vp_model`) |
+
+**Decisión AL7 — modelos que NO se añaden** (detalle en el docstring de
+`run_statsforecast.py`): Moirai y Lag-Llama son foundation zero-shot de la misma
+clase que Chronos (~0.225 MASE aquí) — añadirían filas, no insight; MSTL descompone
+estacionalidades múltiples que el censo EDA descarta (0/74 series estacionales); la
+reconciliación jerárquica estándar (MinT) exige series que SUMEN a agregados y las
+fechas de corte son estadísticos de orden, no cantidades aditivas — las restricciones
+de orden se explotan en su lugar con `apply_cone_constraints.py`.

@@ -64,7 +64,7 @@ def main() -> None:
             ts = models.to_timeseries(dataset.load_series(r.country, r.category, table))
             for name in LOCAL:
                 try:
-                    model = models.build_model(name)
+                    model = models.build_model(name, table=table)  # tuned per-table params for GBMs (Wave-1)
                     cov = FeatureBuilder(name).covariates(ts)  # política por modelo (AD1/AD8)
                     fit_kwargs = {"future_covariates": cov} if cov is not None else {}
                     model.fit(ts, **fit_kwargs)  # type: ignore[attr-defined]

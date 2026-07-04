@@ -28,8 +28,10 @@ def test_curated_combination_median(tmp_path, monkeypatch):
     """La combinación toma la MEDIANA por fecha y escala por el naïve estacional previo."""
     monkeypatch.setattr(ensemble, "REPORTS", tmp_path)
     _write_forecasts(tmp_path / "eval" / "holdout_forecasts_FAD.csv", {"theta": 10.0, "ets": 12.0, "sarima": 20.0})
-    # serie con escala naïve conocida: incrementos de 1 -> seasonal_naive_mae sobre tramo previo
-    s = pd.Series(np.arange(120.0), index=pd.date_range("2014-01-01", periods=120, freq="MS"))
+    # serie con escala naïve conocida: incrementos de 1 -> seasonal_naive_mae sobre tramo previo.
+    # AM4d: el scorer canónico (mase_by_series) aplica la máscara F-only por fecha, así que
+    # la serie cruda debe CONTENER las fechas del hold-out sintético (2024-01/02).
+    s = pd.Series(np.arange(124.0), index=pd.date_range("2014-01-01", periods=124, freq="MS"))
     monkeypatch.setattr(dataset, "load_series", lambda *a, **k: s)
 
     strat = ensemble.curated_combination("FAD")

@@ -11,7 +11,15 @@ SELECCIÓN (que nunca ve el hold-out) y reportar su MASE de HOLD-OUT. Se compara
   * combinaciones simples (media/mediana de los top-k por selección) — requieren los
     pronósticos, no solo las métricas, así que se reportan aparte si están disponibles.
 
-Todo se deriva del CSV ``model_comparison_*21.csv`` (filas por modelo×serie).
+AM1: la mediana-de-los-mejores-K por serie (K elegido por ``sel_mase``, leakage-free)
+está implementada en ``best_k_combination``/``best_k_report`` — antes este docstring la
+prometía y nunca existió. AM4b/AM4d: todos los reportes de combinaciones puntúan con
+``metrics.mase_by_series`` (máscara F-only canónica) sobre el denominador DEDUPLICADO
+de representantes de pseudo-réplica (``champion.replica_representatives``), el mismo
+que usa el gate campeón-retador.
+
+Todo se deriva de ``model_comparison_*21.csv`` (métricas por modelo×serie) y de
+``holdout_forecasts_*.csv`` (pronósticos persistidos del hold-out).
 """
 
 from __future__ import annotations
@@ -21,7 +29,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from vp_model import dataset, significance
+from vp_model import significance
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
 
@@ -32,6 +40,37 @@ class Strategy:
     hold_mase: float  # MASE de hold-out promedio sobre las series
     hold_mae: float  # MAE de hold-out promedio (días)
     detail: str
+
+
+def representative_filter(comb: pd.DataFrame, table: str, fc: pd.DataFrame) -> tuple[pd.DataFrame, int, int]:
+    """Restrict a combined-forecast frame to one series per pseudo-replica class (AM4b).
+
+    Uniform denominator across ALL ensemble reports: the champion gate scores 15 (FAD) /
+    10 (DFF) effective series while the old combination loops averaged over the raw 25 —
+    an internal rule-#0 violation (25-vs-15 in the same document). ``fc`` is the persisted
+    hold-out frame whose ``actual`` signature defines the replica classes.
+    Returns (filtered frame, n_raw, n_effective).
+    """
+    from vp_model.champion import replica_representatives
+
+    reps = set(replica_representatives(table, fc))
+    n_raw = comb.groupby(["country", "category"]).ngroups
+    out = comb[[(c, k) in reps for c, k in zip(comb.country, comb.category, strict=True)]]
+    return out, n_raw, out.groupby(["country", "category"]).ngroups
+
+
+def _score_combined(comb: pd.DataFrame, table: str) -> tuple[float, float, int]:
+    """Mean hold-out (MASE, MAE, n_series) of a combined frame via the canonical scorer.
+
+    MASE comes from ``metrics.mase_by_series`` (F-only mask + shared naive scale, AM4d)
+    using the persisted ``actual`` column as ground truth; MAE is the per-series mean of
+    the same masked residuals' absolute values, averaged across series.
+    """
+    from vp_model.metrics import mase_by_series
+
+    mases = mase_by_series(comb, table, pred_col="pred", actual_col="actual")
+    maes = (comb.actual - comb.pred).abs().groupby([comb.country, comb.category]).mean()
+    return float(mases.mean()), float(maes.mean()), int(mases.count())
 
 
 def _global_best(df: pd.DataFrame) -> tuple[str, pd.DataFrame]:
@@ -101,16 +140,19 @@ def selection_table(table: str = "FAD") -> pd.DataFrame:
     return sel.sort_values(["country", "category"]).reset_index(drop=True)
 
 
-# Combinación CURADA: solo los modelos simples fuertes (combinar buenos con buenos ayuda;
-# meter GBMs/kalman débiles arruina la media). En FAD la mediana de estos supera al mejor
-# único (~5%); en DFF —la serie más corta— SARIMA solo es imbatible.
+# Curated combination: only the strong simple models (combining good with good helps;
+# weak GBMs/kalman drag the mean down). AM4c: the old claim here ("in FAD the median of
+# these beats the best single model by ~5%") is FALSE post-resurrection (3-jul-2026):
+# median{theta,ets,sarima} 0.1136 vs Theta 0.113 hold MASE = a TIE. In DFF (the short
+# table) SARIMA alone remains unbeaten. The serious candidate is best-K per series (AM1).
 STRONG_SET = ("theta", "ets", "sarima")
 
 
 def curated_combination(table: str = "FAD", subset: tuple[str, ...] = STRONG_SET, agg: str = "median") -> Strategy:
-    """Combinación de un subconjunto curado de modelos fuertes (mediana por defecto)."""
-    from vp_model.metrics import naive_scale_before
+    """Combinación de un subconjunto curado de modelos fuertes (mediana por defecto).
 
+    AM4b/AM4d: scored with ``metrics.mase_by_series`` over deduplicated replica
+    representatives (same denominator as the champion gate)."""
     fc = pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
     sub = fc[fc.model.isin(subset)]
     comb = (
@@ -118,18 +160,13 @@ def curated_combination(table: str = "FAD", subset: tuple[str, ...] = STRONG_SET
         .agg(actual=("actual", "first"), pred=("forecast", agg))
         .reset_index()
     )
-    maes, mases = [], []
-    for (country, category), g in comb.groupby(["country", "category"]):
-        full = dataset.load_series(country, category, table).astype("float64")
-        scale = naive_scale_before(full, g["date"].min())  # por fecha, fuente única
-        mae = (g.actual - g.pred).abs().mean()
-        maes.append(mae)
-        mases.append(mae / scale)
+    comb, _n_raw, n_eff = representative_filter(comb, table, fc)
+    mase_mean, mae_mean, _n = _score_combined(comb, table)
     return Strategy(
         f"combinación curada {agg} ({'+'.join(subset)})",
-        float(pd.Series(mases).mean()),
-        float(pd.Series(maes).mean()),
-        f"{len(subset)} modelos fuertes",
+        mase_mean,
+        mae_mean,
+        f"{len(subset)} modelos fuertes · {n_eff} series efectivas",
     )
 
 
@@ -137,12 +174,10 @@ def combinations(table: str = "FAD") -> list[Strategy]:
     """Evalúa combinaciones de pronósticos (media/mediana) sobre los forecasts persistidos.
 
     Requiere ``reports/eval/holdout_forecasts_{table}.csv`` (de ``persist_forecasts``). La media
-    y la mediana se calculan POR fecha×serie sobre el set curado; el error se promedia por
-    serie escalando por el naïve estacional in-sample (leakage-free: la escala usa solo el
-    tramo previo al hold-out). Devuelve [] si no existe el CSV (aún no persistido).
+    y la mediana se calculan POR fecha×serie sobre el set curado; el error se puntúa con
+    ``metrics.mase_by_series`` (F-only, escala naïve leakage-free) sobre el denominador
+    deduplicado (AM4b/AM4d). Devuelve [] si no existe el CSV (aún no persistido).
     """
-    from vp_model.metrics import naive_scale_before
-
     path = REPORTS / "eval" / f"holdout_forecasts_{table}.csv"
     if not path.exists():
         return []
@@ -154,22 +189,109 @@ def combinations(table: str = "FAD") -> list[Strategy]:
             .agg(actual=("actual", "first"), pred=("forecast", agg))
             .reset_index()
         )
-        maes, mases = [], []
-        for (country, category), g in comb.groupby(["country", "category"]):
-            full = dataset.load_series(country, category, table).astype("float64")
-            scale = naive_scale_before(full, g["date"].min())  # por fecha, fuente única
-            mae = (g.actual - g.pred).abs().mean()
-            maes.append(mae)
-            mases.append(mae / scale)
+        comb, _n_raw, n_eff = representative_filter(comb, table, fc)
+        mase_mean, mae_mean, _n = _score_combined(comb, table)
         out.append(
             Strategy(
                 f"combinación ({agg_name})",
-                float(pd.Series(mases).mean()),
-                float(pd.Series(maes).mean()),
-                f"{fc.model.nunique()} modelos curados",
+                mase_mean,
+                mae_mean,
+                f"{fc.model.nunique()} modelos curados · {n_eff} series efectivas",
             )
         )
     return out
+
+
+def best_k_combination(
+    table: str, k: int, fc: pd.DataFrame | None = None, mc: pd.DataFrame | None = None
+) -> tuple[Strategy, pd.DataFrame]:
+    """AM1 — median-of-best-K per series, chosen leakage-free on the SELECTION region.
+
+    For each series, take the ``k`` models with the lowest ``sel_mase`` (selection-region
+    MASE from ``model_comparison_{table}21.csv`` — never the hold-out, never a
+    retrospective STRONG_SET) among the models whose hold-out forecasts are persisted,
+    and median-combine their hold-out forecasts. Scored with the canonical F-only scorer
+    over deduplicated replica representatives (AM4b/AM4d).
+
+    Returns (aggregate Strategy, per-series frame with the chosen models and MASE).
+    """
+    if fc is None:
+        fc = pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
+    if mc is None:
+        mc = pd.read_csv(REPORTS / "eval" / f"model_comparison_{table}21.csv").pipe(
+            lambda d: d[d.run_id == d.run_id.max()]
+        )
+    avail = set(fc.model.unique())
+    sel = mc[mc.model.isin(avail)].dropna(subset=["sel_mase"])
+    picks: dict[tuple[str, str], list[str]] = {
+        key: g.nsmallest(k, "sel_mase").model.tolist() for key, g in sel.groupby(["country", "category"])
+    }
+    parts = []
+    for (country, category), chosen in sorted(picks.items()):
+        sub = fc[(fc.country == country) & (fc.category == category) & fc.model.isin(chosen)]
+        if sub.empty:
+            continue
+        comb = (
+            sub.groupby(["country", "category", "date"])
+            .agg(actual=("actual", "first"), pred=("forecast", "median"))
+            .reset_index()
+        )
+        comb["models"] = "+".join(sorted(chosen))
+        parts.append(comb)
+    allc = pd.concat(parts, ignore_index=True)
+    allc, _n_raw, n_eff = representative_filter(allc, table, fc)
+    from vp_model.metrics import mase_by_series
+
+    per_series = mase_by_series(allc, table, pred_col="pred", actual_col="actual").rename("hold_mase").reset_index()
+    per_series["models"] = [
+        allc.loc[(allc.country == r.country) & (allc.category == r.category), "models"].iloc[0]
+        for r in per_series.itertuples()
+    ]
+    mase_mean, mae_mean, _n = _score_combined(allc, table)
+    strat = Strategy(
+        f"best-{k} por serie (mediana, sel_mase)",
+        mase_mean,
+        mae_mean,
+        f"K={k} elegidos por selección · {n_eff} series efectivas",
+    )
+    return strat, per_series
+
+
+def best_k_report(table: str, ks: tuple[int, ...] = (2, 3, 5)) -> pd.DataFrame:
+    """Per-series + aggregate best-K results for ``ks`` (long frame, ready for CSV).
+
+    Aggregate rows carry ``country == "ALL"`` (same convention as the CRPS report) with
+    the mean hold-out MASE/MAE over the deduplicated effective series.
+    """
+    fc = pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
+    mc = pd.read_csv(REPORTS / "eval" / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
+    rows = []
+    for k in ks:
+        strat, per_series = best_k_combination(table, k, fc=fc, mc=mc)
+        for r in per_series.itertuples():
+            rows.append(
+                {
+                    "table": table,
+                    "k": k,
+                    "country": r.country,
+                    "category": r.category,
+                    "models": r.models,
+                    "hold_mase": round(float(r.hold_mase), 4),
+                    "hold_mae": float("nan"),
+                }
+            )
+        rows.append(
+            {
+                "table": table,
+                "k": k,
+                "country": "ALL",
+                "category": "",
+                "models": "",
+                "hold_mase": round(strat.hold_mase, 4),
+                "hold_mae": round(strat.hold_mae, 2),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def demo() -> None:

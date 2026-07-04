@@ -42,7 +42,7 @@ def _local_rows(table: str) -> list[dict]:
         actual = ts[split:]
         for name in LOCAL:
             try:
-                m = models.build_model(name)
+                m = models.build_model(name, table=table)  # tuned per-table params for GBMs (Wave-1)
                 fcov = FeatureBuilder(name).covariates(ts)  # política por modelo (AD1/AD8)
                 fit_kw = {"future_covariates": fcov} if fcov is not None else {}
                 # ajustar una vez sobre el pre-hold-out, luego rodar 1-paso con retrain=False

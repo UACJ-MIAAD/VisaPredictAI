@@ -107,7 +107,7 @@ def plot_winner_holdout(country: str, category: str, table: str, model_name: str
 
     ts = models.to_timeseries(dataset.load_series(country, category, table))
     split = ts.time_index[-walkforward.HOLDOUT]
-    m = models.build_model(model_name)
+    m = models.build_model(model_name, table=table)  # tuned per-table params for GBMs (Wave-1)
     extra = {}
     if model_name == "xgboost":
         from darts import TimeSeries

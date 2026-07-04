@@ -133,7 +133,7 @@ def _holdout_preds(model_set: tuple[str, ...], country: str, category: str, tabl
     split = ts.time_index[-config.HOLDOUT]
     preds: dict[str, TimeSeries] = {}
     for name in model_set:
-        m = models.build_model(name)
+        m = models.build_model(name, table=table)  # tuned per-table params for GBMs (Wave-1)
         preds[name] = m.historical_forecasts(  # type: ignore[attr-defined]
             ts, start=split, forecast_horizon=1, stride=1, retrain=True, last_points_only=True, verbose=False
         )
@@ -230,7 +230,7 @@ def _compute_series_forecast(
     # pronóstico FUTURO: ajustar cada modelo en TODA la serie y predecir 12 meses
     fut: list[np.ndarray] = []
     for name in model_set:
-        m = models.build_model(name)
+        m = models.build_model(name, table=table)  # tuned per-table params for GBMs (Wave-1)
         m.fit(ts)  # theta/ets/sarima no requieren covariables
         fut.append(m.predict(HORIZON).to_series().to_numpy())
     point = _ensemble_point(fut)

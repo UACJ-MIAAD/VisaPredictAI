@@ -20,8 +20,8 @@ FAST = ("naive", "arima", "sarima", "ets", "theta", "kalman", "rlinear", "xgboos
 
 def test_registry_matches_catalog() -> None:
     reg = models.registry()
-    # 23 = 21 previos + naive1 + drift (pisos honestos, AI1)
-    assert len(reg) == len(models.MODEL_NAMES) == 23
+    # 24 = 21 previos + naive1 + drift (AI1) + llt (AL4, promovido en AQ)
+    assert len(reg) == len(models.MODEL_NAMES) == 24
     assert set(reg) == set(models.MODEL_NAMES)
 
 

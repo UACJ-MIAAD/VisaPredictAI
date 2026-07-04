@@ -1,6 +1,7 @@
 """Motor de ingeniería de características de la capa de modelado (AD1).
 
-Antes, las transformaciones que alimentan a los 21 modelos vivían inline y
+Antes, las transformaciones que alimentan al catálogo completo de modelos
+(``config.MODEL_NAMES``, 23 + extras) vivían inline y
 dispersas: la regularización de huecos en ``models.to_timeseries``, las
 covariables de calendario en ``walkforward._covariates``, el escalado en dos
 bloques gemelos de ``walkforward``. Correctas, pero implícitas: ninguna corrida
@@ -38,9 +39,13 @@ from vp_model.config import (
     HYPERPARAMS,
     MAX_INTERPOLABLE_GAP,
     NEEDS_SCALING,
+    NN_DIFFERENCED,
 )
 
-FE_VERSION = "1.0.0"
+# 1.1.0 (AL leftover): el linaje incorpora NN_DIFFERENCED — `differenced` ahora es
+# la unión árboles ∪ NN y se añade `differenced_family`. Solo cambia el linaje
+# reportado; las transformaciones siguen siendo byte-idénticas (golden master).
+FE_VERSION = "1.1.0"
 
 # Registro único de decisiones magistrales de FE (qué · dónde · por qué).
 FE_DECISIONS: tuple[dict[str, str], ...] = (
@@ -116,8 +121,8 @@ FE_DECISIONS: tuple[dict[str, str], ...] = (
         "rationale": (
             "Solo los árboles diferenciados reciben calendario (la campaña canónica "
             "se derivó así); rlinear y las NN van conscientemente sin covariables. "
-            "'year' se conserva por procedencia de las cifras publicadas y está "
-            "documentada como candidata a retiro en la próxima re-campaña."
+            "'year' (monótona, no acotada sobre target diferenciado) fue RETIRADA "
+            "en la re-campaña AQ del 4-jul-2026 (PENDIENTES #12)."
         ),
     },
     {
@@ -165,14 +170,22 @@ class FeatureBuilder:
         return scaler
 
     def realized(self) -> dict:
-        """Linaje exacto de features de este modelo (MLflow / fe_facts)."""
+        """Linaje exacto de features de este modelo (MLflow / fe_facts).
+
+        ``differenced`` cubre las DOS familias que predicen Δy: los árboles
+        (``DIFFERENCED``) y las NN locales (``NN_DIFFERENCED``, AJ1) — antes el
+        linaje reportaba ``differenced=False`` para las NN porque solo conocía
+        el set de árboles. ``differenced_family`` conserva la distinción.
+        """
         hp_key = "trees" if self.model_name in DIFFERENCED else self.model_name
         lags = HYPERPARAMS.get(hp_key, {}).get("lags")
+        family = "trees" if self.model_name in DIFFERENCED else ("nn" if self.model_name in NN_DIFFERENCED else None)
         return {
             "fe_version": FE_VERSION,
             "model": self.model_name,
             "covariates": list(self.covariate_cols),
-            "differenced": self.model_name in DIFFERENCED,
+            "differenced": self.model_name in DIFFERENCED | NN_DIFFERENCED,
+            "differenced_family": family,
             "scaled": self.model_name in NEEDS_SCALING,
             "lags": lags,
             "max_interpolable_gap": MAX_INTERPOLABLE_GAP,

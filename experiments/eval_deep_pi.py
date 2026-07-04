@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 
 from vp_model.intervals import jeffreys_ci
-from vp_model.metrics import naive_scale_before
+from vp_model.metrics import mase_by_series, naive_scale_before
 
 # nivel L -> (cuantil_bajo, cuantil_alto)
 QPAIRS = {50: (0.25, 0.75), 80: (0.10, 0.90), 90: (0.05, 0.95), 95: (0.025, 0.975)}
@@ -96,7 +96,15 @@ def main() -> None:
         raise SystemExit("no evaluable rows (block/table mismatch or all-NaN actuals)")
     lo_ci, hi_ci = jeffreys_ci(k_pool, n_pool)
     flag = f"  [INSUFFICIENT n<{N_FLOOR}]" if n_pool < N_FLOOR else ""
+    # AM4d: point MASE via the canonical scorer (F-only mask + shared naive scale) instead
+    # of another hand-rolled loop; the coverage/MSIS loop above stays because it needs the
+    # interval columns and residual alignment, outside the point scorer's contract.
+    pf = df[["unique_id", "ds", model]].rename(columns={"ds": "date", model: "forecast"})
+    parts = pf.unique_id.str.split("/")
+    pf = pf.assign(country=parts.str[0], block=parts.str[1], category=parts.str[2])
+    point = mase_by_series(pf[pf.block == args.block], args.table)
     print(f"\n=== {model} · {args.table}{args.suffix}/{args.block} · PI · {len(r)} series · levels {levels} ===")
+    print(f"  MASE puntual  : {point.mean():.3f}  (scorer canónico, {int(point.count())} series)")
     print(f"  cobertura 95% : {r.coverage95.mean():.3f}  (objetivo 0.95)")
     print(f"  pooled 95%    : {k_pool / n_pool:.3f}  CI95 Jeffreys [{lo_ci:.3f}, {hi_ci:.3f}]  n={n_pool}{flag}")
     print(f"  MSIS (95%)    : {r.msis95.mean():.3f}")

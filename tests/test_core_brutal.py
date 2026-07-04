@@ -3,7 +3,7 @@
 Covers:
   * AP1 — the Forecaster Protocol includes ``historical_forecasts``.
   * AP2 — ``metrics.mase_by_series`` is the canonical F-only per-series scorer.
-  * AP3 — registry/_FACTORIES is the single source of the 23-model catalog.
+  * AP3 — registry/_FACTORIES is the single source of the 24-model catalog.
   * AI1 — naive1/drift baselines exist and retrain each step.
   * AI2 — ``mase1`` (m=1 scale) is reported alongside the canonical MASE.
   * AI3 — auto-ARIMA trend spec matches the differencing order.
@@ -35,9 +35,11 @@ pytestmark = pytest.mark.skipif(not dataset.DB_PATH.exists(), reason="almacén D
 
 
 # ---------------------------------------------------------------- AP3 / AI1
-def test_catalog_has_23_models_and_factories_are_the_source() -> None:
-    assert len(config.MODEL_NAMES) == 23
-    assert set(models._FACTORIES) == set(config.MODEL_NAMES)
+def test_catalog_has_24_models_and_factories_are_the_source() -> None:
+    assert len(config.MODEL_NAMES) == 24
+    # AL4: _FACTORIES = canonical catalog + declared extras (today: llt, pending
+    # AQ promotion); registry()/run_comparison keep iterating MODEL_NAMES only.
+    assert set(models._FACTORIES) == set(config.MODEL_NAMES) | models._EXTRA_MODELS
     assert set(models.registry()) == set(config.MODEL_NAMES)
     # AI1: the honest floors exist and retrain at every step (they are free).
     for name in ("naive1", "drift"):

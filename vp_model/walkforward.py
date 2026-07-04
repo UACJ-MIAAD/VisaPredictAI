@@ -53,6 +53,11 @@ def _median_point(fc: TimeSeries) -> TimeSeries:
     return fc.median(axis=2)
 
 
+def _block(category: str) -> str:
+    """Tuning-group block from the category code (AK7): EB* -> employment."""
+    return "employment" if category.upper().startswith("EB") else "family"
+
+
 def run_forecasts(
     model_name: str, country: str, category: str, table: str, model: object | None = None
 ) -> tuple[TimeSeries, TimeSeries]:
@@ -72,7 +77,9 @@ def run_forecasts(
     # AP1: injected models (tuner templates, auto-arima) are typed `object` by their
     # producers; the cast documents that they must satisfy the Forecaster protocol.
     fc_model: models.Forecaster = (
-        models.build_model(model_name, table=table) if model is None else cast("models.Forecaster", model)
+        models.build_model(model_name, table=table, block=_block(category))
+        if model is None
+        else cast("models.Forecaster", model)
     )
     retrain: bool | int = True if model_name in RETRAIN_EACH_STEP else NN_RETRAIN
     # historical_forecasts recibe future_covariates UNA vez (lo usa en fit y predict).
@@ -182,7 +189,7 @@ def crps_holdout(model_name: str, country: str, category: str, table: str, num_s
     fe = FeatureBuilder(model_name)
     ts = fe.to_timeseries(dataset.load_series(country, category, table))
     split = ts.time_index[-HOLDOUT]
-    model = models.build_model(model_name, table=table)
+    model = models.build_model(model_name, table=table, block=_block(category))
     retrain: bool | int = True if model_name in RETRAIN_EACH_STEP else NN_RETRAIN
     scaler = fe.fit_scaler(ts, len(ts) - HOLDOUT)
     ts_model = scaler.transform(ts) if scaler is not None else ts

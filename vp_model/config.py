@@ -48,6 +48,7 @@ MODEL_NAMES = (
     "ets",
     "theta",
     "kalman",  # nuevos estadísticos parsimoniosos
+    "llt",  # AL4: local linear trend (statsmodels UC, MLE) — analytic PIs; promoted for AQ
     "lstm",
     "deepar",
     "arima_lstm",  # redes recurrentes (originales)
@@ -84,6 +85,7 @@ RETRAIN_EACH_STEP = frozenset(
         "ets",
         "theta",
         "kalman",
+        "llt",  # AL4: cheap MLE refit (~1 s/series), same class as ets/theta
         "rlinear",
         "xgboost",
         "lightgbm",
@@ -110,10 +112,10 @@ NUM_SAMPLES_POINT = 500  # samples drawn to form the median point forecast (AJ2)
 # AD8: política de covariables POR MODELO — explícita, no un accidente del código.
 # Hoy solo los árboles diferenciados reciben calendario (la campaña canónica se
 # derivó así); rlinear y las NN van conscientemente sin covariables (añadirlas
-# invalidaría las cifras publicadas). ⚠️ 'year' (monótona, no acotada) sobre un
-# target diferenciado es un smell documentado: candidata a eliminarse en la
-# PRÓXIMA re-campaña (PENDIENTES), no antes — provenance de las cifras vigentes.
-COVARIATE_COLS = ("month_sin", "month_cos", "fiscal_sin", "fiscal_cos", "year")
+# invalidaría las cifras publicadas). 'year' (monótona, no acotada sobre target
+# diferenciado) fue RETIRADA en la re-campaña AQ (4-jul-2026, PENDIENTES #12):
+# las cifras canónicas de esta era en adelante se derivan SIN ella.
+COVARIATE_COLS = ("month_sin", "month_cos", "fiscal_sin", "fiscal_cos")
 COVARIATES: dict[str, tuple[str, ...]] = {m: COVARIATE_COLS for m in sorted(DIFFERENCED)}
 
 # Hiperparámetros externalizados (antes hardcodeados dentro de build_model).

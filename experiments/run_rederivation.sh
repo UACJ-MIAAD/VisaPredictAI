@@ -5,15 +5,19 @@
 # las cifras canónicas (MASE/MCS/DM/cobertura) deben re-derivarse y propagarse (regla #0).
 #
 # Compone los orquestadores/pasos EXISTENTES en orden de dependencias — no duplica lógica:
-#   1. run_campaign.sh        F1 pool local 21 modelos + F2 deep global multi-semilla + agregación
+#   1. run_campaign.sh        F1 pool local 23 modelos + F2 deep global (búsqueda HPO 1x +
+#                             re-entrenos multi-semilla del ganador, AK8) + agregación
 #   2. proyección de pools    campaign_pool_* -> model_comparison_*21.csv (mismo cómputo;
-#                             los consumen ensemble/confirm_tuning/figuras — un solo entrenamiento)
+#                             los consumen ensemble/figuras — un solo entrenamiento; el "21"
+#                             del nombre es histórico, el pool ya trae 23 modelos)
 #   3. save_finalists.sh      modelos finalistas (deep+locales) + holdout_forecasts_* frescos
 #   4. combinadores           ensembles / conformal / stacking / FFORMA (sobre holdouts frescos;
 #                             la corrida de ensembles dentro de run_campaign usa holdouts previos
 #                             y queda superseded por esta)
 #   5. baselines prob./clásicos  Auto-ARIMA (AICc) · deep-PI · CRPS
-#   6. tuning GBMs            run_tuning (candidatos) + confirm_tuning (aceptación en hold-out)
+#   6. tuning GBMs (AK)       run_tuning (Optuna persistente, 150 trials, familia+empleo,
+#                             candidatos) + confirm_tuning (aceptación en val-confirm
+#                             INDEPENDIENTE; hold-out solo como reporte) + rank-check (AK9)
 #   7. significancia          Friedman-Nemenyi + MCS + DM · champion-challenger
 #   8. fuente de verdad       key_facts.json/.tex + model card + drift
 #   9. figuras de resultados  results_* + hero (las EDA no cambian: el panel es el mismo)
@@ -69,9 +73,10 @@ for t in FAD DFF; do
 done
 run $ANTE experiments/run_crps_baseline.py
 
-stage 6 "tuning GBMs (candidatos + aceptación anti-overtuning en hold-out)"
-run $ANTE -m vp_model.run_tuning
-run $ANTE -m vp_model.confirm_tuning
+stage 6 "tuning GBMs (Optuna persistente + confirmación en val-confirm independiente, AK)"
+run $ANTE -m vp_model.run_tuning --n-trials 150 --mlflow
+run $ANTE -m vp_model.confirm_tuning --holdout-report --mlflow
+run $ANTE -m vp_model.run_tuning --rank-check --mlflow
 
 stage 7 "significancia (Friedman-Nemenyi + MCS + DM) y champion-challenger"
 run $ANTE experiments/significance_tables.py

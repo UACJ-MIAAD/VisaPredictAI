@@ -31,7 +31,7 @@ import pandas as pd
 from vp_data import tracking
 from vp_model import dataset
 from vp_model.intervals import jeffreys_ci
-from vp_model.metrics import naive_scale_before
+from vp_model.metrics import mase_by_series, naive_scale_before
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
 ALPHA = 0.05  # PI al 95%
@@ -111,6 +111,21 @@ def _baseline_cov(table: str) -> float | None:
     return float(np.mean(covs)) if covs else None
 
 
+def _point_mase(deep: pd.DataFrame, table: str) -> float:
+    """Point MASE of the deep forecasts via the canonical scorer (AM4d).
+
+    ``metrics.mase_by_series`` owns the F-only mask + shared naive scale; the residual /
+    coverage machinery below keeps its own loop because it needs per-series residual
+    SPLITS (calibration/test), which is outside the point scorer's contract.
+    """
+    frame = deep[deep["BiTCN"].notna()][["unique_id", "ds", "BiTCN"]].rename(
+        columns={"ds": "date", "BiTCN": "forecast"}
+    )
+    parts = frame.unique_id.str.split("/")
+    frame = frame.assign(country=parts.str[0], category=parts.str[2])
+    return float(mase_by_series(frame, table).mean())
+
+
 def _evaluate(table: str) -> dict:
     deep = pd.read_csv(REPORTS / "campaign" / f"global_{table}_camp_diff_s1.csv", parse_dates=["ds"])
     series: list[dict] = []
@@ -129,6 +144,8 @@ def _evaluate(table: str) -> dict:
         cut = len(res) // 2
         scale = naive_scale_before(full, g["ds"].iloc[cut])
         series.append({"res_cal": res[:cut], "res_test": res[cut:], "scale": scale})
+
+    point_mase = _point_mase(deep, table)
 
     # AN4a: gamma selected on calibration residuals only, then frozen for the test pass.
     gamma = select_gamma([s["res_cal"] for s in series], ALPHA)
@@ -155,6 +172,7 @@ def _evaluate(table: str) -> dict:
 
     return {
         "gamma": gamma,
+        "point_mase": point_mase,
         "split_cov": float(np.mean(cov_split)),
         "split_width": float(np.mean(w_split)),
         "split_pooled": _pooled(split_hits_all),
@@ -178,6 +196,7 @@ def main() -> None:
         base_txt = f"{base:.3f} (derived from deep_pi_{table}.csv)" if base is not None else "n/a (no deep_pi csv)"
         sp, ap_ = r["split_pooled"], r["aci_pooled"]
         print(f"\n=== CONFORMAL AVANZADO {table} ({r['n']} series, target cobertura 0.95) ===")
+        print(f"  MASE puntual BiTCN (scorer canónico): {r['point_mase']:.3f}  [informativo]")
         print(f"  baseline (nf conformal)      : cobertura {base_txt}")
         print(
             f"  split-conformal finite-sample: cobertura {r['split_cov']:.3f} "

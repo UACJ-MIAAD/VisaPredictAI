@@ -21,10 +21,12 @@ _MODEL_TESTS = [
     "test_missingness.py",
     "test_feature_select.py",
     "test_ensemble.py",
+    "test_ens_brutal.py",  # ensembles épica AM → vp_model + darts/scipy/xgboost
     "test_forecast_scoring.py",  # importa score_forecasts → vp_model.metrics → darts
     "test_model_regression.py",  # golden-master del walk-forward → vp_model + darts
     "test_champion.py",  # harness campeón-retador → vp_model + scipy
     "test_pi_brutal.py",  # intervalos (épica AN) → vp_model.intervals + darts/scipy
+    "test_tune_brutal.py",  # HPO (épica AK) → vp_model.tune + darts/optuna
 ]
 
 # `statsmodels` es del extra `model`; su ausencia marca el job base sin la capa de modelado.

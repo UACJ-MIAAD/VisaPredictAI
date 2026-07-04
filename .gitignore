@@ -53,6 +53,9 @@ reports/figures/results_*.png
 # no aplica a tracked): son la PROCEDENCIA de cifras publicadas y los consumen
 # champion/ensemble/figuras/tests → decisión: SE VERSIONAN (patrones retirados, ~1.8 MB).
 reports/eval/neuralforecast_forecasts.csv
+# Storage sqlite del HPO Optuna (AK4) — binario regenerable; la procedencia legible
+# vive en reports/campaign/hpo_trials_*.csv (versionados)
+reports/eval/optuna.db
 ante_nf/
 
 # Efecto secundario del logger de Lightning (modelos torch de darts) — regenerable

@@ -73,6 +73,7 @@ from sklearn.preprocessing import StandardScaler
 
 from vp_model import preprocess
 from vp_model.config import (
+    DIFFERENCED,
     HYPERPARAMS,
     MODEL_NAMES,
     NN_RETRAIN,
@@ -161,11 +162,14 @@ def _tree_params(model: str, table: str | None) -> dict:
     library-default trees. When a winning tuned entry exists for the (model, table)
     cell it overrides the slow-learning bridge in ``HYPERPARAMS['trees']``
     (lr=0.02 / 200 trees — see config); with ``table=None`` (callers that build a
-    model outside a table context) the bridge stands.
+    model outside a table context) the bridge stands. ``table`` accepts either a
+    bare table name ("FAD" -> family block, legacy callers) or a full tuning-group
+    key ("FAD_employment") so EB series get their own accepted HPO winners (AK7).
     """
     params = dict(HYPERPARAMS["trees"])
     if table is not None and _TUNED_PARAMS_PATH.exists():
-        entry = json.loads(_TUNED_PARAMS_PATH.read_text()).get(model, {}).get(f"{table}_family", {})
+        key = table if "_" in table else f"{table}_family"
+        entry = json.loads(_TUNED_PARAMS_PATH.read_text()).get(model, {}).get(key, {})
         if entry.get("improved"):
             params.update(entry.get("best_params", {}))
     return params
@@ -224,24 +228,37 @@ _FACTORIES: dict[str, Callable[[str | None], Forecaster]] = {
     "xgboost": lambda table: Differenced(XGBModel(**_tree_params("xgboost", table))),
     "lightgbm": lambda table: Differenced(LightGBMModel(**_tree_params("lightgbm", table), verbose=-1)),
     "catboost": lambda table: Differenced(CatBoostModel(**_tree_params("catboost", table))),
+    # AL4: structural local-linear-trend state space (statsmodels MLE, analytic PIs).
+    "llt": lambda table: LLTForecaster(),
 }
 
-# Catalog drift guard: config.MODEL_NAMES (ordering, dependency-light) and _FACTORIES
-# (factories) must be the SAME set — fail at import time, not mid-campaign.
-assert set(_FACTORIES) == set(MODEL_NAMES), (
-    f"catalog out of sync: _FACTORIES={sorted(_FACTORIES)} vs config.MODEL_NAMES={sorted(MODEL_NAMES)}"
+# AL4: factories reachable through build_model but not part of the canonical campaign
+# catalog. llt WAS promoted into config.MODEL_NAMES for the AQ re-campaign (4-jul-2026):
+# analytic PIs + same parsimony class as ets/theta; the set stays as the mechanism for
+# future candidates.
+_EXTRA_MODELS: frozenset[str] = frozenset()
+
+# Catalog drift guard: config.MODEL_NAMES (ordering, dependency-light) plus the declared
+# extras and _FACTORIES (factories) must be the SAME set — fail at import time, not
+# mid-campaign.
+assert set(_FACTORIES) == set(MODEL_NAMES) | _EXTRA_MODELS, (
+    f"catalog out of sync: _FACTORIES={sorted(_FACTORIES)} vs "
+    f"config.MODEL_NAMES+extras={sorted(set(MODEL_NAMES) | _EXTRA_MODELS)}"
 )
 
 
-def build_model(name: str, table: str | None = None) -> Forecaster:
+def build_model(name: str, table: str | None = None, block: str = "family") -> Forecaster:
     """Factory: name -> fresh (untrained) model. Lookup over ``_FACTORIES`` (AP3).
 
     ``table`` ("FAD"/"DFF") routes table-specific tuned hyperparameters to the
-    GBMs (AJ5); ``None`` keeps the bridge defaults from config.
+    GBMs (AJ5); ``None`` keeps the bridge defaults from config. ``block``
+    ("family"/"employment") completes the tuning-group key so EB series use
+    their own accepted HPO winners (AK7) — other models ignore it.
     """
     if name not in _FACTORIES:
         raise ValueError(f"modelo desconocido: {name!r}. Opciones: {MODEL_NAMES}")
-    return _FACTORIES[name](table)
+    arg = f"{table}_{block}" if name in DIFFERENCED and table is not None else table
+    return _FACTORIES[name](arg)
 
 
 class ArimaLstm:
@@ -539,6 +556,75 @@ class AutoETS:
         kwargs.setdefault("last_points_only", True)
         kwargs.setdefault("verbose", False)
         return model.historical_forecasts(series, start=start_idx, **kwargs)
+
+
+class LLTForecaster:
+    """AL4: structural local linear trend (statsmodels ``UnobservedComponents``).
+
+    State space y_t = level_t + eps; level evolves with a stochastic slope —
+    the physics of these series (a queue advancing at a slowly varying speed).
+    MLE-fitted variances and ANALYTIC prediction intervals (``get_forecast``),
+    unlike the N4SID-fitted darts ``KalmanForecaster``.
+
+    Redundancy decision (vs the ``kalman`` entry AI4 added): both stay for now.
+    They are NOT the same model — ``kalman`` fits a generic dim_x=2 state space
+    by subspace identification (N4SID, no likelihood), while ``llt`` fits the
+    structural LLT by MLE and exposes analytic PIs, the property epic AN cares
+    about. The AQ campaign compares them head-to-head and drops the loser.
+    A DAMPED slope variant was considered and rejected: ``UnobservedComponents``
+    has no damped-trend spec, and the damped-trend hypothesis is already covered
+    by AutoETS's (A, A_d, N) candidate.
+
+    ``historical_forecasts`` implements the protocol directly (statsmodels has
+    no darts API): MLE re-estimation every ``NN_RETRAIN`` origins (same
+    cost/validity compromise as the nets), and in between the Kalman FILTER is
+    re-run on the expanding window with the last MLE params — every origin
+    conditions on all data up to it, parameters come only from the past
+    (leakage-free).
+    """
+
+    _SPEC = "local linear trend"
+
+    def __init__(self) -> None:
+        self._res: object | None = None
+        self._series: TimeSeries | None = None
+
+    @classmethod
+    def _fit_mle(cls, y: np.ndarray):  # noqa: ANN206 — statsmodels results type, runtime only
+        from statsmodels.tsa.statespace.structural import UnobservedComponents
+
+        return UnobservedComponents(y, level=cls._SPEC).fit(disp=0)
+
+    def fit(self, series: TimeSeries, **kwargs: object) -> LLTForecaster:
+        self._series = series
+        self._res = self._fit_mle(series.values(copy=False).flatten().astype("float64"))
+        return self
+
+    def predict(self, n: int, **kwargs: object) -> TimeSeries:
+        assert self._res is not None and self._series is not None, "LLTForecaster: fit first"
+        mean = np.asarray(self._res.forecast(n), dtype="float64")  # type: ignore[attr-defined]
+        idx = pd.date_range(self._series.end_time(), periods=n + 1, freq=self._series.freq_str)[1:]
+        return TimeSeries.from_times_and_values(idx, mean)
+
+    def historical_forecasts(self, series: TimeSeries, *, start: int | pd.Timestamp, **kwargs: object) -> TimeSeries:
+        # darts convenience kwargs (retrain/stride/...) are ignored: the protocol
+        # (1-step, expanding, periodic MLE refit) is defined here.
+        from statsmodels.tsa.statespace.structural import UnobservedComponents
+
+        start_idx = start if isinstance(start, int) else series.get_index_at_point(start)
+        y = series.values(copy=False).flatten().astype("float64")
+        preds: list[float] = []
+        params = None
+        for step, t in enumerate(range(start_idx, len(series))):
+            if params is None or step % NN_RETRAIN == 0:
+                try:
+                    params = self._fit_mle(y[:t]).params
+                except Exception:  # noqa: BLE001 — keep the last stable params on an unstable window
+                    if params is None:
+                        raise
+            res = UnobservedComponents(y[:t], level=self._SPEC).filter(params)
+            preds.append(float(res.forecast(1)[0]))
+        return TimeSeries.from_times_and_values(series.time_index[start_idx:], np.asarray(preds))
 
 
 def registry() -> dict[str, Callable[[], Forecaster]]:
