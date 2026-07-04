@@ -209,11 +209,24 @@ def _cfg_bitcn(trial):
     }
 
 
+def _mapped(mapping: dict, suggested):
+    """Map a suggested KEY back to its list value, tolerating NF's MockTrial.
+
+    neuralforecast's optuna backend introspects the config fn at __init__ with a
+    MockTrial whose ``suggest_categorical`` returns the CHOICES LIST itself — the
+    plain dict lookup then raised "cannot use 'list' as a dict key" (caught live
+    in the AQ campaign). Lists become tuples so downstream hashing is safe.
+    """
+    if isinstance(suggested, (list, tuple)):
+        suggested = suggested[0]
+    return tuple(mapping[suggested])
+
+
 def _cfg_nhits(trial):
     # Optuna no acepta listas como categóricas: se sugiere la LLAVE y se mapea.
     return _base_config(trial) | {
-        "n_pool_kernel_size": _NHITS_POOLS[trial.suggest_categorical("pool_key", list(_NHITS_POOLS))],
-        "n_freq_downsample": _NHITS_FREQS[trial.suggest_categorical("freq_key", list(_NHITS_FREQS))],
+        "n_pool_kernel_size": _mapped(_NHITS_POOLS, trial.suggest_categorical("pool_key", list(_NHITS_POOLS))),
+        "n_freq_downsample": _mapped(_NHITS_FREQS, trial.suggest_categorical("freq_key", list(_NHITS_FREQS))),
     }
 
 
@@ -415,7 +428,10 @@ def main() -> None:
             ok = merged[name].notna().sum()
             print(f"  ✓ {name}: {ok} pronósticos")
         except Exception as e:  # noqa: BLE001 — un modelo que falle no aborta el resto
+            import traceback
+
             print(f"  ✗ {name} FALLO: {type(e).__name__}: {str(e)[:120]}")
+            traceback.print_exc()
 
     suffix = args.suffix or ("diff" if args.diff else "levels")
     out = ROOT / "reports" / "campaign" / f"global_{args.table}_{suffix}.csv"
