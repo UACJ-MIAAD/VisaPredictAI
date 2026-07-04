@@ -1,6 +1,6 @@
 {
  "_source": "experiments/build_eda_facts.py — NO editar a mano",
- "vintage": "2026-07",
+ "vintage": "2026-06",
  "panel": {
   "n_obs": 27611,
   "n_series_structural": 194,
@@ -10,7 +10,7 @@
   "pct_trainable_F": 58,
   "n_months": 296,
   "date_first": "2001-12",
-  "date_last": "2026-07",
+  "date_last": "2026-06",
   "pct_retro": 2.42,
   "pct_frozen": 44.98,
   "median_step_days": 7.0

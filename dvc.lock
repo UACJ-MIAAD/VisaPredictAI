@@ -105,8 +105,8 @@ stages:
       size: 1589531
     - path: experiments/build_key_facts.py
       hash: md5
-      md5: c22cb994fd79f90c54c1e6b3eed53146
-      size: 8033
+      md5: a3deed58bd375428914e2a3f311dc3be
+      size: 8821
     - path: reports/campaign/campaign_pool_DFF_family.csv
       hash: md5
       md5: a6ff7fe43ed3e7077b023440a1443d91
@@ -174,9 +174,9 @@ stages:
     outs:
     - path: reports/governance/key_facts.json
       hash: md5
-      md5: 5567de14ada0ddc1540260d9ffaf27ac
-      size: 893
+      md5: aa14e8342a99b015b2fc391bd8660f4a
+      size: 998
     - path: reports/latex/key_facts.tex
       hash: md5
-      md5: 0e5c7aaaf554bd12f86ff84e608759a2
-      size: 1123
+      md5: 8afed57fa70de579dd74d1bdf5ef88c4
+      size: 1286
