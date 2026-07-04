@@ -61,6 +61,31 @@ SEQ = LinearSegmentedColormap.from_list("uacj_seq", ["#FFFFFF", "#9CC0F0", BLUE]
 WARN = LinearSegmentedColormap.from_list("uacj_warn", ["#FFFFFF", "#E0A6A0", WINE])  # magnitud "malo" (error)
 DIV = LinearSegmentedColormap.from_list("uacj_div", [WINE, "#FFFFFF", BLUE])  # divergente (correlación)
 
+# --- Neutros del tema CLARO (AE3: antes hardcodeados en make_gallery_figures) ----------
+# Espejo exacto de las claves de DARK para que _apply_theme() pueda re-vincular en ambas
+# direcciones desde UNA fuente. UNK_FILL reconciliado con REGIME["UNK"]["fill"] — había
+# DOS grises "sin dato" distintos (#EFEFEF vs #ECECEC) en el mismo documento.
+LIGHT = {
+    "PAPER": "#FFFFFF",
+    "INK": INK,
+    "GRAY": GRAY,
+    "MID": MID,
+    "MUTE": MUTE,
+    "GRID": GRID,
+    "STRIPE": STRIPE,
+    "BLUE": BLUE,
+    "TEAL": TEAL,
+    "WINE": WINE,
+    "GOLD": GOLD,
+    "SLATE": SLATE,
+    "UNK_FILL": REGIME["UNK"]["fill"],  # un solo gris "sin dato"
+    "NODATA": "#D9D9D9",
+    "QUAD_BLUE": REGIME["F"]["fill"],  # mismo azul pastel que las celdas F
+    "COUNTRY": COUNTRY,
+    "SEQ": SEQ,
+    "DIV": DIV,
+}
+
 # --- Variante OSCURA (única fuente del dark mode de figuras web) -----------------------
 # Mismo lenguaje cromático sobre superficie charcoal (alineada al dark del sitio). Los
 # tonos de dato se ACLARAN para conservar contraste; el amarillo UACJ no cambia. Usar

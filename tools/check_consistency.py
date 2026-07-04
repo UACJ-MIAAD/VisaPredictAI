@@ -65,6 +65,25 @@ def main() -> int:
 
     violations: list[str] = []
 
+    # 0) key_facts.tex == key_facts.json (AH1): la prosa macro-izada del deliverable
+    # confía en el .tex de macros; si éste se desalinea del .json (edición manual,
+    # regeneración parcial), NINGUNA regla de texto lo cazaría — verificar aquí.
+    kf_tex = ROOT / "reports" / "latex" / "key_facts.tex"
+    if kf_tex.exists():
+        def _macro(k: str) -> str:
+            return "fact" + "".join(w.capitalize() for w in k.split("_"))
+
+        tex_vals = dict(re.findall(r"\\newcommand\{\\(fact\w+)\}\{([^}]*(?:\{,\}[^}]*)*)\}", kf_tex.read_text()))
+        for k, v in facts.items():
+            if k.startswith("_") or isinstance(v, (list, dict)):
+                continue
+            got = tex_vals.get(_macro(k))
+            if got is None or got.replace("{,}", "") != str(v).replace(",", ""):
+                violations.append(
+                    f"KEYFACTS   reports/latex/key_facts.tex  macro \\{_macro(k)}={got!r} != json {k}={v!r} "
+                    f"— regenerar con experiments/build_key_facts.py"
+                )
+
     # 1) FORBIDDEN — el patrón no debe aparecer
     for r in rules.get("forbidden", []):
         rx = re.compile(r["pattern"], re.IGNORECASE)

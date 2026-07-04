@@ -176,6 +176,10 @@ def build() -> dict:
         if k.startswith("_") or isinstance(v, list):
             continue
         lines.append(f"\\newcommand{{\\{macro(k)}}}{{{v}}}\n")
+        # AH1: variante formateada \factXxxFmt para los conteos de miles — la prosa
+        # usa 27{,}611 (coma tipográfica LaTeX); el macro crudo era inutilizable ahí.
+        if isinstance(v, int) and v >= 1000:
+            lines.append(f"\\newcommand{{\\{macro(k)}Fmt}}{{{format(v, ',').replace(',', '{,}')}}}\n")
     (REPORTS / "latex" / "key_facts.tex").write_text("".join(lines))
     return facts
 

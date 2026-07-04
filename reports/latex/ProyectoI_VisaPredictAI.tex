@@ -121,6 +121,10 @@
 % --- Macro de citas IEEE clicables ---
 \newcommand{\cita}[1]{\hyperref[bib:#1]{[#1]}}
 
+% --- Cifras canónicas derivadas (AH1): key_facts.tex lo genera build_key_facts.py;
+%     una re-derivación actualiza estas macros sin tocar la prosa a mano. ---
+\input{key_facts}
+
 \begin{document}
 
 % ============================================================
@@ -197,7 +201,7 @@ prioridad publicadas mensualmente en el \textit{Visa Bulletin} del Departamento 
 de Estados Unidos, formuladas como un panel multiserie indexado por país o área de
 cargabilidad, categoría migratoria y tipo de tabla (\textit{Final Action Dates} y
 \textit{Dates for Filing}). Siguiendo la metodología CRISP-DM, se construyó una base de
-datos histórica (diciembre de 2001 a 2026; 194 series, 27{,}611 observaciones) y se comparó,
+datos histórica (diciembre de 2001 a 2026; 194 series, \factNObsFmt{} observaciones) y se comparó,
 mediante validación temporal \textit{walk-forward} sin fuga de información sobre un conjunto
 de prueba reservado de 24 meses, un repertorio de 21 modelos —desde líneas base estadísticas
 (ARIMA, SARIMA, ETS amortiguado, Theta) hasta árboles de potenciación del gradiente y redes
@@ -417,9 +421,9 @@ $y_{p,c,b,t}$ y carga en el almacén dimensional en estrella.}
 
 Los datos se consolidan en un panel largo y se cargan en un almacén dimensional en
 estrella (DuckDB) cuyas restricciones de clave e integridad actúan como contrato de
-calidad. El conjunto resultante comprende \textbf{194 series} y \textbf{27{,}611
+calidad. El conjunto resultante comprende \textbf{194 series} y \textbf{\factNObsFmt{}
 filas} en el rango \textbf{dic-2001 a 2026}, con una cobertura a nivel de boletín
-del 100\,\% (296 de 296 meses; los cinco boletines retirados de la fuente oficial se
+del 100\,\% (\factNMonths{} de \factNMonths{} meses; los cinco boletines retirados de la fuente oficial se
 recuperaron manualmente del archivo histórico y se integraron a las instantáneas congeladas).
 Los principales retos enfrentados fueron: la heterogeneidad del formato HTML a lo
 largo de dos décadas; la distinción entre ``sin dato'' y ``Unavailable'' (resuelta con
@@ -570,11 +574,11 @@ aplicadas.
 \subsection{1.2.1 Análisis exploratorio de datos (EDA)}
 
 \paragraph{Panorama del panel completo.} Antes de profundizar en el piloto, el EDA
-censa el panel íntegro: las $27{,}611$ observaciones de las 194 series estructurales
-a lo largo de los 296 boletines se condensan en la Figura~\ref{fig:eda_panel}, donde
+censa el panel íntegro: las $\factNObsFmt$ observaciones de las 194 series estructurales
+a lo largo de los \factNMonths{} boletines se condensan en la Figura~\ref{fig:eda_panel}, donde
 cada fila es una serie y cada celda un mes clasificado por su comportamiento. Dos
-rasgos dominan: el $58$\,\% de las celdas tiene fecha publicada (estado $F$, las
-$15{,}931$ observaciones entrenables) y, dentro de ellas, en el $45$\,\% de los meses
+rasgos dominan: el $\factPctTrainableF$\,\% de las celdas tiene fecha publicada (estado $F$, las
+$\factNObsFFmt$ observaciones entrenables) y, dentro de ellas, en el $\factPctFrozen$\,\% de los meses
 la fecha \textbf{no se movió} — el congelamiento es el comportamiento típico del
 sistema y la vara natural de cualquier pronóstico. La Tabla~\ref{tab:eda_descriptiva}
 resume el censo por bloque y tabla, y la Figura~\ref{fig:eda_completitud} muestra la
@@ -586,7 +590,7 @@ el EDA profundiza.
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.96\textwidth]{eda3_g01_panel.pdf}
-\caption[El panel completo en una sola imagen]{Las $27{,}611$ observaciones del panel en
+\caption[El panel completo en una sola imagen]{Las $\factNObsFmt$ observaciones del panel en
 una sola imagen: cada fila es una serie país~$\times$~categoría~$\times$~tabla y cada
 celda un boletín mensual, clasificado según si la fecha avanza, se congela, retrocede,
 está en \textit{Current} o no se publica. El blanco indica que la serie no existe ese
@@ -739,8 +743,8 @@ México y Filipinas.}
 \label{fig:eda_len}
 \end{figure}
 
-A escala del panel completo, el censo registra 382 episodios de retrogresión —el
-$2.4$\,\% de los avances observados, frente al $1.3$\,\% del bloque familiar FAD—.
+A escala del panel completo, el censo registra \factNRetroEvents{} episodios de retrogresión —el
+$\factPctRetro$\,\% de los avances observados, frente al $1.3$\,\% del bloque familiar FAD—.
 La Figura~\ref{fig:eda_retros} los sitúa todos en el tiempo: la mayoría son
 correcciones menores, pero unos pocos son abruptos, con retrocesos de hasta $12.8$
 años en un solo mes. Esta cola extrema es precisamente lo que el sistema
@@ -750,7 +754,7 @@ pero sí debe tolerar sin degradarse.
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{eda3_g04_retros.pdf}
-\caption[Cronología de las retrogresiones del panel]{Las 382 retrogresiones del panel
+\caption[Cronología de las retrogresiones del panel]{Las \factNRetroEvents{} retrogresiones del panel
 completo (2001--2026): cada punto es un mes en que la fecha de una serie retrocedió;
 el tamaño es proporcional a la magnitud. Se anotan los cinco episodios mayores.}
 \label{fig:eda_retros}
@@ -933,7 +937,7 @@ elegibilidad.
 Por último, el sorteo de diversidad (\textit{Diversity Visa}, DV) se explora como
 hecho descriptivo separado: su valor es un \textbf{número de rango} regional, no una
 fecha, por lo que queda fuera del objetivo predictivo. La Figura~\ref{fig:eda_dv}
-muestra las $1{,}647$ observaciones del sorteo: el corte sube dentro de cada año fiscal y se
+muestra las $\factDvNRowsFmt$ observaciones del sorteo: el corte sube dentro de cada año fiscal y se
 reinicia en octubre (diente de sierra), con África sistemáticamente en los cortes
 más altos.
 
@@ -1757,7 +1761,7 @@ $\mathrm{CD}$ & diferencia crítica de la prueba de Nemenyi \\
 La Tabla~\ref{tab:comparacion_modelos} presenta el desempeño promedio de los 21
 modelos sobre las 25 series. Los modelos estadísticos parsimoniosos lideran:
 \textbf{Theta y ETS con tendencia amortiguada encabezan}
-(MASE $=0.111$ ambos), seguidos de cerca por \textbf{CatBoost} sobre deltas ($0.125$), SARIMA
+(MASE $=\factFadChampionMase$ ambos), seguidos de cerca por \textbf{CatBoost} sobre deltas ($0.125$), SARIMA
 ($0.135$) y ARIMA ($0.157$). Los árboles de potenciación de gradiente, una vez
 formulados sobre la primera diferencia (para que puedan extrapolar la tendencia),
 resultan plenamente competitivos: CatBoost, XGBoost ($0.165$) y LightGBM ($0.181$)
@@ -1813,7 +1817,7 @@ TFT & 2.419 & 2.237 & 9.85 & 6.25 \\
 Respecto a las hipótesis del Anteproyecto: la hipótesis H1 (que el mejor modelo no
 lineal mejora al lineal en proporción material) \textit{no} se sostiene, aunque el
 margen es estrecho: el mejor no lineal (CatBoost sobre deltas, MASE $=0.125$) queda muy
-cerca pero no supera a los parsimoniosos Theta y ETS ($0.111$). La hipótesis H2
+cerca pero no supera a los parsimoniosos Theta y ETS ($\factFadChampionMase$). La hipótesis H2
 (heterogeneidad por país-categoría-tabla) sí se sostiene: el modelo ganador varía por
 serie (CatBoost en 10, ETS en 9, Theta en 5), repartido entre un árbol y la familia
 estadística. La significancia de las diferencias se contrasta con la prueba de
@@ -1920,7 +1924,7 @@ XGBoost de $0.199$ a $0.144$ ($-28$\,\%) y CatBoost de $0.150$ a $0.135$ ($-10$\
 DFF la ganancia es de $4$ a $14$\,\%. Los seis casos mejoran y se aceptan. Ahora bien,
 la optimización \textit{cierra la brecha pero no cambia el veredicto}: los árboles
 tuneados (FAD $0.130$--$0.144$) siguen por encima de los parsimoniosos ETS y Theta
-($0.113$--$0.114$), y en DFF ($0.107$--$0.110$) por encima del listón re-derivado. La capacidad adicional bien regulada
+($\factThetaFadMean$--$\factEtsFadMean$), y en DFF ($0.107$--$0.110$) por encima del listón re-derivado. La capacidad adicional bien regulada
 acerca al modelo complejo, no lo hace superar al simple.
 
 \paragraph{Combinación de modelos y distribución predictiva.} Se evaluaron, también sin
@@ -1962,17 +1966,17 @@ y de empleo con \textbf{normalización por serie} —para que convivan sus disti
 escalas— da a cada serie más señal y baja BiTCN a $0.114$ —tocando el listón parsimonioso en esa
 corrida—; y (b) la \textbf{optimización
 de hiperparámetros} con Optuna (búsqueda con validación interna, sin tocar el hold-out)
-lleva a \textbf{AutoBiTCN a MASE $=0.121$ y AutoTiDE a $0.133$}, cerca de ETS y Theta
-($0.113$--$0.114$). Es decir, en FAD \textbf{un único modelo profundo global, bien regularizado,
+lleva a \textbf{AutoBiTCN a MASE $=\factAutobitcnFadMean$ y AutoTiDE a $0.133$}, cerca de ETS y Theta
+($\factThetaFadMean$--$\factEtsFadMean$). Es decir, en FAD \textbf{un único modelo profundo global, bien regularizado,
 se acerca al listón parsimonioso sin alcanzarlo}: el intervalo entre semillas de AutoBiTCN
 roza el listón, pero su media queda por encima. \textbf{En DFF, en cambio, el aprendizaje profundo mantiene una ventaja
 modesta}: BiTCN global —MASE $=0.090$ en media— supera al mejor parsimonioso de cobertura
 completa, que tras añadir un \textbf{Auto-ARIMA con selección de orden por AICc} (MASE media
-$=0.099$, mejor que ETS $=0.104$ y Theta $=0.105$) bajo el mismo walk-forward, queda en
+$=\factAutoarimaDffMean$, mejor que ETS $=\factEtsDffMean$ y Theta $=\factThetaDffMean$) bajo el mismo walk-forward, queda en
 $\sim$9\,\% —no el $15$\,\% que sugería compararlo contra baselines más débiles— (SARIMA no
 es referencia válida en DFF: numéricamente frágil, MASE $=1.70$ sobre las 25 series y un
 aparente $0.100$ solo sobre las 13 que sobrevive, sesgo de supervivencia). \textbf{La
-ventaja es además sensible a la agregación}: por mediana el Auto-ARIMA ($0.086$) incluso supera por poco a
+ventaja es además sensible a la agregación}: por mediana el Auto-ARIMA ($\factAutoarimaDffMedian$) incluso supera por poco a
 BiTCN ($0.090$), y las $\sim$25 series familiares de DFF colapsan a $\sim$14 distintas al
 descontar la pseudo-replicación del corte mundial compartido, por lo que la muestra efectiva
 es pequeña. La lectura es que el aprendizaje profundo \textit{queda apenas por detrás} de los clásicos en
@@ -2008,10 +2012,10 @@ ambos resultados se reentrenaron con \textbf{cinco semillas independientes} (Fig
 la inicialización de pesos como la búsqueda de hiperparámetros (muestreo TPE con semilla
 distinta por corrida). En DFF la ventaja es \textbf{modesta pero estable entre semillas}:
 BiTCN promedia MASE $=0.090$ con desviación $0.0003$ —intervalo de confianza del $95$\,\%
-$[0.0896,\,0.0903]$—, por encima del mejor clásico afinado (Auto-ARIMA $=0.099$ en media,
+$[0.0896,\,0.0903]$—, por encima del mejor clásico afinado (Auto-ARIMA $=\factAutoarimaDffMean$ en media,
 $\sim$9\,\%). En FAD el resultado favorece por poco a la
-parsimonia: AutoBiTCN promedia $0.121$ con desviación $0.008$ —intervalo
-$[0.112,\,0.131]$—, un rango cuyo extremo inferior roza el listón parsimonioso ($0.114$)
+parsimonia: AutoBiTCN promedia $\factAutobitcnFadMean$ con desviación $0.008$ —intervalo
+$[0.112,\,0.131]$—, un rango cuyo extremo inferior roza el listón parsimonioso ($\factEtsFadMean$)
 pero cuya media queda $\sim$6\,\% por encima. La variación entre corridas a
 semilla fija refleja el nondeterminismo del acelerador, acotado por el propio intervalo. La
 lectura honesta, por tanto, es que el aprendizaje profundo \textbf{supera por un margen
@@ -2072,7 +2076,7 @@ modelos heterogéneos, selección de modelo por serie basada en características
 (meta-aprendizaje) y un segundo \textit{foundation model} preentrenado (TabPFN-TS)
 \cita{46}, evaluado en modo zero-shot sobre el panel. Ninguna rompe la frontera de exactitud puntual
 en FAD: el \textit{stacking} y el meta-aprendizaje sobreajustan con apenas $25$ series, y
-TabPFN-TS alcanza un MASE de $0.1155$ —cerca del listón parsimonioso ($0.114$), pero
+TabPFN-TS alcanza un MASE de $0.1155$ —cerca del listón parsimonioso ($\factEtsFadMean$), pero
 sin descender al nivel de la frontera de error que marca
 el oráculo de selección perfecta ($\approx 0.113$)—. Que un modelo preentrenado, \textbf{sin ajuste alguno a estos datos}, iguale a
 los mejores modelos entrenados a medida es la evidencia más clara de que el sistema ya
@@ -2085,7 +2089,7 @@ calibración de la incertidumbre, donde la inferencia conforme adaptativa sí ap
 \centering
 \caption[Modelos profundos globales (FAD)]{Modelos profundos entrenados de forma global
 sobre las 25 series FAD familiares y el efecto acumulado de las técnicas de
-entrenamiento. MASE de hold-out; el listón parsimonioso es ETS/Theta $=0.113$--$0.114$. La mejor
+entrenamiento. MASE de hold-out; el listón parsimonioso es ETS/Theta $=\factThetaFadMean$--$\factEtsFadMean$. La mejor
 configuración profunda (BiTCN agrupado con normalización por serie) toca el listón en una
 corrida única; sobre cinco semillas, la media del mejor modelo optimizado queda ligeramente
 por encima (validación multi-semilla más abajo).}
@@ -2098,10 +2102,10 @@ PatchTST & global, nivel & 0.122 \\
 BiTCN & global, diferencia & 0.128 \\
 TiDE & global, diferencia & 0.133 \\
 AutoTiDE & + optimización (Optuna) & 0.133 \\
-AutoBiTCN & + optimización (Optuna) & 0.121 \\ \midrule
+AutoBiTCN & + optimización (Optuna) & \factAutobitcnFadMean \\ \midrule
 \rowcolor{uacjyellow!25}
 BiTCN & + agrupado + norma por serie & \textbf{0.114} \\ \midrule
-ETS / Theta \textit{(listón)} & estadístico, por serie & \textit{0.113--0.114} \\ \bottomrule
+ETS / Theta \textit{(listón)} & estadístico, por serie & \textit{\factThetaFadMean--\factEtsFadMean} \\ \bottomrule
 \end{tabular}
 \end{table}
 
@@ -2315,7 +2319,7 @@ seis familias bajo un protocolo de validación temporal sin fuga de información
 \paragraph{Hallazgo principal: por serie, la parsimonia gana.} Contra la intuición de que
 ``más capacidad es mejor'', evaluados \textit{por serie} —para fechas de prioridad cortas,
 con tendencia fuerte, estacionalidad casi nula y retrogresiones ocasionales—, \textbf{los
-modelos parsimoniosos encabezan}. Theta y ETS amortiguado lideran FAD (MASE $=0.111$)
+modelos parsimoniosos encabezan}. Theta y ETS amortiguado lideran FAD (MASE $=\factFadChampionMase$)
 y encabezan también DFF ($0.090$, con CatBoost sobre deltas muy cerca, $0.094$), y todos mejoran al naïve estacional por un
 margen amplio. Las redes profundas entrenadas \textit{localmente} (LSTM, DeepAR, TFT) caen
 por debajo del naïve: con 130 a 296 observaciones por serie su capacidad se traduce en
@@ -2334,14 +2338,14 @@ FAD. El vuelco llega con un cuarto resultado, el más contundente: (iv) entrenad
 el mismo tipo de red que fracasaba localmente pasa a \textbf{competir con los parsimoniosos
 y superarlos donde los datos escasean}: BiTCN logra MASE $=0.090$ en DFF —por debajo del mejor
 parsimonioso de cobertura completa, con el margen reconciliado que cuantifica el veredicto
-abajo— mientras que AutoBiTCN \textbf{se queda a rozar} el listón de ETS/Theta en FAD ($0.121$ frente a $0.113$--$0.114$).
+abajo— mientras que AutoBiTCN \textbf{se queda a rozar} el listón de ETS/Theta en FAD ($\factAutobitcnFadMean$ frente a $\factThetaFadMean$--$\factEtsFadMean$).
 
 \paragraph{Veredicto: depende del régimen.} Una validación con cinco semillas precisa esta
 lectura: en DFF la ventaja del modelo profundo es \textbf{modesta pero estable entre
-semillas} (media $0.090\pm0.0003$), $\sim$9\,\% sobre el mejor clásico afinado (Auto-ARIMA
-$0.099$ en media) —ventaja sensible a la agregación (por mediana el clásico gana por poco) y sobre una muestra
+semillas} (media $0.090\pm0.0003$), $\sim$\factDeepDffMarginPct\,\% sobre el mejor clásico afinado (Auto-ARIMA
+$\factAutoarimaDffMean$ en media) —ventaja sensible a la agregación (por mediana el clásico gana por poco) y sobre una muestra
 efectiva pequeña ($\sim$14 series DFF distintas)—, y en FAD favorece por poco a la parsimonia
-(media $0.121\pm0.008$, intervalo $[0.112,\,0.131]$ cuyo extremo inferior roza el listón $0.114$).
+(media $\factAutobitcnFadMean\pm0.008$, intervalo $[0.112,\,0.131]$ cuyo extremo inferior roza el listón $\factEtsFadMean$).
 \textbf{El aprendizaje profundo supera por un margen modesto y frágil en DFF} (series cortas,
 donde el entrenamiento global presta señal entre series) \textbf{y queda apenas por detrás de la
 parsimonia en FAD} (series largas, donde un modelo simple ya es óptimo). Cuando aporta, la ventaja \textbf{no

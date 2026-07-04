@@ -67,30 +67,14 @@ plt.rcParams.update({"font.size": 9, "axes.grid": False})
 # La galeria se emite DOS veces: clara (LaTeX/PDF/web claro) y oscura (web dark mode).
 # El tema oscuro canonico vive en vp_model.palette.DARK (fuente unica); aqui solo se
 # re-vinculan los nombres de color del modulo antes de cada pasada.
-PAPER = "#FFFFFF"
-UNK_FILL = "#EFEFEF"  # celdas U/sin dato (G1)
-NODATA = "#D9D9D9"  # barras "sin dato" (G11)
-QUAD_BLUE = "#DCE6F5"  # cuadrante sombreado (G9)
+# AE3: los neutros claros viven en palette.LIGHT (fuente única, espejo de DARK);
+# aquí solo se materializan los vínculos iniciales del módulo.
+_LIGHT = _palette.LIGHT
+PAPER = _LIGHT["PAPER"]
+UNK_FILL = _LIGHT["UNK_FILL"]  # celdas U/sin dato (G1) — reconciliado con REGIME["UNK"]
+NODATA = _LIGHT["NODATA"]  # barras "sin dato" (G11)
+QUAD_BLUE = _LIGHT["QUAD_BLUE"]  # cuadrante sombreado (G9)
 DARK_MODE = False
-_LIGHT = {
-    "PAPER": PAPER,
-    "INK": INK,
-    "GRAY": GRAY,
-    "MID": MID,
-    "MUTE": MUTE,
-    "GRID": GRID,
-    "BLUE": BLUE,
-    "TEAL": TEAL,
-    "WINE": WINE,
-    "GOLD": GOLD,
-    "SLATE": SLATE,
-    "UNK_FILL": UNK_FILL,
-    "NODATA": NODATA,
-    "QUAD_BLUE": QUAD_BLUE,
-    "COUNTRY": COUNTRY,
-    "SEQ": SEQ,
-    "DIV": DIV,
-}
 
 
 def _apply_theme(dark: bool) -> None:

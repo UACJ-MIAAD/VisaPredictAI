@@ -37,7 +37,8 @@ forbidden:
   - pattern: 'modela\w*\s+(las\s+)?194\s+series|194\s+series\s+modela'
     in: [deliverable, paper, readmes, web]
     reason: '194 son ESTRUCTURALES; solo ~74 evaluables (>=84 obs F)'
-  - pattern: 'FAD[^.;]{0,90}0\.10[67]|0\.10[67][^.;]{0,60}\bFAD\b'
+  # \b en ambos lados: con IGNORECASE, "FAD" matcheaba dentro de \factThetaFadMean (AH1)
+  - pattern: '\bFAD\b[^.;]{0,90}0\.10[67]|0\.10[67][^.;]{0,60}\bFAD\b'
     in: [deliverable, paper, readmes]
     reason: '0.106/0.107 son los hold-out DFF de ETS/Theta; los campeones FAD valen 0.119/0.118 (misatribución detectada en audit 2-jul-2026)'
   - pattern: '\b65\b[^%<]{0,12}(pruebas|tests|pytest)|metric-num">65<'
@@ -102,6 +103,12 @@ required:
     forms: ['{prosp_mase}']
     in: [paper]
     reason: 'el MASE prospectivo (titular de honestidad del paper) debe coincidir con el scorecard vigente'
+  # AH1/AH5: el deliverable debe \input las macros derivadas — si alguien quita el
+  # input, toda la prosa macro-izada dejaría de compilar/alinearse en silencio.
+  - fact: n_obs
+    forms: ['\\input\{key_facts\}']
+    in: [deliverable]
+    reason: 'ProyectoI.tex debe hacer \input{key_facts} (cifras canónicas derivadas, no tipeadas)'
 
 numeric:
   # obs TOTAL del panel: "27,289 obs/observaciones/observations/filas/rows" pero NO "obs
@@ -164,9 +171,12 @@ decimal:
     in: [deliverable]
     reason: 'el listón parsimonioso citado en prosa es el hold-out FAD de ETS'
   # AutoBiTCN <±60 chars> número — cubre prosa ("a MASE $=0.121$", "promedia $0.121$"),
-  # la fila de tab:global_deep y el paper ("reaches mean MASE $0.121$")
+  # la fila de tab:global_deep y el paper ("reaches mean MASE $0.121$").
+  # AH1: el gap EXCLUYE backslash para no saltar por encima de una macro y el
+  # ancla lleva \b — con IGNORECASE, "AutoBiTCN" matcheaba DENTRO del nombre de
+  # la macro \factAutobitcnFadMean y capturaba el ±stddev de al lado.
   - fact: autobitcn_fad_mean
-    label: 'AutoBiTCN[^0-9\n]{0,60}?\$?=?\\?\$?~?([0-9]\.[0-9]{3})'
+    label: '\bAutoBiTCN\b[^0-9\n\\]{0,60}?\$?=?\$?~?([0-9]\.[0-9]{3})'
     in: [deliverable, paper]
     reason: 'AutoBiTCN FAD multi-semilla (el claim que dejó de ser "empate")'
   # BiTCN (no Auto) seguido de MASE — el claim insignia de DFF
