@@ -95,7 +95,7 @@ def page_cover(pdf: PdfPages, facts: dict) -> None:
         va="top",
     )
     tiles = [
-        (f"{p['n_obs']:,}".replace(",", " "), "observaciones mensuales"),
+        (f"{p['n_obs']:,}", "observaciones mensuales"),
         (str(p["n_series_structural"]), "series país × cat. × tabla"),
         (f"{p['n_months']}/{p['n_months']}", "boletines desde dic-2001"),
         (f"{p['pct_trainable_F']}%", "meses con fecha (F)"),
@@ -190,8 +190,8 @@ def page_methods(pdf: PdfPages, facts: dict, n: int) -> None:
         (
             "Fuente y panel",
             f"U.S. Department of State, Visa Bulletin ({p['date_first']} → {p['date_last']}). "
-            f"Panel multiserie y(p,c,b,t): {p['n_obs']:,} filas".replace(",", " ")
-            + f", {p['n_series_structural']} series estructurales, {p['n_months']} boletines (cobertura 100%). "
+            f"Panel multiserie y(p,c,b,t): {p['n_obs']:,} filas"
+            f", {p['n_series_structural']} series estructurales, {p['n_months']} boletines (cobertura 100%). "
             "Variable objetivo: días desde la época base 1-ene-1975, solo meses con fecha publicada (estado F).",
         ),
         (

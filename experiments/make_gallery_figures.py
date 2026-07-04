@@ -345,9 +345,9 @@ def _apply_lang(lang: str) -> None:
 
 
 def _num(v: int) -> str:
-    """Separador de miles por idioma: 27 611 (es, espacio fino) / 27,611 (en)."""
-    s = f"{v:,}"
-    return s.replace(",", " ") if LANG == "es" else s
+    """Separador de miles con coma (27,611) — convención es-MX del proyecto, igual
+    en ambos idiomas; el espacio fino previo desalineaba figura vs caption/.tex."""
+    return f"{v:,}"
 
 
 def _spread(vals: list[float], min_gap: float) -> list[float]:
