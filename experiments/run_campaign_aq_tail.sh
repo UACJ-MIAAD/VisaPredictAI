@@ -74,6 +74,12 @@ for table in ("FAD", "DFF"):
         if not parts:
             continue
         full = pd.concat(parts, ignore_index=True)
+        # ONE campaign = ONE run_id: 9 downstream consumers filter run_id==max()
+        # and a two-half merge (nongbm+gbm run_ids) left them staring at the GBM
+        # half only (caught live: ets_fad_mean=NaN in key_facts). The original
+        # per-half id survives in source_run_id for provenance.
+        full["source_run_id"] = full["run_id"]
+        full["run_id"] = full["run_id"].max()
         full.to_csv(camp / f"campaign_pool_{table}_{block}.csv", index=False)
         tgt = f"model_comparison_{table}21.csv" if block == "family" else f"model_comparison_EB_{table}21.csv"
         full.to_csv(ev / tgt, index=False)
