@@ -80,7 +80,12 @@ def main() -> int:
     if kf_tex.exists():
 
         def _macro(k: str) -> str:
-            return "fact" + "".join(w.capitalize() for w in k.split("_"))
+            # Espejo EXACTO de build_key_facts.macro(): dígitos deletreados (LaTeX
+            # no admite dígitos en nombres de comando).
+            digits = {"0": "Zero", "1": "One", "2": "Two", "3": "Three", "4": "Four",
+                      "5": "Five", "6": "Six", "7": "Seven", "8": "Eight", "9": "Nine"}
+            name = "fact" + "".join(w.capitalize() for w in k.split("_"))
+            return "".join(digits.get(c, c) for c in name)
 
         tex_vals = dict(re.findall(r"\\newcommand\{\\(fact\w+)\}\{([^}]*(?:\{,\}[^}]*)*)\}", kf_tex.read_text()))
         for k, v in kf_facts.items():
