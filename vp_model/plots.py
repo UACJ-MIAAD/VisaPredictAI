@@ -134,7 +134,7 @@ def plot_step_distribution(table: str = "FAD", block: str = "family") -> Path:
             ha="right",
         )
     ax.set_title(f"Distribución del avance mensual — tabla {table}, bloque {block}")
-    ax.set_xlabel(f"Avance de la fecha de prioridad (días por mes; rango mostrado [{lo}, {hi}], extremos anotados)")
+    ax.set_xlabel(f"Avance de la fecha de prioridad (días/mes; rango [{lo}, {hi}], extremos anotados)")
     ax.set_ylabel("Frecuencia")
     ax.legend(fontsize=8, frameon=False)
     return _save(fig, f"eda_steps_{table}_{block}.png")
