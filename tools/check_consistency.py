@@ -78,6 +78,7 @@ def main() -> int:
     # regeneración parcial), NINGUNA regla de texto lo cazaría — verificar aquí.
     kf_tex = ROOT / "reports" / "latex" / "key_facts.tex"
     if kf_tex.exists():
+
         def _macro(k: str) -> str:
             return "fact" + "".join(w.capitalize() for w in k.split("_"))
 
