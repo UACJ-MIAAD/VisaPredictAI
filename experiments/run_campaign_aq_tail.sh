@@ -44,12 +44,18 @@ else
   echo "##### STAGE FAILED: hpo_deep_best_FAD_AutoBiTCN.json still missing"; FAILS=$((FAILS+1))
 fi
 
-stage T2 "GBM catalog rows with CONFIRMED winners (tuning re-ran after stage B)"
+stage T2 "GBM catalog rows with CONFIRMED winners (tuning re-ran after stage B) — 4 parallel"
+PIDS=()
 for table in FAD DFF; do
   for block in family employment; do
-    run $ANTE -m vp_model.run_comparison --country all --table "$table" --block "$block" --mlflow \
-      --models $GBM --out "reports/campaign/aq_pool_gbm_${table}_${block}.csv"
+    $ANTE -m vp_model.run_comparison --country all --table "$table" --block "$block" --mlflow \
+      --models $GBM --out "reports/campaign/aq_pool_gbm_${table}_${block}.csv" \
+      > "reports/campaign_aq_logs/tail_gbm_${table}_${block}.log" 2>&1 &
+    PIDS+=($!)
   done
+done
+for pid in "${PIDS[@]}"; do
+  wait "$pid" || { echo "##### STAGE FAILED: GBM pool pid $pid"; FAILS=$((FAILS+1)); }
 done
 
 stage T3 "re-merge pool halves -> campaign_pool + model_comparison projections"
