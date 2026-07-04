@@ -13,7 +13,7 @@ escritorio** (sin novedad metodológica). Reencuadrar a **paper de aplicación**
 contribuciones defendibles:
 
 1. **Dataset público nuevo y auditado** — panel multiserie homogéneo del U.S. Visa Bulletin
-   (194 series estructurales, 27,611 obs, dic-2001→2026 completo 296/296), rico en retrogresiones, con
+   (194 series estructurales, 27,289 obs, dic-2001→2026), rico en retrogresiones, con
    anotación de régimen C/F/U (MNAR-honesta) y reproducible (HTML congelado en S3 → rebuild
    offline). *Liderar con esto.*
 2. **Protocolo de evaluación PROSPECTIVA sobre pronósticos congelados** — la idea novedosa:
@@ -34,7 +34,7 @@ Texto base (ajustar al estilo del deliverable):
 > MASE 0.05; h=12: MAE ~351 d, MASE 0.75, aún < 1 = supera al naïve estacional). La banda de
 > predicción al 95 % cubrió empíricamente el **92 %** (bajo el nominal; ver Amenazas).
 
-**Tabla propuesta — desempeño prospectivo por horizonte** (datos en `reports/prospective/forecast_scorecard_meta.json`):
+**Tabla propuesta — desempeño prospectivo por horizonte** (datos en `reports/forecast_scorecard_meta.json`):
 
 | h (meses) | n | MAE (días) | MASE | cobertura 95 % |
 |---|---|---|---|---|

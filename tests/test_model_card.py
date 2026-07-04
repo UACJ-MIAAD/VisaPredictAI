@@ -11,12 +11,12 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CARD = ROOT / "reports" / "governance" / "MODEL_CARD.md"
-KEY_FACTS = ROOT / "reports" / "governance" / "key_facts.json"
+CARD = ROOT / "reports" / "MODEL_CARD.md"
+KEY_FACTS = ROOT / "reports" / "key_facts.json"
 
 
 def test_model_card_in_sync_with_key_facts() -> None:
-    assert CARD.exists(), "falta reports/governance/MODEL_CARD.md; genérala con `make model-card`"
+    assert CARD.exists(), "falta reports/MODEL_CARD.md; genérala con `make model-card`"
     card = CARD.read_text()
     kf = json.loads(KEY_FACTS.read_text())
 

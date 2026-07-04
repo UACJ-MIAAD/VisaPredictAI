@@ -9,7 +9,7 @@ escribe records JSONL en ``mlruns_staging/{experiment}.jsonl``; ``experiments/sy
 Cada record es idempotente vía ``rec_id`` (hash de contenido) → re-sincronizar no duplica.
 
 Uso:
-    from vp_data import tracking
+    import tracking
     tracking.log_run("pool_local", "ets_mexico_F1_FAD",
                      params={"model": "ets", "country": "mexico", "table": "FAD"},
                      metrics={"sel_mase": 0.117, "sel_smape": 0.30},
@@ -25,7 +25,7 @@ import subprocess
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]  # raíz del repo (el paquete vive un nivel abajo)
+ROOT = Path(__file__).resolve().parent
 STAGING = ROOT / "mlruns_staging"
 
 

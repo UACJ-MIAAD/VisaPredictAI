@@ -1,6 +1,6 @@
 """Artefactos de resultados para el .tex de Proyecto I (US-F1, US-F2, US-F5).
 
-Lee ``reports/eval/model_comparison.csv`` y produce: (1) una tabla LaTeX con el ranking de
+Lee ``reports/model_comparison.csv`` y produce: (1) una tabla LaTeX con el ranking de
 modelos, (2) la figura predicho-vs-real sobre el hold-out del modelo ganador, y (3)
 el mapa de ganador por serie (evidencia de H2, heterogeneidad por país-categoría).
 """
@@ -20,8 +20,8 @@ from vp_model.plots import OUTDIR, UACJ_BLACK, UACJ_BLUE, _save  # noqa: E402
 
 log = config.get_logger(__name__)
 
-CSV = Path(__file__).resolve().parent.parent / "reports" / "eval" / "model_comparison.csv"
-TEX = Path(__file__).resolve().parent.parent / "reports" / "eval" / "results_table.tex"
+CSV = Path(__file__).resolve().parent.parent / "reports" / "model_comparison.csv"
+TEX = Path(__file__).resolve().parent.parent / "reports" / "results_table.tex"
 
 # Nombres legibles para el .tex.
 PRETTY = {

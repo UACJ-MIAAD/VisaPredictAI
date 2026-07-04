@@ -61,38 +61,6 @@ SEQ = LinearSegmentedColormap.from_list("uacj_seq", ["#FFFFFF", "#9CC0F0", BLUE]
 WARN = LinearSegmentedColormap.from_list("uacj_warn", ["#FFFFFF", "#E0A6A0", WINE])  # magnitud "malo" (error)
 DIV = LinearSegmentedColormap.from_list("uacj_div", [WINE, "#FFFFFF", BLUE])  # divergente (correlación)
 
-# --- Variante OSCURA (única fuente del dark mode de figuras web) -----------------------
-# Mismo lenguaje cromático sobre superficie charcoal (alineada al dark del sitio). Los
-# tonos de dato se ACLARAN para conservar contraste; el amarillo UACJ no cambia. Usar
-# SOLO para artefactos que se muestran en pantalla oscura (galería web); el .tex y el
-# reporte PDF siguen en la paleta clara.
-DARK = {
-    "PAPER": "#12161B",  # superficie de la figura (charcoal, no negro puro)
-    "INK": "#E8EAED",
-    "GRAY": "#A9B1BA",
-    "MID": "#7A8590",
-    "MUTE": "#414B56",
-    "GRID": "#262D34",
-    "STRIPE": "#1A2027",
-    "BLUE": "#7AA7F8",
-    "TEAL": "#57BFAA",
-    "WINE": "#E08B84",
-    "GOLD": "#D9A93D",
-    "SLATE": "#97A5B2",
-    "UNK_FILL": "#262C33",  # celdas U/sin dato en matrices
-    "NODATA": "#333A42",  # barras "sin dato"
-    "QUAD_BLUE": "#1E2A3F",  # cuadrante sombreado (censo de estacionariedad)
-    "COUNTRY": {
-        "mexico": "#7AA7F8",
-        "india": "#E08B84",
-        "china": "#D9A93D",
-        "philippines": "#57BFAA",
-        "all_chargeability": "#97A5B2",
-    },
-    "SEQ": LinearSegmentedColormap.from_list("uacj_seq_dark", ["#1A222E", "#3D5C93", "#7AA7F8"]),
-    "DIV": LinearSegmentedColormap.from_list("uacj_div_dark", ["#E08B84", "#1E242B", "#7AA7F8"]),
-}
-
 
 def country_color(c: str) -> str:
     """Color de un país; gris pizarra por defecto para claves desconocidas."""

@@ -1,6 +1,6 @@
 """Optimización de hiperparámetros leakage-free (Épica O / US-O1, US-O2).
 
-Implementa el plan de la investigación de HPO (145 fuentes, notas internas del autor):
+Implementa el plan de la investigación de HPO (145 fuentes, `reports/litreview_hpo_finetuning.md`):
   * Motor: **Optuna** con TPESampler(multivariate=True, seed=42). Sin Ray/SMAC (Optuna basta).
   * Protocolo ANIDADO: el objetivo minimiza el MASE de SELECCIÓN (la región previa al
     hold-out, vía `walkforward.backtest`); el **hold-out de 24 meses NUNCA entra al

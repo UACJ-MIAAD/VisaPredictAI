@@ -2,7 +2,7 @@
 
 Tunea xgboost/lightgbm/catboost para (tabla × bloque) con el objetivo barato y
 leakage-free de ``tune`` (cola de validación interna; el hold-out de 24m NUNCA se
-toca). Escribe ``reports/eval/tuned_params.json`` con {modelo: {tabla_bloque: params}} y un
+toca). Escribe ``reports/tuned_params.json`` con {modelo: {tabla_bloque: params}} y un
 resumen default-vs-mejor. La regla de ACEPTACIÓN final (tuned mejora en hold-out) se
 confirma aparte (US-O3); aquí solo se buscan los candidatos.
 """
@@ -16,7 +16,7 @@ from vp_model import config, tune
 from vp_model.config import get_logger
 
 log = get_logger("run_tuning")
-OUT = Path(__file__).resolve().parent.parent / "reports" / "eval" / "tuned_params.json"
+OUT = Path(__file__).resolve().parent.parent / "reports" / "tuned_params.json"
 
 
 def main(n_trials: int = 40, groups: tuple[tuple[str, str], ...] = (("FAD", "family"), ("DFF", "family"))) -> None:

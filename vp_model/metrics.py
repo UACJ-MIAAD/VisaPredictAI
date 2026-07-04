@@ -173,19 +173,15 @@ def msis(
     return interval_score(actual, lower, upper, alpha, dates) / s
 
 
-def crps(actual: TimeSeries, samples: TimeSeries, dates: pd.DatetimeIndex | None = None) -> float:
+def crps(actual: TimeSeries, samples: TimeSeries) -> float:
     """CRPS empírico promedio a partir de un pronóstico por muestras (estocástico).
 
     CRPS = E|X - y| - 0.5·E|X - X'| (forma de energía), estimado con las muestras de
-    cada paso. Se reduce al MAE si el pronóstico es determinista. ``dates`` restringe
-    la medición a observaciones F reales (B1).
+    cada paso. Se reduce al MAE si el pronóstico es determinista.
     """
     a = actual.slice_intersect(samples)
     y = a.values().flatten()
     sm = samples.slice_intersect(a).all_values()  # (tiempo, componentes, muestras)
-    if dates is not None:
-        m = a.time_index.isin(dates)
-        y, sm = y[m], sm[m]
     vals = []
     for t in range(len(y)):
         x = sm[t, 0, :]

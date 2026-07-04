@@ -36,9 +36,7 @@ def test_reindex_only_adds_nan_gaps() -> None:
     sparse = dataset.load_series("china", "F1", "FAD")
     dense = dataset.load_series("china", "F1", "FAD", reindex_monthly=True)
     assert len(dense) >= len(sparse)
-    # dtype-insensible: si la serie no tiene huecos (china F1 quedó completa tras
-    # la resurrección I1), reindex no introduce NaN y el dtype se queda en int64.
-    assert dense.dropna().astype("float64").equals(sparse.astype("float64"))
+    assert dense.dropna().equals(sparse.astype("float64"))
 
 
 def test_list_series_pilot_only() -> None:

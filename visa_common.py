@@ -55,15 +55,8 @@ MONTH_MAP = {
 
 # ---- link discovery -----------------------------------------------------
 def extract_datetime_from_link(link: str) -> None | datetime:
-    """Parse a bulletin filename into a datetime (day=1).
-
-    Accepts both naming variants the source has actually used:
-    'visa-bulletin-for-<month>-<year>.html' (canonical since ~2003) and
-    'visa-bulletin-<month>-<year>.html' (the 5 archive months recovered by hand:
-    2009-03/09/10/11 and 2012-10 — I1: the 'for-'-only regex silently ignored
-    those real, complete bulletins sitting in data/snapshots/ for months).
-    """
-    match = re.search(r"visa-bulletin(?:-for)?-(\w+)-(\d{4})\.html$", link)
+    """Parse 'visa-bulletin-for-<month>-<year>.html' into a datetime (day=1)."""
+    match = re.search(r"visa-bulletin-for-(\w+)-(\d{4})\.html$", link)
     if not match:
         return None
     month_str, year = match.groups()
@@ -128,37 +121,6 @@ def report_failures(failed: list[tuple[str, str]], logger) -> None:
         )
 
 
-def check_country_coverage(country: str, country_df: pd.DataFrame, all_months: set, logger) -> None:
-    """K2: per-(country, month) accounting the gates were blind to.
-
-    A renamed country header ('CHINA-mainland born' → something without the
-    substring) or a duplicated header makes extract_country_data skip that
-    column with a mute ``continue`` — the country vanishes from that month on
-    with every downstream gate green (they check the month-union, not who
-    carries it). Old bulletins legitimately lack some columns (China has no own
-    EB column before 2005-04), so historical gaps are a one-line WARNING; but
-    the NEWEST parsed month missing a country is a live parser regression and
-    aborts before writing.
-    """
-    got = set(pd.to_datetime(country_df["visa_bulletin_date"]).dropna())
-    missing = all_months - got
-    if not all_months:
-        return
-    newest = max(all_months)
-    if newest not in got:
-        raise SystemExit(
-            f"{country}: sin datos en el mes más reciente ({newest:%Y-%m}) — "
-            "¿cambió el header de país en la fuente? Se aborta sin escribir."
-        )
-    if missing:
-        logger.warning(
-            "%s: %d/%d meses sin columna propia (viejos formatos: esperado; vigilar si crece)",
-            country,
-            len(missing),
-            len(all_months),
-        )
-
-
 # ---- cell parsing / annotation -----------------------------------------
 def string_to_datetime(date_str: str, bulletin_date: datetime) -> None | datetime:
     """Convert a published cell to a date. 'C' -> bulletin date (legacy
@@ -172,7 +134,7 @@ def string_to_datetime(date_str: str, bulletin_date: datetime) -> None | datetim
     if pd.isna(date_str):
         return None
     s = str(date_str).strip()
-    su = s.upper().rstrip("*† ")  # J4: a footnoted 'C*'/'U*' is still Current/Unavailable
+    su = s.upper()
     if su == "C":
         return bulletin_date
     if su in ("U", ""):
@@ -217,30 +179,15 @@ def classify_status(date_str) -> str:
     s = str(date_str).strip().upper()
     if s == "":
         return "UNK"
-    # J4: the same footnote paranoia already applied to dates (_DATE_TOKEN) and
-    # category labels (rstrip in both classifiers) — status letters are the cells
-    # MOST likely to get an asterisk in a retrogression note, and 'C*' fell to UNK.
-    if s.rstrip("*† ") == "C":
+    if s == "C":
         return "C"
-    if s.rstrip("*† ") == "U":
+    if s == "U":
         return "U"
     try:
         datetime.strptime(str(date_str).strip(), DATE_FMT)
         return "F"
     except ValueError:
-        # J1: the token regex alone accepted impossible dates ("31JUN26", "00MAY16",
-        # "15XYZ05") as F while string_to_datetime returned None for them — one
-        # source typo then killed the whole cron via the panel's F-with-NaT
-        # fail-fast. Validate the token with strptime so both functions agree by
-        # construction: parseable footnoted date -> F, garbage -> UNK.
-        m = _DATE_TOKEN.search(s)
-        if not m:
-            return "UNK"
-        try:
-            datetime.strptime(m.group(), DATE_FMT)
-            return "F"  # footnoted date ("15JUL05*") still F
-        except ValueError:
-            return "UNK"
+        return "F" if _DATE_TOKEN.search(s) else "UNK"  # footnoted date ("15JUL05*") still F
 
 
 def norm_label(s) -> str:
@@ -251,54 +198,29 @@ def norm_label(s) -> str:
 
 
 # ---- table parsing (pure: soup -> dataframes; testable offline) ---------
-# J2: FAD/DFF used to be decided purely by table ORDINAL (1st match = FAD, 2nd =
-# DFF), so any extra <table> the source slips in before the real ones silently
-# shifted every label (FAD data published as DFF — corruption no gate catches).
-# Modern bulletins announce each table in the prose right before it; label by
-# that marker and keep the ordinal only as fallback for pre-2015 layouts.
-_TABLE_TYPE_MARKER = re.compile(r"(?i)final action|dates for filing")
-
-
-def parse_tables(soup: BeautifulSoup, year_month, section_matcher, label_by_marker: bool = True) -> list[pd.DataFrame]:
+def parse_tables(soup: BeautifulSoup, year_month, section_matcher) -> list[pd.DataFrame]:
     """Parse the preference tables a ``section_matcher(rows) -> bool`` selects.
 
     Decoupled from fetching so it can be unit-tested with saved HTML fixtures
-    (no network). Each matching table is tagged ``final_action`` or
-    ``dates_for_filing`` by the nearest preceding FAD/DFF heading (J2); when no
-    heading exists (pre-Oct-2015 layouts have a single unannounced FAD table)
-    the ordinal fallback applies. ``label_by_marker=False`` keeps the pure
-    ordinal labeling: the DV section's two tables are current-month ranks vs.
-    advance notification (not FAD/DFF), and the nearest preceding heading there
-    belongs to the FAMILY section, which would mislabel both. ``section_matcher``
-    is what makes this open to new sections (employment, family, …) without
-    editing the parser.
+    (no network). The first matching table is tagged ``final_action`` and the
+    second ``dates_for_filing`` (DFF tables exist only from Oct 2015 on; earlier
+    months have a single FAD table). ``section_matcher`` is what makes this
+    open to new sections (employment, family, …) without editing the parser.
     """
     dfs = []
-    seen_types: set[str] = set()
     table_count = 0
     for table in soup.find_all("table"):
         rows = table.find_all("tr")
         if not section_matcher(rows):
             continue
         table_count += 1
-        marker = table.find_previous(string=_TABLE_TYPE_MARKER) if label_by_marker else None
-        if marker is not None:
-            table_type = "dates_for_filing" if "filing" in str(marker).lower() else "final_action"
-        else:
-            table_type = "final_action" if table_count == 1 else "dates_for_filing"
-            if label_by_marker and table_count >= 2:
-                logger.warning(
-                    "tabla %d de %s sin heading FAD/DFF: se etiqueta por ordinal (%s)",
-                    table_count,
-                    year_month,
-                    table_type,
-                )
+        table_type = "final_action" if table_count == 1 else "dates_for_filing"
 
         table_data = []
         for row in rows:
-            # J7: document order — concatenating th_cols + td_cols distorted the
-            # column order if a row ever mixed <td> before <th> (country shift).
-            cols = [ele.text.strip() for ele in row.find_all(["th", "td"])]
+            th_cols = row.find_all("th")
+            td_cols = row.find_all("td")
+            cols = [ele.text.strip() for ele in th_cols + td_cols]
             table_data.append(cols)
 
         # A single-cell first row is a spanning header; drop it.
@@ -316,13 +238,7 @@ def parse_tables(soup: BeautifulSoup, year_month, section_matcher, label_by_mark
         df.columns = df.columns.str.lower()
         dfs.append(df)
 
-        # J2: stop once both table types hold DATA (a stray note-table — which
-        # parses to 0 rows — no longer evicts the real DFF, which the hard
-        # `>= 2` break used to do); the cap of 4 scanned matches guards against
-        # pathological layouts.
-        if not df.empty:
-            seen_types.add(table_type)
-        if seen_types == {"final_action", "dates_for_filing"} or table_count >= 4:
+        if table_count >= 2:
             break
     return dfs
 

@@ -1,6 +1,6 @@
 """Evalúa los pronósticos globales de neuralforecast con NUESTRAS métricas.
 
-Lee ``reports/eval/neuralforecast_forecasts.csv`` (producido en el venv aislado ``ante_nf``
+Lee ``reports/neuralforecast_forecasts.csv`` (producido en el venv aislado ``ante_nf``
 por ``run_neuralforecast.py``) y calcula MASE/sMAPE/MAE/RMSE sobre el hold-out para
 cada modelo global (PatchTST, iTransformer, NHITS...), de forma comparable al pool
 local. Cierra el puente entre los dos entornos: entrenamiento global en pandas<3,
@@ -17,7 +17,7 @@ import pandas as pd
 from vp_model.metrics import naive_scale_before
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
-CSV = REPORTS / "eval" / "neuralforecast_forecasts.csv"
+CSV = REPORTS / "neuralforecast_forecasts.csv"
 NON_MODEL = {"index", "unique_id", "ds", "cutoff", "y"}
 
 
@@ -70,7 +70,7 @@ def summary(df: pd.DataFrame) -> pd.DataFrame:
 def eval_global_deep(table: str = "FAD") -> pd.DataFrame:
     """Evalúa los CSV de ``run_global_deep`` (niveles y/o diff) con MASE por serie.
 
-    Lee ``reports/campaign/global_{table}_{levels,diff}.csv`` (unique_id=país/bloque/categoría,
+    Lee ``reports/global_{table}_{levels,diff}.csv`` (unique_id=país/bloque/categoría,
     ds, y real, columnas de modelo en NIVEL) y calcula MASE de hold-out por serie con la
     MISMA escala naïve estacional que el pool local, para comparar de forma justa contra
     ETS/Theta. Devuelve un DataFrame largo (variante, modelo, bloque, serie, MASE, sMAPE).
@@ -78,7 +78,7 @@ def eval_global_deep(table: str = "FAD") -> pd.DataFrame:
     from vp_model import dataset
 
     rows = []
-    for path in sorted((REPORTS / "campaign").glob(f"global_{table}_*.csv")):
+    for path in sorted(REPORTS.glob(f"global_{table}_*.csv")):
         variant = path.stem.replace(f"global_{table}_", "")
         df = pd.read_csv(path, parse_dates=["ds"])
         models = [c for c in df.columns if c not in ("unique_id", "ds", "y")]

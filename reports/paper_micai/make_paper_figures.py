@@ -4,8 +4,8 @@ Salida: reports/paper_micai/Figures/*.pdf (vectorial, 300 dpi, estilo LNCS B/N-s
 estilos de línea + marcadores distintos, no solo color, para que impriman en gris).
 
 Fuentes:
-  • reports/prospective/forecast_scorecard_meta.json  — evaluación prospectiva por horizonte/tabla
-  • reports/prospective/web_forecasts.csv             — pronósticos congelados (fan-chart)
+  • reports/forecast_scorecard_meta.json  — evaluación prospectiva por horizonte/tabla
+  • reports/web_forecasts.csv             — pronósticos congelados (fan-chart)
   • data/processed/visa_panel_long.csv    — histórico real (fan-chart)
 
 Uso (desde la raíz):  ante/bin/python reports/paper_micai/make_paper_figures.py   (o `make paper-figures`)
@@ -95,7 +95,7 @@ def fig_calibration(meta: dict) -> None:
 def fig_fanchart(country: str = "mexico", category: str = "F2A", table: str = "FAD") -> None:
     """Fan-chart de una serie piloto: histórico real + pronóstico congelado + bandas 80/95."""
     panel = pd.read_csv(ROOT / "data" / "processed" / "visa_panel_long.csv")
-    fc = pd.read_csv(REPORTS / "prospective" / "web_forecasts.csv")
+    fc = pd.read_csv(REPORTS / "web_forecasts.csv")
     s = panel[
         (panel.country == country) & (panel.category == category) & (panel.table == table) & (panel.status == "F")
     ].copy()
@@ -123,7 +123,7 @@ def fig_fanchart(country: str = "mexico", category: str = "F2A", table: str = "F
 
 
 def main() -> None:
-    meta = json.loads((REPORTS / "prospective" / "forecast_scorecard_meta.json").read_text())
+    meta = json.loads((REPORTS / "forecast_scorecard_meta.json").read_text())
     print(f"figuras -> {FIGS}")
     fig_prospective_horizon(meta)
     fig_calibration(meta)

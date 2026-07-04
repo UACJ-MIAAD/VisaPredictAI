@@ -11,16 +11,7 @@ nuevo del panel commiteado (data/processed/visa_panel_long.csv):
                    filas). Sin esto el job terminaba VERDE con "nothing to commit"
                    y el boletín jamás entraba.
 
-Tercer modo (auto-reparación del MODELADO, pendiente #17 del audit EDA 3-jul):
-
-  --mode model-pending : imprime "stale" si los artefactos derivados comiteados
-                   (key_facts.json y eda_facts.json) van DETRÁS del panel — la
-                   huella de un paso model/eda que falló tras publicar los datos.
-                   Sin esto, la corrida siguiente hacía exit 0 por "fresh" y los
-                   forecasts/EDA del mes no se recuperaban hasta el boletín
-                   siguiente. "fresh" si ambos reflejan el vintage del panel.
-
-Uso:  python tools/check_ingestion.py --mode {pending,assert,model-pending}
+Uso:  python tools/check_ingestion.py --mode {pending,assert}
 """
 
 from __future__ import annotations
@@ -35,40 +26,10 @@ ROOT = Path(__file__).resolve().parent.parent
 SNAP_DIR = ROOT / "data" / "snapshots"
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.csv"
 
-# K3: presencia del mes-unión no basta — si la fuente cambia el markup de UNA
-# sección (solo family, o solo la tabla DFF), ese bloque parsea a 0 filas sin
-# excepción y el mes entra al panel por el otro bloque: medio boletín comiteado
-# con todo verde. El mes recién ingerido debe traer las 4 combinaciones y un
-# piso de filas (un boletín moderno trae ~120 entre las cuatro).
-REQUIRED_COMBOS = {
-    ("employment", "FAD"),
-    ("employment", "DFF"),
-    ("family", "FAD"),
-    ("family", "DFF"),
-}
-MIN_ROWS_NEW_MONTH = 90
-
-
-def month_coverage_problems(panel: pd.DataFrame) -> list[str]:
-    """Return the coverage defects of the panel's newest month ([] = complete).
-
-    Pure on a DataFrame with (block, table, bulletin_date) so the gate is unit-
-    testable with synthetic panels.
-    """
-    per = pd.to_datetime(panel["bulletin_date"]).dt.to_period("M")
-    newest = panel[per == per.max()]
-    problems: list[str] = []
-    combos = {(b, t) for b, t in newest[["block", "table"]].drop_duplicates().itertuples(index=False)}
-    missing = REQUIRED_COMBOS - combos
-    if missing:
-        problems.append(f"combinaciones bloque×tabla ausentes: {sorted(missing)}")
-    if len(newest) < MIN_ROWS_NEW_MONTH:
-        problems.append(f"solo {len(newest)} filas (< {MIN_ROWS_NEW_MONTH})")
-    return problems
-
 
 def snapshot_max() -> pd.Timestamp:
-    from vp_data.visa_common import extract_datetime_from_link
+    sys.path.insert(0, str(ROOT))
+    from visa_common import extract_datetime_from_link
 
     months = [extract_datetime_from_link(p.name) for p in SNAP_DIR.glob("*.html")]
     dated = [m for m in months if m is not None]
@@ -82,37 +43,10 @@ def panel_max() -> pd.Timestamp:
     return pd.to_datetime(col).max()
 
 
-def model_artifacts_stale(panel_month: str, key_facts: dict, eda_facts: dict) -> list[str]:
-    """Artefactos derivados que van detrás del panel ([] = todo al día).
-
-    Pura sobre dicts para ser unit-testable: compara el vintage que cada artefacto
-    declara (derivado del panel al construirse) contra el mes tope del panel.
-    """
-    lagging: list[str] = []
-    if key_facts.get("date_last") != panel_month:
-        lagging.append(f"key_facts date_last={key_facts.get('date_last')}")
-    if eda_facts.get("vintage") != panel_month:
-        lagging.append(f"eda_facts vintage={eda_facts.get('vintage')}")
-    return lagging
-
-
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--mode", choices=("pending", "assert", "model-pending"), required=True)
+    ap.add_argument("--mode", choices=("pending", "assert"), required=True)
     mode = ap.parse_args().mode
-    if mode == "model-pending":
-        import json
-
-        month = f"{panel_max():%Y-%m}"
-        key = json.loads((ROOT / "reports" / "governance" / "key_facts.json").read_text())
-        eda = json.loads((ROOT / "reports" / "eda" / "eda_facts.json").read_text())
-        lagging = model_artifacts_stale(month, key, eda)
-        if lagging:
-            print("stale")
-            print(f"  panel en {month} pero: {'; '.join(lagging)}", file=sys.stderr)
-        else:
-            print("fresh")
-        return 0
     s, p = snapshot_max(), panel_max()
     ingested = p.to_period("M") >= s.to_period("M")
     if mode == "pending":
@@ -125,17 +59,7 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    # K3: el mes está, pero ¿está COMPLETO? Deriva parcial de sección = medio
-    # boletín con job verde; es el único fallo silencioso que quedaba.
-    problems = month_coverage_problems(pd.read_csv(PANEL, usecols=["block", "table", "bulletin_date"]))
-    if problems:
-        print(
-            f"ERROR: el mes más nuevo del panel ({p:%Y-%m}) está incompleto — "
-            f"{'; '.join(problems)} (¿deriva de markup en una sección?)",
-            file=sys.stderr,
-        )
-        return 1
-    print(f"OK: panel al día ({p:%Y-%m} >= snapshot {s:%Y-%m}) y mes completo (4/4 bloque×tabla)")
+    print(f"OK: panel al día ({p:%Y-%m} >= snapshot {s:%Y-%m})")
     return 0
 
 

@@ -21,7 +21,7 @@ def test_check_returns_wellformed_report(tmp_path) -> None:
     assert isinstance(r["drift_detected"], bool)
     assert "performance" in r and "data" in r
     # el reporte se escribe en disco (en el tmp del test)
-    assert (tmp_path / "governance" / "drift_report.json").exists()
+    assert (tmp_path / "drift_report.json").exists()
 
 
 def test_data_drift_flags_have_schema() -> None:

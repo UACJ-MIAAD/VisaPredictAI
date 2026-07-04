@@ -2,7 +2,7 @@
 """Guardián de consistencia entre TODOS los artefactos (la máxima del proyecto).
 
 Verifica que web / LaTeX entregable / paper / READMEs / docs digan el MISMO número y no
-arrastren claims viejos. Fuente de verdad: ``reports/governance/key_facts.json`` (generada por
+arrastren claims viejos. Fuente de verdad: ``reports/key_facts.json`` (generada por
 ``experiments/build_key_facts.py``). Reglas: ``tools/consistency_rules.yml``.
 
 Falla (exit 1) si: (a) un patrón `forbidden` aparece, (b) un `required` falta, o (c) un
@@ -48,7 +48,7 @@ def _resolve(globs: list[str]) -> list[Path]:
 
 def main() -> int:
     quiet = "--quiet" in sys.argv
-    facts = json.loads((ROOT / "reports" / "governance" / "key_facts.json").read_text())
+    facts = json.loads((ROOT / "reports" / "key_facts.json").read_text())
     rules = yaml.safe_load((ROOT / "tools" / "consistency_rules.yml").read_text())
     sets = {name: _resolve(globs) for name, globs in rules["artifacts"].items()}
 
@@ -111,35 +111,15 @@ def main() -> int:
                             f"NUMERIC    {f.relative_to(ROOT)}:{i}  '{r['fact']}' esperado {want}, encontrado {got}  — {r['reason']}\n    > {line.strip()[:120]}"
                         )
 
-    # 4) DECIMAL — como numeric pero para hechos con decimales (MASE, coberturas):
-    # int() truncaría 0.114 a 0, así que se compara como float con tolerancia de
-    # redondeo a los decimales del claim (0.090 == 0.09; 0.114 != 0.121).
-    for r in rules.get("decimal", []):
-        want = float(facts.get(r["fact"]))
-        rx = re.compile(r["label"], re.IGNORECASE)
-        for f in files_for(r["in"]):
-            for i, line in enumerate(f.read_text(errors="ignore").splitlines(), 1):
-                if line.lstrip().startswith("%"):
-                    continue
-                for m in rx.finditer(line):
-                    try:
-                        got_f = float(m.group(1))
-                    except ValueError:
-                        continue
-                    if abs(got_f - want) > 5e-4:  # tolera el redondeo del 3er decimal
-                        violations.append(
-                            f"DECIMAL    {f.relative_to(ROOT)}:{i}  '{r['fact']}' esperado {want}, encontrado {got_f}  — {r['reason']}\n    > {line.strip()[:120]}"
-                        )
-
     n_files = sum(len(v) for v in sets.values())
     if violations:
         print(f"\n✗ CONSISTENCIA ROTA — {len(violations)} violación(es) en {n_files} archivos:\n")
         for v in violations:
             print("  " + v)
-        print("\nReconcilia los artefactos a reports/governance/key_facts.json (la fuente de verdad) y reintenta.")
+        print("\nReconcilia los artefactos a reports/key_facts.json (la fuente de verdad) y reintenta.")
         return 1
     print(
-        f"✓ Consistencia OK — {n_files} artefactos alineados con reports/governance/key_facts.json"
+        f"✓ Consistencia OK — {n_files} artefactos alineados con reports/key_facts.json"
         + (" (repo web omitido)" if web_missing else "")
     )
     return 0

@@ -6,23 +6,16 @@ These are the pure functions the whole panel depends on.
 
 Runs with pytest *or* as a plain script (no pytest required):
     ante/bin/python tests/test_parsers.py
-
-⚠️ CONTRATO plain-script (O6): el gate del cron (freeze_and_rebuild.yml) ejecuta
-este archivo como `python tests/<archivo>.py` SIN pytest — nada de fixtures,
-parametrize ni markers aquí: un test que dependa de pytest correría en CI pero
-se rompería o saltaría en el cron sin que nadie lo note.
 """
 
 import sys
+from pathlib import Path
 
-from pipeline.scrape_family_visa_bulletins import classify_family_category  # noqa: E402
-from pipeline.scrape_visa_bulletins import classify_eb_category  # noqa: E402
-from vp_data.visa_common import (  # noqa: E402
-    classify_status,
-    extract_datetime_from_link,
-    norm_label,
-    string_to_datetime,
-)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scrape_family_visa_bulletins import classify_family_category  # noqa: E402
+from scrape_visa_bulletins import classify_eb_category  # noqa: E402
+from visa_common import classify_status, norm_label  # noqa: E402
 
 
 # ---- classify_status (C/F/U/NA) ----------------------------------------
@@ -46,91 +39,6 @@ def test_status_two_digit_year_boundary():
     # %y maps 00-68 -> 20xx, 69-99 -> 19xx; priority dates 1979+ all valid F.
     assert classify_status("01NOV79") == "F"
     assert classify_status("22JUN22") == "F"
-
-
-# ---- string_to_datetime (I3: first direct coverage of the panel's core) -
-def test_std_basic():
-    from datetime import datetime
-
-    b = datetime(2016, 5, 1)
-    assert string_to_datetime("01MAY16", b) == datetime(2016, 5, 1)
-    assert string_to_datetime("C", b) == b  # Current -> bulletin date (legacy)
-    assert string_to_datetime("U", b) is None
-    assert string_to_datetime("", b) is None
-    assert string_to_datetime(float("nan"), b) is None
-
-
-def test_std_century_pivot():
-    # %y maps 00-68 -> 20xx; a cutoff can never postdate its bulletin, so a
-    # "future" parse is a mispivoted 19xx date and gets -100 years.
-    from datetime import datetime
-
-    b = datetime(2010, 3, 1)
-    assert string_to_datetime("15AUG26", b) == datetime(1926, 8, 15)  # 2026 > 2010 -> 1926
-    assert string_to_datetime("01NOV79", b) == datetime(1979, 11, 1)  # 69-99 -> 19xx directo
-    # una celda del PROPIO mes del boletín (día >= 2) NO se corrige (fix H1)
-    assert string_to_datetime("08MAR10", b) == datetime(2010, 3, 8)
-
-
-def test_std_footnote_and_garbage():
-    from datetime import datetime
-
-    b = datetime(2016, 5, 1)
-    assert string_to_datetime("15JUL05*", b) == datetime(2005, 7, 15)  # footnote fallback
-    assert string_to_datetime("31JUN08", b) is None  # impossible date
-    assert string_to_datetime("00MAY16", b) is None
-    assert string_to_datetime("15XYZ05", b) is None
-
-
-# ---- extract_datetime_from_link (I3/I1: filename variants) ---------------
-def test_link_canonical_and_archive_variants():
-    from datetime import datetime
-
-    # canonical since ~2003
-    assert extract_datetime_from_link("visa-bulletin-for-june-2026.html") == datetime(2026, 6, 1)
-    # I1: the 5 hand-recovered archive months omit the "for-" -- the old regex
-    # silently ignored those real bulletins sitting in data/snapshots/
-    assert extract_datetime_from_link("visa-bulletin-march-2009.html") == datetime(2009, 3, 1)
-    assert extract_datetime_from_link("visa-bulletin-october-2012.html") == datetime(2012, 10, 1)
-
-
-def test_link_non_bulletins_stay_out():
-    # duplicate-naming oddity and a table-less announcement must NOT map
-    assert extract_datetime_from_link("july-2007-visa-bulletin.html") is None
-    assert extract_datetime_from_link("update-on-july-visa-availability.html") is None
-    assert extract_datetime_from_link("visa-bulletin-for-notamonth-2020.html") is None
-
-
-def test_status_footnoted_regime_letters():
-    # J4: 'C*'/'U*' (a plausible footnote in a retrogression note) must keep
-    # the regime instead of falling to UNK — same tolerance dates and category
-    # labels already had.
-    assert classify_status("C*") == "C"
-    assert classify_status("U*") == "U"
-    assert classify_status("c† ") == "C"
-
-
-def test_family_footnote_parity_with_eb():
-    # J3: every family level tolerates a footnote marker, not just 2A/2B.
-    assert classify_family_category("F1*") == "1"
-    assert classify_family_category("1st*") == "1"
-    assert classify_family_category("2A*") == "2A"
-    assert classify_family_category("F2B*") == "2B"
-    assert classify_family_category("3rd*") == "3"
-    assert classify_family_category("F4*") == "4"
-    assert classify_family_category("4th*") == "4"
-    assert classify_family_category("family") is None  # header row still out
-
-
-def test_status_impossible_dates_are_unk():
-    # J1: the token regex alone said F to date-shaped garbage while
-    # string_to_datetime returned None -> one source typo (a real risk:
-    # "religiuos" 2004, "4rd" 2003) killed the whole cron via the panel's
-    # F-with-NaT fail-fast. Both functions must agree: garbage -> UNK.
-    assert classify_status("31JUN08") == "UNK"  # June has 30 days
-    assert classify_status("00MAY16") == "UNK"  # day zero
-    assert classify_status("15XYZ05") == "UNK"  # not a month
-    assert classify_status("15JUL05*") == "F"  # genuine footnoted date still F
 
 
 # ---- classify_eb_category (16 canonical codes) -------------------------

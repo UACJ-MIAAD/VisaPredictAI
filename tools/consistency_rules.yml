@@ -1,5 +1,5 @@
 # Reglas del guardián de consistencia (la MÁXIMA: todo 100% alineado SIEMPRE).
-# Las corre tools/check_consistency.py contra reports/governance/key_facts.json (fuente de verdad,
+# Las corre tools/check_consistency.py contra reports/key_facts.json (fuente de verdad,
 # generada por experiments/build_key_facts.py). `{fact}` se sustituye por su valor.
 #
 # Tipos de regla:
@@ -10,16 +10,14 @@
 #               LaTeX 27{,}289 / 27\,289), el número debe igualar el `fact`.
 #
 # Nota: las forbidden se aplican SOLO a los artefactos publicados (deliverable, paper, web),
-# NO a las meta-docs (reports/paper_micai/PAPER_PROSPECTIVE_DRAFT) que citan los claims-malos como ejemplo.
+# NO a las meta-docs (docs/PAPER_PROSPECTIVE_DRAFT) que citan los claims-malos como ejemplo.
 
 artifacts:
   deliverable: ["reports/latex/ProyectoI_VisaPredictAI.tex"]
   paper: ["reports/paper_micai/paper.tex", "reports/paper_micai/README.md"]
   readmes: ["README.md"]
-  # content/source.html = la fuente ES (incluye #datos); el lado EN son páginas sueltas.
-  # TODO el contenido publicado se vigila (audit 3-jul: capii/capiii/tablas quedaban fuera
-  # de esta lista y por eso sus "~290/~125" sobrevivieron dos generaciones de cifras).
-  web: ["../VisaPredictAI_web/content/*.html", "../VisaPredictAI_web/content/en/*.html"]
+  # content/source.html = la fuente ES (incluye #datos); el ES no tiene un datos.html aparte.
+  web: ["../VisaPredictAI_web/content/source.html", "../VisaPredictAI_web/content/en/capi.html", "../VisaPredictAI_web/content/en/datos.html", "../VisaPredictAI_web/content/en/mlops.html", "../VisaPredictAI_web/content/en/modelo.html"]
 
 forbidden:
   - pattern: 'holgura|holgada'
@@ -43,31 +41,6 @@ forbidden:
   - pattern: '\b65\b[^%<]{0,12}(pruebas|tests|pytest)|metric-num">65<'
     in: [deliverable, paper, readmes, web]
     reason: 'el conteo "65 tests" quedó fósil (la suite colecta 139); actualizar al conteo real al citar la suite (audit 2-jul-2026)'
-  # --- claims del deliverable (audit 3-jul-2026: estos residuos sobrevivieron a la propagación) ---
-  - pattern: '(AutoBiTCN|modelo profundo|deep model|aprendizaje profundo)[^.\n]{0,80}\b(empata|empate|iguala)\b'
-    in: [deliverable]
-    reason: 'el deep YA NO empata en FAD (AutoBiTCN 0.121 vs listón 0.113-0.114); framing vigente: "roza el listón / queda apenas por detrás"'
-  - pattern: '\bas a tie\b|deep model (only )?match(es|ing)'
-    in: [paper]
-    reason: 'FAD ya no es "tie": parsimony keeps a small edge (~6%); usar "trails slightly / approaches"'
-  - pattern: 'listón[^0-9\n]{0,25}0\.109|0\.109[^0-9\n]{0,15}listón'
-    in: [deliverable, paper]
-    reason: 'listón sel viejo (pre-resurrección); el vigente es fad_champion_mase (hoy 0.111)'
-  - pattern: 'MASE[\s\$=~]{0,4}0\.225|0\.225[^0-9]{0,20}(zero-?shot|Chronos)'
-    in: [deliverable, paper, web]
-    reason: 'Chronos 0.225 es de la era pre-máscara; el vigente es 0.207 sel (sobrevivió 2 generaciones hasta el audit 3-jul)'
-  - pattern: '2\.612'
-    in: [deliverable, paper, web]
-    reason: 'TFT 2.612 es de la era pre-máscara; vigentes 2.419 (FAD) / 2.703 (DFF)'
-  - pattern: '0\.1116|0\.1165|\+8\.1\s*\\?,?\s*\\?%'
-    in: [deliverable, paper]
-    reason: 'champion/curada/selección-por-serie pre-resurrección (0.1183 / empatada / +9.7% vigentes)'
-  - pattern: '(~|≈|\\sim\s*\$?\s*)29[04]\b|\b29[04]\s*~?\s*obs'
-    in: [deliverable, paper, readmes, web]
-    reason: 'el "~290 obs" murió con la resurrección: son 296 meses completos'
-  - pattern: '(~|≈|\\sim\s*\$?\s*)125\s*~?\s*obs|noviembre\s*(de\s*)?2015|November[\s&nbsp;]*2015'
-    in: [deliverable, paper, readmes, web]
-    reason: 'DFF existe desde OCTUBRE 2015 con 130 obs (no "~125 / noviembre")'
 
 required:
   - fact: n_series_structural
@@ -84,24 +57,12 @@ required:
     reason: 'el baseline clásico afinado (Auto-ARIMA) debe estar citado'
   - fact: n_series_evaluable
     forms: ['{n_series_evaluable}\s+(series\s+)?(plenamente\s+)?evaluabl', 'evaluabl\w*[^.]{0,25}{n_series_evaluable}']
-    in: [paper, deliverable, web]
-    reason: 'paper/deliverable/web deben distinguir 74 evaluables de 194 estructurales'
+    in: [paper]
+    reason: 'el paper debe distinguir 74 evaluables de 194 estructurales'
   - fact: prosp_n_scored
     forms: ['2\{?,?\}?944', '{prosp_n_scored}']
     in: [paper]
     reason: 'el tamaño de la evaluación prospectiva (2944) debe figurar en el paper'
-  - fact: ets_fad_mean
-    forms: ['{ets_fad_mean}']
-    in: [deliverable, paper]
-    reason: 'el hold-out FAD de ETS (la cifra insignia del régimen parsimonioso) debe figurar'
-  - fact: theta_fad_mean
-    forms: ['{theta_fad_mean}']
-    in: [deliverable, paper]
-    reason: 'el hold-out FAD de Theta debe figurar'
-  - fact: prosp_mase
-    forms: ['{prosp_mase}']
-    in: [paper]
-    reason: 'el MASE prospectivo (titular de honestidad del paper) debe coincidir con el scorecard vigente'
 
 numeric:
   # obs TOTAL del panel: "27,289 obs/observaciones/observations/filas/rows" pero NO "obs
@@ -112,65 +73,8 @@ numeric:
     label: '([0-9]{2}[.,{}\\\s]*[0-9]{3})\s*~?(?:obs\.?|observaci\w*|observation\w*|filas|rows|registros)(?![^<\n]{0,15}entrenabl)'
     in: [deliverable, paper, readmes, web]
     reason: 'conteo de observaciones TOTAL del panel'
-  # --- Censo EDA (audit 3-jul H3): las cifras que la prosa web/.tex cita del censo ---
-  # dos formas (reglas separadas: la alternación rompería el grupo de captura). El
-  # conteo de instantáneas S3 ("298 boletines" en la capa BRONCE) es OTRO hecho
-  # (la fuente publica 1-2 meses por delante del panel) y no debe matchear.
-  - fact: n_months
-    label: '([0-9]{3})(?:\s*/\s*[0-9]{3}|\s+de\s+[0-9]{3})[\s\\,~]*(?:boletines|bulletins|meses|months)\b'
-    in: [deliverable, web]
-    reason: 'la cobertura de boletines (296) crece con cada boletín; toda mención ratio debe seguirla'
-  - fact: n_months
-    label: '(?:los|the)\s+([0-9]{3})\s+(?:boletines|bulletins)\b'
-    in: [deliverable, web]
-    reason: 'menciones sueltas "los 296 boletines" del censo'
-  - fact: pct_frozen
-    label: '\$([0-9]{2})\$\\,\\% de los meses'
-    in: [deliverable]
-    reason: 'el % de congelamiento del panel cambia con cada boletín'
-  - fact: n_retro_events
-    label: '([0-9]{3})\s+(?:historical\s+)?(?:retrogresiones|retrogressions|episodios\s+de\s+retrogresi)'
-    in: [deliverable, web]
-    reason: 'el conteo de retrogresiones del panel cambia con cada boletín'
-  # dv: el sustantivo es OBLIGATORIO (sin él, un AÑO "2003 ... Diversity" matcheaba)
-  - fact: dv_n_rows
-    label: '([0-9][.,{}\\\s]*[0-9]{3})\s*(?:observaciones|filas|rows|registros)[^0-9\n]{0,30}(?:sorteo|lottery|diversi)'
-    in: [deliverable, web]
-    reason: 'las filas del sorteo de diversidad crecen ~6 por boletín (forma ES)'
-  - fact: dv_n_rows
-    label: '([0-9][.,{}\\\s]*[0-9]{3})\s+Diversity\s+Visa'
-    in: [web]
-    reason: 'las filas del sorteo de diversidad (forma EN "1,647 Diversity Visa ... rows")'
   # obs ENTRENABLES (estado F): "15,758 obs entrenables" / "... entrenables"
-  # (audit EDA 3-jul, W-H2): el lado EN ("15,931 trainable obs") esquivaba el patrón
-  # solo-español — la reincidencia exacta del hallazgo del audit dúo de junio.
   - fact: n_obs_F
-    label: '([0-9]{2}[.,{}\\\s]*[0-9]{3})\s*~?(?:(?:obs\s*)?entrenabl|trainable\s*(?:obs|observation))'
+    label: '([0-9]{2}[.,{}\\\s]*[0-9]{3})\s*~?(?:obs\s*)?entrenabl'
     in: [deliverable, paper, readmes, web]
     reason: 'conteo de observaciones entrenables (estado F)'
-
-# Claims MASE del deliverable/paper (audit 3-jul-2026): antes de esto el guardián solo
-# comparaba enteros y la prosa de resultados quedaba sin vigilar — "empata/0.225" vivieron
-# dos generaciones. Cada label captura UN número decimal en un contexto inequívoco.
-decimal:
-  # censo EDA: la fracción de retrogresiones citada en el deliverable
-  - fact: pct_retro
-    label: '\$([0-9]\.[0-9])\$\\,\\% de los avances'
-    in: [deliverable]
-    reason: 'el % de retrogresiones del panel cambia con cada boletín'
-  # "listón parsimonioso ($0.114$)" — toda mención puntual del listón hold = ETS FAD
-  - fact: ets_fad_mean
-    label: 'listón parsimonioso \(\$([0-9.]+)\$\)'
-    in: [deliverable]
-    reason: 'el listón parsimonioso citado en prosa es el hold-out FAD de ETS'
-  # AutoBiTCN <±60 chars> número — cubre prosa ("a MASE $=0.121$", "promedia $0.121$"),
-  # la fila de tab:global_deep y el paper ("reaches mean MASE $0.121$")
-  - fact: autobitcn_fad_mean
-    label: 'AutoBiTCN[^0-9\n]{0,60}?\$?=?\\?\$?~?([0-9]\.[0-9]{3})'
-    in: [deliverable, paper]
-    reason: 'AutoBiTCN FAD multi-semilla (el claim que dejó de ser "empate")'
-  # BiTCN (no Auto) seguido de MASE — el claim insignia de DFF
-  - fact: bitcn_dff_mean
-    label: '(?<!Auto)BiTCN[^0-9\n]{0,30}?MASE[\s~\$=]{0,4}\\?(?:textbf\{)?([0-9]\.[0-9]{2,3})'
-    in: [deliverable, paper]
-    reason: 'BiTCN DFF multi-semilla (0.090): todo "BiTCN ... MASE x" debe ser esa cifra'

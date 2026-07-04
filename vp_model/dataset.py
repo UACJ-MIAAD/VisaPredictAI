@@ -15,16 +15,7 @@ import pandas as pd
 
 from vp_model.config import PILOT_COUNTRIES, TABLES
 
-# M6: single source of truth for the artifact paths — hand-rederiving them here
-# meant a PROCESSED_DIR move sent the modeling layer to a different file. The
-# fallback keeps the module importable if the repo-root config isn't on sys.path
-# (e.g. vp_model consumed as an installed package outside the repo).
-try:
-    from vp_data.config import DUCKDB_PATH as DB_PATH
-    from vp_data.config import PANEL_PATH as PANEL_CSV
-except ImportError:  # pragma: no cover
-    DB_PATH = Path(__file__).resolve().parent.parent / "data" / "processed" / "visapredict.duckdb"
-    PANEL_CSV = Path(__file__).resolve().parent.parent / "data" / "processed" / "visa_panel_long.csv"
+DB_PATH = Path(__file__).resolve().parent.parent / "data" / "processed" / "visapredict.duckdb"
 
 
 def _connect(db_path: str | Path | None = None) -> duckdb.DuckDBPyConnection:
@@ -32,67 +23,7 @@ def _connect(db_path: str | Path | None = None) -> duckdb.DuckDBPyConnection:
     if not path.exists():
         raise FileNotFoundError(f"Almacén no encontrado en {path}. Corre `make db` para regenerarlo.")
     # ponytail: read-only — el modelado nunca escribe en el almacén (regla un-solo-escritor).
-    con = duckdb.connect(str(path), read_only=True)
-    # M2: etl_run se escribe al FINAL del build — es un centinela de completitud
-    # gratis que nadie consultaba: un build interrumpido dejaba un almacén parcial
-    # que abre sin queja y un catálogo vacío que el modelado itera "con éxito".
-    row = con.execute("SELECT count(*) FROM etl_run").fetchone()
-    if not row or row[0] != 1:
-        con.close()
-        raise RuntimeError(f"Almacén incompleto en {path} (etl_run vacío — build interrumpido). Corre `make db`.")
-    # M2: frescura DB↔CSV — un `git pull` que trae el boletín nuevo sin `make db`
-    # producía cifras del mes anterior sin ninguna señal. La gobernanza por fin se lee.
-    if (db_path is None or Path(db_path) == DB_PATH) and PANEL_CSV.exists():
-        row = con.execute("SELECT n_fact_priority, panel_ceiling FROM etl_run").fetchone()
-        assert row is not None
-        n_db, ceiling_db = int(row[0]), pd.Timestamp(row[1])
-        col = pd.to_datetime(pd.read_csv(PANEL_CSV, usecols=["bulletin_date"])["bulletin_date"])
-        if n_db != len(col) or ceiling_db != col.max():
-            con.close()
-            raise RuntimeError(
-                f"Almacén DESFASADO del panel CSV: DB {n_db} filas/tope {ceiling_db:%Y-%m} vs "
-                f"CSV {len(col)} filas/tope {col.max():%Y-%m}. Corre `make db` antes de modelar."
-            )
-    return con
-
-
-def is_evaluable(n_trainable: int, span_months: int, table: str) -> bool:
-    """N1: LA definición única de serie "plenamente evaluable".
-
-    Antes convivían tres criterios divergentes: el claim publicado (≥84 obs F,
-    ``build_key_facts``), ``MIN_TRAINABLE_EVALUABLE`` (solo ``eda.py``) y el gate
-    real del walk-forward (span de calendario densificado ≥ MIN_TRAIN[tabla] +
-    HOLDOUT + colchón, ``walkforward.py``). Una serie podía contar en el "74
-    evaluables" y reventar en el walk-forward, o modelarse sin ser "evaluable".
-    Verificado sobre el panel vivo: las 74 series ≥84 F TAMBIÉN pasan el criterio
-    de span, así que la definición conjunta preserva el cohort publicado.
-    """
-    from vp_model.config import HOLDOUT, MIN_BACKTEST_BUFFER, MIN_TRAIN
-
-    return (
-        n_trainable >= MIN_TRAIN["FAD"] + HOLDOUT  # riqueza de datos (criterio publicado: 84 F)
-        and span_months >= MIN_TRAIN[table] + HOLDOUT + MIN_BACKTEST_BUFFER  # factibilidad walk-forward
-    )
-
-
-def evaluable_series(db_path: str | Path | None = None) -> pd.DataFrame:
-    """Catálogo de series evaluables según :func:`is_evaluable`, desde el mart.
-
-    El span se mide sobre las observaciones F (``mart_training_F``), que es la
-    serie que el walk-forward densifica — ``mart_series_summary`` abarca todos
-    los regímenes y sobreestimaría la factibilidad.
-    """
-    con = _connect(db_path)
-    try:
-        df = con.execute(
-            'SELECT country, block, category, "table", count(*) AS n_trainable, '
-            "datediff('month', min(bulletin_date), max(bulletin_date)) + 1 AS span_months "
-            'FROM mart_training_F GROUP BY country, block, category, "table"'
-        ).fetchdf()
-    finally:
-        con.close()
-    mask = [is_evaluable(int(r.n_trainable), int(r.span_months), r.table) for r in df.itertuples()]
-    return df[pd.Series(mask, index=df.index)].reset_index(drop=True)
+    return duckdb.connect(str(path), read_only=True)
 
 
 def actuals_F(db_path: str | Path | None = None) -> dict[tuple[str, str, str, str], float]:

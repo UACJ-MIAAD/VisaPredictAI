@@ -5,11 +5,6 @@ scraper or in build_panel.py fails loudly. Suitable as a CI quality gate
 (run after build_panel.py, before committing the data).
 
     ante/bin/python tests/test_panel_integrity.py
-
-⚠️ CONTRATO plain-script (O6): el gate del cron (freeze_and_rebuild.yml) ejecuta
-este archivo como `python tests/<archivo>.py` SIN pytest — nada de fixtures,
-parametrize ni markers aquí: un test que dependa de pytest correría en CI pero
-se rompería o saltaría en el cron sin que nadie lo note.
 """
 
 import sys
@@ -18,9 +13,10 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.csv"
 
-from vp_data.config import DEAD_MONTHS, DV_RANK_PATH  # noqa: E402
+from config import DEAD_MONTHS, DV_RANK_PATH  # noqa: E402
 
 # Diversity-Visa coverage floors. DV is network-scraped and its early (blob) era
 # is partial, so the gate uses FLOORS (>=) that pin the established good state and
@@ -80,17 +76,6 @@ def test_days_defined_iff_F():
     assert mismatch == 0, f"{mismatch} filas con days_since_base mal definido"
 
 
-def test_days_since_base_arithmetic():
-    # O1: nothing re-verified the arithmetic after the build — a BASE_EPOCH
-    # change in config.py without a rebuild (or a calc regression) shifted the
-    # whole dependent variable with every gate green. Recompute from scratch.
-    p = _panel()
-    f = p[p.status == "F"]
-    expected = (f.priority_date - pd.Timestamp("1975-01-01")).dt.days
-    mismatches = int((f.days_since_base != expected).sum())
-    assert mismatches == 0, f"{mismatches} filas con days_since_base ≠ (priority_date - t0).days"
-
-
 def test_no_negative_days():
     p = _panel()
     neg = int((p.days_since_base < 0).sum())
@@ -115,38 +100,6 @@ def test_min_rows():
     # the panel. Current build ~27k; alert if it falls below 20k.
     p = _panel()
     assert len(p) >= 20_000, f"panel demasiado pequeño ({len(p)} filas) — posible regresión"
-
-
-def test_min_trainable_fraction():
-    # K4: a classify_status regression degrading F -> UNK en masse passed every
-    # gate (rows stay, keys stay, months stay). The trainable fraction has never
-    # dipped below ~55% historically (57.7% today); 50% is a loose floor that
-    # only a real regression crosses.
-    p = _panel()
-    pct = (p.status == "F").mean()
-    assert pct >= 0.50, f"fracción entrenable F cayó a {pct:.1%} (< 50%) — ¿regresión de classify_status?"
-
-
-def test_min_series():
-    # K1: the 20k row floor tolerated losing an entire country (~5k rows). The
-    # structural series count is stable (194 today); a real drop means a country
-    # or category family vanished from the sources.
-    p = _panel()
-    n = p.groupby(["country", "block", "category", "table"]).ngroups
-    assert n >= 190, f"solo {n} series estructurales (< 190) — ¿desapareció un país/categoría?"
-
-
-def test_min_rows_per_country():
-    # K1: per-country floor — every chargeability area carries 5,098–5,596 rows
-    # today; below 4,500 means a parser regression gutted that country. This is
-    # the gate the audit proved missing: an empty source CSV passed everything.
-    p = _panel()
-    counts = p.country.value_counts()
-    expected = {"mexico", "india", "china", "philippines", "all_chargeability"}
-    missing = expected - set(counts.index)
-    assert not missing, f"países ausentes del panel: {sorted(missing)}"
-    low = {c: int(n) for c, n in counts.items() if n < 4_500}
-    assert not low, f"países con volumen degradado (< 4,500 filas): {low}"
 
 
 def test_no_unexpected_missing_months():

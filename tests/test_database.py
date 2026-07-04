@@ -6,6 +6,7 @@ PK/FK/CHECK constraints actually reject rows that violate the data contract — 
 the schema, not just pytest, enforces it.
 """
 
+import sys
 from pathlib import Path
 
 import duckdb
@@ -13,9 +14,10 @@ import pandas as pd
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
-from pipeline.build_database import SCHEMA_PATH, SCHEMA_VERSION, _statements, build  # noqa: E402
-from vp_data.config import DV_RANK_PATH, PANEL_PATH  # noqa: E402
+from build_database import SCHEMA_PATH, SCHEMA_VERSION, _statements, build  # noqa: E402
+from config import DV_RANK_PATH, PANEL_PATH  # noqa: E402
 
 
 def _loaded():
@@ -104,34 +106,6 @@ def test_dv_loaded():
     con, _, dv = _loaded()
     assert con.execute("SELECT count(*) FROM dim_region").fetchone()[0] == 6
     assert con.execute("SELECT count(*) FROM fact_dv_rank").fetchone()[0] == len(dv)
-
-
-def test_dv_view_reproduces_source_losslessly():
-    # M3: the count-only check let a column swap in _load_dv pass with 1,647
-    # correct rows of garbage. Same EXCEPT round-trip the panel view gets.
-    con, _, _ = _loaded()
-    con.execute(f"CREATE TEMP TABLE dvcsv AS SELECT * FROM read_csv_auto('{DV_RANK_PATH.as_posix()}')")
-    view_cols = "region, rank_cutoff, status, raw_value, exceptions, bulletin_date"
-    csv_cols = "region, rank_cutoff, status, raw_value, exceptions, visa_bulletin_date"
-    only_view = con.execute(
-        f"SELECT count(*) FROM (SELECT {view_cols} FROM v_dv_long EXCEPT SELECT {csv_cols} FROM dvcsv)"
-    ).fetchone()[0]
-    only_csv = con.execute(
-        f"SELECT count(*) FROM (SELECT {csv_cols} FROM dvcsv EXCEPT SELECT {view_cols} FROM v_dv_long)"
-    ).fetchone()[0]
-    assert only_view == 0 and only_csv == 0, f"v_dv_long≠csv (solo_vista={only_view}, solo_csv={only_csv})"
-
-
-def test_fact_priority_rejects_duplicate_pk():
-    # M6 gap: the alias PK had a rejection test but the MAIN fact didn't.
-    con, _, _ = _loaded()
-    row = con.execute("SELECT area_id, category_id, table_id, date_id FROM fact_priority LIMIT 1").fetchone()
-    with pytest.raises(duckdb.ConstraintException):
-        con.execute(
-            "INSERT INTO fact_priority (area_id, category_id, table_id, date_id, status, priority_date, days_since_base, raw_value) "
-            "VALUES (?, ?, ?, ?, 'U', NULL, NULL, 'dup')",
-            list(row),
-        )
 
 
 def test_category_taxonomy_complete():

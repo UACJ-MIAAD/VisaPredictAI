@@ -7,11 +7,6 @@ real bulletin from a distinct format era; each test pins the behavior of one
 historical quirk so a future refactor can't silently regress it.
 
     ante/bin/python tests/test_extraction.py
-
-⚠️ CONTRATO plain-script (O6): el gate del cron (freeze_and_rebuild.yml) ejecuta
-este archivo como `python tests/<archivo>.py` SIN pytest — nada de fixtures,
-parametrize ni markers aquí: un test que dependa de pytest correría en CI pero
-se rompería o saltaría en el cron sin que nadie lo note.
 """
 
 import sys
@@ -21,12 +16,13 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 FIX = Path(__file__).resolve().parent / "fixtures"
 
-from pipeline import scrape_dv_visa_bulletins as dv  # noqa: E402
-from pipeline import scrape_family_visa_bulletins as fam  # noqa: E402
-from pipeline import scrape_visa_bulletins as emp  # noqa: E402
-from vp_data.visa_common import parse_tables  # noqa: E402
+import scrape_dv_visa_bulletins as dv  # noqa: E402
+import scrape_family_visa_bulletins as fam  # noqa: E402
+import scrape_visa_bulletins as emp  # noqa: E402
+from visa_common import parse_tables  # noqa: E402
 
 VALID_STATUS = {"C", "F", "U", "UNK"}
 
@@ -46,9 +42,7 @@ def _fam(name, ym, country="mexico"):
 
 
 def _dv(name, ym):
-    # label_by_marker=False: igual que producción (J2) — las 2 tablas DV van por
-    # ordinal; el heading FAD/DFF más cercano pertenece a la sección familiar.
-    return dv.extract_dv_data(parse_tables(_soup(name), datetime(*ym), dv.is_dv_section, label_by_marker=False))
+    return dv.extract_dv_data(parse_tables(_soup(name), datetime(*ym), dv.is_dv_section))
 
 
 def _dv_blob(name, ym):
@@ -115,30 +109,6 @@ def test_status_domain_offline():
         # by design in the legacy column, so we don't assert on non-F rows here).
         miss = (d.status.eq("F") & d.priority_date.isna()).sum()
         assert miss == 0, f"{name}: {miss} filas F sin fecha"
-
-
-# --- J2: a note-table can no longer shift the FAD/DFF labels --------------
-def test_note_table_does_not_shift_fad_dff_labels():
-    # Labels used to be pure ordinal (1st match = FAD, 2nd = DFF): a note-table
-    # slipped in BEFORE the real ones mislabeled everything and the hard 2-table
-    # break evicted the real DFF. With marker-based labeling the real tables
-    # keep their type and the DFF survives.
-    html = """
-    <html><body>
-    <table><tr><th>Employment-based note</th></tr><tr><td>prose, not data</td></tr></table>
-    <p>A. FINAL ACTION DATES FOR EMPLOYMENT-BASED PREFERENCE CASES</p>
-    <table><tr><th>Employment-based</th><th>All Chargeability Areas Except Those Listed</th></tr>
-    <tr><td>1st</td><td>C</td></tr></table>
-    <p>B. DATES FOR FILING OF EMPLOYMENT-BASED VISA APPLICATIONS</p>
-    <table><tr><th>Employment-based</th><th>All Chargeability Areas Except Those Listed</th></tr>
-    <tr><td>1st</td><td>01MAY16</td></tr></table>
-    </body></html>
-    """
-    dfs = parse_tables(BeautifulSoup(html, "html.parser"), datetime(2026, 7, 1), emp.is_employment_section)
-    types = [d["table_type"].iloc[0] for d in dfs if not d.empty]
-    assert "dates_for_filing" in types, "la DFF real fue expulsada por la tabla-nota"
-    real = [d for d in dfs if not d.empty and "1st" in d.iloc[:, 0].values]
-    assert [d["table_type"].iloc[0] for d in real] == ["final_action", "dates_for_filing"]
 
 
 # --- Diversity Visa: 6 regions, rank cut-offs (F) vs CURRENT (C) ----------

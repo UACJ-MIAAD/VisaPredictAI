@@ -74,9 +74,8 @@ from vp_model.config import (
 torch.set_num_threads(1)
 
 # Argumentos del trainer compartidos por todos los modelos torch: CPU determinista
-# (devices=1 evita el segfault de MPS en Apple Silicon), sin barra de progreso y sin
-# logger (T2: evita que cada fit deje un lightning_logs/version_N/ huérfano en la raíz).
-_TRAINER_KWARGS = {"enable_progress_bar": False, "accelerator": "cpu", "devices": 1, "logger": False}
+# (devices=1 evita el segfault de MPS en Apple Silicon) y sin barra de progreso.
+_TRAINER_KWARGS = {"enable_progress_bar": False, "accelerator": "cpu", "devices": 1}
 
 
 class Forecaster(Protocol):

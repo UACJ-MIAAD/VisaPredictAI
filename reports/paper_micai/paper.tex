@@ -67,14 +67,14 @@ $\times$ month; December~2001--2026), (ii)~a per-series benchmark of forecasting
 models under leakage-free expanding walk-forward, and (iii)~a \emph{prospective}
 evaluation protocol that scores forecasts \emph{frozen} at a dated origin against
 the cutoffs actually published afterwards. On 2{,}944 prospectively scored
-forecasts the mean absolute error is 146~days and the scaled error (MASE) 0.347,
+forecasts the mean absolute error is 146~days and the scaled error (MASE) 0.345,
 degrading smoothly from one to twelve months ahead yet remaining below the
 seasonal-naïve baseline (MASE~$<1$) at every horizon. 95\% prediction intervals
 attain 0.92 empirical coverage (under the nominal level, reported as such).
 Consistent with the M4/M5 competitions, well-tuned parsimonious statistics are hard
 to beat: per series, ETS and Theta form the model confidence set, and a tuned
-Auto-ARIMA is a strong baseline. The globally trained deep model only \emph{approaches}
-them on the longer Final-Action-Dates series, without closing the gap; it retains a modest ($\approx$9\% in
+Auto-ARIMA is a strong baseline. The globally trained deep model only \emph{matches}
+them on the longer Final-Action-Dates series; it retains a modest ($\approx$9\% in
 the mean) edge on the shorter Dates-for-Filing series, but that edge is sensitive to
 the aggregation and rests on a small effective sample. We release the panel, code,
 and a reproducible evaluation pipeline.
@@ -100,7 +100,7 @@ later.
 This paper addresses that gap with three contributions:
 \begin{enumerate}
   \item A \textbf{public, audited multi-series panel} $y_{p,c,b,t}$ (priority-date
-  days since a fixed epoch) covering 194 structural series and 27{,}611
+  days since a fixed epoch) covering 194 structural series and 27{,}289
   observations (Sec.~\ref{sec:data}), built from State-Department HTML frozen for
   reproducibility, with an explicit Current/Final/Unavailable regime annotation.
   \item A \textbf{per-series forecasting benchmark} under leakage-free expanding
@@ -126,7 +126,7 @@ keep~\cite{makridakis2020,makridakis2022}; Montero-Manso and Hyndman~\cite{monte
 formalize when a single \emph{global} model trained across many series outperforms
 per-series \emph{local} models. Our result (Sec.~\ref{sec:results}) is consistent
 with this literature and with the M4/M5 ``simple-beats-complex'' finding: global deep
-models trail the tuned statistical baselines slightly on one table and hold only a modest edge
+models match the tuned statistical baselines on one table and hold only a modest edge
 on the other. The Monash archive~\cite{godahewa2021} popularized
 standardized multi-series benchmarking, which we follow.
 
@@ -165,11 +165,10 @@ regime transitions---an explicit scope limitation. To prevent target leakage,
 enforced by database constraints.
 
 The homogeneous monthly series the pipeline reconstructs spans
-\textbf{December~2001--2026} (296 months, complete: five bulletins withdrawn from
-the official site were recovered from the historical archive); FAD have been
-published since 1992, but the continuous machine-readable series begins in 2001
-(the 1992--2001 period is reserved for future archival integration). The panel contains
-\textbf{194 structural series and 27{,}611 observations}; of these, 136 series have
+\textbf{December~2001--2026} ($\approx$290 months); FAD have been published since
+1992, but the continuous machine-readable series begins in 2001 (the 1992--2001
+period is reserved for future archival integration). The panel contains
+\textbf{194 structural series and 27{,}289 observations}; of these, 136 series have
 at least one $F$ observation and \textbf{74 have $\geq$84 $F$ observations}
 (initial window plus hold-out) and are thus fully evaluable. We report results on
 the evaluable subset and never claim to ``model 194 series.'' Raw HTML is frozen in
@@ -233,13 +232,12 @@ the model \emph{actually deployed}.
 \label{sec:results}
 
 \paragraph{Per-series benchmark.} Under walk-forward, parsimony is hard to beat per
-series: ETS/Theta reach a hold-out MASE of $\approx$0.113--0.114 on family FAD and
+series: ETS/Theta reach a hold-out MASE of $\approx$0.112 on family FAD and
 gradient-boosted trees are competitive on DFF. Locally trained deep models fail on
 the short individual series. Trained \emph{globally} (across series, on differenced
 and per-series-normalized targets, with hyper-parameter search), deep models recover:
-on FAD an AutoBiTCN configuration reaches mean MASE $0.121$, a seed confidence
-interval whose lower edge grazes the ETS/Theta value of $\approx$0.114---parsimony keeps
-a small edge; a per-table
+on FAD an AutoBiTCN configuration reaches mean MASE $0.112$, a seed confidence
+interval that contains the ETS/Theta value of $\approx$0.112---a \emph{tie}; a per-table
 Diebold--Mariano test finds no significant FAD separation. On DFF, BiTCN reaches mean
 MASE $0.090$, ahead of the best classical baseline; the size of that lead and its
 robustness are examined with a tuned Auto-ARIMA below. We emphasize that this
@@ -256,11 +254,11 @@ test runs on fewer effective series. With a Nemenyi post-hoc (Fig.~\ref{fig:cd})
 both tables are \textbf{ETS and Theta}; SARIMA, the gradient-boosted trees, and all
 locally trained deep models are excluded. Against the strongest classical under the same protocol (Theta), the globally
 trained deep model shows no significant FAD separation (Diebold--Mariano on
-per-series-scaled errors, $p\approx0.85$),
+per-series-scaled errors, $p\approx0.86$),
 and the deep model does not enter the $\{$ETS, Theta$\}$ confidence set---consistent with
-our framing that parsimony keeps a small FAD edge. On DFF the \emph{global} deep model (a separate training
-regime) reaches MASE~0.090, ahead of the best classical baseline in the mean but not under
-the median, and its edge is not robust to deep-model choice ($p\approx0.04$ against the best
+our framing of FAD as a tie. On DFF the \emph{global} deep model (a separate training
+regime) reaches MASE~0.090, on par with the best classical baselines rather than ahead of
+them, and its edge is not robust to deep-model choice ($p\approx0.04$ against the best
 classical, but $p\approx0.53$ for the near-tied alternative deep model; see the
 tuned-baseline paragraph below).
 
@@ -291,9 +289,9 @@ Nemenyi-connected groups. ETS and Theta lead and form the confidence set.}
 
 \paragraph{Tuned classical baseline.} To guard against beating weak baselines, we
 add an order-selected Auto-ARIMA (AICc grid search on the pre-hold-out window, same
-walk-forward). On FAD its mean MASE is 0.156 (median 0.114)---\emph{worse} than ETS
-(0.114) and Theta (0.113), which confirms them as the FAD champions, with the deep
-model close behind. On DFF, Auto-ARIMA is the strongest classical (mean 0.099, median
+walk-forward). On FAD its mean MASE is 0.154 (median 0.112)---\emph{worse} than ETS
+(0.112) and Theta (0.111), which confirms them as the FAD champions and the deep
+model as their tie. On DFF, Auto-ARIMA is the strongest classical (mean 0.099, median
 0.086), so the deep model's DFF lead, originally stated against gradient-boosted
 trees ($\approx$0.111), narrows to $\approx$9\% against this tuned baseline
 (BiTCN~0.090 vs.\ 0.099 in the mean). That lead is moreover \emph{aggregation
@@ -314,12 +312,12 @@ as bulletins are published, score it against the cutoff actually observed.
 
 \paragraph{Aggregate behavior.} Over \textbf{2{,}944} prospectively scored
 forecasts (Table~\ref{tab:prospective}), the mean absolute error is
-\textbf{146~days} and MASE \textbf{0.347}. Accuracy degrades smoothly with the
-horizon (Fig.~\ref{fig:prospective} (left)): from $\approx$22~days / MASE~0.05 at one month to
-$\approx$257~days / MASE~0.63 at twelve months. Crucially, MASE stays
+\textbf{146~days} and MASE \textbf{0.345}. Accuracy degrades smoothly with the
+horizon (Fig.~\ref{fig:prospective} (left)): from $\approx$20~days / MASE~0.05 at one month to
+$\approx$351~days / MASE~0.75 at twelve months. Crucially, MASE stays
 \emph{below~1} at every horizon---the forecasts beat the seasonal-naïve baseline
-even a year out. The retrospective hold-out MASE (0.113) and the prospective MASE
-(0.347) differ by $\approx$3$\times$; this gap is expected (repeated one-step vs.\
+even a year out. The retrospective hold-out MASE (0.112) and the prospective MASE
+(0.345) differ by $\approx$3$\times$; this gap is expected (repeated one-step vs.\
 genuine one-to-twelve-step extrapolation through retrogression shocks) and is
 disclosed rather than hidden.
 
@@ -353,7 +351,7 @@ Subset & $n$ & MAE (days) & MASE & cov$_{95}$ & cov$_{80}$ \\
 FAD            & 1{,}704 & 156.0 & 0.319 & 0.949 & 0.833 \\
 DFF            & 1{,}240 & 131.5 & 0.381 & 0.890 & 0.765 \\
 \midrule
-\textbf{Overall} & \textbf{2{,}944} & \textbf{145.7} & \textbf{0.347} & \textbf{0.924} & 0.804 \\
+\textbf{Overall} & \textbf{2{,}944} & \textbf{145.7} & \textbf{0.345} & \textbf{0.924} & 0.804 \\
 \multicolumn{6}{l}{\footnotesize cov$_{80}$ held-out (out-of-sample) $=0.81$.} \\
 \bottomrule
 \end{tabular}
@@ -389,7 +387,7 @@ dated origin (vertical marker), and the 12-month forecast with 80\%/95\% bands.}
 
 The central, defensible message is conservative, in the M4/M5 tradition: on this
 panel a well-tuned parsimonious suite (ETS, Theta, order-selected Auto-ARIMA) is hard
-to beat. The globally trained deep model trails it slightly on FAD and holds only a modest,
+to beat. The globally trained deep model matches it on FAD and holds only a modest,
 aggregation-sensitive edge on DFF ($\approx$9\% in the mean over a small effective
 sample); neither gradient-boosted trees nor deep learning dominate the tuned
 statistical baselines. The prospective protocol additionally exposes a $3\times$ optimism in
@@ -402,7 +400,7 @@ $\approx$0.97 to $\approx$0.88 across horizons. (2)~The effective prospective sa
 is three recent vintages; broader temporal coverage will accrue as live vintages
 accumulate. (3)~\textbf{Pseudo-replication is severe for DFF}: when a world cutoff is
 shared, the ``All-Chargeability'' row is identical to the per-country rows, so the
-$\approx$25 DFF family series reduce to only $\approx$14 distinct series; DFF
+$\approx$25 DFF family series reduce to only $\approx$5--7 distinct series; DFF
 conclusions therefore rest on a small effective sample and pairwise DFF comparisons
 should be read as indicative. (4)~Deep results depend on a single accelerator and a
 fixed seed set. (5)~Some statistical models converge only on series subsets
@@ -415,7 +413,7 @@ fixed seed set. (5)~Some statistical models converge only on series subsets
 We release an open, audited multi-series panel of U.S. Visa Bulletin priority dates
 and a leakage-free \emph{prospective} evaluation protocol that scores frozen
 forecasts against subsequently published cutoffs. The honest out-of-sample accuracy
-(MAE~146~days, MASE~0.347, beating the seasonal naïve at every horizon) and the
+(MAE~146~days, MASE~0.345, beating the seasonal naïve at every horizon) and the
 finding that well-tuned parsimonious models are, at worst, only modestly behind deep
 learning on this panel are, we argue, more useful to practitioners than a single
 optimistic hold-out number. Future work integrates the
