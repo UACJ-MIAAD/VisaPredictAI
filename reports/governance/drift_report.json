@@ -3,12 +3,31 @@
   "performance": {
     "status": "ok",
     "latest_vintage": "2025-07",
+    "latest_n": 976,
     "latest_mase": 0.3836,
-    "baseline_mase": 0.3303,
-    "perf_ratio": 1.162,
+    "baseline_mase": 0.3294,
+    "baseline_n": 1968,
+    "horizons_matched": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "perf_ratio": 1.165,
     "latest_cov95": 0.951,
+    "coverage_evaluated": true,
     "performance_drift": false,
-    "coverage_drift": false
+    "coverage_drift": false,
+    "consecutive_perf_drift": 0,
+    "recampaign_due": false
   },
   "data": {
     "status": "ok",

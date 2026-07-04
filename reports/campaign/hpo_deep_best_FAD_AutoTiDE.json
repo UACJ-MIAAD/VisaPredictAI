@@ -1,0 +1,13 @@
+{
+  "input_size": 18,
+  "learning_rate": 0.007225609176928375,
+  "scaler_type": "robust",
+  "max_steps": 2000,
+  "early_stop_patience_steps": 10,
+  "val_check_steps": 25,
+  "logger": false,
+  "accelerator": "mps",
+  "hidden_size": 128,
+  "decoder_output_dim": 32,
+  "dropout": 0.2261628565383739
+}

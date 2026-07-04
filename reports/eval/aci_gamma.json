@@ -1,0 +1,11 @@
+{
+  "FAD": 0.01,
+  "DFF": 0.01,
+  "grid": [
+    0.01,
+    0.03,
+    0.05,
+    0.1
+  ],
+  "selected_on": "calibration split only"
+}

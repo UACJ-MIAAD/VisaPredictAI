@@ -386,7 +386,9 @@ def test_deep_auto_spaces_have_architecture_and_early_stop(monkeypatch):
     assert cfg["early_stop_patience_steps"] == 10 and cfg["val_check_steps"] == 25
 
     cfg_n = deep._cfg_nhits(ask())
-    assert isinstance(cfg_n["n_pool_kernel_size"], list) and isinstance(cfg_n["n_freq_downsample"], list)
+    assert isinstance(cfg_n["n_pool_kernel_size"], tuple) and isinstance(
+        cfg_n["n_freq_downsample"], tuple
+    )  # tuples: NF MockTrial fix
     assert {"hidden_size", "decoder_output_dim"} <= set(deep._cfg_tide(ask()))
     assert {"n_heads", "patch_len"} <= set(deep._cfg_patchtst(ask()))
 

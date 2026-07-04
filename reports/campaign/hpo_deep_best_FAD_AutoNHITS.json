@@ -1,0 +1,20 @@
+{
+  "input_size": 24,
+  "learning_rate": 0.00011304836681774478,
+  "scaler_type": "robust",
+  "max_steps": 2000,
+  "early_stop_patience_steps": 10,
+  "val_check_steps": 25,
+  "logger": false,
+  "accelerator": "mps",
+  "n_pool_kernel_size": [
+    2,
+    2,
+    1
+  ],
+  "n_freq_downsample": [
+    12,
+    4,
+    1
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "input_size": 18,
+  "learning_rate": 0.00026053399065400893,
+  "scaler_type": "standard",
+  "max_steps": 2000,
+  "early_stop_patience_steps": 10,
+  "val_check_steps": 25,
+  "logger": false,
+  "accelerator": "mps",
+  "hidden_size": 16,
+  "dropout": 0.25451787823538413
+}

@@ -1,7 +1,7 @@
 {
  "_source": "experiments/build_fe_facts.py — NO editar a mano",
  "vintage": "2026-07",
- "fe_version": "1.0.0",
+ "fe_version": "1.1.0",
  "constants": {
   "base_epoch": "1975-01-01",
   "days_per_year": 365.25,
@@ -19,22 +19,19 @@
    "month_sin",
    "month_cos",
    "fiscal_sin",
-   "fiscal_cos",
-   "year"
+   "fiscal_cos"
   ],
   "lightgbm": [
    "month_sin",
    "month_cos",
    "fiscal_sin",
-   "fiscal_cos",
-   "year"
+   "fiscal_cos"
   ],
   "xgboost": [
    "month_sin",
    "month_cos",
    "fiscal_sin",
-   "fiscal_cos",
-   "year"
+   "fiscal_cos"
   ]
  },
  "differenced_models": [
@@ -53,16 +50,16 @@
   "tide"
  ],
  "realized_example": {
-  "fe_version": "1.0.0",
+  "fe_version": "1.1.0",
   "model": "xgboost",
   "covariates": [
    "month_sin",
    "month_cos",
    "fiscal_sin",
-   "fiscal_cos",
-   "year"
+   "fiscal_cos"
   ],
   "differenced": true,
+  "differenced_family": "trees",
   "scaled": false,
   "lags": 24,
   "max_interpolable_gap": 3
@@ -108,7 +105,7 @@
    "id": "covariate_policy",
    "title": "Política de covariables explícita por familia de modelo",
    "module": "vp_model/config.py:COVARIATES",
-   "rationale": "Solo los árboles diferenciados reciben calendario (la campaña canónica se derivó así); rlinear y las NN van conscientemente sin covariables. 'year' se conserva por procedencia de las cifras publicadas y está documentada como candidata a retiro en la próxima re-campaña."
+   "rationale": "Solo los árboles diferenciados reciben calendario (la campaña canónica se derivó así); rlinear y las NN van conscientemente sin covariables. 'year' (monótona, no acotada sobre target diferenciado) fue RETIRADA en la re-campaña AQ del 4-jul-2026 (PENDIENTES #12)."
   },
   {
    "id": "selection_fresh_mrmr",

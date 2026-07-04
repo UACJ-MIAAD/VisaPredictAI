@@ -1,26 +1,26 @@
 area,cat,mes,real,pred,delta_dias,mae_dias
-México,F1,Jul-2026,08-Nov-2007,22-Feb-2008,106,110
-México,F2A,Jul-2026,01-Jan-2024,25-Feb-2024,56,58
-México,F2B,Jul-2026,15-Feb-2009,10-Feb-2009,-5,100
-México,F3,Jul-2026,01-Jun-2001,29-Apr-2001,-33,28
-México,F4,Jul-2026,08-Apr-2001,08-Apr-2001,0,4
-India,F1,Jul-2026,01-Feb-2018,08-Sep-2017,-145,42
-India,F2A,Jul-2026,01-Jan-2025,06-Apr-2025,95,63
-India,F2B,Jul-2026,22-Nov-2017,06-Nov-2017,-15,24
-India,F3,Jul-2026,15-Apr-2012,27-Feb-2012,-48,38
-India,F4,Jul-2026,01-Nov-2006,30-Oct-2006,-1,15
-China,F1,Jul-2026,01-Feb-2018,08-Sep-2017,-145,42
-China,F2A,Jul-2026,01-Jan-2025,06-Apr-2025,95,63
-China,F2B,Jul-2026,22-Nov-2017,06-Nov-2017,-15,24
-China,F3,Jul-2026,15-Apr-2012,27-Feb-2012,-48,38
-China,F4,Jul-2026,01-Jan-2009,12-Jan-2009,12,20
-Filipinas,F1,Jul-2026,01-May-2013,01-May-2013,1,19
-Filipinas,F2A,Jul-2026,01-Jan-2025,06-Apr-2025,95,63
-Filipinas,F2B,Jul-2026,15-May-2013,09-Apr-2013,-36,25
-Filipinas,F3,Jul-2026,22-Feb-2006,20-Dec-2005,-63,57
-Filipinas,F4,Jul-2026,01-Aug-2007,25-Aug-2007,25,59
-Resto del mundo,F1,Jul-2026,01-Feb-2018,08-Sep-2017,-145,42
-Resto del mundo,F2A,Jul-2026,01-Jan-2025,06-Apr-2025,95,63
-Resto del mundo,F2B,Jul-2026,22-Nov-2017,06-Nov-2017,-15,24
-Resto del mundo,F3,Jul-2026,15-Apr-2012,27-Feb-2012,-48,38
-Resto del mundo,F4,Jul-2026,01-Jan-2009,12-Jan-2009,12,20
+México,F1,Jul-2026,08-Nov-2007,30-Jan-2008,83,125
+México,F2A,Jul-2026,01-Jan-2024,19-Mar-2024,78,58
+México,F2B,Jul-2026,15-Feb-2009,21-Jan-2009,-24,103
+México,F3,Jul-2026,01-Jun-2001,27-Apr-2001,-35,44
+México,F4,Jul-2026,08-Apr-2001,05-Apr-2001,-2,8
+India,F1,Jul-2026,01-Feb-2018,12-Oct-2017,-111,45
+India,F2A,Jul-2026,01-Jan-2025,02-Apr-2025,91,64
+India,F2B,Jul-2026,22-Nov-2017,22-Oct-2017,-31,28
+India,F3,Jul-2026,15-Apr-2012,01-Mar-2012,-44,49
+India,F4,Jul-2026,01-Nov-2006,01-Nov-2006,0,19
+China,F1,Jul-2026,01-Feb-2018,12-Oct-2017,-111,45
+China,F2A,Jul-2026,01-Jan-2025,02-Apr-2025,91,64
+China,F2B,Jul-2026,22-Nov-2017,22-Oct-2017,-31,28
+China,F3,Jul-2026,15-Apr-2012,01-Mar-2012,-44,49
+China,F4,Jul-2026,01-Jan-2009,04-Jan-2009,4,19
+Filipinas,F1,Jul-2026,01-May-2013,08-May-2013,8,19
+Filipinas,F2A,Jul-2026,01-Jan-2025,02-Apr-2025,91,64
+Filipinas,F2B,Jul-2026,15-May-2013,21-Apr-2013,-24,25
+Filipinas,F3,Jul-2026,22-Feb-2006,05-Nov-2005,-109,62
+Filipinas,F4,Jul-2026,01-Aug-2007,05-Oct-2007,66,70
+Resto del mundo,F1,Jul-2026,01-Feb-2018,12-Oct-2017,-111,45
+Resto del mundo,F2A,Jul-2026,01-Jan-2025,02-Apr-2025,91,64
+Resto del mundo,F2B,Jul-2026,22-Nov-2017,22-Oct-2017,-31,28
+Resto del mundo,F3,Jul-2026,15-Apr-2012,01-Mar-2012,-44,49
+Resto del mundo,F4,Jul-2026,01-Jan-2009,04-Jan-2009,4,19
