@@ -111,7 +111,12 @@ def to_timeseries(series: pd.Series) -> TimeSeries:
     ts = TimeSeries.from_series(regular)
     from darts.utils.missing_values import fill_missing_values
 
-    return fill_missing_values(ts, fill="auto")
+    filled = fill_missing_values(ts, fill="auto")
+    # AB4: el relleno de continuidad es una decisión consciente (docs/CLEANING.md,
+    # gap_policy_training) — el invariante duro es que no quede NaN y que la
+    # evaluación enmascare todo punto fabricado (B1).
+    assert not np.isnan(filled.values(copy=False)).any(), "to_timeseries: quedaron NaN tras fill_missing_values"
+    return filled
 
 
 def _rnn(probabilistic: bool) -> RNNModel:

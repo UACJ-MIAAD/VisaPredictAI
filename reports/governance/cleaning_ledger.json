@@ -1,0 +1,18 @@
+{
+ "_source": "pipeline/build_panel.py via vp_data.cleaning — NO editar a mano",
+ "_policy": "docs/CLEANING.md",
+ "vintage": "2026-07",
+ "n_rows": 27611,
+ "n_series": 194,
+ "rows_by_status": {
+  "F": 15931,
+  "C": 11058,
+  "U": 621,
+  "UNK": 1
+ },
+ "dup_collapsed": 0,
+ "bulletin_date_unparseable": 0,
+ "f_priority_date_unparseable": 0,
+ "epoch_underflow": 0,
+ "big_jumps_gt_8y": 14
+}

@@ -102,10 +102,37 @@ def plot_step_distribution(table: str = "FAD", block: str = "family") -> Path:
         steps.append(s.diff().dropna())
     allsteps = pd.concat(steps)
     fig, ax = plt.subplots(figsize=(7, 3.8))
-    ax.hist(np.clip(allsteps, -200, 400), bins=60, color=UACJ_BLUE, alpha=0.85)
+    # AC1: nada de np.clip — recortar apilaba los saltos extremos (retrogresiones
+    # >8 años REALES) en los bins de borde, winsorizando visualmente el fenómeno
+    # que la tesis argumenta. Se grafica el rango central y se ANOTA lo excluido.
+    lo, hi = -200, 400
+    n_lo = int((allsteps < lo).sum())
+    n_hi = int((allsteps > hi).sum())
+    ax.hist(allsteps[(allsteps >= lo) & (allsteps <= hi)], bins=60, color=UACJ_BLUE, alpha=0.85)
     ax.axvline(0, color=WINE, lw=1.2, ls="--", label="sin avance")
+    if n_lo:
+        ax.text(
+            0.02,
+            0.94,
+            f"← {n_lo} retrocesos < {lo} d\n(máx {-allsteps.min():,.0f} d)",
+            transform=ax.transAxes,
+            fontsize=7.5,
+            color=WINE,
+            va="top",
+        )
+    if n_hi:
+        ax.text(
+            0.98,
+            0.94,
+            f"{n_hi} avances > {hi} d →\n(máx {allsteps.max():,.0f} d)",
+            transform=ax.transAxes,
+            fontsize=7.5,
+            color=UACJ_GRAY,
+            va="top",
+            ha="right",
+        )
     ax.set_title(f"Distribución del avance mensual — tabla {table}, bloque {block}")
-    ax.set_xlabel("Avance de la fecha de prioridad (días por mes, recortado a [-200, 400])")
+    ax.set_xlabel(f"Avance de la fecha de prioridad (días por mes; rango mostrado [{lo}, {hi}], extremos anotados)")
     ax.set_ylabel("Frecuencia")
     ax.legend(fontsize=8, frameon=False)
     return _save(fig, f"eda_steps_{table}_{block}.png")

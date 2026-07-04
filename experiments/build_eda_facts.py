@@ -82,6 +82,13 @@ def _formal_tests(df: pd.DataFrame, census: pd.DataFrame) -> pd.DataFrame:
     Opera sobre las observaciones F del panel (la serie que ve el modelado); las
     pruebas de ruido/heteroscedasticidad van sobre los incrementos (la serie en
     nivel es I(1) casi siempre y las invalidaría).
+
+    AB3 (decisión documentada, docs/CLEANING.md stationarity_on_raw_F): se corre
+    sobre las F CRUDAS sin imputar — imputar antes de una prueba de raíz unitaria
+    sesga el veredicto hacia 'integrada'. Costo aceptado: en series con huecos el
+    índice queda comprimido (meses no adyacentes tratados como rezagos contiguos);
+    la estructura de rezagos de ADF/KPSS asume espaciado regular. Las evaluables
+    tienen continuidad alta, así que la compresión es marginal.
     """
     from scipy import stats as sps
     from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch

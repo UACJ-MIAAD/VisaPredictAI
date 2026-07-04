@@ -25,8 +25,10 @@ from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.tsa.seasonal import STL
 from statsmodels.tsa.stattools import acf, kpss
 
-from vp_model import dataset, preprocess
-from vp_model.config import SEASONAL_PERIOD
+from vp_model import dataset, missingness, preprocess
+from vp_model.config import SEASONAL_PERIOD, get_logger
+
+logger = get_logger(__name__)
 
 OUTLIER_Z = 3.0  # |z| del residuo STL para marcar outlier
 LJUNG_BOX_LAGS = 2 * SEASONAL_PERIOD
@@ -54,11 +56,17 @@ class SeriesFeatures:
 def _clean(country: str, category: str, table: str) -> pd.Series:
     """Serie mensual continua sin NaN, apta para STL/espectro (solo para EDA).
 
-    Rellena los huecos largos por interpolación bidireccional: aceptable para
-    caracterizar, NO para entrenar (el modelado los respeta vía preprocess).
+    AB1: huecos cortos (<= MAX_INTERPOLABLE_GAP) lineales vía ``to_regular_monthly``;
+    los largos se imputan con suavizado de Kalman (``missingness.kalman_impute``,
+    el criterio documentado del propio módulo de missingness), NUNCA con la rampa
+    lineal multi-año ni extrapolación de bordes que fabricaban tendencia y
+    contaminaban STL/Hurst/changepoints. Solo para caracterizar, NO para entrenar.
     """
-    s = preprocess.to_regular_monthly(dataset.load_series(country, category, table))
-    return s.interpolate(limit_direction="both").astype("float64")
+    raw = dataset.load_series(country, category, table)
+    s = preprocess.to_regular_monthly(raw)
+    if s.isna().any():
+        s = s.fillna(missingness.kalman_impute(raw))
+    return s.astype("float64")
 
 
 def stl_strengths(s: pd.Series, period: int = SEASONAL_PERIOD) -> tuple[float, float]:
@@ -130,7 +138,12 @@ def count_outliers(s: pd.Series, period: int = SEASONAL_PERIOD, z: float = OUTLI
     """# de outliers = residuos STL con |z-score robusto| > z."""
     resid = STL(s, period=period, robust=True).fit().resid.to_numpy()
     med = np.median(resid)
-    mad = np.median(np.abs(resid - med)) or 1.0
+    mad = float(np.median(np.abs(resid - med)))
+    if mad == 0.0:
+        # AA5: una serie casi constante da MAD=0; con escala 1.0 el conteo no es
+        # informativo — gritar en vez de degradar en silencio.
+        logger.warning("count_outliers: MAD=0 (serie casi constante) — conteo no informativo")
+        mad = 1.0
     zscore = 0.6745 * (resid - med) / mad  # z robusto (Iglewicz-Hoaglin)
     return int(np.sum(np.abs(zscore) > z))
 
@@ -232,6 +245,9 @@ def advanced(country: str, category: str, table: str) -> AdvancedFeatures:
     try:
         lam = float(sps.boxcox_normmax(x - x.min() + 1.0, method="mle"))
     except ValueError, OverflowError:
+        # AA5: mismo espíritu que el centinela 'failed' del censo — el fallback
+        # lambda=1 es una convención, no un resultado; que quede constancia.
+        logger.warning("Box-Cox no convergió en %s/%s/%s: lambda=1 por convención", country, category, table)
         lam = 1.0
     diff = s.diff().dropna()
     with warnings.catch_warnings():

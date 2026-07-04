@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from vp_data.cleaning import write_ledger
 from vp_data.config import BASE_EPOCH, TABLE_MAP
 from vp_data.config import CANONICAL_COUNTRY as COUNTRIES
 from vp_data.config import PANEL_PATH as OUT
@@ -72,6 +73,13 @@ def load_employment() -> pd.DataFrame:
         # centinela UNK existe para proteger.
         df = pd.read_csv(fp, dtype={"status": str, "raw_value": str}, keep_default_na=False, na_values=[""])
         _require(df, fp, "EB_level")
+        # AA4: keep_default_na=False (shield for the UNK sentinel) disables NA
+        # coercion for the WHOLE frame, so a stray literal in EB_level would ride
+        # through as a plain string. Validate the domain explicitly instead.
+        lv = df["EB_level"].astype(str)
+        bad_lv = sorted(set(lv[~lv.str.match(r"^EB[1-5]")]))
+        if bad_lv:
+            raise SystemExit(f"{fp}: EB_level fuera de dominio (^EB[1-5]…): {bad_lv[:5]}")
         df = df.rename(columns={"visa_bulletin_date": "bulletin_date"})  # priority_date already named
         df["country"] = canon
         df["block"] = "employment"
@@ -91,6 +99,11 @@ def load_family() -> pd.DataFrame:
         fp = RAW / f"{slug}_family_visa_backlog_timecourse.csv"
         df = pd.read_csv(fp, dtype={"status": str, "raw_value": str}, keep_default_na=False, na_values=[""])
         _require(df, fp, "F_level")
+        # AA4: same explicit domain validation as the employment loader.
+        lv = df["F_level"].astype(str)
+        bad_lv = sorted(set(lv) - {"1", "2A", "2B", "3", "4"})
+        if bad_lv:
+            raise SystemExit(f"{fp}: F_level fuera de dominio {{1,2A,2B,3,4}}: {bad_lv[:5]}")
         df = df.rename(columns={"visa_bulletin_date": "bulletin_date"})  # priority_date already named
         df["country"] = canon
         df["block"] = "family"
@@ -110,6 +123,14 @@ def main() -> None:
     # minority to NaT, so parse each value on its own.
     panel["bulletin_date"] = pd.to_datetime(panel["bulletin_date"], errors="coerce", format="mixed")
     panel["priority_date"] = pd.to_datetime(panel["priority_date"], errors="coerce", format="mixed")
+
+    # AA3: espejo del guard bad_f para la OTRA fecha. Un bulletin_date NaT (drift de
+    # formato del scraper) viajaría en silencio hasta el merge con dim_date en
+    # build_database — abortar aquí, en la causa, con las filas culpables.
+    bad_bd = panel[panel["bulletin_date"].isna()]
+    if not bad_bd.empty:
+        ex = bad_bd[["country", "block", "category", "raw_value"]].head(5)
+        raise SystemExit(f"{len(bad_bd)} filas con bulletin_date imparseable (drift del scraper):\n{ex}")
 
     # H2: una fecha F malformada coercionada a NaT violaría days_iff_F LEJOS de la causa
     # (en el CHECK de DuckDB) — abortar aquí con las filas culpables.
@@ -156,6 +177,7 @@ def main() -> None:
     # (same series, same month, different published dates = source conflict a
     # human must resolve, not a coin flip).
     key = ["country", "block", "category", "table", "bulletin_date"]
+    dup_collapsed = 0
     if panel.duplicated(subset=key).any():
         conflict = panel[panel.status == "F"].groupby(key)["priority_date"].nunique()
         if (conflict > 1).any():
@@ -165,7 +187,8 @@ def main() -> None:
         rank = panel["status"].map({"F": 0, "C": 1, "U": 2, "UNK": 3})
         order = panel.assign(_rank=rank).sort_values([*key, "_rank"])
         dup = order.duplicated(subset=key, keep="first")
-        logger.warning("%d filas duplicadas por clave colapsadas (preferencia F>C>U>UNK)", int(dup.sum()))
+        dup_collapsed = int(dup.sum())
+        logger.warning("%d filas duplicadas por clave colapsadas (preferencia F>C>U>UNK)", dup_collapsed)
         panel = order[~dup].drop(columns="_rank").sort_values(key).reset_index(drop=True)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
@@ -174,6 +197,26 @@ def main() -> None:
     # ---- summary -----------------------------------------------------------
     n_series = panel.groupby(["country", "block", "category", "table"]).ngroups
     f = panel[panel.status == "F"]
+
+    # AA2: cleaning ledger — durable, git-versioned record of what this build
+    # cleaned. The zeroed guards document invariants that ABORT when violated
+    # (this line is unreachable with a nonzero count). Deterministic: keyed by
+    # the vintage month, no wall clock (DVC byte-reproducibility).
+    delta = f.groupby(["country", "block", "category", "table"])["days_since_base"].diff()
+    ledger = write_ledger(
+        {
+            "vintage": panel.bulletin_date.max().strftime("%Y-%m"),
+            "n_rows": int(len(panel)),
+            "n_series": int(n_series),
+            "rows_by_status": {k: int(v) for k, v in panel["status"].value_counts().items()},
+            "dup_collapsed": dup_collapsed,
+            "bulletin_date_unparseable": 0,
+            "f_priority_date_unparseable": 0,
+            "epoch_underflow": 0,
+            "big_jumps_gt_8y": int((delta.abs() > 8 * 365.25).sum()),
+        }
+    )
+    logger.info(f"Cleaning ledger escrito en {ledger}")
     logger.info(f"Panel escrito en {OUT}")
     logger.info(f"  filas totales      : {len(panel):,}")
     logger.info(f"  series (p×c×b)      : {n_series}")

@@ -33,9 +33,13 @@ stages:
     cmd: ante/bin/python -m pipeline.build_panel
     deps:
       - pipeline/build_panel.py
+      - vp_data/cleaning.py
       - data/raw
     outs:
       - data/processed/visa_panel_long.csv:
+          cache: false
+      # AA2: ledger de limpieza por build (determinista: sin reloj, clave = vintage)
+      - reports/governance/cleaning_ledger.json:
           cache: false
 
   bulletins:

@@ -44,13 +44,21 @@ stages:
       nfiles: 11
     - path: pipeline/build_panel.py
       hash: md5
-      md5: 0ea73f3d71214924ac04e722cc469619
-      size: 9451
+      md5: 4d104e44042f33432b246166b8d19754
+      size: 11775
+    - path: vp_data/cleaning.py
+      hash: md5
+      md5: 190bb75f9cf3fbece42177af5a0bea15
+      size: 8116
     outs:
     - path: data/processed/visa_panel_long.csv
       hash: md5
       md5: 00115d2dd0b68f0b8e58ee41762fe09b
       size: 1589531
+    - path: reports/governance/cleaning_ledger.json
+      hash: md5
+      md5: 53c4c8f9a43812452654c51ad55df843
+      size: 387
   bulletins:
     cmd: ante/bin/python -m pipeline.build_bulletins_json
     deps:
@@ -169,8 +177,8 @@ stages:
       size: 2911
     - path: vp_model/config.py
       hash: md5
-      md5: bc470d30aa1b61fb6981ed34e07ec2fd
-      size: 8709
+      md5: 6328c5fd0825be01f60a425f8a506917
+      size: 9322
     outs:
     - path: reports/governance/key_facts.json
       hash: md5
