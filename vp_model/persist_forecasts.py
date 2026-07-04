@@ -20,7 +20,9 @@ from vp_model.config import HOLDOUT, get_logger
 
 log = get_logger("persist_forecasts")
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
-CURATED = ("theta", "ets", "sarima", "arima", "kalman", "catboost", "lightgbm")
+# AQ: naive1 joined the curated set — it won both MCS at h=1 and the champion
+# deck now tracks it, so its holdout forecasts must be persisted (they are free).
+CURATED = ("naive1", "theta", "ets", "sarima", "arima", "kalman", "catboost", "lightgbm")
 
 
 def run(table: str = "FAD", block: str = "family", models_set: tuple[str, ...] = CURATED) -> Path:

@@ -120,8 +120,13 @@ def _models() -> dict:
             pool = pd.read_csv(path)
             pool = pool[pool.run_id == pool.run_id.max()]  # última corrida, no el histórico acumulado
             mean = pool.groupby("model").hold_mase.mean()
+            med = pool.groupby("model").hold_mase.median()
             out[keys[0]] = round(float(mean.get("ets", float("nan"))), 3)
             out[keys[1]] = round(float(mean.get("theta", float("nan"))), 3)
+            # AQ: the random-walk floor is now a first-class canonical figure — it
+            # won both MCS at h=1 and every claim must be stated relative to it.
+            out[f"naive1_{tbl.lower()}_mean"] = round(float(mean.get("naive1", float("nan"))), 3)
+            out[f"naive1_{tbl.lower()}_median"] = round(float(med.get("naive1", float("nan"))), 3)
             if tbl == "FAD":
                 # listón parsimonioso FAD = mejor sel_mase medio de {ets, theta},
                 # derivado del MISMO pool que la tabla de 21 modelos del .tex

@@ -33,6 +33,7 @@ MANIFEST = REPORTS / "governance" / "champion_manifest.json"
 # persistidos (pool clásico reproducible en un solo entorno).
 CHALLENGERS: dict[str, list[tuple[tuple[str, ...], str]]] = {
     "FAD": [
+        (("naive1",), "median"),  # AQ: the RW won both MCS at h=1 — governance must track it
         (("theta",), "median"),
         (("ets",), "median"),
         (("theta", "ets"), "median"),
@@ -40,6 +41,7 @@ CHALLENGERS: dict[str, list[tuple[tuple[str, ...], str]]] = {
         (("theta", "ets", "sarima", "arima"), "median"),
     ],
     "DFF": [
+        (("naive1",), "median"),  # AQ: sole MCS member at h=1
         (("ets",), "median"),
         (("catboost",), "median"),
         (("sarima", "ets"), "median"),
