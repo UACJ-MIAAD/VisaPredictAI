@@ -201,10 +201,11 @@ _NHITS_FREQS = {"12-4-1": [12, 4, 1], "24-12-1": [24, 12, 1], "1-1-1": [1, 1, 1]
 
 
 def _cfg_bitcn(trial):
+    # NOTE: this neuralforecast BiTCN takes no kernel_size — unknown keys leak into
+    # pl.Trainer kwargs and blow up every trial (caught live in the AQ campaign).
     return _base_config(trial) | {
         "hidden_size": trial.suggest_categorical("hidden_size", [8, 16, 32]),
         "dropout": trial.suggest_float("dropout", 0.0, 0.3),
-        "kernel_size": trial.suggest_categorical("kernel_size", [2, 3, 4]),
     }
 
 
