@@ -152,6 +152,12 @@ numeric:
     label: '([0-9][.,{}\\\s]*[0-9]{3})\s+Diversity\s+Visa'
     in: [web]
     reason: 'las filas del sorteo de diversidad (forma EN "1,647 Diversity Visa ... rows")'
+  # Selección FE (AH5): el web cita "44 → 1" del catálogo; el .tex usa macros \feFact*.
+  # Si una re-campaña cambia la selección, esta regla caza la prosa desalineada.
+  - fact: fe_sel_in
+    label: '([0-9]{2,3})(?:\s|&nbsp;)*(?:→|->|&rarr;|&#8594;)(?:\s|&nbsp;)*[0-9]{1,2}\b'
+    in: [web]
+    reason: 'el embudo de selección FRESH/mRMR (hoy 44 → 1) cambia con cada re-campaña'
   # obs ENTRENABLES (estado F): "15,758 obs entrenables" / "... entrenables"
   # (audit EDA 3-jul, W-H2): el lado EN ("15,931 trainable obs") esquivaba el patrón
   # solo-español — la reincidencia exacta del hallazgo del audit dúo de junio.

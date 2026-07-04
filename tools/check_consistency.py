@@ -48,7 +48,15 @@ def _resolve(globs: list[str]) -> list[Path]:
 
 def main() -> int:
     quiet = "--quiet" in sys.argv
-    facts = json.loads((ROOT / "reports" / "governance" / "key_facts.json").read_text())
+    kf_facts = json.loads((ROOT / "reports" / "governance" / "key_facts.json").read_text())
+    facts = dict(kf_facts)
+    # AH5: los hechos del catálogo FE entran al espacio de reglas (el web cita "44 → 1"),
+    # pero NO al check KEYFACTS (build_key_facts no emite macros para ellos — fe_facts.tex sí).
+    fe_fp = ROOT / "reports" / "fe" / "fe_facts.json"
+    if fe_fp.exists():
+        fs = json.loads(fe_fp.read_text()).get("feature_selection", {})
+        facts.setdefault("fe_sel_in", fs.get("n_features_in"))
+        facts.setdefault("fe_sel_final", fs.get("n_selected"))
     rules = yaml.safe_load((ROOT / "tools" / "consistency_rules.yml").read_text())
     sets = {name: _resolve(globs) for name, globs in rules["artifacts"].items()}
 
@@ -74,7 +82,7 @@ def main() -> int:
             return "fact" + "".join(w.capitalize() for w in k.split("_"))
 
         tex_vals = dict(re.findall(r"\\newcommand\{\\(fact\w+)\}\{([^}]*(?:\{,\}[^}]*)*)\}", kf_tex.read_text()))
-        for k, v in facts.items():
+        for k, v in kf_facts.items():
             if k.startswith("_") or isinstance(v, (list, dict)):
                 continue
             got = tex_vals.get(_macro(k))
