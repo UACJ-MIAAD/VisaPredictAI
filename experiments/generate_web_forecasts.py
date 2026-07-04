@@ -369,17 +369,33 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
             + f" · intervalo conforme (95 %/80 %) {band_txt}"
             for t in config.TABLES
         }
+
+        # Literal NaN is invalid JSON — the browser's JSON.parse dies and takes the
+        # whole forecasts/scorecard section with it (caught live by the web render
+        # check). Sanitize to null and make json.dumps refuse any future NaN.
+        def _no_nan(obj):
+            if isinstance(obj, dict):
+                return {k: _no_nan(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_no_nan(v) for v in obj]
+            if isinstance(obj, float) and obj != obj:
+                return None
+            return obj
+
         meta_path.write_text(
             json.dumps(
-                {
-                    "method": method,
-                    "horizon_months": HORIZON,
-                    "base_date": "1975-01-01",
-                    "n_series": len(all_meta),
-                    "series": all_meta,
-                },
+                _no_nan(
+                    {
+                        "method": method,
+                        "horizon_months": HORIZON,
+                        "base_date": "1975-01-01",
+                        "n_series": len(all_meta),
+                        "series": all_meta,
+                    }
+                ),
                 ensure_ascii=False,
                 indent=2,
+                allow_nan=False,
             )
             + "\n"
         )

@@ -1,4 +1,4 @@
-"""Emite las filas LaTeX de las tablas de 21 modelos del entregable desde los pools.
+"""Emite las filas LaTeX de las tablas de 24 modelos del entregable desde los pools.
 
 Fuente: ``reports/campaign/campaign_pool_{FAD,DFF}_family.csv`` (última corrida por
 ``run_id``). Reproduce la agregación del texto: media de MASE/sMAPE de selección y de
@@ -38,6 +38,9 @@ DISPLAY = {
     "prophet": "Prophet",
     "nbeats": "N-BEATS",
     "naive": "Naïve estacional",
+    "naive1": "Naïve-1 (paseo aleatorio)",
+    "drift": "Deriva (\\textit{drift})",
+    "llt": "Tendencia lineal local (LLT)",
     "lstm": "LSTM",
     "deepar": "DeepAR",
     "tft": "TFT",

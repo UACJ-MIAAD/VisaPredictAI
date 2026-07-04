@@ -47,13 +47,29 @@ forbidden:
   # --- claims del deliverable (audit 3-jul-2026: estos residuos sobrevivieron a la propagación) ---
   - pattern: '(AutoBiTCN|modelo profundo|deep model|aprendizaje profundo)[^.\n]{0,80}\b(empata|empate|iguala)\b'
     in: [deliverable]
-    reason: 'el deep YA NO empata en FAD (AutoBiTCN 0.121 vs listón 0.113-0.114); framing vigente: "roza el listón / queda apenas por detrás"'
+    reason: 'framing muerto: el deep ni "empata" ni gana — AutoBiTCN 0.109 baja de ETS/Theta pero el piso es el naïve-1 (0.100)'
   - pattern: '\bas a tie\b|deep model (only )?match(es|ing)'
     in: [paper]
-    reason: 'FAD ya no es "tie": parsimony keeps a small edge (~6%); usar "trails slightly / approaches"'
-  - pattern: 'listón[^0-9\n]{0,25}0\.109|0\.109[^0-9\n]{0,15}listón'
+    reason: 'FAD nunca fue "tie": AutoBiTCN 0.109 queda bajo ETS/Theta pero sobre el piso naïve-1; usar el framing del RW-floor'
+  - pattern: 'listón[^0-9\n]{0,25}0\.11[19]|0\.11[19][^0-9\n]{0,15}listón'
     in: [deliverable, paper]
-    reason: 'listón sel viejo (pre-resurrección); el vigente es fad_champion_mase (hoy 0.111)'
+    reason: 'listones seleccion viejos (0.109 pre-resurrección / 0.111 pre-AQ); el vigente es fad_champion_mase (hoy 0.110)'
+  # --- tripwires de la re-campaña AQ (4-jul-2026): valores/frases de la era pre-naive1 ---
+  - pattern: '\[0\.112,\s*0\.131\]|(\\pm|±)\s*0\.008'
+    in: [deliverable, paper]
+    reason: 'intervalo multi-semilla muerto de AutoBiTCN (0.121±0.008); vigente 0.109±0.007 [0.100, 0.118]'
+  - pattern: 'ya no empata|YA NO empata'
+    in: [deliverable, paper]
+    reason: 'frase de la era 3-jul ("AutoBiTCN ya no empata"); el framing vigente es el piso del naïve-1'
+  - pattern: '\{\s*ETS\s*,\s*Theta\s*\}|ETS (y|and) Theta (entran|enter|forman|form)[^.\n]{0,40}(MCS|confidence set|conjunto de confianza)|(MCS|conjunto de confianza(?: de modelos)?)[^.\n]{0,40}=\s*\{?\s*ETS'
+    in: [deliverable, paper]
+    reason: 'MCS viejo ({ETS, Theta}); tras la re-campaña AQ el MCS al 90% retiene SOLO al naïve-1 en ambas tablas'
+  - pattern: 'ensancha[^.\n]{0,40}(raíz|\\sqrt)|widen[^.\n]{0,40}\\sqrt|0\.4744'
+    in: [deliverable, paper]
+    reason: 'el PI desplegado ya NO ensancha por raíz del horizonte ni usa el ratio escalar 0.4744; usa cuantiles empíricos por horizonte + ACI'
+  - pattern: 'los seis casos mejoran|the six cases improve|hasta un \$?32\$?\s*\\?,?\s*\\?%'
+    in: [deliverable, paper]
+    reason: 'claim de tuning viejo (aceptación sobre el hold-out); vigente: 7/12 grupos aceptados en val-confirm con media+mediana+% series'
   - pattern: 'MASE[\s\$=~]{0,4}0\.225|0\.225[^0-9]{0,20}(zero-?shot|Chronos)'
     in: [deliverable, paper, web]
     reason: 'Chronos 0.225 es de la era pre-máscara; el vigente es 0.207 sel (sobrevivió 2 generaciones hasta el audit 3-jul)'
@@ -76,9 +92,15 @@ required:
     in: [deliverable, paper]
     reason: 'el tamaño del panel (194 series) debe figurar'
   - fact: deep_dff_margin_pct
-    forms: ['{deep_dff_margin_pct}\s*\\?,?\s*\\?%', '\\sim\s*\$?{deep_dff_margin_pct}']
+    forms: ['{deep_dff_margin_pct}\s*\\?,?\s*\\?%', '\\sim\s*\$?{deep_dff_margin_pct}', '\\factDeepDffMarginPct']
     in: [deliverable, paper]
-    reason: 'el margen DFF reconciliado (~11%) debe figurar'
+    reason: 'el margen DFF deep-vs-Auto-ARIMA (~21%, re-anclado: el naïve-1 lo disuelve) debe figurar'
+  # --- re-campaña AQ: el piso del naïve-1 es LA cifra insignia; su claim MCS debe figurar ---
+  # gaps con [^.] (no [^.\n]): la prosa LaTeX envuelve líneas y el claim cruza saltos de línea
+  - fact: naive1_fad_mean
+    forms: ['(MCS|conjunto de\s+confianza)[^.]{0,160}na[iï]ve-?1', 'na[iï]ve-?1[^.]{0,260}(MCS|model confidence set|conjunto de\s+confianza)']
+    in: [deliverable, paper]
+    reason: 'el claim MCS={naive1} (el hallazgo central de la re-campaña AQ) debe figurar'
   - fact: autoarima_dff_mean
     forms: ['Auto-?ARIMA']
     in: [deliverable, paper]
@@ -194,3 +216,13 @@ decimal:
     label: '(?<!Auto)BiTCN[^0-9\n]{0,30}?MASE[\s~\$=]{0,4}\\?(?:textbf\{)?([0-9]\.[0-9]{2,3})'
     in: [deliverable, paper]
     reason: 'BiTCN DFF multi-semilla (0.090): todo "BiTCN ... MASE x" debe ser esa cifra'
+  # naïve-1 (re-campaña AQ): el piso citado en prosa debe seguir a key_facts.
+  # Labels anclados a la fraseología "$x$ en/on FAD|DFF" cerca de "naïve-1".
+  - fact: naive1_fad_mean
+    label: 'na[iï]ve-?1[^0-9\n\\]{0,100}?\$([0-9]\.[0-9]{2,3})\$ (en|on)( family)? FAD'
+    in: [deliverable, paper]
+    reason: 'el piso naïve-1 en FAD (hold-out medio) citado en prosa debe igualar key_facts'
+  - fact: naive1_dff_mean
+    label: 'na[iï]ve-?1[^0-9\n\\]{0,160}?\$([0-9]\.[0-9]{2,3})\$ (en|on) DFF'
+    in: [deliverable, paper]
+    reason: 'el piso naïve-1 en DFF (hold-out medio) citado en prosa debe igualar key_facts'

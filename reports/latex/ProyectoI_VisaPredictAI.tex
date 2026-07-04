@@ -205,17 +205,22 @@ cargabilidad, categoría migratoria y tipo de tabla (\textit{Final Action Dates}
 \textit{Dates for Filing}). Siguiendo la metodología CRISP-DM, se construyó una base de
 datos histórica (diciembre de 2001 a 2026; 194 series, \factNObsFmt{} observaciones) y se comparó,
 mediante validación temporal \textit{walk-forward} sin fuga de información sobre un conjunto
-de prueba reservado de 24 meses, un repertorio de 21 modelos —desde líneas base estadísticas
-(ARIMA, SARIMA, ETS amortiguado, Theta) hasta árboles de potenciación del gradiente y redes
-profundas—. A estos se sumaron \textbf{versiones globales} de las redes, entrenadas sobre
-todo el panel a la vez. El sistema se entrena exclusivamente sobre las observaciones con fecha
-específica y cuantifica la incertidumbre con intervalos de predicción al 95\,\% de cobertura
-empírica verificada. Los resultados muestran que el desempeño \textbf{depende del régimen}:
-el aprendizaje profundo global supera por un margen modesto ($\sim$9\,\% en media, frente a
-un Auto-ARIMA afinado) a los modelos parsimoniosos en las series cortas (DFF) —una ventaja
-sensible a la agregación y sobre una muestra efectiva pequeña— y queda apenas por detrás de
-ellos en las series largas (FAD), donde un modelo simple ya es prácticamente óptimo. El error alcanzado se aproxima al límite irreducible de estas series
-fuertemente tendenciales con retrocesos abruptos.
+de prueba reservado de 24 meses, un repertorio de 24 modelos —desde líneas base ingenuas
+(incluido el paseo aleatorio) y modelos estadísticos (ARIMA, SARIMA, ETS amortiguado, Theta)
+hasta árboles de potenciación del gradiente y redes profundas, con \textbf{versiones
+globales} de las redes entrenadas sobre todo el panel a la vez—. El sistema se entrena
+exclusivamente sobre las observaciones con fecha específica y cuantifica la incertidumbre con
+intervalos de predicción al 95\,\% calibrados por horizonte, de cobertura empírica
+verificada. El hallazgo central es un piso exigente: en un panel donde el
+$\factPctFrozen$\,\% de los avances mensuales es nulo (colas congeladas), repetir el último
+corte publicado (naïve-1) resulta el rival a vencer en el pronóstico a un paso, y
+\textbf{ningún modelo puntual lo supera con significancia estadística}. El valor del sistema
+se valida, en cambio, sobre el producto completo: pronósticos a horizontes de 1 a 12 meses
+—donde la ventaja de repetir el último valor se diluye—, intervalos de predicción calibrados
+por horizonte desde un registro prospectivo de \factProspNScoredFmt{} predicciones
+congeladas, coherencia transversal entre tablas y áreas de cargabilidad, y una gobernanza
+campeón--retador--sombra que incorpora la propia línea base como retador formal y decidirá su
+promoción con evidencia prospectiva multi-horizonte.
 
 \vspace{0.6em}
 \noindent\textbf{Palabras clave:} pronóstico de series de tiempo, \textit{Visa Bulletin},
@@ -266,9 +271,10 @@ FAD de DFF. Entrega cada serie $y_{p,c,b,t}$ con índice mensual.
 huecos cortos (meses $C$/$U$ intercalados) y deja como faltantes los huecos
 largos; estandariza con estadísticos calculados solo sobre el tramo de
 entrenamiento y construye los regresores de calendario del año fiscal.
-\item \textbf{Catálogo de modelos.} Veintiún modelos tras una interfaz común, de seis
-familias: referencia (naïve estacional), estadísticos (ARIMA, SARIMA), suavizamiento y
-descomposición (ETS amortiguado, Theta, Kalman), aditivo (Prophet), árboles sobre
+\item \textbf{Catálogo de modelos.} Veinticuatro modelos tras una interfaz común: tres
+líneas base de referencia (naïve-1 o paseo aleatorio, deriva y naïve estacional) y seis
+familias: estadísticos (ARIMA, SARIMA), suavizamiento y espacio de estados (ETS
+amortiguado, Theta, Kalman, tendencia lineal local), aditivo (Prophet), árboles sobre
 deltas (XGBoost, LightGBM, CatBoost), lineales y redes profundas (DLinear, NLinear,
 RLinear, TiDE, LSTM, DeepAR, ARIMA-LSTM, N-BEATS, N-HiTS, TFT) y un \textit{foundation
 model} zero-shot (Chronos).
@@ -297,7 +303,7 @@ cobertura empírica.
   arr/.style={-{Latex[length=2.2mm]}, uacjgray, line width=0.9pt}]
   \node[store] (db) {Carga de series \textit{(vista $e=F$)}};
   \node[box, right=0.5cm of db] (pre) {Preprocesa\-miento \textit{(huecos, escala, calendario)}};
-  \node[box, right=0.5cm of pre] (mod) {Catálogo de \textbf{21 modelos}};
+  \node[box, right=0.5cm of pre] (mod) {Catálogo de \textbf{24 modelos}};
   \node[box, right=0.5cm of mod] (wf) {Walk-forward \textit{(hold-out 24 m)}};
   \node[outbox, right=0.5cm of wf] (pi) {Pronóstico $+$ PI 95\,\%};
   \draw[arr] (db) -- (pre);
@@ -309,21 +315,23 @@ cobertura empírica.
   \node[badge] at (mod.north west) {3};
   \node[badge] at (wf.north west) {4};
   \node[badge] at (pi.north west) {5};
-  \node[fam] (f1) at ([yshift=-1.15cm]mod.south) {Estadísticos: ARIMA, SARIMA};
-  \node[fam, below=0.1cm of f1] (f2) {Suavizamiento: ETS, Theta, Kalman};
+  \node[fam] (f0) at ([yshift=-1.15cm]mod.south) {Referencia: naïve-1 (RW), deriva, naïve est.};
+  \node[fam, below=0.1cm of f0] (f1) {Estadísticos: ARIMA, SARIMA};
+  \node[fam, below=0.1cm of f1] (f2) {Suavizamiento/estado: ETS, Theta, Kalman, LLT};
   \node[fam, below=0.1cm of f2] (f3) {Aditivo: Prophet};
   \node[fam, below=0.1cm of f3] (f4) {Árboles: XGBoost, LightGBM, CatBoost};
   \node[fam, below=0.1cm of f4] (f5) {Lineales/profundos: DLinear, TiDE, LSTM, TFT\ldots};
   \node[fam, below=0.1cm of f5] (f6) {Foundation: Chronos \textit{(zero-shot)}};
-  \draw[arr, uacjblue!55, line width=0.7pt] (mod) -- (f1);
+  \draw[arr, uacjblue!55, line width=0.7pt] (mod) -- (f0);
   \begin{scope}[on background layer]
-    \node[draw=uacjblue!30, rounded corners=3pt, fill=uacjblue!4, fit=(f1)(f6), inner sep=4pt] {};
+    \node[draw=uacjblue!30, rounded corners=3pt, fill=uacjblue!4, fit=(f0)(f6), inner sep=4pt] {};
   \end{scope}
 \end{tikzpicture}%
 }
 \caption[Arquitectura del sistema de modelado]{Flujo modular de VisaPredict AI en cinco
 etapas, de la vista entrenable ($e=F$) del almacén al pronóstico con intervalo de
-predicción al $95$\,\%. La etapa~3 despliega las seis familias del catálogo de 21 modelos.}
+predicción al $95$\,\%. La etapa~3 despliega las líneas base de referencia y las seis
+familias del catálogo de 24 modelos.}
 \label{fig:arquitectura}
 \end{figure}
 
@@ -1384,32 +1392,44 @@ modelado no usa estos valores imputados, sino una máscara de observación.}
 
 \subsection{1.3.1 Definición de las técnicas de modelado a utilizar}
 
-Se comparan los \textbf{21 modelos} de la Tabla~\ref{tab:modelos}, agrupados en seis
-familias complementarias. El naïve estacional es el modelo de referencia obligatorio y
-el denominador de la métrica MASE. La elección responde al problema: las series son
-fechas que avanzan con tendencia fuerte, estacionalidad anual casi nula y
+Se comparan los \textbf{24 modelos} de la Tabla~\ref{tab:modelos}: tres líneas base de
+referencia y seis familias complementarias. El naïve estacional es el denominador de la
+métrica MASE ($m=12$); el \textbf{naïve-1} —repetir el último valor publicado, es decir,
+un paseo aleatorio— es el piso operativo que cualquier modelo debe justificar; y la
+deriva (\textit{drift}) le añade el avance medio histórico. Incluir estas líneas base no
+es un formalismo: en un panel donde el $\factPctFrozen$\,\% de los avances mensuales es
+nulo, ``no moverse'' es una predicción formidable a un paso, y omitirla dejaría sin
+piso honesto a toda la comparación. Como las series distan de ser estacionales, se
+reporta en paralelo la MASE escalada por el naïve-1 ($m=1$); se conserva $m=12$ como
+métrica principal por comparabilidad con la práctica estándar y con las campañas
+previas del proyecto (la definición formal y su referencia se dan en §2.1). La elección del resto del catálogo responde al problema:
+las series son fechas que avanzan con tendencia fuerte, estacionalidad anual casi nula y
 retrogresiones ocasionales, por lo que conviene contrastar el espectro completo
-—desde modelos lineales parsimoniosos (ARIMA, SARIMA, ETS, Theta) hasta modelos de alta
-capacidad (árboles de potenciación de gradiente sobre deltas, redes profundas)— y
-verificar empíricamente cuál conviene a este régimen de datos. Los árboles se formulan
-sobre la \textit{primera diferencia} (predicen el incremento mensual y lo reintegran),
-condición necesaria para que puedan extrapolar la tendencia en lugar de saturarse en el
-máximo observado. Se incluye además un \textit{foundation model} preentrenado (Chronos)
-evaluado en modo zero-shot, sin ajustarse a estos datos.
+—desde modelos lineales parsimoniosos (ARIMA, SARIMA, ETS, Theta, tendencia lineal
+local) hasta modelos de alta capacidad (árboles de potenciación de gradiente sobre
+deltas, redes profundas)— y verificar empíricamente cuál conviene a este régimen de
+datos. Los árboles se formulan sobre la \textit{primera diferencia} (predicen el
+incremento mensual y lo reintegran), condición necesaria para que puedan extrapolar la
+tendencia en lugar de saturarse en el máximo observado. Se incluye además un
+\textit{foundation model} preentrenado (Chronos) evaluado en modo zero-shot, sin
+ajustarse a estos datos.
 
 \begin{table}[H]
 \centering
 \footnotesize
-\caption[Catálogo de modelos]{Las seis familias del catálogo de 21 modelos y su
-justificación. Los árboles operan sobre la primera diferencia; Chronos es zero-shot.}
+\caption[Catálogo de modelos]{Las líneas base de referencia y las seis familias del
+catálogo de 24 modelos, con su justificación. Los árboles operan sobre la primera
+diferencia; Chronos es zero-shot.}
 \label{tab:modelos}
 \begin{tabular}{p{2.9cm} l l}
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Familia} & \textbf{Modelos} & \textbf{Rol} \\ \midrule
-Referencia & Naïve estacional & Línea base; denominador de MASE \\
+Referencia & Naïve-1 (paseo aleatorio), deriva, & Piso operativo; denominador \\
+ & naïve estacional & de MASE ($m=1$ y $m=12$) \\
 Estadísticos \cita{14} & ARIMA, SARIMA & Tendencia/estacionalidad lineal \\
-Suavizamiento \cita{15}\cita{16}\cita{17}\cita{18} & ETS amortiguado, Theta, Kalman & Tendencia parsimoniosa \\
+Suavizamiento y estado \cita{15}\cita{16}\cita{17}\cita{18} & ETS amortiguado, Theta, Kalman, & Tendencia parsimoniosa \\
+ & tendencia lineal local (LLT) & \\
 Aditivo \cita{19} & Prophet & Tendencia con cambios de régimen \\
 Árboles sobre deltas \cita{20}\cita{21}\cita{22} & XGBoost, LightGBM, CatBoost & Rezagos + regresores, extrapolación \\
 Lineales/profundos \cita{23}\cita{24}\cita{25}\cita{26}\cita{27}\cita{28}\cita{29}\cita{30} & DLinear, NLinear, RLinear, TiDE, & No linealidad y capacidad alta \\
@@ -1423,62 +1443,79 @@ Cada familia aporta un \textit{sesgo inductivo} distinto; explicarlo permite ant
 contrastar empíricamente— cuál encaja con este régimen de tendencia fuerte, estacionalidad casi
 nula y retrogresiones ocasionales.
 
-\paragraph{Referencia: naïve estacional.} Repite el valor de doce meses atrás. No aprende nada,
-pero es el contrato mínimo: la métrica MASE escala el error de cada modelo por el suyo, de modo
-que un valor menor que uno significa haberlo superado. Todos los modelos serios lo baten por
-amplio margen (MASE de hold-out $1.30$), lo que confirma que las series son predecibles.
+\paragraph{Referencia: naïve-1, deriva y naïve estacional.} El naïve estacional repite el
+valor de doce meses atrás; es el denominador de la MASE, y todos los modelos serios lo baten
+por amplio margen (MASE de hold-out $1.249$), lo que confirma que las series son
+predecibles. La línea base que de verdad exige es el \textbf{naïve-1}: repetir el último
+corte publicado, la predicción óptima de un paseo aleatorio. Ninguno de los tres aprende
+nada; el naïve-1, sin embargo, resulta el rival a vencer de todo el capítulo de resultados
+(MASE de hold-out $0.100$ en FAD y $0.086$ en DFF), porque en estas colas casi la mitad de
+los meses no se mueven. La deriva, que añade el avance medio, apenas lo matiza.
 
 \paragraph{Estadísticos lineales: ARIMA y SARIMA \cita{14}.} Modelan la serie como una
 combinación lineal de sus valores y errores pasados; SARIMA añade términos estacionales. Se
 eligen porque las series son fuertemente autorregresivas. Ocupan la zona media (ARIMA $0.157$,
-SARIMA $0.139$ en FAD) y revelan una fragilidad clave: con las series cortas de DFF, SARIMA solo
+SARIMA $0.135$ en FAD) y revelan una fragilidad clave: con las series cortas de DFF, SARIMA solo
 converge en 13 de 25 series (falla numérica \textit{LinAlgError}), un sesgo de supervivencia que
 desmiente su aparente ventaja.
 
-\paragraph{Suavizamiento parsimonioso: ETS amortiguado, Theta y Kalman.} El suavizamiento
-exponencial con tendencia amortiguada\cita{15}\cita{16}, la descomposición de Theta\cita{17} y el filtro de Kalman\cita{18} comparten
-una virtud decisiva: \textbf{pocos parámetros}. Se eligen justo para el régimen observado, donde
-un modelo simple y bien regularizado es difícil de batir. El resultado lo confirma: \textbf{ETS y
-Theta encabezan FAD} (MASE $\approx 0.11$), por delante de todos los modelos de mayor capacidad. Es el
-hallazgo contraintuitivo del proyecto: aquí, menos es más.
+\paragraph{Suavizamiento parsimonioso y espacio de estados: ETS amortiguado, Theta, Kalman y
+tendencia lineal local.} El suavizamiento exponencial con tendencia
+amortiguada\cita{15}\cita{16}, la descomposición de Theta\cita{17}, el filtro de
+Kalman\cita{18} y el modelo estructural de tendencia lineal local (LLT, nivel más pendiente
+en espacio de estados) comparten una virtud decisiva: \textbf{pocos parámetros}. Se eligen
+justo para el régimen observado, donde un modelo simple y bien regularizado es difícil de
+batir. El resultado lo confirma: Theta (selección $0.110$) y ETS son los mejores modelos
+\textit{entrenados} de la familia clásica en FAD, y el LLT ($0.112$) valida que la física de
+estas series es nivel más pendiente. Pero ninguno bate al naïve-1 en el conjunto reservado:
+el hallazgo contraintuitivo del proyecto es que aquí menos es más, hasta el extremo de que
+\textit{no aprender nada} —repetir el último valor— es lo más difícil de superar a un paso.
 
 \paragraph{Aditivo: Prophet \cita{19}.} Descompone la serie en tendencia, estacionalidad y puntos
 de cambio. Se elige por su manejo explícito de cambios de régimen, atractivo ante las
-retrogresiones. Sin embargo, su estructura aditiva y suave \textit{subajusta} (MASE $0.572$): no
+retrogresiones. Sin embargo, su estructura aditiva y suave \textit{subajusta} (MASE $0.553$): no
 reproduce ni la trayectoria escalonada ni los saltos abruptos de las colas migratorias.
 
 \paragraph{Árboles de potenciación de gradiente sobre deltas: XGBoost, LightGBM y CatBoost
 \cita{20}\cita{21}\cita{22}.} Aprenden relaciones no lineales entre rezagos y regresores de calendario. Su
 limitación —no extrapolan más allá del máximo visto en el entrenamiento— se resuelve
 formulándolos sobre la \textbf{primera diferencia}: predicen el avance mensual y lo reintegran.
-Así son plenamente competitivos (CatBoost $0.124$ en FAD) y la optimización de hiperparámetros los
-acerca aún más, pero no los lleva a superar a los parsimoniosos.
+Con sus hiperparámetros optimizados (§1.4.3) encabezan incluso la métrica de selección en FAD
+(XGBoost y LightGBM, $0.101$), pero su error en el conjunto reservado ($0.123$--$0.126$)
+queda por encima del piso del naïve-1 ($0.100$): la capacidad bien regulada acerca, no
+destrona.
 
 \paragraph{Lineales y redes profundas: DLinear, NLinear, RLinear, TiDE, LSTM, DeepAR, ARIMA-LSTM,
 N-BEATS, N-HiTS y TFT \cita{23}\cita{24}\cita{25}\cita{26}\cita{27}\cita{28}\cita{29}\cita{30}.} Abarcan desde proyecciones lineales hasta
 arquitecturas de altísima capacidad. Se incluyen para responder \textit{empíricamente} si la
-capacidad ayuda. \textbf{Entrenadas por serie, fracasan}: con 130 a 296 observaciones se
-sobreajustan y caen por debajo del naïve (el TFT en último lugar, MASE $2.4$ en FAD y $2.7$ en DFF); la cascada
-ARIMA-LSTM ni siquiera converge en las series cortas de DFF. DeepAR merece mención aparte: su
-parametrización probabilística sobre incrementos no se estabiliza, un límite del modelo más que de
-la implementación. La causa es estructural —faltan datos por serie para tanta capacidad— y solo se
-revierte al entrenar de forma global (§2.2).
+capacidad ayuda —y la respuesta exigió una autocorrección de especificación que se documenta
+con transparencia. En las campañas iniciales, entrenadas por serie sobre el nivel crudo,
+caían por debajo del naïve estacional; el diagnóstico reveló que parte de ese fracaso era
+autoinfligido: el escalado se congelaba en la ventana inicial de entrenamiento y obligaba a
+predecir fuera del rango aprendido durante años. Reformuladas sobre la \textbf{primera
+diferencia} (como los árboles) y, en los modelos probabilísticos, promediando 500 muestras
+de la distribución predictiva en lugar de una, se vuelven plenamente competitivas (TFT
+alcanza $0.111$ de selección en FAD; la cascada ARIMA-LSTM sigue sin converger en las series
+cortas de DFF). Aun corregidas, \textbf{ninguna supera el piso del naïve-1}; el
+entrenamiento global sobre el panel (§2.2) les presta señal adicional entre series.
 
-\paragraph{Foundation model: Chronos en modo zero-shot.} Un transformador preentrenado\cita{31} sobre
+\paragraph{Foundation model: Chronos en modo zero-shot.} Un modelo preentrenado\cita{31} sobre
 millones de series, evaluado \textit{sin ajuste alguno} a estos datos. Se incluye para medir
-cuánto vale la transferencia de conocimiento frente a la escasez. Su resultado es revelador: con
-MASE $0.207$ \textbf{supera a todas las redes profundas entrenadas localmente}, prueba de que la
-transferencia vence al entrenamiento local cuando los datos escasean —aunque tampoco alcanza a los
-parsimoniosos.
+cuánto vale la transferencia de conocimiento frente a la escasez. Con MASE de selección
+$0.184$ ocupa la zona media-baja de la tabla: la transferencia aporta un pronóstico
+razonable sin entrenar, pero ya no supera a las redes locales correctamente especificadas ni
+se acerca a los parsimoniosos o al piso ingenuo.
 
 En conjunto, esta comparación de sesgos inductivos anticipa el resultado central del Capítulo de
-resultados: la alta capacidad solo rinde cuando se entrena \textbf{global} sobre el panel, sobre
-la primera diferencia y con normalización por serie, condición bajo la cual las redes profundas
-pasan de fracasar a acercarse a la parsimonia o superarla según el régimen (§2.2).
+resultados: en un panel dominado por meses congelados, el piso del paseo aleatorio a un paso
+no lo supera con significancia ningún modelo puntual —ni parsimonioso, ni de árboles, ni
+profundo, local o global—. La capacidad, bien especificada y bien entrenada, \textit{acerca};
+el valor diferencial del sistema se juega en el horizonte múltiple, la incertidumbre
+calibrada y la coherencia transversal (§2.2).
 
 \subsection{1.3.2 Creación de la arquitectura general del sistema y definición del flujo de trabajo}
 
-Los 21 modelos se exponen tras una interfaz común (\texttt{fit}/\texttt{predict})
+Los 24 modelos se exponen tras una interfaz común (\texttt{fit}/\texttt{predict})
 mediante la biblioteca \textit{darts}, lo que permite una comparación justa y reúsa
 el motor de validación temporal y la generación de bandas probabilísticas sin
 reimplementarlos. El flujo de trabajo es el de la Figura~\ref{fig:arquitectura}: las
@@ -1517,30 +1554,42 @@ conjunto de prueba, para impedir la fuga de información.
 \subsection{1.4.3 Optimización de parámetros y pruebas avanzadas}
 
 Los árboles de potenciación de gradiente se optimizan con \textit{Optuna} \cita{32}
-(muestreo TPE, \textit{Tree-structured Parzen Estimator}, multivariante, semilla fija) bajo un protocolo \textit{anidado y libre de
-fuga}: el objetivo minimiza el error de una cola de validación interna recortada de la
-región de entrenamiento (un ajuste seguido de validación rodante a un paso), de modo que
-el conjunto reservado de 24 meses \textit{nunca} interviene en la búsqueda. Se ajusta un
-único conjunto de hiperparámetros por grupo (FAD/DFF), lo que regulariza con muestras
-pequeñas, y se sesga el espacio de búsqueda hacia la regularización (profundidad y tasa
-de aprendizaje bajas, penalización alta). Como salvaguarda contra el sobreajuste a la
-métrica de selección, una configuración tuneada solo se \textit{acepta} si además mejora
-sobre los valores por defecto en el conjunto reservado; en caso contrario se conserva el
-valor por defecto. Los modelos estadísticos no entran en esta búsqueda porque su propia
-selección por criterio de información (AICc) ya cumple esa función. El efecto de esta
-optimización se reporta en §2.2.
+(muestreo TPE, \textit{Tree-structured Parzen Estimator}, multivariante, semilla fija, con
+poda por mediana y almacenamiento persistente de los estudios) bajo un protocolo
+\textit{anidado y libre de fuga} con \textbf{tres particiones}: la región de selección se
+divide en entrenamiento, una cola de \textit{val-tuning} (24 meses) donde Optuna optimiza, y
+una cola de \textit{val-confirmación} (12 meses) —que ni el buscador ni la configuración
+incumbente vieron jamás— donde se decide la \textbf{aceptación}; el conjunto reservado de 24
+meses queda solo para el número publicado y \textit{nunca} interviene en la búsqueda ni en
+la decisión. El objetivo puntúa únicamente los meses con fecha publicada (máscara $e=F$) y
+descuenta las series pseudo-replicadas del corte mundial, para que la búsqueda no optimice
+meses interpolados ni sobrepondere series repetidas. El presupuesto es real —de 150 a 300
+ensayos por grupo modelo$\times$tabla$\times$bloque, incluidas \textbf{por primera vez las
+categorías de empleo}— y el espacio, amplio y sesgado a la regularización (tasa de
+aprendizaje en escala logarítmica, profundidad, submuestreo de filas y columnas). La regla
+de aceptación compara las medias en val-confirmación y se reporta \textbf{siempre
+acompañada de la mediana y del porcentaje de series que mejoran}, con reversión por serie a
+los valores por defecto cuando estos ganan; el resultado se detalla en §2.2. Para las redes
+globales, la búsqueda incorpora la arquitectura (tamaño oculto, \textit{dropout},
+núcleo) con parada temprana, se ejecuta \textit{una sola vez} y la configuración ganadora se
+reentrena con cinco semillas. Los modelos estadísticos no entran en esta búsqueda porque su
+propia selección por criterio de información (AICc) ya cumple esa función.
 
-Los intervalos de predicción al 95\,\% se generan por dos mecanismos
+Los intervalos de predicción al 95\,\% se generan por tres mecanismos
 complementarios. El primero es el probabilístico: ARIMA, SARIMA y DeepAR muestrean
-su distribución predictiva, de la que se leen los cuantiles 2.5\,\% y 97.5\,\%; este
-camino cubre tanto los modelos estadísticos como el de red neuronal. El segundo es el
-conforme dividido, un método no paramétrico y agnóstico al modelo que fija el
-semiancho a partir del cuantil de los errores absolutos de calibración, con cobertura
-garantizada bajo intercambiabilidad \cita{33}; al no depender del modelo, sirve de red
-de seguridad uniforme para los 21. En una verificación controlada con datos
-intercambiables, el intervalo conforme alcanzó una cobertura empírica del 92\,\%,
-cercana al nivel nominal; sobre las series reales tiende a ser conservador (cobertura
-$\geq$ nominal), como corresponde a su garantía teórica.
+su distribución predictiva, de la que se leen los cuantiles 2.5\,\% y 97.5\,\%. El segundo
+es el conforme dividido, un método no paramétrico y agnóstico al modelo que fija el
+semiancho a partir del cuantil de los errores absolutos de calibración —calculados solo
+sobre meses con fecha publicada—, con cobertura garantizada bajo intercambiabilidad
+\cita{33}; al no depender del modelo, sirve de red de seguridad uniforme para los 24. El
+tercero es el que \textbf{despliega el demostrador}: bandas cuyo semiancho por horizonte
+$h=1,\dots,12$ se calibra con el \textit{cuantil empírico} de los errores realmente
+observados en el registro prospectivo de pronósticos congelados, separadas por tabla y
+nivel (80 y 95\,\%), y ajustadas en línea con inferencia conforme adaptativa (§2.2)
+conforme llegan boletines nuevos; este mecanismo sustituyó al factor de ensanchamiento
+paramétrico único de la primera versión, cuya cobertura se degradaba en los horizontes
+largos. La evaluación de la cobertura empírica se reporta en §2.2 y el detalle operativo en
+el Apéndice~A.8.
 
 % ------------------------------------------------------------
 \subsection{1.4.4 Infraestructura y operaciones (MLOps)}
@@ -1678,21 +1727,23 @@ sobre S3 y el código con Git, todo orquestado por un único guion.}
 El desempeño se mide con cuatro métricas estándar evaluadas solo sobre las
 observaciones con fecha: el error absoluto medio (MAE), la raíz del error cuadrático
 medio (RMSE), el error porcentual absoluto medio simétrico (sMAPE) y el error
-absoluto medio escalado (MASE \cita{34}), este último referido al naïve estacional.
-Un valor de MASE menor que uno indica que el modelo mejora al naïve.
+absoluto medio escalado (MASE \cita{34}), este último referido al naïve estacional
+($m=12$) y reportado en paralelo en su variante escalada por el naïve-1 ($m=1$).
+Un valor de MASE menor que uno indica que el modelo mejora a la línea base ingenua
+correspondiente.
 
 \subsection{1.5.2 Validación de generalización y estabilidad del sistema}
 
 La generalización se evalúa sobre el conjunto de 24 meses reservado, que ningún
 modelo vio durante el ajuste ni la selección. La Figura~\ref{fig:holdout} compara el
-pronóstico del modelo de menor error en esa serie (ETS amortiguado) contra los valores
+pronóstico de un modelo parsimonioso representativo (ETS amortiguado) contra los valores
 reales para México/F3/FAD: el pronóstico sigue la trayectoria real y converge hacia el
 final del horizonte.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.85\textwidth]{results_holdout_mexico_F3_FAD.png}
-\caption[Pronóstico vs. real en el hold-out]{Pronóstico del modelo ganador frente a
+\caption[Pronóstico vs. real en el hold-out]{Pronóstico del modelo ETS amortiguado frente a
 los valores reales sobre el conjunto reservado de 24 meses, México/F3/FAD.}
 \label{fig:holdout}
 \end{figure}
@@ -1704,10 +1755,10 @@ los valores reales sobre el conjunto reservado de 24 meses, México/F3/FAD.}
 
 \section{2.1 Diseño de experimentos}
 
-El experimento somete a los \textbf{21 modelos} al mismo protocolo de validación
+El experimento somete a los \textbf{24 modelos} al mismo protocolo de validación
 walk-forward sobre las \textbf{25 series FAD de preferencia familiar} de las cinco
 áreas piloto (México, India, China, Filipinas y \textit{All Chargeability}), es
-decir, 524 evaluaciones modelo--serie (una combinación falló por un problema numérico
+decir, 600 evaluaciones modelo--serie (una combinación falló por un problema numérico
 y se reporta como ausente, sin abortar el barrido). En cada
 origen, el pronóstico a un paso usa solo información del pasado, de modo que la
 comparación entre modelos está libre de fuga. Las métricas de selección se calculan
@@ -1749,9 +1800,15 @@ tocar nunca el conjunto de prueba. Como el ganador varía entre series (hipótes
 intervalo de predicción conforme—. El \textbf{demostrador desplegado}, en cambio, sirve por
 robustez y simplicidad una \textbf{receta campeona por tabla} (Final Action Dates: mediana de
 Theta+ETS+SARIMA; Dates for Filing: SARIMA), versionada y revisada por el procedimiento
-campeón-retador del Apéndice~A.8; la cartera por serie queda como hallazgo de la evaluación y
-trabajo de despliegue futuro. La significancia de las diferencias entre modelos se contrasta de
-antemano con las pruebas de la §2.2, para no confundir ruido con mejora.
+campeón-retador del Apéndice~A.8. Ese procedimiento incorpora ahora al \textbf{naïve-1 como
+retador formal}: aunque supera al campeón en el pronóstico a un paso del hold-out, su
+promoción se \textbf{retiene} por una decisión de gobernanza documentada —el gate evalúa
+$h=1$, pero el producto sirve horizontes de 1 a 12 meses, donde repetir el último valor se
+degrada— y un despliegue en sombra congela cada mes su añada para decidir con evidencia
+prospectiva multi-horizonte (§2.2 y Apéndice~A.8). La cartera por serie queda como hallazgo
+de la evaluación y trabajo de despliegue futuro. La significancia de las diferencias entre
+modelos se contrasta de antemano con las pruebas de la §2.2, para no confundir ruido con
+mejora.
 
 El Algoritmo~\ref{alg:walkforward} resume el procedimiento de validación: en cada origen del
 hold-out el modelo se entrena \textit{solo} con el pasado, predice un paso y deriva su
@@ -1799,127 +1856,139 @@ $\mathrm{CD}$ & diferencia crítica de la prueba de Nemenyi \\
 
 \section{2.2 Validación de los resultados}
 
-La Tabla~\ref{tab:comparacion_modelos} presenta el desempeño promedio de los 21
-modelos sobre las 25 series. Los modelos estadísticos parsimoniosos lideran:
-\textbf{Theta y ETS con tendencia amortiguada encabezan}
-(MASE $=\factFadChampionMase$ ambos), seguidos de cerca por \textbf{CatBoost} sobre deltas ($0.125$), SARIMA
-($0.135$) y ARIMA ($0.157$). Los árboles de potenciación de gradiente, una vez
-formulados sobre la primera diferencia (para que puedan extrapolar la tendencia),
-resultan plenamente competitivos: CatBoost, XGBoost ($0.165$) y LightGBM ($0.181$)
-figuran en la primera mitad de la tabla. En el otro extremo, los modelos de redes
-neuronales \textit{entrenados localmente} (LSTM, DeepAR y TFT) caen \textbf{por
-debajo del naïve estacional}, con el TFT en último lugar
-($2.419$): con 130 a 296 observaciones por serie, su capacidad se traduce en
-sobreajuste, no en exactitud. El hallazgo más notable es que \textbf{Chronos, un
-\textit{foundation model} preentrenado evaluado en modo zero-shot (sin ajustarse a
-estos datos), obtiene MASE $=0.207$ y supera a todos los modelos profundos entrenados
-localmente}: la transferencia de conocimiento vence a la limitación de datos donde el
-entrenamiento local fracasa. El ganador por serie confirma la heterogeneidad
-(hipótesis H2): CatBoost gana en 10 de las 25 series, ETS en 9 y Theta en 5; ningún
-modelo domina en todas, repartiéndose la victoria entre un árbol y la familia
-estadística parsimoniosa.
+La Tabla~\ref{tab:comparacion_modelos} presenta el desempeño promedio de los 24
+modelos sobre las 25 series, y su lectura es el hallazgo central del proyecto. Por la
+métrica de selección encabezan los árboles con hiperparámetros optimizados (XGBoost y
+LightGBM, $0.101$), seguidos de la deriva ($0.105$) y de Theta ($0.110$, el listón
+parsimonioso de selección). Pero en el conjunto reservado el orden se invierte:
+\textbf{ningún modelo entrenado bate al naïve-1} —repetir el último corte publicado—,
+cuya MASE de hold-out es $0.100$ en media y $0.089$ en mediana. ETS amortiguado
+($\factEtsFadMean$) y Theta ($\factThetaFadMean$) quedan como los mejores modelos
+entrenados; los árboles optimizados ($0.123$--$0.126$) y las redes locales reformuladas
+sobre la primera diferencia (TFT $0.122$, NLinear $0.128$) se agolpan justo detrás, ya
+sin el colapso por sobreajuste de las campañas iniciales; Chronos en modo zero-shot
+($0.291$ de hold-out) y Prophet cierran la parte baja, y solo el naïve estacional
+($1.249$) queda fuera de concurso. La explicación es estructural: con el
+$\factPctFrozen$\,\% de los avances mensuales en cero, ``no moverse'' acierta casi
+siempre a un paso, y el margen restante lo dominan las retrogresiones impredecibles. El
+ganador por serie lo confirma: en la selección la victoria se reparte (XGBoost en 12
+series, LightGBM en 6, Theta y naïve-1 en 2), pero en el conjunto reservado el
+\textbf{naïve-1 gana en 22 de las 25 series}.
 
 \begin{table}[H]
 \centering
 \footnotesize
-\caption[Comparación de los 21 modelos]{Desempeño promedio de los 21 modelos por
-validación walk-forward sobre las 25 series FAD de preferencia familiar. MASE escalada
-por el naïve estacional; menor es mejor. Chronos es zero-shot (sin entrenar).}
+\caption[Comparación de los 24 modelos]{Desempeño promedio de los 24 modelos por
+validación walk-forward sobre las 25 series FAD de preferencia familiar, ordenado por MASE
+de selección (la primera fila en negritas). MASE escalada por el naïve estacional; menor es
+mejor. En el conjunto reservado ningún modelo entrenado supera al naïve-1 ($0.100$).
+Chronos es zero-shot (sin entrenar).}
 \label{tab:comparacion_modelos}
 \begin{tabular}{lcccc}
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Modelo} & \textbf{MASE sel.} & \textbf{MASE hold-out} & \textbf{sMAPE sel.} & \textbf{sMAPE hold-out} \\ \midrule
-Theta & \textbf{0.111} & \textbf{0.113} & 0.43 & 0.30 \\
-ETS (damped) & 0.111 & 0.114 & 0.43 & 0.30 \\
-CatBoost & 0.125 & 0.150 & 0.50 & 0.40 \\
+% --- FAD: 25 series familia, run 20260704T100200-ea94a2a (experiments/make_tex_tables.py) ---
+XGBoost & \textbf{0.101} & \textbf{0.125} & 0.39 & 0.33 \\
+LightGBM & 0.101 & 0.123 & 0.39 & 0.33 \\
+Deriva (\textit{drift}) & 0.105 & 0.126 & 0.40 & 0.33 \\
+Theta & 0.110 & 0.120 & 0.42 & 0.32 \\
+TFT & 0.111 & 0.122 & 0.43 & 0.32 \\
+Tendencia lineal local (LLT) & 0.112 & 0.126 & 0.43 & 0.33 \\
+CatBoost & 0.113 & 0.126 & 0.45 & 0.33 \\
+ETS (damped) & 0.119 & 0.114 & 0.46 & 0.30 \\
+Naïve-1 (paseo aleatorio) & 0.120 & 0.100 & 0.46 & 0.26 \\
+NLinear & 0.124 & 0.128 & 0.49 & 0.34 \\
+DeepAR & 0.125 & 0.157 & 0.50 & 0.43 \\
+LSTM & 0.133 & 0.156 & 0.52 & 0.42 \\
 SARIMA & 0.135 & 0.189 & 0.54 & 0.50 \\
+DLinear & 0.139 & 0.134 & 0.55 & 0.35 \\
+Kalman & 0.147 & 0.166 & 0.58 & 0.46 \\
 ARIMA & 0.157 & 0.141 & 0.65 & 0.38 \\
-NLinear & 0.161 & 0.160 & 0.64 & 0.44 \\
-XGBoost & 0.165 & 0.199 & 0.74 & 0.52 \\
-Kalman & 0.177 & 0.172 & 0.71 & 0.48 \\
-LightGBM & 0.181 & 0.192 & 0.73 & 0.53 \\
-Chronos (zero-shot) & 0.207 & 0.280 & 0.76 & 0.73 \\
-ARIMA-LSTM & 0.386 & 0.704 & 1.41 & 1.79 \\
-DLinear & 0.447 & 0.304 & 1.70 & 0.81 \\
-TiDE & 0.453 & 0.340 & 1.75 & 0.94 \\
-N-HiTS & 0.487 & 0.378 & 1.89 & 1.04 \\
-RLinear (ridge) & 0.497 & 0.142 & 2.09 & 0.38 \\
-Prophet & 0.550 & 0.762 & 2.06 & 2.04 \\
-N-BEATS & 0.618 & 0.352 & 2.37 & 0.95 \\
+ARIMA-LSTM & 0.160 & 0.145 & 0.65 & 0.39 \\
+Chronos (zero-shot) & 0.184 & 0.291 & 0.68 & 0.75 \\
+N-HiTS & 0.193 & 0.180 & 0.81 & 0.49 \\
+N-BEATS & 0.209 & 0.184 & 0.88 & 0.50 \\
+TiDE & 0.254 & 0.186 & 1.13 & 0.50 \\
+RLinear (ridge) & 0.270 & 0.169 & 1.15 & 0.45 \\
+Prophet & 0.553 & 0.765 & 2.07 & 2.04 \\
 Naïve estacional & 0.955 & 1.249 & 3.61 & 3.34 \\
-LSTM & 1.172 & 1.443 & 4.47 & 3.63 \\
-DeepAR & 1.198 & 1.446 & 4.70 & 3.74 \\
-TFT & 2.419 & 2.237 & 9.85 & 6.25 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 Respecto a las hipótesis del Anteproyecto: la hipótesis H1 (que el mejor modelo no
-lineal mejora al lineal en proporción material) \textit{no} se sostiene, aunque el
-margen es estrecho: el mejor no lineal (CatBoost sobre deltas, MASE $=0.125$) queda muy
-cerca pero no supera a los parsimoniosos Theta y ETS ($\factFadChampionMase$). La hipótesis H2
-(heterogeneidad por país-categoría-tabla) sí se sostiene: el modelo ganador varía por
-serie (CatBoost en 10, ETS en 9, Theta en 5), repartido entre un árbol y la familia
-estadística. La significancia de las diferencias se contrasta con la prueba de
+lineal mejora al lineal en proporción material) \textit{no} se sostiene: el mejor no
+lineal en el conjunto reservado (LightGBM optimizado, MASE $=0.123$) no supera de forma
+material a los lineales parsimoniosos (ETS $\factEtsFadMean$), y ninguno de los dos
+alcanza el piso del naïve-1 ($0.100$). La hipótesis H2 (heterogeneidad por
+país-categoría-tabla) se sostiene en la métrica de selección —el ganador se reparte entre
+árboles y familia estadística—, pero el conjunto reservado la matiza: la heterogeneidad
+real está en \textit{cuánto} pierde cada modelo frente al piso ingenuo en cada serie, no
+en quién gana. La significancia de las diferencias se contrasta con la prueba de
 Diebold-Mariano \cita{35} (corrección de Holm) y, dado el tamaño del pool, con el conjunto de
 confianza de modelos (Model Confidence Set) \cita{36} y el ranking de Friedman-Nemenyi
 \cita{37} sobre las 25 series, fijados de antemano.
 
 \paragraph{Resultados sobre la tabla DFF.} Como FAD y DFF se evalúan por separado, el
-mismo protocolo (los 21 modelos) se aplicó a las 25 series DFF de preferencia familiar
-(Tabla~\ref{tab:comparacion_dff}). El patrón confirma el de FAD: lideran de nuevo los
-modelos parsimoniosos, con \textbf{ETS y Theta} a la cabeza
-(MASE de selección $=0.090$), seguidos muy de cerca por \textbf{CatBoost} sobre deltas ($0.094$);
-en estas series más cortas (disponibles solo desde octubre de 2015) los árboles
-—CatBoost, LightGBM ($0.106$) y XGBoost ($0.109$)— escalan posiciones respecto a FAD,
-coherente con su robustez ante muestras pequeñas; la Figura~\ref{fig:ranking} resume el
-desempeño de todo el repertorio sobre ambas tablas. El ganador por serie vuelve a
-repartirse (H2): CatBoost en 10 series, ARIMA en 7 y Theta en 6. Más relevante aún es la
+mismo protocolo (los 24 modelos) se aplicó a las 25 series DFF de preferencia familiar
+(Tabla~\ref{tab:comparacion_dff}). El piso es aquí aún más elocuente: \textbf{naïve-1 y
+Theta empatan exactamente a la cabeza} (selección $0.077$ y hold-out
+$\factNaiveOneDffMean$ ambos): la variante automática de Theta colapsa a un
+comportamiento casi idéntico al paseo aleatorio, una ratificación independiente del piso.
+Les siguen ETS ($\factEtsDffMean$ de hold-out) y, ya optimizados, los árboles CatBoost y
+XGBoost ($0.105$). En estas series más cortas (disponibles solo desde octubre de 2015)
+dos de cada tres avances mensuales son nulos, de modo que ``no moverse'' domina aún más
+que en FAD; la Figura~\ref{fig:ranking} resume el desempeño de todo el repertorio sobre
+ambas tablas. Se mantiene, además, la
 \textbf{fragilidad de los modelos complejos ante datos escasos}: SARIMA solo logró
 ajustarse en 13 de 25 series y ARIMA en 20 (falla numérica \textit{LinAlgError} en
 muestras cortas), y la cascada ARIMA-LSTM \textbf{no pudo ajustarse en ninguna} (se
 omite de la tabla), pues su componente de red requiere más historia que la disponible en
-la ventana inicial de DFF. Las redes profundas (DeepAR, LSTM, TFT) vuelven a caer por
-debajo del naïve. El error de hold-out de SARIMA ($0.100$) aparenta ser el menor, pero
-se promedia solo sobre las 13 series donde convergió —un sesgo de supervivencia— y no es
-comparable con los modelos que corrieron en las 25. Este contraste, y la inviabilidad
-numérica de los modelos de mayor capacidad con pocos datos, es la razón por la que el
-sistema evalúa cada tabla por separado y no asume un único modelo universal.
+la ventana inicial de DFF. El error de hold-out de SARIMA ($0.100$) aparenta competir,
+pero se promedia solo sobre las 13 series donde convergió —un sesgo de supervivencia— y
+no es comparable con los modelos que corrieron en las 25. Este contraste, y la
+inviabilidad numérica de los modelos de mayor capacidad con pocos datos, es la razón por
+la que el sistema evalúa cada tabla por separado y no asume un único modelo universal.
 
 \begin{table}[H]
 \centering
 \footnotesize
-\caption[Comparación de los 21 modelos (DFF)]{Desempeño promedio sobre las 25 series DFF
-de preferencia familiar, ordenado por MASE de selección. Promediado solo sobre las
-series con ajuste exitoso ($n$); la cascada ARIMA-LSTM se omite por no converger en
-ninguna. El hold-out de SARIMA solo cubre 13 series (sesgo de supervivencia).}
+\caption[Comparación de los 24 modelos (DFF)]{Desempeño promedio sobre las 25 series DFF
+de preferencia familiar, ordenado por MASE de selección (la primera fila en negritas;
+naïve-1 y Theta empatan). Promediado solo sobre las series con ajuste exitoso ($n$); la
+cascada ARIMA-LSTM se omite por no converger en ninguna. El hold-out de SARIMA solo cubre
+13 series (sesgo de supervivencia).}
 \label{tab:comparacion_dff}
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{lccccc}
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Modelo} & \textbf{MASE sel.} & \textbf{MASE hold-out} & \textbf{sMAPE sel.} & \textbf{sMAPE hold-out} & \textbf{$n$} \\ \midrule
-ETS (damped) & \textbf{0.090} & \textbf{0.104} & 0.24 & 0.23 & 25 \\
-Theta & 0.090 & 0.105 & 0.24 & 0.24 & 25 \\
-CatBoost & 0.094 & 0.111 & 0.24 & 0.25 & 25 \\
+% --- DFF: 25 series familia, run 20260704T100200-ea94a2a (experiments/make_tex_tables.py) ---
+Naïve-1 (paseo aleatorio) & \textbf{0.077} & \textbf{0.086} & 0.21 & 0.20 & 25 \\
+Theta & 0.077 & 0.086 & 0.21 & 0.20 & 25 \\
+ETS (damped) & 0.084 & 0.094 & 0.23 & 0.22 & 25 \\
+TFT & 0.091 & 0.102 & 0.24 & 0.23 & 25 \\
+XGBoost & 0.093 & 0.105 & 0.25 & 0.24 & 25 \\
+NLinear & 0.093 & 0.109 & 0.26 & 0.24 & 25 \\
+CatBoost & 0.094 & 0.105 & 0.25 & 0.24 & 25 \\
 ARIMA & 0.099 & 0.107 & 0.26 & 0.24 & 20 \\
-LightGBM & 0.106 & 0.124 & 0.28 & 0.29 & 25 \\
-XGBoost & 0.109 & 0.125 & 0.28 & 0.29 & 25 \\
-NLinear & 0.124 & 0.127 & 0.34 & 0.28 & 25 \\
-Chronos (zero-shot) & 0.130 & 0.209 & 0.34 & 0.47 & 25 \\
-Kalman & 0.165 & 0.129 & 0.44 & 0.30 & 25 \\
-Prophet & 0.279 & 0.404 & 0.74 & 0.91 & 25 \\
-N-HiTS & 0.403 & 0.276 & 1.04 & 0.64 & 25 \\
-TiDE & 0.493 & 0.274 & 1.23 & 0.62 & 25 \\
-N-BEATS & 0.525 & 0.383 & 1.34 & 0.84 & 25 \\
-DLinear & 0.915 & 0.318 & 2.29 & 0.69 & 25 \\
+Tendencia lineal local (LLT) & 0.100 & 0.107 & 0.26 & 0.24 & 25 \\
+Deriva (\textit{drift}) & 0.101 & 0.120 & 0.27 & 0.27 & 25 \\
+LightGBM & 0.104 & 0.114 & 0.27 & 0.26 & 25 \\
+LSTM & 0.112 & 0.118 & 0.29 & 0.27 & 25 \\
+DLinear & 0.120 & 0.119 & 0.31 & 0.27 & 25 \\
+N-BEATS & 0.121 & 0.123 & 0.31 & 0.28 & 25 \\
+DeepAR & 0.121 & 0.124 & 0.31 & 0.28 & 25 \\
+N-HiTS & 0.135 & 0.121 & 0.34 & 0.28 & 25 \\
+Chronos (zero-shot) & 0.138 & 0.188 & 0.36 & 0.42 & 25 \\
+Kalman & 0.152 & 0.117 & 0.38 & 0.26 & 25 \\
+TiDE & 0.229 & 0.129 & 0.55 & 0.31 & 25 \\
+Prophet & 0.290 & 0.415 & 0.76 & 0.93 & 25 \\
+RLinear (ridge) & 0.292 & 0.151 & 0.70 & 0.34 & 25 \\
 Naïve estacional & 1.036 & 0.822 & 2.82 & 1.92 & 25 \\
 SARIMA & 1.699 & 0.100 & 0.51 & 0.26 & 13 \\
-DeepAR & 1.759 & 1.723 & 5.04 & 4.97 & 25 \\
-LSTM & 1.872 & 1.679 & 5.30 & 4.55 & 25 \\
-TFT & 2.265 & 2.703 & 6.42 & 7.23 & 25 \\
-RLinear (ridge) & 2.515 & 0.133 & 2.80 & 0.31 & 25 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1930,21 +1999,24 @@ RLinear (ridge) & 2.515 & 0.133 & 2.80 & 0.31 & 25 \\
 \caption[Ranking de desempeño del repertorio de modelos]{Desempeño (MASE de hold-out,
 promediado sobre las 25 series familiares) de cada modelo del repertorio, ordenado de mejor
 a peor; la línea discontinua marca el listón parsimonioso (ETS/Theta en FAD, ETS en DFF) y
-los modelos resaltados son los parsimoniosos líderes. Las redes profundas entrenadas por
-serie quedan fuera de escala (anotadas) por sobreajuste con muestras cortas. En DFF, SARIMA
-aparenta el menor error pero solo converge en 13 de las 25 series (sesgo de supervivencia),
-por lo que no es una referencia comparable.}
+los modelos resaltados son los parsimoniosos líderes; la línea base naïve-1 queda por
+debajo del listón en ambas tablas. Los modelos fuera de escala se anotan aparte. En DFF,
+SARIMA aparenta el menor error pero solo converge en 13 de las 25 series (sesgo de
+supervivencia), por lo que no es una referencia comparable.}
 \label{fig:ranking}
 \end{figure}
 
 La significancia de estas diferencias se formaliza con la prueba de Friedman sobre los
-rangos de los modelos en las 25 series, seguida de la prueba posterior de Nemenyi
+rangos de los modelos en las series (25 en FAD; 14 distintas en DFF tras descontar las
+pseudo-réplicas del corte mundial), seguida de la prueba posterior de Nemenyi
 \cita{37}. El \textbf{diagrama de diferencia crítica} (Figura~\ref{fig:cd}) resume el
 resultado: la prueba de Friedman rechaza la hipótesis de igualdad ($p<0.001$) en ambas
 tablas, y la barra de diferencia crítica (CD) une los modelos cuyo rango promedio no se
-distingue estadísticamente. \textbf{ETS amortiguado obtiene el mejor rango promedio} en FAD
-($2.12$) y DFF ($2.86$), acompañado de Theta y los árboles sobre deltas; las redes profundas
-entrenadas por serie (LSTM, DeepAR, TFT) ocupan, junto al naïve, los últimos lugares.
+distingue estadísticamente. \textbf{El naïve-1 obtiene el mejor rango promedio} en FAD
+($1.28$) y en DFF ($2.68$), seguido de Theta y ETS; de forma consistente, el conjunto de
+confianza de modelos al $90$\,\% \textbf{retiene únicamente al naïve-1 en ambas tablas}:
+ningún modelo entrenado es estadísticamente indistinguible del mejor una vez que la línea
+base ingenua entra al pool. Es el resultado que ancla la narrativa del capítulo.
 
 \begin{figure}[H]
 \centering
@@ -1958,36 +2030,49 @@ estadísticamente significativa en su rango. (a) FAD; (b) DFF.}
 
 \paragraph{Efecto de la optimización de hiperparámetros.} Los tres árboles de
 potenciación de gradiente se optimizaron con \textit{Optuna} \cita{32} bajo el protocolo
-anidado de §1.4.3. La mejora se confirma \textit{sobre el conjunto reservado} —no solo
-sobre la validación interna—, por lo que no es un artefacto de sobreajuste a la métrica
-de selección: en FAD, LightGBM pasa de MASE de hold-out $0.192$ a $0.130$ ($-32$\,\%),
-XGBoost de $0.199$ a $0.144$ ($-28$\,\%) y CatBoost de $0.150$ a $0.135$ ($-10$\,\%); en
-DFF la ganancia es de $4$ a $14$\,\%. Los seis casos mejoran y se aceptan. Ahora bien,
-la optimización \textit{cierra la brecha pero no cambia el veredicto}: los árboles
-tuneados (FAD $0.130$--$0.144$) siguen por encima de los parsimoniosos ETS y Theta
-($\factThetaFadMean$--$\factEtsFadMean$), y en DFF ($0.107$--$0.110$) por encima del listón re-derivado. La capacidad adicional bien regulada
-acerca al modelo complejo, no lo hace superar al simple.
+de tres particiones de §1.4.3, y la aceptación se decidió en la cola de
+\textit{val-confirmación} —una ventana que ni el buscador ni la configuración incumbente
+vieron—, no sobre el conjunto reservado, que queda solo para el número publicado.
+Siguiendo la propia regla del protocolo, el efecto se reporta con \textbf{media, mediana y
+porcentaje de series que mejoran}: se aceptaron \textbf{7 de los 12 grupos}
+modelo$\times$tabla$\times$bloque (entre ellos los tres modelos en FAD familiar, con
+mejoras de media de hasta $4$\,\%, mediana de hasta $17$\,\% y $64$--$72$\,\% de las
+series mejorando con CatBoost); en los cinco grupos restantes —incluidos casos donde la
+media ``ganaba'' pero la mayoría de las series empeoraba— se conservaron los valores por
+defecto, con reversión por serie donde el default gana. Las categorías de empleo se
+optimizaron \textbf{por primera vez}, con dos de sus seis grupos aceptados (CatBoost en
+FAD y LightGBM en DFF, mejoras de $\sim$7\,\% en media). El efecto agregado es visible en la
+Tabla~\ref{tab:comparacion_modelos}: los árboles optimizados encabezan la métrica de
+selección en FAD ($0.101$). Ahora bien, la optimización \textit{cierra la brecha pero no
+cambia el veredicto}: su error en el conjunto reservado ($0.123$--$0.126$) queda a la
+altura de los parsimoniosos ETS y Theta ($\factEtsFadMean$--$\factThetaFadMean$) y por
+encima del piso del naïve-1 ($0.100$). La capacidad adicional bien regulada acerca al
+modelo complejo; no lo hace superar al simple, y a ninguno lo lleva bajo el piso ingenuo.
 
 \paragraph{Combinación de modelos y distribución predictiva.} Se evaluaron, también sin
-fuga, estrategias de conjunto sobre los pronósticos del hold-out \cita{38}. La
-\textit{selección por serie} (elegir para cada serie el modelo de menor error de
-selección) \textit{empeora} respecto al mejor modelo global ($+9.7$\,\% en FAD,
-$+4.3$\,\% en DFF, sobre las series distintas): el criterio de selección no generaliza al hold-out con series tan
-cortas. La media o mediana de un conjunto amplio de siete modelos también queda por
-detrás, arrastrada por los miembros débiles. Solo una \textbf{combinación curada de los
-modelos fuertes} aporta valor: la mediana de Theta, ETS y SARIMA alcanza MASE $=0.1183$
-en FAD sobre las series distintas, prácticamente empatada con el mejor modelo individual en ese mismo conjunto (Theta, $0.1175$); en
-DFF, en cambio, ninguna combinación de modelos por serie mejora a sus miembros. La cota de un selector perfecto (oráculo)
-es apenas $0.1127$ en FAD, lo que confirma que hay poco margen por ganar. En cuanto a la
-\textit{distribución predictiva completa}, medida con el CRPS (\textit{Continuous Ranked Probability Score}) \cita{39} sobre los
-modelos con muestreo nativo, los clásicos producen distribuciones mucho más fieles que
-la red neuronal: ARIMA ($49.5$ días) $<$ SARIMA ($59.8$) $\ll$ DeepAR ($178.6$).
+fuga, estrategias de conjunto \cita{38} implementadas en sus formas fuertes: la
+\textbf{mediana de los mejores $K$ modelos por serie} (elegidos por error de selección,
+$K\in\{2,3,5\}$), un \textit{stacking} global con un único vector de pesos por tabla
+regularizado en el simplex, y un selector de modelo por características de serie
+(meta-aprendizaje sobre el catálogo de características de §1.2). \textbf{Ninguna rompe el
+piso}: sobre las series distintas (15 en FAD, 14 en DFF, descontando las pseudo-réplicas
+del corte mundial), la mejor combinación alcanza MASE $=0.120$ en FAD —peor que el
+naïve-1 en ese mismo conjunto ($0.105$)— y $0.077$ en DFF, donde \textit{empata} con el
+piso ($0.078$) sin superarlo. El dato más revelador es de composición: el propio naïve-1
+resulta elegido como miembro de la combinación óptima en el $38$\,\% de las series FAD y
+en el $84$\,\% de las DFF —los conjuntos ganan \textit{incorporando} al paseo aleatorio,
+no venciéndolo—. En cuanto a la \textit{distribución predictiva completa}, medida con el
+CRPS (\textit{Continuous Ranked Probability Score}) \cita{39}, la receta campeona
+desplegada —que promedia los cuantiles nativos de sus miembros y la banda conforme de los
+que no muestrean— obtiene un CRPS de $32.1$ días en FAD y $31.3$ en DFF, mejor que
+cualquiera de los clásicos con muestreo nativo por separado (ARIMA $49.5$, SARIMA
+$59.8$): la evaluación probabilística acompaña ahora al gate campeón--retador como
+criterio informativo.
 
-\paragraph{Entrenamiento global y aprendizaje profundo.} El fracaso de las redes
-\textit{entrenadas por serie} (Tabla~\ref{tab:comparacion_modelos}) no agota la pregunta
-de si el aprendizaje profundo puede aportar: la práctica moderna entrena un \textbf{modelo
-global} sobre todas las series apiladas, de modo que cada serie corta toma señal
-prestada del resto \cita{38}. Como el modelo global exige series continuas, los meses en
+\paragraph{Entrenamiento global y aprendizaje profundo.} La pregunta de si el
+aprendizaje profundo puede aportar se completa con la práctica moderna de entrenar un
+\textbf{modelo global} sobre todas las series apiladas, de modo que cada serie corta tome
+señal prestada del resto \cita{38}. Como el modelo global exige series continuas, los meses en
 régimen \textit{Current} —en los que, por definición, el cutoff es el mes en curso— se
 codifican con la fecha del propio boletín, en lugar de interpolar linealmente a través del
 periodo. Así las veinticinco series conservan su historia completa con valores
@@ -1995,41 +2080,43 @@ periodo. Así las veinticinco series conservan su historia completa con valores
 sin fabricar datos, y la evaluación permanece sobre fechas específicas (F). Se entrenó así
 un conjunto de arquitecturas recientes
 (N-HiTS, PatchTST\cita{40}, TiDE, BiTCN\cita{41}, TimesNet\cita{42}, TimeMixer\cita{43}, KAN\cita{44}, DeepAR), tanto sobre el nivel
-como sobre la primera diferencia (con reintegración a un paso). El cambio es drástico:
-el mismo tipo de red que entrenada localmente quedaba muy por debajo del naïve pasa, en
-versión global, a ser \textbf{plenamente competitiva} —PatchTST sobre nivel alcanza
-MASE $=0.122$ y BiTCN sobre diferencia $0.128$ (Tabla~\ref{tab:global_deep})—, ya mejor
-que CatBoost y SARIMA.
+como sobre la primera diferencia (con reintegración a un paso). Las mejores
+configuraciones globales —PatchTST sobre nivel alcanza MASE $=0.122$ y BiTCN sobre
+diferencia $0.128$ (Tabla~\ref{tab:global_deep})— compiten con los mejores modelos
+entrenados por serie, y la \textbf{optimización de hiperparámetros con la arquitectura en
+el espacio de búsqueda} (búsqueda única con parada temprana, sin tocar el hold-out; la
+configuración ganadora reentrenada con cinco semillas) lleva a \textbf{AutoBiTCN a MASE
+$=\factAutobitcnFadMean$}: por primera vez un modelo profundo queda \textit{por debajo}
+del par parsimonioso ETS--Theta ($\factEtsFadMean$--$\factThetaFadMean$) en FAD. Agrupar
+en el entrenamiento las series familiares y de empleo con normalización por serie, útil
+en campañas previas, ya no añade ($0.131$). El resultado, sin embargo, se lee contra el
+piso: \textbf{ni siquiera el mejor profundo optimizado alcanza al naïve-1} ($0.100$).
 
-Dos refinamientos adicionales cierran la brecha con los
-parsimoniosos: (a) \textit{agrupar} en el entrenamiento las series familiares
-y de empleo con \textbf{normalización por serie} —para que convivan sus distintas
-escalas— da a cada serie más señal y baja BiTCN a $0.114$ —tocando el listón parsimonioso en esa
-corrida—; y (b) la \textbf{optimización
-de hiperparámetros} con Optuna (búsqueda con validación interna, sin tocar el hold-out)
-lleva a \textbf{AutoBiTCN a MASE $=\factAutobitcnFadMean$ y AutoTiDE a $0.133$}, cerca de ETS y Theta
-($\factThetaFadMean$--$\factEtsFadMean$). Es decir, en FAD \textbf{un único modelo profundo global, bien regularizado,
-se acerca al listón parsimonioso sin alcanzarlo}: el intervalo entre semillas de AutoBiTCN
-roza el listón, pero su media queda por encima. \textbf{En DFF, en cambio, el aprendizaje profundo mantiene una ventaja
-modesta}: BiTCN global —MASE $=0.090$ en media— supera al mejor parsimonioso de cobertura
-completa, que tras añadir un \textbf{Auto-ARIMA con selección de orden por AICc} (MASE media
-$=\factAutoarimaDffMean$, mejor que ETS $=\factEtsDffMean$ y Theta $=\factThetaDffMean$) bajo el mismo walk-forward, queda en
-$\sim$9\,\% —no el $15$\,\% que sugería compararlo contra baselines más débiles— (SARIMA no
-es referencia válida en DFF: numéricamente frágil, MASE $=1.70$ sobre las 25 series y un
-aparente $0.100$ solo sobre las 13 que sobrevive, sesgo de supervivencia). \textbf{La
-ventaja es además sensible a la agregación}: por mediana el Auto-ARIMA ($\factAutoarimaDffMedian$) incluso supera por poco a
-BiTCN ($0.090$), y las $\sim$25 series familiares de DFF colapsan a $\sim$14 distintas al
-descontar la pseudo-replicación del corte mundial compartido, por lo que la muestra efectiva
-es pequeña. La lectura es que el aprendizaje profundo \textit{queda apenas por detrás} de los clásicos en
-series largas (FAD) y los supera por un \textit{margen modesto y frágil} en series cortas
-(DFF), donde el entrenamiento global presta señal entre series. Y cuando aporta, la
-ventaja \textbf{no viene de la capacidad del modelo sino de cómo se entrena}: de forma
+La comparación con el mejor clásico ajustado refuerza la misma lectura. El
+\textbf{Auto-ARIMA con selección de orden por AICc}, re-especificado de forma justa
+—deriva acorde al orden de integración, reentrenamiento mensual como ARIMA/SARIMA y
+selección sobre la serie F cruda— \textit{empeoró} respecto a la especificación anterior:
+MASE media $=\factAutoarimaFadMean$ en FAD (mediana $\factAutoarimaFadMedian$) y
+$\factAutoarimaDffMean$ en DFF (mediana $\factAutoarimaDffMedian$). Frente a él, el BiTCN
+global de DFF —MASE $=0.090$ en media— conserva un margen de
+$\sim$\factDeepDffMarginPct\,\%; pero ese margen \textbf{se evapora al re-anclarlo a la
+línea base honesta}: el naïve-1 promedia $\factNaiveOneDffMean$ en DFF, y la prueba de
+Diebold-Mariano sobre las series distintas ($\sim$14 en DFF tras descontar la
+pseudo-replicación del corte mundial) favorece al paseo aleatorio frente al mejor
+profundo con \textbf{significancia robusta en DFF} ($p=0.002$, estable ante el cambio del
+modelo profundo comparado) y de forma \textit{no} robusta en FAD ($p=0.011$ contra
+AutoBiTCN, pero $p=0.91$ contra BiTCN). Cuando el aprendizaje profundo compite, su
+desempeño \textbf{no viene de la capacidad del modelo sino de cómo se entrena}: de forma
 global (todas las series a la vez), sobre la primera diferencia, con normalización por
-serie y con sus hiperparámetros ajustados sin fuga. Sin esos cuatro ingredientes, las
-mismas redes caen por debajo del naïve. Una excepción notable es DeepAR: su parametrización
-probabilística sobre incrementos no se estabiliza ni con normalización por serie y queda
-muy por detrás de las redes deterministas; el mejor modelo profundo aquí no es el más
-conocido sino BiTCN. La Figura~\ref{fig:hero} presenta el caso más elocuente: el pronóstico a
+serie y con sus hiperparámetros ajustados sin fuga. Una excepción notable es DeepAR
+global: su parametrización probabilística sobre incrementos no se estabiliza ni con
+normalización por serie y queda muy por detrás de las redes deterministas; el mejor
+modelo profundo aquí no es el más conocido sino BiTCN. Complementariamente, se sondearon
+fuera del catálogo un potenciador de gradiente \textit{global} sobre el panel apilado con
+variables estáticas y de dominio, un modelo \textit{hurdle} que separa la probabilidad de
+movimiento de su magnitud, y las variantes automáticas de la familia de suavizamiento
+(AutoETS, AutoTheta, AutoCES): ninguno rompió el piso ingenuo, lo que consolida el
+veredicto. La Figura~\ref{fig:hero} presenta el caso más elocuente: el pronóstico a
 24 meses para México/F1/FAD —la cola familiar que más avanzó en el periodo, casi cuatro años
 de fecha de prioridad ganados de golpe—, donde el modelo sigue el salto y \textbf{ensancha su
 banda de incertidumbre justo donde la trayectoria se vuelve impredecible}, para volver a
@@ -2049,54 +2136,54 @@ fecha de prioridad se expresa en años.}
 \end{figure}
 
 \textit{Confirmación multi-semilla:} para caracterizar la estabilidad,
-ambos resultados se reentrenaron con \textbf{cinco semillas independientes} (Figura~\ref{fig:multiseed}), variando tanto
-la inicialización de pesos como la búsqueda de hiperparámetros (muestreo TPE con semilla
-distinta por corrida). En DFF la ventaja es \textbf{modesta pero estable entre semillas}:
-BiTCN promedia MASE $=0.090$ con desviación $0.0003$ —intervalo de confianza del $95$\,\%
-$[0.0896,\,0.0903]$—, por encima del mejor clásico afinado (Auto-ARIMA $=\factAutoarimaDffMean$ en media,
-$\sim$9\,\%). En FAD el resultado favorece por poco a la
-parsimonia: AutoBiTCN promedia $\factAutobitcnFadMean$ con desviación $0.008$ —intervalo
-$[0.112,\,0.131]$—, un rango cuyo extremo inferior roza el listón parsimonioso ($\factEtsFadMean$)
-pero cuya media queda $\sim$6\,\% por encima. La variación entre corridas a
-semilla fija refleja el nondeterminismo del acelerador, acotado por el propio intervalo. La
-lectura honesta, por tanto, es que el aprendizaje profundo \textbf{supera por un margen
-modesto en DFF y queda apenas por detrás en FAD}: la capacidad adicional rinde —de forma acotada y frágil—
-donde los datos son escasos y la presta el panel, no donde la serie larga ya hace excelente
-a un modelo simple.
+ambos resultados se reentrenaron con \textbf{cinco semillas independientes} (Figura~\ref{fig:multiseed}), variando la
+inicialización de pesos sobre la configuración ganadora de la búsqueda única. En DFF el
+resultado es \textbf{extremadamente estable entre semillas}: BiTCN promedia MASE $=0.090$
+con desviación $0.0003$ —intervalo de confianza del $95$\,\% $[0.0896,\,0.0903]$—, por
+debajo del mejor clásico afinado (Auto-ARIMA $=\factAutoarimaDffMean$ en media) pero por
+encima del piso del naïve-1 ($\factNaiveOneDffMean$). En FAD, AutoBiTCN promedia
+$\factAutobitcnFadMean$ con desviación $0.007$ —intervalo $[0.100,\,0.118]$—, por debajo
+del par ETS--Theta ($\factEtsFadMean$--$\factThetaFadMean$); su extremo inferior toca el
+nivel del naïve-1 ($0.100$), pero su media queda por encima y la diferencia no es
+significativa a su favor. La variación entre corridas a semilla fija refleja el
+nondeterminismo del acelerador, acotado por el propio intervalo. La lectura honesta, por
+tanto, es que el aprendizaje profundo global, bien especificado y optimizado, \textbf{es
+hoy el mejor modelo entrenado del repertorio en FAD y compite en DFF, pero no supera al
+paseo aleatorio en el pronóstico a un paso en ninguna de las dos tablas}.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.82\textwidth]{results_multiseed_ci.pdf}
 \caption[Validación multi-semilla: deep global vs. listón]{Validación con cinco semillas
-independientes del ganador profundo global (variando la inicialización de pesos y la
-búsqueda de hiperparámetros): media e intervalo de confianza al 95\,\% del MASE de hold-out,
-contrastados con el listón parsimonioso y el oráculo de selección perfecta. En DFF el
-intervalo del modelo profundo cae enteramente por debajo del listón (ventaja distinguible);
-en FAD el intervalo del modelo profundo apenas roza el listón desde arriba: la parsimonia
-conserva una ventaja pequeña.}
+independientes del ganador profundo global (variando la inicialización de pesos sobre la
+configuración optimizada): media e intervalo de confianza al 95\,\% del MASE de hold-out,
+contrastados con el listón parsimonioso y, en FAD, con el oráculo de selección perfecta.
+En ambas tablas la media del modelo profundo queda por debajo del listón parsimonioso
+(en FAD por un margen mínimo, con el intervalo cruzándolo); el piso del naïve-1 ($0.100$
+en FAD, $0.086$ en DFF) queda, aun así, fuera de su alcance en media.}
 \label{fig:multiseed}
 \end{figure}
 
-\textit{Dimensión probabilística.} La ventaja del ganador profundo no se limita al punto.
-Dotado de intervalos conformes al $95$\,\% —calibrados sin fuga sobre el pasado de cada
-origen de pronóstico—, BiTCN produce una distribución predictiva \textbf{más afilada que la
-de los modelos clásicos}: su CRPS es de $23.3$ días en DFF y $30.7$ en FAD, frente a los
-$49$–$60$ de ARIMA y SARIMA y los $179$ del DeepAR entrenado localmente. La cobertura
-empírica de esos intervalos es de
-$0.78$ (DFF) y $0.88$ (FAD), por debajo del $95$\,\% nominal —una sub-cobertura esperable de
-la calibración conforme con pocas ventanas y series cortas, que se documenta con
-transparencia en lugar de declararse exacta—. La distribución predictiva del modelo global
-es, por tanto, más afilada que la de los clásicos (mejor CRPS), aunque sus intervalos
-requieren más calibración para alcanzar la cobertura nominal.
+\textit{Dimensión probabilística.} La aportación del profundo global sí es clara en la
+distribución predictiva. Dotado de intervalos conformes al $95$\,\% —calibrados sin fuga
+sobre el pasado de cada origen de pronóstico, con 36 ventanas de calibración y tres
+semillas, lo que elimina el techo estructural de cobertura de la versión inicial—, BiTCN
+produce una distribución \textbf{más afilada que la de los modelos clásicos}: su CRPS es
+de $21.5$ días en DFF y $31.4$ en FAD, frente a los $47$--$60$ de DeepAR, ARIMA y SARIMA.
+La cobertura empírica base de esos intervalos es de $0.87$ (DFF) y $0.89$ (FAD), por
+debajo del $95$\,\% nominal —una sub-cobertura esperable con series cortas, que se
+documenta con transparencia en lugar de declararse exacta—.
 
 \paragraph{Calibración adaptativa de la cobertura.} La sub-cobertura anterior se corrigió
 con \textit{inferencia conforme adaptativa} (Adaptive Conformal Inference) \cita{45}, que ajusta el
-nivel de error en línea tras cada origen de pronóstico en lugar de fijarlo de antemano. Con
+nivel de error en línea tras cada origen de pronóstico en lugar de fijarlo de antemano,
+con su tasa de adaptación elegida solo sobre el tramo de calibración. Con
 esta calibración —leakage-free, sobre el mismo ganador profundo— la cobertura empírica del
-intervalo al $95$\,\% subió de $0.78$ a $0.95$ en DFF y de $0.88$ a $0.92$ en FAD
-(Figura~\ref{fig:coverage}), clavando
-el nivel nominal sin sacrificar el afilado de la distribución predictiva. Es el mecanismo
-que el sistema adopta para reportar intervalos con cobertura verificada.
+intervalo al $95$\,\% subió de $0.87$ a $0.95$ en DFF y de $0.89$ a $0.92$ en FAD, con
+intervalos de confianza que contienen o rozan el nominal
+(Figura~\ref{fig:coverage}). Este mecanismo ya no es un experimento aparte: \textbf{está
+desplegado} —la tasa se actualiza cada mes con los aciertos y fallos del registro
+prospectivo— y es la forma en que el sistema reporta intervalos con cobertura verificada.
 
 \begin{figure}[H]
 \centering
@@ -2111,29 +2198,28 @@ los modelos clásicos, incluido el DeepAR entrenado localmente.}
 \end{figure}
 
 \paragraph{¿Queda margen en la exactitud puntual? La frontera está confirmada.} Para
-acotar el techo de error alcanzable se evaluaron, fuera del marco comparativo principal,
-técnicas adicionales con evidencia empírica en la literatura: \textit{stacking} de
-modelos heterogéneos, selección de modelo por serie basada en características
-(meta-aprendizaje) y un segundo \textit{foundation model} preentrenado (TabPFN-TS)
-\cita{46}, evaluado en modo zero-shot sobre el panel. Ninguna rompe la frontera de exactitud puntual
-en FAD: el \textit{stacking} y el meta-aprendizaje sobreajustan con apenas $25$ series, y
-TabPFN-TS alcanza un MASE de $0.1155$ —cerca del listón parsimonioso ($\factEtsFadMean$), pero
-sin descender al nivel de la frontera de error que marca
-el oráculo de selección perfecta ($\approx 0.113$)—. Que un modelo preentrenado, \textbf{sin ajuste alguno a estos datos}, iguale a
-los mejores modelos entrenados a medida es la evidencia más clara de que el sistema ya
-opera cerca de su error irreducible en FAD: las retrogresiones —saltos abruptos por
-agotamiento de cuotas— son, por naturaleza, impredecibles, y el margen restante en el punto
-es ruido. El margen real de mejora ya no está en la exactitud puntual, sino en la
-calibración de la incertidumbre, donde la inferencia conforme adaptativa sí aporta.
+acotar el techo de error alcanzable se evaluó además, fuera del marco comparativo
+principal, un segundo \textit{foundation model} preentrenado (TabPFN-TS)
+\cita{46} en modo zero-shot sobre el panel: alcanza un MASE de $0.1155$ en FAD —cerca del
+listón parsimonioso ($\factEtsFadMean$), pero por encima del piso del naïve-1
+($0.100$)—. Que un modelo preentrenado, \textbf{sin ajuste alguno a estos datos}, iguale
+a los mejores modelos entrenados a medida, y que ninguno de los 24 modelos, conjuntos y
+sondas adicionales logre a su vez batir con significancia a un paseo aleatorio en el
+pronóstico a un paso, es la evidencia más clara de que el sistema ya opera en la frontera
+del error irreducible: las retrogresiones —saltos abruptos por agotamiento de cuotas—
+son, por naturaleza, impredecibles, y el avance mensual restante es, la mayoría de los
+meses, cero. El margen real de mejora no está en la exactitud puntual a un paso, sino en
+los horizontes largos, en la calibración de la incertidumbre —donde la inferencia
+conforme adaptativa sí aporta— y en la coherencia transversal de los pronósticos.
 
 \begin{table}[H]
 \centering
 \caption[Modelos profundos globales (FAD)]{Modelos profundos entrenados de forma global
 sobre las 25 series FAD familiares y el efecto acumulado de las técnicas de
-entrenamiento. MASE de hold-out; el listón parsimonioso es ETS/Theta $=\factThetaFadMean$--$\factEtsFadMean$. La mejor
-configuración profunda (BiTCN agrupado con normalización por serie) toca el listón en una
-corrida única; sobre cinco semillas, la media del mejor modelo optimizado queda ligeramente
-por encima (validación multi-semilla más abajo).}
+entrenamiento (medias multi-semilla). MASE de hold-out; el listón parsimonioso es
+ETS/Theta $=\factEtsFadMean$--$\factThetaFadMean$ y el piso ingenuo es el naïve-1
+($0.100$). El mejor profundo optimizado queda por debajo del listón parsimonioso pero
+por encima del piso (validación multi-semilla más abajo).}
 \label{tab:global_deep}
 \begin{tabular}{lcc}
 \toprule
@@ -2142,11 +2228,11 @@ por encima (validación multi-semilla más abajo).}
 PatchTST & global, nivel & 0.122 \\
 BiTCN & global, diferencia & 0.128 \\
 TiDE & global, diferencia & 0.133 \\
-AutoTiDE & + optimización (Optuna) & 0.133 \\
-AutoBiTCN & + optimización (Optuna) & \factAutobitcnFadMean \\ \midrule
+BiTCN & + agrupado + norma por serie & 0.131 \\ \midrule
 \rowcolor{uacjyellow!25}
-BiTCN & + agrupado + norma por serie & \textbf{0.114} \\ \midrule
-ETS / Theta \textit{(listón)} & estadístico, por serie & \textit{\factThetaFadMean--\factEtsFadMean} \\ \bottomrule
+AutoBiTCN & + optimización (arquitectura, Optuna) & \textbf{\factAutobitcnFadMean} \\ \midrule
+ETS / Theta \textit{(listón)} & estadístico, por serie & \textit{\factEtsFadMean--\factThetaFadMean} \\
+Naïve-1 \textit{(piso)} & línea base, por serie & \textit{0.100} \\ \bottomrule
 \end{tabular}
 \end{table}
 
@@ -2208,31 +2294,32 @@ menor a un mes— y MAE el error absoluto medio en días sobre todo el lapso de 
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Área} & \textbf{Cat.} & \textbf{Fecha real} & \textbf{Pronóstico} & \textbf{$\Delta$ (días)} & \textbf{MAE (días)} \\ \midrule
-México & F1 & 08-Nov-2007 & 28-Mar-2008 & $+142$ & 105 \\
- & F2A & 01-Jan-2024 & 13-Jul-2024 & $+194$ & 66 \\
- & F2B & 15-Feb-2009 & 18-Feb-2009 & \textbf{$+4$} & 88 \\
- & F3 & 01-Jun-2001 & 30-Apr-2001 & $-32$ & 27 \\
- & F4 & 08-Apr-2001 & 08-Apr-2001 & \textbf{0} & 5 \\
-India & F1 & 01-Feb-2018 & 11-Sep-2017 & $-142$ & 47 \\
- & F2A & 01-Jan-2025 & 10-Jun-2025 & $+161$ & 68 \\
- & F2B & 22-Nov-2017 & 06-Nov-2017 & \textbf{$-16$} & 25 \\
- & F3 & 15-Apr-2012 & 27-Feb-2012 & $-47$ & 44 \\
- & F4 & 01-Nov-2006 & 31-Oct-2006 & \textbf{$-1$} & 14 \\
-China & F1 & 01-Feb-2018 & 11-Sep-2017 & $-142$ & 47 \\
- & F2A & 01-Jan-2025 & 10-Jun-2025 & $+161$ & 68 \\
- & F2B & 22-Nov-2017 & 06-Nov-2017 & \textbf{$-16$} & 25 \\
- & F3 & 15-Apr-2012 & 27-Feb-2012 & $-47$ & 44 \\
- & F4 & 01-Jan-2009 & 12-Dec-2008 & \textbf{$-20$} & 21 \\
-Filipinas & F1 & 01-May-2013 & 02-May-2013 & \textbf{$+2$} & 19 \\
- & F2A & 01-Jan-2025 & 10-Jun-2025 & $+161$ & 68 \\
- & F2B & 15-May-2013 & 10-Apr-2013 & $-35$ & 25 \\
- & F3 & 22-Feb-2006 & 13-Dec-2005 & $-70$ & 58 \\
- & F4 & 01-Aug-2007 & 06-Sep-2007 & $+37$ & 67 \\
-Resto del mundo & F1 & 01-Feb-2018 & 11-Sep-2017 & $-142$ & 47 \\
- & F2A & 01-Jan-2025 & 10-Jun-2025 & $+161$ & 68 \\
- & F2B & 22-Nov-2017 & 06-Nov-2017 & \textbf{$-16$} & 25 \\
- & F3 & 15-Apr-2012 & 27-Feb-2012 & $-47$ & 44 \\
- & F4 & 01-Jan-2009 & 12-Dec-2008 & \textbf{$-20$} & 21 \\
+% --- tab:fcst_fad: reports/prospective/forecast_vs_actual_FAD.csv (make_result_figures.py) ---
+México & F1 & 08-Nov-2007 & 30-Jan-2008 & $+83$ & 125 \\
+ & F2A & 01-Jan-2024 & 19-Mar-2024 & $+78$ & 58 \\
+ & F2B & 15-Feb-2009 & 21-Jan-2009 & \textbf{$-24$} & 103 \\
+ & F3 & 01-Jun-2001 & 27-Apr-2001 & $-35$ & 44 \\
+ & F4 & 08-Apr-2001 & 05-Apr-2001 & \textbf{$-2$} & 8 \\
+India & F1 & 01-Feb-2018 & 12-Oct-2017 & $-111$ & 45 \\
+ & F2A & 01-Jan-2025 & 02-Apr-2025 & $+91$ & 64 \\
+ & F2B & 22-Nov-2017 & 22-Oct-2017 & $-31$ & 28 \\
+ & F3 & 15-Apr-2012 & 01-Mar-2012 & $-44$ & 49 \\
+ & F4 & 01-Nov-2006 & 01-Nov-2006 & \textbf{0} & 19 \\
+China & F1 & 01-Feb-2018 & 12-Oct-2017 & $-111$ & 45 \\
+ & F2A & 01-Jan-2025 & 02-Apr-2025 & $+91$ & 64 \\
+ & F2B & 22-Nov-2017 & 22-Oct-2017 & $-31$ & 28 \\
+ & F3 & 15-Apr-2012 & 01-Mar-2012 & $-44$ & 49 \\
+ & F4 & 01-Jan-2009 & 04-Jan-2009 & \textbf{$+4$} & 19 \\
+Filipinas & F1 & 01-May-2013 & 08-May-2013 & \textbf{$+8$} & 19 \\
+ & F2A & 01-Jan-2025 & 02-Apr-2025 & $+91$ & 64 \\
+ & F2B & 15-May-2013 & 21-Apr-2013 & \textbf{$-24$} & 25 \\
+ & F3 & 22-Feb-2006 & 05-Nov-2005 & $-109$ & 62 \\
+ & F4 & 01-Aug-2007 & 05-Oct-2007 & $+66$ & 70 \\
+Resto del mundo & F1 & 01-Feb-2018 & 12-Oct-2017 & $-111$ & 45 \\
+ & F2A & 01-Jan-2025 & 02-Apr-2025 & $+91$ & 64 \\
+ & F2B & 22-Nov-2017 & 22-Oct-2017 & $-31$ & 28 \\
+ & F3 & 15-Apr-2012 & 01-Mar-2012 & $-44$ & 49 \\
+ & F4 & 01-Jan-2009 & 04-Jan-2009 & \textbf{$+4$} & 19 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -2248,31 +2335,32 @@ $0$~días; las de movimiento rápido concentran el error mayor.}
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Área} & \textbf{Cat.} & \textbf{Fecha real} & \textbf{Pronóstico} & \textbf{$\Delta$ (días)} & \textbf{MAE (días)} \\ \midrule
-México & F1 & 01-Oct-2008 & 05-Apr-2009 & $+186$ & 61 \\
- & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{$+4$} & 36 \\
- & F2B & 15-May-2010 & 19-May-2010 & \textbf{$+5$} & 103 \\
+% --- tab:fcst_dff: reports/prospective/forecast_vs_actual_DFF.csv (make_result_figures.py) ---
+México & F1 & 01-Oct-2008 & 26-Oct-2008 & \textbf{$+25$} & 58 \\
+ & F2A & 22-Feb-2026 & 19-Feb-2026 & \textbf{$-3$} & 32 \\
+ & F2B & 15-May-2010 & 28-May-2010 & \textbf{$+14$} & 91 \\
  & F3 & 15-Jul-2001 & 15-Jul-2001 & \textbf{0} & 1 \\
  & F4 & 30-Apr-2001 & 30-Apr-2001 & \textbf{0} & 0 \\
-India & F1 & 01-Jan-2019 & 10-Oct-2018 & $-83$ & 21 \\
- & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{$+4$} & 36 \\
- & F2B & 08-Jun-2018 & 06-Apr-2018 & $-62$ & 21 \\
- & F3 & 08-Dec-2012 & 11-Dec-2012 & \textbf{$+4$} & 60 \\
- & F4 & 15-Dec-2006 & 15-Dec-2006 & \textbf{0} & 14 \\
-China & F1 & 01-Jan-2019 & 10-Oct-2018 & $-83$ & 21 \\
- & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{$+4$} & 36 \\
- & F2B & 08-Jun-2018 & 06-Apr-2018 & $-62$ & 21 \\
- & F3 & 08-Dec-2012 & 11-Dec-2012 & \textbf{$+4$} & 60 \\
- & F4 & 01-Mar-2010 & 10-Mar-2010 & \textbf{$+10$} & 31 \\
+India & F1 & 01-Jan-2019 & 05-Oct-2018 & $-88$ & 20 \\
+ & F2A & 22-Feb-2026 & 19-Feb-2026 & \textbf{$-3$} & 32 \\
+ & F2B & 08-Jun-2018 & 24-Mar-2018 & $-76$ & 22 \\
+ & F3 & 08-Dec-2012 & 09-Dec-2012 & \textbf{$+1$} & 43 \\
+ & F4 & 15-Dec-2006 & 15-Dec-2006 & \textbf{0} & 11 \\
+China & F1 & 01-Jan-2019 & 05-Oct-2018 & $-88$ & 20 \\
+ & F2A & 22-Feb-2026 & 19-Feb-2026 & \textbf{$-3$} & 32 \\
+ & F2B & 08-Jun-2018 & 24-Mar-2018 & $-76$ & 22 \\
+ & F3 & 08-Dec-2012 & 09-Dec-2012 & \textbf{$+1$} & 43 \\
+ & F4 & 01-Mar-2010 & 21-Feb-2010 & \textbf{$-7$} & 28 \\
 Filipinas & F1 & 22-Apr-2015 & 22-Apr-2015 & \textbf{0} & 0 \\
- & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{$+4$} & 36 \\
+ & F2A & 22-Feb-2026 & 19-Feb-2026 & \textbf{$-3$} & 32 \\
  & F2B & 01-Oct-2013 & 01-Oct-2013 & \textbf{0} & 0 \\
- & F3 & 08-Aug-2006 & 08-Aug-2006 & \textbf{$+1$} & 47 \\
- & F4 & 22-Mar-2008 & 21-Mar-2008 & \textbf{0} & 53 \\
-Resto del mundo & F1 & 01-Jan-2019 & 10-Oct-2018 & $-83$ & 21 \\
- & F2A & 22-Feb-2026 & 25-Feb-2026 & \textbf{$+4$} & 36 \\
- & F2B & 08-Jun-2018 & 06-Apr-2018 & $-62$ & 21 \\
- & F3 & 08-Dec-2012 & 11-Dec-2012 & \textbf{$+4$} & 60 \\
- & F4 & 01-Mar-2010 & 10-Mar-2010 & \textbf{$+10$} & 31 \\
+ & F3 & 08-Aug-2006 & 23-Aug-2006 & \textbf{$+15$} & 48 \\
+ & F4 & 22-Mar-2008 & 22-Mar-2008 & \textbf{$+1$} & 36 \\
+Resto del mundo & F1 & 01-Jan-2019 & 05-Oct-2018 & $-88$ & 20 \\
+ & F2A & 22-Feb-2026 & 19-Feb-2026 & \textbf{$-3$} & 32 \\
+ & F2B & 08-Jun-2018 & 24-Mar-2018 & $-76$ & 22 \\
+ & F3 & 08-Dec-2012 & 09-Dec-2012 & \textbf{$+1$} & 43 \\
+ & F4 & 01-Mar-2010 & 21-Feb-2010 & \textbf{$-7$} & 28 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -2297,36 +2385,41 @@ aplicó a las categorías de preferencia por empleo (EB-1 a EB-5), que extienden
 más allá de las familiares. La cobertura aquí es \textit{escalonada}: de las decenas de
 combinaciones país$\times$categoría EB, muchas carecen de objetivo predictivo porque
 permanecen casi siempre en estado \textit{Current} o \textit{Unavailable} (sin fecha
-específica) o son demasiado cortas; resultan evaluables 31 series en FAD y 16 en DFF,
+específica) o son demasiado cortas; resultan evaluables 30 series en FAD y 16 en DFF,
 concentradas en los países con demanda alta (China, India) y en EB-2/EB-3. El patrón de
-desempeño \textbf{replica al de las familiares} (Tabla~\ref{tab:comparacion_eb}): los
-modelos parsimoniosos lideran el promedio —ETS y Theta encabezan tanto FAD (MASE de
-selección $0.228$ y $0.248$) como DFF ($0.129$ y $0.133$)— mientras que los árboles sobre
-deltas se reparten muchas series individuales (en EB FAD, LightGBM gana en 9 de 31
-series, ETS en 7 y Theta en 6). La heterogeneidad (hipótesis H2) se mantiene en el bloque
-de empleo, lo que confirma que las conclusiones del sistema no son un artefacto de las
-categorías familiares.
+desempeño \textbf{replica el hallazgo central} (Tabla~\ref{tab:comparacion_eb}): las
+líneas base ingenuas y los modelos ligeros encabezan —en FAD la deriva ($0.125$ de MASE
+de selección), el TFT diferenciado ($0.127$) y el naïve-1 ($0.129$); en DFF el naïve-1
+($0.083$) seguido de ETS ($0.093$)— y ningún modelo entrenado abre distancia frente al
+piso ingenuo. Las series EB, más cortas y con congelamientos aún más largos que las
+familiares, castigan además a los modelos rígidos (Theta cae a $0.439$ en FAD). El piso
+del paseo aleatorio se mantiene en el bloque de empleo, lo que confirma que las
+conclusiones del sistema no son un artefacto de las categorías familiares.
 
 \begin{table}[H]
 \centering
 \footnotesize
 \caption[Comparación en categorías de empleo (EB)]{Desempeño promedio (MASE de selección)
-de los modelos competitivos sobre las series EB evaluables: 31 en FAD, 16 en DFF.
-Promediado solo sobre las series con ajuste exitoso. Mismo patrón que en familiares:
-parsimonia y árboles al frente.}
+de los modelos representativos sobre las series EB evaluables: 30 en FAD, 16 en DFF.
+Promediado solo sobre las series con ajuste exitoso (CatBoost y ARIMA cubren menos
+series). Mismo patrón que en familiares: las líneas base ingenuas al frente.}
 \label{tab:comparacion_eb}
 \begin{tabular}{lcc}
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Modelo} & \textbf{EB FAD (MASE sel.)} & \textbf{EB DFF (MASE sel.)} \\ \midrule
-ETS (damped) & \textbf{0.228} & 0.133 \\
-Theta & 0.248 & \textbf{0.129} \\
-ARIMA & 0.278 & 0.141 \\
-LightGBM & 0.281 & 0.146 \\
-CatBoost & 0.285 & 0.167 \\
-XGBoost & 0.297 & 0.190 \\
-Chronos (zero-shot) & 0.362 & 0.197 \\
-Naïve estacional & 1.970 & 1.174 \\ \bottomrule
+% --- model_comparison_EB_{FAD,DFF}21.csv, run 20260704T100200-ea94a2a ---
+Deriva (\textit{drift}) & \textbf{0.125} & 0.110 \\
+TFT & 0.127 & 0.097 \\
+Naïve-1 (paseo aleatorio) & 0.129 & \textbf{0.083} \\
+CatBoost & 0.145 & 0.124 \\
+LightGBM & 0.149 & 0.110 \\
+ETS (damped) & 0.161 & 0.093 \\
+Chronos (zero-shot) & 0.180 & 0.125 \\
+XGBoost & 0.189 & 0.135 \\
+ARIMA & 0.210 & 0.108 \\
+Theta & 0.439 & 0.151 \\
+Naïve estacional & 0.770 & 0.677 \\ \bottomrule
 \end{tabular}
 \end{table}
 
@@ -2334,18 +2427,27 @@ Naïve estacional & 1.970 & 1.174 \\ \bottomrule
 
 La robustez se evalúa por la consistencia del orden de los modelos a través de las
 25 series (cinco áreas $\times$ cinco categorías) y por la estabilidad ante
-perturbaciones controladas (semilla, ventana inicial). El dominio de los modelos
-estadísticos se mantiene en todas las áreas y categorías; las redes neuronales
-muestran la mayor varianza entre series, lo que confirma su sensibilidad a la cantidad
-de datos. La validación con cinco semillas cuantifica esta estabilidad para el ganador
-profundo: en DFF el MASE varía apenas $\pm0.0003$ entre semillas, mientras que en FAD
-—donde interviene la búsqueda de hiperparámetros— la variación sube a $\pm0.008$, reflejo
-de la sensibilidad del ajuste con muestras pequeñas. Una única combinación (SARIMA sobre
-China/F4) falló por inestabilidad
-numérica, lo que ilustra que incluso los modelos clásicos requieren un manejo
-defensivo de excepciones en producción. La cobertura empírica de los
-intervalos al 95\,\% se reporta junto con el desempeño puntual, de modo que la
-incertidumbre declarada sea verificable y no dependa de condiciones particulares.
+perturbaciones controladas (semilla, ventana inicial). El piso del naïve-1 y la posición
+de los parsimoniosos se mantienen en todas las áreas y categorías —también en el bloque
+de empleo—; las redes neuronales muestran la mayor varianza entre series, lo que confirma
+su sensibilidad a la cantidad de datos. La validación con cinco semillas cuantifica esta
+estabilidad para el ganador profundo: en DFF el MASE varía apenas $\pm0.0003$ entre
+semillas, mientras que en FAD la variación sube a $\pm0.007$, reflejo de la sensibilidad
+del ajuste con muestras pequeñas. Una única combinación (SARIMA sobre China/F4) falló por
+inestabilidad numérica, lo que ilustra que incluso los modelos clásicos requieren un
+manejo defensivo de excepciones en producción.
+
+A la robustez estadística se suma la \textbf{coherencia transversal} de los pronósticos
+desplegados, que el dominio impone de forma gratuita: la fecha de un país
+sobre-suscrito no puede rebasar la fecha mundial de su categoría, y la tabla FAD no
+debería rebasar a la DFF de la misma serie. Auditar la añada previamente desplegada
+contra estas restricciones reveló 113 violaciones de país$\leq$mundial en 864 pares
+comparables y 30 de FAD$\leq$DFF en 363; una \textbf{proyección al cono de coherencia},
+incorporada al publicador, las reduce a \textbf{cero} sin degradar el error puntual. El
+contador de violaciones queda como métrica de calidad permanente del despliegue. La
+cobertura empírica de los intervalos al 95\,\% se reporta junto con el desempeño puntual,
+de modo que la incertidumbre declarada sea verificable y no dependa de condiciones
+particulares.
 
 % ============================================================
 % 3. CONCLUSIONES
@@ -2354,54 +2456,65 @@ incertidumbre declarada sea verificable y no dependa de condiciones particulares
 
 Se construyó y validó el sistema predictivo VisaPredict AI sobre las 25 series FAD —y,
 por separado, las 25 series DFF— de preferencia familiar de las cinco áreas piloto,
-integrando la base de datos del Objetivo~1 con un catálogo de \textbf{21 modelos} de
-seis familias bajo un protocolo de validación temporal sin fuga de información.
+integrando la base de datos del Objetivo~1 con un catálogo de \textbf{24 modelos}
+—incluidas las líneas base ingenuas— bajo un protocolo de validación temporal sin fuga de
+información.
 
-\paragraph{Hallazgo principal: por serie, la parsimonia gana.} Contra la intuición de que
-``más capacidad es mejor'', evaluados \textit{por serie} —para fechas de prioridad cortas,
-con tendencia fuerte, estacionalidad casi nula y retrogresiones ocasionales—, \textbf{los
-modelos parsimoniosos encabezan}. Theta y ETS amortiguado lideran FAD (MASE $=\factFadChampionMase$)
-y encabezan también DFF ($0.090$, con CatBoost sobre deltas muy cerca, $0.094$), y todos mejoran al naïve estacional por un
-margen amplio. Las redes profundas entrenadas \textit{localmente} (LSTM, DeepAR, TFT) caen
-por debajo del naïve: con 130 a 296 observaciones por serie su capacidad se traduce en
-sobreajuste, no en exactitud.
+\paragraph{Hallazgo principal: el piso del paseo aleatorio.} El resultado que ordena todo
+el capítulo de resultados es un hallazgo del propio sistema, obtenido al exigirse la línea
+base más honesta posible: en un panel donde el $\factPctFrozen$\,\% de los avances
+mensuales es nulo, \textbf{repetir el último corte publicado (naïve-1) es el rival a
+vencer en el pronóstico a un paso, y ningún modelo puntual lo supera con significancia
+estadística}. El naïve-1 promedia MASE de hold-out $0.100$ en FAD y $0.086$ en DFF —donde
+Theta \textit{empata} con él al colapsar a un comportamiento casi de paseo aleatorio—, el
+conjunto de confianza de modelos al $90$\,\% lo retiene como único miembro en ambas
+tablas, y gana el hold-out en 22 de las 25 series FAD. Documentar este piso con un
+protocolo reproducible, en lugar de omitir la línea base que lo revela, es una decisión de
+honestidad metodológica que da valor de ingeniería al resto del sistema.
 
-\paragraph{¿Conviene la IA? Tres matices y un vuelco.} Tres resultados matizan la
-respuesta: (i) un \textit{foundation model} preentrenado evaluado sin ajuste (Chronos)
-supera a todas las redes entrenadas localmente, mostrando que la transferencia vence a la
-escasez de datos donde el entrenamiento local fracasa; (ii) la optimización de
-hiperparámetros con Optuna mejora a los árboles hasta un $32$\,\% en hold-out, pero los
-acerca a los parsimoniosos sin superarlos; y (iii) ningún conjunto amplio mejora al mejor
-modelo, y la mejor combinación curada de tres modelos fuertes apenas lo empata en
-FAD. El vuelco llega con un cuarto resultado, el más contundente: (iv) entrenado de forma
-\textbf{global} (todas las series a la vez), sobre la \textbf{primera diferencia}, con
-\textbf{normalización por serie} y con sus \textbf{hiperparámetros optimizados} sin fuga,
-el mismo tipo de red que fracasaba localmente pasa a \textbf{competir con los parsimoniosos
-y superarlos donde los datos escasean}: BiTCN logra MASE $=0.090$ en DFF —por debajo del mejor
-parsimonioso de cobertura completa, con el margen reconciliado que cuantifica el veredicto
-abajo— mientras que AutoBiTCN \textbf{se queda a rozar} el listón de ETS/Theta en FAD ($\factAutobitcnFadMean$ frente a $\factThetaFadMean$--$\factEtsFadMean$).
+\paragraph{¿Conviene la IA? Lo que la capacidad sí y no compra.} Cuatro resultados
+precisan la respuesta: (i) la \textbf{especificación importa más que la arquitectura} —al
+reformular las redes locales sobre la primera diferencia dejaron de colapsar y el TFT pasó
+de fuera de escala a la zona alta de la tabla—; (ii) la optimización de hiperparámetros
+con confirmación en una partición independiente mejora a los árboles (7 de 12 grupos
+aceptados, con media, mediana y porcentaje de series reportados juntos) hasta encabezar la
+métrica de selección, sin bajar del piso en el conjunto reservado; (iii) el mejor profundo
+global optimizado (AutoBiTCN, $\factAutobitcnFadMean\pm0.007$) es hoy \textbf{el mejor
+modelo entrenado del repertorio en FAD} —por debajo de ETS/Theta
+($\factEtsFadMean$--$\factThetaFadMean$)— y BiTCN es extremadamente estable en DFF
+($0.090\pm0.0003$, $\sim$\factDeepDffMarginPct\,\% mejor que un Auto-ARIMA re-especificado
+de forma justa), pero la prueba de Diebold-Mariano favorece al paseo aleatorio con
+significancia robusta en DFF y ninguno baja del piso; y (iv) los conjuntos fuertes
+(mediana de los mejores $K$, \textit{stacking} en el simplex, meta-aprendizaje) tampoco lo
+rompen —de hecho \textbf{incorporan al naïve-1 como miembro} en la mayoría de las series
+DFF—. La transferencia (Chronos, TabPFN-TS) se acerca sin entrenar, y tampoco baja del
+piso.
 
-\paragraph{Veredicto: depende del régimen.} Una validación con cinco semillas precisa esta
-lectura: en DFF la ventaja del modelo profundo es \textbf{modesta pero estable entre
-semillas} (media $0.090\pm0.0003$), $\sim$\factDeepDffMarginPct\,\% sobre el mejor clásico afinado (Auto-ARIMA
-$\factAutoarimaDffMean$ en media) —ventaja sensible a la agregación (por mediana el clásico gana por poco) y sobre una muestra
-efectiva pequeña ($\sim$14 series DFF distintas)—, y en FAD favorece por poco a la parsimonia
-(media $\factAutobitcnFadMean\pm0.008$, intervalo $[0.112,\,0.131]$ cuyo extremo inferior roza el listón $\factEtsFadMean$).
-\textbf{El aprendizaje profundo supera por un margen modesto y frágil en DFF} (series cortas,
-donde el entrenamiento global presta señal entre series) \textbf{y queda apenas por detrás de la
-parsimonia en FAD} (series largas, donde un modelo simple ya es óptimo). Cuando aporta, la ventaja \textbf{no
-proviene de la capacidad del modelo sino de cómo se entrena} —de forma global, sobre
-incrementos y con escalado por serie, según se detalla en §2.2—. La respuesta a
-``¿conviene la IA?'', por tanto, es \textit{matizada}: sí en series cortas entrenada como un
-panel; en series largas, un modelo estadístico simple rinde igual o mejor a una fracción del costo.
+\paragraph{Dónde está el valor del sistema.} Si el punto a un paso está dominado por el
+piso ingenuo, el valor del sistema se valida en las cuatro dimensiones que un paseo
+aleatorio no ofrece: (a) \textbf{horizontes de 1 a 12 meses}, donde repetir el último
+valor se degrada conforme las colas se mueven, evaluados con un registro prospectivo de
+\factProspNScoredFmt{} predicciones congeladas y calificadas contra los cortes reales
+(MASE prospectivo $\factProspMase$, MAE $\factProspMaeDays$ días); (b) \textbf{intervalos
+de predicción calibrados por horizonte}, con cuantiles empíricos del propio registro e
+inferencia conforme adaptativa desplegada (cobertura del intervalo al $95$\,\%: $0.92$ en
+FAD y $0.95$ en DFF); (c) \textbf{coherencia transversal} garantizada por proyección al
+cono del dominio (cero violaciones país$\leq$mundial y FAD$\leq$DFF tras el publicador); y
+(d) una \textbf{gobernanza campeón--retador--sombra} que incorporó al naïve-1 como retador
+formal: el gate lo declara promovible a un paso, la promoción se \textbf{retiene} porque
+el gate mide $h=1$ y el producto sirve $h=1..12$, y un despliegue en sombra congela cada
+mes su añada para decidir con evidencia prospectiva multi-horizonte. La respuesta a
+``¿conviene la IA?'' es, por tanto, de ingeniería: la capacidad no compra el punto a un
+paso, pero el \textit{sistema} —horizontes, incertidumbre calibrada, coherencia y
+gobernanza— sí entrega lo que ninguna línea base entrega.
 
 \paragraph{Alcance, reproducibilidad y cobertura del sistema.} El veredicto anterior no es
 una carencia del trabajo sino un hallazgo validado: documenta, con un protocolo reproducible
-y libre de fuga, qué familia de modelos conviene a cada régimen y por qué. La cobertura se
-extendió de las categorías familiares a las basadas en empleo (EB), donde el patrón se
-replica (parsimonia y árboles al frente, heterogeneidad por serie), confirmando que las
-conclusiones no son un artefacto de un subconjunto de categorías. El sistema entrega
-pronósticos con intervalos de predicción al $95$\,\% de cobertura empírica verificada.
+y libre de fuga, contra qué piso debe medirse cualquier modelo en este dominio y dónde
+aporta cada familia. La cobertura se extendió de las categorías familiares a las basadas
+en empleo (EB), donde el piso ingenuo se replica, confirmando que las conclusiones no son
+un artefacto de un subconjunto de categorías. El sistema entrega pronósticos con
+intervalos de predicción al $95$\,\% de cobertura empírica verificada.
 
 \paragraph{Limitaciones y trabajo futuro.} Se reconocen, con transparencia, los límites del
 alcance actual:
@@ -2413,14 +2526,18 @@ país$\times$categoría carecen aún de longitud o continuidad suficientes.
 existe en fuentes de archivo y queda para integración futura.
 \item Los cambios de régimen ($C \leftrightarrow F \leftrightarrow U$) se conservan como
 anotación descriptiva pero no son objetivo predictivo en esta etapa.
+\item El gate campeón--retador evalúa el pronóstico a un paso; la comparación decisiva
+contra el naïve-1 en horizontes largos depende del despliegue en sombra y requiere
+acumular añadas prospectivas antes de decidir la promoción.
 \item La cobertura nominal del intervalo del modelo profundo requiere calibración conforme
-adaptativa; con pocas ventanas y series cortas, la calibración base sub-cubre.
+adaptativa; con series cortas, la calibración base sub-cubre.
 \item Los resultados profundos dependen de un único acelerador y se reportan con su
 variación entre semillas; una verificación en hardware dedicado (GPU) permitiría sumar
 modelos frontera al repertorio.
 \end{enumerate}
-El trabajo futuro prioriza el tratamiento explícito de los cambios de régimen, la extensión
-por país de las categorías de empleo y la integración del archivo histórico 1992--2001.
+El trabajo futuro prioriza la evidencia prospectiva multi-horizonte frente al retador
+ingenuo, el tratamiento explícito de los cambios de régimen, la extensión por país de las
+categorías de empleo y la integración del archivo histórico 1992--2001.
 
 % ============================================================
 % GLOSARIO
@@ -2527,6 +2644,7 @@ por país de las categorías de empleo y la integración del archivo histórico 
 
     \item[N-HiTS] (\textit{Neural Hierarchical Interpolation for Time Series})\hspace{0.3em}Red profunda que pronostica mediante interpolación jerárquica multi-tasa; refinamiento de N-BEATS.
 
+    \item[Naïve-1 (paseo aleatorio)] Línea base que repite el último valor observado, es decir, la predicción óptima bajo un paseo aleatorio (\textit{random walk}). En paneles con alta proporción de meses congelados es el piso operativo que cualquier modelo debe superar para justificarse.
     \item[PACF] (\textit{Partial Autocorrelation Function})\hspace{0.3em}Función que mide la correlación entre la observación actual y observaciones rezagadas eliminando la influencia lineal de los rezagos intermedios.
 
     \item[País de cargabilidad (\textit{chargeability area})] Categoría administrativa bajo la cual el Departamento de Estado contabiliza una solicitud para fines del límite estatutario del 7\,\%. Por defecto coincide con el país de nacimiento del solicitante principal, no con su nacionalidad ni con su país de residencia. Las áreas de cargabilidad reportadas en el \textit{Visa Bulletin} incluyen países individuales (México, India, China, Filipinas, etc.) y la categoría agregada \textit{All Chargeability Areas Except Those Listed}, que NO es un país sino una agrupación residual.
@@ -2548,6 +2666,7 @@ por país de las categorías de empleo y la integración del archivo histórico 
     \item[RMSE] (\textit{Root Mean Squared Error})\hspace{0.3em}Raíz del error cuadrático medio; métrica sensible a errores grandes por su penalización cuadrática.
 
     \item[SARIMA] Extensión estacional de ARIMA que incorpora componentes autorregresivos, de diferenciación y de media móvil a nivel estacional con período $s$.
+    \item[Shadow deployment (despliegue en sombra)] Práctica de operaciones en la que un modelo retador genera y congela predicciones en paralelo al campeón desplegado, sin servirlas al usuario, para acumular evidencia prospectiva antes de decidir su promoción.
 
     \item[sMAPE] (\textit{Symmetric Mean Absolute Percentage Error})\hspace{0.3em}Variante simétrica del MAPE que utiliza el promedio de los valores absolutos observados y predichos en el denominador.
 
@@ -2788,7 +2907,7 @@ nuevos boletines.
 ]
   \node[stage] (d) at (0,0)    {Snapshots HTML\\(S3, congelados)};
   \node[stage] (p) at (3.1,0)  {DAG \texttt{dvc repro}\\datos $\to$ almac\'en};
-  \node[stage] (m) at (6.2,0)  {Pool de 21 modelos\\\textit{walk-forward}};
+  \node[stage] (m) at (6.2,0)  {Pool de 24 modelos\\\textit{walk-forward}};
   \node[stage] (c) at (9.3,0)  {Campe\'on\\(manifiesto)};
   \node[stage] (w) at (12.4,0) {Demostrador web\\+ \textit{leaderboard}};
   \draw[flow] (d)--(p); \draw[flow] (p)--(m); \draw[flow] (m)--(c); \draw[flow] (c)--(w);
@@ -2853,6 +2972,14 @@ Cada corrida de modelado se registra en un almac\'en de experimentos gestionado 
 MLflow~\cita{47}: par\'ametros, m\'etricas (MASE, sMAPE, cobertura), identificador de
 \textit{commit} de Git y artefactos asociados. En total se conservan \textbf{m\'as de
 2\,400 corridas} trazables a lo largo de las campa\~nas de comparaci\'on, ajuste y ensamble.
+Desde la \'ultima campa\~na, cada corrida porta adem\'as el \textbf{identificador de
+campa\~na como clave com\'un} entre los tres registros del proyecto (los CSV de
+resultados, el \textit{ledger} prospectivo y MLflow), de modo que cualquier n\'umero
+publicado se cruza entre ellos sin ambig\"uedad; el linaje incluye el \textit{hash} del
+panel y del grafo de datos —no solo el \textit{commit}— y las campa\~nas can\'onicas
+abortan si el \'arbol de trabajo est\'a sucio, para que ninguna cifra provenga de c\'odigo
+no versionado. La b\'usqueda de hiperpar\'ametros, antes la \'unica etapa sin
+seguimiento, registra ahora cada ensayo y persiste sus estudios completos.
 La Figura~\ref{fig:mlflow_runs} muestra el registro de una de las campa\~nas profundas, con
 sus quince corridas y la procedencia de cada una; esta trazabilidad permite reconstruir
 cualquier resultado reportado a partir del c\'odigo exacto que lo produjo.
@@ -2940,11 +3067,21 @@ solo cambia mediante un procedimiento auditado de campe\'on--retador. Este eval\
 en producci\'on frente a un conjunto de alternativas sobre el hold-out reservado, mediante una
 prueba de rangos con signo de Wilcoxon por serie con control del error por comparaciones
 m\'ultiples, y emite un veredicto: una alternativa solo se recomienda si supera al campe\'on
-con significancia y un margen material. El veredicto vigente \textbf{mantiene la receta
-desplegada en ambas tablas} —su error medio de hold-out es de $0.1183$ (FAD) y $0.0996$
-(DFF)—, lo que justifica estad\'isticamente el modelo en producci\'on. La
-Figura~\ref{fig:mlflow_champion} muestra el registro de este veredicto en el almac\'en de
-experimentos.
+con significancia y un margen material. El veredicto vigente es el m\'as instructivo del
+proyecto: el retador que cruza el umbral en ambas tablas es el \textbf{na\"ive-1} (MASE de
+hold-out $0.105$ frente al campe\'on $0.121$ en FAD; $0.077$ frente a $0.100$ en DFF, con
+significancia bajo la prueba y la correcci\'on ya descritas, y margen material), pero su promoci\'on se \textbf{retiene}
+por una decisi\'on de gobernanza documentada: el gate eval\'ua el pron\'ostico a un paso y
+el producto sirve horizontes de 1 a 12 meses, donde repetir el \'ultimo valor se degrada.
+En su lugar, el procedimiento activ\'o un \textbf{despliegue en sombra}: cada mes, el cron
+congela tambi\'en la a\~nada del retador en un registro paralelo e inmutable
+(\textit{shadow ledger}), de modo que la promoci\'on se decidir\'a con evidencia
+prospectiva multi-horizonte y no con una extrapolaci\'on del gate. La receta campe\'ona
+—mediana de Theta+ETS+SARIMA en FAD y SARIMA en DFF— permanece desplegada, ahora con su
+distribuci\'on predictiva evaluada (CRPS $32.1$/$31.3$ d\'ias como criterio informativo
+del gate) y con las bandas por horizonte e inferencia conforme adaptativa descritas en
+§2.2. La Figura~\ref{fig:mlflow_champion} muestra el registro de este veredicto en el
+almac\'en de experimentos.
 
 \begin{figure}[H]
 \centering
@@ -2961,9 +3098,13 @@ Todo lo anterior se ejecuta en integraci\'on continua. Un primer flujo valida ca
 c\'odigo (lint, verificaci\'on de tipos, suite de pruebas con piso de cobertura, la capa de
 modelado y el guardi\'an de consistencia); un segundo flujo, disparado al publicarse un
 bolet\'in nuevo, reconstruye el panel y el almac\'en de forma incremental, regenera los
-pron\'osticos del demostrador, califica las predicciones previamente congeladas contra los
-cortes reci\'en realizados, actualiza las cifras canónicas y la tarjeta de modelo, ejecuta el
-monitor de \textit{drift} y, si todo pasa, redepliega el demostrador. As\'i, el sistema se
+pron\'osticos del demostrador —proyectados al cono de coherencia y con sus bandas por
+horizonte—, califica las predicciones previamente congeladas contra los cortes reci\'en
+realizados, congela en paralelo la a\~nada del retador en sombra, actualiza la tasa de la
+inferencia conforme adaptativa con los aciertos y fallos del registro, ejecuta el
+veredicto campe\'on--retador, actualiza las cifras canónicas y la tarjeta de modelo,
+ejecuta el monitor de \textit{drift} (que compara ahora mezclas equivalentes de
+horizontes) y, si todo pasa, redepliega el demostrador. As\'i, el sistema se
 mantiene reproducible, auditado y al d\'ia sin intervenci\'on manual.
 
 % ============================================================

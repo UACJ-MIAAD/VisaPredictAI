@@ -844,7 +844,7 @@
         "ets",
         "sarima"
       ],
-      "mase": NaN,
+      "mase": null,
       "smape": 0.2574,
       "cov95_holdout": 1.0,
       "cov95_holdout_n": 4,

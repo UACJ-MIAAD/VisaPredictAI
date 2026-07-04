@@ -40,25 +40,31 @@ distintos, no solo color), PDF vectorial.
 (ver el análisis completo en `PAPER_PROSPECTIVE_DRAFT.md` (este directorio) y la auditoría)
 
 - **Reencuadre como paper de aplicación** (dataset + protocolo prospectivo), no de métodos.
-- **Números honestos:** hold-out MASE 0.117 marcado como *señal de selección, no precisión live*;
+- **Números honestos:** hold-out MASE ~0.11 marcado como *señal de selección, no precisión live*;
   prospectivo MASE 0.347 / MAE 146 d como titular; gap 3× **declarado**.
 - **cov95 = 0.92 < nominal** reportado como under-coverage honesta; banda 80 % calibrada en
-  split disjunto (cov80 held-out 0.81), no circular.
-- **FAD = la parsimonia conserva un margen pequeño** (deep AutoBiTCN 0.121 vs listón ETS/Theta 0.113–0.114; Auto-ARIMA 0.156 peor); **DFF = ventaja modesta y frágil** del deep (BiTCN 0.090 vs Auto-ARIMA 0.099 media, ~9 %; sensible a la agregación, muestra efectiva ~14 series). MCS = {ETS, Theta} en ambas.
+  split disjunto (cov80 held-out 0.81), no circular; bandas desplegadas por **cuantil empírico
+  por horizonte** + ACI (sustituye al heurístico √h, cuyo cov80 h12 caía a 0.72).
+- **El piso del paseo aleatorio como HALLAZGO insignia** (re-campaña AQ, 4-jul-2026): con 45 %
+  de avances mensuales nulos, el naïve-1 gana el hold-out en ambas tablas (FAD 0.100 media /
+  0.089 mediana; DFF 0.086, empate exacto con Theta) y **MCS = {naive1} en ambas**; DM favorece
+  al RW con significancia robusta en DFF (p≈0.002) y no robusta en FAD. El deep AutoBiTCN
+  (0.109) queda por debajo de ETS/Theta (0.114/0.120) pero no del piso; el margen deep-DFF
+  vs Auto-ARIMA justo (0.114 media / 0.102 mediana) es ~21 % pero se disuelve contra naïve-1.
+  Gobernanza: naïve-1 promovible por el gate a h=1, promoción **retenida** (el producto es
+  h=1..12) + despliegue en sombra mensual.
 - **`\paragraph{Leakage prevention}`** (ventana expansible, lags pre-origen, rollout recursivo,
   escala MASE pre-origen, congelado en fecha de origen) + máscara F-only explícita.
-- **√h = heurístico** (sin garantía multi-paso); cobertura empírica reportada, no "garantizada".
 - **194 estructurales / 74 evaluables**; "deployed" → "evaluated"; demo RAG = artefacto, no contribución.
 - **Ética/disponibilidad** (datos públicos agregados, sin IRB, no asesoría legal) + **apéndice de
   reproducibilidad** (versiones pin-eadas py3.14, semillas, walk-forward, provenance = scorecard+git SHA).
-- **Amenazas de validez** declaradas: √h, n efectivo (3 añadas), pseudo-replicación RoW,
-  dependencia hardware/semilla, supervivencia.
+- **Amenazas de validez** declaradas: cuantiles por horizonte sin garantía multi-paso, n efectivo
+  (3 añadas), pseudo-replicación RoW, dependencia hardware/semilla, supervivencia.
 
 ## Pendiente para la sesión con el asesor (no son cambios de código)
 
-- [ ] Tabla numérica **DM/Holm + MCS** y **Friedman–Nemenyi** para el benchmark de 21 modelos
-      (los datos están en `reports/`; falta volcarlos a una tabla del `.tex`).
-- [ ] Re-implementar **Auto-ARIMA/SARIMA afinado** como fila de baseline explícita bajo el mismo
-      walk-forward (pre-empta "venciste strawmen").
+- [x] Tabla numérica **MCS + Friedman–Nemenyi** para el benchmark de 24 modelos (tab:significance).
+- [x] **Auto-ARIMA afinado** como fila de baseline explícita bajo el mismo walk-forward
+      (spec justa: drift + retrain mensual + AICc sobre F cruda).
 - [ ] Rellenar el bloque de autor camera-ready + URLs de repo/sitio (hoy comentados para doble-ciego).
-- [ ] Pulir los 2 overfull hboxes menores y la prosa con el Dr. Chente.
+- [ ] Pulir los overfull hboxes menores y la prosa con el Dr. Chente.
