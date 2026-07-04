@@ -159,7 +159,9 @@ def holdout_report(tuned_path: Path = TUNED) -> pd.DataFrame:
                         model, country, category, tb, model=tune._build_tuned(model, dict(params))
                     )
                     d_res = walkforward.backtest(model, country, category, tb, model=models.build_model(model))
-                except (ValueError, KeyError) as e:
+                except Exception as e:  # noqa: BLE001 — report loop: a frozen series
+                    # (e.g. CatBoostError "All train targets are equal" on all-zero
+                    # deltas) must not kill the whole holdout report.
                     log.warning("holdout skip %s %s/%s: %s", model, country, category, e)
                     continue
                 rows.append(
