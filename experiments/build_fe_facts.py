@@ -146,6 +146,23 @@ def build() -> dict:
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(facts, indent=1, ensure_ascii=False) + "\n")
+
+    # Macros LaTeX (patrón key_facts.tex): la nota de FE del .tex cita la selección
+    # sin tipear cifras a mano; una re-campaña actualiza las macros, no la prosa.
+    fs = facts["feature_selection"]
+    sel_name = (fs["selected"][0] if fs["selected"] else "—").replace("_", r"\_")
+    tex = [
+        "% Auto-generado por experiments/build_fe_facts.py — \\input este archivo y usa \\feFactXxx.\n",
+        f"\\newcommand{{\\feFactVersion}}{{{facts['fe_version']}}}\n",
+        f"\\newcommand{{\\feFactSelIn}}{{{fs['n_features_in']}}}\n",
+        f"\\newcommand{{\\feFactSelRelevant}}{{{fs['n_relevant']}}}\n",
+        f"\\newcommand{{\\feFactSelFinal}}{{{fs['n_selected']}}}\n",
+        f"\\newcommand{{\\feFactSelSeries}}{{{fs['n_series']}}}\n",
+        f"\\newcommand{{\\feFactSelName}}{{{sel_name}}}\n",
+        f"\\newcommand{{\\feFactNCleanDecisions}}{{{len(facts['cleaning_decisions'])}}}\n",
+        f"\\newcommand{{\\feFactNFeDecisions}}{{{len(facts['fe_decisions'])}}}\n",
+    ]
+    (ROOT / "reports" / "latex" / "fe_facts.tex").write_text("".join(tex))
     return facts
 
 

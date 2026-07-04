@@ -484,7 +484,18 @@ def page_ledger(pdf: PdfPages, facts: dict, rt: dict, mes: str, anio: int, page_
     y = 0.84
     for i, (key, label) in enumerate(rt["ledger_rows"]):
         if i % 2 == 1:
-            ax.add_patch(plt.Rectangle((0.04, y - 0.012, ), 0.92, 0.036, color=STRIPE, zorder=0))
+            ax.add_patch(
+                plt.Rectangle(
+                    (
+                        0.04,
+                        y - 0.012,
+                    ),
+                    0.92,
+                    0.036,
+                    color=STRIPE,
+                    zorder=0,
+                )
+            )
         ax.text(0.07, y, label, fontsize=9.5, color=INK, va="center")
         ax.text(0.90, y, flat[key], fontsize=10, color=BLUE, fontweight="bold", ha="right", va="center")
         y -= 0.036

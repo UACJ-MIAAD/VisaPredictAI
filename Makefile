@@ -3,7 +3,7 @@
 PY ?= ante/bin/python
 DVC ?= ante/bin/dvc
 
-.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger model-card drift figures audit test test-model lint typecheck check all update eda eda-facts eda-all eda-report compare report validate key-facts consistency web-forecasts score-forecasts derive-band80 significance auto-arima paper-figures sync
+.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger model-card drift figures audit test test-model lint typecheck check all update eda eda-facts eda-all eda-report fe-facts fe-figures fe-report fe-all compare report validate key-facts consistency web-forecasts score-forecasts derive-band80 significance auto-arima paper-figures sync
 
 help:
 	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"
@@ -12,6 +12,10 @@ help:
 	@echo "eda-facts  - panel-wide EDA census -> reports/eda/eda_facts.json"
 	@echo "eda-all    - full EDA: census + per-series + distributional + gallery figures"
 	@echo "eda-report - standalone EDA PDF report -> reports/eda/eda_report.pdf"
+	@echo "fe-facts   - FE + cleaning catalog -> reports/fe/fe_facts.json"
+	@echo "fe-figures - bilingual FE gallery (7 figs x 4 variants) + .tex PDFs"
+	@echo "fe-report  - standalone bilingual FE PDF report -> reports/fe/fe_report.pdf (+ en/)"
+	@echo "fe-all     - full FE: catalog + gallery + report"
 	@echo "compare  - walk-forward comparison of the 8 models -> reports/eval/model_comparison.csv"
 	@echo "report   - results table + holdout figure from the comparison"
 	@echo "web-forecasts   - per-series 12-month forecasts for the web demo + archive vintage (needs db)"
@@ -113,6 +117,18 @@ eda-all: eda-facts eda  ## EDA COMPLETO: censo + figuras per-series + distribuci
 
 eda-report:  ## reporte PDF standalone del EDA (galería + hallazgos) -> reports/eda/eda_report.pdf
 	$(PY) experiments/build_eda_report.py
+
+fe-facts:  ## catálogo FE + limpieza (decisiones, ledger, selección FRESH) -> reports/fe/fe_facts.json
+	$(PY) experiments/build_fe_facts.py
+
+fe-figures:  ## galería FE bilingüe f01-f07 (es/en × clara/oscura) + PDFs vector del .tex
+	$(PY) experiments/make_fe_figures.py
+
+fe-report:  ## reporte PDF bilingüe de FE/limpieza -> reports/fe/fe_report.pdf (+ en/) y su test
+	$(PY) experiments/build_fe_report.py
+	$(PY) tests/test_fe_report.py
+
+fe-all: fe-facts fe-figures fe-report  ## FE COMPLETO: catálogo + galería + reporte
 
 compare:
 	$(PY) -m vp_model.run_comparison

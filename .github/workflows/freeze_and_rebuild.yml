@@ -250,12 +250,13 @@ jobs:
         python tools/check_consistency.py > /tmp/consistency.txt 2>&1 || true
         tail -5 /tmp/consistency.txt
 
-    - name: EDA vivo (censo + figuras + reporte) — commit propio, no bloquea forecasts
+    - name: EDA + FE vivos (censo + catálogo + figuras + reportes) — commit propio, no bloquea forecasts
       id: eda
-      # 4g (plan EDA brutal, reestructurado tras el audit 3-jul H1): corre DESPUÉS del
-      # commit de modelado para que un fallo aquí no cancele la publicación del mes de
-      # forecasts/key_facts. continue-on-error: el redeploy de Netlify no depende del
-      # EDA; el correo SES reporta el fallo (marker en /tmp/eda.txt) y el humano decide.
+      # 4g (plan EDA brutal, reestructurado tras el audit 3-jul H1; épica AF ext.): corre
+      # DESPUÉS del commit de modelado para que un fallo aquí no cancele la publicación del
+      # mes de forecasts/key_facts. continue-on-error: el redeploy de Netlify no depende de
+      # EDA/FE; el correo SES reporta el fallo (markers /tmp/eda.txt + /tmp/fe.txt) y el
+      # humano decide. El bloque es todo-o-nada: un fallo NO comitea artefactos parciales.
       if: steps.run.outputs.rebuilt == 'true'
       continue-on-error: true
       run: |
@@ -271,20 +272,28 @@ jobs:
           python experiments/build_eda_report.py
           python tests/test_eda_facts.py
           python tests/test_eda_report.py
+          # FE vivo (AF): catálogo fe_facts + galería f01-f07 (4 variantes) + reporte
+          # bilingüe; su test valida stats embebidos vs fe_facts y la galería 4x7.
+          python experiments/build_fe_facts.py
+          python experiments/make_fe_figures.py
+          python experiments/build_fe_report.py
+          python tests/test_fe_report.py
         }
         if ! run_eda; then
           echo "EDA vivo: FALLÓ este run (artefactos del mes anterior siguen publicados; ver logs)" > /tmp/eda.txt
+          echo "FE vivo: FALLÓ este run (bloque EDA+FE todo-o-nada; ver logs)" > /tmp/fe.txt
           exit 1
         fi
         python -c "import json;f=json.load(open('reports/eda/eda_facts.json'));p=f['panel'];print(f\"EDA {f['vintage']}: {p['n_series_structural']} series censadas, {p['n_series_evaluable']} evaluables, reporte OK\")" > /tmp/eda.txt
+        python -c "import json;f=json.load(open('reports/fe/fe_facts.json'));fs=f['feature_selection'];print(f\"FE {f['vintage']}: {len(f['fe_decisions'])}+{len(f['cleaning_decisions'])} decisiones, selección {fs['n_features_in']}->{fs['n_selected']}, reportes ES+EN OK\")" > /tmp/fe.txt
         # Identidad propia: en la ruta self-heal ningún paso previo la configura.
         git config --local user.email "168046724+jrebull@users.noreply.github.com"
         git config --local user.name "Javier Rebull"
         git add reports
         if git diff --cached --quiet; then
-          echo "EDA sin cambios -- nada que comitear."
+          echo "EDA/FE sin cambios -- nada que comitear."
         else
-          git commit -m "Update living EDA (census, gallery, report)"
+          git commit -m "Update living EDA + FE (census, catalog, galleries, reports)"
           git pull --rebase origin main
           git push
           echo "pushed=true" >> "$GITHUB_OUTPUT"
@@ -346,13 +355,18 @@ jobs:
         if [ -f /tmp/eda.txt ]; then
           EDA_LINE=$(tr -d '"\\' < /tmp/eda.txt)
         fi
+        # FE vivo (AF): catálogo + galería + reportes bilingües del mismo bloque.
+        FE_LINE="n/d (sin rebuild este run)"
+        if [ -f /tmp/fe.txt ]; then
+          FE_LINE=$(tr -d '"\\' < /tmp/fe.txt)
+        fi
         cat > /tmp/ses.json <<JSON
         {
           "FromEmailAddress": "VisaPredict CI <noreply@visapredictai.com>",
           "Destination": {"ToAddresses": ["al263483@alumnos.uacj.mx"]},
           "Content": {"Simple": {
             "Subject": {"Data": "VisaPredict | corrida $JOB_STATUS — $NEW boletín(es) nuevo(s)"},
-            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nEDA vivo: $EDA_LINE\nLogs: $RUN_URL"}}
+            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nEDA vivo: $EDA_LINE\nFE vivo: $FE_LINE\nLogs: $RUN_URL"}}
           }}
         }
         JSON
