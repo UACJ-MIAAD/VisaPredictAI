@@ -69,6 +69,7 @@ VisaPredictAI/
 ├── reports/eval/                       # evaluación retrospectiva (comparaciones, significancia, tuning, PI, CRPS, holdouts)
 ├── reports/prospective/                # ledger prospectivo (web_forecasts, forecast_log, scorecard, vs_actual)
 ├── reports/governance/                 # fuente de verdad y veredictos (key_facts, MODEL_CARD, champion, drift, auditorías)
+├── reports/eda/                        # EDA vivo: eda_facts.json (censo 194 series) + gallery/ G1–G11 en 4 variantes (ES/EN × claro/oscuro) + eda_report.pdf
 ├── tests/                              # pytest: parsers · extracción offline · contrato del panel + BD
 ├── data/snapshots/                     # HTML crudo congelado (gitignored; máster en S3)
 ├── data/raw/                           # CSVs por país (derivados de los snapshots, versionados)
