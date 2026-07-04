@@ -380,7 +380,7 @@ def test_deep_auto_spaces_have_architecture_and_early_stop(monkeypatch):
         return optuna.create_study(sampler=optuna.samplers.RandomSampler(seed=0)).ask()
 
     cfg = deep._cfg_bitcn(ask())
-    assert {"hidden_size", "dropout", "kernel_size"} <= set(cfg)
+    assert {"hidden_size", "dropout"} <= set(cfg)  # kernel_size is not a BiTCN param in this neuralforecast
     assert cfg["hidden_size"] in (8, 16, 32)
     assert cfg["max_steps"] == deep.MAX_STEPS_HPO == 2000
     assert cfg["early_stop_patience_steps"] == 10 and cfg["val_check_steps"] == 25
