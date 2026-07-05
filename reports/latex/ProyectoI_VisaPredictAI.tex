@@ -1872,7 +1872,8 @@ sin el colapso por sobreajuste de las campañas iniciales; Chronos en modo zero-
 $\factPctFrozen$\,\% de los avances mensuales en cero, ``no moverse'' acierta casi
 siempre a un paso, y el margen restante lo dominan las retrogresiones impredecibles. El
 ganador por serie lo confirma: en la selección la victoria se reparte (XGBoost en 12
-series, LightGBM en 6, Theta y naïve-1 en 2), pero en el conjunto reservado el
+series, LightGBM en 6, Theta, naïve-1 y ARIMA-LSTM en 2 cada uno, y CatBoost en 1), pero
+en el conjunto reservado el
 \textbf{naïve-1 gana en 22 de las 25 series}.
 
 \begin{table}[H]
@@ -1926,7 +1927,7 @@ país-categoría-tabla) se sostiene en la métrica de selección —el ganador s
 árboles y familia estadística—, pero el conjunto reservado la matiza: la heterogeneidad
 real está en \textit{cuánto} pierde cada modelo frente al piso ingenuo en cada serie, no
 en quién gana. La significancia de las diferencias se contrasta con la prueba de
-Diebold-Mariano \cita{35} (corrección de Holm) y, dado el tamaño del pool, con el conjunto de
+Diebold-Mariano \cita{35} —una única comparación pre-registrada por tabla— y, dado el tamaño del pool, con el conjunto de
 confianza de modelos (Model Confidence Set) \cita{36} y el ranking de Friedman-Nemenyi
 \cita{37} sobre las 25 series, fijados de antemano.
 
@@ -2037,9 +2038,12 @@ Siguiendo la propia regla del protocolo, el efecto se reporta con \textbf{media,
 porcentaje de series que mejoran}: se aceptaron \textbf{7 de los 12 grupos}
 modelo$\times$tabla$\times$bloque (entre ellos los tres modelos en FAD familiar, con
 mejoras de media de hasta $4$\,\%, mediana de hasta $17$\,\% y $64$--$72$\,\% de las
-series mejorando con CatBoost); en los cinco grupos restantes —incluidos casos donde la
-media ``ganaba'' pero la mayoría de las series empeoraba— se conservaron los valores por
-defecto, con reversión por serie donde el default gana. Las categorías de empleo se
+series mejorando con CatBoost); en los cinco grupos restantes se conservaron los valores
+por defecto, con reversión por serie donde el default gana. El rechazo más instructivo
+fue LightGBM en DFF familiar: la mediana lucía una mejora de $18$\,\%, pero solo el
+$36$\,\% de las series mejoraba y la media empeoraba $9$\,\% —exactamente el tipo de
+espejismo de agregación que la regla de reportar media, mediana y porcentaje de series
+está diseñada para cazar. Las categorías de empleo se
 optimizaron \textbf{por primera vez}, con dos de sus seis grupos aceptados (CatBoost en
 FAD y LightGBM en DFF, mejoras de $\sim$7\,\% en media). El efecto agregado es visible en la
 Tabla~\ref{tab:comparacion_modelos}: los árboles optimizados encabezan la métrica de
@@ -2055,12 +2059,14 @@ fuga, estrategias de conjunto \cita{38} implementadas en sus formas fuertes: la
 $K\in\{2,3,5\}$), un \textit{stacking} global con un único vector de pesos por tabla
 regularizado en el simplex, y un selector de modelo por características de serie
 (meta-aprendizaje sobre el catálogo de características de §1.2). \textbf{Ninguna rompe el
-piso}: sobre las series distintas (15 en FAD, 14 en DFF, descontando las pseudo-réplicas
-del corte mundial), la mejor combinación alcanza MASE $=0.120$ en FAD —peor que el
-naïve-1 en ese mismo conjunto ($0.105$)— y $0.077$ en DFF, donde \textit{empata} con el
-piso ($0.078$) sin superarlo. El dato más revelador es de composición: el propio naïve-1
-resulta elegido como miembro de la combinación óptima en el $38$\,\% de las series FAD y
-en el $84$\,\% de las DFF —los conjuntos ganan \textit{incorporando} al paseo aleatorio,
+piso}: comparando medias de MASE de hold-out sobre las mismas series distintas (15 en
+FAD, 14 en DFF, descontando las pseudo-réplicas del corte mundial), la mejor combinación
+alcanza $0.120$ en FAD —peor que el naïve-1 en ese mismo conjunto ($0.105$)— y $0.077$
+en DFF, donde \textit{empata} con el piso (también $0.077$ en media sobre esas series)
+sin superarlo. El dato más revelador es de composición: agrupando $K\in\{2,3,5\}$ sobre
+las series distintas, el propio naïve-1 resulta elegido como miembro de la combinación
+óptima en el $40$\,\% de las combinaciones serie$\times K$ de FAD y en el $90$\,\% de
+las de DFF —los conjuntos ganan \textit{incorporando} al paseo aleatorio,
 no venciéndolo—. En cuanto a la \textit{distribución predictiva completa}, medida con el
 CRPS (\textit{Continuous Ranked Probability Score}) \cita{39}, la receta campeona
 desplegada —que promedia los cuantiles nativos de sus miembros y la banda conforme de los
@@ -2200,9 +2206,11 @@ los modelos clásicos, incluido el DeepAR entrenado localmente.}
 \paragraph{¿Queda margen en la exactitud puntual? La frontera está confirmada.} Para
 acotar el techo de error alcanzable se evaluó además, fuera del marco comparativo
 principal, un segundo \textit{foundation model} preentrenado (TabPFN-TS)
-\cita{46} en modo zero-shot sobre el panel: alcanza un MASE de $0.1155$ en FAD —cerca del
-listón parsimonioso ($\factEtsFadMean$), pero por encima del piso del naïve-1
-($0.100$)—. Que un modelo preentrenado, \textbf{sin ajuste alguno a estos datos}, iguale
+\cita{46} en modo zero-shot sobre el panel: alcanza un MASE de $0.1175$ en media
+($0.1111$ en mediana) en FAD —cerca del listón parsimonioso ($\factEtsFadMean$), pero
+por encima del piso del naïve-1 ($0.100$)—; la cifra corresponde a sus pronósticos
+congelados el 19 de junio, re-puntuados con la máscara de fechas F sobre el panel
+vigente. Que un modelo preentrenado, \textbf{sin ajuste alguno a estos datos}, iguale
 a los mejores modelos entrenados a medida, y que ninguno de los 24 modelos, conjuntos y
 sondas adicionales logre a su vez batir con significancia a un paseo aleatorio en el
 pronóstico a un paso, es la evidencia más clara de que el sistema ya opera en la frontera
@@ -2433,7 +2441,7 @@ de empleo—; las redes neuronales muestran la mayor varianza entre series, lo q
 su sensibilidad a la cantidad de datos. La validación con cinco semillas cuantifica esta
 estabilidad para el ganador profundo: en DFF el MASE varía apenas $\pm0.0003$ entre
 semillas, mientras que en FAD la variación sube a $\pm0.007$, reflejo de la sensibilidad
-del ajuste con muestras pequeñas. Una única combinación (SARIMA sobre China/F4) falló por
+del ajuste con muestras pequeñas. Una única combinación (SARIMA sobre India/F3) falló por
 inestabilidad numérica, lo que ilustra que incluso los modelos clásicos requieren un
 manejo defensivo de excepciones en producción.
 
@@ -2782,11 +2790,11 @@ distribution shift,'' en \textit{Advances in Neural Information Processing Syste
 \item\label{bib:46} S. Hoo, S. M\"uller, D. Salinas, y F. Hutter, ``The tabular
 foundation model TabPFN outperforms specialized time series forecasting models,''
 \textit{arXiv:2501.02945}, 2025.
-\item\label{bib:47} M. Zaharia \textit{et al.}, ``Accelerating the machine learning
+\item\label{bib:47} R. Kuprieiev \textit{et al.}, ``DVC: Data Version Control --- Git
+for data \& models,'' Iterative, software de c\'odigo abierto, 2024. [En l\'inea]. Disponible: \url{https://dvc.org}
+\item\label{bib:48} M. Zaharia \textit{et al.}, ``Accelerating the machine learning
 lifecycle with MLflow,'' \textit{IEEE Data Engineering Bulletin}, vol. 41, n.\textsuperscript{o} 4,
 pp. 39--45, 2018.
-\item\label{bib:48} R. Kuprieiev \textit{et al.}, ``DVC: Data Version Control --- Git
-for data \& models,'' Iterative, software de c\'odigo abierto, 2024. [En l\'inea]. Disponible: \url{https://dvc.org}
 \item\label{bib:49} M. Raasveldt y H. M\"uhleisen, ``DuckDB: An embeddable analytical
 database,'' en \textit{Proc.\ ACM SIGMOD Int.\ Conf.\ on Management of Data}, 2019, pp.\ 1981--1984.
 \end{enumerate}
@@ -2857,7 +2865,7 @@ El repositorio reúne el flujo completo del proyecto: la extracción del
 \textit{Visa Bulletin} a partir de instantáneas HTML congeladas (procesamiento
 sin red), la construcción del panel multiserie $y_{p,c,b,t}$, el almacén
 dimensional en DuckDB con su esquema estrella, el módulo de modelado
-\texttt{vp\_model} con los $21$ modelos del repertorio y la red profunda global,
+\texttt{vp\_model} con los 24 modelos del repertorio y la red profunda global,
 y la suite de pruebas con integración continua y piso de cobertura. Incluye un
 \texttt{README} bilingüe y un \texttt{Makefile} que reproducen, paso a paso y con
 semilla fija, cada figura y tabla de este documento desde cero.
@@ -2954,7 +2962,7 @@ Monitor de \textit{drift} & Vigila degradaci\'on de desempe\~no, cobertura y dat
 \section{A.5 Pipeline reproducible y versionado de datos}
 
 La cadena de datos abiertos se declara como un grafo de dependencias versionado con la
-herramienta de control de versiones de datos (\textit{Data Version Control}, DVC~\cita{48}).
+herramienta de control de versiones de datos (\textit{Data Version Control}, DVC~\cita{47}).
 El comando \texttt{dvc repro} reconstruye \textit{en orden y solo lo que cambi\'o} la
 secuencia \texttt{scrape} $\to$ \texttt{panel} $\to$ \{\texttt{bulletins}, almac\'en,
 cifras canónicas\}, con la carpeta de \textit{snapshots} HTML congelados como ra\'iz
@@ -2969,7 +2977,7 @@ no recomputa nada) y un mismo \textit{rebuild} produce datos id\'enticos byte a 
 \section{A.6 Seguimiento de experimentos}
 
 Cada corrida de modelado se registra en un almac\'en de experimentos gestionado con
-MLflow~\cita{47}: par\'ametros, m\'etricas (MASE, sMAPE, cobertura), identificador de
+MLflow~\cita{48}: par\'ametros, m\'etricas (MASE, sMAPE, cobertura), identificador de
 \textit{commit} de Git y artefactos asociados. En total se conservan \textbf{m\'as de
 2\,400 corridas} trazables a lo largo de las campa\~nas de comparaci\'on, ajuste y ensamble.
 Desde la \'ultima campa\~na, cada corrida porta adem\'as el \textbf{identificador de
@@ -3069,7 +3077,8 @@ prueba de rangos con signo de Wilcoxon por serie con control del error por compa
 m\'ultiples, y emite un veredicto: una alternativa solo se recomienda si supera al campe\'on
 con significancia y un margen material. El veredicto vigente es el m\'as instructivo del
 proyecto: el retador que cruza el umbral en ambas tablas es el \textbf{na\"ive-1} (MASE de
-hold-out $0.105$ frente al campe\'on $0.121$ en FAD; $0.077$ frente a $0.100$ en DFF, con
+hold-out, en \textbf{media sobre las series deduplicadas}: $0.105$ frente al campe\'on
+$0.121$ en FAD; $0.077$ frente a $0.100$ en DFF, con
 significancia bajo la prueba y la correcci\'on ya descritas, y margen material), pero su promoci\'on se \textbf{retiene}
 por una decisi\'on de gobernanza documentada: el gate eval\'ua el pron\'ostico a un paso y
 el producto sirve horizontes de 1 a 12 meses, donde repetir el \'ultimo valor se degrada.
@@ -3104,7 +3113,10 @@ realizados, congela en paralelo la a\~nada del retador en sombra, actualiza la t
 inferencia conforme adaptativa con los aciertos y fallos del registro, ejecuta el
 veredicto campe\'on--retador, actualiza las cifras canónicas y la tarjeta de modelo,
 ejecuta el monitor de \textit{drift} (que compara ahora mezclas equivalentes de
-horizontes) y, si todo pasa, redepliega el demostrador. As\'i, el sistema se
+horizontes) y, si todo pasa, redepliega el demostrador. El registro prospectivo es
+inmutable: la a\~nada 2026-07 corresponde al congelado del 3 de julio con el m\'etodo de
+bandas previo, de modo que la primera a\~nada calificada con las bandas por cuantil por
+horizonte ser\'a la de 2026-08. As\'i, el sistema se
 mantiene reproducible, auditado y al d\'ia sin intervenci\'on manual.
 
 % ============================================================

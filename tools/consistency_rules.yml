@@ -85,6 +85,16 @@ forbidden:
   - pattern: '(~|≈|\\sim\s*\$?\s*)125\s*~?\s*obs|noviembre\s*(de\s*)?2015|November[\s&nbsp;]*2015'
     in: [deliverable, paper, readmes, web]
     reason: 'DFF existe desde OCTUBRE 2015 con 130 obs (no "~125 / noviembre")'
+  # --- tripwires del audit blind 4-jul-2026 (fósiles cazados en el deliverable) ---
+  - pattern: '\$?21\$?\s+(modelos|models)\b'
+    in: [deliverable, paper]
+    reason: 'el repertorio vigente es de 24 modelos; "$21$ modelos" es fósil pre-AQ (sobrevivía en A.2)'
+  - pattern: 'China/F4'
+    in: [deliverable, paper]
+    reason: 'la única falla numérica de SARIMA en FAD fue India/F3 (fila NaN de model_comparison_FAD21.csv), no China/F4'
+  - pattern: '0\.1155'
+    in: [deliverable, paper]
+    reason: 'TabPFN 0.1155 es de la era pre-resurrección (CSV 19-jun); re-puntuado F-only sobre el panel vigente: 0.1175 media / 0.1111 mediana'
 
 required:
   - fact: n_series_structural

@@ -54,6 +54,12 @@ def _std_errors() -> pd.DataFrame:
     half-width makes errors comparable across series, so quantiles pool cleanly.
     """
     log = pd.read_csv(REPORTS / "prospective" / "forecast_log.csv")
+    # Era guard (audit): dividing by sqrt(h) only recovers the 1-step half-width for
+    # vintages frozen with the sqrt-h heuristic. Once q_h vintages enter the ledger
+    # (band_method column, added 4-jul-2026), mixing eras would corrupt the very
+    # quantiles that feed the deployed bands. Legacy rows (no column/NaN) are sqrt-h.
+    if "band_method" in log.columns:
+        log = log[log["band_method"].isna() | log["band_method"].astype(str).str.startswith("sqrt")]
     actuals = dataset.actuals_F()
     rows = []
     for r in log.itertuples():
@@ -87,7 +93,17 @@ def compute_scales(cal: pd.DataFrame, min_cell_n: int = MIN_CELL_N) -> tuple[dic
             if len(cell) < min_cell_n:
                 continue
             for lv in LEVELS:
+                # The 95 tail is an extreme order statistic: with n<60 a single
+                # outlier at some h pins the whole monotone envelope (audit: DFF
+                # q95 sat flat at 5.88 from the h=1 cell). Omit the cell instead
+                # (consumer falls back to sqrt(h) there).
+                if lv >= 95 and len(cell) < 2 * min_cell_n:
+                    continue
                 q = float(np.quantile(cell, lv / 100.0, method="higher"))
+                if int(h) == 1:
+                    # never deploy an h=1 band NARROWER than the calibrated
+                    # 1-step conformal width (audit: FAD q95(1)=0.44).
+                    q = max(q, 1.0)
                 q = max(q, prev[lv])  # monotone envelope in h
                 prev[lv] = q
                 per_level[str(lv)][str(int(h))] = round(q, 4)

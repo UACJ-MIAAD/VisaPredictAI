@@ -291,6 +291,12 @@ def _dump_best_config(nf, name: str, table: str) -> None:
     try:
         study = nf.models[0].results  # backend optuna -> optuna.Study
         best = dict(study.best_trial.user_attrs.get("ALL_PARAMS", {})) or dict(study.best_params)
+        # Fallback path loses the mapped NHITS architecture silently (audit): the
+        # *_key aliases are in best_params but their list values are not — remap.
+        if "pool_key" in best and "n_pool_kernel_size" not in best:
+            best["n_pool_kernel_size"] = list(_NHITS_POOLS[best["pool_key"]])
+        if "freq_key" in best and "n_freq_downsample" not in best:
+            best["n_freq_downsample"] = list(_NHITS_FREQS[best["freq_key"]])
         best = {
             k: v
             for k, v in best.items()

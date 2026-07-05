@@ -1,6 +1,6 @@
 #!/bin/bash
 # Campaña de experimentos F1+F2 (sólido sin GPU, todo tracked a MLflow vía tracking JSONL).
-# F1: pool local de 23 modelos (incluye el híbrido ARIMA-LSTM y los pisos naive1/drift)
+# F1: pool local de 24 modelos (incluye el híbrido ARIMA-LSTM y los pisos naive1/drift)
 #     × FAD/DFF × familia/empleo. (Los CSV conservan el sufijo histórico *_pool_*.)
 # F2: deep global — matriz de variantes (espacio-target × normalización × HPO) × multi-semilla.
 #     HPO deep (AK8c): UNA búsqueda de 40 trials por modelo y el ganador re-entrenado
@@ -18,7 +18,7 @@ NF=ante_nf/bin/python
 SEEDS="1 2 3 4 5"
 echo "=== CAMPAÑA arranca $(date) ==="
 
-# ---------- F1: pool local 23 modelos (tracked) ----------
+# ---------- F1: pool local 24 modelos (tracked) ----------
 for table in FAD DFF; do
   for block in family employment; do
     echo ">>> F1 pool $table/$block $(date)"

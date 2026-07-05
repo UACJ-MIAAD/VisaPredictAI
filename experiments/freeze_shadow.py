@@ -24,7 +24,6 @@ Runs in ``ante`` from the repo root:  ante/bin/python experiments/freeze_shadow.
 from __future__ import annotations
 
 import json
-import math
 import sys
 import warnings
 from pathlib import Path
@@ -34,6 +33,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from experiments import generate_web_forecasts as gwf  # noqa: E402 — band method single-source
 from vp_data import tracking  # noqa: E402
 from vp_model import champion, config, dataset, intervals, metrics, models  # noqa: E402
 
@@ -74,7 +74,8 @@ def _series_shadow(recipe: champion.Recipe, country: str, category: str, table: 
     """12-month shadow vintage for one series: recipe point + split-conformal 80/95 bands.
 
     Mirrors the deployed champion's method (1-step hold-out walk-forward calibrates the
-    conformal half-width on F-only dates; sqrt(h) growth heuristic) so shadow and champion
+    conformal half-width on F-only dates; per-horizon empirical quantile bands from the
+    prospective ledger, sqrt(h) only as documented fallback) so shadow and champion
     vintages are directly comparable once both are scored against realized cutoffs.
     """
     fseries = dataset.load_series(country, category, table)
@@ -104,9 +105,18 @@ def _series_shadow(recipe: champion.Recipe, country: str, category: str, table: 
         .values()
         .flatten()[0]
     )
-    half80 = half95 * config.BAND80_RATIO
     insample = ts.split_before(split)[0]
-    mase = float(metrics.compute(actual_ts, hold_ts, insample).get("mase", float("nan")))
+    # B1: the frozen hold_mase must use the same F-mask + raw-scale convention as
+    # every other published number (audit: it was scored on interpolated months).
+    mase = float(
+        metrics.compute(
+            actual_ts,
+            hold_ts,
+            insample,
+            dates=fseries.index,
+            scale=metrics.naive_scale_before(fseries, split),
+        ).get("mase", float("nan"))
+    )
 
     fut = []
     for name in recipe.models:
@@ -116,8 +126,12 @@ def _series_shadow(recipe: champion.Recipe, country: str, category: str, table: 
     point = _point(fut, recipe.agg)
     future_idx = pd.date_range(ts.end_time() + ts.freq, periods=HORIZON, freq=ts.freq)
     rows = []
+    scales = gwf._load_pi_scales()
     for h, (d, pv) in enumerate(zip(future_idx, point, strict=True), start=1):
-        grow = math.sqrt(h)
+        # Method-identical to the deployed champion (audit: the shadow froze the
+        # dead sqrt-h heuristic while the champion moved to per-horizon quantiles,
+        # confounding any shadow-vs-champion coverage comparison).
+        half80, half95_h, method = gwf._band_halfwidths(h, half95, table, scales)
         rows.append(
             {
                 "origin": origin,
@@ -127,13 +141,14 @@ def _series_shadow(recipe: champion.Recipe, country: str, category: str, table: 
                 "table": table,
                 "date": d.strftime("%Y-%m-%d"),
                 "days": int(round(pv)),
-                "lo80": int(round(pv - half80 * grow)),
-                "hi80": int(round(pv + half80 * grow)),
-                "lo95": int(round(pv - half95 * grow)),
-                "hi95": int(round(pv + half95 * grow)),
+                "lo80": int(round(pv - half80)),
+                "hi80": int(round(pv + half80)),
+                "lo95": int(round(pv - half95_h)),
+                "hi95": int(round(pv + half95_h)),
                 "shadow": True,
                 "recipe": recipe.name,
                 "hold_mase": round(mase, 4),
+                "band_method": method,
             }
         )
     return rows
@@ -172,6 +187,12 @@ def main() -> int:
             log.info("[%s] verdict sin recetas serializadas de retador — nada que sombrear", table)
             continue
         recipe = champion.recipe_from_dict(rec_dict)
+        if any(m in config.DIFFERENCED for m in recipe.models):
+            # ponytail: covariate plumbing for GBM recipes isn't wired here yet —
+            # skip LOUDLY instead of dying per-series and aborting the vintage.
+            # Upgrade path: FeatureBuilder covariates over an extended calendar.
+            log.warning("[%s] retador %s incluye GBM — sombra no soportada aún, se omite", table, recipe.name)
+            continue
         if recipe.name == champions[table].name:
             log.info("[%s] el mejor retador ES el campeón desplegado — no se sombrea", table)
             continue
@@ -194,11 +215,19 @@ def main() -> int:
     if not all_rows:
         log.info("sin filas sombra este run (sin retador distinto o todas las series fallaron)")
         return 0
-    # C2-style exit gate: a half-broken env yields a mutilated vintage via the per-series
-    # error boundaries; never freeze it into the immutable ledger.
-    expected = json.loads(WEB_META.read_text()).get("n_series", 0) if WEB_META.exists() else 0
-    if expected and n_series < 0.9 * expected:
-        raise SystemExit(f"ABORT: solo {n_series} series sombra (<90% de las {expected} del campeón) — no se archiva")
+    # C2-style exit gate PER TABLE (audit: the global gate compared one table's
+    # series count against BOTH tables' expectation and aborted valid freezes).
+    if WEB_META.exists():
+        meta_series = json.loads(WEB_META.read_text()).get("series", {})
+        for table in config.TABLES:
+            expected = sum(1 for k in meta_series if k.endswith(f"/{table}"))
+            got = len({(r["country"], r["category"]) for r in all_rows if r["table"] == table})
+            if got and expected and got < 0.9 * expected:
+                log.warning("[%s] solo %d/%d series sombra (<90%%) — se descarta la tabla", table, got, expected)
+                all_rows = [r for r in all_rows if r["table"] != table]
+    if not all_rows:
+        log.info("todas las tablas descartadas por el gate — nada que archivar")
+        return 0
     path = append_shadow(all_rows)
     log.info("shadow ledger -> %s (+%d filas de %d series)", path, len(all_rows), n_series)
     return 0

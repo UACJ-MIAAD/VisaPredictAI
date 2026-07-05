@@ -61,7 +61,9 @@ def decide(tuned_path: Path = TUNED) -> pd.DataFrame:
                 try:
                     d = tune._val_mase(model, country, category, tb, None, window="confirm")
                     t = tune._val_mase(model, country, category, tb, dict(params), window="confirm")
-                except (ValueError, KeyError) as e:  # una serie que falle no aborta el resto
+                except Exception as e:  # noqa: BLE001 — a frozen series (CatBoostError
+                    # "all train targets equal") must not abort the ACCEPTANCE run either
+                    # (the same failure mode already forced the report loops wide).
                     log.warning("skip %s %s/%s: %s", model, country, category, e)
                     continue
                 if np.isnan(d) and np.isnan(t):

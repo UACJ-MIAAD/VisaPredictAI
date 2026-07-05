@@ -224,13 +224,15 @@ jobs:
         # promotion recommendation never goes stale. NOT a gate (|| true): a failed
         # verdict must not hold this month's forecasts hostage. Its governance
         # artifacts (champion_challenger.{json,md}) ride the `git add reports` below.
-        python experiments/run_champion_challenger.py || true
+        (python experiments/run_champion_challenger.py && echo "veredicto refrescado OK" > /tmp/champion.txt) \
+          || echo "FALLO este run (veredicto del mes anterior sigue vigente; ver logs)" > /tmp/champion.txt
 
         # 4e-ter (AO6b). Shadow deployment: freeze the best challenger's vintage into
         # the SEPARATE immutable shadow ledger (forecast_log_shadow.csv) so the
         # promotion gate accumulates prospective evidence. Statistical re-fits only
         # (minutes); non-blocking like the verdict itself.
-        python experiments/freeze_shadow.py || true
+        (python experiments/freeze_shadow.py && echo "anada del retador congelada OK" > /tmp/shadow.txt) \
+          || echo "FALLO este run (sin evidencia sombra nueva este mes; ver logs)" > /tmp/shadow.txt
 
         # 4f. ML drift monitor — not a gate; its summary goes in the SES email below.
         python experiments/check_drift.py | tee /tmp/drift.txt || true
@@ -388,13 +390,24 @@ jobs:
         if [ -f /tmp/fe.txt ]; then
           FE_LINE=$(tr -d '"\\' < /tmp/fe.txt)
         fi
+        # Gobernanza campeon-retador-sombra (AO6): un fallo cronico del veredicto o
+        # del ledger sombra era invisible en el correo (audit 4-jul) — justo cuando
+        # la promocion retenida de naive1 depende de que la evidencia se acumule.
+        CHAMPION_LINE="n/d (sin rebuild este run)"
+        if [ -f /tmp/champion.txt ]; then
+          CHAMPION_LINE=$(tr -d '"\\' < /tmp/champion.txt)
+        fi
+        SHADOW_LINE="n/d (sin rebuild este run)"
+        if [ -f /tmp/shadow.txt ]; then
+          SHADOW_LINE=$(tr -d '"\\' < /tmp/shadow.txt)
+        fi
         cat > /tmp/ses.json <<JSON
         {
           "FromEmailAddress": "VisaPredict CI <noreply@visapredictai.com>",
           "Destination": {"ToAddresses": ["al263483@alumnos.uacj.mx"]},
           "Content": {"Simple": {
             "Subject": {"Data": "VisaPredict | corrida $JOB_STATUS — $NEW boletín(es) nuevo(s)"},
-            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nEDA vivo: $EDA_LINE\nFE vivo: $FE_LINE\nLogs: $RUN_URL"}}
+            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nEDA vivo: $EDA_LINE\nFE vivo: $FE_LINE\nCampeon-retador: $CHAMPION_LINE\nSombra: $SHADOW_LINE\nLogs: $RUN_URL"}}
           }}
         }
         JSON

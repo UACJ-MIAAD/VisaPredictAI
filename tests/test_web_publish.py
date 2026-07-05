@@ -87,6 +87,7 @@ ROW = {
     "hi80": 110,
     "lo95": 80,
     "hi95": 120,
+    "band_method": "q_h",  # era tag (audit 4-jul): the ledger records how bands grew
 }
 
 

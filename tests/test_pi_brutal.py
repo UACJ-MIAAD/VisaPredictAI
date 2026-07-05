@@ -161,16 +161,24 @@ def test_compute_scales_quantiles_monotone_and_min_n() -> None:
     rows += [("v1", "FAD", 2, s) for s in rng.uniform(0.0, 0.5, 40)]  # narrower at h=2
     rows += [("v1", "FAD", 3, s) for s in rng.uniform(0.0, 9.9, 10)]  # n<30 -> omitted
     cal = pd.DataFrame(rows, columns=["origin", "table", "h", "std"])
-    scales, n_cal = dbr.compute_scales(cal, min_cell_n=30)
+    scales, n_cal = dbr.compute_scales(cal, min_cell_n=20)
 
     q80_h1 = scales["FAD"]["80"]["1"]
-    assert q80_h1 == pytest.approx(float(np.quantile(cal.loc[(cal.h == 1), "std"], 0.80, method="higher")), rel=1e-6)
+    # h=1 floor (audit): never deploy an h=1 band narrower than the calibrated
+    # 1-step conformal width — quantiles below 1.0 are clamped up.
+    raw80_h1 = float(np.quantile(cal.loc[(cal.h == 1), "std"], 0.80, method="higher"))
+    assert q80_h1 == pytest.approx(max(raw80_h1, 1.0), rel=1e-6)
     # monotone envelope: h=2 raw quantile is below h=1, so the h=1 value carries over
     assert scales["FAD"]["80"]["2"] == q80_h1
-    assert scales["FAD"]["95"]["2"] >= scales["FAD"]["95"]["1"]
+    # the 95 tail demands 2x the cell floor (extreme order statistic, audit):
+    # n=40 >= 2*20 here, so both cells exist and stay monotone
+    assert scales["FAD"]["95"]["2"] >= scales["FAD"]["95"]["1"] >= 1.0
     # cell below the floor is omitted from scales but counted in n_cal
     assert "3" not in scales["FAD"]["80"]
     assert n_cal["FAD"]["3"] == 10
+    # with the production floor (30), the 95 level would need n>=60 per cell:
+    strict, _ = dbr.compute_scales(cal, min_cell_n=30)
+    assert "1" in strict["FAD"]["80"] and "1" not in strict["FAD"]["95"]
 
 
 def test_validate_scales_coverage_ci_and_floor() -> None:

@@ -254,6 +254,9 @@ def _compute_series_forecast(
                 "hi80": int(round(pv + half80_h)),
                 "lo95": int(round(pv - half95_h)),
                 "hi95": int(round(pv + half95_h)),
+                # Era tag for the immutable ledger: derive_band80_ratio must never
+                # de-standardize q_h rows by sqrt(h) (audit: era-mixing bomb).
+                "band_method": band_method,
             }
         )
     # AN7: a per-series hold-out coverage without its n would overstate precision; the
@@ -290,7 +293,7 @@ def _compute_series_forecast(
 
 
 WEB_COLS = ["country", "category", "table", "date", "days", "lo80", "hi80", "lo95", "hi95"]
-LOG_COLS = ["origin", "h", *WEB_COLS]
+LOG_COLS = ["origin", "h", *WEB_COLS, "band_method"]
 LOG_KEYS = ["origin", "country", "category", "table", "date"]
 
 

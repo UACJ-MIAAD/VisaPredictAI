@@ -1,6 +1,6 @@
 """El catálogo de modelos tras una interfaz común (US-D1).
 
-El catálogo completo son **23 modelos** (``config.MODEL_NAMES``: +ETS, Theta, Kalman,
+El catálogo completo son **24 modelos** (``config.MODEL_NAMES``: +ETS, Theta, Kalman,
 DLinear, NLinear, RLinear, N-BEATS, N-HiTS, TiDE, LightGBM, CatBoost, TFT, Chronos, y
 los pisos honestos naive1/drift de AI1). Los 8 de referencia originales del
 Anteproyecto (§4.3) son el núcleo:

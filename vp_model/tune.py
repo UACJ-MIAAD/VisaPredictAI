@@ -194,9 +194,9 @@ def _val_mase(
         ``confirm_tuning`` for the acceptance decision.
 
     The hold-out (last 24 months of the full series) is excluded in both cases.
-    ``params=None`` scores the incumbent: whatever ``build_model(name, table)``
-    currently ships for this table (bridge defaults, or a previously ACCEPTED
-    winner from ``tuned_params.json``).
+    ``params=None`` scores the BRIDGE incumbent (config defaults, pinned seed):
+    the stable what-would-deploy-without-tuning baseline. Never the routed
+    catalog — that would compare an accepted winner against itself on re-runs.
     """
     if window not in ("tuning", "confirm"):
         raise ValueError(f"window debe ser 'tuning' o 'confirm', no {window!r}")
@@ -213,7 +213,17 @@ def _val_mase(
     else:
         region = sel
         start = confirm_start
-    model = models.build_model(model_name, table=table) if params is None else _build_tuned(model_name, dict(params))
+    # params=None scores the BRIDGE incumbent explicitly (config defaults, pinned
+    # seed) — NOT build_model's routed catalog: once apply_acceptance flips
+    # improved=true the catalog serves the accepted winner, and a re-run of the
+    # confirmation would compare the challenger against ITSELF, revoking
+    # legitimate acceptances on seed noise (audit: idempotence). The bridge is
+    # also block-agnostic, so employment groups stop inheriting the family
+    # winner as their incumbent.
+    if params is None:
+        pinned = {"lags_future_covariates", "output_chunk_length", "random_state"}
+        params = {k: v for k, v in config.HYPERPARAMS["trees"].items() if k not in pinned}
+    model = _build_tuned(model_name, dict(params))
     cov = fe.covariates(ts)  # per-model covariate policy (AD1/AD8)
     extra: dict[str, object] = {"future_covariates": cov} if cov is not None else {}
     model.fit(region[:start], **extra)
