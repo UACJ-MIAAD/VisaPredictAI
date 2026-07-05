@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 from vp_data.config import RAW_DIR
 from vp_data.visa_common import (
+    FOOTNOTE_CHARS,
     SCRAPER_COUNTRIES,
     SITE_ROOT,
     annotate_dates,
@@ -50,7 +51,7 @@ def classify_family_category(raw) -> None | str:
     # '2a*'/'2b*' variants proved the source DOES footnote family rows; the
     # other levels ('F1*', '4th*') simply hadn't happened yet and would have
     # dropped the month for that series in silence.
-    s = s.rstrip("*† ")
+    s = s.rstrip(FOOTNOTE_CHARS)
     if s in ("1st", "f1"):
         return "1"
     if s in ("2a", "2nd-a", "2nda", "f2a"):

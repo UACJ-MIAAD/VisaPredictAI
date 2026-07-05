@@ -15,6 +15,7 @@ DATA_DIR = Path("data")
 RAW_DIR = DATA_DIR / "raw"
 PROCESSED_DIR = DATA_DIR / "processed"
 PANEL_PATH = PROCESSED_DIR / "visa_panel_long.csv"
+BULLETINS_JSON_PATH = PROCESSED_DIR / "bulletins.json"  # feed del último boletín (web)
 # Diversity Visa regional rank cut-offs (separate dataset: rank, not date).
 DV_RANK_PATH = RAW_DIR / "dv_visa_rank_timecourse.csv"
 # Normalized star-schema database + typed columnar export, both regenerated from
@@ -25,6 +26,20 @@ PARQUET_PATH = PROCESSED_DIR / "visa_panel_long.parquet"
 # Dependent-variable epoch (string; build_panel wraps it in pd.Timestamp).
 # Chosen before the earliest observed priority date (1979-11, Philippines F4).
 BASE_EPOCH = "1975-01-01"
+BASE_EPOCH_YEAR = int(BASE_EPOCH.split("-")[0])  # derivado, no tipeado (t0 es 1-ene)
+
+# Days->years conversion. Single source (audit r4): lived in vp_model.config, so
+# the DATA layer (build_panel/visa_common/mega_audit/build_eda_facts) re-typed
+# `365.25` inline — the exact "cero 365.25 a mano" the project claims. Now here,
+# in the base layer everyone can import; vp_model.config re-exports it.
+DAYS_PER_YEAR = 365.25
+BIG_JUMP_YEARS = 8  # umbral "salto grande" del ledger de limpieza + mega_audit d9
+
+
+def days_to_year(days):  # noqa: ANN001, ANN201 — escalar/Series/ndarray por igual
+    """días desde BASE_EPOCH -> año calendario fraccional (ejes de figuras)."""
+    return BASE_EPOCH_YEAR + days / DAYS_PER_YEAR
+
 
 # Raw scraper slug -> canonical panel label.
 CANONICAL_COUNTRY = {

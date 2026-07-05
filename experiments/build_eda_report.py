@@ -36,6 +36,7 @@ import pandas as pd  # noqa: E402
 from make_latinometrics_figures import MES  # noqa: E402  (sys.path[0] = experiments/)
 from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 
+from vp_data.config import DAYS_PER_YEAR  # noqa: E402
 from vp_model.palette import BLUE, GRAY, INK, STRIPE, YELLOW  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -311,7 +312,7 @@ def page_summary(pdf: PdfPages, facts: dict, t: dict, lang: str) -> None:
     med = pd.Series(facts["monthly_advance_median"]).astype(float)
     findings = [
         (f"{p['pct_frozen']:.0f}%", t["f_frozen"]),
-        (f"{p['pct_retro']:.1f}%", t["f_retro"].format(n=len(ev), yrs=ev.days.max() / 365.25)),
+        (f"{p['pct_retro']:.1f}%", t["f_retro"].format(n=len(ev), yrs=ev.days.max() / DAYS_PER_YEAR)),
         (
             t["f_backlog_big"].format(yrs=top.backlog_years),
             t["f_backlog"].format(

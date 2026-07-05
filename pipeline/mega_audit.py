@@ -26,7 +26,7 @@ from pathlib import Path
 import pandas as pd
 
 from vp_data.config import CANONICAL_COUNTRY as COUNTRIES
-from vp_data.config import DEAD_MONTHS
+from vp_data.config import DAYS_PER_YEAR, DEAD_MONTHS
 from vp_data.config import PANEL_PATH as PANEL
 from vp_data.config import RAW_DIR as RAW
 
@@ -259,7 +259,7 @@ def d9_jumps(p, thresh_years=8):
     anomalies = []
     for key, d in f.groupby(["country", "block", "category", "table"]):
         d = d.sort_values("bulletin_date")
-        dd = d.priority_date.diff().dt.days / 365.25
+        dd = d.priority_date.diff().dt.days / DAYS_PER_YEAR
         big = d[abs(dd) > thresh_years]
         for idx in big.index:
             anomalies.append(

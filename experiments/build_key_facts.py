@@ -149,9 +149,11 @@ def _models() -> dict:
         d = aa[aa.table == tbl].hold_mase
         out[f"autoarima_{tbl.lower()}_mean"] = round(float(d.mean()), 3)
         out[f"autoarima_{tbl.lower()}_median"] = round(float(d.median()), 3)
-    sig = json.loads((REPORTS / "eval" / "significance_summary.json").read_text())
-    out["mcs_fad"] = sorted(sig["ranking"]["FAD"]["mcs_alpha10"])
-    out["mcs_dff"] = sorted(sig["ranking"]["DFF"]["mcs_alpha10"])
+    # (audit r4) mcs_fad/mcs_dff se retiraron de key_facts.json: PAYLOAD MUERTO —
+    # se emitían pero NADIE los leía (son listas → sin macro \fact; las tripwires
+    # MCS del guardián regexean la PROSA, no estos arrays; el web no fetchea
+    # key_facts; el .tex no los usa). El claim MCS={naive1} vive donde SÍ se lee:
+    # la prosa vigilada del deliverable/paper/web + el chunk del model card del RAG.
     # Cifras del run profundo multi-semilla, derivadas de los CSV de la campaña con la
     # misma agregación que aggregate_seeds (media por semilla -> media entre semillas).
     for key, args in (

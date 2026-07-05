@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from vp_data.config import DAYS_PER_YEAR
 from vp_model.dataset import is_evaluable
 from vp_model.eda import stationarity_of
 
@@ -190,7 +191,7 @@ def _backlog_today(df: pd.DataFrame) -> list[dict]:
             "block": r.block,
             "category": r.category,
             "table": r.table,
-            "backlog_years": round((r.bulletin_date - r.priority_date).days / 365.25, 1),
+            "backlog_years": round((r.bulletin_date - r.priority_date).days / DAYS_PER_YEAR, 1),
         }
         for r in row.itertuples()
     ]

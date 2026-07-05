@@ -16,6 +16,8 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
+from vp_data.config import DAYS_PER_YEAR
+
 # ---- configuration (single source of truth) ----------------------------
 BASE_URL = "https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html"
 SITE_ROOT = "https://travel.state.gov/"
@@ -31,6 +33,8 @@ _DATE_TOKEN = re.compile(r"\d{1,2}[A-Z]{3}\d{2}(?!\d)")  # (?!\d): un futuro 01J
 logger = logging.getLogger(__name__)
 REQUEST_TIMEOUT = 30
 MAX_RETRIES = 6  # a couple of months (e.g. 2007-12) hit an intermittent redirect loop
+BACKOFF_BASE_S = 2  # segundos base del backoff lineal del retry (audit r4: era literal x4)
+FOOTNOTE_CHARS = "*† "  # marcadores de nota al pie de la fuente (C*/U*); centralizado (audit r4)
 # A handful of months can fail transiently (a redirect loop, a 5xx); the run
 # proceeds and the failure-reporter logs them. But if MORE than this many fail,
 # something is structurally wrong with the source (site redesign, outage) and
@@ -91,10 +95,10 @@ def get_soup(url: str, retries: int = MAX_RETRIES) -> BeautifulSoup:
             if exc.response is not None and 400 <= exc.response.status_code < 500:
                 raise
             last = exc
-            time.sleep(2 * (attempt + 1))
+            time.sleep(BACKOFF_BASE_S * (attempt + 1))
         except Exception as exc:
             last = exc
-            time.sleep(2 * (attempt + 1))
+            time.sleep(BACKOFF_BASE_S * (attempt + 1))
     raise last
 
 
@@ -172,7 +176,7 @@ def string_to_datetime(date_str: str, bulletin_date: datetime) -> None | datetim
     if pd.isna(date_str):
         return None
     s = str(date_str).strip()
-    su = s.upper().rstrip("*† ")  # J4: a footnoted 'C*'/'U*' is still Current/Unavailable
+    su = s.upper().rstrip(FOOTNOTE_CHARS)  # J4: a footnoted 'C*'/'U*' is still Current/Unavailable
     if su == "C":
         return bulletin_date
     if su in ("U", ""):
@@ -220,9 +224,9 @@ def classify_status(date_str) -> str:
     # J4: the same footnote paranoia already applied to dates (_DATE_TOKEN) and
     # category labels (rstrip in both classifiers) — status letters are the cells
     # MOST likely to get an asterisk in a retrogression note, and 'C*' fell to UNK.
-    if s.rstrip("*† ") == "C":
+    if s.rstrip(FOOTNOTE_CHARS) == "C":
         return "C"
-    if s.rstrip("*† ") == "U":
+    if s.rstrip(FOOTNOTE_CHARS) == "U":
         return "U"
     try:
         datetime.strptime(str(date_str).strip(), DATE_FMT)
@@ -339,7 +343,7 @@ def annotate_dates(df: pd.DataFrame, value_col: str) -> pd.DataFrame:
     df[value_col] = df.apply(lambda r: string_to_datetime(r[value_col], r["visa_bulletin_date"]), axis=1)
     df["visa_wait_time"] = df.apply(
         lambda r: (
-            (r["visa_bulletin_date"] - r[value_col]).days / 365.25
+            (r["visa_bulletin_date"] - r[value_col]).days / DAYS_PER_YEAR
             if pd.notna(r[value_col]) and pd.notna(r["visa_bulletin_date"])
             else None
         ),

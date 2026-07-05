@@ -28,6 +28,7 @@ import requests
 from tqdm import tqdm
 
 from vp_data.visa_common import (
+    BACKOFF_BASE_S,
     MAX_RETRIES,
     REQUEST_TIMEOUT,
     SITE_ROOT,
@@ -80,10 +81,10 @@ def fetch_bytes(url: str) -> bytes:
             if exc.response is not None and 400 <= exc.response.status_code < 500:
                 raise
             last = exc
-            time.sleep(2 * (attempt + 1))
+            time.sleep(BACKOFF_BASE_S * (attempt + 1))
         except Exception as exc:  # noqa: BLE001 -- mirror get_soup: retry any transient blip
             last = exc
-            time.sleep(2 * (attempt + 1))
+            time.sleep(BACKOFF_BASE_S * (attempt + 1))
     raise last
 
 

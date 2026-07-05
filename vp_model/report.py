@@ -127,10 +127,10 @@ def plot_winner_holdout(country: str, category: str, table: str, model_name: str
     )
     real = ts.slice_intersect(fc)
     fig, ax = plt.subplots(figsize=(7.5, 3.8))
-    ax.plot(real.time_index, real.values().flatten() / 365.25, color=UACJ_BLACK, lw=1.5, label="real")
+    ax.plot(real.time_index, real.values().flatten() / config.DAYS_PER_YEAR, color=UACJ_BLACK, lw=1.5, label="real")
     ax.plot(
         fc.time_index,
-        fc.values().flatten() / 365.25,
+        fc.values().flatten() / config.DAYS_PER_YEAR,
         color=UACJ_BLUE,
         lw=1.5,
         ls="--",

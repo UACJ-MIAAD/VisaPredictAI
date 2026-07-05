@@ -21,9 +21,11 @@ delta_days: +avanzó / -retrocedió (movimiento = lo noticiable). null si no com
 import json
 import os
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pandas as pd
+
+from vp_data.config import BULLETINS_JSON_PATH as OUT
+from vp_data.config import PANEL_PATH as PANEL
 
 
 def _generated_utc(latest_month: str) -> str:
@@ -35,10 +37,6 @@ def _generated_utc(latest_month: str) -> str:
     if epoch:
         return datetime.fromtimestamp(int(epoch), UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     return f"{latest_month}-01T00:00:00Z"
-
-
-PANEL = Path("data/processed/visa_panel_long.csv")
-OUT = Path("data/processed/bulletins.json")
 
 
 WINDOW = 24  # months of history kept for the selector (bounded so the feed stays small)

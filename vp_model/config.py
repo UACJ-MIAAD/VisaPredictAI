@@ -15,21 +15,15 @@ import random
 
 # --- Dominio ---------------------------------------------------------------
 SEASONAL_PERIOD = 12  # estacionalidad anual (año fiscal de visas de EE.UU.)
-DAYS_PER_YEAR = 365.25  # conversión días -> años para las figuras
 RANDOM_SEED = 42  # semilla única para todo lo estocástico
 
-# AD3: el epoch t0 tiene UNA fuente (vp_data.config.BASE_EPOCH); antes `1975 +
-# days/365.25` estaba tipeado a mano en 8+ scripts de figuras/deep — un cambio
-# de epoch los habría dejado en silencio sobre la base vieja.
-from vp_data.config import BASE_EPOCH  # noqa: E402  (re-export deliberado)
-
-BASE_EPOCH_YEAR = int(BASE_EPOCH.split("-")[0])  # derivado, no tipeado (t0 es 1-ene)
-
-
-def days_to_year(days):  # noqa: ANN001, ANN201 — acepta escalar/Series/ndarray por igual
-    """días desde BASE_EPOCH -> año calendario fraccional (ejes de figuras)."""
-    return BASE_EPOCH_YEAR + days / DAYS_PER_YEAR
-
+# AD3/audit r4: el epoch t0 Y la conversión días->años tienen UNA fuente en la
+# capa de datos (vp_data.config). Re-export deliberado (alias explícito) para que
+# el código de modelado los use sin re-tipear `1975`/`365.25`.
+from vp_data.config import BASE_EPOCH as BASE_EPOCH  # noqa: E402
+from vp_data.config import BASE_EPOCH_YEAR as BASE_EPOCH_YEAR  # noqa: E402
+from vp_data.config import DAYS_PER_YEAR as DAYS_PER_YEAR  # noqa: E402
+from vp_data.config import days_to_year as days_to_year  # noqa: E402
 
 PILOT_COUNTRIES = ("mexico", "india", "china", "philippines", "all_chargeability")
 TABLES = ("FAD", "DFF")

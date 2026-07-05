@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
 sys.path.insert(0, str(ROOT))
 from vp_data import tracking  # noqa: E402
+from vp_model.config import HOLDOUT, MIN_TRAIN, MIN_TRAINABLE_EVALUABLE  # noqa: E402
 
 
 def _load(name: str) -> dict:
@@ -81,7 +82,7 @@ def build() -> str:
 
 ## 4. Datos de entrenamiento
 - **Panel:** {_fmt(kf.get("n_obs", "n/d"))} observaciones · {kf.get("pct_trainable_F", "n/d")} % entrenables (estado F = {_fmt(kf.get("n_obs_F", "n/d"))}) · rango {kf.get("date_first", "?")} → {kf.get("date_last", "?")}.
-- **Series:** {kf.get("n_series_structural", "n/d")} estructurales · {kf.get("n_series_evaluable", "n/d")} plenamente evaluables (≥84 obs F = ventana 60 + hold-out 24).
+- **Series:** {kf.get("n_series_structural", "n/d")} estructurales · {kf.get("n_series_evaluable", "n/d")} plenamente evaluables (≥{MIN_TRAINABLE_EVALUABLE} obs F = ventana {MIN_TRAIN["FAD"]} + hold-out {HOLDOUT}).
 - Fuente: U.S. Department of State, Visa Bulletin (HTML congelado, parseo offline reproducible).
 
 ## 5. Evaluación

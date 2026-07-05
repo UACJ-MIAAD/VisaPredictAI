@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 from vp_data.config import RAW_DIR
 from vp_data.visa_common import (
+    FOOTNOTE_CHARS,
     SCRAPER_COUNTRIES,
     SITE_ROOT,
     annotate_dates,
@@ -55,7 +56,7 @@ def classify_eb_category(raw) -> None | str:
     s = norm_label(raw)
     if not s:
         return None
-    s = s.rstrip("*† ")  # tolera footnotes tipo '4th*' (la familia ya sufrió '2A*') (H3)
+    s = s.rstrip(FOOTNOTE_CHARS)  # tolera footnotes tipo '4th*' (la familia ya sufrió '2A*') (H3)
     # Numbered preferences
     if s == "1st":
         return "EB1"

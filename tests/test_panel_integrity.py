@@ -20,7 +20,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.csv"
 
-from vp_data.config import DEAD_MONTHS, DV_RANK_PATH  # noqa: E402
+from vp_data.config import BASE_EPOCH, DEAD_MONTHS, DV_RANK_PATH  # noqa: E402
 
 # Diversity-Visa coverage floors. DV is network-scraped and its early (blob) era
 # is partial, so the gate uses FLOORS (>=) that pin the established good state and
@@ -86,9 +86,20 @@ def test_days_since_base_arithmetic():
     # whole dependent variable with every gate green. Recompute from scratch.
     p = _panel()
     f = p[p.status == "F"]
-    expected = (f.priority_date - pd.Timestamp("1975-01-01")).dt.days
+    expected = (f.priority_date - pd.Timestamp(BASE_EPOCH)).dt.days
     mismatches = int((f.days_since_base != expected).sum())
     assert mismatches == 0, f"{mismatches} filas con days_since_base ≠ (priority_date - t0).days"
+
+
+def test_schema_epoch_matches_config():
+    # H2 (audit r4): the warehouse CHECK re-hardcodes the epoch as a SQL literal
+    # (DATE '1975-01-01'), which can't import BASE_EPOCH. It's fail-loud (a
+    # mismatch aborts the DB load), but this catches the drift at its source: the
+    # .sql literal must equal vp_data.config.BASE_EPOCH.
+    schema = (ROOT / "schema.sql").read_text()
+    assert f"DATE '{BASE_EPOCH}'" in schema, (
+        f"schema.sql no usa el epoch canónico BASE_EPOCH={BASE_EPOCH!r} — sincroniza el literal SQL con vp_data.config."
+    )
 
 
 def test_no_negative_days():

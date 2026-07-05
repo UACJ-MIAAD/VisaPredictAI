@@ -391,7 +391,7 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
                     {
                         "method": method,
                         "horizon_months": HORIZON,
-                        "base_date": "1975-01-01",
+                        "base_date": config.BASE_EPOCH,
                         "n_series": len(all_meta),
                         "series": all_meta,
                     }

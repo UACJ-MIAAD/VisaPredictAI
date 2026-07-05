@@ -26,7 +26,7 @@ from pathlib import Path
 import pandas as pd
 
 from vp_data.cleaning import write_ledger
-from vp_data.config import BASE_EPOCH, TABLE_MAP
+from vp_data.config import BASE_EPOCH, BIG_JUMP_YEARS, DAYS_PER_YEAR, TABLE_MAP
 from vp_data.config import CANONICAL_COUNTRY as COUNTRIES
 from vp_data.config import PANEL_PATH as OUT
 from vp_data.config import RAW_DIR as RAW
@@ -213,7 +213,7 @@ def main() -> None:
             "bulletin_date_unparseable": 0,
             "f_priority_date_unparseable": 0,
             "epoch_underflow": 0,
-            "big_jumps_gt_8y": int((delta.abs() > 8 * 365.25).sum()),
+            "big_jumps_gt_8y": int((delta.abs() > BIG_JUMP_YEARS * DAYS_PER_YEAR).sum()),
         }
     )
     logger.info(f"Cleaning ledger escrito en {ledger}")
