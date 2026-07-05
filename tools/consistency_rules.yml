@@ -34,6 +34,10 @@ artifacts:
     "../VisaPredictAI_web/lib/*.ts",
     "../VisaPredictAI_web/lib/data/*.ts",
     "../VisaPredictAI_web/lib/visabot/*.ts",
+    # audit post-plan: metadata/titles y la 404 tambien publican prosa
+    "../VisaPredictAI_web/app/*.tsx",
+    "../VisaPredictAI_web/app/*/*.tsx",
+    "../VisaPredictAI_web/app/*/*/*.tsx",
   ]
 
 forbidden:
@@ -126,6 +130,9 @@ forbidden:
   - pattern: '\$?21\$?\s+(modelos|models)\b'
     in: [web]
     reason: 'catálogo fósil pre-AQ; la prosa web debe seguir a n_models (regla numeric)'
+  - pattern: '(veinti\w+|dieci\w+|twenty-?\w+|eighteen|nineteen)[-\s]+(modelos|models)\b'
+    in: [web]
+    reason: 'conteos de modelos deletreados esquivan la regla numeric n_models (hueco cazado por el audit post-plan)'
 
 required:
   - fact: n_series_structural
