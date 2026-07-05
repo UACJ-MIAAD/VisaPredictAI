@@ -16,6 +16,10 @@ artifacts:
   deliverable: ["reports/latex/ProyectoI_VisaPredictAI.tex"]
   paper: ["reports/paper_micai/paper.tex", "reports/paper_micai/README.md"]
   readmes: ["README.md"]
+  # audit ciego r3 (5-jul): el model card publica "N modelos" (derivado de
+  # n_models) y el RAG del sitio lo indexa como fuente del veredicto del bot —
+  # debe seguir a key_facts o el VisaBot cita un catálogo fósil.
+  governance: ["reports/governance/MODEL_CARD.md"]
   # content/source.html = la fuente ES (incluye #datos); el lado EN son páginas sueltas.
   # TODO el contenido publicado se vigila (audit 3-jul: capii/capiii/tablas quedaban fuera
   # de esta lista y por eso sus "~290/~125" sobrevivieron dos generaciones de cifras).
@@ -232,8 +236,8 @@ numeric:
   # en la prosa del scorecard web y del deliverable debe seguir a key_facts.n_models.
   - fact: n_models
     label: '([0-9]{2})[-\s]+(?:modelos\b|models\b|model comparison)'
-    in: [deliverable, paper, web]
-    reason: 'el tamaño del catálogo comparado cambia con cada re-campaña (21→24)'
+    in: [deliverable, paper, web, governance]
+    reason: 'el tamaño del catálogo comparado cambia con cada re-campaña (21→24); el model card lo publica y el RAG lo cita'
   # obs ENTRENABLES (estado F): "15,758 obs entrenables" / "... entrenables"
   # (audit EDA 3-jul, W-H2): el lado EN ("15,931 trainable obs") esquivaba el patrón
   # solo-español — la reincidencia exacta del hallazgo del audit dúo de junio.

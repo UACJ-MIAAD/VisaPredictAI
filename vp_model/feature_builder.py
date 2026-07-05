@@ -130,7 +130,7 @@ FE_DECISIONS: tuple[dict[str, str], ...] = (
         "title": "Selección FRESH (FDR) + des-redundancia mRMR del catálogo",
         "module": "vp_model/feature_select.py:select · experiments/build_fe_facts.py",
         "rationale": (
-            "Con n=130–296 observaciones cada grado de libertad cuenta. El conjunto "
+            "Con series de longitud corta (decenas a cientos de observaciones) cada grado de libertad cuenta. El conjunto "
             "unido de características de caracterización (catch22 + descriptores) se "
             "filtra por relevancia con corrección Benjamini-Yekutieli y se colapsa la "
             "colinealidad conservando una representante por grupo (|Spearman|>0.9), "

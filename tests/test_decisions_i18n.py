@@ -48,6 +48,27 @@ def test_en_entries_are_non_empty():
         assert tr.get("rationale"), f"{did}: EN rationale vacío"
 
 
+def test_live_registries_are_fully_translated():
+    """Cross-check against the LIVE registries, not the generated JSON. This
+    catches "added a decision without translating it" IN THE PR that adds it,
+    before fe_facts.json is even regenerated (blind audit r3: the fe_facts-only
+    check was blind to additions). Imports darts via feature_builder, so it runs
+    in the heavy model-tests job, not the light lint-and-test one — skipped when
+    the modeling stack is absent."""
+    import pytest
+
+    pytest.importorskip("darts")
+    from vp_data.cleaning import CLEANING_DECISIONS
+    from vp_model.feature_builder import FE_DECISIONS
+
+    ids = [d["id"] for d in (*CLEANING_DECISIONS, *FE_DECISIONS)]
+    assert len(ids) == len(set(ids)), "decision ids must be unique across both registries"
+    missing = [i for i in ids if i not in DECISIONS_EN]
+    assert not missing, f"decisiones en los registros SIN traducción EN: {missing}"
+    orphan = [k for k in DECISIONS_EN if k not in set(ids)]
+    assert not orphan, f"entradas EN huérfanas (id ya no existe en los registros): {orphan}"
+
+
 if __name__ == "__main__":
     test_shipped_facts_have_en_for_every_decision()
     test_registry_map_covers_every_shipped_id()

@@ -125,9 +125,9 @@
    "id": "selection_fresh_mrmr",
    "title": "Selección FRESH (FDR) + des-redundancia mRMR del catálogo",
    "module": "vp_model/feature_select.py:select · experiments/build_fe_facts.py",
-   "rationale": "Con n=130–296 observaciones cada grado de libertad cuenta. El conjunto unido de características de caracterización (catch22 + descriptores) se filtra por relevancia con corrección Benjamini-Yekutieli y se colapsa la colinealidad conservando una representante por grupo (|Spearman|>0.9), contra la dificultad real de pronóstico de cada serie (MASE del campeón).",
+   "rationale": "Con series de longitud corta (decenas a cientos de observaciones) cada grado de libertad cuenta. El conjunto unido de características de caracterización (catch22 + descriptores) se filtra por relevancia con corrección Benjamini-Yekutieli y se colapsa la colinealidad conservando una representante por grupo (|Spearman|>0.9), contra la dificultad real de pronóstico de cada serie (MASE del campeón).",
    "title_en": "FRESH selection (FDR) + mRMR de-redundancy of the catalog",
-   "rationale_en": "With n=130–296 observations every degree of freedom counts. The union set of characterization features (catch22 + descriptors) is filtered for relevance with Benjamini-Yekutieli correction and collinearity is collapsed keeping one representative per group (|Spearman|>0.9), against each series' real forecasting difficulty (champion's MASE)."
+   "rationale_en": "With short series (tens to hundreds of observations) every degree of freedom counts. The union set of characterization features (catch22 + descriptors) is filtered for relevance with Benjamini-Yekutieli correction and collinearity is collapsed keeping one representative per group (|Spearman|>0.9), against each series' real forecasting difficulty (champion's MASE)."
   }
  ],
  "cleaning_decisions": [

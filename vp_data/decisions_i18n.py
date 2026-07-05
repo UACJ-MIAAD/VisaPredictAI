@@ -132,7 +132,7 @@ DECISIONS_EN: dict[str, dict[str, str]] = {
     },
     "selection_fresh_mrmr": {
         "title": "FRESH selection (FDR) + mRMR de-redundancy of the catalog",
-        "rationale": "With n=130–296 observations every degree of freedom counts. The union set of "
+        "rationale": "With short series (tens to hundreds of observations) every degree of freedom counts. The union set of "
         "characterization features (catch22 + descriptors) is filtered for relevance with "
         "Benjamini-Yekutieli correction and collinearity is collapsed keeping one representative per group "
         "(|Spearman|>0.9), against each series' real forecasting difficulty (champion's MASE).",
