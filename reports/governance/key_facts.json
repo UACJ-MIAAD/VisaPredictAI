@@ -29,6 +29,7 @@
   "theta_dff_mean": 0.086,
   "naive1_dff_mean": 0.086,
   "naive1_dff_median": 0.086,
+  "n_models": 24,
   "autoarima_fad_mean": 0.162,
   "autoarima_fad_median": 0.125,
   "autoarima_dff_mean": 0.114,

@@ -140,6 +140,10 @@ def _models() -> dict:
                 out[k] = prev[k]
             if tbl == "FAD":
                 out["fad_champion_mase"] = prev["fad_champion_mase"]
+    # Tamaño del catálogo comparado (hoy 24): derivado de la MISMA tabla de comparación
+    # que alimenta el .tex — la prosa del scorecard web lo cita y el guardián lo vigila.
+    mc = pd.read_csv(REPORTS / "eval" / "model_comparison_FAD21.csv")
+    out["n_models"] = int(mc.model.nunique())
     aa = pd.read_csv(REPORTS / "eval" / "auto_arima_baseline.csv")
     for tbl in ("FAD", "DFF"):
         d = aa[aa.table == tbl].hold_mase
