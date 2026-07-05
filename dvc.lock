@@ -18,16 +18,16 @@ stages:
       size: 9860
     - path: pipeline/scrape_family_visa_bulletins.py
       hash: md5
-      md5: 4b2336691477cc0dada12e81d58eae08
-      size: 7142
+      md5: 24f0bbfec37ba57ce3cfc51cabf50f7d
+      size: 7169
     - path: pipeline/scrape_visa_bulletins.py
       hash: md5
-      md5: 048503d17c663277fd8b6bda3ab8cd83
-      size: 8261
+      md5: 6de80054f85aa825ca12fcfe4bdf0158
+      size: 8288
     - path: vp_data/visa_common.py
       hash: md5
-      md5: 30777ee335faeff7412d1572de89fadd
-      size: 15396
+      md5: c33163ff4c82e55142ad35911ff73a22
+      size: 15684
     outs:
     - path: data/raw
       hash: md5
@@ -44,8 +44,8 @@ stages:
       nfiles: 11
     - path: pipeline/build_panel.py
       hash: md5
-      md5: 4d104e44042f33432b246166b8d19754
-      size: 11775
+      md5: 4c46f84f448d4f28405b19897f40f7ff
+      size: 11826
     - path: vp_data/cleaning.py
       hash: md5
       md5: 80f9e162e85f2a5cc6da5d4b3303e79e
@@ -68,8 +68,8 @@ stages:
       size: 1589531
     - path: pipeline/build_bulletins_json.py
       hash: md5
-      md5: 4389c4118694053fcfd4ac51c7e78432
-      size: 4026
+      md5: 66c46684c209a71f3497af6f87680e08
+      size: 4006
     outs:
     - path: data/processed/bulletins.json
       hash: md5
@@ -97,8 +97,8 @@ stages:
       size: 12888
     - path: vp_data/config.py
       hash: md5
-      md5: de3bfba4a3eb83b800debc65759ce1c4
-      size: 2143
+      md5: 1805a59dee0aa5b6b5fc7f87b2295238
+      size: 2961
     outs:
     - path: data/processed/visa_panel_long.parquet
       hash: md5
@@ -113,8 +113,8 @@ stages:
       size: 1589531
     - path: experiments/build_key_facts.py
       hash: md5
-      md5: 3bdcf68d76377b8f96539c501f92cd73
-      size: 10430
+      md5: 6e75d2a89b9b32ac08c05a86f242d956
+      size: 10631
     - path: reports/campaign/campaign_pool_DFF_family.csv
       hash: md5
       md5: 22b6ddbceb09ecfb93cb8a8c07ceb651
@@ -177,13 +177,13 @@ stages:
       size: 4775
     - path: vp_model/config.py
       hash: md5
-      md5: eea77d410880c5e6877a6053a0020275
-      size: 13138
+      md5: edb5a076810c720dff8bdc3f0986897c
+      size: 12968
     outs:
     - path: reports/governance/key_facts.json
       hash: md5
-      md5: a70db2570749ef1b773e0de0d1a93c3e
-      size: 1109
+      md5: 4364c74c6254229860260efac7ed1371
+      size: 1043
     - path: reports/latex/key_facts.tex
       hash: md5
       md5: aac4f77ef5f25b8a35f888327299fc53
