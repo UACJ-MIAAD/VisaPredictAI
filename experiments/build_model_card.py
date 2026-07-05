@@ -85,6 +85,7 @@ def build() -> str:
 - Fuente: U.S. Department of State, Visa Bulletin (HTML congelado, parseo offline reproducible).
 
 ## 5. Evaluación
+**Marco comparativo:** {kf.get("n_models", "n/d")} modelos evaluados bajo el mismo protocolo walk-forward; de ahí salen el campeón desplegado y su retador.
 **Hold-out leakage-free (MASE media):** FAD campeón `{recipe("FAD")}` = **{champ_mean("FAD")}** · DFF campeón `{recipe("DFF")}` = **{champ_mean("DFF")}**.
 **Model Confidence Set (90 %):** FAD = {{{mcs("FAD")}}} · DFF = {{{mcs("DFF")}}} (Friedman–Nemenyi).
 **Prospectiva (ledger congelado, mundo real):** n={kf.get("prosp_n_scored", "n/d")} · MAE={kf.get("prosp_mae_days", "n/d")} días · MASE={kf.get("prosp_mase", "n/d")} · cobertura 95 %={kf.get("prosp_cov95", "n/d")} · 80 % (out-of-sample)={kf.get("prosp_cov80_heldout", "n/d")}.

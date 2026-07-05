@@ -8,7 +8,7 @@
 - **Sistema:** predictor del U.S. Visa Bulletin — panel multiserie `y_{p,c,b,t}` (país × categoría × tabla × mes).
 - **Tarea:** regresión temporal de fechas de prioridad sobre observaciones con estado **F** (FAD y DFF por separado).
 - **Receta desplegada (campeón):** FAD → `median(theta+ets+sarima)` · DFF → `sarima` (manifiesto versionado `champion_manifest.json`).
-- **Versión / linaje:** git `f9c4d89` · hash del panel `00115d2dd0b6`.
+- **Versión / linaje:** git `fc6e8b1` · hash del panel `00115d2dd0b6`.
 - **Autor:** Javier A. Rebull Saucedo · MIAAD, UACJ. Demostrador: visapredictai.com.
 
 ## 2. Uso previsto
@@ -25,13 +25,14 @@
 - Fuente: U.S. Department of State, Visa Bulletin (HTML congelado, parseo offline reproducible).
 
 ## 5. Evaluación
+**Marco comparativo:** 24 modelos evaluados bajo el mismo protocolo walk-forward; de ahí salen el campeón desplegado y su retador.
 **Hold-out leakage-free (MASE media):** FAD campeón `median(theta+ets+sarima)` = **0.1206** · DFF campeón `sarima` = **0.0996**.
 **Model Confidence Set (90 %):** FAD = {naive1} · DFF = {naive1} (Friedman–Nemenyi).
 **Prospectiva (ledger congelado, mundo real):** n=2944 · MAE=146 días · MASE=0.347 · cobertura 95 %=0.92 · 80 % (out-of-sample)=0.81.
 
 ## 6. Linaje y reproducibilidad
 - **Receta:** `champion_manifest.json` (cambia solo vía `run_champion_challenger.py --promote`, auditado).
-- **Código:** git `f9c4d89`. **Datos:** panel hash `00115d2dd0b6`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
+- **Código:** git `fc6e8b1`. **Datos:** panel hash `00115d2dd0b6`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
 - **Promoción:** gateada por Wilcoxon+Holm en hold-out; confirmación prospectiva requiere despliegue en sombra.
 
 ## 7. Limitaciones y consideraciones éticas
