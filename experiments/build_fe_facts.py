@@ -24,6 +24,7 @@ from pathlib import Path
 import pandas as pd
 
 from vp_data.cleaning import CLEANING_DECISIONS, LEDGER_PATH
+from vp_data.decisions_i18n import DECISIONS_EN
 from vp_model import feature_select
 from vp_model import series_characterization as sc
 from vp_model.config import (
@@ -49,6 +50,14 @@ OUT = ROOT / "reports" / "fe" / "fe_facts.json"
 # Gate: la selección debe cubrir un mínimo razonable de series con campaña
 # (equivale al espíritu del gate C2 del EDA: no publicar un catálogo mutilado).
 MIN_SELECTION_SERIES = 20
+
+
+def _bilingual(d: dict) -> dict:
+    """Decision + its EN title/rationale (keyed by id) so the web #fe section
+    reads English from data instead of a hand-kept dict (AT5). Spanish is
+    canonical; a decision without a translation ships es-only (guarded by test)."""
+    en = DECISIONS_EN.get(d["id"], {})
+    return {**d, "title_en": en.get("title"), "rationale_en": en.get("rationale")}
 
 
 def _champion_difficulty() -> pd.DataFrame:
@@ -138,8 +147,8 @@ def build() -> dict:
         "differenced_models": sorted(DIFFERENCED),
         "scaled_models": sorted(NEEDS_SCALING),
         "realized_example": FeatureBuilder("xgboost").realized(),
-        "fe_decisions": list(FE_DECISIONS),
-        "cleaning_decisions": list(CLEANING_DECISIONS),
+        "fe_decisions": [_bilingual(d) for d in FE_DECISIONS],
+        "cleaning_decisions": [_bilingual(d) for d in CLEANING_DECISIONS],
         "cleaning_ledger": {k: v for k, v in ledger.items() if not k.startswith("_")},
         "feature_selection": _feature_selection(),
     }

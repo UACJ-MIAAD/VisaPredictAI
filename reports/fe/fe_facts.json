@@ -69,49 +69,65 @@
    "id": "target_days_since_base",
    "title": "Objetivo = días desde t0 (1975-01-01), solo estado F",
    "module": "pipeline/build_panel.py · schema.sql:days_is_datediff",
-   "rationale": "La fecha de prioridad se convierte a un entero de días desde una época fija anterior a la prioridad más antigua observada (1979-11, Filipinas F4). Un objetivo numérico continuo, con contrato aritmético re-verificado en el almacén, en lugar de fechas crudas imposibles de regresar."
+   "rationale": "La fecha de prioridad se convierte a un entero de días desde una época fija anterior a la prioridad más antigua observada (1979-11, Filipinas F4). Un objetivo numérico continuo, con contrato aritmético re-verificado en el almacén, en lugar de fechas crudas imposibles de regresar.",
+   "title_en": "Target = days since t0 (1975-01-01), F status only",
+   "rationale_en": "The priority date becomes a continuous integer of days since a fixed epoch earlier than the oldest observed priority (1979-11, Philippines F4). A continuous numeric target, with the arithmetic contract re-verified in the warehouse, instead of raw dates impossible to regress."
   },
   {
    "id": "gap_regularization",
    "title": "Rejilla mensual regular con huecos acotados",
    "module": "vp_model/preprocess.py:to_regular_monthly",
-   "rationale": "Los modelos exigen índice regular; los meses C/U no son objetivo. Corridas de hueco ≤3 meses se interpolan linealmente; las largas quedan NaN (todo-o-nada por corrida) y el relleno de continuidad posterior jamás se puntúa (máscara F-only B1)."
+   "rationale": "Los modelos exigen índice regular; los meses C/U no son objetivo. Corridas de hueco ≤3 meses se interpolan linealmente; las largas quedan NaN (todo-o-nada por corrida) y el relleno de continuidad posterior jamás se puntúa (máscara F-only B1).",
+   "title_en": "Regular monthly grid with bounded gaps",
+   "rationale_en": "The models demand a regular index; C/U months are not targets. Gap runs of ≤3 months are linearly interpolated; long ones stay NaN (all-or-nothing per run) and the later continuity fill is never scored (F-only mask B1)."
   },
   {
    "id": "differencing_trees",
    "title": "Árboles predicen la primera diferencia, no el nivel",
    "module": "vp_model/models.py:Differenced · vp_model/preprocess.py:difference/undifference",
-   "rationale": "Un árbol no extrapola fuera del rango visto: sobre el nivel (tendencia creciente de décadas) se satura al máximo histórico. Modelar Δy mensual (estacionario) y reintegrar de forma causal (cumsum anclado al último nivel observado) resuelve la extrapolación gratis."
+   "rationale": "Un árbol no extrapola fuera del rango visto: sobre el nivel (tendencia creciente de décadas) se satura al máximo histórico. Modelar Δy mensual (estacionario) y reintegrar de forma causal (cumsum anclado al último nivel observado) resuelve la extrapolación gratis.",
+   "title_en": "Trees predict the first difference, not the level",
+   "rationale_en": "A tree does not extrapolate beyond the range it saw: on the level (decades of rising trend) it saturates at the historical maximum. Modeling the monthly Δy (stationary) and reintegrating causally (cumsum anchored at the last observed level) solves extrapolation for free."
   },
   {
    "id": "calendar_cyclic",
    "title": "Calendario fiscal codificado cíclicamente (seno/coseno)",
    "module": "vp_model/preprocess.py:calendar_features",
-   "rationale": "El año fiscal de visas arranca en octubre (las cuotas se reinician ahí). Codificar mes y posición fiscal con seno/coseno evita imponer un orden falso entre diciembre y enero — un entero 1..12 haría que el modelo viera esos meses vecinos como los más lejanos."
+   "rationale": "El año fiscal de visas arranca en octubre (las cuotas se reinician ahí). Codificar mes y posición fiscal con seno/coseno evita imponer un orden falso entre diciembre y enero — un entero 1..12 haría que el modelo viera esos meses vecinos como los más lejanos.",
+   "title_en": "Fiscal calendar encoded cyclically (sine/cosine)",
+   "rationale_en": "The visa fiscal year starts in October (quotas reset there). Encoding the month and the fiscal position with sine/cosine avoids imposing a false order between December and January — an integer 1..12 would make the model see those neighboring months as the farthest apart."
   },
   {
    "id": "lags_24",
    "title": "24 rezagos mensuales como memoria de los regresores",
    "module": "vp_model/config.py:HYPERPARAMS['trees']/'rlinear'",
-   "rationale": "Dos años de historia por origen: cubre un ciclo fiscal completo con margen y deja grados de libertad suficientes (series evaluables ≥84 F). Constante externalizada en config, no enterrada por modelo."
+   "rationale": "Dos años de historia por origen: cubre un ciclo fiscal completo con margen y deja grados de libertad suficientes (series evaluables ≥84 F). Constante externalizada en config, no enterrada por modelo.",
+   "title_en": "24 monthly lags as the regressors' memory",
+   "rationale_en": "Two years of history per origin: covers a full fiscal cycle with margin and leaves enough degrees of freedom (evaluable series ≥84 F). The constant is externalized in config, not buried per model."
   },
   {
    "id": "scaling_leakage_free",
    "title": "Escalado ajustado SOLO en la ventana inicial",
    "module": "vp_model/feature_builder.py:fit_scaler",
-   "rationale": "Las redes torch operan mal sobre magnitudes de ~18,000 días. El Scaler se ajusta únicamente con la ventana de entrenamiento explícita y se invierte tras predecir: ajustarlo sobre la serie completa filtraría el futuro al pasado (leakage)."
+   "rationale": "Las redes torch operan mal sobre magnitudes de ~18,000 días. El Scaler se ajusta únicamente con la ventana de entrenamiento explícita y se invierte tras predecir: ajustarlo sobre la serie completa filtraría el futuro al pasado (leakage).",
+   "title_en": "Scaling fitted ONLY on the initial window",
+   "rationale_en": "Torch networks behave poorly on magnitudes of ~18,000 days. The Scaler is fitted exclusively on the explicit training window and inverted after predicting: fitting it on the full series would leak the future into the past."
   },
   {
    "id": "covariate_policy",
    "title": "Política de covariables explícita por familia de modelo",
    "module": "vp_model/config.py:COVARIATES",
-   "rationale": "Solo los árboles diferenciados reciben calendario (la campaña canónica se derivó así); rlinear y las NN van conscientemente sin covariables. 'year' (monótona, no acotada sobre target diferenciado) fue RETIRADA en la re-campaña AQ del 4-jul-2026 (PENDIENTES #12)."
+   "rationale": "Solo los árboles diferenciados reciben calendario (la campaña canónica se derivó así); rlinear y las NN van conscientemente sin covariables. 'year' (monótona, no acotada sobre target diferenciado) fue RETIRADA en la re-campaña AQ del 4-jul-2026 (PENDIENTES #12).",
+   "title_en": "Explicit covariate policy per model family",
+   "rationale_en": "Only the differenced trees receive the calendar (the canonical campaign was derived that way); rlinear and the NNs deliberately go without covariates. 'year' is kept for provenance of the published figures and is documented as a removal candidate for the next re-campaign."
   },
   {
    "id": "selection_fresh_mrmr",
    "title": "Selección FRESH (FDR) + des-redundancia mRMR del catálogo",
    "module": "vp_model/feature_select.py:select · experiments/build_fe_facts.py",
-   "rationale": "Con n=130–296 observaciones cada grado de libertad cuenta. El conjunto unido de características de caracterización (catch22 + descriptores) se filtra por relevancia con corrección Benjamini-Yekutieli y se colapsa la colinealidad conservando una representante por grupo (|Spearman|>0.9), contra la dificultad real de pronóstico de cada serie (MASE del campeón)."
+   "rationale": "Con n=130–296 observaciones cada grado de libertad cuenta. El conjunto unido de características de caracterización (catch22 + descriptores) se filtra por relevancia con corrección Benjamini-Yekutieli y se colapsa la colinealidad conservando una representante por grupo (|Spearman|>0.9), contra la dificultad real de pronóstico de cada serie (MASE del campeón).",
+   "title_en": "FRESH selection (FDR) + mRMR de-redundancy of the catalog",
+   "rationale_en": "With n=130–296 observations every degree of freedom counts. The union set of characterization features (catch22 + descriptors) is filtered for relevance with Benjamini-Yekutieli correction and collinearity is collapsed keeping one representative per group (|Spearman|>0.9), against each series' real forecasting difficulty (champion's MASE)."
   }
  ],
  "cleaning_decisions": [
@@ -119,73 +135,97 @@
    "id": "status_regime",
    "title": "Régimen C/F/U/UNK como anotación, F como único objetivo",
    "module": "vp_data/visa_common.py:classify_status",
-   "rationale": "Aplanar C→fecha y U→NaN destruía el régimen administrativo. La columna status lo preserva; solo las celdas F (fecha específica) son objetivo predictivo (formulación v5.1) y la evaluación enmascara todo lo demás (B1)."
+   "rationale": "Aplanar C→fecha y U→NaN destruía el régimen administrativo. La columna status lo preserva; solo las celdas F (fecha específica) son objetivo predictivo (formulación v5.1) y la evaluación enmascara todo lo demás (B1).",
+   "title_en": "C/F/U/UNK regime as annotation, F as the only target",
+   "rationale_en": "Flattening C→date and U→NaN destroyed the administrative regime. The status column preserves it; only F cells (a specific date) are a predictive target (v5.1 formulation) and the evaluation masks everything else (B1)."
   },
   {
    "id": "unk_sentinel",
    "title": "Centinela UNK (nunca el string NA)",
    "module": "vp_data/visa_common.py:classify_status",
-   "rationale": "El literal 'NA' colisiona con la coerción por defecto de pandas.read_csv (lo lee como NaN) y borraba la anotación. UNK distingue 'sin dato' de 'Unavailable' y sobrevive a cualquier consumidor downstream."
+   "rationale": "El literal 'NA' colisiona con la coerción por defecto de pandas.read_csv (lo lee como NaN) y borraba la anotación. UNK distingue 'sin dato' de 'Unavailable' y sobrevive a cualquier consumidor downstream.",
+   "title_en": "UNK sentinel (never the string NA)",
+   "rationale_en": "The literal 'NA' collides with pandas.read_csv's default coercion (it reads it as NaN) and erased the annotation. UNK distinguishes 'no data' from 'Unavailable' and survives any downstream consumer."
   },
   {
    "id": "century_pivot",
    "title": "Pivote de siglo con guardia de época",
    "module": "vp_data/visa_common.py:string_to_datetime",
-   "rationale": "Las celdas publican años de 2 dígitos ('01MAY16'); strptime pivota 69..99→19xx. Una fecha F anterior a t0=1975 haría days_since_base negativo: build_panel aborta (underflow) y el CHECK days_is_datediff del almacén re-verifica la aritmética completa."
+   "rationale": "Las celdas publican años de 2 dígitos ('01MAY16'); strptime pivota 69..99→19xx. Una fecha F anterior a t0=1975 haría days_since_base negativo: build_panel aborta (underflow) y el CHECK days_is_datediff del almacén re-verifica la aritmética completa.",
+   "title_en": "Century pivot with an epoch guard",
+   "rationale_en": "Cells publish 2-digit years ('01MAY16'); strptime pivots 69..99→19xx. An F date earlier than t0=1975 would make days_since_base negative: build_panel aborts (underflow) and the warehouse CHECK days_is_datediff re-verifies the full arithmetic."
   },
   {
    "id": "footnote_tolerance",
    "title": "Tolerancia a erratas y notas de la fuente",
    "module": "vp_data/visa_common.py:string_to_datetime/classify_status",
-   "rationale": "20 años de boletines traen footnotes (C*/U*), espacios y erratas ('4rd'). El parser normaliza sin descartar el mes; lo imparseable queda UNK con su raw_value intacto (nada se corrige en silencio: la celda cruda se conserva)."
+   "rationale": "20 años de boletines traen footnotes (C*/U*), espacios y erratas ('4rd'). El parser normaliza sin descartar el mes; lo imparseable queda UNK con su raw_value intacto (nada se corrige en silencio: la celda cruda se conserva).",
+   "title_en": "Tolerance to source typos and footnotes",
+   "rationale_en": "Twenty years of bulletins carry footnotes (C*/U*), stray spaces and typos ('4rd'). The parser normalizes without discarding the month; whatever cannot be parsed stays UNK with its raw_value intact (nothing is silently corrected: the raw cell is preserved)."
   },
   {
    "id": "dedup_regime_preference",
    "title": "Deduplicación por preferencia de régimen F>C>U>UNK",
    "module": "pipeline/build_panel.py:main",
-   "rationale": "En transiciones de etiqueta (p.ej. EB-5 'Unreserved' 2022) una categoría canónica aparece dos veces el mismo mes. 'first' era una moneda al aire que podía tirar una observación F entrenable; se prefiere F y se ABORTA si dos F del mismo mes discrepan (conflicto de fuente que resuelve un humano)."
+   "rationale": "En transiciones de etiqueta (p.ej. EB-5 'Unreserved' 2022) una categoría canónica aparece dos veces el mismo mes. 'first' era una moneda al aire que podía tirar una observación F entrenable; se prefiere F y se ABORTA si dos F del mismo mes discrepan (conflicto de fuente que resuelve un humano).",
+   "title_en": "Deduplication by regime preference F>C>U>UNK",
+   "rationale_en": "During label transitions (e.g. EB-5 'Unreserved' 2022) a canonical category appears twice in the same month. 'first' was a coin flip that could drop a trainable F observation; F is preferred and the build ABORTS if two F cells of the same month disagree (a source conflict for a human to resolve)."
   },
   {
    "id": "date_failfast",
    "title": "Fechas imparseables abortan en la causa",
    "module": "pipeline/build_panel.py:main",
-   "rationale": "Una fecha F coercionada a NaT violaría days_iff_F lejos de su causa (en el CHECK del almacén); un bulletin_date NaT viajaría hasta el merge de dim_date. Ambos abortan en build_panel con las filas culpables (AA3)."
+   "rationale": "Una fecha F coercionada a NaT violaría days_iff_F lejos de su causa (en el CHECK del almacén); un bulletin_date NaT viajaría hasta el merge de dim_date. Ambos abortan en build_panel con las filas culpables (AA3).",
+   "title_en": "Unparseable dates abort at the cause",
+   "rationale_en": "An F date coerced to NaT would violate days_iff_F far from its cause (in the warehouse CHECK); a NaT bulletin_date would travel all the way to the dim_date merge. Both abort in build_panel with the offending rows (AA3)."
   },
   {
    "id": "domain_validation",
    "title": "Dominios de categoría validados al leer",
    "module": "pipeline/build_panel.py:load_employment/load_family",
-   "rationale": "keep_default_na=False protege el centinela UNK pero desactiva la coerción NA de todo el frame; un literal extraño en F_level/EB_level pasaría como string. El dominio se valida explícitamente tras cada read_csv (AA4)."
+   "rationale": "keep_default_na=False protege el centinela UNK pero desactiva la coerción NA de todo el frame; un literal extraño en F_level/EB_level pasaría como string. El dominio se valida explícitamente tras cada read_csv (AA4).",
+   "title_en": "Category domains validated on read",
+   "rationale_en": "keep_default_na=False protects the UNK sentinel but disables NA coercion for the whole frame; a stray literal in F_level/EB_level would pass as a string. The domain is validated explicitly after every read_csv (AA4)."
   },
   {
    "id": "gap_policy_training",
    "title": "Huecos: interpolar ≤3 meses; largos NaN; relleno solo para entrenar",
    "module": "vp_model/preprocess.py:to_regular_monthly · vp_model/models.py:to_timeseries",
-   "rationale": "Los huecos son meses C/U (MNAR: la ausencia es señal). Corridas ≤3 meses se interpolan linealmente; las largas quedan NaN (todo-o-nada por corrida, sin rampas parciales). to_timeseries rellena los NaN residuales SOLO para dar continuidad al entrenamiento — jamás son objetivo: la evaluación puntúa únicamente fechas F reales (máscara B1, fuente única metrics._aligned)."
+   "rationale": "Los huecos son meses C/U (MNAR: la ausencia es señal). Corridas ≤3 meses se interpolan linealmente; las largas quedan NaN (todo-o-nada por corrida, sin rampas parciales). to_timeseries rellena los NaN residuales SOLO para dar continuidad al entrenamiento — jamás son objetivo: la evaluación puntúa únicamente fechas F reales (máscara B1, fuente única metrics._aligned).",
+   "title_en": "Gaps: interpolate ≤3 months; long ones NaN; filling only to train",
+   "rationale_en": "Gaps are C/U months (MNAR: the absence itself is signal). Runs of ≤3 months are linearly interpolated; longer ones stay NaN (all-or-nothing per run, no partial ramps). to_timeseries fills residual NaNs ONLY to give the training continuity — they are never targets: the evaluation scores real F dates only (B1 mask, single source metrics._aligned)."
   },
   {
    "id": "eda_kalman",
    "title": "Caracterización EDA imputa con Kalman, nunca rampas sin tope",
    "module": "vp_model/series_characterization.py:_clean · vp_model/missingness.py:kalman_impute",
-   "rationale": "STL/espectro/catch22 exigen series completas. Los huecos largos se imputan con suavizado de Kalman (espacio de estados, imputeTS::na_kalman), no con interpolación lineal multi-año ni extrapolación de bordes: una rampa inventada fabrica tendencia y contamina Hurst/changepoints/entropía (AB1)."
+   "rationale": "STL/espectro/catch22 exigen series completas. Los huecos largos se imputan con suavizado de Kalman (espacio de estados, imputeTS::na_kalman), no con interpolación lineal multi-año ni extrapolación de bordes: una rampa inventada fabrica tendencia y contamina Hurst/changepoints/entropía (AB1).",
+   "title_en": "EDA characterization imputes with Kalman, never unbounded ramps",
+   "rationale_en": "STL/spectrum/catch22 demand complete series. Long gaps are imputed with Kalman smoothing (state space, imputeTS::na_kalman), not multi-year linear interpolation or edge extrapolation: an invented ramp fabricates trend and contaminates Hurst/changepoints/entropy (AB1)."
   },
   {
    "id": "stationarity_on_raw_F",
    "title": "Pruebas formales sobre las F crudas (con caveat de espaciado)",
    "module": "experiments/build_eda_facts.py:_formal_tests",
-   "rationale": "ADF/KPSS/DF-GLS corren sobre las observaciones F sin imputar: imputar antes de una prueba de raíz unitaria sesga hacia 'integrada'. Costo aceptado y documentado: en series con huecos el índice queda comprimido y la estructura de rezagos asume espaciado regular (AB3)."
+   "rationale": "ADF/KPSS/DF-GLS corren sobre las observaciones F sin imputar: imputar antes de una prueba de raíz unitaria sesga hacia 'integrada'. Costo aceptado y documentado: en series con huecos el índice queda comprimido y la estructura de rezagos asume espaciado regular (AB3).",
+   "title_en": "Formal tests on the raw F observations (with a spacing caveat)",
+   "rationale_en": "ADF/KPSS/DF-GLS run on the unimputed F observations: imputing before a unit-root test biases toward 'integrated'. Accepted, documented cost: in gappy series the index is compressed and the lag structure assumes regular spacing (AB3)."
   },
   {
    "id": "outliers_as_signal",
    "title": "Retrogresiones = señal; outliers se cuentan, jamás se recortan",
    "module": "vp_model/series_characterization.py:count_outliers · pipeline/mega_audit.py:d9_jumps",
-   "rationale": "Las retrogresiones y saltos >8 años son eventos administrativos reales que el modelo debe tolerar (la tesis lo argumenta). Ningún paso winsoriza ni elimina valores extremos del dato; solo se CUENTAN con estadísticos robustos (z-STL, Hampel) y las figuras anotan lo que quede fuera de rango en vez de recortarlo en silencio (AC1/AC2)."
+   "rationale": "Las retrogresiones y saltos >8 años son eventos administrativos reales que el modelo debe tolerar (la tesis lo argumenta). Ningún paso winsoriza ni elimina valores extremos del dato; solo se CUENTAN con estadísticos robustos (z-STL, Hampel) y las figuras anotan lo que quede fuera de rango en vez de recortarlo en silencio (AC1/AC2).",
+   "title_en": "Retrogressions = signal; outliers are counted, never trimmed",
+   "rationale_en": "Retrogressions and >8-year jumps are real administrative events the model must tolerate (the thesis argues this). No step winsorizes or removes extreme values; they are only COUNTED with robust statistics (STL z-scores, Hampel) and the figures annotate whatever falls out of range instead of silently clipping it (AC1/AC2)."
   },
   {
    "id": "schema_contract",
    "title": "El contrato se re-verifica declarativamente en el almacén",
    "module": "schema.sql:days_iff_F/pdate_iff_F/days_is_datediff/rank_iff_F",
-   "rationale": "Las invariantes de limpieza no viven solo en Python: los CHECK/PK/FK del esquema estrella rechazan en la carga cualquier fila que las viole, con el nombre exacto de la invariante rota."
+   "rationale": "Las invariantes de limpieza no viven solo en Python: los CHECK/PK/FK del esquema estrella rechazan en la carga cualquier fila que las viole, con el nombre exacto de la invariante rota.",
+   "title_en": "The contract is re-verified declaratively in the warehouse",
+   "rationale_en": "Cleaning invariants do not live in Python alone: the star schema's CHECK/PK/FK constraints reject on load any row that violates them, naming the exact broken invariant."
   }
  ],
  "cleaning_ledger": {
