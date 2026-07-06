@@ -15,7 +15,8 @@ La receta (idéntica al local, NO reinventar):
 
 Salida: ``reports/campaign/global_{table}_{suffix}.csv`` (nivel real reintegrado), que el entorno
 PRINCIPAL evalúa con ``vp_model.eval_neuralforecast`` usando las MISMAS métricas — así el
-frontier de GPU es comparable 1:1 contra ETS/Theta (0.118 FAD) y el AutoBiTCN local (0.108).
+frontier de GPU es comparable 1:1 contra ETS (0.114 FAD) y el AutoBiTCN local (0.109);
+piso naive1 0.100 y campeón desplegado median(theta+ets+sarima) 0.121. Baseline vigente en key_facts.
 
 Ejemplos (en la instancia GPU, venv con requirements.txt):
   # Frontier pesado global, FAD familiar, diferencia + norma por serie:

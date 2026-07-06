@@ -135,6 +135,13 @@ for table in ("FAD", "DFF"):
         if not parts:
             continue
         full = pd.concat(parts, ignore_index=True)
+        # ONE campaign = ONE run_id: 9 downstream consumers filter run_id==max().
+        # This runbook writes the non-GBM pool (lane P) and the GBM pool (stage B) as
+        # SEPARATE run_comparison invocations → two run_ids; the merge below left the
+        # consumers staring at the GBM half only (caught live: ets_fad_mean=NaN in
+        # key_facts). Collapse to one id; the per-half id survives in source_run_id.
+        full["source_run_id"] = full["run_id"]
+        full["run_id"] = full["run_id"].max()
         full.to_csv(camp / f"campaign_pool_{table}_{block}.csv", index=False)
         tgt = f"model_comparison_{table}21.csv" if block == "family" else f"model_comparison_EB_{table}21.csv"
         full.to_csv(ev / tgt, index=False)

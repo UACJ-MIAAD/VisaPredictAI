@@ -200,18 +200,18 @@
       },
       {
         "challenger": "catboost",
-        "mean": 0.1051,
+        "mean": 0.106,
         "median": 0.1052,
         "n_series": 10,
-        "mean_margin_vs_champion": -0.0056,
-        "wilcoxon_p": 0.69531,
+        "mean_margin_vs_champion": -0.0064,
+        "wilcoxon_p": 0.43164,
         "recipe": {
           "models": [
             "catboost"
           ],
           "agg": "median"
         },
-        "holm_p": 0.69531,
+        "holm_p": 0.43164,
         "promotable": false
       }
     ],

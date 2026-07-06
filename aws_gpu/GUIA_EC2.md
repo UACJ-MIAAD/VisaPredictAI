@@ -70,6 +70,16 @@ python -c "import torch; print('CUDA disponible:', torch.cuda.is_available())"  
 
 El panel quedó en `~/run/visa_panel_long.parquet` (un nivel arriba de `aws_gpu/`).
 
+> **⚡ Atajo de UN comando (recomendado):** en vez de copiar los bloques de abajo, corre el
+> orquestador que ya trae el bundle — hace las 4 fases (multi-semilla del ganador + frontier
+> pesado, FAD y DFF) y **apaga la instancia sola** al terminar:
+> ```bash
+> tmux new -s gpu                 # sobrevive si se cae el SSH
+> bash run_frontier.sh            # panel por defecto ../visa_panel_long.parquet
+> # Ctrl-b d para soltar el tmux; reconecta con: tmux attach -t gpu
+> ```
+> Los bloques manuales de abajo quedan como referencia / para correr fases sueltas.
+
 ```bash
 PANEL=../visa_panel_long.parquet
 
@@ -79,7 +89,7 @@ python train_gpu.py --panel $PANEL --table FAD --diff --local-scaler \
 python train_gpu.py --panel $PANEL --table DFF --diff \
     --auto --models AutoBiTCN AutoTiDE --num-samples 50 --seeds 1 2 3 4 5
 
-# (b) FRONTIER pesado global — ¿bate a AutoBiTCN 0.108 (FAD) / BiTCN 0.088 (DFF)?
+# (b) FRONTIER pesado global — ¿bate a AutoBiTCN 0.109 (FAD) / al campeón desplegado 0.100 (DFF)? (baseline vigente en key_facts)
 python train_gpu.py --panel $PANEL --table FAD --diff --local-scaler \
     --models Informer Autoformer FEDformer PatchTST TimesNet --max-steps 2000
 python train_gpu.py --panel $PANEL --table DFF --diff \
