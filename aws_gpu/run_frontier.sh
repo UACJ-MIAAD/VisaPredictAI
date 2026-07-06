@@ -30,22 +30,24 @@ $PY -c "import torch; assert torch.cuda.is_available(), 'CUDA NO disponible — 
   || { echo "CUDA no disponible — detén y revisa la instancia"; exit 1; }
 echo "panel: $PANEL"; $PY -c "import pandas as pd; p=pd.read_parquet('$PANEL'); print(f'  {len(p):,} filas · {p.bulletin_date.nunique()} meses')"
 
+# NOTA: train_gpu.py DIFERENCIA por defecto; el flag es `--no-diff` (para niveles). NO pasar
+# `--diff` (no existe -> argparse aborta la fase). La receta ganadora = diferencia => sin flag.
 # ---- 1) CONFIRMAR el ganador con HPO AMPLIO + multi-semilla (lo que el CPU no alcanza) ----
 say "1/4 · AutoBiTCN FAD — HPO amplio (80 trials) × 10 semillas → IC del ganador"
-$PY train_gpu.py --panel "$PANEL" --table FAD --diff --local-scaler \
+$PY train_gpu.py --panel "$PANEL" --table FAD --local-scaler \
     --auto --models AutoBiTCN --num-samples 80 --seeds 1 2 3 4 5 6 7 8 9 10
 
 say "2/4 · AutoBiTCN + AutoTiDE DFF — HPO (50 trials) × 5 semillas"
-$PY train_gpu.py --panel "$PANEL" --table DFF --diff \
+$PY train_gpu.py --panel "$PANEL" --table DFF \
     --auto --models AutoBiTCN AutoTiDE --num-samples 50 --seeds 1 2 3 4 5
 
 # ---- 2) FRONTIER pesado global — ¿la CAPACIDAD bate al AutoBiTCN? ----
 say "3/4 · frontier pesado FAD (Informer/Autoformer/FEDformer/PatchTST/TimesNet, max_steps=2000)"
-$PY train_gpu.py --panel "$PANEL" --table FAD --diff --local-scaler \
+$PY train_gpu.py --panel "$PANEL" --table FAD --local-scaler \
     --models Informer Autoformer FEDformer PatchTST TimesNet --max-steps 2000
 
 say "4/4 · frontier pesado DFF (+ APAGA la instancia al terminar)"
-$PY train_gpu.py --panel "$PANEL" --table DFF --diff \
+$PY train_gpu.py --panel "$PANEL" --table DFF \
     --models Informer Autoformer FEDformer PatchTST TimesNet --max-steps 2000 \
     --shutdown-on-done
 
