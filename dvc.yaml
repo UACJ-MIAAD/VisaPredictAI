@@ -79,6 +79,7 @@ stages:
       - reports/prospective/forecast_scorecard_meta.json
       - reports/eval/auto_arima_baseline.csv
       - reports/eval/significance_summary.json
+      - reports/eval/tuned_params.json
       # SOLO los insumos canónicos (no el dir completo: las corridas exploratorias
       # que caen en reports/campaign no deben churnear el lock — mordió 2 veces el 3-jul)
       - reports/campaign/campaign_pool_FAD_family.csv

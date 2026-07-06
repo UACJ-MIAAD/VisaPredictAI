@@ -2068,17 +2068,17 @@ de tres particiones de §1.4.3, y la aceptación se decidió en la cola de
 \textit{val-confirmación} —una ventana que ni el buscador ni la configuración incumbente
 vieron—, no sobre el conjunto reservado, que queda solo para el número publicado.
 Siguiendo la propia regla del protocolo, el efecto se reporta con \textbf{media, mediana y
-porcentaje de series que mejoran}: se aceptaron \textbf{7 de los 12 grupos}
+porcentaje de series que mejoran}: se aceptaron \textbf{$\factTuningAccepted$ de los $\factTuningGroups$ grupos}
 modelo$\times$tabla$\times$bloque (entre ellos los tres modelos en FAD familiar, con
-mejoras de media de hasta $4$\,\%, mediana de hasta $17$\,\% y $64$--$72$\,\% de las
-series mejorando con CatBoost); en los cinco grupos restantes se conservaron los valores
-por defecto, con reversión por serie donde el default gana. El rechazo más instructivo
-fue LightGBM en DFF familiar: la mediana lucía una mejora de $18$\,\%, pero solo el
-$36$\,\% de las series mejoraba y la media empeoraba $9$\,\% —exactamente el tipo de
+mejoras de media de hasta $31$\,\%, mediana de hasta $46$\,\% y $64$--$80$\,\% de las
+series mejorando); el único grupo restante conservó los valores
+por defecto, con reversión por serie donde el default gana. Ese rechazo es el más instructivo
+—LightGBM en DFF familiar—: la mediana lucía una mejora de $21$\,\%, pero solo el
+$36$\,\% de las series mejoraba y la media empeoraba $7$\,\% —exactamente el tipo de
 espejismo de agregación que la regla de reportar media, mediana y porcentaje de series
 está diseñada para cazar. Las categorías de empleo se
-optimizaron \textbf{por primera vez}, con dos de sus seis grupos aceptados (CatBoost en
-FAD y LightGBM en DFF, mejoras de $\sim$7\,\% en media). El efecto agregado es visible en la
+optimizaron \textbf{por primera vez} y sus \textbf{$\factTuningAcceptedEmployment$ grupos} se
+aceptaron, con mejoras de media de hasta $28$\,\% (LightGBM y XGBoost en FAD). El efecto agregado es visible en la
 Tabla~\ref{tab:comparacion_modelos}: los árboles optimizados encabezan la métrica de
 selección en FAD ($0.101$). Ahora bien, la optimización \textit{cierra la brecha pero no
 cambia el veredicto}: su error en el conjunto reservado ($0.123$--$0.126$) queda a la
@@ -2568,7 +2568,7 @@ honestidad metodológica que da valor de ingeniería al resto del sistema.
 precisan la respuesta: (i) la \textbf{especificación importa más que la arquitectura} —al
 reformular las redes locales sobre la primera diferencia dejaron de colapsar y el TFT pasó
 de fuera de escala a la zona alta de la tabla—; (ii) la optimización de hiperparámetros
-con confirmación en una partición independiente mejora a los árboles (7 de 12 grupos
+con confirmación en una partición independiente mejora a los árboles ($\factTuningAccepted$ de $\factTuningGroups$ grupos
 aceptados, con media, mediana y porcentaje de series reportados juntos) hasta encabezar la
 métrica de selección, sin bajar del piso en el conjunto reservado; (iii) el mejor profundo
 global optimizado (AutoBiTCN, $\factAutobitcnFadMean\pm0.007$) es hoy \textbf{el mejor

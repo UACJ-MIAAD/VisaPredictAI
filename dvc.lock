@@ -113,8 +113,8 @@ stages:
       size: 1589531
     - path: experiments/build_key_facts.py
       hash: md5
-      md5: 4826255b90805d607efbf4aaf418733e
-      size: 11804
+      md5: 7c3bcd1958b81a1e1e2f4379e6b5fc88
+      size: 13210
     - path: reports/campaign/campaign_pool_DFF_family.csv
       hash: md5
       md5: 53d62b4fb1bc834df896cb550ab65658
@@ -171,6 +171,10 @@ stages:
       hash: md5
       md5: 652a4042ce959be20229a0d1dfef1e24
       size: 2854
+    - path: reports/eval/tuned_params.json
+      hash: md5
+      md5: be80710533d58afaafea5e194425b44a
+      size: 12908
     - path: reports/prospective/forecast_scorecard_meta.json
       hash: md5
       md5: 37771765d49ba185e49c24d52e6eb34e
@@ -182,9 +186,9 @@ stages:
     outs:
     - path: reports/governance/key_facts.json
       hash: md5
-      md5: e1209ddeb8661ff71b54a2b9747b64c7
-      size: 1209
+      md5: ee417ac9d4012d869da312a034be201e
+      size: 1323
     - path: reports/latex/key_facts.tex
       hash: md5
-      md5: 4cc8ffa1943ec9fb8a19b5358f29b400
-      size: 1898
+      md5: 018ced86bb4fab9497a9e1246fc55ca7
+      size: 2058

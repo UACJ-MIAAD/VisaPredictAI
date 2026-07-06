@@ -92,7 +92,10 @@ forbidden:
     reason: 'el PI desplegado ya NO ensancha por raíz del horizonte ni usa el ratio escalar 0.4744; usa cuantiles empíricos por horizonte + ACI'
   - pattern: 'los seis casos mejoran|the six cases improve|hasta un \$?32\$?\s*\\?,?\s*\\?%'
     in: [deliverable, paper]
-    reason: 'claim de tuning viejo (aceptación sobre el hold-out); vigente: 7/12 grupos aceptados en val-confirm con media+mediana+% series'
+    reason: 'claim de tuning viejo (aceptación sobre el hold-out); vigente: 11/12 grupos aceptados en val-confirm con media+mediana+% series (derivado: \factTuningAccepted/\factTuningGroups)'
+  - pattern: '(7|siete)\s+de\s+(los\s+)?(12|doce)\s+grupos|7/12\s+grupos|\bdos de sus seis grupos'
+    in: [deliverable, paper]
+    reason: 'conteo de tuning MUERTO (7/12 y "dos de sus seis" = era AQ 4-jul); la re-campaña 6-jul aceptó 11/12 (family 5/6, employment 6/6) — usar las macros \factTuningAccepted/\factTuningGroups/\factTuningAcceptedEmployment, no literales'
   - pattern: 'MASE[\s\$=~]{0,4}0\.225|0\.225[^0-9]{0,20}(zero-?shot|Chronos)'
     in: [deliverable, paper, web]
     reason: 'Chronos 0.225 es de la era pre-máscara; el vigente es 0.207 sel (sobrevivió 2 generaciones hasta el audit 3-jul)'

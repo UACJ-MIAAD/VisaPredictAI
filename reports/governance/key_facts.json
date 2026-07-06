@@ -42,5 +42,9 @@
   "naive1_fad_dedup_mean": 0.105,
   "dff_champion_mean": 0.1,
   "crps_dff": 31.3,
-  "naive1_dff_dedup_mean": 0.077
+  "naive1_dff_dedup_mean": 0.077,
+  "tuning_groups": 12,
+  "tuning_accepted": 11,
+  "tuning_accepted_family": 5,
+  "tuning_accepted_employment": 6
 }

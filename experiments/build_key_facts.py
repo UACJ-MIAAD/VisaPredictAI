@@ -188,6 +188,34 @@ def _champion_challenger() -> dict:
     return out
 
 
+def _tuning() -> dict:
+    """Conteo de grupos GBM cuyo tuneo se ACEPTÓ en val-confirmación (improved=true).
+
+    La prosa de §2 (efecto de la optimización de hiperparámetros) cita "N de M grupos
+    aceptados"; sin macro se hardcodeaba y quedó a un pelo de shipear "7/12" (era AQ)
+    cuando la re-campaña del 6-jul aceptó 11/12 — el guardián era ciego porque el conteo
+    NO era key_fact. Fuente: reports/eval/tuned_params.json (modelo -> tabla_bloque ->
+    improved). Degradación C1: si el archivo falta (el cron semanal no re-tunea), conserva
+    los conteos previos.
+    """
+    keys = ("tuning_groups", "tuning_accepted", "tuning_accepted_family", "tuning_accepted_employment")
+    p = REPORTS / "eval" / "tuned_params.json"
+    if not p.exists():
+        prev = _prev_facts()
+        return {k: prev[k] for k in keys if k in prev}
+    tp = json.loads(p.read_text())
+    groups = [
+        (tb, info) for tbs in tp.values() for tb, info in tbs.items() if isinstance(info, dict) and "improved" in info
+    ]
+    acc = [g for g in groups if g[1].get("improved") is True]
+    return {
+        "tuning_groups": len(groups),
+        "tuning_accepted": len(acc),
+        "tuning_accepted_family": sum(1 for tb, _ in acc if tb.endswith("family")),
+        "tuning_accepted_employment": sum(1 for tb, _ in acc if tb.endswith("employment")),
+    }
+
+
 def build() -> dict:
     facts = {
         "_source": "experiments/build_key_facts.py — NO editar a mano",
@@ -195,6 +223,7 @@ def build() -> dict:
         **_prospective(),
         **_models(),
         **_champion_challenger(),
+        **_tuning(),
     }
     (REPORTS / "governance" / "key_facts.json").write_text(json.dumps(facts, indent=2, ensure_ascii=False) + "\n")
 
