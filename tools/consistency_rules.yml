@@ -140,7 +140,7 @@ forbidden:
 
 required:
   - fact: n_series_structural
-    forms: ['{n_series_structural}\s+series', '{n_series_structural}[^.0-9]{0,15}estructural']
+    forms: ['{n_series_structural}\s+series', '{n_series_structural}[^.0-9]{0,15}estructural', '\\factNSeriesStructural']
     in: [deliverable, paper]
     reason: 'el tamaño del panel (194 series) debe figurar'
   - fact: deep_dff_margin_pct

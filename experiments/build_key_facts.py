@@ -169,12 +169,32 @@ def _models() -> dict:
     return out
 
 
+def _champion_challenger() -> dict:
+    """Medias campeón/retador (sobre series deduplicadas) y CRPS del veredicto vigente.
+
+    La prosa de A.8 las cita (0.121/0.100 campeón, 0.105/0.077 naïve-1, 32.1/31.3 CRPS);
+    sin macro se hardcodeaban. Fuente: el manifiesto de gobernanza campeón--retador.
+    """
+    cc = json.loads((REPORTS / "governance" / "champion_challenger.json").read_text())
+    out: dict = {}
+    for tbl in ("FAD", "DFF"):
+        d = cc[tbl]
+        out[f"{tbl.lower()}_champion_mean"] = round(float(d["champion_mean"]), 3)
+        out[f"crps_{tbl.lower()}"] = round(float(d["champion_crps"]), 1)
+        for c in d.get("challengers", []):
+            if c.get("challenger") == "naive1":
+                out[f"naive1_{tbl.lower()}_dedup_mean"] = round(float(c["mean"]), 3)
+                break
+    return out
+
+
 def build() -> dict:
     facts = {
         "_source": "experiments/build_key_facts.py — NO editar a mano",
         **_dataset(),
         **_prospective(),
         **_models(),
+        **_champion_challenger(),
     }
     (REPORTS / "governance" / "key_facts.json").write_text(json.dumps(facts, indent=2, ensure_ascii=False) + "\n")
 
@@ -202,7 +222,10 @@ def build() -> dict:
     for k, v in facts.items():
         if k.startswith("_") or isinstance(v, list):
             continue
-        lines.append(f"\\newcommand{{\\{macro(k)}}}{{{v}}}\n")
+        # Las MASE (medias/medianas por serie) se emiten con 3 decimales para que la prosa
+        # rinda 0.100/0.120 (no 0.1/0.12); el guardián compara numéricamente (0.120==0.12).
+        vs = format(v, ".3f") if isinstance(v, float) and (k.endswith(("_mean", "_median")) or "mase" in k) else v
+        lines.append(f"\\newcommand{{\\{macro(k)}}}{{{vs}}}\n")
         # AH1: variante formateada \factXxxFmt para los conteos de miles — la prosa
         # usa 27{,}611 (coma tipográfica LaTeX); el macro crudo era inutilizable ahí.
         if isinstance(v, int) and v >= 1000:

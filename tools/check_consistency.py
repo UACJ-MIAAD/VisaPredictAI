@@ -34,6 +34,15 @@ def _digits(s: str) -> str:
     return re.sub(r"[^0-9]", "", s)
 
 
+def _num_eq(a: str, b: str) -> bool:
+    """Igualdad tolerante al formato: ``0.120 == 0.12`` (macros MASE a 3 decimales) pero
+    ``0.12 != 0.13``. Cae a comparación exacta de string para valores no numéricos (fechas)."""
+    try:
+        return float(a) == float(b)
+    except ValueError:
+        return a == b
+
+
 def _resolve(globs: list[str]) -> list[Path]:
     out: list[Path] = []
     for g in globs:
@@ -102,7 +111,7 @@ def main() -> int:
             if k.startswith("_") or isinstance(v, (list, dict)):
                 continue
             got = tex_vals.get(_macro(k))
-            if got is None or got.replace("{,}", "") != str(v).replace(",", ""):
+            if got is None or not _num_eq(got.replace("{,}", ""), str(v).replace(",", "")):
                 violations.append(
                     f"KEYFACTS   reports/latex/key_facts.tex  macro \\{_macro(k)}={got!r} != json {k}={v!r} "
                     f"— regenerar con experiments/build_key_facts.py"

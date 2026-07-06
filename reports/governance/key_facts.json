@@ -36,5 +36,11 @@
   "autoarima_dff_median": 0.102,
   "bitcn_dff_mean": 0.09,
   "autobitcn_fad_mean": 0.109,
-  "deep_dff_margin_pct": 21
+  "deep_dff_margin_pct": 21,
+  "fad_champion_mean": 0.121,
+  "crps_fad": 32.1,
+  "naive1_fad_dedup_mean": 0.105,
+  "dff_champion_mean": 0.1,
+  "crps_dff": 31.3,
+  "naive1_dff_dedup_mean": 0.077
 }
