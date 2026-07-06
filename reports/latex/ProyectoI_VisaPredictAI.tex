@@ -259,6 +259,35 @@ descriptiva, pero no son objetivo predictivo: el sistema no promete anticipar lo
 cambios de régimen. Las tablas \textit{Final Action Dates} (FAD) y \textit{Dates
 for Filing} (DFF) se modelan y se evalúan por separado.
 
+\paragraph{Planteamiento del problema.} Para los solicitantes de residencia permanente, la
+fecha de prioridad publicada cada mes en el \textit{Visa Bulletin} determina cuándo pueden
+avanzar su trámite; sin embargo, el boletín se publica sin proyección alguna, sus avances
+son irregulares y con frecuencia se congelan o retroceden, y no se identificó una
+herramienta pública que estime su evolución con incertidumbre cuantificada. Este proyecto
+atiende esa carencia construyendo y validando un sistema predictivo sobre el panel histórico
+multiserie.
+
+\paragraph{Objetivo general.} Desarrollar e implementar un sistema predictivo para series
+temporales del \textit{U.S. Visa Bulletin} que estime el comportamiento mensual de las
+fechas de prioridad por país o área de cargabilidad, categoría migratoria y tipo de tabla.
+
+\paragraph{Objetivos específicos (OE).} Los cinco objetivos que guían este documento y que se
+cierran en las Conclusiones son: \textbf{OE1} construir la base de datos del \textit{Visa
+Bulletin} a partir de los boletines mensuales históricos; \textbf{OE2} caracterizar el
+comportamiento histórico de las series por país, categoría y tabla; \textbf{OE3} implementar
+y comparar modelos lineales y no lineales sobre el conjunto piloto evaluable; \textbf{OE4}
+evaluar el desempeño predictivo bajo validación temporal \textit{walk-forward}, con métricas
+robustas a escala e intervalos de predicción al $95$\,\%; y \textbf{OE5} entregar un
+demostrador académico que permita consultar series, pronósticos e intervalos por país y
+categoría.
+
+\paragraph{Uso responsable de los datos.} El sistema opera exclusivamente sobre datos
+\textbf{públicos y agregados} del \textit{Visa Bulletin} —fechas de corte por categoría,
+país o área de cargabilidad y tipo de tabla, sin dato personal ni identificable de ningún
+solicitante—. Sus pronósticos son estimaciones estadísticas de carácter \textbf{informativo}
+que cuantifican su propia incertidumbre; no constituyen asesoría legal migratoria ni una
+promesa sobre la resolución de un trámite individual, y así se comunica en el demostrador.
+
 La arquitectura sigue un flujo modular que transforma el almacén de datos en
 pronósticos con intervalos de predicción. En la Figura~\ref{fig:arquitectura} se
 muestra el esquema. El sistema consta de cinco módulos:
@@ -1154,7 +1183,9 @@ fluctuación sin tendencia), la entropía de permutación y de muestra, la $\lam
 óptima de Box-Cox y la prueba de Zivot-Andrews (raíz unitaria con un quiebre endógeno),
 además del conjunto canónico de 22 características \textit{catch22} \cita{8}, un
 subconjunto de alto rendimiento seleccionado entre más de siete mil descriptores. En
-México/F3/FAD el exponente de Hurst supera 1 (memoria larga, fuertemente persistente),
+México/F3/FAD el exponente de Hurst supera 1 —un valor fuera del rango canónico $[0,1]$ que
+señala no estacionariedad pura, no memoria larga (véase la lectura de este diagnóstico más
+adelante en esta sección)—,
 las entropías de permutación y de muestra son bajas ($\approx 0.13$--$0.17$, señal de
 una dinámica muy regular y por tanto predecible), la $\lambda$ de Box-Cox queda cerca
 de 1 (no se requiere transformar la varianza) y Zivot-Andrews rechaza la raíz unitaria
@@ -1449,8 +1480,9 @@ por amplio margen (MASE de hold-out $1.249$), lo que confirma que las series son
 predecibles. La línea base que de verdad exige es el \textbf{naïve-1}: repetir el último
 corte publicado, la predicción óptima de un paseo aleatorio. Ninguno de los tres aprende
 nada; el naïve-1, sin embargo, resulta el rival a vencer de todo el capítulo de resultados
-(MASE de hold-out $0.100$ en FAD y $0.086$ en DFF), porque en estas colas casi la mitad de
-los meses no se mueven. La deriva, que añade el avance medio, apenas lo matiza.
+(MASE de hold-out $0.100$ en FAD y $0.086$ en DFF), porque en estas colas familiares
+—del $28$\,\% de meses congelados en FAD al $66$\,\% en DFF (Tabla~\ref{tab:eda_descriptiva})—
+la fecha se repite con frecuencia. La deriva, que añade el avance medio, apenas lo matiza.
 
 \paragraph{Estadísticos lineales: ARIMA y SARIMA \cita{14}.} Modelan la serie como una
 combinación lineal de sus valores y errores pasados; SARIMA añade términos estacionales. Se
@@ -1619,8 +1651,8 @@ e integridad actúan como contrato de calidad; de él se deriva el mart de entre
   modl/.style={layer, draw=uacjblue, fill=uacjblue!10},
   sub/.style={font=\scriptsize\itshape, text=uacjgray, align=center, text width=3.0cm},
   darr/.style={-{Latex[length=3mm]}, uacjgray, line width=1.3pt}]
-  \node[bronze] (b) {\textbf{BRONCE}\\[2pt] Instantáneas HTML en S3 (versionado)\\[2pt] \textit{298 boletines; fuente de verdad cruda}};
-  \node[silver, right=1.1cm of b] (s) {\textbf{PLATA}\\[2pt] Panel \textit{tidy} CSV $y_{p,c,b,t}$\\[2pt] \textit{194 series, 27\,611 filas}};
+  \node[bronze] (b) {\textbf{BRONCE}\\[2pt] Instantáneas HTML en S3 (versionado)\\[2pt] \textit{\factNMonths{} boletines; fuente de verdad cruda}};
+  \node[silver, right=1.1cm of b] (s) {\textbf{PLATA}\\[2pt] Panel \textit{tidy} CSV $y_{p,c,b,t}$\\[2pt] \textit{\factNSeriesStructural{} series, \factNObsFmt{} filas}};
   \node[gold, right=1.1cm of s] (g) {\textbf{ORO}\\[2pt] Almacén estrella DuckDB $+$ marts\\[2pt] \textit{contrato PK/FK/CHECK}};
   \node[modl, right=1.1cm of g] (m) {\textbf{Modelado}\\[2pt] \texttt{mart\_training\_F}\\[2pt] \textit{solo estado F}};
   \draw[darr] (b)--(s);\draw[darr] (s)--(g);\draw[darr] (g)--(m);
@@ -1890,7 +1922,7 @@ Chronos es zero-shot (sin entrenar).}
 \rowcolor{uacjblue!15}
 \textbf{Modelo} & \textbf{MASE sel.} & \textbf{MASE hold-out} & \textbf{sMAPE sel.} & \textbf{sMAPE hold-out} \\ \midrule
 % --- FAD: 25 series familia, run 20260704T100200-ea94a2a (experiments/make_tex_tables.py) ---
-XGBoost & \textbf{0.101} & \textbf{0.125} & 0.39 & 0.33 \\
+XGBoost & \textbf{0.101} & 0.125 & 0.39 & 0.33 \\
 LightGBM & 0.101 & 0.123 & 0.39 & 0.33 \\
 Deriva (\textit{drift}) & 0.105 & 0.126 & 0.40 & 0.33 \\
 Theta & 0.110 & 0.120 & 0.42 & 0.32 \\
@@ -1898,7 +1930,8 @@ TFT & 0.111 & 0.122 & 0.43 & 0.32 \\
 Tendencia lineal local (LLT) & 0.112 & 0.126 & 0.43 & 0.33 \\
 CatBoost & 0.113 & 0.126 & 0.45 & 0.33 \\
 ETS (damped) & 0.119 & 0.114 & 0.46 & 0.30 \\
-Naïve-1 (paseo aleatorio) & 0.120 & 0.100 & 0.46 & 0.26 \\
+\rowcolor{uacjyellow!25}
+Naïve-1 (paseo aleatorio) & 0.120 & \textbf{0.100} & 0.46 & \textbf{0.26} \\
 NLinear & 0.124 & 0.128 & 0.49 & 0.34 \\
 DeepAR & 0.125 & 0.157 & 0.50 & 0.43 \\
 LSTM & 0.133 & 0.156 & 0.52 & 0.42 \\
@@ -2220,6 +2253,41 @@ meses, cero. El margen real de mejora no está en la exactitud puntual a un paso
 los horizontes largos, en la calibración de la incertidumbre —donde la inferencia
 conforme adaptativa sí aporta— y en la coherencia transversal de los pronósticos.
 
+\paragraph{La evidencia por horizonte: el registro prospectivo.} Que el valor del sistema
+viva en los horizontes largos no es una declaración, sino un resultado medido. La
+Tabla~\ref{tab:prospectivo_horizonte} resume el registro prospectivo —\factProspNScoredFmt{}
+pronósticos congelados antes de su mes objetivo y calificados contra el corte realmente
+publicado—. A un paso el error es mínimo (MASE $0.05$; MAE $22$ días), el territorio donde
+el naïve-1 es imbatible; pero crece de forma ordenada con el horizonte, hasta MASE $0.63$ y
+$257$ días a doce meses, mientras el intervalo al $95$\,\% conserva su cobertura (de $0.97$
+a $0.88$). Ahí está la diferencia con la línea base: repetir el último corte entrega una
+predicción \textit{constante} que se degrada conforme la cola avanza, mientras el sistema
+sigue la trayectoria a lo largo de todo el horizonte y acompaña cada punto con incertidumbre
+calibrada. En conjunto el registro promedia MASE $\factProspMase$ y MAE $\factProspMaeDays$
+días.
+
+\begin{table}[H]
+\centering
+\caption[Desempeño prospectivo por horizonte]{Registro prospectivo del sistema desplegado:
+pronósticos congelados antes de su mes objetivo y calificados contra el corte publicado
+(\factProspNScoredFmt{} evaluaciones). El error crece de forma ordenada con el horizonte
+mientras el intervalo al $95$\,\% conserva su cobertura empírica.}
+\label{tab:prospectivo_horizonte}
+\begin{tabular}{cccc}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Horizonte $h$ (meses)} & \textbf{MASE} & \textbf{MAE (días)} & \textbf{Cobertura $95$\,\%} \\ \midrule
+1  & 0.053 & 22  & 0.97 \\
+2  & 0.107 & 59  & 0.96 \\
+3  & 0.204 & 85  & 0.93 \\
+6  & 0.328 & 133 & 0.93 \\
+9  & 0.507 & 216 & 0.93 \\
+12 & 0.628 & 257 & 0.88 \\ \midrule
+\rowcolor{uacjyellow!25}
+\textbf{Global} & \textbf{\factProspMase} & \textbf{\factProspMaeDays} & \textbf{\factProspCovNineFive} \\ \bottomrule
+\end{tabular}
+\end{table}
+
 \begin{table}[H]
 \centering
 \caption[Modelos profundos globales (FAD)]{Modelos profundos entrenados de forma global
@@ -2400,9 +2468,13 @@ líneas base ingenuas y los modelos ligeros encabezan —en FAD la deriva ($0.12
 de selección), el TFT diferenciado ($0.127$) y el naïve-1 ($0.129$); en DFF el naïve-1
 ($0.083$) seguido de ETS ($0.093$)— y ningún modelo entrenado abre distancia frente al
 piso ingenuo. Las series EB, más cortas y con congelamientos aún más largos que las
-familiares, castigan además a los modelos rígidos (Theta cae a $0.439$ en FAD). El piso
-del paseo aleatorio se mantiene en el bloque de empleo, lo que confirma que las
-conclusiones del sistema no son un artefacto de las categorías familiares.
+familiares, castigan además a los modelos rígidos (Theta cae a $0.439$ en FAD). Este
+agrupamiento de líneas base y modelos ligeros al frente —en selección— reproduce el
+observado en las categorías familiares; su confirmación formal en hold-out, donde el
+naïve-1 emerge como piso según la inversión selección$\rightarrow$hold-out documentada en la
+Tabla~\ref{tab:comparacion_modelos}, queda para la evaluación extendida por categoría de
+empleo. La evidencia disponible ya sugiere que las conclusiones del sistema no son un
+artefacto de las categorías familiares.
 
 \begin{table}[H]
 \centering
@@ -2468,6 +2540,18 @@ integrando la base de datos del Objetivo~1 con un catálogo de \textbf{24 modelo
 —incluidas las líneas base ingenuas— bajo un protocolo de validación temporal sin fuga de
 información.
 
+\paragraph{Cierre de los objetivos.} El trabajo cumple el objetivo general y sus cinco
+objetivos específicos: \textbf{OE1} (base de datos) con el panel de \factNSeriesStructural{}
+series y \factNObsFmt{} observaciones (§1.1); \textbf{OE2} (caracterización) con el censo
+exploratorio, la batería de estacionariedad y la ingeniería de características (§1.2);
+\textbf{OE3} (modelos lineales y no lineales) con el catálogo de \factNModels{} modelos
+comparados bajo una interfaz común (§1.3--§1.4); \textbf{OE4} (evaluación) con el protocolo
+\textit{walk-forward} sin fuga, las métricas escaladas y los intervalos al $95$\,\% de
+cobertura empírica verificada (§2.1--§2.2); y \textbf{OE5} (demostrador) con la aplicación de
+consulta documentada en el Apéndice~A. El objetivo general queda satisfecho como sistema
+desplegado con gobernanza; el hallazgo central, a continuación, precisa qué compra la
+capacidad de los modelos y qué no.
+
 \paragraph{Hallazgo principal: el piso del paseo aleatorio.} El resultado que ordena todo
 el capítulo de resultados es un hallazgo del propio sistema, obtenido al exigirse la línea
 base más honesta posible: en un panel donde el $\factPctFrozen$\,\% de los avances
@@ -2503,7 +2587,8 @@ piso ingenuo, el valor del sistema se valida en las cuatro dimensiones que un pa
 aleatorio no ofrece: (a) \textbf{horizontes de 1 a 12 meses}, donde repetir el último
 valor se degrada conforme las colas se mueven, evaluados con un registro prospectivo de
 \factProspNScoredFmt{} predicciones congeladas y calificadas contra los cortes reales
-(MASE prospectivo $\factProspMase$, MAE $\factProspMaeDays$ días); (b) \textbf{intervalos
+(MASE prospectivo $\factProspMase$, MAE $\factProspMaeDays$ días; el error por horizonte se
+detalla en la Tabla~\ref{tab:prospectivo_horizonte}); (b) \textbf{intervalos
 de predicción calibrados por horizonte}, con cuantiles empíricos del propio registro e
 inferencia conforme adaptativa desplegada (cobertura del intervalo al $95$\,\%: $0.92$ en
 FAD y $0.95$ en DFF); (c) \textbf{coherencia transversal} garantizada por proyección al
@@ -3086,7 +3171,10 @@ En su lugar, el procedimiento activ\'o un \textbf{despliegue en sombra}: cada me
 congela tambi\'en la a\~nada del retador en un registro paralelo e inmutable
 (\textit{shadow ledger}), de modo que la promoci\'on se decidir\'a con evidencia
 prospectiva multi-horizonte y no con una extrapolaci\'on del gate. La receta campe\'ona
-—mediana de Theta+ETS+SARIMA en FAD y SARIMA en DFF— permanece desplegada, ahora con su
+—mediana de Theta+ETS+SARIMA en FAD y SARIMA en DFF— permanece desplegada y se aplica por
+serie; su veredicto campe\'on--retador se computa sobre el conjunto de series donde los
+modelos convergen, la misma restricci\'on de comparabilidad por la que §2.2 no lee el
+promedio global de SARIMA como referencia. Permanece, adem\'as, con su
 distribuci\'on predictiva evaluada (CRPS $32.1$/$31.3$ d\'ias como criterio informativo
 del gate) y con las bandas por horizonte e inferencia conforme adaptativa descritas en
 §2.2. La Figura~\ref{fig:mlflow_champion} muestra el registro de este veredicto en el
