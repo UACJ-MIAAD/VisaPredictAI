@@ -95,7 +95,10 @@ def main() -> None:
     import json
 
     kf = json.loads((ROOT / "reports" / "governance" / "key_facts.json").read_text())
-    liston = kf["fad_champion_mase"] if args.table == "FAD" else kf["bitcn_dff_mean"]
+    # FIX #21d: listón de la MISMA naturaleza en ambas tablas — media hold-out del campeón
+    # desplegado (fad/dff_champion_mean), no la mezcla previa (fad_champion_mase = barra de
+    # selección parsimoniosa vs bitcn_dff_mean = hold-out de un solo modelo deep).
+    liston = kf["fad_champion_mean"] if args.table == "FAD" else kf["dff_champion_mean"]
     print(f"\n=== TimesFM 2.5 zero-shot {args.table} ({len(mases)} series) ===")
     print(f"  MASE {mase:.4f}  vs listón {liston}  -> {'MEJORA' if mase < liston else 'no mejora'}")
     if args.mlflow:

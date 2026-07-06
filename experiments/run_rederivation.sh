@@ -75,8 +75,9 @@ run $ANTE experiments/run_crps_baseline.py
 
 stage 6 "tuning GBMs (Optuna persistente + confirmación en val-confirm independiente, AK)"
 run $ANTE -m vp_model.run_tuning --n-trials 150 --mlflow
-run $ANTE -m vp_model.confirm_tuning --holdout-report --mlflow
 run $ANTE -m vp_model.run_tuning --rank-check --mlflow
+run $ANTE -m vp_model.run_tuning --select-by-deploy   # fix #20: re-elige por deploy-score antes de confirmar
+run $ANTE -m vp_model.confirm_tuning --holdout-report --mlflow
 
 stage 7 "significancia (Friedman-Nemenyi + MCS + DM) y champion-challenger"
 run $ANTE experiments/significance_tables.py

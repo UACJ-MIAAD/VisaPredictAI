@@ -234,6 +234,58 @@ def test_run_tuning_writes_candidates_and_merges(monkeypatch, tmp_path):
     assert data["catboost"]["FAD_family"]["improved"] is True  # merge, no clobber
 
 
+# --------------------------------------------------------------------------- #20 (AK9)
+def test_select_by_deploy_reranks_best_params_by_deploy_score(monkeypatch, tmp_path):
+    """FIX #20/AK9: dentro del top-K, la RECETA desplegada (tuned_params.json best_params,
+    que lee models._tree_params) se re-elige por el deploy-score del rank-check, no por el
+    objetivo barato de Optuna. FALLA antes del fix (sin --select-by-deploy / sin
+    tune.deploy_winner_params) y PASA después."""
+    grp = _fake_group(monkeypatch)
+    monkeypatch.setattr(tune, "REPORTS", tmp_path / "reports")
+    monkeypatch.setattr(tune, "_group_series", lambda table, block: grp)
+    storage = f"sqlite:///{tmp_path}/optuna.db"
+    out = tmp_path / "tuned_params.json"
+
+    # 1) tune -> estudio persistido + candidato (best_params = ganador por OBJETIVO)
+    run_tuning.main(
+        ["--models", "lightgbm", "--groups", "FAD_family", "--n-trials", "5", "--out", str(out), "--storage", storage]
+    )
+    study = optuna.load_study(study_name=f"hpo-lightgbm-FAD-family-{tune.SPACE_VERSION}", storage=storage)
+    done = sorted([t for t in study.trials if t.value is not None], key=lambda t: t.value)
+    obj_winner, deploy_winner = done[0], done[-1]  # peor-por-objetivo -> mejor-por-deploy
+    assert obj_winner.number != deploy_winner.number
+    assert json.loads(out.read_text())["lightgbm"]["FAD_family"]["best_params"] == dict(obj_winner.params)
+
+    # 2) rank-check ya pagado: deploy_sel minimizado en el trial PEOR-por-objetivo (desajuste AK9)
+    ev = tmp_path / "reports" / "eval"
+    ev.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {"trial": t.number, "objective": t.value, "deploy_sel": 0.1 if t.number == deploy_winner.number else 0.9}
+        for t in done
+    ]
+    pd.DataFrame(rows).to_csv(ev / f"hpo_rank_check_hpo-lightgbm-FAD-family-{tune.SPACE_VERSION}.csv", index=False)
+
+    # 3) select-by-deploy reescribe best_params al ganador por deploy (región de selección, sin leakage)
+    run_tuning.main(
+        [
+            "--models",
+            "lightgbm",
+            "--groups",
+            "FAD_family",
+            "--select-by-deploy",
+            "--out",
+            str(out),
+            "--storage",
+            storage,
+        ]
+    )
+    entry = json.loads(out.read_text())["lightgbm"]["FAD_family"]
+    assert entry["best_params"] == dict(deploy_winner.params)  # ganador por deploy enrutado
+    assert entry["best_params"] != dict(obj_winner.params)
+    assert entry["best_params_source"] == "deploy_rank"
+    assert entry["objective_best_params"] == dict(obj_winner.params)  # procedencia retenida
+
+
 def test_run_tuning_has_employment_groups():
     """AK7: los grupos EB existen como destino de tuning (dejan de correr con defaults)."""
     assert {"FAD_employment", "DFF_employment"} <= set(run_tuning.GROUPS)

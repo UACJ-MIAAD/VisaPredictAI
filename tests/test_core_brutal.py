@@ -117,6 +117,78 @@ def test_auto_arima_trend_matches_differencing_order() -> None:
     assert "auto_arima" in config.RETRAIN_EACH_STEP  # monthly retrain like arima/sarima
 
 
+def test_auto_arima_declares_non_converging_series(monkeypatch, tmp_path, caplog) -> None:
+    """FIX #21c: una serie que no converge debe DECLARARSE en WARNING, no descartarse
+    en silencio. FALLA antes del fix (except a INFO 'skip', sin n por tabla, sin WARNING)
+    y PASA después."""
+    import logging
+    from types import SimpleNamespace
+
+    aab = pytest.importorskip("experiments.auto_arima_baseline")
+
+    def fake_list_series(*, table, block, countries):  # noqa: ARG001
+        if table != "FAD":
+            return pd.DataFrame(columns=["country", "category"])
+        return pd.DataFrame([{"country": "mexico", "category": "F1"}, {"country": "india", "category": "F2A"}])
+
+    idx = pd.date_range("2001-12-01", periods=30, freq="MS")
+    raw = pd.Series(np.arange(30, dtype="float64"), index=idx)
+
+    def fake_backtest(name, country, category, table, *, model):  # noqa: ARG001
+        if (country, category) == ("india", "F2A"):
+            raise np.linalg.LinAlgError("LU decomposition error.")
+        return SimpleNamespace(holdout={"mase": 0.10})
+
+    monkeypatch.setattr(aab.dataset, "list_series", fake_list_series)
+    monkeypatch.setattr(aab.dataset, "load_series", lambda *a, **k: raw)
+    monkeypatch.setattr(aab.models, "to_timeseries", lambda s: SimpleNamespace(time_index=s.index))
+    monkeypatch.setattr(aab, "_select_order", lambda y: (3, 1, 3))
+    monkeypatch.setattr(aab.walkforward, "backtest", fake_backtest)
+    monkeypatch.setattr(aab.config, "TABLES", ("FAD",))
+    monkeypatch.setattr(aab, "REPORTS", tmp_path)
+    (tmp_path / "eval").mkdir()
+
+    with caplog.at_level(logging.WARNING):
+        out = aab.run()
+
+    df = pd.read_csv(out)
+    # La serie convergida se sigue escribiendo; la fallida sigue ausente (comportamiento del CSV preservado)...
+    assert list(zip(df.country, df.category, strict=True)) == [("mexico", "F1")]
+    # ...pero el descarte AHORA se DECLARA en WARNING nombrando la serie exacta.
+    warnings = [rec.getMessage() for rec in caplog.records if rec.levelno >= logging.WARNING]
+    assert any("india" in m and "F2A" in m for m in warnings), "la serie no convergida debe declararse en WARNING"
+
+
+def test_timesfm_and_tabpfn_liston_same_nature_across_tables() -> None:
+    """FIX #21d: las barras de referencia FAD y DFF deben ser la MISMA métrica,
+    diferenciándose solo por el token de tabla — si no, TimesFM/TabPFN se juzgan
+    apples-to-oranges por tabla."""
+    import re
+    from pathlib import Path
+
+    for script in ("experiments/improve_timesfm.py", "experiments/improve_tabpfn.py"):
+        src = Path(script).read_text()
+        m = re.search(r'liston\s*=\s*kf\[(?P<fad>[^\]]+)\][^\n]*?"FAD"[^\n]*?else\s*kf\[(?P<dff>[^\]]+)\]', src)
+        assert m, f"no se localizó la línea del listón por tabla en {script}"
+        fad = m.group("fad").strip().strip("\"'").replace("fad", "<T>")
+        dff = m.group("dff").strip().strip("\"'").replace("dff", "<T>")
+        assert fad == dff, f"{script}: listones de distinta naturaleza ({fad!r} vs {dff!r})"
+
+
+def test_deployed_band95_holds_nominal_heldout_coverage() -> None:
+    """Guardián de #21e (INVESTIGADO → no aplicado): las bandas al 95 % desplegadas
+    (pi_scale_by_h.json) nunca deben bajar del 0.95 nominal de cobertura HELD-OUT.
+    Un piso ingenuo al semiancho (el #21e literal) sin piso pareado en
+    generate_web_forecasts empujaría DFF bajo 0.95 — la sub-cobertura silenciosa que
+    se rehúsa desplegar."""
+    dbr = pytest.importorskip("experiments.derive_band80_ratio")
+    payload = dbr.derive_by_h()
+    for table in ("FAD", "DFF"):
+        v = payload["validation_heldout"][table]["95"]
+        assert v.get("n", 0) >= 30, f"{table}: n held-out muy chico para juzgar cobertura: {v}"
+        assert v["coverage"] >= 0.95, f"{table}: la banda 95 % sub-cubre held-out: {v}"
+
+
 # --------------------------------------------------------------------- AI5
 def test_chronos_cache_is_keyed_by_model_name() -> None:
     assert config.CHRONOS_MODEL == "amazon/chronos-bolt-base"

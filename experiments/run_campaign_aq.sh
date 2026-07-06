@@ -56,11 +56,15 @@ stage A "parallel lanes: pool(non-GBM) | HPO | deep | new families"
 ) > "$LOGDIR/lane_pool.log" 2>&1 &
 PID_P=$!
 
-(   # ---- lane T: Optuna HPO -> independent confirmation -> rank check ----
+(   # ---- lane T: Optuna HPO -> rank-check -> deploy-score select (#20) -> confirmation ----
+    # FIX #20 (AK9): rank-check re-scores the top-K with the real deploy protocol; then
+    # select-by-deploy overwrites best_params with that leakage-free winner BEFORE confirm,
+    # so confirm accepts (and the GBM catalog deploys) exactly the config that ships.
     echo ">>> lane T: run_tuning $(date)"
     $ANTE -m vp_model.run_tuning --n-trials 150 --mlflow || echo "LANE-T FAILED run_tuning"
-    $ANTE -m vp_model.confirm_tuning --holdout-report --mlflow || echo "LANE-T FAILED confirm"
     $ANTE -m vp_model.run_tuning --rank-check --mlflow || echo "LANE-T FAILED rank-check"
+    $ANTE -m vp_model.run_tuning --select-by-deploy || echo "LANE-T FAILED select-by-deploy"
+    $ANTE -m vp_model.confirm_tuning --holdout-report --mlflow || echo "LANE-T FAILED confirm"
     echo "lane T done $(date)"
 ) > "$LOGDIR/lane_tuning.log" 2>&1 &
 PID_T=$!
@@ -153,6 +157,13 @@ done
 
 stage C3 "finalists + fresh holdout/selection forecasts"
 run bash experiments/save_finalists.sh
+# save_finalists.sh does NOT write holdout_forecasts_{table}.csv (its sole writer is
+# persist_forecasts) — yet champion-challenger / significance-DM / ensembles / stacking /
+# FFORMA / build_key_facts (\factFadChampionMean etc.) all consume it. The AQ campaign ran
+# persist_forecasts out of band; running it here (AFTER lane T, so catboost/lightgbm carry
+# the accepted deploy-score winners from #20, and with the aligned Differenced backtest from
+# #21a) keeps the champion figures consistent with the fresh pool/comparison tables (regla #0).
+run $ANTE -m vp_model.persist_forecasts
 
 stage C4 "combiners on fresh holdouts (best-K / stacking simplex / FFORMA / conformal)"
 run $ANTE experiments/run_ensembles.py --mlflow

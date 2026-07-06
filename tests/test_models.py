@@ -38,6 +38,41 @@ def test_differenced_tree_extrapolates_trend() -> None:
     assert float(fc.values().max()) > float(train.values().max()), "el árbol-delta debe extrapolar la tendencia"
 
 
+def test_differenced_historical_forecasts_start_aligns_with_undifferenced() -> None:
+    """FIX #21a: un `start` ENTERO (índice posicional de walkforward) debe caer en el
+    MISMO origen calendario para un modelo Differenced que para uno sin diferenciar.
+    series.diff() pierde la primera observación, así que antes del fix el backtest
+    diferenciado arrancaba un mes tarde y evaluaba un origen menos que el pool
+    estadístico (rompiendo la comparación justa entre los 24 modelos)."""
+    import numpy as np
+    import pandas as pd
+    from darts import TimeSeries
+    from darts.models import NaiveDrift, XGBModel
+
+    idx = pd.date_range("2005-01-01", periods=90, freq="MS")
+    vals = (np.cumsum(np.abs(np.sin(np.arange(90) / 6.0)) * 20 + 4) + 1000).astype("float64")
+    series = TimeSeries.from_times_and_values(idx, vals)
+    start = 60
+
+    hf = dict(forecast_horizon=1, stride=1, retrain=True, last_points_only=True, verbose=False)
+    undiff = NaiveDrift().historical_forecasts(series, start=start, **hf)
+    diff = models.Differenced(XGBModel(lags=4)).historical_forecasts(series, start=start, **hf)
+
+    # El primer origen evaluado debe ser el mes calendario en la posición dada...
+    assert diff.time_index[0] == series.time_index[start]
+    # ...idéntico al modelo sin diferenciar, con el mismo número de orígenes.
+    assert diff.time_index[0] == undiff.time_index[0]
+    assert len(diff) == len(undiff)
+
+    # Guardia de leakage: perturbar el mes OBJETIVO no debe cambiar el pronóstico del
+    # primer origen (solo puede usar datos <= t-1).
+    vp = vals.copy()
+    vp[start] += 1.0e5
+    sp = TimeSeries.from_times_and_values(idx, vp)
+    dp = models.Differenced(XGBModel(lags=4)).historical_forecasts(sp, start=start, **hf)
+    assert abs(float(dp.values()[0, 0]) - float(diff.values()[0, 0])) < 1e-6
+
+
 def test_to_timeseries_regular_no_gaps() -> None:
     ts = models.to_timeseries(dataset.load_series("china", "F1", "FAD"))
     assert ts.freq_str == "MS"

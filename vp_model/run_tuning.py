@@ -39,6 +39,11 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     ap.add_argument("--storage", default=None, help="URL de storage Optuna (default: sqlite reports/eval/optuna.db)")
     ap.add_argument("--mlflow", action="store_true", help="loguear cada trial + resumen al tracking (AK5)")
     ap.add_argument("--rank-check", action="store_true", help="correr AK9 sobre los estudios ya persistidos")
+    ap.add_argument(
+        "--select-by-deploy",
+        action="store_true",
+        help="fix #20: re-elige best_params por el deploy-score del rank-check (correr DESPUÉS de --rank-check y ANTES de confirm_tuning)",
+    )
     return ap.parse_args(argv)
 
 
@@ -53,6 +58,40 @@ def main(argv: list[str] | None = None) -> None:
                     tune.rank_check(model_name, table=table, block=block, storage=args.storage)
                 except KeyError as e:  # estudio inexistente (aún sin tunear ese grupo)
                     log.warning("rank_check %s · %s: sin estudio (%s)", model_name, key, e)
+        return
+
+    if args.select_by_deploy:
+        # Fix #20 / AK9: dentro del top-K, study.best_params (argmin del objetivo barato)
+        # NO es la config que mejor se despliega. Re-elige best_params con el deploy-score
+        # que rank_check ya pagó (MASE de SELECCIÓN del walk-forward; hold-out intacto).
+        # Correr DESPUÉS de --rank-check y ANTES de confirm_tuning: así confirm acepta
+        # exactamente la config que se desplegará.
+        tuned: dict[str, dict] = json.loads(args.out.read_text()) if args.out.exists() else {}
+        for model_name in args.models:
+            for key in args.groups:
+                table, block = key.split("_", 1)
+                entry = tuned.get(model_name, {}).get(key)
+                if entry is None:
+                    log.warning("select-by-deploy %s · %s: sin candidato en %s", model_name, key, args.out)
+                    continue
+                params = tune.deploy_winner_params(model_name, table=table, block=block, storage=args.storage)
+                if not params:
+                    log.warning(
+                        "select-by-deploy %s · %s: sin rank-check válido; conservo el ganador por objetivo",
+                        model_name,
+                        key,
+                    )
+                    continue
+                if params != entry.get("best_params"):
+                    entry.setdefault("objective_best_params", entry.get("best_params", {}))
+                    entry["best_params"] = params
+                    entry["best_params_source"] = "deploy_rank"
+                    log.info("select-by-deploy %s · %s: best_params <- ganador por deploy-score", model_name, key)
+                else:
+                    entry["best_params_source"] = "objective_eq_deploy"
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(tuned, indent=2))
+        log.info("select-by-deploy listo -> %s (correr confirm_tuning para aceptar)", args.out)
         return
 
     # Merge sobre el archivo existente: re-tunear un grupo NO borra los candidatos

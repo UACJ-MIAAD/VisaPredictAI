@@ -66,6 +66,7 @@ def _select_order(y: np.ndarray) -> tuple[int, int, int]:
 
 def run() -> Path:
     rows = []
+    dropped: list[tuple[str, str, str, str]] = []  # (tabla, país, categoría, excepción): no convergió
     for table in config.TABLES:
         cat = dataset.list_series(table=table, block="family", countries=config.PILOT_COUNTRIES)
         for r in cat.itertuples():
@@ -106,14 +107,37 @@ def run() -> Path:
                     trend,
                     res.holdout["mase"],
                 )
-            except Exception as e:  # noqa: BLE001
-                log.info("skip %s/%s/%s: %s", table, r.country, r.category, e)
+            except Exception as e:  # noqa: BLE001 — orden inestable → se DECLARA, no se descarta en silencio
+                dropped.append((table, r.country, r.category, type(e).__name__))
+                log.warning(
+                    "DROP %s/%s/%s (Auto-ARIMA no convergió): %s: %s",
+                    table,
+                    r.country,
+                    r.category,
+                    type(e).__name__,
+                    e,
+                )
     df = pd.DataFrame(rows)
     out = REPORTS / "eval" / "auto_arima_baseline.csv"
     df.to_csv(out, index=False)
-    summary = df.groupby("table")["hold_mase"].median().round(4).to_dict()
-    log.info("Auto-ARIMA mediana hold MASE por tabla: %s (n=%d)", summary, len(df))
-    print("AUTO-ARIMA median hold MASE:", summary, "| n =", len(df))
+    # FIX #21c: la media/mediana por tabla (y el mean que build_key_facts publica como
+    # \factAutoarimaFadMean) se computan SOLO sobre las series que convergieron. Una serie
+    # descartada —hoy india/F2A/FAD: el orden (3,1,3) que elige AICc revienta con LinAlgError
+    # en la reinicialización estacionaria del filtro de Kalman al reajustarse en el walk-forward—
+    # NO debe desaparecer en silencio (el 25→24). Aquí se DECLARA la n por tabla y qué series
+    # faltan; el CSV escrito es idéntico (solo se añade el reporte).
+    summary = df.groupby("table")["hold_mase"].agg(["median", "mean", "count"]).round(4)
+    log.info("Auto-ARIMA hold MASE por tabla (count = series convergidas):\n%s", summary.to_string())
+    if dropped:
+        log.warning(
+            "Auto-ARIMA descartó %d serie(s) por no convergencia: %s",
+            len(dropped),
+            ", ".join(f"{t}/{c}/{k}" for t, c, k, _ in dropped),
+        )
+    print("AUTO-ARIMA hold MASE por tabla (median/mean/count = series convergidas):")
+    print(summary.to_string())
+    if dropped:
+        print("DESCARTADAS (no convergieron):", ", ".join(f"{t}/{c}/{k}" for t, c, k, _ in dropped))
     return out
 
 

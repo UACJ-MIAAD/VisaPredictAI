@@ -404,7 +404,17 @@ class Differenced:
         kwargs.setdefault("retrain", True)
         kwargs.setdefault("last_points_only", True)
         kwargs.setdefault("verbose", False)
-        diff_fc = self.base.historical_forecasts(series.diff(), start=start, **kwargs)
+        # FIX #21a: series.diff() drops the first observation, so the diffed series'
+        # calendar index is shifted +1 vs `series`. An INTEGER `start` (a positional
+        # index — e.g. min_train from walkforward.run_forecasts) therefore lands one
+        # month LATER in the diffed series than the SAME int does in the full series, so
+        # the 11 Differenced models evaluated a selection origin grid shifted +1 month
+        # (and one origin shorter) than the statistical models. Resolve the position to
+        # its calendar timestamp on the FULL series so the diffed backtest starts on the
+        # IDENTICAL first origin as every other model. Leakage-free: the diff at t still
+        # uses levels <= t-1. (A Timestamp start — crps_holdout — is passed through.)
+        start_aligned = start if isinstance(start, pd.Timestamp) else series.time_index[start]
+        diff_fc = self.base.historical_forecasts(series.diff(), start=start_aligned, **kwargs)
         prev_level = series.shift(1).slice_intersect(diff_fc)
         diff_al = diff_fc.slice_intersect(prev_level)
         # numpy addition with broadcasting (t,1,1)+(t,1,s): also valid when the base

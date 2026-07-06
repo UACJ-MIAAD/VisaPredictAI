@@ -111,7 +111,8 @@ def main() -> None:
     import json
 
     kf = json.loads(Path("reports/governance/key_facts.json").read_text())
-    liston = kf["fad_champion_mase"] if args.table == "FAD" else kf["bitcn_dff_mean"]
+    # FIX #21d (sibling): listón de la MISMA naturaleza por tabla — media hold-out del campeón.
+    liston = kf["fad_champion_mean"] if args.table == "FAD" else kf["dff_champion_mean"]
     print(f"\n=== TabPFN-TS {args.table} ({len(mases)} series) ===")
     print(f"  MASE {mase:.4f}  vs listón {liston}  -> {'MEJORA' if mase < liston else 'no mejora'}")
     if args.mlflow:

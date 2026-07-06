@@ -414,6 +414,45 @@ def rank_check(
     return df
 
 
+def deploy_winner_params(
+    model_name: str,
+    table: str = "FAD",
+    block: str = "family",
+    storage: str | None = None,
+) -> dict | None:
+    """Params del trial del top-K con el MENOR deploy-score (fix #20 / AK9).
+
+    ``rank_check`` demostró que DENTRO del top-K el objetivo barato de Optuna y el
+    protocolo de despliegue real están ~descorrelacionados o en correlación NEGATIVA
+    (Spearman hasta -0.75), de modo que ``study.best_params`` (el argmin del objetivo)
+    NO es la configuración que mejor se despliega. Esta función lee la columna
+    ``deploy_sel`` que ``rank_check`` ya pagó — el MASE de SELECCIÓN del walk-forward
+    (media+desv sobre las series rápidas deduplicadas, con el hold-out INTACTO: la MISMA
+    región leakage-free que puntuó rank_check) — y devuelve los parámetros de la fila que
+    lo minimiza, resueltos contra el estudio persistido (tipos nativos, sin drift del CSV).
+    Devuelve ``None`` si falta el CSV del rank-check o no hay un deploy-score válido, para
+    que el llamador conserve el ganador por objetivo como respaldo seguro.
+    """
+    import optuna
+
+    study_name = f"hpo-{model_name}-{table}-{block}-{SPACE_VERSION}"
+    csv = REPORTS / "eval" / f"hpo_rank_check_{study_name}.csv"
+    if not csv.exists():
+        return None
+    df = pd.read_csv(csv)
+    if "deploy_sel" not in df.columns:
+        return None
+    df = df.dropna(subset=["deploy_sel"])
+    if df.empty:
+        return None
+    trial_no = int(df.loc[df["deploy_sel"].idxmin(), "trial"])
+    study = optuna.load_study(study_name=study_name, storage=storage or f"sqlite:///{OPTUNA_DB}")
+    for t in study.trials:
+        if t.number == trial_no:
+            return dict(t.params)
+    return None
+
+
 def demo() -> None:
     """Self-check: mini-estudio persistente (3 trials, 3 series) corre y no explota."""
     import tempfile
