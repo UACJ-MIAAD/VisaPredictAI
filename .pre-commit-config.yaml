@@ -42,7 +42,7 @@ repos:
   - repo: local
     hooks:
       - id: no-emdash-proyecto-i
-        name: sin raya larga (—) en ProyectoI_VisaPredictAI.tex
+        name: sin raya larga (—) como inciso en ProyectoI_VisaPredictAI.tex
         entry: ante/bin/python tools/check_no_emdash.py
         language: system
         pass_filenames: false
