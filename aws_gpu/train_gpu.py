@@ -108,7 +108,7 @@ def reintegrate(out: pd.DataFrame, col: str, level_map: pd.Series) -> np.ndarray
 
 def _auto_config(trial):
     return {
-        "input_size": trial.suggest_categorical("input_size", [18, 24, 36]),
+        "input_size": trial.suggest_categorical("input_size", [24, 36, 48]),
         "learning_rate": trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True),
         "max_steps": trial.suggest_categorical(
             "max_steps", [500, 1000]
@@ -118,7 +118,7 @@ def _auto_config(trial):
     }
 
 
-def build_models(names, input_size, max_steps, n_series, seed, auto, num_samples):
+def build_models(names, input_size, max_steps, n_series, seed, auto, num_samples, horizon):
     """Registro frontier + Auto. Cada modelo se entrena AISLADO (un fallo no aborta el resto)."""
     if auto:
         from neuralforecast.auto import (
@@ -148,7 +148,7 @@ def build_models(names, input_size, max_steps, n_series, seed, auto, num_samples
         reg = {
             k: (
                 lambda M=v: M(
-                    h=1,
+                    h=horizon,
                     loss=MAE(),
                     config=_auto_config,
                     num_samples=num_samples,
@@ -174,7 +174,7 @@ def build_models(names, input_size, max_steps, n_series, seed, auto, num_samples
         )
 
         c = dict(
-            h=1,
+            h=horizon,
             input_size=input_size,
             max_steps=max_steps,
             scaler_type="standard",
@@ -206,37 +206,53 @@ def build_models(names, input_size, max_steps, n_series, seed, auto, num_samples
     return reg
 
 
-def run_seed(panel, table, block, diff, local, names, max_steps, seed, auto, num_samples, out_dir):
+def run_seed(panel, table, block, diff, local, names, max_steps, seed, auto, num_samples, out_dir, horizon):
     from neuralforecast import NeuralForecast
 
     uids = panel["unique_id"].nunique()
     train = difference(panel) if diff else panel.copy()
-    input_size = 36 if table == "FAD" else 18
-    builders = build_models(names, input_size, max_steps, uids, seed, auto, num_samples)
-    level_map = panel.set_index(["unique_id", "ds"])["y"]
-    merged = panel[["unique_id", "ds", "y"]].copy()
+    input_size = max(36 if table == "FAD" else 18, horizon)  # el contexto debe cubrir el horizonte
+    builders = build_models(names, input_size, max_steps, uids, seed, auto, num_samples, horizon)
+    level_map = panel.set_index(["unique_id", "ds"])["y"]  # niveles REALES (reintegrar + evaluar)
+    cols = {}
     for name, build in builders.items():
         try:
             nf = NeuralForecast(models=[build()], freq="MS", local_scaler_type="standard" if local else None)
             cv = nf.cross_validation(df=train, n_windows=HOLDOUT, step_size=1, refit=False).reset_index()
             meta = {"index", "unique_id", "ds", "cutoff", "y"}
             col = next(c for c in cv.columns if c not in meta and "-lo-" not in c and "-hi-" not in c)
-            out = cv[["unique_id", "ds", col]].copy()
+            part = cv[["unique_id", "cutoff", "ds", col]].copy().sort_values(["unique_id", "cutoff", "ds"])
             if diff:
-                out[col] = reintegrate(out, col, level_map)
-            out = out.rename(columns={col: name})[["unique_id", "ds", name]]
-            merged = merged.merge(out, on=["unique_id", "ds"], how="left")
-            print(f"  ✓ seed {seed} {name}: {merged[name].notna().sum()} pronósticos")
+                # reintegración MULTI-horizonte SIN leakage: nivel[cutoff+k] = nivel_real[cutoff] + Σ_{1..k} Δpred
+                part["_cum"] = part.groupby(["unique_id", "cutoff"])[col].cumsum()
+                base = np.array(
+                    [level_map.get((u, c), np.nan) for u, c in zip(part["unique_id"], part["cutoff"], strict=True)]
+                )
+                part[name] = base + part["_cum"].to_numpy()
+            else:
+                part[name] = part[col].to_numpy()
+            cols[name] = part.set_index(["unique_id", "cutoff", "ds"])[name]
+            print(f"  ✓ seed {seed} {name}: {int(cols[name].notna().sum())} pronósticos")
         except Exception as e:  # noqa: BLE001
             print(f"  ✗ seed {seed} {name} FALLO: {type(e).__name__}: {str(e)[:120]}")
 
     tag = "auto" if auto else ("diff" if diff else "levels")
     suffix = f"{tag}_s{seed}" if len(names or []) != 0 else tag
-    path = Path(out_dir) / f"global_{table}_{suffix}.csv"
+    path = Path(out_dir) / f"global_{table}_h{horizon}_{suffix}.csv"
     path.parent.mkdir(parents=True, exist_ok=True)
-    merged = merged[merged.drop(columns=["unique_id", "ds", "y"]).notna().any(axis=1)]
+    if not cols:
+        print("  (ningún modelo exitoso; no se escribe CSV)")
+        return
+    merged = pd.concat(cols.values(), axis=1).reset_index()
+    merged["y"] = np.array(
+        [level_map.get((u, d), np.nan) for u, d in zip(merged["unique_id"], merged["ds"], strict=True)]
+    )
+    merged["h"] = (
+        (merged["ds"].dt.year - merged["cutoff"].dt.year) * 12 + (merged["ds"].dt.month - merged["cutoff"].dt.month)
+    ).astype(int)
+    merged = merged.dropna(subset=["y"])
     merged.to_csv(path, index=False)
-    print(f"  guardado {path} ({len(merged)} filas)")
+    print(f"  guardado {path} ({len(merged)} filas, h=1..{int(merged['h'].max())})")
 
 
 def main() -> None:
@@ -254,6 +270,12 @@ def main() -> None:
     ap.add_argument("--num-samples", type=int, default=50, help="trials de HPO por modelo Auto")
     ap.add_argument("--models", nargs="+", default=None)
     ap.add_argument("--seeds", nargs="+", type=int, default=[1])
+    ap.add_argument(
+        "--horizon",
+        type=int,
+        default=1,
+        help="pasos directos a pronosticar; >1 activa multi-horizonte (emite cutoff+h)",
+    )
     ap.add_argument(
         "--shutdown-on-done",
         action="store_true",
@@ -282,6 +304,7 @@ def main() -> None:
                 args.auto,
                 args.num_samples,
                 args.out_dir,
+                args.horizon,
             )
     finally:
         if args.shutdown_on_done:
