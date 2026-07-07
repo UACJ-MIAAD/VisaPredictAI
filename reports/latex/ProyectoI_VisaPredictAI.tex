@@ -300,7 +300,7 @@ FAD de DFF. Entrega cada serie $y_{p,c,b,t}$ con índice mensual.
 huecos cortos (meses $C$/$U$ intercalados) y deja como faltantes los huecos
 largos; estandariza con estadísticos calculados solo sobre el tramo de
 entrenamiento y construye los regresores de calendario del año fiscal.
-\item \textbf{Catálogo de modelos.} Veinticuatro modelos tras una interfaz común: tres
+\item \textbf{Catálogo de modelos.} Un repertorio de \factNModels{} modelos tras una interfaz común: tres
 líneas base de referencia (naïve-1 o paseo aleatorio, deriva y naïve estacional) y seis
 familias: estadísticos (ARIMA, SARIMA), suavizamiento y espacio de estados (ETS
 amortiguado, Theta, Kalman, tendencia lineal local), aditivo (Prophet), árboles sobre
@@ -622,7 +622,7 @@ la fecha \textbf{no se movió}. El congelamiento es el comportamiento típico de
 sistema y la vara natural de cualquier pronóstico. La Tabla~\ref{tab:eda_descriptiva}
 resume el censo por bloque y tabla, y la Figura~\ref{fig:eda_completitud} muestra la
 radiografía de completitud serie por serie. La cobertura es escalonada: \factNSeriesStructural{} series
-estructurales $\rightarrow$ 136 con al menos una fecha $\rightarrow$ 74 plenamente
+estructurales $\rightarrow$ \factNSeriesWithF{} con al menos una fecha $\rightarrow$ \factNSeriesEvaluable{} plenamente
 evaluables $\rightarrow$ 25 piloto (familiar FAD), y es sobre este último nivel donde
 el EDA profundiza.
 
@@ -905,7 +905,7 @@ componente estacional y residuo (en años).}
 
 El diagnóstico anterior no descansa en una sola serie: el censo automático del EDA
 aplica la misma batería (ADF, KPSS, DF-GLS, más Ljung-Box sobre los incrementos) a
-las \textbf{74 series plenamente evaluables} del panel. El veredicto es unánime en lo
+las \textbf{\factNSeriesEvaluable{} series plenamente evaluables} del panel. El veredicto es unánime en lo
 esencial: 71 series exigen diferenciación, 3 presentan señales mixtas (ADF y KPSS
 discrepan) y \textbf{ninguna} es estacionaria en nivel: el panel es integrado de
 orden~1 sin excepciones. La Tabla~\ref{tab:eda_estacionariedad} reporta el censo para
@@ -1198,7 +1198,7 @@ hacerlo por defecto.
 
 \subsubsection{Selección y des-redundancia de características}
 
-Con muestras de 130--296 observaciones por serie, cada grado de libertad cuenta, por
+Con muestras de 130--\factNMonths{} observaciones por serie, cada grado de libertad cuenta, por
 lo que el conjunto unido de características de caracterización (catch22 y descriptores
 de pronóstico y de diagnóstico) se somete a una etapa formal de selección en dos pasos.
 Primero, un filtro de relevancia univariada con corrección de multiplicidad de Benjamini-Yekutieli
@@ -1887,13 +1887,13 @@ $\mathrm{CD}$ & diferencia crítica de la prueba de Nemenyi \\
 
 \section{2.2 Validación de los resultados}
 
-La Tabla~\ref{tab:comparacion_modelos} presenta el desempeño promedio de los 24
+La Tabla~\ref{tab:comparacion_modelos} presenta el desempeño promedio de los \factNModels{}
 modelos sobre las 25 series, y su lectura es el hallazgo central del proyecto. Por la
 métrica de selección encabezan los árboles con hiperparámetros optimizados (XGBoost y
 LightGBM, $0.101$), seguidos de la deriva ($0.105$) y de Theta ($0.110$, el listón
 parsimonioso de selección). Pero en el conjunto reservado el orden se invierte:
 \textbf{ningún modelo entrenado bate al naïve-1} (repetir el último corte publicado),
-cuya MASE de hold-out es $\factNaiveOneFadMean$ en media y $0.089$ en mediana. ETS amortiguado
+cuya MASE de hold-out es $\factNaiveOneFadMean$ en media y $\factNaiveOneFadMedian$ en mediana. ETS amortiguado
 ($\factEtsFadMean$) y Theta ($\factThetaFadMean$) quedan como los mejores modelos
 entrenados; los árboles optimizados ($0.123$--$0.126$) y las redes locales reformuladas
 sobre la primera diferencia (TFT $0.122$, NLinear $0.128$) se agolpan justo detrás, ya
@@ -2093,7 +2093,7 @@ regularizado en el simplex, y un selector de modelo por características de seri
 (meta-aprendizaje sobre el catálogo de características de §1.2). \textbf{Ninguna rompe el
 piso}: comparando medias de MASE de hold-out sobre las mismas series distintas (15 en
 FAD, 14 en DFF, descontando las pseudo-réplicas del corte mundial), la mejor combinación
-alcanza $0.120$ en FAD, peor que el naïve-1 en ese mismo conjunto ($0.105$), y $0.077$
+alcanza $0.120$ en FAD, peor que el naïve-1 en ese mismo conjunto ($\factNaiveOneFadDedupMean$), y $0.077$
 en DFF, donde \textit{empata} con el piso (también $0.077$ en media sobre esas series)
 sin superarlo. El dato más revelador es de composición: agrupando $K\in\{2,3,5\}$ sobre
 las series distintas, el propio naïve-1 resulta elegido como miembro de la combinación
@@ -2102,7 +2102,7 @@ las de DFF (los conjuntos ganan \textit{incorporando} al paseo aleatorio,
 no venciéndolo). En cuanto a la \textit{distribución predictiva completa}, medida con el
 CRPS (\textit{Continuous Ranked Probability Score}) \cita{40}, la receta campeona
 desplegada (que promedia los cuantiles nativos de sus miembros y la banda conforme de los
-que no muestrean) obtiene un CRPS de $32.1$ días en FAD y $31.3$ en DFF, mejor que
+que no muestrean) obtiene un CRPS de $\factCrpsFad$ días en FAD y $\factCrpsDff$ en DFF, mejor que
 cualquiera de los clásicos con muestreo nativo por separado (ARIMA $49.5$, SARIMA
 $59.8$): la evaluación probabilística acompaña ahora al gate campeón-retador como
 criterio informativo.
@@ -2136,7 +2136,7 @@ La comparación con el mejor clásico ajustado refuerza la misma lectura. El
 selección sobre la serie F cruda) \textit{empeoró} respecto a la especificación anterior:
 MASE media $=\factAutoarimaFadMean$ en FAD (mediana $\factAutoarimaFadMedian$) y
 $\factAutoarimaDffMean$ en DFF (mediana $\factAutoarimaDffMedian$). Frente a él, el BiTCN
-global de DFF (MASE $=0.090$ en media) conserva un margen de
+global de DFF (MASE $=\factBitcnDffMean$ en media) conserva un margen de
 $\sim$\factDeepDffMarginPct\,\%; pero ese margen \textbf{se evapora al re-anclarlo a la
 línea base honesta}: el naïve-1 promedia $\factNaiveOneDffMean$ en DFF, y la prueba de
 Diebold-Mariano sobre las series distintas ($\sim$14 en DFF tras descontar la
@@ -2176,7 +2176,7 @@ fecha de prioridad se expresa en años.}
 \textit{Confirmación multi-semilla:} para caracterizar la estabilidad,
 ambos resultados se reentrenaron con \textbf{cinco semillas independientes} (Figura~\ref{fig:multiseed}), variando la
 inicialización de pesos sobre la configuración ganadora de la búsqueda única. En DFF el
-resultado es \textbf{extremadamente estable entre semillas}: BiTCN promedia MASE $=0.090$
+resultado es \textbf{extremadamente estable entre semillas}: BiTCN promedia MASE $=\factBitcnDffMean$
 con desviación $0.0003$ (intervalo de confianza del $95$\,\% $[0.0896,\,0.0903]$), por
 debajo del mejor clásico afinado (Auto-ARIMA $=\factAutoarimaDffMean$ en media) pero por
 encima del piso del naïve-1 ($\factNaiveOneDffMean$). En FAD, AutoBiTCN promedia
@@ -2307,7 +2307,7 @@ BiTCN & + agrupado + norma por serie & 0.131 \\ \midrule
 \rowcolor{uacjyellow!25}
 AutoBiTCN & + optimización (arquitectura, Optuna) & \textbf{\factAutobitcnFadMean} \\ \midrule
 ETS / Theta \textit{(listón)} & estadístico, por serie & \textit{\factEtsFadMean a \factThetaFadMean} \\
-Naïve-1 \textit{(piso)} & línea base, por serie & \textit{0.100} \\ \bottomrule
+Naïve-1 \textit{(piso)} & línea base, por serie & \textit{\factNaiveOneFadMean} \\ \bottomrule
 \end{tabular}
 \end{table}
 
@@ -2573,7 +2573,7 @@ métrica de selección, sin bajar del piso en el conjunto reservado; (iii) el me
 global optimizado (AutoBiTCN, $\factAutobitcnFadMean\pm0.007$) es hoy \textbf{el mejor
 modelo entrenado del repertorio en FAD}, por debajo de ETS/Theta
 ($\factEtsFadMean$--$\factThetaFadMean$), y BiTCN es extremadamente estable en DFF
-($0.090\pm0.0003$, $\sim$\factDeepDffMarginPct\,\% mejor que un Auto-ARIMA re-especificado
+($\factBitcnDffMean\pm0.0003$, $\sim$\factDeepDffMarginPct\,\% mejor que un Auto-ARIMA re-especificado
 de forma justa), pero la prueba de Diebold-Mariano favorece al paseo aleatorio con
 significancia robusta en DFF y ninguno baja del piso; y (iv) los conjuntos fuertes
 (mediana de los mejores $K$, \textit{stacking} en el simplex, meta-aprendizaje) tampoco lo

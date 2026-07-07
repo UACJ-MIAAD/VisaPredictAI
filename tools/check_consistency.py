@@ -43,6 +43,25 @@ def _num_eq(a: str, b: str) -> bool:
         return a == b
 
 
+def _macro_name(k: str) -> str:
+    """Nombre de la macro LaTeX de un fact key (espejo de build_key_facts.macro():
+    dígitos deletreados porque LaTeX no admite dígitos en nombres de comando)."""
+    digits = {
+        "0": "Zero",
+        "1": "One",
+        "2": "Two",
+        "3": "Three",
+        "4": "Four",
+        "5": "Five",
+        "6": "Six",
+        "7": "Seven",
+        "8": "Eight",
+        "9": "Nine",
+    }
+    name = "fact" + "".join(w.capitalize() for w in k.split("_"))
+    return "".join(digits.get(c, c) for c in name)
+
+
 def _resolve(globs: list[str]) -> list[Path]:
     out: list[Path] = []
     for g in globs:
@@ -87,33 +106,14 @@ def main() -> int:
     # regeneración parcial), NINGUNA regla de texto lo cazaría — verificar aquí.
     kf_tex = ROOT / "reports" / "latex" / "key_facts.tex"
     if kf_tex.exists():
-
-        def _macro(k: str) -> str:
-            # Espejo EXACTO de build_key_facts.macro(): dígitos deletreados (LaTeX
-            # no admite dígitos en nombres de comando).
-            digits = {
-                "0": "Zero",
-                "1": "One",
-                "2": "Two",
-                "3": "Three",
-                "4": "Four",
-                "5": "Five",
-                "6": "Six",
-                "7": "Seven",
-                "8": "Eight",
-                "9": "Nine",
-            }
-            name = "fact" + "".join(w.capitalize() for w in k.split("_"))
-            return "".join(digits.get(c, c) for c in name)
-
         tex_vals = dict(re.findall(r"\\newcommand\{\\(fact\w+)\}\{([^}]*(?:\{,\}[^}]*)*)\}", kf_tex.read_text()))
         for k, v in kf_facts.items():
             if k.startswith("_") or isinstance(v, (list, dict)):
                 continue
-            got = tex_vals.get(_macro(k))
+            got = tex_vals.get(_macro_name(k))
             if got is None or not _num_eq(got.replace("{,}", ""), str(v).replace(",", "")):
                 violations.append(
-                    f"KEYFACTS   reports/latex/key_facts.tex  macro \\{_macro(k)}={got!r} != json {k}={v!r} "
+                    f"KEYFACTS   reports/latex/key_facts.tex  macro \\{_macro_name(k)}={got!r} != json {k}={v!r} "
                     f"— regenerar con experiments/build_key_facts.py"
                 )
 
@@ -132,7 +132,13 @@ def main() -> int:
     # 2) REQUIRED — al menos una forma debe aparecer en el grupo
     for r in rules.get("required", []):
         val = facts.get(r["fact"], "")
-        forms = [re.compile(fr.replace("{" + r["fact"] + "}", re.escape(fmt(val))), re.IGNORECASE) for fr in r["forms"]]
+        # acepta el literal O la macro derivada (\factXxx, opcionalmente con {}) en el MISMO
+        # contexto de cada forma: la prosa macro-izada satisface el REQUIRED sin re-teclear el valor.
+        mac = r"\\" + _macro_name(r["fact"]) + r"(?:\{\})?"
+        forms = []
+        for fr in r["forms"]:
+            forms.append(re.compile(fr.replace("{" + r["fact"] + "}", re.escape(fmt(val))), re.IGNORECASE))
+            forms.append(re.compile(fr.replace("{" + r["fact"] + "}", mac), re.IGNORECASE))
         for g in r["in"]:
             # strip LaTeX comment lines (igual que forbidden/numeric) — un claim requerido
             # NO debe contar como presente si solo vive en una línea comentada con %.
