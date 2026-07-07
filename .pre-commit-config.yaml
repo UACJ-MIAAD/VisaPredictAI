@@ -31,8 +31,10 @@ repos:
     hooks:
       - id: no-coauthor-trailer
         name: block Co-Authored-By / anthropic / Claude in commit message
-        entry: tools/check_no_coauthor.sh
-        language: script
+        # invocado con `bash` (no `language: script`) para NO depender del bit +x:
+        # el sync de Overleaf lo quita de los .sh y rompería un hook script-mode.
+        entry: bash tools/check_no_coauthor.sh
+        language: system
         stages: [commit-msg]
 
   # ── tipografía del entregable: proscribe la raya larga (—) en ProyectoI ──
