@@ -216,6 +216,40 @@ def _tuning() -> dict:
     }
 
 
+def _census_significance() -> dict:
+    """Cifras de significancia / censo / cobertura conforme que la prosa del deliverable tenía
+    como LITERALES sin fuente: rango promedio de Friedman del naïve-1, censo de estacionariedad,
+    cobertura de la inferencia conforme adaptativa (ACI), y en cuántas de las 25 series FAD el
+    naïve-1 es el mejor modelo en hold-out. Ahora derivadas -> macro (de-hardcode de raíz)."""
+    out: dict = {}
+    sig = REPORTS / "eval" / "significance_summary.json"
+    if sig.exists():
+        rk = json.loads(sig.read_text()).get("ranking", {})
+        for tbl in ("FAD", "DFF"):
+            v = rk.get(tbl, {}).get("avg_rank", {}).get("naive1")
+            if v is not None:
+                out[f"friedman_rank_naive1_{tbl.lower()}"] = round(float(v), 2)
+    eda = REPORTS / "eda" / "eda_facts.json"
+    if eda.exists():
+        ss = json.loads(eda.read_text()).get("stationarity_summary", {})
+        for k in ("difference", "mixed"):
+            if k in ss:
+                out[f"stationarity_{k}"] = int(ss[k])
+    cov = REPORTS / "eval" / "conformal_coverage.csv"
+    if cov.exists():
+        c = pd.read_csv(cov).set_index("table")["aci_coverage"]
+        for tbl in ("FAD", "DFF"):
+            if tbl in c.index:
+                out[f"aci_coverage_{tbl.lower()}"] = round(float(c[tbl]), 2)
+    mc = REPORTS / "eval" / "model_comparison_FAD21.csv"
+    if mc.exists():
+        d = pd.read_csv(mc)
+        fam = d[d.category.isin(["F1", "F2A", "F2B", "F3", "F4"])]
+        wins = fam.loc[fam.groupby(["country", "category"])["hold_mase"].idxmin(), "model"]
+        out["naive1_fad_holdout_wins"] = int((wins == "naive1").sum())
+    return out
+
+
 def build() -> dict:
     facts = {
         "_source": "experiments/build_key_facts.py — NO editar a mano",
@@ -224,6 +258,7 @@ def build() -> dict:
         **_models(),
         **_champion_challenger(),
         **_tuning(),
+        **_census_significance(),
     }
     (REPORTS / "governance" / "key_facts.json").write_text(json.dumps(facts, indent=2, ensure_ascii=False) + "\n")
 

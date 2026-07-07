@@ -906,7 +906,7 @@ componente estacional y residuo (en años).}
 El diagnóstico anterior no descansa en una sola serie: el censo automático del EDA
 aplica la misma batería (ADF, KPSS, DF-GLS, más Ljung-Box sobre los incrementos) a
 las \textbf{\factNSeriesEvaluable{} series plenamente evaluables} del panel. El veredicto es unánime en lo
-esencial: 71 series exigen diferenciación, 3 presentan señales mixtas (ADF y KPSS
+esencial: \factStationarityDifference{} series exigen diferenciación, \factStationarityMixed{} presentan señales mixtas (ADF y KPSS
 discrepan) y \textbf{ninguna} es estacionaria en nivel: el panel es integrado de
 orden~1 sin excepciones. La Tabla~\ref{tab:eda_estacionariedad} reporta el censo para
 las 25 series piloto; la prueba de Ljung-Box rechaza además el ruido blanco en la
@@ -2046,7 +2046,7 @@ pseudo-réplicas del corte mundial), seguida de la prueba posterior de Nemenyi
 resultado: la prueba de Friedman rechaza la hipótesis de igualdad ($p<0.001$) en ambas
 tablas, y la barra de diferencia crítica (CD) une los modelos cuyo rango promedio no se
 distingue estadísticamente. \textbf{El naïve-1 obtiene el mejor rango promedio} en FAD
-($1.2$) y en DFF ($2.39$), seguido de Theta y ETS; de forma consistente, el conjunto de
+($\factFriedmanRankNaiveOneFad$) y en DFF ($\factFriedmanRankNaiveOneDff$), seguido de Theta y ETS; de forma consistente, el conjunto de
 confianza de modelos al $90$\,\% \textbf{retiene únicamente al naïve-1 en ambas tablas}:
 ningún modelo entrenado es estadísticamente indistinguible del mejor una vez que la línea
 base ingenua entra al pool. Es el resultado que ancla la narrativa del capítulo.
@@ -2559,7 +2559,7 @@ vencer en el pronóstico a un paso, y ningún modelo puntual lo supera con signi
 estadística}. El naïve-1 promedia MASE de hold-out $\factNaiveOneFadMean$ en FAD y $\factNaiveOneDffMean$ en DFF (donde
 Theta \textit{empata} con él al colapsar a un comportamiento casi de paseo aleatorio). El
 conjunto de confianza de modelos al $90$\,\% lo retiene como único miembro en ambas
-tablas, y el propio naïve-1 gana el hold-out en 24 de las 25 series FAD. Documentar este piso con un
+tablas, y el propio naïve-1 gana el hold-out en \factNaiveOneFadHoldoutWins{} de las 25 series FAD. Documentar este piso con un
 protocolo reproducible, en lugar de omitir la línea base que lo revela, es una decisión de
 honestidad metodológica que da valor de ingeniería al resto del sistema.
 
@@ -2589,8 +2589,8 @@ valor se degrada conforme las colas se mueven, evaluados con un registro prospec
 (MASE prospectivo $\factProspMase$, MAE $\factProspMaeDays$ días; el error por horizonte se
 detalla en la Tabla~\ref{tab:prospectivo_horizonte}); (b) \textbf{intervalos
 de predicción calibrados por horizonte}, con cuantiles empíricos del propio registro e
-inferencia conforme adaptativa desplegada (cobertura del intervalo al $95$\,\%: $0.92$ en
-FAD y $0.95$ en DFF); (c) \textbf{coherencia transversal} garantizada por proyección al
+inferencia conforme adaptativa desplegada (cobertura del intervalo al $95$\,\%: $\factAciCoverageFad$ en
+FAD y $\factAciCoverageDff$ en DFF); (c) \textbf{coherencia transversal} garantizada por proyección al
 cono del dominio (cero violaciones país$\leq$mundial y FAD$\leq$DFF tras el publicador); y
 (d) una \textbf{gobernanza campeón-retador-sombra} que incorporó al naïve-1 como retador
 formal: el gate lo declara promovible a un paso, la promoción se \textbf{retiene} porque

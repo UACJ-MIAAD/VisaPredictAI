@@ -46,5 +46,12 @@
   "tuning_groups": 12,
   "tuning_accepted": 11,
   "tuning_accepted_family": 5,
-  "tuning_accepted_employment": 6
+  "tuning_accepted_employment": 6,
+  "friedman_rank_naive1_fad": 1.2,
+  "friedman_rank_naive1_dff": 2.39,
+  "stationarity_difference": 71,
+  "stationarity_mixed": 3,
+  "aci_coverage_fad": 0.92,
+  "aci_coverage_dff": 0.95,
+  "naive1_fad_holdout_wins": 24
 }
