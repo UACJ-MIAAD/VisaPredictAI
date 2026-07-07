@@ -115,6 +115,7 @@ def _auto_config(trial):
         ),  # = run_global_deep (confirmación apples-to-apples)
         "scaler_type": trial.suggest_categorical("scaler_type", ["standard", "robust"]),
         "val_check_steps": 50,
+        "start_padding_enabled": True,  # series DFF cortas a h=36: padea en vez de reventar
     }
 
 
@@ -181,6 +182,7 @@ def build_models(names, input_size, max_steps, n_series, seed, auto, num_samples
             random_seed=seed,
             enable_progress_bar=False,
             enable_model_summary=False,
+            start_padding_enabled=True,  # series cortas (DFF) a h=36: padea en vez de reventar
         )
         reg = {
             "Informer": lambda: Informer(**c),
