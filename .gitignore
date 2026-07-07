@@ -93,3 +93,6 @@ ante_tfm/
 # AQ campaign logs (transient; provenance lives in reports/campaign/ CSVs)
 reports/campaign_aq.log
 reports/campaign_aq_logs/
+
+# Ad-hoc backup files (p. ej. optuna.db.*.bak antes de una re-campaña) — nunca se trackean.
+*.bak
