@@ -165,7 +165,7 @@
 {\normalsize Dr. Vicente García Jiménez\par}
 \end{center}
 \vfill
-\noindent Ciudad Juárez, Chihuahua \hfill Agosto a Diciembre 2026
+\noindent Ciudad Juárez, Chihuahua \hfill Agosto-Diciembre 2026
 \end{spacing}
 \end{titlepage}
 
@@ -618,7 +618,7 @@ a lo largo de los \factNMonths{} boletines se condensan en la Figura~\ref{fig:ed
 cada fila es una serie y cada celda un mes clasificado por su comportamiento. Dos
 rasgos dominan: el $\factPctTrainableF$\,\% de las celdas tiene fecha publicada (estado $F$, las
 $\factNObsFFmt$ observaciones entrenables) y, dentro de ellas, en el $\factPctFrozen$\,\% de los meses
-la fecha \textbf{no se movió}: el congelamiento es el comportamiento típico del
+la fecha \textbf{no se movió}. El congelamiento es el comportamiento típico del
 sistema y la vara natural de cualquier pronóstico. La Tabla~\ref{tab:eda_descriptiva}
 resume el censo por bloque y tabla, y la Figura~\ref{fig:eda_completitud} muestra la
 radiografía de completitud serie por serie. La cobertura es escalonada: \factNSeriesStructural{} series
@@ -1183,12 +1183,12 @@ fluctuación sin tendencia), la entropía de permutación y de muestra, la $\lam
 óptima de Box-Cox y la prueba de Zivot-Andrews (raíz unitaria con un quiebre endógeno),
 además del conjunto canónico de 22 características \textit{catch22} \cita{9}, un
 subconjunto de alto rendimiento seleccionado entre más de siete mil descriptores. En
-México/F3/FAD el exponente de Hurst supera 1, un valor fuera del rango canónico $[0,1]$ que
-señala no estacionariedad pura, no memoria larga (véase la lectura de este diagnóstico más
-adelante en esta sección),
+México/F3/FAD el exponente de Hurst supera 1 (un valor fuera del rango canónico $[0,1]$ que
+señala no estacionariedad pura, no memoria larga; véase la lectura de este diagnóstico más
+adelante en esta sección);
 las entropías de permutación y de muestra son bajas ($\approx 0.13$ a $0.17$, señal de
-una dinámica muy regular y por tanto predecible), la $\lambda$ de Box-Cox queda cerca
-de 1 (no se requiere transformar la varianza) y Zivot-Andrews rechaza la raíz unitaria
+una dinámica muy regular y por tanto predecible); la $\lambda$ de Box-Cox queda cerca
+de 1 (no se requiere transformar la varianza); y Zivot-Andrews rechaza la raíz unitaria
 tras una diferencia ($p < 0.001$), reforzando la elección $d=1$. Finalmente, la prueba
 BDS de Brock-Dechert-Scheinkman-LeBaron \cita{10} (cuya hipótesis nula es que la serie
 diferenciada es independiente e idénticamente distribuida) se rechaza con fuerza
@@ -1210,7 +1210,7 @@ del catálogo vivo de ingeniería de características contra la dificultad real 
 pronóstico de cada serie (el MASE de hold-out del modelo campeón elegido en la región de
 selección, de modo que ningún dato del hold-out participa en elegir al campeón): de
 \feFactSelIn{} características candidatas sobre \feFactSelSeries{} series con campaña,
-solo \feFactSelRelevant{} sobrevive el control de falso descubrimiento
+solo \feFactSelRelevant{} sobrevive al control de falso descubrimiento
 (\texttt{\feFactSelName}, un descriptor catch22 de la distribución temporal de los
 avances extremos), evidencia directa de que apilar bibliotecas completas de
 características (que serían cientos, con fuerte redundancia mutua) no aporta: pocos
@@ -1258,14 +1258,14 @@ información dentro del grupo mundial.
 \centering
 \includegraphics[width=0.62\textwidth]{eda_crosscorr_F3_FAD.png}
 \caption[Co-movimiento entre áreas]{Correlación de los avances mensuales entre áreas
-para la categoría F3. India, China y All Chargeability co-mueven; México y Filipinas
+para la categoría F3. India, China y All Chargeability se mueven al unísono; México y Filipinas
 son independientes.}
 \label{fig:eda_cross}
 \end{figure}
 
 El censo extiende este análisis con correlación cruzada a retardos de $\pm 6$ meses
 sobre el bloque familiar FAD completo (Figura~\ref{fig:eda_leadlag}): en
-\textbf{todas} las parejas de áreas la mejor correlación ocurre en el retardo cero, el co-movimiento, donde existe, es contemporáneo y ningún área anticipa a otra. Esto
+\textbf{todas} las parejas de áreas la mejor correlación ocurre en el retardo cero: el co-movimiento, donde existe, es contemporáneo y ningún área anticipa a otra. Esto
 descarta usar un país como indicador adelantado de otro y refuerza la decisión de
 modelar cada serie con su propia dinámica.
 
@@ -1434,8 +1434,8 @@ reporta en paralelo la MASE escalada por el naïve-1 ($m=1$); se conserva $m=12$
 métrica principal por comparabilidad con la práctica estándar y con las campañas
 previas del proyecto (la definición formal y su referencia se dan en §2.1). La elección del resto del catálogo responde al problema:
 las series son fechas que avanzan con tendencia fuerte, estacionalidad anual casi nula y
-retrogresiones ocasionales, por lo que conviene contrastar el espectro completo
-, desde modelos lineales parsimoniosos (ARIMA, SARIMA, ETS, Theta, tendencia lineal
+retrogresiones ocasionales, por lo que conviene contrastar el espectro completo,
+desde modelos lineales parsimoniosos (ARIMA, SARIMA, ETS, Theta, tendencia lineal
 local) hasta modelos de alta capacidad (árboles de potenciación de gradiente sobre
 deltas, redes profundas), y verificar empíricamente cuál conviene a este régimen de
 datos. Los árboles se formulan sobre la \textit{primera diferencia} (predicen el
@@ -1479,8 +1479,8 @@ por amplio margen (MASE de hold-out $1.249$), lo que confirma que las series son
 predecibles. La línea base que de verdad exige es el \textbf{naïve-1}: repetir el último
 corte publicado, la predicción óptima de un paseo aleatorio. Ninguno de los tres aprende
 nada; el naïve-1, sin embargo, resulta el rival a vencer de todo el capítulo de resultados
-(MASE de hold-out $\factNaiveOneFadMean$ en FAD y $\factNaiveOneDffMean$ en DFF), porque en estas colas familiares
-, del $28$\,\% de meses congelados en FAD al $66$\,\% en DFF (Tabla~\ref{tab:eda_descriptiva}),
+(MASE de hold-out $\factNaiveOneFadMean$ en FAD y $\factNaiveOneDffMean$ en DFF), porque en estas colas familiares,
+del $28$\,\% de meses congelados en FAD al $66$\,\% en DFF (Tabla~\ref{tab:eda_descriptiva}),
 la fecha se repite con frecuencia. La deriva, que añade el avance medio, apenas lo matiza.
 
 \paragraph{Estadísticos lineales: ARIMA y SARIMA \cita{15}.} Modelan la serie como una
@@ -1589,8 +1589,8 @@ Los árboles de potenciación de gradiente se optimizan con \textit{Optuna} \cit
 poda por mediana y almacenamiento persistente de los estudios) bajo un protocolo
 \textit{anidado y libre de fuga} con \textbf{tres particiones}: la región de selección se
 divide en entrenamiento, una cola de \textit{val-tuning} (24 meses) donde Optuna optimiza, y
-una cola de \textit{val-confirmación} (12 meses) (que ni el buscador ni la configuración
-incumbente vieron jamás) donde se decide la \textbf{aceptación}; el conjunto reservado de 24
+una cola de \textit{val-confirmación} (12 meses), que ni el buscador ni la configuración
+incumbente vieron jamás, donde se decide la \textbf{aceptación}; el conjunto reservado de 24
 meses queda solo para el número publicado y \textit{nunca} interviene en la búsqueda ni en
 la decisión. El objetivo puntúa únicamente los meses con fecha publicada (máscara $e=F$) y
 descuenta las series pseudo-replicadas del corte mundial, para que la búsqueda no optimice
@@ -1900,7 +1900,7 @@ sobre la primera diferencia (TFT $0.122$, NLinear $0.128$) se agolpan justo detr
 sin el colapso por sobreajuste de las campañas iniciales; Chronos en modo zero-shot
 ($0.291$ de hold-out) y Prophet cierran la parte baja, y solo el naïve estacional
 ($1.249$) queda fuera de concurso. La explicación es estructural: con el
-$\factPctFrozen$\,\% de los avances mensuales en cero, ``no moverse'' acierta casi
+$\factPctFrozen$\,\% de los avances mensuales del panel en cero, ``no moverse'' acierta casi
 siempre a un paso, y el margen restante lo dominan las retrogresiones impredecibles. El
 ganador por serie lo confirma: en la selección la victoria se reparte (XGBoost en 12
 series, LightGBM en 6, Theta, naïve-1 y ARIMA-LSTM en 2 cada uno, y CatBoost en 1), pero
@@ -1978,7 +1978,7 @@ ambas tablas. Se mantiene, además, la
 ajustarse en 13 de 25 series y ARIMA en 20 (falla numérica \textit{LinAlgError} en
 muestras cortas), y la cascada ARIMA-LSTM \textbf{no pudo ajustarse en ninguna} (se
 omite de la tabla), pues su componente de red requiere más historia que la disponible en
-la ventana inicial de DFF. El error de hold-out de SARIMA ($\factNaiveOneFadMean$) aparenta competir,
+la ventana inicial de DFF. El error de hold-out de SARIMA ($0.100$) aparenta competir,
 pero se promedia solo sobre las 13 series donde convergió (un sesgo de supervivencia) y
 no es comparable con los modelos que corrieron en las 25. Este contraste, y la
 inviabilidad numérica de los modelos de mayor capacidad con pocos datos, es la razón por
@@ -2557,9 +2557,9 @@ base más honesta posible: en un panel donde el $\factPctFrozen$\,\% de los avan
 mensuales es nulo, \textbf{repetir el último corte publicado (naïve-1) es el rival a
 vencer en el pronóstico a un paso, y ningún modelo puntual lo supera con significancia
 estadística}. El naïve-1 promedia MASE de hold-out $\factNaiveOneFadMean$ en FAD y $\factNaiveOneDffMean$ en DFF (donde
-Theta \textit{empata} con él al colapsar a un comportamiento casi de paseo aleatorio), el
+Theta \textit{empata} con él al colapsar a un comportamiento casi de paseo aleatorio). El
 conjunto de confianza de modelos al $90$\,\% lo retiene como único miembro en ambas
-tablas, y gana el hold-out en 22 de las 25 series FAD. Documentar este piso con un
+tablas, y el propio naïve-1 gana el hold-out en 22 de las 25 series FAD. Documentar este piso con un
 protocolo reproducible, en lugar de omitir la línea base que lo revela, es una decisión de
 honestidad metodológica que da valor de ingeniería al resto del sistema.
 
