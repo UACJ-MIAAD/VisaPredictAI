@@ -22,10 +22,14 @@ log = get_logger("persist_forecasts")
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
 # AQ: naive1 joined the curated set — it won both MCS at h=1 and the champion
 # deck now tracks it, so its holdout forecasts must be persisted (they are free).
-CURATED = ("naive1", "theta", "ets", "sarima", "arima", "kalman", "catboost", "lightgbm")
+# 'drift' (random walk with drift) added as a first-class challenger (7-jul-2026):
+# it dominates on the ROLLING multi-horizon backtest but LOSES to naive1 on the fixed
+# hold-out at h=1 (regime-dependent) — the champion-challenger must track that verdict.
+CURATED = ("naive1", "theta", "ets", "sarima", "arima", "kalman", "catboost", "lightgbm", "drift")
 
 
-def run(table: str = "FAD", block: str = "family", models_set: tuple[str, ...] = CURATED) -> Path:
+def _rows(table: str, block: str, models_set: tuple[str, ...]) -> list[dict]:
+    """Filas largas (model, country, category, date, actual, forecast) del hold-out F-only."""
     cat = dataset.list_series(table=table, block=block)
     rows = []
     for r in cat.itertuples():
@@ -51,13 +55,36 @@ def run(table: str = "FAD", block: str = "family", models_set: tuple[str, ...] =
                 for d, a, f in zip(dates[fmask], af, ff, strict=True)
             ]
         log.info("hold-out forecasts: %s/%s listo", r.country, r.category)
+    return rows
+
+
+def run(table: str = "FAD", block: str = "family", models_set: tuple[str, ...] = CURATED) -> Path:
     out = REPORTS / "eval" / f"holdout_forecasts_{table}.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows).to_csv(out, index=False)
-    log.info("escrito -> %s (%d filas)", out, len(rows))
+    pd.DataFrame(_rows(table, block, models_set)).to_csv(out, index=False)
+    log.info("escrito -> %s", out)
+    return out
+
+
+def persist_missing(table: str = "FAD", block: str = "family", models_set: tuple[str, ...] = CURATED) -> Path:
+    """Idempotente: añade al CSV SOLO los modelos de ``models_set`` ausentes; los existentes
+    quedan BYTE-idénticos (append). Para incorporar un modelo nuevo al pool sin re-derivar el
+    resto (los GBMs pueden tener micro-drift de float al reentrenar → no se tocan)."""
+    out = REPORTS / "eval" / f"holdout_forecasts_{table}.csv"
+    if not out.exists():
+        return run(table, block, models_set)
+    have = set(pd.read_csv(out, usecols=["model"]).model.unique())
+    missing = tuple(m for m in models_set if m not in have)
+    if not missing:
+        log.info("%s: nada que añadir (ya %s)", table, sorted(have))
+        return out
+    new = pd.DataFrame(_rows(table, block, missing))
+    new["date"] = pd.to_datetime(new["date"]).dt.strftime("%Y-%m-%d")  # match del formato existente
+    new.to_csv(out, mode="a", header=False, index=False)
+    log.info("%s: añadidos %s (+%d filas)", table, missing, len(new))
     return out
 
 
 if __name__ == "__main__":
-    run("FAD")
-    run("DFF")
+    persist_missing("FAD")
+    persist_missing("DFF")

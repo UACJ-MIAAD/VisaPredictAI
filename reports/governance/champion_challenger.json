@@ -18,7 +18,7 @@
           ],
           "agg": "median"
         },
-        "holm_p": 0.00036,
+        "holm_p": 0.00042,
         "promotable": true
       },
       {
@@ -68,6 +68,22 @@
           "agg": "median"
         },
         "holm_p": 1.0,
+        "promotable": false
+      },
+      {
+        "challenger": "drift",
+        "mean": 0.1287,
+        "median": 0.1086,
+        "n_series": 15,
+        "mean_margin_vs_champion": -0.0081,
+        "wilcoxon_p": 0.02557,
+        "recipe": {
+          "models": [
+            "drift"
+          ],
+          "agg": "median"
+        },
+        "holm_p": 0.15342,
         "promotable": false
       },
       {
@@ -121,7 +137,7 @@
         ],
         "agg": "median"
       },
-      "holm_p": 0.00036,
+      "holm_p": 0.00042,
       "promotable": true
     }
   },
@@ -144,7 +160,7 @@
           ],
           "agg": "median"
         },
-        "holm_p": 0.00975,
+        "holm_p": 0.0117,
         "promotable": true
       },
       {
@@ -162,7 +178,7 @@
           ],
           "agg": "median"
         },
-        "holm_p": 0.00975,
+        "holm_p": 0.0117,
         "promotable": true
       },
       {
@@ -178,7 +194,7 @@
           ],
           "agg": "median"
         },
-        "holm_p": 0.39258,
+        "holm_p": 0.52344,
         "promotable": false
       },
       {
@@ -195,7 +211,7 @@
           ],
           "agg": "median"
         },
-        "holm_p": 0.39258,
+        "holm_p": 0.52344,
         "promotable": false
       },
       {
@@ -211,7 +227,23 @@
           ],
           "agg": "median"
         },
-        "holm_p": 0.43164,
+        "holm_p": 0.52344,
+        "promotable": false
+      },
+      {
+        "challenger": "drift",
+        "mean": 0.1186,
+        "median": 0.1096,
+        "n_series": 10,
+        "mean_margin_vs_champion": -0.0191,
+        "wilcoxon_p": 0.16016,
+        "recipe": {
+          "models": [
+            "drift"
+          ],
+          "agg": "median"
+        },
+        "holm_p": 0.52344,
         "promotable": false
       }
     ],
@@ -228,7 +260,7 @@
         ],
         "agg": "median"
       },
-      "holm_p": 0.00975,
+      "holm_p": 0.0117,
       "promotable": true
     }
   }

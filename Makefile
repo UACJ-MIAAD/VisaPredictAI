@@ -3,7 +3,7 @@
 PY ?= ante/bin/python
 DVC ?= ante/bin/dvc
 
-.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger shadow model-card drift figures audit test test-model lint typecheck check all update eda eda-facts eda-all eda-report fe-facts fe-figures fe-report fe-all compare report validate key-facts consistency web-forecasts score-forecasts derive-band80 significance auto-arima paper-figures sync mlflow-sync
+.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger shadow model-card drift figures audit test test-model lint typecheck check all update eda eda-facts eda-all eda-report fe-facts fe-figures fe-report fe-all compare report validate key-facts consistency web-forecasts score-forecasts derive-band80 significance horizon-facts auto-arima paper-figures sync mlflow-sync
 
 help:
 	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"
@@ -151,6 +151,9 @@ derive-band80:  ## re-deriva BAND80_RATIO en split disjunto (read-only; imprime 
 
 significance:  ## Friedman-Nemenyi + MCS + DM para el paper (read-only; figura CD)
 	$(PY) experiments/significance_tables.py
+
+horizon-facts:  ## campeón POR HORIZONTE + significancia (rolling, F-only, hasta 5 años) -> reports/eval/horizon_facts.json + reports/latex/horizon_champion.tex
+	$(PY) experiments/build_horizon_facts.py
 
 auto-arima:  ## baseline Auto-ARIMA (AICc) bajo el walk-forward del pool -> reports/eval/auto_arima_baseline.csv
 	$(PY) experiments/auto_arima_baseline.py
