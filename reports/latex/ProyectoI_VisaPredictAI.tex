@@ -2624,9 +2624,10 @@ contra el naïve-1 en horizontes largos depende del despliegue en sombra y requi
 acumular añadas prospectivas antes de decidir la promoción.
 \item La cobertura nominal del intervalo del modelo profundo requiere calibración conforme
 adaptativa; con series cortas, la calibración base sub-cubre.
-\item Los resultados profundos dependen de un único acelerador y se reportan con su
-variación entre semillas; una verificación en hardware dedicado (GPU) permitiría sumar
-modelos frontera al repertorio.
+\item Los resultados profundos son sensibles a la semilla; la verificación en hardware
+dedicado (GPU en la nube) del Apéndice~A.10 confirmó que las arquitecturas de frontera no
+baten el piso ingenuo a corto y mediano plazo, y que la ventaja a horizonte largo proviene de
+un modelo clásico, no profundo.
 \end{enumerate}
 El trabajo futuro prioriza la evidencia prospectiva multi-horizonte frente al retador
 ingenuo, el tratamiento explícito de los cambios de régimen, la extensión por país de las
@@ -3209,6 +3210,85 @@ inmutable: la a\~nada 2026-07 corresponde al congelado del 3 de julio con el m\'
 bandas previo, de modo que la primera a\~nada calificada con las bandas por cuantil por
 horizonte ser\'a la de 2026-08. As\'i, el sistema se
 mantiene reproducible, auditado y al d\'ia sin intervenci\'on manual.
+
+\section{A.10 Experimento de frontera en GPU y evaluación multi-horizonte}
+
+El producto desplegado pronostica a horizontes de uno a doce meses; para un fenómeno cuyas
+colas de espera se miden en años, resultaba obligado preguntar dos cosas: si el error seguía
+siendo manejable a horizontes más largos, y si alguna arquitectura profunda de \textit{frontera}
+—más expresiva que los modelos del repertorio principal— lograba batir el piso ingenuo. Ambas
+preguntas exigían más cómputo del disponible localmente, de modo que el experimento se ejecutó
+en la nube.
+
+\paragraph{Infraestructura reproducible.} El repertorio profundo de frontera se entrenó en una
+instancia \textit{EC2 g5.xlarge} de Amazon Web Services, dotada de una GPU NVIDIA A10G, en un
+ambiente virtual aislado con las dependencias fijadas. El paquete que reproduce la corrida
+—guía de aprovisionamiento, script de entrenamiento y archivo de bloqueo de versiones— vive en
+el directorio \texttt{aws\_gpu/} del repositorio. La instancia es efímera: se aprovisionó para
+la corrida, con un costo del orden de ocho a nueve dólares, y se terminó al finalizar, sin dejar
+infraestructura persistente.
+
+\paragraph{Protocolo sin fuga de información.} La evaluación multi-horizonte reconstruye el nivel
+a $k$ pasos como el último corte observado más la suma de los incrementos pronosticados
+($\hat{y}_{t+k}=y_t+\sum_{j=1}^{k}\widehat{\Delta}_{t+j}$), de modo que ninguna observación futura
+entra en el cálculo. La validación emplea cortes \textit{rodantes} a lo largo de toda la historia,
+no una ventana fija, para \textbf{desconfundir el horizonte de la época}: con cortes fijos, un
+horizonte corto apuntaría siempre al congelamiento pos-pandemia y uno largo a un tramo volátil,
+confundiendo la dificultad temporal con la longitud del pronóstico. Todo se mide solo sobre
+observaciones con fecha ($e=F$) y en la misma escala MASE del resto del proyecto.
+
+\paragraph{Un resultado honesto, no un titular.} Las primeras lecturas parecían favorables al
+aprendizaje profundo, pero una auditoría adversarial —revisores independientes cuyo encargo era
+refutar cada afirmación— mostró que eran \textbf{artefactos}, no habilidad. La aparente ventaja
+en las categorías por empleo provenía de la rampa determinista con que se codifican los meses
+\textit{Current} (fecha del boletín); la aparente fortaleza del paseo aleatorio a horizontes
+intermedios era la confusión entre época y horizonte recién descrita. Corregidos ambos, el
+veredicto sobre fechas reales es sobrio: en el pronóstico a corto y mediano plazo el paseo
+aleatorio sigue siendo el piso a vencer, y \textbf{ninguna arquitectura profunda de frontera lo
+bate de forma honesta}. La ganancia a horizonte largo, cuando aparece, no proviene de una red
+profunda sino de un modelo clásico.
+
+\paragraph{Lo que sí quedó en pie.} Ese modelo clásico es la \textbf{deriva}: repetir el último
+corte añadiendo el avance medio histórico. Sobre el retrospectivo rodante completo, la deriva
+domina al paseo aleatorio con significancia estadística en casi todos los horizontes, con un
+margen que se ensancha del orden del $14$\,\% a un mes hasta cerca del $48$\,\% a cinco años en
+las \textit{Final Action Dates} (Figura~\ref{fig:horizonte} y Tabla~\ref{tab:horizonte}). El
+sentido de dominio es transparente: las fechas de prioridad avanzan a un ritmo casi constante, de
+modo que extrapolar la pendiente media supera a repetir el último valor, y la brecha crece con el
+horizonte.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.96\textwidth]{horizon_mase_curves.pdf}
+\caption[Error por horizonte: deriva contra naïve-1]{Error MASE en función del horizonte de
+pronóstico (uno a sesenta meses), sobre el retrospectivo rodante de toda la historia y solo sobre
+observaciones con fecha. La deriva (línea sólida) queda por debajo del naïve-1 (línea discontinua)
+en ambas tablas; la región sombreada es su ventaja. Los anillos huecos marcan los horizontes en
+que la ventaja no alcanza significancia tras la corrección de Holm. Estas cifras son retrospectivas
+y no sustituyen al piso del hold-out fijo desplegado.}
+\label{fig:horizonte}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption[Campeón por horizonte (retrospectivo rodante)]{Campeón por horizonte: MASE de la deriva y
+del naïve-1, su diferencia porcentual y la significancia de Holm, por tabla y horizonte.
+Retrospectivo rodante, solo estado F, escala canónica; no es el hold-out fijo, donde el naïve-1 es
+el piso desplegado.}
+\label{tab:horizonte}
+\input{horizon_champion.tex}
+\end{table}
+
+\paragraph{Por qué la deriva no se despliega.} Esa ventaja es \textbf{dependiente del régimen}.
+Sobre veinticinco años las fechas avanzan con deriva casi constante y extrapolar la pendiente gana;
+pero la ventana reciente reservada para la evaluación desplegada, los últimos veinticuatro meses,
+trae retrogresiones, y ahí la pendiente de la deriva perjudica: en el hold-out fijo el naïve-1
+vuelve a ser más seguro en el pronóstico a un paso. Por eso el sistema despliega el piso robusto y
+registra a la deriva como \textbf{retador formal no promovible} en la gobernanza campeón-retador
+(Apéndice~A.8): su ventaja retrospectiva queda documentada y versionada sin comprometer la decisión
+de despliegue. El experimento no quedó en un cuaderno suelto: se productivizó como un módulo del
+repertorio, con su propio objetivo reproducible (\texttt{make horizon-facts}), de modo que la
+figura y la tabla anteriores se regeneran con el pipeline y no se teclean a mano.
 
 % ============================================================
 % ACERCA DEL AUTOR Y DEL ASESOR DE TESIS
