@@ -165,7 +165,7 @@
 {\normalsize Dr. Vicente García Jiménez\par}
 \end{center}
 \vfill
-\noindent Ciudad Juárez, Chihuahua \hfill Agosto--Diciembre 2026
+\noindent Ciudad Juárez, Chihuahua \hfill Agosto a Diciembre 2026
 \end{spacing}
 \end{titlepage}
 
@@ -219,7 +219,7 @@ se valida, en cambio, sobre el producto completo: pronósticos a horizontes de 1
 —donde la ventaja de repetir el último valor se diluye—, intervalos de predicción calibrados
 por horizonte desde un registro prospectivo de \factProspNScoredFmt{} predicciones
 congeladas, coherencia transversal entre tablas y áreas de cargabilidad, y una gobernanza
-campeón--retador--sombra que incorpora la propia línea base como retador formal y decidirá su
+campeón-retador-sombra que incorpora la propia línea base como retador formal y decidirá su
 promoción con evidencia prospectiva multi-horizonte.
 
 \vspace{0.6em}
@@ -533,15 +533,15 @@ Figura~\ref{fig:cleansing} muestra la lógica que clasifica cada celda en uno de
   \node[dec, below=17mm of d1] (d2) {¿Es \texttt{C}?};
   \node[dec, below=17mm of d2] (d3) {¿Es \texttt{U}?};
   \node[reg, draw=uacjblue, fill=uacjblue!12, right=1.4cm of d1] (oF)
-    {\textbf{\textcolor{uacjblue}{F} --- fecha de prioridad.} Parseo \texttt{\%d\%b\%y} con
+    {\textbf{\textcolor{uacjblue}{F} — fecha de prioridad.} Parseo \texttt{\%d\%b\%y} con
     guard de siglo; $y=$ días desde $t_0{=}$1975. \textbf{Único objetivo predictivo.}};
   \node[reg, draw=regC, fill=regC!12, right=1.4cm of d2] (oC)
-    {\textbf{\textcolor{regC}{C} --- \textit{Current}.} Sin fecha; en el entrenamiento global se
+    {\textbf{\textcolor{regC}{C} — \textit{Current}.} Sin fecha; en el entrenamiento global se
     codifica como el mes del boletín.};
   \node[reg, draw=regU, fill=regU!12, right=1.4cm of d3] (oU)
-    {\textbf{\textcolor{regU}{U} --- \textit{Unavailable}.} Sin números; sin fecha.};
+    {\textbf{\textcolor{regU}{U} — \textit{Unavailable}.} Sin números; sin fecha.};
   \node[reg, draw=regUNK, fill=regUNK!15, below=9mm of d3] (oUNK)
-    {\textbf{\textcolor{regUNK}{UNK} --- vacía o no parseable.} Centinela explícito (no
+    {\textbf{\textcolor{regUNK}{UNK} — vacía o no parseable.} Centinela explícito (no
     ``\texttt{NA}'', que \texttt{pandas} coercería a \texttt{NaN}).};
   \draw[arr] (cell)--(norm);
   \draw[arr] (norm)--(d1);
@@ -596,9 +596,9 @@ régimen $F$ produce \texttt{days\_since\_base}; los regímenes $C$, $U$ y UNK q
 \textbf{Celda cruda} & \textbf{Estado} & \textbf{Fecha de prioridad} & \textbf{\texttt{days\_since\_base}} \\ \midrule
 \texttt{01MAY16}          & F   & 2016-05-01                          & 15{,}096 \\
 \texttt{15FEB09}          & F   & 2009-02-15                          & 12{,}464 \\
-\texttt{C}                & C   & --- \textit{(mes del boletín, global)} & --- \\
-\texttt{U}                & U   & ---                                 & --- \\
-\textit{(vacía)}          & UNK & ---                                 & --- \\
+\texttt{C}                & C   & — \textit{(mes del boletín, global)} & — \\
+\texttt{U}                & U   & —                                 & — \\
+\textit{(vacía)}          & UNK & —                                 & — \\
 \texttt{15JUL99}          & F   & 1999-07-15 \textit{(guard de siglo)} & 8{,}961 \\
 \bottomrule
 \end{tabular}
@@ -794,7 +794,7 @@ pero sí debe tolerar sin degradarse.
 \centering
 \includegraphics[width=\textwidth]{eda3_g04_retros.pdf}
 \caption[Cronología de las retrogresiones del panel]{Las \factNRetroEvents{} retrogresiones del panel
-completo (2001--2026): cada punto es un mes en que la fecha de una serie retrocedió;
+completo (2001 a 2026): cada punto es un mes en que la fecha de una serie retrocedió;
 el tamaño es proporcional a la magnitud. Se anotan los cinco episodios mayores.}
 \label{fig:eda_retros}
 \end{figure}
@@ -866,7 +866,7 @@ relacionados pero no intercambiables.
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.92\textwidth]{eda3_g05_brecha.pdf}
-\caption[Brecha FAD--DFF por serie]{Atraso vigente por serie según la tabla que se
+\caption[Brecha FAD-DFF por serie]{Atraso vigente por serie según la tabla que se
 mire, en el boletín más reciente: cada segmento une el atraso bajo DFF (presentación)
 con el atraso bajo FAD (acción final), para las series con ambas tablas publicadas.}
 \label{fig:eda_brecha}
@@ -963,9 +963,9 @@ Resto del mundo F4 & 0.16 & $<$0.01 & 0.93 & 0.151 & diferenciar \\
 
 El censo panorámico (Tabla~\ref{tab:eda_descriptiva} y
 Figura~\ref{fig:eda_completitud}) revela por qué el bloque de empleo requiere un
-tratamiento distinto: solo el $32$--$38$\,\% de sus celdas tiene fecha publicada
+tratamiento distinto: solo el $32$ a $38$\,\% de sus celdas tiene fecha publicada
 —las categorías EB transitan con frecuencia a \textit{Current} o
-\textit{Unavailable}— y, cuando la hay, el congelamiento domina ($39$--$77$\,\% de
+\textit{Unavailable}— y, cuando la hay, el congelamiento domina ($39$ a $77$\,\% de
 los meses sin movimiento, con avance mediano de cero días). Sus retrogresiones son
 además más frecuentes que las familiares (254 episodios contra 128) y de gran
 magnitud (Figura~\ref{fig:eda_retros}). Estas propiedades justifican la cobertura
@@ -984,7 +984,7 @@ más altos.
 \centering
 \includegraphics[width=\textwidth]{eda3_g10_dv.pdf}
 \caption[Rangos de corte del sorteo de diversidad]{Rango de corte del sorteo de
-diversidad por región (2001--2026). El patrón de diente de sierra corresponde al
+diversidad por región (2001 a 2026). El patrón de diente de sierra corresponde al
 ciclo del año fiscal; el valor es un número de sorteo, no una fecha, y queda fuera
 del objetivo predictivo del sistema.}
 \label{fig:eda_dv}
@@ -1132,7 +1132,7 @@ estacionalidad $F_S$ es prácticamente nula en todo el panel ($F_S < 0.23$, con 
 series exactamente en 0), lo que confirma que las fechas de prioridad \textbf{no
 tienen un ciclo anual relevante}; este es el hallazgo que explica por qué los términos
 estacionales de SARIMA no mejoran a ARIMA en los resultados. La autocorrelación de
-nivel ACF1 ronda 0.98--0.99 (persistencia alta, coherente con la tendencia), y el
+nivel ACF1 ronda 0.98 a 0.99 (persistencia alta, coherente con la tendencia), y el
 orden de diferenciación es $d=1$ salvo dos series mexicanas que requieren $d=2$. La
 Figura~\ref{fig:eda_features} visualiza esta homogeneidad: todas las series se agrupan
 en la esquina de tendencia fuerte y estacionalidad casi nula.
@@ -1141,7 +1141,7 @@ en la esquina de tendencia fuerte y estacionalidad casi nula.
 \centering
 \includegraphics[width=0.82\textwidth]{eda_features_FAD_family.png}
 \caption[Espacio de características]{Cada serie como un punto en el plano fuerza de
-tendencia--fuerza de estacionalidad. El panel es homogéneo: tendencia fuerte y
+tendencia-fuerza de estacionalidad. El panel es homogéneo: tendencia fuerte y
 estacionalidad casi nula.}
 \label{fig:eda_features}
 \end{figure}
@@ -1155,7 +1155,7 @@ lo que señala eventos atípicos frecuentes.
 
 \subsubsection{Cambios de régimen frente a anomalías puntuales}
 
-El conteo de la columna ``Atípicos'' (32--87) proviene de un $z$-score robusto por
+El conteo de la columna ``Atípicos'' (32 a 87) proviene de un $z$-score robusto por
 punto y, por sí solo, confunde dos fenómenos distintos. Un diagnóstico de mayor nivel
 los separa: por un lado, los \textbf{cambios de régimen} —desplazamientos estructurales
 duraderos— se detectan con el algoritmo PELT (\textit{Pruned Exact Linear Time})
@@ -1163,7 +1163,7 @@ duraderos— se detectan con el algoritmo PELT (\textit{Pruned Exact Linear Time
 —observaciones aisladas— con un filtro de Hampel sobre el residuo de la STL (mediana y
 MAD locales). Aplicado a México/F3/FAD, el método identifica \textbf{solo 3 cambios de
 régimen} (no 78), mientras que las anomalías puntuales se concentran en la era volátil
-2002--2008 (Figura~\ref{fig:eda_changepoints}). La consecuencia para el modelado es
+2002 a 2008 (Figura~\ref{fig:eda_changepoints}). La consecuencia para el modelado es
 precisa: el grueso de la ``rareza'' de estas series es estructural (regímenes), no
 ruido aislado, por lo que la validación debe usar métricas robustas y los modelos,
 tolerar retrogresiones sostenidas.
@@ -1186,7 +1186,7 @@ subconjunto de alto rendimiento seleccionado entre más de siete mil descriptore
 México/F3/FAD el exponente de Hurst supera 1 —un valor fuera del rango canónico $[0,1]$ que
 señala no estacionariedad pura, no memoria larga (véase la lectura de este diagnóstico más
 adelante en esta sección)—,
-las entropías de permutación y de muestra son bajas ($\approx 0.13$--$0.17$, señal de
+las entropías de permutación y de muestra son bajas ($\approx 0.13$ a $0.17$, señal de
 una dinámica muy regular y por tanto predecible), la $\lambda$ de Box-Cox queda cerca
 de 1 (no se requiere transformar la varianza) y Zivot-Andrews rechaza la raíz unitaria
 tras una diferencia ($p < 0.001$), reforzando la elección $d=1$. Finalmente, la prueba
@@ -1459,11 +1459,11 @@ diferencia; Chronos es zero-shot.}
 Referencia & Naïve-1 (paseo aleatorio), deriva, & Piso operativo; denominador \\
  & naïve estacional & de MASE ($m=1$ y $m=12$) \\
 Estadísticos \cita{15} & ARIMA, SARIMA & Tendencia/estacionalidad lineal \\
-Suavizamiento y estado \cita{16}\cita{17}\cita{18}\cita{19} & ETS amortiguado, Theta, Kalman, & Tendencia parsimoniosa \\
+Suavizamiento y estado \cita{16}\textendash\cita{19} & ETS amortiguado, Theta, Kalman, & Tendencia parsimoniosa \\
  & tendencia lineal local (LLT) & \\
 Aditivo \cita{20} & Prophet & Tendencia con cambios de régimen \\
-Árboles sobre deltas \cita{21}\cita{22}\cita{23} & XGBoost, LightGBM, CatBoost & Rezagos + regresores, extrapolación \\
-Lineales/profundos \cita{24}\cita{25}\cita{26}\cita{27}\cita{28}\cita{29}\cita{30}\cita{31} & DLinear, NLinear, RLinear, TiDE, & No linealidad y capacidad alta \\
+Árboles sobre deltas \cita{21}\textendash\cita{23} & XGBoost, LightGBM, CatBoost & Rezagos + regresores, extrapolación \\
+Lineales/profundos \cita{24}\textendash\cita{31} & DLinear, NLinear, RLinear, TiDE, & No linealidad y capacidad alta \\
  & LSTM, DeepAR, ARIMA-LSTM, & \\
  & N-BEATS, N-HiTS, TFT & \\
 Foundation \textit{(zero-shot)} \cita{32} & Chronos & Transferencia sin entrenamiento \\ \bottomrule
@@ -1509,16 +1509,16 @@ retrogresiones. Sin embargo, su estructura aditiva y suave \textit{subajusta} (M
 reproduce ni la trayectoria escalonada ni los saltos abruptos de las colas migratorias.
 
 \paragraph{Árboles de potenciación de gradiente sobre deltas: XGBoost, LightGBM y CatBoost
-\cita{21}\cita{22}\cita{23}.} Aprenden relaciones no lineales entre rezagos y regresores de calendario. Su
+\cita{21}\textendash\cita{23}.} Aprenden relaciones no lineales entre rezagos y regresores de calendario. Su
 limitación —no extrapolan más allá del máximo visto en el entrenamiento— se resuelve
 formulándolos sobre la \textbf{primera diferencia}: predicen el avance mensual y lo reintegran.
 Con sus hiperparámetros optimizados (§1.4.3) encabezan incluso la métrica de selección en FAD
-(XGBoost y LightGBM, $0.101$), pero su error en el conjunto reservado ($0.123$--$0.126$)
+(XGBoost y LightGBM, $0.101$), pero su error en el conjunto reservado ($0.123$ a $0.126$)
 queda por encima del piso del naïve-1 ($\factNaiveOneFadMean$): la capacidad bien regulada acerca, no
 destrona.
 
 \paragraph{Lineales y redes profundas: DLinear, NLinear, RLinear, TiDE, LSTM, DeepAR, ARIMA-LSTM,
-N-BEATS, N-HiTS y TFT \cita{24}\cita{25}\cita{26}\cita{27}\cita{28}\cita{29}\cita{30}\cita{31}.} Abarcan desde proyecciones lineales hasta
+N-BEATS, N-HiTS y TFT \cita{24}\textendash\cita{31}.} Abarcan desde proyecciones lineales hasta
 arquitecturas de altísima capacidad. Se incluyen para responder \textit{empíricamente} si la
 capacidad ayuda —y la respuesta exigió una autocorrección de especificación que se documenta
 con transparencia. En las campañas iniciales, entrenadas por serie sobre el nivel crudo,
@@ -1696,7 +1696,7 @@ boletín nuevo, no hace nada; si lo hay, reconstruye el panel y el almacén, los
   \node[okk, right=0.6cm of test] (mok) {a \texttt{main}};
   \draw[arr] (push)--(ruff);\draw[arr] (ruff)--(mypy);\draw[arr] (mypy)--(test);\draw[arr] (test)--(mok);
   \node[lab, above=1mm of ruff.north] {Integración continua (cada \texttt{push})};
-  \node[trig, below=2.1cm of push] (cron) {cron L--V};
+  \node[trig, below=2.1cm of push] (cron) {cron L a V};
   \node[proc, right=0.7cm of cron] (frz) {\texttt{freeze} (solo mes nuevo)};
   \node[gate, right=0.5cm of frz] (gt) {¿boletín nuevo?};
   \node[proc, right=0.5cm of gt] (bld) {scrape $\to$ panel $\to$ GATE $\to$ DuckDB $+$ tests};
@@ -1790,7 +1790,7 @@ los valores reales sobre el conjunto reservado de 24 meses, México/F3/FAD.}
 El experimento somete a los \textbf{\factNModels{} modelos} al mismo protocolo de validación
 walk-forward sobre las \textbf{25 series FAD de preferencia familiar} de las cinco
 áreas piloto (México, India, China, Filipinas y \textit{All Chargeability}), es
-decir, 600 evaluaciones modelo--serie (una combinación falló por un problema numérico
+decir, 600 evaluaciones modelo-serie (una combinación falló por un problema numérico
 y se reporta como ausente, sin abortar el barrido). En cada
 origen, el pronóstico a un paso usa solo información del pasado, de modo que la
 comparación entre modelos está libre de fuga. Las métricas de selección se calculan
@@ -1896,7 +1896,7 @@ parsimonioso de selección). Pero en el conjunto reservado el orden se invierte:
 \textbf{ningún modelo entrenado bate al naïve-1} —repetir el último corte publicado—,
 cuya MASE de hold-out es $\factNaiveOneFadMean$ en media y $0.089$ en mediana. ETS amortiguado
 ($\factEtsFadMean$) y Theta ($\factThetaFadMean$) quedan como los mejores modelos
-entrenados; los árboles optimizados ($0.123$--$0.126$) y las redes locales reformuladas
+entrenados; los árboles optimizados ($0.123$ a $0.126$) y las redes locales reformuladas
 sobre la primera diferencia (TFT $0.122$, NLinear $0.128$) se agolpan justo detrás, ya
 sin el colapso por sobreajuste de las campañas iniciales; Chronos en modo zero-shot
 ($0.291$ de hold-out) y Prophet cierran la parte baja, y solo el naïve estacional
@@ -2070,7 +2070,7 @@ vieron—, no sobre el conjunto reservado, que queda solo para el número public
 Siguiendo la propia regla del protocolo, el efecto se reporta con \textbf{media, mediana y
 porcentaje de series que mejoran}: se aceptaron \textbf{$\factTuningAccepted$ de los $\factTuningGroups$ grupos}
 modelo$\times$tabla$\times$bloque (entre ellos los tres modelos en FAD familiar, con
-mejoras de media de hasta $31$\,\%, mediana de hasta $46$\,\% y $64$--$80$\,\% de las
+mejoras de media de hasta $31$\,\%, mediana de hasta $46$\,\% y $64$ a $80$\,\% de las
 series mejorando); el único grupo restante conservó los valores
 por defecto, con reversión por serie donde el default gana. Ese rechazo es el más instructivo
 —LightGBM en DFF familiar—: la mediana lucía una mejora de $21$\,\%, pero solo el
@@ -2081,8 +2081,8 @@ optimizaron \textbf{por primera vez} y sus \textbf{$\factTuningAcceptedEmploymen
 aceptaron, con mejoras de media de hasta $28$\,\% (LightGBM y XGBoost en FAD). El efecto agregado es visible en la
 Tabla~\ref{tab:comparacion_modelos}: los árboles optimizados encabezan la métrica de
 selección en FAD ($0.101$). Ahora bien, la optimización \textit{cierra la brecha pero no
-cambia el veredicto}: su error en el conjunto reservado ($0.123$--$0.126$) queda a la
-altura de los parsimoniosos ETS y Theta ($\factEtsFadMean$--$\factThetaFadMean$) y por
+cambia el veredicto}: su error en el conjunto reservado ($0.123$ a $0.126$) queda a la
+altura de los parsimoniosos ETS y Theta ($\factEtsFadMean$ a $\factThetaFadMean$) y por
 encima del piso del naïve-1 ($\factNaiveOneFadMean$). La capacidad adicional bien regulada acerca al
 modelo complejo; no lo hace superar al simple, y a ninguno lo lleva bajo el piso ingenuo.
 
@@ -2105,7 +2105,7 @@ CRPS (\textit{Continuous Ranked Probability Score}) \cita{40}, la receta campeon
 desplegada —que promedia los cuantiles nativos de sus miembros y la banda conforme de los
 que no muestrean— obtiene un CRPS de $32.1$ días en FAD y $31.3$ en DFF, mejor que
 cualquiera de los clásicos con muestreo nativo por separado (ARIMA $49.5$, SARIMA
-$59.8$): la evaluación probabilística acompaña ahora al gate campeón--retador como
+$59.8$): la evaluación probabilística acompaña ahora al gate campeón-retador como
 criterio informativo.
 
 \paragraph{Entrenamiento global y aprendizaje profundo.} La pregunta de si el
@@ -2126,7 +2126,7 @@ entrenados por serie, y la \textbf{optimización de hiperparámetros con la arqu
 el espacio de búsqueda} (búsqueda única con parada temprana, sin tocar el hold-out; la
 configuración ganadora reentrenada con cinco semillas) lleva a \textbf{AutoBiTCN a MASE
 $=\factAutobitcnFadMean$}: por primera vez un modelo profundo queda \textit{por debajo}
-del par parsimonioso ETS--Theta ($\factEtsFadMean$--$\factThetaFadMean$) en FAD. Agrupar
+del par parsimonioso ETS-Theta ($\factEtsFadMean$ a $\factThetaFadMean$) en FAD. Agrupar
 en el entrenamiento las series familiares y de empleo con normalización por serie, útil
 en campañas previas, ya no añade ($0.131$). El resultado, sin embargo, se lee contra el
 piso: \textbf{ni siquiera el mejor profundo optimizado alcanza al naïve-1} ($\factNaiveOneFadMean$).
@@ -2182,7 +2182,7 @@ con desviación $0.0003$ —intervalo de confianza del $95$\,\% $[0.0896,\,0.090
 debajo del mejor clásico afinado (Auto-ARIMA $=\factAutoarimaDffMean$ en media) pero por
 encima del piso del naïve-1 ($\factNaiveOneDffMean$). En FAD, AutoBiTCN promedia
 $\factAutobitcnFadMean$ con desviación $0.007$ —intervalo $[0.100,\,0.118]$—, por debajo
-del par ETS--Theta ($\factEtsFadMean$--$\factThetaFadMean$); su extremo inferior toca el
+del par ETS-Theta ($\factEtsFadMean$ a $\factThetaFadMean$); su extremo inferior toca el
 nivel del naïve-1 ($\factNaiveOneFadMean$), pero su media queda por encima y la diferencia no es
 significativa a su favor. La variación entre corridas a semilla fija refleja el
 nondeterminismo del acelerador, acotado por el propio intervalo. La lectura honesta, por
@@ -2208,7 +2208,7 @@ distribución predictiva. Dotado de intervalos conformes al $95$\,\% —calibrad
 sobre el pasado de cada origen de pronóstico, con 36 ventanas de calibración y tres
 semillas, lo que elimina el techo estructural de cobertura de la versión inicial—, BiTCN
 produce una distribución \textbf{más afilada que la de los modelos clásicos}: su CRPS es
-de $21.5$ días en DFF y $31.4$ en FAD, frente a los $47$--$60$ de DeepAR, ARIMA y SARIMA.
+de $21.5$ días en DFF y $31.4$ en FAD, frente a los $47$ a $60$ de DeepAR, ARIMA y SARIMA.
 La cobertura empírica base de esos intervalos es de $0.87$ (DFF) y $0.89$ (FAD), por
 debajo del $95$\,\% nominal —una sub-cobertura esperable con series cortas, que se
 documenta con transparencia en lugar de declararse exacta—.
@@ -2293,7 +2293,7 @@ mientras el intervalo al $95$\,\% conserva su cobertura empírica.}
 \caption[Modelos profundos globales (FAD)]{Modelos profundos entrenados de forma global
 sobre las 25 series FAD familiares y el efecto acumulado de las técnicas de
 entrenamiento (medias multi-semilla). MASE de hold-out; el listón parsimonioso es
-ETS/Theta $=\factEtsFadMean$--$\factThetaFadMean$ y el piso ingenuo es el naïve-1
+ETS/Theta $=\factEtsFadMean$ a $\factThetaFadMean$ y el piso ingenuo es el naïve-1
 ($\factNaiveOneFadMean$). El mejor profundo optimizado queda por debajo del listón parsimonioso pero
 por encima del piso (validación multi-semilla más abajo).}
 \label{tab:global_deep}
@@ -2307,7 +2307,7 @@ TiDE & global, diferencia & 0.133 \\
 BiTCN & + agrupado + norma por serie & 0.131 \\ \midrule
 \rowcolor{uacjyellow!25}
 AutoBiTCN & + optimización (arquitectura, Optuna) & \textbf{\factAutobitcnFadMean} \\ \midrule
-ETS / Theta \textit{(listón)} & estadístico, por serie & \textit{\factEtsFadMean--\factThetaFadMean} \\
+ETS / Theta \textit{(listón)} & estadístico, por serie & \textit{\factEtsFadMean a \factThetaFadMean} \\
 Naïve-1 \textit{(piso)} & línea base, por serie & \textit{0.100} \\ \bottomrule
 \end{tabular}
 \end{table}
@@ -2545,9 +2545,9 @@ objetivos específicos: \textbf{OE1} (base de datos) con el panel de \factNSerie
 series y \factNObsFmt{} observaciones (§1.1); \textbf{OE2} (caracterización) con el censo
 exploratorio, la batería de estacionariedad y la ingeniería de características (§1.2);
 \textbf{OE3} (modelos lineales y no lineales) con el catálogo de \factNModels{} modelos
-comparados bajo una interfaz común (§1.3--§1.4); \textbf{OE4} (evaluación) con el protocolo
+comparados bajo una interfaz común (§1.3 a §1.4); \textbf{OE4} (evaluación) con el protocolo
 \textit{walk-forward} sin fuga, las métricas escaladas y los intervalos al $95$\,\% de
-cobertura empírica verificada (§2.1--§2.2); y \textbf{OE5} (demostrador) con la aplicación de
+cobertura empírica verificada (§2.1 a §2.2); y \textbf{OE5} (demostrador) con la aplicación de
 consulta documentada en el Apéndice~A. El objetivo general queda satisfecho como sistema
 desplegado con gobernanza; el hallazgo central, a continuación, precisa qué compra la
 capacidad de los modelos y qué no.
@@ -2573,7 +2573,7 @@ aceptados, con media, mediana y porcentaje de series reportados juntos) hasta en
 métrica de selección, sin bajar del piso en el conjunto reservado; (iii) el mejor profundo
 global optimizado (AutoBiTCN, $\factAutobitcnFadMean\pm0.007$) es hoy \textbf{el mejor
 modelo entrenado del repertorio en FAD} —por debajo de ETS/Theta
-($\factEtsFadMean$--$\factThetaFadMean$)— y BiTCN es extremadamente estable en DFF
+($\factEtsFadMean$ a $\factThetaFadMean$)— y BiTCN es extremadamente estable en DFF
 ($0.090\pm0.0003$, $\sim$\factDeepDffMarginPct\,\% mejor que un Auto-ARIMA re-especificado
 de forma justa), pero la prueba de Diebold-Mariano favorece al paseo aleatorio con
 significancia robusta en DFF y ninguno baja del piso; y (iv) los conjuntos fuertes
@@ -2593,7 +2593,7 @@ de predicción calibrados por horizonte}, con cuantiles empíricos del propio re
 inferencia conforme adaptativa desplegada (cobertura del intervalo al $95$\,\%: $0.92$ en
 FAD y $0.95$ en DFF); (c) \textbf{coherencia transversal} garantizada por proyección al
 cono del dominio (cero violaciones país$\leq$mundial y FAD$\leq$DFF tras el publicador); y
-(d) una \textbf{gobernanza campeón--retador--sombra} que incorporó al naïve-1 como retador
+(d) una \textbf{gobernanza campeón-retador-sombra} que incorporó al naïve-1 como retador
 formal: el gate lo declara promovible a un paso, la promoción se \textbf{retiene} porque
 el gate mide $h=1$ y el producto sirve $h=1..12$, y un despliegue en sombra congela cada
 mes su añada para decidir con evidencia prospectiva multi-horizonte. La respuesta a
@@ -2615,11 +2615,11 @@ alcance actual:
 \item El alcance evaluado a profundidad son las 25 series familiares de las cinco áreas
 piloto; las categorías por empleo se cubren de forma escalonada y muchas combinaciones
 país$\times$categoría carecen aún de longitud o continuidad suficientes.
-\item La serie histórica homogénea arranca en diciembre de 2001; el periodo 1992--2001
+\item La serie histórica homogénea arranca en diciembre de 2001; el periodo 1992 a 2001
 existe en fuentes de archivo y queda para integración futura.
 \item Los cambios de régimen ($C \leftrightarrow F \leftrightarrow U$) se conservan como
 anotación descriptiva pero no son objetivo predictivo en esta etapa.
-\item El gate campeón--retador evalúa el pronóstico a un paso; la comparación decisiva
+\item El gate campeón-retador evalúa el pronóstico a un paso; la comparación decisiva
 contra el naïve-1 en horizontes largos depende del despliegue en sombra y requiere
 acumular añadas prospectivas antes de decidir la promoción.
 \item La cobertura nominal del intervalo del modelo profundo requiere calibración conforme
@@ -2630,7 +2630,7 @@ modelos frontera al repertorio.
 \end{enumerate}
 El trabajo futuro prioriza la evidencia prospectiva multi-horizonte frente al retador
 ingenuo, el tratamiento explícito de los cambios de régimen, la extensión por país de las
-categorías de empleo y la integración del archivo histórico 1992--2001.
+categorías de empleo y la integración del archivo histórico 1992 a 2001.
 
 % ============================================================
 % GLOSARIO
@@ -2786,103 +2786,103 @@ categorías de empleo y la integración del archivo histórico 1992--2001.
 \begin{enumerate}[label={[\arabic*]}, leftmargin=*, itemsep=2pt]
 \item\label{bib:1} P. Chapman \textit{et al.}, ``CRISP-DM 1.0: Step-by-step data
 mining guide,'' SPSS Inc., 2000.
-\item\label{bib:2} C. Bergmeir y J. M. Benítez, ``On the use of cross-validation for time series predictor evaluation,'' \textit{Information Sciences}, vol. 191, pp. 192--213, 2012.
-\item\label{bib:3} R. B. Cleveland, W. S. Cleveland, J. E. McRae, y I. Terpenning, ``STL: A seasonal-trend decomposition procedure based on loess,'' \textit{Journal of Official Statistics}, vol. 6, n.\textsuperscript{o} 1, pp. 3--73, 1990.
-\item\label{bib:4} D. Kwiatkowski, P. C. B. Phillips, P. Schmidt, y Y. Shin, ``Testing the null hypothesis of stationarity against the alternative of a unit root,'' \textit{Journal of Econometrics}, vol. 54, n.\textsuperscript{o} 1--3, pp. 159--178, 1992.
+\item\label{bib:2} C. Bergmeir y J. M. Benítez, ``On the use of cross-validation for time series predictor evaluation,'' \textit{Information Sciences}, vol. 191, pp. 192 a 213, 2012.
+\item\label{bib:3} R. B. Cleveland, W. S. Cleveland, J. E. McRae, y I. Terpenning, ``STL: A seasonal-trend decomposition procedure based on loess,'' \textit{Journal of Official Statistics}, vol. 6, n.\textsuperscript{o} 1, pp. 3 a 73, 1990.
+\item\label{bib:4} D. Kwiatkowski, P. C. B. Phillips, P. Schmidt, y Y. Shin, ``Testing the null hypothesis of stationarity against the alternative of a unit root,'' \textit{Journal of Econometrics}, vol. 54, n.\textsuperscript{o} 1 a 3, pp. 159 a 178, 1992.
 \item\label{bib:5} G. Elliott, T. J. Rothenberg, y J. H. Stock, ``Efficient tests for
 an autoregressive unit root,'' \textit{Econometrica}, vol. 64, n.\textsuperscript{o} 4,
-pp. 813--836, 1996.
+pp. 813 a 836, 1996.
 \item\label{bib:6} X. Wang, K. Smith, y R. Hyndman, ``Characteristic-based
 clustering for time series data,'' \textit{Data Mining and Knowledge Discovery},
-vol. 13, n.\textsuperscript{o} 3, pp. 335--364, 2006.
+vol. 13, n.\textsuperscript{o} 3, pp. 335 a 364, 2006.
 \item\label{bib:7} R. J. Hyndman y G. Athanasopoulos, \textit{Forecasting: Principles and Practice (FPP3)}, 3.\textsuperscript{a} ed. Melbourne, Australia: OTexts, 2021.
 \item\label{bib:8} R. Killick, P. Fearnhead, y I. A. Eckley, ``Optimal detection of
 changepoints with a linear computational cost,'' \textit{Journal of the American
-Statistical Association}, vol. 107, n.\textsuperscript{o} 500, pp. 1590--1598, 2012.
+Statistical Association}, vol. 107, n.\textsuperscript{o} 500, pp. 1590 a 1598, 2012.
 \item\label{bib:9} C. H. Lubba, S. S. Sethi, P. Knaute, S. R. Schultz, B. D. Fulcher,
 y N. S. Jones, ``catch22: CAnonical Time-series CHaracteristics,'' \textit{Data Mining
-and Knowledge Discovery}, vol. 33, n.\textsuperscript{o} 6, pp. 1821--1852, 2019.
+and Knowledge Discovery}, vol. 33, n.\textsuperscript{o} 6, pp. 1821 a 1852, 2019.
 \item\label{bib:10} W. A. Brock, W. D. Dechert, J. A. Scheinkman, y B. LeBaron, ``A test
 for independence based on the correlation dimension,'' \textit{Econometric Reviews},
-vol. 15, n.\textsuperscript{o} 3, pp. 197--235, 1996.
+vol. 15, n.\textsuperscript{o} 3, pp. 197 a 235, 1996.
 \item\label{bib:11} M. Christ, N. Braun, J. Neuffer, y A. W. Kempa-Liehr, ``Time series
 feature extraction on basis of scalable hypothesis tests (tsfresh),''
-\textit{Neurocomputing}, vol. 307, pp. 72--77, 2018.
+\textit{Neurocomputing}, vol. 307, pp. 72 a 77, 2018.
 \item\label{bib:12} C. Ding y H. Peng, ``Minimum redundancy feature selection from
 microarray gene expression data,'' \textit{Journal of Bioinformatics and Computational
-Biology}, vol. 3, n.\textsuperscript{o} 2, pp. 185--205, 2005.
+Biology}, vol. 3, n.\textsuperscript{o} 2, pp. 185 a 205, 2005.
 \item\label{bib:13} T. Henderson y B. D. Fulcher, ``An empirical evaluation of
-time-series feature sets,'' en \textit{ICDM Workshops}, 2021, pp. 1032--1041.
+time-series feature sets,'' en \textit{ICDM Workshops}, 2021, pp. 1032 a 1041.
 \item\label{bib:14} S. Moritz y T. Bartz-Beielstein, ``imputeTS: Time series missing
 value imputation in R,'' \textit{The R Journal}, vol. 9, n.\textsuperscript{o} 1,
-pp. 207--218, 2017.
+pp. 207 a 218, 2017.
 \item\label{bib:15} G. E. P. Box, G. M. Jenkins, G. C. Reinsel, y G. M. Ljung,
 \textit{Time Series Analysis: Forecasting and Control}, 5.\textsuperscript{a} ed.
 Hoboken, NJ: Wiley, 2015.
-\item\label{bib:16} E. S. Gardner, Jr. y E. McKenzie, ``Forecasting trends in time series,'' \textit{Management Science}, vol. 31, n.\textsuperscript{o} 10, pp. 1237--1246, 1985.
+\item\label{bib:16} E. S. Gardner, Jr. y E. McKenzie, ``Forecasting trends in time series,'' \textit{Management Science}, vol. 31, n.\textsuperscript{o} 10, pp. 1237 a 1246, 1985.
 \item\label{bib:17} R. J. Hyndman, A. B. Koehler, J. K. Ord, y R. D. Snyder, \textit{Forecasting with Exponential Smoothing: The State Space Approach}. Berlín: Springer, 2008.
-\item\label{bib:18} V. Assimakopoulos y K. Nikolopoulos, ``The theta model: A decomposition approach to forecasting,'' \textit{International Journal of Forecasting}, vol. 16, n.\textsuperscript{o} 4, pp. 521--530, 2000.
-\item\label{bib:19} R. E. Kalman, ``A new approach to linear filtering and prediction problems,'' \textit{Journal of Basic Engineering}, vol. 82, n.\textsuperscript{o} 1, pp. 35--45, 1960.
+\item\label{bib:18} V. Assimakopoulos y K. Nikolopoulos, ``The theta model: A decomposition approach to forecasting,'' \textit{International Journal of Forecasting}, vol. 16, n.\textsuperscript{o} 4, pp. 521 a 530, 2000.
+\item\label{bib:19} R. E. Kalman, ``A new approach to linear filtering and prediction problems,'' \textit{Journal of Basic Engineering}, vol. 82, n.\textsuperscript{o} 1, pp. 35 a 45, 1960.
 \item\label{bib:20} S. J. Taylor y B. Letham, ``Forecasting at scale,'' \textit{The
-American Statistician}, vol. 72, n.\textsuperscript{o} 1, pp. 37--45, 2018.
+American Statistician}, vol. 72, n.\textsuperscript{o} 1, pp. 37 a 45, 2018.
 \item\label{bib:21} T. Chen y C. Guestrin, ``XGBoost: A scalable tree boosting
-system,'' en \textit{Proc. 22nd ACM SIGKDD}, 2016, pp. 785--794.
-\item\label{bib:22} G. Ke \textit{et al.}, ``LightGBM: A highly efficient gradient boosting decision tree,'' en \textit{Advances in Neural Information Processing Systems (NIPS)}, 2017, pp. 3146--3154.
-\item\label{bib:23} L. Prokhorenkova, G. Gusev, A. Vorobev, A. V. Dorogush, y A. Gulin, ``CatBoost: Unbiased boosting with categorical features,'' en \textit{Advances in Neural Information Processing Systems (NeurIPS)}, 2018, pp. 6639--6649.
+system,'' en \textit{Proc. 22nd ACM SIGKDD}, 2016, pp. 785 a 794.
+\item\label{bib:22} G. Ke \textit{et al.}, ``LightGBM: A highly efficient gradient boosting decision tree,'' en \textit{Advances in Neural Information Processing Systems (NIPS)}, 2017, pp. 3146 a 3154.
+\item\label{bib:23} L. Prokhorenkova, G. Gusev, A. Vorobev, A. V. Dorogush, y A. Gulin, ``CatBoost: Unbiased boosting with categorical features,'' en \textit{Advances in Neural Information Processing Systems (NeurIPS)}, 2018, pp. 6639 a 6649.
 \item\label{bib:24} S. Hochreiter y J. Schmidhuber, ``Long short-term memory,''
-\textit{Neural Computation}, vol. 9, n.\textsuperscript{o} 8, pp. 1735--1780, 1997.
+\textit{Neural Computation}, vol. 9, n.\textsuperscript{o} 8, pp. 1735 a 1780, 1997.
 \item\label{bib:25} D. Salinas, V. Flunkert, J. Gasthaus, y T. Januschowski,
 ``DeepAR: Probabilistic forecasting with autoregressive recurrent networks,''
 \textit{International Journal of Forecasting}, vol. 36, n.\textsuperscript{o} 3,
-pp. 1181--1191, 2020.
+pp. 1181 a 1191, 2020.
 \item\label{bib:26} G. P. Zhang, ``Time series forecasting using a hybrid ARIMA and
-neural network model,'' \textit{Neurocomputing}, vol. 50, pp. 159--175, 2003.
-\item\label{bib:27} A. Zeng, M. Chen, L. Zhang, y Q. Xu, ``Are transformers effective for time series forecasting?,'' en \textit{Proc. AAAI Conf. Artificial Intelligence}, vol. 37, n.\textsuperscript{o} 9, pp. 11121--11128, 2023.
+neural network model,'' \textit{Neurocomputing}, vol. 50, pp. 159 a 175, 2003.
+\item\label{bib:27} A. Zeng, M. Chen, L. Zhang, y Q. Xu, ``Are transformers effective for time series forecasting?,'' en \textit{Proc. AAAI Conf. Artificial Intelligence}, vol. 37, n.\textsuperscript{o} 9, pp. 11121 a 11128, 2023.
 \item\label{bib:28} A. Das, W. Kong, A. Leach, S. Mathur, R. Sen, y R. Yu, ``Long-term forecasting with TiDE: Time-series dense encoder,'' \textit{Transactions on Machine Learning Research}, 2023, arXiv:2304.08424.
 \item\label{bib:29} B. N. Oreshkin, D. Carpov, N. Chapados, y Y. Bengio, ``N-BEATS: Neural basis expansion analysis for interpretable time series forecasting,'' en \textit{Int. Conf. on Learning Representations (ICLR)}, 2020, arXiv:1905.10437.
-\item\label{bib:30} C. Challu, K. G. Olivares, B. N. Oreshkin, F. Garza, M. Mergenthaler-Canseco, y A. Dubrawski, ``NHITS: Neural hierarchical interpolation for time series forecasting,'' en \textit{Proc. AAAI Conf. Artificial Intelligence}, vol. 37, n.\textsuperscript{o} 6, pp. 6989--6997, 2023.
-\item\label{bib:31} B. Lim, S. Ö. Ar{\i}k, N. Loeff, y T. Pfister, ``Temporal fusion transformers for interpretable multi-horizon time series forecasting,'' \textit{International Journal of Forecasting}, vol. 37, n.\textsuperscript{o} 4, pp. 1748--1764, 2021.
+\item\label{bib:30} C. Challu, K. G. Olivares, B. N. Oreshkin, F. Garza, M. Mergenthaler-Canseco, y A. Dubrawski, ``NHITS: Neural hierarchical interpolation for time series forecasting,'' en \textit{Proc. AAAI Conf. Artificial Intelligence}, vol. 37, n.\textsuperscript{o} 6, pp. 6989 a 6997, 2023.
+\item\label{bib:31} B. Lim, S. Ö. Ar{\i}k, N. Loeff, y T. Pfister, ``Temporal fusion transformers for interpretable multi-horizon time series forecasting,'' \textit{International Journal of Forecasting}, vol. 37, n.\textsuperscript{o} 4, pp. 1748 a 1764, 2021.
 \item\label{bib:32} A. F. Ansari \textit{et al.}, ``Chronos: Learning the language of time series,'' \textit{Transactions on Machine Learning Research}, 2024, arXiv:2403.07815.
 \item\label{bib:33} T. Akiba, S. Sano, T. Yanase, T. Ohta, y M. Koyama, ``Optuna: A
 next-generation hyperparameter optimization framework,'' en \textit{Proc. 25th ACM
-SIGKDD}, 2019, pp. 2623--2631.
+SIGKDD}, 2019, pp. 2623 a 2631.
 \item\label{bib:34} V. Vovk, A. Gammerman, y G. Shafer, \textit{Algorithmic Learning
 in a Random World}. Nueva York: Springer, 2005.
 \item\label{bib:35} R. J. Hyndman y A. B. Koehler, ``Another look at measures of
 forecast accuracy,'' \textit{International Journal of Forecasting}, vol. 22,
-n.\textsuperscript{o} 4, pp. 679--688, 2006.
+n.\textsuperscript{o} 4, pp. 679 a 688, 2006.
 \item\label{bib:36} F. X. Diebold y R. S. Mariano, ``Comparing predictive
 accuracy,'' \textit{Journal of Business \& Economic Statistics}, vol. 13,
-n.\textsuperscript{o} 3, pp. 253--263, 1995.
+n.\textsuperscript{o} 3, pp. 253 a 263, 1995.
 \item\label{bib:37} P. R. Hansen, A. Lunde, y J. M. Nason, ``The model confidence
-set,'' \textit{Econometrica}, vol. 79, n.\textsuperscript{o} 2, pp. 453--497, 2011.
+set,'' \textit{Econometrica}, vol. 79, n.\textsuperscript{o} 2, pp. 453 a 497, 2011.
 \item\label{bib:38} J. Dem\v{s}ar, ``Statistical comparisons of classifiers over
 multiple data sets,'' \textit{Journal of Machine Learning Research}, vol. 7,
-pp. 1--30, 2006.
+pp. 1 a 30, 2006.
 \item\label{bib:39} S. Makridakis, E. Spiliotis, y V. Assimakopoulos, ``The M4
 competition: 100,000 time series and 61 forecasting methods,'' \textit{International
-Journal of Forecasting}, vol. 36, n.\textsuperscript{o} 1, pp. 54--74, 2020.
+Journal of Forecasting}, vol. 36, n.\textsuperscript{o} 1, pp. 54 a 74, 2020.
 \item\label{bib:40} T. Gneiting y A. E. Raftery, ``Strictly proper scoring rules,
 prediction, and estimation,'' \textit{Journal of the American Statistical Association},
-vol. 102, n.\textsuperscript{o} 477, pp. 359--378, 2007.
+vol. 102, n.\textsuperscript{o} 477, pp. 359 a 378, 2007.
 \item\label{bib:41} Y. Nie, N. H. Nguyen, P. Sinthong, y J. Kalagnanam, ``A time series is worth 64 words: Long-term forecasting with transformers,'' en \textit{Int. Conf. on Learning Representations (ICLR)}, 2023, arXiv:2211.14730.
-\item\label{bib:42} O. Sprangers, S. Schelter, y M. de Rijke, ``Parameter-efficient deep probabilistic forecasting,'' \textit{International Journal of Forecasting}, vol. 39, n.\textsuperscript{o} 1, pp. 332--345, 2023.
+\item\label{bib:42} O. Sprangers, S. Schelter, y M. de Rijke, ``Parameter-efficient deep probabilistic forecasting,'' \textit{International Journal of Forecasting}, vol. 39, n.\textsuperscript{o} 1, pp. 332 a 345, 2023.
 \item\label{bib:43} H. Wu, T. Hu, Y. Liu, H. Zhou, J. Wang, y M. Long, ``TimesNet: Temporal 2D-variation modeling for general time series analysis,'' en \textit{Int. Conf. on Learning Representations (ICLR)}, 2023, arXiv:2210.02186.
 \item\label{bib:44} S. Wang \textit{et al.}, ``TimeMixer: Decomposable multiscale mixing for time series forecasting,'' en \textit{Int. Conf. on Learning Representations (ICLR)}, 2024, arXiv:2405.14616.
 \item\label{bib:45} Z. Liu \textit{et al.}, ``KAN: Kolmogorov-Arnold networks,'' en \textit{Int. Conf. on Learning Representations (ICLR)}, 2025, arXiv:2404.19756.
 \item\label{bib:46} I. Gibbs y E. Cand\`es, ``Adaptive conformal inference under
 distribution shift,'' en \textit{Advances in Neural Information Processing Systems
-(NeurIPS)}, vol. 34, pp. 1660--1672, 2021.
+(NeurIPS)}, vol. 34, pp. 1660 a 1672, 2021.
 \item\label{bib:47} S. Hoo, S. M\"uller, D. Salinas, y F. Hutter, ``The tabular
 foundation model TabPFN outperforms specialized time series forecasting models,''
 \textit{arXiv:2501.02945}, 2025.
-\item\label{bib:48} R. Kuprieiev \textit{et al.}, ``DVC: Data Version Control --- Git
+\item\label{bib:48} R. Kuprieiev \textit{et al.}, ``DVC: Data Version Control — Git
 for data \& models,'' Iterative, software de c\'odigo abierto, 2024. [En l\'inea]. Disponible: \url{https://dvc.org}
 \item\label{bib:49} M. Zaharia \textit{et al.}, ``Accelerating the machine learning
 lifecycle with MLflow,'' \textit{IEEE Data Engineering Bulletin}, vol. 41, n.\textsuperscript{o} 4,
-pp. 39--45, 2018.
+pp. 39 a 45, 2018.
 \item\label{bib:50} M. Raasveldt y H. M\"uhleisen, ``DuckDB: An embeddable analytical
-database,'' en \textit{Proc.\ ACM SIGMOD Int.\ Conf.\ on Management of Data}, 2019, pp.\ 1981--1984.
+database,'' en \textit{Proc.\ ACM SIGMOD Int.\ Conf.\ on Management of Data}, 2019, pp.\ 1981 a 1984.
 \end{enumerate}
 
 % ============================================================
@@ -3038,7 +3038,7 @@ en integraci\'on continua.}
 Pipeline reproducible & Reconstruye toda la cadena de datos de forma determinista, solo lo que cambi\'o & \texttt{make repro} \\
 Seguimiento de experimentos & Registra cada corrida con par\'ametros, m\'etricas y procedencia & \texttt{make compare} \\
 Almac\'en dimensional & Carga el panel en un esquema estrella con restricciones de integridad & \texttt{make db} \\
-Campe\'on--retador & Eval\'ua la receta desplegada frente a alternativas y emite un veredicto & \texttt{make challenger} \\
+Campe\'on-retador & Eval\'ua la receta desplegada frente a alternativas y emite un veredicto & \texttt{make challenger} \\
 Tarjeta de modelo & Genera la ficha del sistema con su linaje reproducible & \texttt{make model-card} \\
 Monitor de \textit{drift} & Vigila degradaci\'on de desempe\~no, cobertura y datos & \texttt{make drift} \\
 \bottomrule
@@ -3157,7 +3157,7 @@ Tarjeta de modelo & La ficha del sistema no diverge de las cifras canónicas & C
 \end{table}
 
 La receta desplegada no se fija a mano: es un \textbf{dato versionado} (un manifiesto) que
-solo cambia mediante un procedimiento auditado de campe\'on--retador. Este eval\'ua la receta
+solo cambia mediante un procedimiento auditado de campe\'on-retador. Este eval\'ua la receta
 en producci\'on frente a un conjunto de alternativas sobre el hold-out reservado, mediante una
 prueba de rangos con signo de Wilcoxon por serie con control del error por comparaciones
 m\'ultiples, y emite un veredicto: una alternativa solo se recomienda si supera al campe\'on
@@ -3173,10 +3173,10 @@ congela tambi\'en la a\~nada del retador en un registro paralelo e inmutable
 (\textit{shadow ledger}), de modo que la promoci\'on se decidir\'a con evidencia
 prospectiva multi-horizonte y no con una extrapolaci\'on del gate. La receta campe\'ona
 —mediana de Theta+ETS+SARIMA en FAD y SARIMA en DFF— permanece desplegada y se aplica por
-serie; su veredicto campe\'on--retador se computa sobre el conjunto de series donde los
+serie; su veredicto campe\'on-retador se computa sobre el conjunto de series donde los
 modelos convergen, la misma restricci\'on de comparabilidad por la que §2.2 no lee el
 promedio global de SARIMA como referencia. Las series de DFF donde SARIMA no converge se
-\textbf{omiten} de la a\~nada de ese mes ---no se sirven con un modelo no comparable---, una
+\textbf{omiten} de la a\~nada de ese mes —no se sirven con un modelo no comparable—, una
 limitaci\'on documentada del alcance mensual, no del m\'etodo. Permanece, adem\'as, con su
 distribuci\'on predictiva evaluada (CRPS $\factCrpsFad$/$\factCrpsDff$ d\'ias como criterio informativo
 del gate) y con las bandas por horizonte e inferencia conforme adaptativa descritas en
@@ -3186,7 +3186,7 @@ almac\'en de experimentos.
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.90\textwidth]{mlops_mlflow_champion.png}
-\caption[Veredicto campe\'on--retador registrado]{Registro del procedimiento campe\'on--retador
+\caption[Veredicto campe\'on-retador registrado]{Registro del procedimiento campe\'on-retador
 en el almac\'en de experimentos: las recetas desplegadas para FAD y DFF con su error medio de
 hold-out, conservadas como corridas trazables. Fuente: captura de la interfaz de MLflow.}
 \label{fig:mlflow_champion}
@@ -3202,7 +3202,7 @@ pron\'osticos del demostrador —proyectados al cono de coherencia y con sus ban
 horizonte—, califica las predicciones previamente congeladas contra los cortes reci\'en
 realizados, congela en paralelo la a\~nada del retador en sombra, actualiza la tasa de la
 inferencia conforme adaptativa con los aciertos y fallos del registro, ejecuta el
-veredicto campe\'on--retador, actualiza las cifras canónicas y la tarjeta de modelo,
+veredicto campe\'on-retador, actualiza las cifras canónicas y la tarjeta de modelo,
 ejecuta el monitor de \textit{drift} (que compara ahora mezclas equivalentes de
 horizontes) y, si todo pasa, redepliega el demostrador. El registro prospectivo es
 inmutable: la a\~nada 2026-07 corresponde al congelado del 3 de julio con el m\'etodo de
