@@ -238,7 +238,7 @@ def run_seed(panel, table, block, diff, local, names, max_steps, seed, auto, num
 
     tag = "auto" if auto else ("diff" if diff else "levels")
     suffix = f"{tag}_s{seed}" if len(names or []) != 0 else tag
-    path = Path(out_dir) / f"global_{table}_h{horizon}_{suffix}.csv"
+    path = Path(out_dir) / f"global_{table}_{block}_h{horizon}_{suffix}.csv"
     path.parent.mkdir(parents=True, exist_ok=True)
     if not cols:
         print("  (ningún modelo exitoso; no se escribe CSV)")
