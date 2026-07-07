@@ -2115,10 +2115,14 @@ régimen \textit{Current} (en los que, por definición, el cutoff es el mes en c
 codifican con la fecha del propio boletín, en lugar de interpolar linealmente a través del
 periodo. Así las veinticinco series conservan su historia completa con valores
 \textbf{reales} (incluida la dinámica de retrogresión \textit{Current}$\rightarrow$fecha)
-sin fabricar datos, y la evaluación permanece sobre fechas específicas (F). Se entrenó así
-un conjunto de arquitecturas recientes
-(N-HiTS, PatchTST\cita{41}, TiDE, BiTCN\cita{42}, TimesNet\cita{43}, TimeMixer\cita{44}, KAN\cita{45}, DeepAR), tanto sobre el nivel
-como sobre la primera diferencia (con reintegración a un paso). Las mejores
+sin fabricar datos, y la evaluación permanece sobre fechas específicas (F). Se entrenó así un
+\textbf{barrido de ocho arquitecturas recientes}
+(N-HiTS, PatchTST\cita{41}, TiDE, BiTCN\cita{42}, TimesNet\cita{43}, TimeMixer\cita{44}, KAN\cita{45}, DeepAR), sobre el nivel,
+la primera diferencia (con reintegración a un paso) y variantes con agrupamiento y normalización
+por serie, cada una en campañas \textbf{multi-semilla} y con optimización de hiperparámetros a nivel
+de arquitectura. Por su costo de cómputo, el barrido se ejecutó sobre una \textbf{GPU en la nube}
+(instancia efímera con acelerador NVIDIA A10G); el Apéndice~A.10 documenta la infraestructura
+reproducible y extiende la evaluación a horizontes de hasta cinco años. Las mejores
 configuraciones globales, PatchTST sobre nivel alcanza MASE $=0.122$ y BiTCN sobre
 diferencia $0.128$ (Tabla~\ref{tab:global_deep}), compiten con los mejores modelos
 entrenados por serie, y la \textbf{optimización de hiperparámetros con la arquitectura en
@@ -2289,13 +2293,17 @@ mientras el intervalo al $95$\,\% conserva su cobertura empírica.}
 
 \begin{table}[H]
 \centering
-\caption[Modelos profundos globales (FAD)]{Modelos profundos entrenados de forma global
-sobre las 25 series FAD familiares y el efecto acumulado de las técnicas de
-entrenamiento (medias multi-semilla). MASE de hold-out; el listón parsimonioso es
+\caption[Barrido de modelos profundos globales de frontera (FAD)]{Barrido de las ocho
+arquitecturas profundas de frontera entrenadas de forma global sobre las 25 series FAD
+familiares (mejor configuración por modelo; medias multi-semilla en las principales). DeepAR
+diverge numéricamente y se omite. MASE de hold-out; el listón parsimonioso es
 ETS/Theta $=\factEtsFadMean$--$\factThetaFadMean$ y el piso ingenuo es el naïve-1
 ($\factNaiveOneFadMean$). El mejor profundo optimizado queda por debajo del listón parsimonioso pero
 por encima del piso (validación multi-semilla más abajo).}
 \label{tab:global_deep}
+% MASE de vp_model.eval_neuralforecast.eval_global_deep('FAD'), mejor config por modelo (multi-semilla
+% en PatchTST/BiTCN/TiDE/AutoBiTCN; una semilla en KAN/TimesNet/TimeMixer). Tabla hand-built —
+% pendiente generar con make_tex_tables como eda_desc/eda_stationarity (ver auditoría 7-jul).
 \begin{tabular}{lcc}
 \toprule
 \rowcolor{uacjblue!15}
@@ -2303,10 +2311,13 @@ por encima del piso (validación multi-semilla más abajo).}
 PatchTST & global, nivel & 0.122 \\
 BiTCN & global, diferencia & 0.128 \\
 TiDE & global, diferencia & 0.133 \\
+KAN & global, nivel & 0.136 \\
+TimesNet & global, nivel & 0.142 \\
+TimeMixer & global & 0.150 \\
 BiTCN & + agrupado + norma por serie & 0.131 \\ \midrule
 \rowcolor{uacjyellow!25}
 AutoBiTCN & + optimización (arquitectura, Optuna) & \textbf{\factAutobitcnFadMean} \\ \midrule
-ETS / Theta \textit{(listón)} & estadístico, por serie & \textit{\factEtsFadMean a \factThetaFadMean} \\
+ETS / Theta \textit{(listón)} & estadístico, por serie & \textit{\factEtsFadMean--\factThetaFadMean} \\
 Naïve-1 \textit{(piso)} & línea base, por serie & \textit{\factNaiveOneFadMean} \\ \bottomrule
 \end{tabular}
 \end{table}
