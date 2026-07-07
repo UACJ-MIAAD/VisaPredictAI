@@ -151,7 +151,16 @@ MIN_BACKTEST_BUFFER = 6  # colchón extra para que una serie sea evaluable
 # RODANTES sobre todo el span (no la ventana fija de holdout) para desconfundir el
 # horizonte de la época — la corrección de la auditoría del showdown deep GPU (jul-2026):
 # a h=1 el random walk es piso; de h>=6-12 la parsimonia (Theta) lo bate ~13-35% F-only.
-HORIZONS: tuple[int, ...] = (1, 3, 6, 12, 24)
+HORIZONS: tuple[int, ...] = (
+    1,
+    3,
+    6,
+    12,
+    24,
+    36,
+    48,
+    60,
+)  # visa = espera multi-año → hasta 5 años (los datos lo sostienen)
 HORIZON_CANDIDATES: tuple[str, ...] = ("naive1", "drift", "naive", "theta", "ets")  # clásicos (deep no aporta)
 
 # --- EDA / preprocesamiento / intervalos -----------------------------------

@@ -51,8 +51,12 @@ def forecasts_by_horizon(model_name: str, country: str, category: str, table: st
     fe = FeatureBuilder(model_name)
     ts = fe.to_timeseries(dataset.load_series(country, category, table))
     min_train = MIN_TRAIN[table]
-    if len(ts) < min_train + hmax:
-        raise ValueError(f"serie corta ({len(ts)}) para min_train={min_train}+hmax={hmax}")
+    # Cap por-serie: una serie que no alcanza hmax NO se descarta — contribuye hasta su
+    # horizonte factible (así extender el grid a h=36 no sesga los horizontes cortos al
+    # dropar las series más cortas). Los horizontes largos los sostienen las series largas.
+    eff_hmax = min(hmax, len(ts) - min_train)
+    if eff_hmax < 1:
+        raise ValueError(f"serie corta ({len(ts)}) para min_train={min_train} (ni h=1)")
     model = models.build_model(model_name, table=table, block=_block(category))
     retrain: bool | int = model_name in RETRAIN_EACH_STEP
     cov = fe.covariates(ts)
@@ -60,7 +64,7 @@ def forecasts_by_horizon(model_name: str, country: str, category: str, table: st
     per_origin = model.historical_forecasts(
         ts,
         start=min_train,
-        forecast_horizon=hmax,
+        forecast_horizon=eff_hmax,
         stride=1,
         retrain=retrain,
         last_points_only=False,  # devuelve un TimeSeries por origen (longitud hmax)
@@ -135,6 +139,9 @@ def champion_by_horizon(
         for m in candidates:
             vals = acc[m].get(h, [])
             row[m] = float(np.mean(vals)) if vals else np.nan
+        # nº de series que sostienen ESTE horizonte (cae en h largos: sirve para saber
+        # hasta dónde el veredicto es confiable vs solo unas pocas series largas).
+        row["n"] = max((len(acc[m].get(h, [])) for m in candidates), default=0)
         rows.append(row)
     df = pd.DataFrame(rows).set_index("h")
     df["champion"] = df[list(candidates)].idxmin(axis=1)
