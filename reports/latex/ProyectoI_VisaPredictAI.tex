@@ -1127,7 +1127,7 @@ RoW & F4 & 48 & 0.000 & $-2.60$ & 74.6 \\
 \paragraph{Lectura de la Tabla~\ref{tab:features_estructura} (estructura).} El panel
 es notablemente homogéneo: la fuerza de tendencia $F_T$ supera 0.99 en la mayoría de
 las series, con las únicas excepciones de las series mexicanas y filipinas más
-volátiles (MX/F3 con $F_T=0.754$, MX/F1 con $0.928$, PH/F3 con $0.967$). La fuerza de
+volátiles (MX/F3 con $F_T=0.754$, MX/F1 con $0.928$, PH/F3 con $0.966$). La fuerza de
 estacionalidad $F_S$ es prácticamente nula en todo el panel ($F_S < 0.23$, con muchas
 series exactamente en 0), lo que confirma que las fechas de prioridad \textbf{no
 tienen un ciclo anual relevante}; este es el hallazgo que explica por qué los términos
@@ -1162,7 +1162,7 @@ duraderos) se detectan con el algoritmo PELT (\textit{Pruned Exact Linear Time})
 \cita{8} sobre la serie estandarizada; por otro, las \textbf{anomalías puntuales}
 (observaciones aisladas) con un filtro de Hampel sobre el residuo de la STL (mediana y
 MAD locales). Aplicado a México/F3/FAD, el método identifica \textbf{solo 3 cambios de
-régimen} (no 78), mientras que las anomalías puntuales se concentran en la era volátil
+régimen} (no 87), mientras que las anomalías puntuales se concentran en la era volátil
 2002--2008 (Figura~\ref{fig:eda_changepoints}). La consecuencia para el modelado es
 precisa: el grueso de la ``rareza'' de estas series es estructural (regímenes), no
 ruido aislado, por lo que la validación debe usar métricas robustas y los modelos,
@@ -1230,7 +1230,7 @@ demostración (Apéndice~A).
 Una revisión amplia de la literatura confirmó que varias familias de técnicas en boga
 \textit{no aplican} a este problema, y descartarlas con criterio es parte del análisis.
 La descomposición estacional múltiple (MSTL) y las pruebas de raíz unitaria estacional
-(HEGY, OCSB) son innecesarias porque la estacionalidad es prácticamente nula ($F_S<0.25$).
+(HEGY, OCSB) son innecesarias porque la estacionalidad es prácticamente nula ($F_S<0.23$).
 El exponente de Hurst mayor que 1 indica no estacionariedad pura, no memoria larga
 fraccional, por lo que los modelos ARFIMA y los estimadores de tipo GPH son
 inapropiados. La familia de descomposición empírica (EMD, EEMD, CEEMDAN) y de
@@ -2046,7 +2046,7 @@ pseudo-réplicas del corte mundial), seguida de la prueba posterior de Nemenyi
 resultado: la prueba de Friedman rechaza la hipótesis de igualdad ($p<0.001$) en ambas
 tablas, y la barra de diferencia crítica (CD) une los modelos cuyo rango promedio no se
 distingue estadísticamente. \textbf{El naïve-1 obtiene el mejor rango promedio} en FAD
-($1.28$) y en DFF ($2.68$), seguido de Theta y ETS; de forma consistente, el conjunto de
+($1.2$) y en DFF ($2.39$), seguido de Theta y ETS; de forma consistente, el conjunto de
 confianza de modelos al $90$\,\% \textbf{retiene únicamente al naïve-1 en ambas tablas}:
 ningún modelo entrenado es estadísticamente indistinguible del mejor una vez que la línea
 base ingenua entra al pool. Es el resultado que ancla la narrativa del capítulo.
@@ -2559,7 +2559,7 @@ vencer en el pronóstico a un paso, y ningún modelo puntual lo supera con signi
 estadística}. El naïve-1 promedia MASE de hold-out $\factNaiveOneFadMean$ en FAD y $\factNaiveOneDffMean$ en DFF (donde
 Theta \textit{empata} con él al colapsar a un comportamiento casi de paseo aleatorio). El
 conjunto de confianza de modelos al $90$\,\% lo retiene como único miembro en ambas
-tablas, y el propio naïve-1 gana el hold-out en 22 de las 25 series FAD. Documentar este piso con un
+tablas, y el propio naïve-1 gana el hold-out en 24 de las 25 series FAD. Documentar este piso con un
 protocolo reproducible, en lugar de omitir la línea base que lo revela, es una decisión de
 honestidad metodológica que da valor de ingeniería al resto del sistema.
 
@@ -2812,7 +2812,7 @@ feature extraction on basis of scalable hypothesis tests (tsfresh),''
 microarray gene expression data,'' \textit{Journal of Bioinformatics and Computational
 Biology}, vol. 3, n.\textsuperscript{o} 2, pp. 185--205, 2005.
 \item\label{bib:13} T. Henderson y B. D. Fulcher, ``An empirical evaluation of
-time-series feature sets,'' en \textit{ICDM Workshops}, 2021, pp. 1032--1041.
+time-series feature sets,'' en \textit{ICDM Workshops}, 2021, pp. 1032--1038.
 \item\label{bib:14} S. Moritz y T. Bartz-Beielstein, ``imputeTS: Time series missing
 value imputation in R,'' \textit{The R Journal}, vol. 9, n.\textsuperscript{o} 1,
 pp. 207--218, 2017.
