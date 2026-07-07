@@ -147,6 +147,13 @@ MIN_TRAIN = {"FAD": 60, "DFF": 36}  # ventana inicial por tabla
 HOLDOUT = 24  # meses finales reservados (evaluación independiente)
 MIN_BACKTEST_BUFFER = 6  # colchón extra para que una serie sea evaluable
 
+# Campeón POR HORIZONTE (vp_model.horizon): grid de horizontes evaluados con orígenes
+# RODANTES sobre todo el span (no la ventana fija de holdout) para desconfundir el
+# horizonte de la época — la corrección de la auditoría del showdown deep GPU (jul-2026):
+# a h=1 el random walk es piso; de h>=6-12 la parsimonia (Theta) lo bate ~13-35% F-only.
+HORIZONS: tuple[int, ...] = (1, 3, 6, 12, 24)
+HORIZON_CANDIDATES: tuple[str, ...] = ("naive1", "drift", "naive", "theta", "ets")  # clásicos (deep no aporta)
+
 # --- EDA / preprocesamiento / intervalos -----------------------------------
 MIN_TRAINABLE_EVALUABLE = MIN_TRAIN["FAD"] + HOLDOUT  # 84: ventana + holdout
 MAX_INTERPOLABLE_GAP = 3  # huecos <= 3 meses se interpolan; más largos, NaN
