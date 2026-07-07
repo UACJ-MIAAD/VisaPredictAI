@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from scipy.stats import wilcoxon
 
-from vp_model import dataset, metrics, models
+from vp_model import dataset, metrics, models, significance
 from vp_model.config import (
     HOLDOUT,
     HORIZON_CANDIDATES,
@@ -145,6 +146,65 @@ def champion_by_horizon(
         rows.append(row)
     df = pd.DataFrame(rows).set_index("h")
     df["champion"] = df[list(candidates)].idxmin(axis=1)
+    return df
+
+
+def _series_mase(
+    model_name: str, table: str, series: list[tuple[str, str]], hmax: int
+) -> dict[tuple[str, str], dict[int, float]]:
+    """``{(country, category): {h: MASE}}`` de un modelo sobre las series (omite fallos)."""
+    out: dict[tuple[str, str], dict[int, float]] = {}
+    for country, category in series:
+        try:
+            out[(country, category)] = mase_by_horizon(model_name, country, category, table, hmax)
+        except (ValueError, IndexError, KeyError) as exc:
+            log.warning("horizonte %s/%s/%s/%s omitido (%s)", model_name, country, category, table, exc)
+    return out
+
+
+def significance_by_horizon(
+    table: str, champion: str = "drift", baseline: str = "naive1", hmax: int | None = None
+) -> pd.DataFrame:
+    """¿El campeón le gana al baseline SIGNIFICATIVAMENTE por horizonte?
+
+    Test PAREADO por serie (cada serie evaluable = una observación, lo que absorbe la
+    autocorrelación intra-serie de los orígenes solapados): Wilcoxon signed-rank sobre el
+    MASE por serie ``champion`` vs ``baseline`` a cada horizonte, con corrección de Holm
+    sobre los horizontes (misma maquinaria que ``champion.evaluate``). Un horizonte es
+    ``sig`` si Holm rechaza Y el MASE medio del campeón es menor. Reconcilia el hallazgo
+    del showdown deep GPU (rolling) contra el rigor canónico antes de tocar el ``.tex``.
+    """
+    hmax = hmax or max(HORIZONS)
+    series = evaluable(table)
+    ch = _series_mase(champion, table, series, hmax)
+    ba = _series_mase(baseline, table, series, hmax)
+    rows: list[dict] = []
+    pvals: dict[str, float] = {}  # holm() llavea por str
+    for h in HORIZONS:
+        pairs = [(ch[k][h], ba[k][h]) for k in ch if k in ba and h in ch[k] and h in ba[k]]
+        if len(pairs) < 6:  # muy pocas series para un test con sentido
+            continue
+        c = np.array([p[0] for p in pairs])
+        b = np.array([p[1] for p in pairs])
+        try:
+            p = float(wilcoxon(c, b).pvalue)  # bilateral; la dirección la fija la media
+        except ValueError:  # todos los pares idénticos
+            p = 1.0
+        pvals[str(h)] = p
+        rows.append(
+            {
+                "h": h,
+                champion: round(float(c.mean()), 3),
+                baseline: round(float(b.mean()), 3),
+                "delta_pct": round(float((b.mean() - c.mean()) / b.mean() * 100), 1),
+                "wilcoxon_p": round(p, 5),
+                "n": len(pairs),
+            }
+        )
+    adj = significance.holm(pvals, alpha=0.05)
+    df = pd.DataFrame(rows).set_index("h")
+    df["holm_p"] = [round(float(adj[str(h)][0]), 5) for h in df.index]
+    df["sig"] = [bool(adj[str(h)][1] and df.loc[h, champion] < df.loc[h, baseline]) for h in df.index]
     return df
 
 

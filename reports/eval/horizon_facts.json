@@ -1,0 +1,185 @@
+{
+  "_source": "experiments/build_horizon_facts.py — NO editar a mano",
+  "horizons": [
+    1,
+    3,
+    6,
+    12,
+    24,
+    36,
+    48,
+    60
+  ],
+  "FAD": {
+    "champion_by_h": {
+      "1": "drift",
+      "3": "drift",
+      "6": "drift",
+      "12": "drift",
+      "24": "drift",
+      "36": "drift",
+      "48": "drift",
+      "60": "drift"
+    },
+    "significance": [
+      {
+        "h": 1,
+        "drift": 0.126,
+        "naive1": 0.146,
+        "delta_pct": 13.8,
+        "holm_p": 0.0,
+        "sig": true,
+        "n": 41
+      },
+      {
+        "h": 3,
+        "drift": 0.317,
+        "naive1": 0.394,
+        "delta_pct": 19.5,
+        "holm_p": 0.0,
+        "sig": true,
+        "n": 41
+      },
+      {
+        "h": 6,
+        "drift": 0.517,
+        "naive1": 0.669,
+        "delta_pct": 22.7,
+        "holm_p": 0.0,
+        "sig": true,
+        "n": 41
+      },
+      {
+        "h": 12,
+        "drift": 0.722,
+        "naive1": 1.021,
+        "delta_pct": 29.3,
+        "holm_p": 0.0,
+        "sig": true,
+        "n": 41
+      },
+      {
+        "h": 24,
+        "drift": 1.084,
+        "naive1": 1.729,
+        "delta_pct": 37.3,
+        "holm_p": 0.0,
+        "sig": true,
+        "n": 41
+      },
+      {
+        "h": 36,
+        "drift": 1.427,
+        "naive1": 2.448,
+        "delta_pct": 41.7,
+        "holm_p": 0.0,
+        "sig": true,
+        "n": 41
+      },
+      {
+        "h": 48,
+        "drift": 1.724,
+        "naive1": 3.133,
+        "delta_pct": 45.0,
+        "holm_p": 0.0,
+        "sig": true,
+        "n": 41
+      },
+      {
+        "h": 60,
+        "drift": 1.973,
+        "naive1": 3.803,
+        "delta_pct": 48.1,
+        "holm_p": 0.0,
+        "sig": true,
+        "n": 41
+      }
+    ]
+  },
+  "DFF": {
+    "champion_by_h": {
+      "1": "ets",
+      "3": "drift",
+      "6": "drift",
+      "12": "drift",
+      "24": "drift",
+      "36": "drift",
+      "48": "drift",
+      "60": "drift"
+    },
+    "significance": [
+      {
+        "h": 1,
+        "drift": 0.108,
+        "naive1": 0.108,
+        "delta_pct": 0.8,
+        "holm_p": 0.39572,
+        "sig": false,
+        "n": 33
+      },
+      {
+        "h": 3,
+        "drift": 0.267,
+        "naive1": 0.314,
+        "delta_pct": 15.1,
+        "holm_p": 0.02569,
+        "sig": true,
+        "n": 33
+      },
+      {
+        "h": 6,
+        "drift": 0.471,
+        "naive1": 0.608,
+        "delta_pct": 22.5,
+        "holm_p": 0.0075,
+        "sig": true,
+        "n": 33
+      },
+      {
+        "h": 12,
+        "drift": 0.838,
+        "naive1": 1.15,
+        "delta_pct": 27.1,
+        "holm_p": 0.00354,
+        "sig": true,
+        "n": 33
+      },
+      {
+        "h": 24,
+        "drift": 1.374,
+        "naive1": 1.95,
+        "delta_pct": 29.6,
+        "holm_p": 0.00354,
+        "sig": true,
+        "n": 33
+      },
+      {
+        "h": 36,
+        "drift": 1.845,
+        "naive1": 2.502,
+        "delta_pct": 26.3,
+        "holm_p": 0.0285,
+        "sig": true,
+        "n": 33
+      },
+      {
+        "h": 48,
+        "drift": 2.198,
+        "naive1": 2.999,
+        "delta_pct": 26.7,
+        "holm_p": 0.05349,
+        "sig": false,
+        "n": 33
+      },
+      {
+        "h": 60,
+        "drift": 2.601,
+        "naive1": 3.733,
+        "delta_pct": 30.3,
+        "holm_p": 0.05349,
+        "sig": false,
+        "n": 33
+      }
+    ]
+  }
+}
