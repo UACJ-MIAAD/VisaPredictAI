@@ -106,7 +106,8 @@ test-model:
 		tests/test_walkforward.py tests/test_intervals_significance.py tests/test_config_report.py \
 		tests/test_series_characterization.py tests/test_missingness.py tests/test_feature_select.py \
 		tests/test_feature_builder.py \
-		tests/test_ensemble.py tests/test_model_regression.py tests/test_champion.py
+		tests/test_ensemble.py tests/test_model_regression.py tests/test_champion.py \
+		tests/test_ledger_v2.py tests/test_promotion_gate.py
 
 # Reproducir los resultados (requiere `make model-install` + `make db`):
 eda:
