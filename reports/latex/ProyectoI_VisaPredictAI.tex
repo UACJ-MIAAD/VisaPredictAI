@@ -217,8 +217,9 @@ corte publicado (naïve-1) resulta el rival a vencer en el pronóstico a un paso
 \textbf{ningún modelo puntual lo supera con significancia estadística}. El valor del sistema
 se valida, en cambio, sobre el producto completo: pronósticos a horizontes de 1 a 12 meses
 (donde la ventaja de repetir el último valor se diluye), intervalos de predicción calibrados
-por horizonte desde un registro prospectivo de \factProspNScoredFmt{} predicciones
-congeladas, coherencia transversal entre tablas y áreas de cargabilidad, y una gobernanza
+por horizonte desde un registro de \factProspNScoredFmt{} predicciones evaluadas fuera de
+muestra (\textit{backfill} sin fuga de información; las añadas servidas en vivo se acumulan
+desde julio de 2026), coherencia transversal entre tablas y áreas de cargabilidad, y una gobernanza
 campeón-retador-sombra que incorpora la propia línea base como retador formal y decidirá su
 promoción con evidencia prospectiva multi-horizonte.
 
@@ -1615,7 +1616,7 @@ sobre meses con fecha publicada), con cobertura garantizada bajo intercambiabili
 \cita{34}; al no depender del modelo, sirve de red de seguridad uniforme para los 24. El
 tercero es el que \textbf{despliega el demostrador}: bandas cuyo semiancho por horizonte
 $h=1,\dots,12$ se calibra con el \textit{cuantil empírico} de los errores realmente
-observados en el registro prospectivo de pronósticos congelados, separadas por tabla y
+observados en el registro de evaluación por horizonte (§2.2), separadas por tabla y
 nivel (80 y 95\,\%), y ajustadas en línea con inferencia conforme adaptativa (§2.2)
 conforme llegan boletines nuevos; este mecanismo sustituyó al factor de ensanchamiento
 paramétrico único de la primera versión, cuya cobertura se degradaba en los horizontes
@@ -2256,11 +2257,16 @@ meses, cero. El margen real de mejora no está en la exactitud puntual a un paso
 los horizontes largos, en la calibración de la incertidumbre (donde la inferencia
 conforme adaptativa sí aporta) y en la coherencia transversal de los pronósticos.
 
-\paragraph{La evidencia por horizonte: el registro prospectivo.} Que el valor del sistema
-viva en los horizontes largos no es una declaración, sino un resultado medido. La
-Tabla~\ref{tab:prospectivo_horizonte} resume el registro prospectivo (\factProspNScoredFmt{}
-pronósticos congelados antes de su mes objetivo y calificados contra el corte realmente
-publicado). A un paso el error es mínimo (MASE $0.05$; MAE $22$ días), el territorio donde
+\paragraph{La evidencia por horizonte: el registro de evaluación prospectiva.} Que el valor
+del sistema viva en los horizontes largos no es una declaración, sino un resultado medido. La
+Tabla~\ref{tab:prospectivo_horizonte} resume el registro (\factProspNScoredFmt{}
+pronósticos generados solo con la información disponible hasta su origen fechado y
+calificados contra el corte realmente publicado después). Conviene precisar su naturaleza:
+las añadas históricas son un \textit{backfill} sin fuga de información (reproducen lo que el
+sistema habría pronosticado en cada origen, no pronósticos servidos en tiempo real); desde
+el despliegue de julio de 2026 el flujo automático congela cada añada en el momento de su
+emisión, de modo que la evidencia genuinamente prospectiva se acumula mes con mes.
+A un paso el error es mínimo (MASE $0.05$; MAE $22$ días), el territorio donde
 el naïve-1 es imbatible; pero crece de forma ordenada con el horizonte, hasta MASE $0.63$ y
 $257$ días a doce meses, mientras el intervalo al $95$\,\% conserva su cobertura (de $0.97$
 a $0.88$). Ahí está la diferencia con la línea base: repetir el último corte entrega una
@@ -2271,9 +2277,10 @@ días.
 
 \begin{table}[H]
 \centering
-\caption[Desempeño prospectivo por horizonte]{Registro prospectivo del sistema desplegado:
-pronósticos congelados antes de su mes objetivo y calificados contra el corte publicado
-(\factProspNScoredFmt{} evaluaciones). El error crece de forma ordenada con el horizonte
+\caption[Desempeño por horizonte del registro de evaluación]{Registro de evaluación del
+sistema (\textit{backfill} sin fuga de información: pronósticos generados con la
+información disponible hasta su origen y calificados contra el corte publicado después;
+\factProspNScoredFmt{} evaluaciones). El error crece de forma ordenada con el horizonte
 mientras el intervalo al $95$\,\% conserva su cobertura empírica.}
 \label{tab:prospectivo_horizonte}
 \begin{tabular}{cccc}
@@ -2595,9 +2602,10 @@ piso.
 \paragraph{Dónde está el valor del sistema.} Si el punto a un paso está dominado por el
 piso ingenuo, el valor del sistema se valida en las cuatro dimensiones que un paseo
 aleatorio no ofrece: (a) \textbf{horizontes de 1 a 12 meses}, donde repetir el último
-valor se degrada conforme las colas se mueven, evaluados con un registro prospectivo de
-\factProspNScoredFmt{} predicciones congeladas y calificadas contra los cortes reales
-(MASE prospectivo $\factProspMase$, MAE $\factProspMaeDays$ días; el error por horizonte se
+valor se degrada conforme las colas se mueven, evaluados con un registro de
+\factProspNScoredFmt{} predicciones con información truncada a su origen y calificadas
+contra los cortes reales (\textit{backfill} sin fuga; la evidencia servida en vivo se
+acumula desde julio de 2026; MASE $\factProspMase$, MAE $\factProspMaeDays$ días; el error por horizonte se
 detalla en la Tabla~\ref{tab:prospectivo_horizonte}); (b) \textbf{intervalos
 de predicción calibrados por horizonte}, con cuantiles empíricos del propio registro e
 inferencia conforme adaptativa desplegada (cobertura del intervalo al $95$\,\%: $\factAciCoverageFad$ en
@@ -2638,6 +2646,11 @@ adaptativa; con series cortas, la calibración base sub-cubre.
 dedicado (GPU en la nube) del Apéndice~A.10 confirmó que las arquitecturas de frontera no
 baten el piso ingenuo a corto y mediano plazo, y que la ventaja a horizonte largo proviene de
 un modelo clásico, no profundo.
+\item El registro de evaluación por horizonte es, a la fecha, un \textit{backfill} sin fuga
+de información: reproduce los pronósticos que el sistema habría emitido con la información
+disponible en cada origen, pero solo las añadas congeladas desde julio de 2026 constituyen
+evidencia servida en tiempo real. La distinción se reporta de forma explícita y las añadas
+en vivo se acumulan mes con mes.
 \end{enumerate}
 El trabajo futuro prioriza la evidencia prospectiva multi-horizonte frente al retador
 ingenuo, el tratamiento explícito de los cambios de régimen, la extensión por país de las

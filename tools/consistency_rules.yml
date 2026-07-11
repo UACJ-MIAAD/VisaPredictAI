@@ -180,6 +180,13 @@ required:
     forms: ['{prosp_mase}']
     in: [paper]
     reason: 'el MASE prospectivo (titular de honestidad del paper) debe coincidir con el scorecard vigente'
+  # A1 (plan auditoría dos repos, 2026-07-11): el registro prospectivo actual es un
+  # backfill sin fuga — el caveat debe figurar en paper, deliverable, model card y web
+  # hasta que las añadas servidas en vivo dominen la muestra. NO quitar sin decisión A4.
+  - fact: prosp_n_scored
+    forms: ['[Bb]ackfill']
+    in: [paper, deliverable, governance, web]
+    reason: 'el scorecard vigente es backfill sin fuga (no pronósticos servidos en tiempo real); el caveat A1 no puede desaparecer'
   # AH1/AH5: el deliverable debe \input las macros derivadas — si alguien quita el
   # input, toda la prosa macro-izada dejaría de compilar/alinearse en silencio.
   - fact: n_obs

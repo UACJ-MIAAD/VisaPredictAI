@@ -89,7 +89,7 @@ def build() -> str:
 **Marco comparativo:** {kf.get("n_models", "n/d")} modelos evaluados bajo el mismo protocolo walk-forward; de ahí salen el campeón desplegado y su retador.
 **Hold-out leakage-free (MASE media):** FAD campeón `{recipe("FAD")}` = **{champ_mean("FAD")}** · DFF campeón `{recipe("DFF")}` = **{champ_mean("DFF")}**.
 **Model Confidence Set (90 %):** FAD = {{{mcs("FAD")}}} · DFF = {{{mcs("DFF")}}} (Friedman–Nemenyi).
-**Prospectiva (ledger congelado, mundo real):** n={kf.get("prosp_n_scored", "n/d")} · MAE={kf.get("prosp_mae_days", "n/d")} días · MASE={kf.get("prosp_mase", "n/d")} · cobertura 95 %={kf.get("prosp_cov95", "n/d")} · 80 % (out-of-sample)={kf.get("prosp_cov80_heldout", "n/d")}.
+**Prospectiva (backfill sin fuga de información; añadas servidas en vivo desde jul-2026):** n={kf.get("prosp_n_scored", "n/d")} · MAE={kf.get("prosp_mae_days", "n/d")} días · MASE={kf.get("prosp_mase", "n/d")} · cobertura 95 %={kf.get("prosp_cov95", "n/d")} · 80 % (out-of-sample)={kf.get("prosp_cov80_heldout", "n/d")}.
 
 ## 6. Linaje y reproducibilidad
 - **Receta:** `champion_manifest.json` (cambia solo vía `run_champion_challenger.py --promote`, auditado).
@@ -100,6 +100,7 @@ def build() -> str:
 - El borde del modelado profundo sobre los clásicos es **modesto y frágil** (sensible a agregación; muestra DFF efectiva pequeña).
 - Solo modela estado F; C/U son anotación descriptiva, no objetivo.
 - Las retrogresiones por cuota son reales y el modelo debe tolerarlas; no constituye consejo legal.
+- El registro prospectivo actual es un backfill sin fuga (información truncada al origen), no pronósticos servidos en tiempo real; las añadas servidas en vivo se acumulan desde jul-2026.
 """
     (REPORTS / "governance").mkdir(parents=True, exist_ok=True)
     (REPORTS / "governance" / "MODEL_CARD.md").write_text(md)
