@@ -11,10 +11,14 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
 
+# score_forecasts importa la capa de modelado (darts); en el env dev de CI no está —
+# mismo patrón que test_web_publish.py.
+pytest.importorskip("darts")
 import score_forecasts as sf  # noqa: E402
 
 
