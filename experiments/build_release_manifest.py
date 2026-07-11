@@ -147,10 +147,13 @@ def build(root: Path = ROOT) -> dict:
     kf = _json("reports/governance/key_facts.json")
     champions = _json("reports/governance/champion_manifest.json")
 
+    from vp_data.tracking import pipeline_run_id  # C3: enlaza el corte con el run que lo produjo
+
     return {
         "schema_version": SCHEMA_VERSION,
         "release_id": release_id,
         "generated_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+        "pipeline_run_id": pipeline_run_id(),
         "git_sha": ledger.git_sha(),
         "panel_vintage": vintage,
         "panel_hash_md5_12": ledger.panel_hash(root / "data" / "processed" / "visa_panel_long.csv"),

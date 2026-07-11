@@ -293,7 +293,7 @@ def _compute_series_forecast(
 
 
 WEB_COLS = ["country", "category", "table", "date", "days", "lo80", "hi80", "lo95", "hi95"]
-LOG_COLS = ["origin", "h", *WEB_COLS, "band_method", *ledger.V2_COLS, "deployment_id"]
+LOG_COLS = ["origin", "h", *WEB_COLS, "band_method", *ledger.V2_COLS, "deployment_id", "pipeline_run_id"]
 LOG_KEYS = ledger.KEYS
 
 

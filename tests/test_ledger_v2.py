@@ -64,6 +64,15 @@ def test_stamp_carries_deployment_id() -> None:
     assert r["deployment_id"] == "rel-test"
 
 
+def test_stamp_carries_pipeline_run_id(monkeypatch) -> None:
+    """C3: identidad jerárquica — la fila queda enlazada al run del pipeline."""
+    monkeypatch.delenv("VP_PIPELINE_RUN_ID", raising=False)
+    monkeypatch.delenv("GITHUB_RUN_ID", raising=False)
+    assert _stamp([dict(ROW)])[0]["pipeline_run_id"] == "local"
+    monkeypatch.setenv("VP_PIPELINE_RUN_ID", "12345")
+    assert _stamp([dict(ROW)])[0]["pipeline_run_id"] == "12345"
+
+
 def test_stamp_model_version_dict_and_row_recipe() -> None:
     by_table = _stamp([dict(ROW)], mv={"FAD": "median(theta+ets+sarima)", "DFF": "sarima"})[0]
     assert by_table["model_version"] == "median(theta+ets+sarima)"

@@ -33,7 +33,7 @@ allowed_root=(
   .claude .coverage .DS_Store .dvc .dvcignore .editorconfig .git .github
   .gitignore .mypy_cache .pre-commit-config.yaml .pytest_cache .python-version
   .ruff_cache __pycache__ htmlcov lightning_logs
-  ante ante_nf ante_tab ante_tfm aws_gpu data docs experiments pipeline
+  ante ante_nf ante_tab ante_tfm aws_gpu data docs experiments locks pipeline
   reports tests tools vp_data vp_model
   mlartifacts mlflow.db mlflow.db.dvc mlruns mlruns_staging models models.dvc
   visapredictai.egg-info

@@ -1,5 +1,11 @@
 name: Freeze new bulletin and rebuild
 
+# C3 (plan auditoría 2026-07-11): identidad jerárquica de la corrida — todo lo que este
+# run produzca (records JSONL, filas nuevas del ledger, manifiesto de release) queda
+# sellado con el MISMO pipeline_run_id, enlazable de vuelta a este run de Actions.
+env:
+  VP_PIPELINE_RUN_ID: ${{ github.run_id }}
+
 # The monthly Visa Bulletins are FIXED once published, so there is no reason to
 # re-scrape all ~290 every day. This job is S3-driven: it pulls the frozen HTML
 # from S3, fetches ONLY a newly published month (pipeline/freeze_snapshots.py,

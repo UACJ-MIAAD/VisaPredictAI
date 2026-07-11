@@ -122,6 +122,9 @@ def stamp_rows(
     phash = phash or panel_hash()
     sha = sha or git_sha()
     deployment = deployment or current_release_id()
+    from vp_data.tracking import pipeline_run_id  # C3: misma resolución que el tracking
+
+    run_id = pipeline_run_id()
     ts = frozen_at or datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
     out = []
     for r in rows:
@@ -144,6 +147,7 @@ def stamp_rows(
             "model_version": mv,
             "evaluation_mode": mode,
             "deployment_id": deployment,
+            "pipeline_run_id": run_id,
         }
         rr["forecast_id"] = forecast_id(rr)
         out.append(rr)

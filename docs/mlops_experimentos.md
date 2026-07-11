@@ -94,3 +94,31 @@ prospectiva del gate de promoción es el siguiente paso natural de `score_foreca
 Hook de `tracking` en `aggregate_seeds`/`run_global_deep` (deep), matriz de variantes
 (espacio-target × normalización × HPO × híbridos × ensembles), multi-semilla, y el frontier
 en GPU (EC2) logueando al mismo MLflow.
+
+## Jerarquía de identidades y locks por perfil (C3, plan auditoría 2026-07-11)
+
+**Identidades** (cada nivel enlaza al siguiente; mismo id ⇒ misma cosa):
+
+| Id | Vive en | Qué identifica |
+|---|---|---|
+| `release_id` | `reports/release/release_manifest.json` (content-addressed) | El corte publicable completo (109 artefactos con SHA-256) |
+| `pipeline_run_id` | manifiesto · filas nuevas del ledger · tags de cada record JSONL (`VP_PIPELINE_RUN_ID=$GITHUB_RUN_ID` en el cron; `local` en escritorio) | La corrida del pipeline que produjo esos artefactos |
+| `run_id` de `config.run_metadata()` | JSONL/MLflow por corrida de modelado | Una corrida experimental (semilla, libs, params, linaje de datos) |
+| `deployment_id` | filas del ledger | El release vigente cuando se congeló la añada |
+| `model_version` | filas del ledger · manifiesto (`champion_recipes`) | La receta desplegada/sombreada |
+
+MLflow sigue siendo **histórico local-dev** (staging JSONL → `sync_mlflow`), jamás
+dependencia productiva: el registro durable es el artefacto commiteado en git.
+
+**Locks transitivos por perfil** (`make lock` → `tools/make_locks.sh`):
+
+- `locks/runtime.txt` — venv fresco con `pip install -e .` (datos puros).
+- `locks/dev.txt` — venv fresco con `.[dev]`; **el job lint-and-test de CI instala de
+  este lock** (toda la cadena transitiva fijada, no solo las directas).
+- `locks/model-cpu.txt` — freeze del venv `ante/` de referencia (el entorno que produjo
+  las cifras publicadas).
+- GPU/deep — ya versionado en `aws_gpu/ante_nf-requirements.lock` (bundle EC2).
+
+Sin hashes ni secretos (guard en el generador — ojo: la clase POSIX lleva `]` primero;
+`\[` en grep BSD cierra la clase). Regenerar locks es un upgrade deliberado y auditado
+por PR, nunca parte de un build.

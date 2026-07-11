@@ -21,12 +21,23 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import subprocess
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]  # raíz del repo (el paquete vive un nivel abajo)
 STAGING = ROOT / "mlruns_staging"
+
+
+def pipeline_run_id() -> str:
+    """Identidad del run de pipeline que produjo esta corrida (C3, jerarquía de IDs).
+
+    El cron exporta ``VP_PIPELINE_RUN_ID=$GITHUB_RUN_ID``; cualquier otro contexto de
+    Actions cae a ``GITHUB_RUN_ID``; una corrida de escritorio queda como ``local``.
+    Enlaza DVC/ledger/manifiesto/JSONL: mismo id ⇒ misma corrida del pipeline.
+    """
+    return os.environ.get("VP_PIPELINE_RUN_ID") or os.environ.get("GITHUB_RUN_ID") or "local"
 
 
 def git_state() -> tuple[str, bool]:
@@ -71,7 +82,14 @@ def log_run(
     rec_id = hashlib.sha1(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
     rec = {
         **payload,
-        "tags": {**(tags or {}), "git_sha": sha, "git_dirty": str(dirty)},
+        # C3: identidad jerárquica — cada record queda enlazable al run del pipeline
+        # que lo produjo (mismo pipeline_run_id ⇒ ledger/manifiesto/JSONL de una corrida).
+        "tags": {
+            **(tags or {}),
+            "git_sha": sha,
+            "git_dirty": str(dirty),
+            "pipeline_run_id": pipeline_run_id(),
+        },
         "artifacts": [a for a in (artifacts or []) if a],
         "ts": stamp,
         "rec_id": rec_id,

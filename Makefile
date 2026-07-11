@@ -58,6 +58,9 @@ db:
 news:
 	$(PY) -m pipeline.build_bulletins_json
 
+lock:  ## C3: regenera los locks transitivos por perfil (locks/{runtime,dev,model-cpu}.txt)
+	bash tools/make_locks.sh
+
 repro:  ## reconstruye TODO el DAG de datos determinísticamente (solo lo que cambió) con DVC
 	# C2: los cmd del DAG usan `python` portable — se antepone el bin del venv al PATH
 	# para que resuelva al intérprete del proyecto sin activar la shell.

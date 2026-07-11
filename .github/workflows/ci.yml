@@ -69,7 +69,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          # C3: instalación por LOCK transitivo (locks/dev.txt) — versiones exactas de
+          # toda la cadena, no solo de las directas; regenerar con `make lock`.
+          pip install -r locks/dev.txt
+          pip install -e . --no-deps
 
       - name: Lint (ruff check)
         run: ruff check .
