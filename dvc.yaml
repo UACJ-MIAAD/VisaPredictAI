@@ -6,17 +6,23 @@
 # Política (ver docs/DVC.md): los artefactos abiertos (CSV/JSON/key_facts) llevan
 # `cache: false` -> se quedan versionados en git (siguen siendo el entregable
 # descargable sin DVC). Los binarios derivados (duckdb/parquet) van a la cache DVC -> S3.
-# Los comandos usan el venv del proyecto (ante/); correr con `make repro` o `ante/bin/dvc repro`.
 #
-# Las figuras del .tex NO están aquí: necesitan el extra de modelado (.[model]); se
-# regeneran con los `make_*figures.py` / `make figures`, no en este DAG de datos puros.
-# El EDA vivo (reports/eda/: censo, galería, PDF) tampoco: misma razón (.[model]);
-# lo regenera el cron (bloque de modelado 4g) vía `make eda-all && make eda-report`.
+# C2 (plan auditoría 2026-07-11): los cmd usan `python` PORTABLE — se resuelve del
+# entorno activo, no de un venv con nombre local. Correr DENTRO del entorno del
+# proyecto: `make repro` (envuelve el dvc del venv) o `source ante/bin/activate &&
+# dvc repro`. Los stages eda_facts/fe_facts requieren el extra `.[model]`.
+#
+# Frontera DAG-determinista vs runner-transaccional (C1; detalle en docs/DVC.md):
+# aquí SOLO derivaciones puras y byte-deterministas de insumos versionados. Quedan
+# FUERA a propósito: los LEDGERS (estado append-only: reproducir jamás reescribe
+# evidencia), el manifiesto de release (hashea ese estado y lleva generated_at),
+# forecasts/scoring (congelan estado vía el cron), figuras/galerías/PDFs (timestamps
+# embebidos + extra de modelado) y el .duckdb (binario no byte-determinista — audit).
 
 stages:
   scrape:
     desc: Parsea los snapshots HTML congelados OFFLINE -> 11 CSV por país (empleo+familiar+DV)
-    cmd: ante/bin/python -m pipeline.scrape_all
+    cmd: python -m pipeline.scrape_all
     deps:
       - pipeline/scrape_all.py
       - vp_data/visa_common.py
@@ -30,7 +36,7 @@ stages:
 
   panel:
     desc: Consolida los CSV por país en el panel largo y_{p,c,b,t}
-    cmd: ante/bin/python -m pipeline.build_panel
+    cmd: python -m pipeline.build_panel
     deps:
       - pipeline/build_panel.py
       - vp_data/cleaning.py
@@ -44,7 +50,7 @@ stages:
 
   bulletins:
     desc: Feed compacto del último boletín que consume el sitio
-    cmd: ante/bin/python -m pipeline.build_bulletins_json
+    cmd: python -m pipeline.build_bulletins_json
     deps:
       - pipeline/build_bulletins_json.py
       - data/processed/visa_panel_long.csv
@@ -54,7 +60,7 @@ stages:
 
   database:
     desc: Carga el almacén estrella DuckDB + export Parquet (Parquet -> cache DVC/S3)
-    cmd: ante/bin/python -m pipeline.build_database
+    cmd: python -m pipeline.build_database
     deps:
       - pipeline/build_database.py
       - schema.sql
@@ -71,7 +77,7 @@ stages:
 
   key_facts:
     desc: Fuente ÚNICA de verdad de las cifras (la consume el guardián de consistencia)
-    cmd: ante/bin/python experiments/build_key_facts.py
+    cmd: python experiments/build_key_facts.py
     deps:
       - experiments/build_key_facts.py
       - vp_model/config.py
@@ -98,4 +104,37 @@ stages:
       - reports/governance/key_facts.json:
           cache: false
       - reports/latex/key_facts.tex:
+          cache: false
+
+  # C1: censo EDA como stage (byte-determinista, verificado por doble corrida; lee el
+  # panel CSV directo, no el .duckdb). Necesita `.[model]` (statsmodels): el cron 4g
+  # lo regenera y hace `dvc commit`; el gate E2 de CI lo vigila (deps presentes en git).
+  eda_facts:
+    desc: Censo estadístico EDA (194 series + tests de estacionariedad sobre evaluables)
+    cmd: python experiments/build_eda_facts.py
+    deps:
+      - experiments/build_eda_facts.py
+      - vp_model/eda.py
+      - vp_model/dataset.py
+      - data/processed/visa_panel_long.csv
+    outs:
+      - reports/eda/eda_facts.json:
+          cache: false
+
+  # C1: catálogo FE como stage (byte-determinista; emite el JSON del web y las macros
+  # del .tex). Mismas condiciones de entorno y cron que eda_facts.
+  fe_facts:
+    desc: Catálogo FE (decisiones cleaning+FE, selección FRESH/mRMR, macros del .tex)
+    cmd: python experiments/build_fe_facts.py
+    deps:
+      - experiments/build_fe_facts.py
+      - vp_model/feature_builder.py
+      - vp_model/feature_select.py
+      - vp_model/series_characterization.py
+      - vp_data/cleaning.py
+      - data/processed/visa_panel_long.csv
+    outs:
+      - reports/fe/fe_facts.json:
+          cache: false
+      - reports/latex/fe_facts.tex:
           cache: false

@@ -109,21 +109,24 @@ jobs:
 
       - name: DVC lock matches the committed pipeline (E2)
         # scrape/database quedan fuera: sus deps (snapshots privados) / outs (cache S3)
-        # no existen en CI. Los tres stages git-only prueban que dvc.lock no está stale
-        # (antes llevaba semanas desfasado y nada lo detectaba).
+        # no existen en CI. Los stages git-only prueban que dvc.lock no está stale
+        # (antes llevaba semanas desfasado y nada lo detectaba). C1: eda_facts y
+        # fe_facts entraron al DAG — sus deps/outs viven en git, así que se vigilan.
         run: |
           pip install "dvc==3.67.1"
-          out=$(dvc status --json panel bulletins key_facts)
+          out=$(dvc status --json panel bulletins key_facts eda_facts fe_facts)
           echo "$out"
           [ "$out" = "{}" ] || { echo "::error::dvc.lock desfasado del pipeline commiteado — corre make repro y commitea el lock"; exit 1; }
 
-      - name: Key facts are re-derivable from the data (JSON == pipeline)
+      - name: Facts are re-derivable from the data (real partial dvc repro — C2)
         # The consistency job checks prose-vs-JSON; this closes the loop by checking
-        # JSON-vs-DATA — regenerate the source of truth from the freshly built panel +
-        # committed reports and fail if the committed key_facts.json drifted from it.
+        # JSON-vs-DATA through the REAL dag: force-reproduce the fact stages with dvc
+        # (portable `python` commands — this run is itself the clean-clone proof) and
+        # fail if any committed output drifts from the pipeline.
         run: |
-          python experiments/build_key_facts.py
-          git diff --exit-code reports/governance/key_facts.json reports/latex/key_facts.tex
+          dvc repro --force --single-item key_facts eda_facts fe_facts
+          git diff --exit-code reports/governance/key_facts.json reports/latex/key_facts.tex \
+            reports/eda/eda_facts.json reports/fe/fe_facts.json reports/latex/fe_facts.tex
 
       - name: Modeling tests + vp_model coverage
         run: make test-model PY=python

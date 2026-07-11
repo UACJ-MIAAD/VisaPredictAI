@@ -59,7 +59,9 @@ news:
 	$(PY) -m pipeline.build_bulletins_json
 
 repro:  ## reconstruye TODO el DAG de datos determinísticamente (solo lo que cambió) con DVC
-	$(DVC) repro
+	# C2: los cmd del DAG usan `python` portable — se antepone el bin del venv al PATH
+	# para que resuelva al intérprete del proyecto sin activar la shell.
+	PATH="$(dir $(abspath $(PY))):$$PATH" $(DVC) repro
 
 repro-force:  ## fuerza re-ejecutar todas las etapas del DAG (ignora la cache)
 	$(DVC) repro --force

@@ -329,10 +329,13 @@ jobs:
         # release_id + SHA-256 por artefacto. Cualquier falla aborta el bloque.
         python tools/check_contracts.py
         python experiments/build_release_manifest.py
+        # C1: eda_facts/fe_facts son ahora stages DVC — registrar sus hashes frescos en
+        # dvc.lock EN EL MISMO commit o el gate E2 de CI detona en el siguiente push.
+        dvc commit -f eda_facts fe_facts
         # Identidad propia: en la ruta self-heal ningún paso previo la configura.
         git config --local user.email "168046724+jrebull@users.noreply.github.com"
         git config --local user.name "Javier Rebull"
-        git add reports
+        git add reports dvc.lock
         if git diff --cached --quiet; then
           echo "EDA/FE sin cambios -- nada que comitear."
         else

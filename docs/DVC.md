@@ -90,3 +90,31 @@ dvc pull        # baja en otro clon
 
 `dvc` es una dependencia de desarrollo (no se necesita en runtime ni en el CI de
 código hasta que existan artefactos versionados).
+
+## Frontera DAG-determinista vs runner-transaccional (C1/C2, plan auditoría 2026-07-11)
+
+El DAG contiene SOLO derivaciones **puras y byte-deterministas** de insumos versionados
+(verificado por doble corrida y por el gate de CI que re-reproduce los stages de facts
+con `dvc repro --force --single-item` y exige `git diff` limpio). Siete stages: scrape →
+panel → {bulletins, database, key_facts, eda_facts, fe_facts}.
+
+**Fuera del DAG, a propósito** (el runner transaccional es el cron `freeze_and_rebuild.yml`):
+
+| Qué | Por qué |
+|---|---|
+| Ledgers (`forecast_log*.csv`) | Estado append-only con identidad de freeze (A2): *reproducir jamás reescribe evidencia operacional* |
+| Forecasts del demostrador + scoring | Congelan estado (añadas) además de derivar; el cron los corre y commitea |
+| Manifiesto de release | Hashea el estado (ledgers incluidos) y lleva `generated_at` — es una foto del corte, no una derivación |
+| Figuras, galerías y PDFs | Timestamps embebidos (no byte-deterministas) + extra `.[model]` |
+| `.duckdb` | Binario no byte-determinista (hallazgo del audit dúo); efecto secundario reconstruible |
+
+**Portabilidad (C2):** los `cmd` usan `python` a secas — resuelto del entorno activo.
+`make repro` antepone el bin del venv al PATH; en CI los comandos corren con el Python
+del runner (la reproducción parcial de CI es, de paso, la prueba de clone limpio).
+Los stages `eda_facts`/`fe_facts` requieren `pip install -e .[model]`.
+
+**Semillas y tolerancias:** todo lo estocástico pasa por `config.seed_everything()`;
+`config.run_metadata()` registra semilla, versiones de librerías y linaje de datos por
+corrida. La única tolerancia conocida es la deriva numérica menor de la optimización de
+SARIMA entre máquinas (documentada en `docs/FORECAST_EVAL.md`, limitación 6) — por eso
+forecasts no son stage DVC y los facts sí (byte-exactos).
