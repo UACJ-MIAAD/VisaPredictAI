@@ -147,6 +147,9 @@ web-forecasts:  ## pronósticos futuros por serie para el demostrador web (track
 score-forecasts:  ## evaluación PROSPECTIVA: pronósticos congelados vs cortes reales (scorecard + MLflow)
 	$(PY) experiments/score_forecasts.py
 
+release-manifest:  ## B1: manifiesto de release (release_id + SHA-256/MIME/criticidad por artefacto)
+	$(PY) experiments/build_release_manifest.py
+
 derive-band80:  ## re-deriva BAND80_RATIO en split disjunto (read-only; imprime cov80 held-out)
 	$(PY) experiments/derive_band80_ratio.py
 

@@ -36,6 +36,7 @@ STAMP = {
     "phash": "abc123def456",
     "sha": "deadbeef0000",
     "frozen_at": "2026-07-11T12:00:00+00:00",
+    "deployment": "rel-test",
 }
 
 
@@ -55,6 +56,12 @@ def test_stamp_live_only_when_target_unknown_at_freeze() -> None:
 def test_stamp_as_of_forces_backfill_even_for_future_targets() -> None:
     r = _stamp([dict(ROW)], as_of="2025-07")[0]
     assert r["evaluation_mode"] == "backfill"
+
+
+def test_stamp_carries_deployment_id() -> None:
+    """B1: cada fila nueva registra bajo qué release corrió el congelador."""
+    r = _stamp([dict(ROW)])[0]
+    assert r["deployment_id"] == "rel-test"
 
 
 def test_stamp_model_version_dict_and_row_recipe() -> None:

@@ -18,8 +18,10 @@ Los dos ledgers prospectivos (``reports/prospective/forecast_log.csv`` del campe
   sobre una añada ya congelada NO colisiona (no reemplaza ni mezcla — estrena en la añada
   siguiente).
 
-``release_id``/``deployment_id`` llegan con B1 (manifiesto de release) como migración
-aditiva; no se fabrican identidades que aún no existen.
+``deployment_id`` (B1, migración aditiva): el ``release_id`` del manifiesto de release
+vigente AL MOMENTO del freeze (``reports/release/release_manifest.json``) — identifica
+bajo qué corte publicado corrió el congelador. Columna opcional: las filas anteriores a
+B1 no la llevan y ``validate`` no la exige; las nuevas la estampan siempre.
 
 Migración de las filas históricas: ``experiments/migrate_ledger_v2.py`` deriva sus actas
 de nacimiento del ``git log`` (primer commit que contiene cada fila).
@@ -29,6 +31,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import json
 import subprocess
 from pathlib import Path
 
@@ -76,6 +79,17 @@ def panel_vintage(path: Path = PANEL_CSV) -> str:
     return str(dates.max())[:7]
 
 
+def current_release_id() -> str:
+    """``release_id`` del manifiesto de release vigente (B1); ``n/d`` si aún no existe."""
+    p = ROOT / "reports" / "release" / "release_manifest.json"
+    if not p.exists():
+        return "n/d"
+    try:
+        return str(json.loads(p.read_text()).get("release_id", "n/d"))
+    except json.JSONDecodeError:
+        return "n/d"
+
+
 def forecast_id(row: dict) -> str:
     """Identificador determinista de la fila: sha1 12-hex de clave + receta.
 
@@ -95,6 +109,7 @@ def stamp_rows(
     vintage: str | None = None,
     phash: str | None = None,
     sha: str | None = None,
+    deployment: str | None = None,
 ) -> list[dict]:
     """Sella la identidad de freeze v2 en cada fila (solo si aún no la trae).
 
@@ -106,6 +121,7 @@ def stamp_rows(
     vintage = vintage or panel_vintage()
     phash = phash or panel_hash()
     sha = sha or git_sha()
+    deployment = deployment or current_release_id()
     ts = frozen_at or datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
     out = []
     for r in rows:
@@ -127,6 +143,7 @@ def stamp_rows(
             "git_sha": sha,
             "model_version": mv,
             "evaluation_mode": mode,
+            "deployment_id": deployment,
         }
         rr["forecast_id"] = forecast_id(rr)
         out.append(rr)
