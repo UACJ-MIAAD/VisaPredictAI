@@ -250,6 +250,83 @@ def _census_significance() -> dict:
     return out
 
 
+def _provenance() -> dict:
+    """H3: identidad del corte que produjo estas cifras — claves planas (⇒ macros
+    \\factPanelVintage/\\factPanelHashShort para la prosa) + el run del pipeline."""
+    from vp_data.tracking import pipeline_run_id
+    from vp_model.ledger import git_sha, panel_hash, panel_vintage
+
+    return {
+        "panel_vintage": panel_vintage(),
+        "panel_hash_short": panel_hash(),
+        "_provenance": {"git_sha": git_sha(), "pipeline_run_id": pipeline_run_id()},
+    }
+
+
+def _live_pairs() -> dict:
+    """Namespace prospective (P6): pares live puntuados del head-to-head — hoy 0, y ese
+    cero es un dato de primera clase (A1: solo lo live autoriza claims de servicio)."""
+    p = REPORTS / "governance" / "promotion_decision.json"
+    if not p.exists():
+        return {"live_pairs_scored": 0}
+    return {"live_pairs_scored": int(json.loads(p.read_text()).get("n_pairs_live", 0))}
+
+
+# H2: enrutamiento de namespaces + anotaciones de la vista v2 (aditiva; v1 plano sigue
+# siendo LA interfaz de macros/guardián — dual-read; rollback = borrar "v2").
+_V2_NS_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("backfill", ("prosp_",)),
+    ("prospective", ("live_",)),
+    ("eda", ("pct_frozen", "pct_retro", "n_retro", "stationarity_", "monthly_", "backlog_")),
+    ("governance", ("n_models", "tuning_", "champion", "naive1_fad_holdout_wins", "friedman_")),
+    ("data", ("n_obs", "n_months", "n_series", "dv_", "panel_")),
+)
+_V2_OVERRIDES: dict[str, dict] = {
+    "pct_frozen": {"population": "panel completo (todas las series y meses)"},
+    "prosp_mase": {"unit": "MASE"},
+    "prosp_mae_days": {"unit": "días"},
+    "live_pairs_scored": {
+        "population": "pares campeón-sombra con evaluation_mode=live en ambos lados",
+        "source": "reports/governance/promotion_decision.json",
+    },
+}
+
+
+def _v2(flat: dict) -> dict:
+    """Vista namespaced con unidad/población/fuente/añada por hecho (H2)."""
+
+    def ns_of(k: str) -> str:
+        for ns, prefixes in _V2_NS_RULES:
+            if any(k.startswith(p) or k == p for p in prefixes):
+                return ns
+        return "model"
+
+    def unit_of(k: str, v) -> str:
+        if k.startswith(("pct_", "prosp_cov", "aci_", "stationarity_")) or "cov" in k:
+            return "proporción"
+        if k.endswith("_days"):
+            return "días"
+        if "mase" in k or k.endswith(("_mean", "_median")):
+            return "MASE"
+        return "conteo" if isinstance(v, int) else "valor"
+
+    out: dict[str, dict] = {}
+    vintage = flat["panel_vintage"]
+    for k, v in flat.items():
+        if k.startswith("_") or isinstance(v, (list, dict)):
+            continue
+        entry = {
+            "value": v,
+            "unit": unit_of(k, v),
+            "population": "solo estado F (máscara B1)" if ns_of(k) in ("model", "backfill") else "panel",
+            "source": "derivado por build_key_facts.py de las bases commiteadas",
+            "vintage": vintage,
+        }
+        entry.update(_V2_OVERRIDES.get(k, {}))
+        out.setdefault(ns_of(k), {})[k] = entry
+    return out
+
+
 def build() -> dict:
     facts = {
         "_source": "experiments/build_key_facts.py — NO editar a mano",
@@ -259,7 +336,10 @@ def build() -> dict:
         **_champion_challenger(),
         **_tuning(),
         **_census_significance(),
+        **_provenance(),
+        **_live_pairs(),
     }
+    facts["v2"] = _v2(facts)
     (REPORTS / "governance" / "key_facts.json").write_text(json.dumps(facts, indent=2, ensure_ascii=False) + "\n")
 
     # macros LaTeX (\factNObs, \factProspMASE, …) — camelCase del key
@@ -284,7 +364,9 @@ def build() -> dict:
 
     lines = ["% Auto-generado por experiments/build_key_facts.py — \\input este archivo y usa \\factXxx.\n"]
     for k, v in facts.items():
-        if k.startswith("_") or isinstance(v, list):
+        # dicts también se saltan (H2: la vista v2 anidada NO emite macros — un dict
+        # aquí generaba un \newcommand basura que reventaría el \input en Overleaf).
+        if k.startswith("_") or isinstance(v, (list, dict)):
             continue
         # Las MASE (medias/medianas por serie) se emiten con 3 decimales para que la prosa
         # rinda 0.100/0.120 (no 0.1/0.12); el guardián compara numéricamente (0.120==0.12).

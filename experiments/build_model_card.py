@@ -32,6 +32,18 @@ def _panel_hash() -> str:
     return hashlib.md5(p.read_bytes()).hexdigest()[:12] if p.exists() else "n/d"
 
 
+def _release_id() -> str:
+    # H3: el release VIGENTE al generar (el manifiesto de este corte se emite después,
+    # en 4h — misma semántica que deployment_id en el ledger).
+    from vp_model.ledger import current_release_id
+
+    return current_release_id()
+
+
+def _pipeline_run_id() -> str:
+    return tracking.pipeline_run_id()
+
+
 def _fmt(v) -> str:  # noqa: ANN001 — accepts int or the "n/d" degradation sentinel
     """Thousands-comma for ints only; the C1 degradation ("n/d") passes through.
 
@@ -94,6 +106,7 @@ def build() -> str:
 ## 6. Linaje y reproducibilidad
 - **Receta:** `champion_manifest.json` (cambia solo vía `run_champion_challenger.py --promote`, auditado).
 - **Código:** git `{sha}`. **Datos:** panel hash `{_panel_hash()}`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
+- **Corte (H3):** release vigente al generar `{_release_id()}` · pipeline_run_id `{_pipeline_run_id()}` · añada `{kf.get("panel_vintage", "n/d")}`.
 - **Promoción (dos gates):** el hold-out (Wilcoxon+Holm, h=1) solo declara aptitud retrospectiva; la autorización la da el gate prospectivo PRE-REGISTRADO (docs/PROMOTION_POLICY.md) sobre pares live campeón-vs-sombra, aplicada por un humano (`--promote`, que se rehúsa sin decisión "promote") con rollback versionado.
 
 ## 7. Limitaciones y consideraciones éticas

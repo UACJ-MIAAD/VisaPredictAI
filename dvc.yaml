@@ -83,6 +83,8 @@ stages:
       - vp_model/config.py
       - data/processed/visa_panel_long.csv
       - reports/prospective/forecast_scorecard_meta.json
+      # H2: el namespace "prospective" de la vista v2 lee los pares live del gate A4.
+      - reports/governance/promotion_decision.json
       - reports/eval/auto_arima_baseline.csv
       - reports/eval/significance_summary.json
       - reports/eval/tuned_params.json

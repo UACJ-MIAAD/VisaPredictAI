@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "release_id": "2026-07-5a6bac44f88c",
-  "generated_at": "2026-07-11T18:48:39+00:00",
-  "git_sha": "92935b718548-dirty",
+  "release_id": "2026-07-5a1e80ab9030",
+  "generated_at": "2026-07-11T20:34:55+00:00",
+  "pipeline_run_id": "local",
+  "git_sha": "f6da6df1d245-dirty",
   "panel_vintage": "2026-07",
   "panel_hash_md5_12": "00115d2dd0b6",
   "champion_recipes": {
@@ -117,15 +118,15 @@
     },
     {
       "path": "reports/eda/eda_report.pdf",
-      "sha256": "6fc1a88e1091cd5ecf0fa233969270f1e6634a490050b9501928a70130895e0a",
-      "size": 453313,
+      "sha256": "29d1d80b01ba3325576459b041500ab59551f331012e151d8a2bbc2197e14df6",
+      "size": 453396,
       "mime": "application/pdf",
       "criticality": "optional"
     },
     {
       "path": "reports/eda/en/eda_report.pdf",
-      "sha256": "66c83012ca9d133199b80af86ee845e35e080186b84b2737c74af2832c4f6780",
-      "size": 453307,
+      "sha256": "bcf98b70679a17b9d2826ad2ab6c9ed8e33f25a23f5bf969554bd0c886372c4c",
+      "size": 453390,
       "mime": "application/pdf",
       "criticality": "optional"
     },
@@ -138,22 +139,22 @@
     },
     {
       "path": "reports/fe/fe_report.pdf",
-      "sha256": "912cd3aebdc86d68506eb985861d852b7bc3c2c6ae509fc0ca3b8047291ab2ed",
-      "size": 277654,
+      "sha256": "d004cd647522b4a46e9f235bf6aa9f57415fdafda6401508f6a9bd68aa5fb8b2",
+      "size": 278392,
       "mime": "application/pdf",
       "criticality": "optional"
     },
     {
       "path": "reports/fe/en/fe_report.pdf",
-      "sha256": "7c6b2be5991b60b1754006c3858590ce80981cf1efe9758e0e2d1355b760eb94",
-      "size": 266688,
+      "sha256": "965bfd85e1221d49bb3d068858d3bc922a7db664ab835cedd0170b3c6f1dcfd5",
+      "size": 266718,
       "mime": "application/pdf",
       "criticality": "optional"
     },
     {
       "path": "reports/governance/key_facts.json",
-      "sha256": "f9c60d3927e70f808e9b14dc7949698f73776c38827a985ee8c52f215bcb2b9a",
-      "size": 1543,
+      "sha256": "64f4ab13c53f9aa9e0b15033702d55f4c39de396b7a8b09b4cae3794d0141b79",
+      "size": 15439,
       "mime": "application/json",
       "criticality": "critical"
     },
@@ -180,8 +181,8 @@
     },
     {
       "path": "reports/governance/MODEL_CARD.md",
-      "sha256": "36b0fbb163dd0912775e8f282599ebfed8f9a4f59067a5af619e159029bcca36",
-      "size": 3349,
+      "sha256": "b4d0adb3411f781c30b7b046f2257dace41953e61de1e03500ee567d54b34786",
+      "size": 3465,
       "mime": "text/markdown",
       "criticality": "required"
     },

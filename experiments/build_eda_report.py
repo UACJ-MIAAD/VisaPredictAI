@@ -413,6 +413,13 @@ def build(lang: str = "es") -> Path:
             meta["Title"] = t["meta_title"].format(mes=_month(lang, per.month), anio=per.year)
             meta["Author"] = "Javier Augusto Rebull Saucedo (UACJ · MIAAD)"
             meta["Subject"] = t["meta_subject"]
+            # H3: provenance machine-readable — el corte exacto que produjo este PDF.
+            from vp_data.tracking import pipeline_run_id
+            from vp_model.ledger import git_sha, panel_hash
+
+            meta["Keywords"] = (
+                f"vintage={facts.get('vintage', 'n/d')}; panel={panel_hash()}; git={git_sha()}; run={pipeline_run_id()}"
+            )
     finally:
         gallery._apply_lang("es")
         gallery._apply_theme(dark=False)

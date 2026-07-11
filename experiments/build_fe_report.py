@@ -531,10 +531,15 @@ def build(lang: str) -> Path:
         meta["Author"] = "Javier Rebull"
         meta["Subject"] = rt["pdf_subject"]
         # stats embebidos verificables por tests/test_fe_report.py contra fe_facts (regla #0)
+        # H3: provenance machine-readable (aditiva — el test parsea pares k=v).
+        from vp_data.tracking import pipeline_run_id
+        from vp_model.ledger import git_sha, panel_hash
+
         meta["Keywords"] = (
             f"vintage={facts['vintage']}; fe_version={facts['fe_version']}; "
             f"n_rows={led['n_rows']}; n_series={led['n_series']}; rows_F={led['rows_by_status']['F']}; "
-            f"features_in={fs['n_features_in']}; selected={fs['n_selected']}"
+            f"features_in={fs['n_features_in']}; selected={fs['n_selected']}; "
+            f"panel={panel_hash()}; git={git_sha()}; run={pipeline_run_id()}"
         )
     size_mb = out.stat().st_size / 1e6
     if size_mb >= 3.0:
