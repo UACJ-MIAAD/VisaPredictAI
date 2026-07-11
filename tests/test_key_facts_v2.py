@@ -57,10 +57,15 @@ def test_backfill_namespace_is_honestly_named_and_prospective_counts_live_zero()
     assert KF["v2"]["prospective"]["live_pairs_scored"]["value"] == KF["live_pairs_scored"]
 
 
-def test_provenance_block_present() -> None:
-    """H3: el corte que produjo las cifras es identificable máquina-a-máquina."""
-    assert KF["_provenance"]["git_sha"] and KF["_provenance"]["pipeline_run_id"]
-    assert KF["panel_hash_short"] and len(KF["panel_hash_short"]) == 12
+def test_provenance_is_deterministic_only() -> None:
+    """H3: key_facts identifica el corte SOLO con derivaciones deterministas del panel.
+
+    git_sha/pipeline_run_id quedan PROHIBIDOS aquí (rompían la re-derivación byte-exacta
+    de CI — un out DVC es función pura de sus deps); la identidad volátil vive en el
+    manifiesto, el model card y el ledger."""
+    assert KF["panel_vintage"] and KF["panel_hash_short"] and len(KF["panel_hash_short"]) == 12
+    assert "_provenance" not in KF
+    assert "git_sha" not in json.dumps(KF)
 
 
 def test_v2_emits_no_latex_macros() -> None:

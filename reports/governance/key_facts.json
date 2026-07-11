@@ -56,10 +56,6 @@
   "naive1_fad_holdout_wins": 24,
   "panel_vintage": "2026-07",
   "panel_hash_short": "00115d2dd0b6",
-  "_provenance": {
-    "git_sha": "f6da6df1d245-dirty",
-    "pipeline_run_id": "local"
-  },
   "live_pairs_scored": 0,
   "v2": {
     "data": {

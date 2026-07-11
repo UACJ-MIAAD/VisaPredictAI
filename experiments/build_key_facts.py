@@ -251,15 +251,16 @@ def _census_significance() -> dict:
 
 
 def _provenance() -> dict:
-    """H3: identidad del corte que produjo estas cifras — claves planas (⇒ macros
-    \\factPanelVintage/\\factPanelHashShort para la prosa) + el run del pipeline."""
-    from vp_data.tracking import pipeline_run_id
-    from vp_model.ledger import git_sha, panel_hash, panel_vintage
+    """H3: identidad del corte — SOLO derivaciones deterministas del panel (añada y
+    hash ⇒ macros \\factPanelVintage/\\factPanelHashShort). git_sha/pipeline_run_id NO
+    entran aquí: key_facts es un out DVC byte-determinista y la identidad volátil
+    rompía la re-derivación de CI (vive en manifiesto/model card/ledger, que son del
+    runner). Cazado por el gate 'facts re-derivable' en el estreno de H3."""
+    from vp_model.ledger import panel_hash, panel_vintage
 
     return {
         "panel_vintage": panel_vintage(),
         "panel_hash_short": panel_hash(),
-        "_provenance": {"git_sha": git_sha(), "pipeline_run_id": pipeline_run_id()},
     }
 
 
