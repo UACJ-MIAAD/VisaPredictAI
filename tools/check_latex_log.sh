@@ -20,7 +20,9 @@ undef_cit=$(grep -c "LaTeX Warning: Citation .* undefined" "$LOG" || true)
 multi=$(grep -c "multiply.defined" "$LOG" || true)
 rerun=$(grep -c "Rerun to get" "$LOG" || true)
 over_n=$(grep -c '^Overfull \\hbox' "$LOG" || true)
-over_max=$(grep -o '^Overfull \\hbox ([0-9.]*pt' "$LOG" | grep -o '[0-9.]*' | sort -g | tail -1)
+# `|| true` en TODO el pipeline: con cero overfulls el primer grep sale 1 y, bajo
+# set -e, mataba el script ANTES de imprimir el censo (cazado en el estreno del gate).
+over_max=$(grep -o '^Overfull \\hbox ([0-9.]*pt' "$LOG" | grep -o '[0-9.][0-9.]*' | sort -g | tail -1 || true)
 over_max=${over_max:-0}
 
 echo "censo $(basename "$LOG"): undef_ref=$undef_ref undef_cit=$undef_cit multiply=$multi rerun=$rerun overfull_n=$over_n overfull_max=${over_max}pt (umbral: n<=$MAX_N, max<=${MAX_PT}pt)"
