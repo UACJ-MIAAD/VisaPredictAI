@@ -1,0 +1,12 @@
+{
+  "contract_version": 1,
+  "artifact": "data/processed/bulletins.json",
+  "kind": "json",
+  "vintage_key": "latest_month",
+  "required_keys": {
+    "available_months": "list",
+    "generated_utc": "str",
+    "latest_month": "str",
+    "months": "dict"
+  }
+}

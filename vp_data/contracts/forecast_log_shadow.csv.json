@@ -1,0 +1,32 @@
+{
+  "contract_version": 1,
+  "artifact": "reports/prospective/forecast_log_shadow.csv",
+  "kind": "csv",
+  "required_columns": [
+    "origin",
+    "h",
+    "country",
+    "category",
+    "table",
+    "date",
+    "days",
+    "lo80",
+    "hi80",
+    "lo95",
+    "hi95",
+    "shadow",
+    "recipe",
+    "hold_mase",
+    "band_method",
+    "forecast_id",
+    "frozen_at",
+    "freeze_panel_vintage",
+    "panel_hash",
+    "git_sha",
+    "model_version",
+    "evaluation_mode"
+  ],
+  "optional_columns": [
+    "deployment_id"
+  ]
+}

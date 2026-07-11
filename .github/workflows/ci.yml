@@ -150,3 +150,7 @@ jobs:
         env:
           VP_WEB_DIR: web_repo
         run: python tools/check_consistency.py
+      # B3 (plan auditoría 2026-07-11): contratos cross-repo — columnas/llaves requeridas
+      # de cada artefacto publicado + corte de añada única. Cero dependencias.
+      - name: Check artifact contracts
+        run: python tools/check_contracts.py

@@ -1,0 +1,11 @@
+{
+  "contract_version": 1,
+  "artifact": "reports/governance/promotion_decision.json",
+  "kind": "json",
+  "required_keys": {
+    "policy": "dict",
+    "by_table": "dict",
+    "n_pairs_total": "int",
+    "n_pairs_live": "int"
+  }
+}

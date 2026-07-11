@@ -1,0 +1,12 @@
+{
+  "contract_version": 1,
+  "artifact": "reports/fe/fe_facts.json",
+  "kind": "json",
+  "vintage_key": "vintage",
+  "required_keys": {
+    "vintage": "str",
+    "fe_decisions": "list",
+    "cleaning_decisions": "list",
+    "feature_selection": "dict"
+  }
+}

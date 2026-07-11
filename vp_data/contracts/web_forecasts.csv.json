@@ -1,0 +1,16 @@
+{
+  "contract_version": 1,
+  "artifact": "reports/prospective/web_forecasts.csv",
+  "kind": "csv",
+  "required_columns": [
+    "country",
+    "category",
+    "table",
+    "date",
+    "days",
+    "lo80",
+    "hi80",
+    "lo95",
+    "hi95"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "contract_version": 1,
+  "artifact": "reports/prospective/forecast_scorecard.csv",
+  "kind": "csv",
+  "required_columns": [
+    "origin",
+    "h",
+    "country",
+    "category",
+    "table",
+    "target",
+    "pred",
+    "actual",
+    "error",
+    "abs_err",
+    "scaled_err",
+    "in80",
+    "in95",
+    "evaluation_mode",
+    "model_version"
+  ]
+}

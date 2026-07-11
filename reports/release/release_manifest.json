@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_id": "2026-07-876edd4fed33",
-  "generated_at": "2026-07-11T17:00:18+00:00",
-  "git_sha": "ba9003e962b1-dirty",
+  "release_id": "2026-07-5a6bac44f88c",
+  "generated_at": "2026-07-11T18:48:39+00:00",
+  "git_sha": "92935b718548-dirty",
   "panel_vintage": "2026-07",
   "panel_hash_md5_12": "00115d2dd0b6",
   "champion_recipes": {
@@ -21,7 +21,7 @@
     "n_series_evaluable": 74,
     "n_months": 296
   },
-  "n_artifacts": 96,
+  "n_artifacts": 109,
   "missing_optional": [],
   "artifacts": [
     {
@@ -191,6 +191,97 @@
       "size": 6808,
       "mime": "text/markdown",
       "criticality": "optional"
+    },
+    {
+      "path": "vp_data/contracts/bulletins.json",
+      "sha256": "a6883f0817d73cd791e4f62d9db3e64cdca3662201d2c52632276dd0e2539ceb",
+      "size": 260,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
+      "path": "vp_data/contracts/eda_facts.json",
+      "sha256": "ff831644f9857fe4296c4ea315b2773e73071ec981ea52d734c6126e3d12bdb1",
+      "size": 266,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
+      "path": "vp_data/contracts/fe_facts.json",
+      "sha256": "281305bf6aa59957e8313dd5c555ef7bbf20693044554e5446b8f5c7efb53f8d",
+      "size": 258,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
+      "path": "vp_data/contracts/forecast_log.csv.json",
+      "sha256": "a598fc48385f7746aacedef29cde45cd82176c164764749bb9a1ef64f2ccb250",
+      "size": 475,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
+      "path": "vp_data/contracts/forecast_log_shadow.csv.json",
+      "sha256": "70554904d9c05eeda999cf973443c8465df0678492a39bd364407f68dac3b49c",
+      "size": 527,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
+      "path": "vp_data/contracts/forecast_scorecard.csv.json",
+      "sha256": "ecfead5ec7836f7536e2fb91b50c7fc5c8905e6be0dbd60232a1c345eb6ec01c",
+      "size": 354,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
+      "path": "vp_data/contracts/forecast_scorecard_meta.json",
+      "sha256": "0b25107fb68a8840ceb054185d79fcaf903c3c9ec5fa3c1b9c0df81e97774744",
+      "size": 478,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
+      "path": "vp_data/contracts/key_facts.json",
+      "sha256": "8584c2b2848afd9b16d6f7c18bb859186fe9a4f596655cd18b1fb2aafcfae694",
+      "size": 289,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
+      "path": "vp_data/contracts/promotion_decision.json",
+      "sha256": "9bf2dd03987a8d4d75aa4495da07809a1e69bdcd63f7eb831d2fa351dcde9184",
+      "size": 232,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
+      "path": "vp_data/contracts/release_manifest.json",
+      "sha256": "fcc836bf0337ee5efc846443c7b490cb1ee1cbf67ad4c9e75e37ef8734d61e21",
+      "size": 347,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
+      "path": "vp_data/contracts/visa_panel_long.csv.json",
+      "sha256": "8be9202d91479d254ddca32af9126c55bc8a62bcea5512af0785a74b8a72d3c5",
+      "size": 278,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
+      "path": "vp_data/contracts/web_forecasts.csv.json",
+      "sha256": "73d466f1ada4678ed16cc121337d3081103185e1d74d7212921cecbe97e25365",
+      "size": 244,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
+      "path": "vp_data/contracts/web_forecasts_meta.json",
+      "sha256": "c1b9f9a8e7c7b2cf6ebe2ddc267154e3179eff83f06676a88961e29565ff72b2",
+      "size": 252,
+      "mime": "application/json",
+      "criticality": "required"
     },
     {
       "path": "reports/eda/gallery/g01_panel.png",

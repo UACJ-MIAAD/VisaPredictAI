@@ -1,0 +1,20 @@
+{
+  "contract_version": 1,
+  "artifact": "reports/prospective/forecast_scorecard_meta.json",
+  "kind": "json",
+  "required_keys": {
+    "what": "str",
+    "caveat": "str",
+    "aggregation_scope": "str",
+    "by_mode": "dict",
+    "n_scored": "int",
+    "n_pending": "int",
+    "overall": "dict",
+    "by_horizon": "dict",
+    "by_table": "dict",
+    "band80_calibration": "dict",
+    "n_vintages_effective": "int",
+    "scored_by_vintage": "dict",
+    "vintages": "list"
+  }
+}

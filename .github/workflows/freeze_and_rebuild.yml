@@ -323,9 +323,11 @@ jobs:
         fi
         python -c "import json;f=json.load(open('reports/eda/eda_facts.json'));p=f['panel'];print(f\"EDA {f['vintage']}: {p['n_series_structural']} series censadas, {p['n_series_evaluable']} evaluables, reporte OK\")" > /tmp/eda.txt
         python -c "import json;f=json.load(open('reports/fe/fe_facts.json'));fs=f['feature_selection'];print(f\"FE {f['vintage']}: {len(f['fe_decisions'])}+{len(f['cleaning_decisions'])} decisiones, selección {fs['n_features_in']}->{fs['n_selected']}, reportes ES+EN OK\")" > /tmp/fe.txt
-        # 4h (B1). Manifiesto de release: con TODOS los artefactos del corte finales
-        # (panel + forecasts + scorecards + facts + EDA/FE), emite release_id + SHA-256
-        # por artefacto. Falta crítica/required aborta el bloque (todo-o-nada).
+        # 4h (B1+B3). Contratos primero (columnas/llaves de cada artefacto + corte de
+        # añada única: un corte con añadas mezcladas NO se publica) y luego el
+        # manifiesto de release: con TODOS los artefactos del corte finales, emite
+        # release_id + SHA-256 por artefacto. Cualquier falla aborta el bloque.
+        python tools/check_contracts.py
         python experiments/build_release_manifest.py
         # Identidad propia: en la ruta self-heal ningún paso previo la configura.
         git config --local user.email "168046724+jrebull@users.noreply.github.com"

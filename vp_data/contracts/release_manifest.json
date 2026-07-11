@@ -1,0 +1,15 @@
+{
+  "contract_version": 1,
+  "artifact": "reports/release/release_manifest.json",
+  "kind": "json",
+  "vintage_key": "panel_vintage",
+  "required_keys": {
+    "schema_version": "int",
+    "release_id": "str",
+    "panel_vintage": "str",
+    "panel_hash_md5_12": "str",
+    "n_artifacts": "int",
+    "artifacts": "list",
+    "counts": "dict"
+  }
+}

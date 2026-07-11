@@ -60,7 +60,7 @@ _FE_FIGS = [
 _VARIANTS = ["", "dark/", "en/", "en/dark/"]
 
 
-def artifact_spec() -> list[tuple[str, str]]:
+def artifact_spec(root: Path = ROOT) -> list[tuple[str, str]]:
     """(path repo-relativo, criticidad) — la definición del corte publicable."""
     spec: list[tuple[str, str]] = [
         ("data/processed/visa_panel_long.csv", "critical"),
@@ -88,6 +88,10 @@ def artifact_spec() -> list[tuple[str, str]]:
         ("reports/governance/MODEL_CARD.md", "required"),
         ("reports/governance/mega_audit_report.md", "optional"),
     ]
+    # B3: los contratos viajan EN el release — el loader del web compara su hash contra
+    # su copia vendorizada (lib/contracts/) y trata la deriva como corte incompatible.
+    for c in sorted((root / "vp_data" / "contracts").glob("*.json")):
+        spec.append((f"vp_data/contracts/{c.name}", "required"))
     for base, figs in (("reports/eda/gallery", _EDA_FIGS), ("reports/fe/gallery", _FE_FIGS)):
         for fig in figs:
             for sub in _VARIANTS:
@@ -114,7 +118,7 @@ def build(root: Path = ROOT) -> dict:
     entries: list[dict] = []
     missing_blocking: list[str] = []
     missing_optional: list[str] = []
-    for rel, crit in artifact_spec():
+    for rel, crit in artifact_spec(root):
         e = _entry(root, rel, crit)
         if e is None:
             (missing_optional if crit == "optional" else missing_blocking).append(f"{crit}:{rel}")

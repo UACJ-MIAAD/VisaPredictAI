@@ -1,0 +1,13 @@
+{
+  "contract_version": 1,
+  "artifact": "reports/governance/key_facts.json",
+  "kind": "json",
+  "required_keys": {
+    "n_obs": "int",
+    "n_months": "int",
+    "n_series_structural": "int",
+    "n_series_evaluable": "int",
+    "prosp_mase": "number",
+    "prosp_n_scored": "int"
+  }
+}

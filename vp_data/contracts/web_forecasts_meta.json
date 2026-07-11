@@ -1,0 +1,12 @@
+{
+  "contract_version": 1,
+  "artifact": "reports/prospective/web_forecasts_meta.json",
+  "kind": "json",
+  "required_keys": {
+    "base_date": "str",
+    "horizon_months": "int",
+    "method": "dict",
+    "n_series": "int",
+    "series": "dict"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "contract_version": 1,
+  "artifact": "reports/eda/eda_facts.json",
+  "kind": "json",
+  "vintage_key": "vintage",
+  "required_keys": {
+    "vintage": "str",
+    "panel": "dict",
+    "series": "list",
+    "regime": "dict",
+    "stationarity_summary": "dict"
+  }
+}

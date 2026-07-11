@@ -1,0 +1,16 @@
+{
+  "contract_version": 1,
+  "artifact": "data/processed/visa_panel_long.csv",
+  "kind": "csv",
+  "required_columns": [
+    "country",
+    "block",
+    "category",
+    "table",
+    "bulletin_date",
+    "status",
+    "priority_date",
+    "days_since_base",
+    "raw_value"
+  ]
+}
