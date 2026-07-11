@@ -170,10 +170,14 @@ def evaluate(table: str, champion: Recipe, challengers: list[Recipe] | None = No
     for r in rows:
         p_adj, reject = adj[r["challenger"]]
         r["holm_p"] = round(float(p_adj), 5)
-        # promovible: gana en media de forma material Y Holm-significativo
-        r["promotable"] = bool(reject and r["mean_margin_vs_champion"] >= MATERIAL_MARGIN)
+        # apto en HOLD-OUT (h=1 retrospectivo): gana en media de forma material Y es
+        # Holm-significativo. A4: NO autoriza producción (el nombre viejo "promotable"
+        # lo sugería) — la autorización la da el gate prospectivo pre-registrado
+        # (vp_model/promotion.py) sobre pares live, aplicada por un humano con --promote.
+        r["holdout_pass"] = bool(reject and r["mean_margin_vs_champion"] >= MATERIAL_MARGIN)
+        r["promotable"] = r["holdout_pass"]  # alias deprecado (dual-read; retirar tras migrar consumidores)
 
-    promotable = [r for r in rows if r["promotable"]]
+    promotable = [r for r in rows if r["holdout_pass"]]
     best = max(promotable, key=lambda r: r["mean_margin_vs_champion"]) if promotable else None
     return Verdict(
         table=table,

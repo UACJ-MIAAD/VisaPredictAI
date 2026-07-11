@@ -51,11 +51,12 @@ log = config.get_logger("freeze_shadow")
 def best_challenger(entry: dict) -> dict | None:
     """Best challenger recipe (serialized) for one table's verdict entry — pure, testable.
 
-    Preference: the gated ``promote`` winner; otherwise the lowest-MASE challenger whose
+    Preference: the hold-out winner (``holdout_winner``; legacy key ``promote`` still
+    read during the A4 dual-read window); otherwise the lowest-MASE challenger whose
     display name differs from the champion's (shadowing the champion itself is pointless).
     Returns the serialized recipe dict, or None when there is nothing worth shadowing.
     """
-    promote = entry.get("promote")
+    promote = entry.get("holdout_winner") or entry.get("promote")
     if promote and promote.get("recipe"):
         return promote["recipe"]
     for row in sorted(entry.get("challengers", []), key=lambda r: r.get("mean", float("inf"))):

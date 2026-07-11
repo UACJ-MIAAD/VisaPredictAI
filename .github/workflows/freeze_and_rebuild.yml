@@ -211,7 +211,14 @@ jobs:
         # 4c. Prospective scoring: now that this month's REAL cutoffs are in the
         #     panel, grade every previously-frozen forecast whose target month just
         #     landed (forecast_log.csv vs actuals) → reports/prospective/forecast_scorecard*.
+        #     A3: also scores the shadow ledger + emits the champion-vs-shadow head-to-head.
         python experiments/score_forecasts.py
+
+        # 4c-bis (A4). Pre-registered prospective promotion gate: consumes both
+        # scorecards and refreshes reports/governance/promotion_decision.json
+        # (promote/retain/extend-shadow/reject per table). Advisory: the actual
+        # promotion stays human (--promote refuses without a "promote" decision).
+        python experiments/run_promotion_gate.py
 
         # 4d. Refresh the single source of truth (reports/governance/key_facts.json) from the new
         #     data + scorecard, so the consistency guard (CI) keeps the prose honest.

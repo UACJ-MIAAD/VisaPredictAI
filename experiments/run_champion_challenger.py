@@ -4,10 +4,15 @@
     ante/bin/python experiments/run_champion_challenger.py --mlflow   # + staging MLflow
     ante/bin/python experiments/run_champion_challenger.py --promote  # aplica al manifiesto si gana un retador
 
-Escribe ``reports/governance/champion_challenger.json`` (+ ``.md`` legible). La promoción real edita
-``reports/governance/champion_manifest.json`` SOLO con ``--promote`` y SOLO si el retador es promovible
-(Holm-significativo + margen medio material). El demostrador (``generate_web_forecasts.py``)
-lee su receta de ese manifiesto, así que promover = un cambio de config versionado y auditado.
+Escribe ``reports/governance/champion_challenger.json`` (+ ``.md`` legible). Este veredicto es
+**retrospectivo** (hold-out h=1): declara al retador ``apto en hold-out`` (campo
+``holdout_pass``; antes "promotable" — renombrado por A4 para no sugerir autorización
+productiva). La promoción real edita ``reports/governance/champion_manifest.json`` SOLO con
+``--promote`` y desde A4 exige ADEMÁS que el gate prospectivo pre-registrado
+(``vp_model/promotion.py`` → ``reports/governance/promotion_decision.json``) diga
+``promote`` para esa tabla — sin decisión o con decisión distinta, se rehúsa (fail closed).
+Rollback: el manifiesto está versionado (git revert + redeploy). El demostrador
+(``generate_web_forecasts.py``) lee su receta de ese manifiesto.
 """
 
 from __future__ import annotations
@@ -34,11 +39,11 @@ def _markdown(verdicts: list[champion.Verdict]) -> str:
             f"## {v.table} — campeón `{v.champion}` "
             f"(MASE media {v.champion_mean} · mediana {v.champion_median}{crps_note})",
             "",
-            "| retador | MASE media | margen vs campeón | Wilcoxon p | Holm p | ¿promovible? |",
+            "| retador | MASE media | margen vs campeón | Wilcoxon p | Holm p | ¿apto hold-out h=1? |",
             "|---|---|---|---|---|---|",
         ]
         for c in v.challengers:
-            mark = "**SÍ**" if c["promotable"] else "no"
+            mark = "**SÍ**" if c.get("holdout_pass", c.get("promotable")) else "no"
             lines.append(
                 f"| `{c['challenger']}` | {c['mean']} | {c['mean_margin_vs_champion']:+.4f} "
                 f"| {c['wilcoxon_p']} | {c['holm_p']} | {mark} |"
@@ -46,9 +51,11 @@ def _markdown(verdicts: list[champion.Verdict]) -> str:
         rec = v.promote["challenger"] if v.promote else "ninguno — se mantiene el campeón"
         lines += ["", f"**Veredicto:** {rec}.", ""]
     lines += [
-        "> Margen >0 = el retador mejora la MASE media. La promoción exige Holm-significancia",
-        "> + margen material. La confirmación PROSPECTIVA (ledger congelado) requiere despliegue",
-        "> en sombra del retador; hoy el ledger solo califica al campeón desplegado.",
+        "> Margen >0 = el retador mejora la MASE media. `Apto hold-out h=1` = Holm-significativo",
+        "> + margen material en el hold-out retrospectivo — NO autoriza producción. La",
+        "> autorización la da el gate prospectivo pre-registrado (docs/PROMOTION_POLICY.md,",
+        "> decisión en reports/governance/promotion_decision.json) sobre pares live",
+        "> campeón-vs-sombra, aplicada por un humano con --promote.",
     ]
     return "\n".join(lines) + "\n"
 
@@ -71,7 +78,10 @@ def main() -> int:
             # NOT a gate — promotion still rides on point MASE + Wilcoxon/Holm.
             "champion_crps": champion.crps_champion(v.table),
             "challengers": v.challengers,
-            "promote": v.promote,
+            # A4: el veredicto es retrospectivo (hold-out h=1) y NO autoriza producción.
+            "gate_scope": "retrospective-holdout-h1 (ver docs/PROMOTION_POLICY.md)",
+            "holdout_winner": v.promote,
+            "promote": v.promote,  # alias deprecado (dual-read; retirar tras migrar consumidores)
         }
         for v in verdicts
     }
@@ -95,19 +105,29 @@ def main() -> int:
             )
 
     if args.promote:
+        from vp_model import promotion
+
+        decision_path = REPORTS / "governance" / "promotion_decision.json"
         changed = False
         for v in verdicts:
-            if v.promote:
-                # AP4: the winning Recipe travels serialized inside the verdict — the pretty
-                # display name is for humans only and is never parsed again.
-                champions[v.table] = champion.recipe_from_dict(v.promote["recipe"])
-                changed = True
-                print(f"  ↑ PROMOVIDO {v.table}: nuevo campeón = {v.promote['challenger']}")
+            if not v.promote:
+                continue
+            # A4: la aptitud retrospectiva NO basta — el gate prospectivo pre-registrado
+            # debe decir "promote" para esta tabla, o la promoción se rehúsa (fail closed).
+            ok, why = promotion.authorize(v.table, decision_path)
+            if not ok:
+                print(f"  ✗ PROMOCIÓN REHUSADA [{v.table}] {v.promote['challenger']}: {why}")
+                continue
+            # AP4: the winning Recipe travels serialized inside the verdict — the pretty
+            # display name is for humans only and is never parsed again.
+            champions[v.table] = champion.recipe_from_dict(v.promote["recipe"])
+            changed = True
+            print(f"  ↑ PROMOVIDO {v.table}: nuevo campeón = {v.promote['challenger']} ({why})")
         if changed:
             champion.save_manifest(champions)
             print(f"  manifiesto actualizado → {champion.MANIFEST}")
         else:
-            print("  --promote sin efecto: ningún retador es promovible")
+            print("  --promote sin efecto: ninguna tabla con aptitud hold-out + autorización prospectiva")
 
     return 0
 

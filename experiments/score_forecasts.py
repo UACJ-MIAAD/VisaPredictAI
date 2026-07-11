@@ -114,16 +114,28 @@ def _mode_blocks(sdf: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     return sdf[sdf["evaluation_mode"] == "backfill"], by_mode
 
 
+PAIR_KEYS = ["origin", "country", "category", "table", "target", "h"]
+
+
+def _pairs(champ: pd.DataFrame, shadow: pd.DataFrame) -> pd.DataFrame:
+    """Pares campeón/sombra por (añada, serie, target, h) con sufijos ``_champ``/``_shadow``.
+
+    Única definición del pareo (A3/A4): la consumen ``_head_to_head`` y el gate de
+    promoción (``experiments/run_promotion_gate.py``)."""
+    if not len(champ) or not len(shadow):
+        return pd.DataFrame()
+    return champ.merge(shadow, on=PAIR_KEYS, suffixes=("_champ", "_shadow"))
+
+
 def _head_to_head(champ: pd.DataFrame, shadow: pd.DataFrame) -> dict:
     """Comparación campeón-vs-sombra por pares del MISMO universo (A3 → gate A4).
 
     Un par = misma (añada, serie, fecha objetivo, h) puntuada en ambos ledgers. Solo se
     agregan pares cuyo ``evaluation_mode`` coincide en ambos lados (backfill con backfill,
     live con live); los pares de modo mixto se cuentan y se excluyen."""
-    if not len(champ) or not len(shadow):
+    pair = _pairs(champ, shadow)
+    if not len(pair):
         return {"n_pairs": 0, "n_mixed_mode_excluded": 0, "by_table": {}}
-    keys = ["origin", "country", "category", "table", "target", "h"]
-    pair = champ.merge(shadow, on=keys, suffixes=("_champ", "_shadow"))
     out: dict[str, object] = {"n_pairs": int(len(pair)), "n_mixed_mode_excluded": 0, "by_table": {}}
     if not len(pair):
         return out

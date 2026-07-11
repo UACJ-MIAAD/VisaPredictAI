@@ -1,0 +1,40 @@
+{
+  "policy": {
+    "policy_version": "1.0",
+    "preregistered_at": "2026-07-11",
+    "preregistered_with_zero_live_pairs": true,
+    "modes_allowed": [
+      "live"
+    ],
+    "horizon_bands": {
+      "h1_3": [
+        1,
+        3
+      ],
+      "h4_6": [
+        4,
+        6
+      ],
+      "h7_12": [
+        7,
+        12
+      ]
+    },
+    "min_pairs_per_band": 30,
+    "min_live_vintages": 3,
+    "material_margin": 0.1,
+    "max_band_regression": 0.05,
+    "min_cov95": 0.9,
+    "max_cov95_gap_vs_champion": 0.03,
+    "alpha_holm": 0.05,
+    "unit": "serie (mediana de scaled_err por serie y banda; réplicas exactas del corte mundial colapsan a una)",
+    "hypotheses": {
+      "h1": "H_A: el retador no es inferior al campeón a h=1 en pares live",
+      "h1_12": "H_A: el retador mejora materialmente al campeón en TODAS las bandas h=1..12 en pares live"
+    }
+  },
+  "by_table": {},
+  "n_pairs_total": 0,
+  "n_pairs_live": 0,
+  "note": "sin pares campeón-sombra aún — el gate espera añadas live puntuadas"
+}

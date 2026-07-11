@@ -26,8 +26,11 @@ renombrar sin actualizar esta matriz.
 
 **Vocabulario congelado:** *backfill sin fuga* (P4) · *añada servida en vivo* (P6) ·
 *hold-out de confirmación* (P2) · *región de selección* (P1) · *registro sombra* (P5) ·
-*promovible* = veredicto retrospectivo del gate en P2, **no** una autorización de
-despliegue (la promoción se decide con P5/P6, política A4).
+*apto en hold-out h=1* (`holdout_pass`, antes "promovible") = veredicto retrospectivo del
+gate en P2, **no** una autorización de despliegue — la promoción la decide el **gate
+prospectivo pre-registrado** (`docs/PROMOTION_POLICY.md` + `vp_model/promotion.py`,
+decisión mensual en `reports/governance/promotion_decision.json`) sobre pares live de
+P5/P6, aplicada por un humano con `--promote` (fail closed) y rollback versionado.
 
 ## Idea
 
