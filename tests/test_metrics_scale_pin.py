@@ -12,7 +12,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-pytest.importorskip("pandas")
+# vp_model.metrics importa darts a nivel módulo; el job dev de CI no lo instala
+# (mismo patrón que test_web_publish/test_scoring_modes).
+pytest.importorskip("darts")
 
 from vp_model.config import SEASONAL_PERIOD  # noqa: E402
 from vp_model.metrics import naive_scale_before, seasonal_naive_mae  # noqa: E402
