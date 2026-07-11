@@ -1,0 +1,7 @@
+{
+  "except_exception": 36,
+  "except_exception_unjustified": 9,
+  "type_ignore": 14,
+  "noqa": 138,
+  "todo_class": 8
+}

@@ -188,7 +188,10 @@ typecheck:
 validate:
 	bash tools/validate_structure.sh
 
-check: validate consistency lint typecheck test
+check-debt:  ## E3: trinquete de deuda (los conteos jamás suben; docs/debt_baseline.json)
+	$(PY) tools/check_debt.py
+
+check: validate consistency check-debt lint typecheck test
 
 all: freeze scrape panel db test figures audit
 

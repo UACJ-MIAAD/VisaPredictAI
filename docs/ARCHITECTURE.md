@@ -37,6 +37,13 @@ vp_data/       dominio de datos: parseo, limpieza, config, contratos, tracking
 
 ## Decisiones deliberadas (no "faltantes")
 
+- **Adaptación de CCDS, no conformidad (I1):** la estructura está *inspirada en
+  Cookiecutter Data Science v2* (que fomenta adaptar), con desviaciones deliberadas:
+  `src/` único → **dos paquetes** con dirección de capas (`vp_data`/`vp_model`) +
+  `pipeline/` ejecutable; `notebooks/` no existe (todo es script reproducible);
+  `models/` binarios van por DVC→S3 (`models.dvc`), no en git; `data/external|interim`
+  → `snapshots/raw/processed` propios del dominio; `references/` → `docs/` + `reports/`
+  por rol. `tools/validate_structure.sh` certifica ESTE contrato, no la plantilla.
 - **Sin framework DI** (aceptación E1): las costuras son parámetros con default
   (`stamp_rows(vintage=…, phash=…)`, `check(root=…, contracts_dir=…)`) — suficientes
   para pruebas herméticas, cero ceremonia.

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Valida que el repo conserve la estructura cookiecutter documentada en el README.
+# Valida el CONTRATO ESTRUCTURAL PROPIO del repo (adaptado de Cookiecutter Data Science
+# v2, que a su vez fomenta la adaptación) documentado en el README — I1: certifica el
+# contrato de ESTE repo, no conformidad con una plantilla externa.
 # v2 (plan V3, U1): además de exigir lo canónico, la RAÍZ es un whitelist cerrado —
 # el guardián anterior tenía los 19 scripts sueltos en su lista `required`, o sea
 # que codificaba el desorden en lugar de impedirlo. Falla (exit 1) si:
@@ -67,7 +69,7 @@ if [ -n "$loose" ]; then
 fi
 
 if [ "$fail" -eq 0 ]; then
-  echo "OK estructura cookiecutter intacta · raíz limpia (0 .py) · 0 archivos sueltos"
+  echo "OK contrato estructural propio (adaptación CCDS) intacto · raíz limpia (0 .py) · 0 sueltos"
 else
   echo "--- estructura ROTA (ver arriba) ---"
 fi

@@ -63,7 +63,7 @@ VisaPredictAI/
 │   ├── backfill_vintages.sh            # siembra reproducible del ledger (añada viva + históricas leakage-free + scoring)
 │   ├── make_*_figures.py               # generadores de figuras del .tex → reports/latex/Figures/ (data/eda/fe/result/hero/latinometrics)
 │   └── visualize_wait_times.py         # gráficas por país → reports/figures/wait_times/ (no versionadas)
-├── tools/validate_structure.sh         # valida la estructura cookiecutter + whitelist de raíz (make validate; gate de CI)
+├── tools/validate_structure.sh         # valida el contrato estructural propio, adaptado de CCDS (make validate; gate de CI)
 ├── reports/latex/                      # ★ fuente LaTeX del entregable (Overleaf importa de aquí) + Figures/
 ├── reports/campaign/                   # procedencia de la campaña de modelado (pools 21 modelos + barridos deep por semilla)
 ├── reports/eval/                       # evaluación retrospectiva (comparaciones, significancia, tuning, PI, CRPS, holdouts)

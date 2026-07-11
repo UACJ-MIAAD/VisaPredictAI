@@ -160,3 +160,7 @@ jobs:
       # de cada artefacto publicado + corte de añada única. Cero dependencias.
       - name: Check artifact contracts
         run: python tools/check_contracts.py
+      # E3: trinquete de deuda — los marcadores (except amplios sin razón, ignores,
+      # TODOs) jamás suben respecto a docs/debt_baseline.json. Cero dependencias.
+      - name: Check debt ratchet
+        run: python tools/check_debt.py
