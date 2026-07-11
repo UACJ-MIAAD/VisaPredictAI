@@ -175,3 +175,7 @@ jobs:
       # deliverable/investigacion/diagnostico/archivo) con consumidor declarado.
       - name: Check experiments inventory
         run: python tools/check_experiments_inventory.py
+      # D2: catálogo gobernado de modelos — baselines obligatorias en toda tabla de
+      # comparación; el manifiesto campeón solo despliega clase 'active'.
+      - name: Check model catalog
+        run: python tools/check_model_catalog.py
