@@ -33,6 +33,7 @@ auto-selection IS the tuning. This module covers the GBMs; deep HPO lives in
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -58,6 +59,24 @@ VAL_CONFIRM = 12  # months: independent confirmation tail (acceptance, AK6)
 SPACE_VERSION = "v2"
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
 OPTUNA_DB = REPORTS / "eval" / "optuna.db"
+
+
+@contextmanager
+def _sqlite_storage(url: str | None):
+    """E3: el RDBStorage de Optuna posee un engine SQLAlchemy que nadie disponía —
+    la suite acumulaba 18 conexiones sqlite vivas hasta el GC (ResourceWarning).
+    Este context manager las cierra determinísticamente; ``None`` resuelve a la BD
+    persistente por defecto (AK4)."""
+    import optuna
+
+    if url is None:
+        OPTUNA_DB.parent.mkdir(parents=True, exist_ok=True)
+        url = f"sqlite:///{OPTUNA_DB}"
+    st = optuna.storages.RDBStorage(url=url)
+    try:
+        yield st
+    finally:
+        st.engine.dispose()
 
 
 @dataclass(frozen=True)
@@ -315,33 +334,32 @@ def tune(
     default = _mean_sel_mase(model_name, grp, None)
 
     study_name = f"hpo-{model_name}-{table}-{block}-{SPACE_VERSION}"
-    if storage is None:
-        OPTUNA_DB.parent.mkdir(parents=True, exist_ok=True)
-        storage = f"sqlite:///{OPTUNA_DB}"
-    study = optuna.create_study(
-        study_name=study_name,
-        storage=storage,
-        load_if_exists=True,
-        direction="minimize",
-        sampler=optuna.samplers.TPESampler(multivariate=True, group=True, seed=RANDOM_SEED),
-        pruner=optuna.pruners.MedianPruner(n_startup_trials=10, n_warmup_steps=8),
-    )
+    with _sqlite_storage(storage) as st:
+        study = optuna.create_study(
+            study_name=study_name,
+            storage=st,
+            load_if_exists=True,
+            direction="minimize",
+            sampler=optuna.samplers.TPESampler(multivariate=True, group=True, seed=RANDOM_SEED),
+            pruner=optuna.pruners.MedianPruner(n_startup_trials=10, n_warmup_steps=8),
+        )
 
-    def objective(trial: optuna.Trial) -> float:
-        return _mean_sel_mase(model_name, grp, _suggest(trial, model_name), trial=trial)
+        def objective(trial: optuna.Trial) -> float:
+            return _mean_sel_mase(model_name, grp, _suggest(trial, model_name), trial=trial)
 
-    callbacks = [_tracking_callback(model_name, table, block)] if mlflow else []
-    study.optimize(objective, n_trials=n_trials, callbacks=callbacks, show_progress_bar=False)
+        callbacks = [_tracking_callback(model_name, table, block)] if mlflow else []
+        study.optimize(objective, n_trials=n_trials, callbacks=callbacks, show_progress_bar=False)
 
-    trials_csv = REPORTS / "campaign" / f"hpo_trials_{study_name}.csv"
-    trials_csv.parent.mkdir(parents=True, exist_ok=True)
-    study.trials_dataframe().to_csv(trials_csv, index=False)  # provenance (AK4)
+        trials_csv = REPORTS / "campaign" / f"hpo_trials_{study_name}.csv"
+        trials_csv.parent.mkdir(parents=True, exist_ok=True)
+        study.trials_dataframe().to_csv(trials_csv, index=False)  # provenance (AK4)
 
-    n_pruned = sum(t.state == optuna.trial.TrialState.PRUNED for t in study.trials)
-    try:
-        best_params, best_value = dict(study.best_params), float(study.best_value)
-    except ValueError:  # every trial pruned/failed
-        best_params, best_value = {}, float("inf")
+        n_all = len(study.trials)
+        n_pruned = sum(t.state == optuna.trial.TrialState.PRUNED for t in study.trials)
+        try:
+            best_params, best_value = dict(study.best_params), float(study.best_value)
+        except ValueError:  # every trial pruned/failed
+            best_params, best_value = {}, float("inf")
     return TuneResult(
         model=model_name,
         table=table,
@@ -349,7 +367,7 @@ def tune(
         study_name=study_name,
         best_params=best_params,
         best_score=best_value,
-        n_trials=len(study.trials),
+        n_trials=n_all,
         n_pruned=n_pruned,
         default_score=default,
     )
@@ -379,8 +397,9 @@ def rank_check(
     from vp_model import walkforward
 
     study_name = f"hpo-{model_name}-{table}-{block}-{SPACE_VERSION}"
-    study = optuna.load_study(study_name=study_name, storage=storage or f"sqlite:///{OPTUNA_DB}")
-    done = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE and t.value is not None]
+    with _sqlite_storage(storage) as st:
+        study = optuna.load_study(study_name=study_name, storage=st)
+        done = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE and t.value is not None]
     top = sorted(done, key=lambda t: t.value)[:n_top]  # type: ignore[arg-type, return-value]
     grp = _group_series(table, block)[:n_series]
 
@@ -446,10 +465,11 @@ def deploy_winner_params(
     if df.empty:
         return None
     trial_no = int(df.loc[df["deploy_sel"].idxmin(), "trial"])
-    study = optuna.load_study(study_name=study_name, storage=storage or f"sqlite:///{OPTUNA_DB}")
-    for t in study.trials:
-        if t.number == trial_no:
-            return dict(t.params)
+    with _sqlite_storage(storage) as st:
+        study = optuna.load_study(study_name=study_name, storage=st)
+        for t in study.trials:
+            if t.number == trial_no:
+                return dict(t.params)
     return None
 
 

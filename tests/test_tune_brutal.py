@@ -186,9 +186,11 @@ def test_tune_smoke_persistent_storage_pruner_and_tracking(monkeypatch, tmp_path
     assert set(res.best_params) >= {"lags", "learning_rate", "n_estimators"}
 
     # persistencia (AK4): reabrir el estudio y REANUDAR sin descartar historial
-    study = optuna.load_study(study_name=res.study_name, storage=storage)
-    assert len(study.trials) == 3
-    assert isinstance(study.pruner, optuna.pruners.MedianPruner)
+    # (E3: vía el context manager — un load_study con url cruda deja el engine vivo)
+    with tune._sqlite_storage(storage) as st:
+        study = optuna.load_study(study_name=res.study_name, storage=st)
+        assert len(study.trials) == 3
+        assert isinstance(study.pruner, optuna.pruners.MedianPruner)
     res2 = tune.tune("lightgbm", n_trials=1, series=grp, storage=storage)
     assert res2.n_trials == 4  # acumula, no reinicia
 
@@ -250,8 +252,9 @@ def test_select_by_deploy_reranks_best_params_by_deploy_score(monkeypatch, tmp_p
     run_tuning.main(
         ["--models", "lightgbm", "--groups", "FAD_family", "--n-trials", "5", "--out", str(out), "--storage", storage]
     )
-    study = optuna.load_study(study_name=f"hpo-lightgbm-FAD-family-{tune.SPACE_VERSION}", storage=storage)
-    done = sorted([t for t in study.trials if t.value is not None], key=lambda t: t.value)
+    with tune._sqlite_storage(storage) as st:
+        study = optuna.load_study(study_name=f"hpo-lightgbm-FAD-family-{tune.SPACE_VERSION}", storage=st)
+        done = sorted([t for t in study.trials if t.value is not None], key=lambda t: t.value)
     obj_winner, deploy_winner = done[0], done[-1]  # peor-por-objetivo -> mejor-por-deploy
     assert obj_winner.number != deploy_winner.number
     assert json.loads(out.read_text())["lightgbm"]["FAD_family"]["best_params"] == dict(obj_winner.params)
