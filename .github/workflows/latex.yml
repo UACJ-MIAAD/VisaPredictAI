@@ -1,0 +1,76 @@
+# H1 (plan auditoría 2026-07-11): gate LaTeX reproducible — compila la tesis (ProyectoI),
+# el anteproyecto y el paper MICAI desde un clone limpio, en una imagen TeX Live COMPLETA
+# fijada (resuelve el tocloft.sty que falta en instalaciones locales), con 3 pasadas para
+# estabilizar referencias, y falla ante refs/citas indefinidas, labels duplicados o un
+# censo de overfull sobre el umbral documentado. PDFs y logs quedan como artefactos.
+# El gate es de VERIFICACIÓN: Overleaf sigue siendo el compilador oficial del entregable.
+name: LaTeX gate
+
+on:
+  push:
+    paths:
+      - "reports/latex/**"
+      - "reports/paper_micai/**"
+      - "tools/check_latex_log.sh"
+      - ".github/workflows/latex.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: latex-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    container: texlive/texlive:latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+
+      - name: Compilar ProyectoI (3 pasadas)
+        working-directory: reports/latex
+        run: |
+          for i in 1 2 3; do
+            pdflatex -interaction=nonstopmode -halt-on-error ProyectoI_VisaPredictAI.tex > /dev/null \
+              || { echo "── pasada $i FALLÓ ──"; tail -60 ProyectoI_VisaPredictAI.log; exit 1; }
+          done
+
+      - name: Compilar Anteproyecto (3 pasadas)
+        working-directory: reports/latex
+        run: |
+          for i in 1 2 3; do
+            pdflatex -interaction=nonstopmode -halt-on-error AnteproyectoVisaPredictAI.tex > /dev/null \
+              || { echo "── pasada $i FALLÓ ──"; tail -60 AnteproyectoVisaPredictAI.log; exit 1; }
+          done
+
+      - name: Compilar paper MICAI (3 pasadas)
+        working-directory: reports/paper_micai
+        run: |
+          for i in 1 2 3; do
+            pdflatex -interaction=nonstopmode -halt-on-error paper.tex > /dev/null \
+              || { echo "── pasada $i FALLÓ ──"; tail -60 paper.log; exit 1; }
+          done
+
+      # Umbrales de overfull DOCUMENTADOS por documento (baseline del primer run verde;
+      # se aprietan al bajar, nunca se aflojan en silencio). Referencias/citas
+      # indefinidas y labels duplicados son SIEMPRE bloqueantes.
+      - name: Gate de logs (refs, citas, labels, overfull)
+        run: |
+          bash tools/check_latex_log.sh reports/latex/ProyectoI_VisaPredictAI.log 999 999
+          bash tools/check_latex_log.sh reports/latex/AnteproyectoVisaPredictAI.log 999 999
+          bash tools/check_latex_log.sh reports/paper_micai/paper.log 999 999
+
+      - name: PDFs y logs como artefactos
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: latex-pdfs-and-logs
+          path: |
+            reports/latex/*.pdf
+            reports/latex/*.log
+            reports/paper_micai/*.pdf
+            reports/paper_micai/*.log
+          retention-days: 14
