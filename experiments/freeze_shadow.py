@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from experiments import generate_web_forecasts as gwf  # noqa: E402 — band method single-source
 from vp_data import tracking  # noqa: E402
-from vp_model import champion, config, dataset, intervals, metrics, models  # noqa: E402
+from vp_model import champion, config, dataset, intervals, ledger, metrics, models  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
@@ -43,7 +43,7 @@ SHADOW_LOG = REPORTS / "prospective" / "forecast_log_shadow.csv"
 VERDICT = REPORTS / "governance" / "champion_challenger.json"
 WEB_META = REPORTS / "prospective" / "web_forecasts_meta.json"
 HORIZON = 12
-SHADOW_KEYS = ["origin", "country", "category", "table", "date"]
+SHADOW_KEYS = ledger.KEYS  # A2: clave idempotente única para ambos ledgers
 
 log = config.get_logger("freeze_shadow")
 
@@ -159,12 +159,13 @@ def append_shadow(rows: list[dict]) -> Path:
 
     Same C3 contract as the champion ledger: a frozen shadow forecast is NEVER
     overwritten; re-runs within the same vintage are no-ops.
+
+    A2: rows are stamped with the shared v2 freeze identity (``vp_model.ledger``);
+    ``model_version`` comes from each row's ``recipe`` column, and ``evaluation_mode``
+    follows the same target-vs-panel-vintage rule as the champion ledger.
     """
-    SHADOW_LOG.parent.mkdir(parents=True, exist_ok=True)
-    new = pd.DataFrame(rows)
-    combined = pd.concat([pd.read_csv(SHADOW_LOG), new], ignore_index=True) if SHADOW_LOG.exists() else new
-    combined = combined.drop_duplicates(subset=SHADOW_KEYS, keep="first").sort_values(SHADOW_KEYS)
-    combined.to_csv(SHADOW_LOG, index=False)
+    stamped = ledger.stamp_rows(rows, None)  # model_version = per-row "recipe"
+    ledger.append(SHADOW_LOG, stamped)
     return SHADOW_LOG
 
 

@@ -51,7 +51,7 @@ import pandas as pd
 from darts import TimeSeries
 
 from vp_data import tracking
-from vp_model import champion, config, dataset, intervals, metrics, models
+from vp_model import champion, config, dataset, intervals, ledger, metrics, models
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
@@ -293,24 +293,26 @@ def _compute_series_forecast(
 
 
 WEB_COLS = ["country", "category", "table", "date", "days", "lo80", "hi80", "lo95", "hi95"]
-LOG_COLS = ["origin", "h", *WEB_COLS, "band_method"]
-LOG_KEYS = ["origin", "country", "category", "table", "date"]
+LOG_COLS = ["origin", "h", *WEB_COLS, "band_method", *ledger.V2_COLS]
+LOG_KEYS = ledger.KEYS
 
 
-def _append_log(rows: list[dict]) -> Path:
+def _append_log(rows: list[dict], model_version: str | dict[str, str] | None = "n/d", as_of: str | None = None) -> Path:
     """Anexa la añada al ledger append-only ``reports/prospective/forecast_log.csv`` (idempotente
     por (origin, serie, fecha-objetivo)). Es el registro inmutable de lo que
     predijimos y desde cuándo — base de la evaluación prospectiva (``score_forecasts``).
 
     C3: ``keep="first"`` — un pronóstico ya congelado NUNCA se sobrescribe. Con
     ``keep="last"`` un re-run (código/semilla distinta) reemplazaba añadas ya
-    archivadas e invalidaba la evaluación prospectiva."""
+    archivadas e invalidaba la evaluación prospectiva.
+
+    A2: cada fila nueva se sella con la identidad de freeze v2 (``vp_model.ledger``):
+    ``frozen_at``/``panel_hash``/``git_sha``/``model_version`` + ``evaluation_mode``
+    (``live`` solo si el target era desconocido al vintage del panel; todo ``as_of``
+    explícito es ``backfill``)."""
     log_path = REPORTS / "prospective" / "forecast_log.csv"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    new = pd.DataFrame(rows)[LOG_COLS]
-    combined = pd.concat([pd.read_csv(log_path), new], ignore_index=True) if log_path.exists() else new
-    combined = combined.drop_duplicates(subset=LOG_KEYS, keep="first").sort_values(LOG_KEYS)
-    combined.to_csv(log_path, index=False)
+    stamped = ledger.stamp_rows(rows, model_version, as_of=as_of)
+    combined = ledger.append(log_path, stamped, cols=LOG_COLS)
     log.info("ledger -> %s (%d filas, %d añadas)", log_path, len(combined), combined["origin"].nunique())
     return log_path
 
@@ -325,7 +327,8 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
     # (experiments/run_champion_challenger.py --promote) es lo ÚNICO que la cambia, de forma
     # auditada. Punto = mediana del conjunto (1 elemento = ese modelo). Fallback a la receta
     # histórica si el manifiesto no existe. (AP5: loaded here, not at import time.)
-    prod: dict[str, tuple[str, ...]] = {t: r.models for t, r in champion.load_manifest().items()}
+    manifest = champion.load_manifest()
+    prod: dict[str, tuple[str, ...]] = {t: r.models for t, r in manifest.items()}
     pi_scales = _load_pi_scales()
     aci_gamma = _load_aci_gamma()
     hits = _ledger_hits()
@@ -355,7 +358,9 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
             "— entorno roto a medias; no se publica ni se archiva la añada"
         )
 
-    _append_log(all_rows)  # archiva la añada (cualquier as_of)
+    # A2: la añada se archiva con identidad de freeze — receta desplegada por tabla y
+    # modo honesto (as_of explícito ⇒ backfill; en vivo, live solo si el target es futuro).
+    _append_log(all_rows, model_version={t: r.name for t, r in manifest.items()}, as_of=as_of)
     # La añada en vivo (as_of=None) es además la que sirve la web; el meta describe el
     # CSV vivo, así que un backfill histórico NO debe reescribirlo (C3).
     if as_of is None:
