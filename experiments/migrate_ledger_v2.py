@@ -115,8 +115,27 @@ def migrate(path_key: str, force: bool = False) -> bool:
     is_shadow = "shadow" in path_key
     panel_cache: dict = {}
     recipe_cache: dict = {}
-    key_of = lambda r: (str(r["origin"]), str(r["country"]), str(r["category"]), str(r["table"]), str(r["date"]))  # noqa: E731
+
+    # Acta de nacimiento CONTENT-AWARE: el primer commit donde aparece la fila TAL COMO ES
+    # HOY (clave + punto + banda 95 + receta), no solo su clave. Diferencia real: el ledger
+    # sombra fue REGENERADO el 4-jul-2026 (623de4d sombreaba theta/ets; deb0f3f, el blind
+    # audit, lo reescribió a naive1 con las mismas claves) — pre-contrato v2. Con clave sola,
+    # la fila de hoy heredaría el acta (y la receta) de un contenido que ya no existe.
+    def content_key(r: dict) -> tuple:
+        return (
+            str(r["origin"]),
+            str(r["country"]),
+            str(r["category"]),
+            str(r["table"]),
+            str(r["date"]),
+            str(r.get("days", "")),
+            str(r.get("lo95", "")),
+            str(r.get("hi95", "")),
+            str(r.get("recipe", "")),
+        )
+
     birth: dict[tuple, dict] = {}
+    key_births: dict[tuple, str] = {}  # primera aparición de la CLAVE (para detectar reescrituras)
     for sha, ts in _commits(LEDGERS[path_key]):
         raw = _show(sha, LEDGERS[path_key])
         if raw is None:
@@ -126,7 +145,8 @@ def migrate(path_key: str, force: bool = False) -> bool:
         recipes = _recipes_at(sha, recipe_cache)
         sha12 = sha[:12]
         for r in hist.to_dict("records"):
-            k = key_of(r)
+            k = content_key(r)
+            key_births.setdefault(k[:5], sha12)
             if k in birth:
                 continue
             mv = str(r.get("recipe", "n/d")) if is_shadow else recipes.get(str(r["table"]), "n/d")
@@ -139,9 +159,13 @@ def migrate(path_key: str, force: bool = False) -> bool:
             }
 
     unmatched = 0
+    rewritten = 0
     stamps: list[dict] = []
     for r in df.to_dict("records"):
-        b = birth.get(key_of(r))
+        ck = content_key(r)
+        b = birth.get(ck)
+        if b is not None and key_births.get(ck[:5]) != b["git_sha"]:
+            rewritten += 1  # la clave existía antes con OTRO contenido (reescritura pre-v2)
         if b is None:  # fila aún sin commit (árbol sucio) — identidad del estado actual
             unmatched += 1
             b = {
@@ -155,6 +179,13 @@ def migrate(path_key: str, force: bool = False) -> bool:
         row = {**r, **b, "evaluation_mode": mode}
         row["forecast_id"] = ledger.forecast_id(row)
         stamps.append(row)
+    if rewritten:
+        log.warning(
+            "%s: %d fila(s) cuyo contenido actual NO es el primero de su clave — el ledger fue "
+            "reescrito antes del contrato v2; el acta refleja el commit del contenido vigente",
+            path_key,
+            rewritten,
+        )
 
     out = pd.DataFrame(stamps)[list(original.columns) + ledger.V2_COLS]
     # Garantía: las columnas originales quedan byte-idénticas o se aborta.

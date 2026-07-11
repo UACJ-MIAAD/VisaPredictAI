@@ -11,9 +11,17 @@ Por cada fila del ledger cuyo mes-objetivo ya tiene un corte real (estado F en e
     naïve estacional in-sample hasta el origen (leakage-free, misma def. que el .tex);
   • cobertura: ¿el real cayó dentro de la banda 80 % / 95 %?
 
-Agrega global, por horizonte h=1..12 y por tabla. Salidas:
-  • reports/prospective/forecast_scorecard.csv       — una fila por predicción ya evaluable
-  • reports/prospective/forecast_scorecard_meta.json — agregados (MAE/MASE/cobertura, n)
+Agrega global, por horizonte h=1..12 y por tabla. **A3 (plan auditoría 2026-07-11):** el
+ledger SOMBRA se puntúa con la MISMA maquinaria (máscara F, escala, universo) a archivos
+propios, los agregados JAMÁS combinan ``evaluation_mode`` backfill y live (``overall``/
+``by_horizon``/``by_table`` quedan anclados al modo backfill; ``by_mode`` reporta cada
+modo por separado) y se emite la comparación campeón-vs-sombra por pares del mismo
+universo, consumible por el gate de promoción (A4). Salidas:
+  • reports/prospective/forecast_scorecard.csv         — una fila por predicción campeón evaluable
+  • reports/prospective/forecast_scorecard_meta.json   — agregados (MAE/MASE/cobertura, n, by_mode)
+  • reports/prospective/forecast_scorecard_shadow.csv  — ídem para el ledger sombra
+  • reports/prospective/forecast_scorecard_shadow_meta.json
+  • reports/prospective/prospective_head_to_head.json  — pares campeón/sombra (mismo modo)
 Tracking MLflow (experimento "web_forecast_scoring") es para desarrollo local; el registro
 DURABLE es el scorecard commiteado en git (en CI el staging MLflow es efímero).
 
@@ -63,9 +71,92 @@ def _score_rows(fc: pd.DataFrame, actuals: dict, scale_for) -> tuple[list[dict],
                 "scaled_err": abs_err / sc,
                 "in80": int(r.lo80 <= actual <= r.hi80),
                 "in95": int(r.lo95 <= actual <= r.hi95),
+                # A3: el modo y la receta viajan del ledger v2 al scorecard para que los
+                # agregados puedan separarse; frames pre-v2 (demo/tests) degradan a n/d.
+                "evaluation_mode": getattr(r, "evaluation_mode", "n/d"),
+                "model_version": getattr(r, "model_version", "n/d"),
             }
         )
     return scored, pending
+
+
+def _agg(d: pd.DataFrame) -> dict:
+    # AN7: every reported coverage carries a Jeffreys CI and its n; below the n floor
+    # the block is flagged insufficient_n (a coverage on a handful of points is noise).
+    n = int(len(d))
+    out: dict[str, object] = {
+        "n": n,
+        "mae_days": round(float(d["abs_err"].mean()), 1),
+        "mase": round(float(d["scaled_err"].mean()), 4),
+        "cov80": round(float(d["in80"].mean()), 3),
+        "cov95": round(float(d["in95"].mean()), 3),
+    }
+    for col in ("in80", "in95"):
+        lo, hi = intervals.jeffreys_ci(int(d[col].sum()), n)
+        out[f"cov{col[2:]}_ci95"] = [round(lo, 3), round(hi, 3)]
+    if n < N_FLOOR:
+        out["insufficient_n"] = True
+    return out
+
+
+def _mode_blocks(sdf: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """(filas backfill, bloques por modo) — A3: los agregados JAMÁS combinan modos.
+
+    ``overall``/``by_horizon``/``by_table`` del meta se anclan al modo ``backfill``
+    (hoy el único con filas puntuadas); cada modo reporta su propio bloque en
+    ``by_mode`` y las añadas ``live`` se acumulan ahí sin diluirse ni diluir."""
+    if not len(sdf) or "evaluation_mode" not in sdf.columns:
+        return sdf, {}
+    by_mode = {
+        str(mode): {"overall": _agg(g), "by_horizon": {int(h): _agg(gh) for h, gh in g.groupby("h")}}
+        for mode, g in sdf.groupby("evaluation_mode")
+    }
+    return sdf[sdf["evaluation_mode"] == "backfill"], by_mode
+
+
+def _head_to_head(champ: pd.DataFrame, shadow: pd.DataFrame) -> dict:
+    """Comparación campeón-vs-sombra por pares del MISMO universo (A3 → gate A4).
+
+    Un par = misma (añada, serie, fecha objetivo, h) puntuada en ambos ledgers. Solo se
+    agregan pares cuyo ``evaluation_mode`` coincide en ambos lados (backfill con backfill,
+    live con live); los pares de modo mixto se cuentan y se excluyen."""
+    if not len(champ) or not len(shadow):
+        return {"n_pairs": 0, "n_mixed_mode_excluded": 0, "by_table": {}}
+    keys = ["origin", "country", "category", "table", "target", "h"]
+    pair = champ.merge(shadow, on=keys, suffixes=("_champ", "_shadow"))
+    out: dict[str, object] = {"n_pairs": int(len(pair)), "n_mixed_mode_excluded": 0, "by_table": {}}
+    if not len(pair):
+        return out
+    same = pair[pair["evaluation_mode_champ"] == pair["evaluation_mode_shadow"]]
+    out["n_mixed_mode_excluded"] = int(len(pair) - len(same))
+
+    def _side(g: pd.DataFrame, suffix: str) -> dict:
+        return {
+            "mase": round(float(g[f"scaled_err{suffix}"].mean()), 4),
+            "mae_days": round(float(g[f"abs_err{suffix}"].mean()), 1),
+            "model_version": sorted(g[f"model_version{suffix}"].astype(str).unique()),
+        }
+
+    tables: dict[str, dict] = {}
+    for (table, mode), g in same.groupby(["table", "evaluation_mode_champ"]):
+        blk: dict[str, object] = {
+            "n": int(len(g)),
+            "champion": _side(g, "_champ"),
+            "shadow": _side(g, "_shadow"),
+            "by_horizon": {
+                int(h): {
+                    "n": int(len(gh)),
+                    "champion_mase": round(float(gh["scaled_err_champ"].mean()), 4),
+                    "shadow_mase": round(float(gh["scaled_err_shadow"].mean()), 4),
+                }
+                for h, gh in g.groupby("h")
+            },
+        }
+        if len(g) < N_FLOOR:
+            blk["insufficient_n"] = True
+        tables.setdefault(str(table), {})[str(mode)] = blk
+    out["by_table"] = tables
+    return out
 
 
 def run() -> Path | None:
@@ -103,30 +194,15 @@ def run() -> Path | None:
     if n_no_scale:
         log.warning("%d fila(s) evaluable(s) sin escala naïve válida (excluidas del MASE)", n_no_scale)
 
-    def agg(d: pd.DataFrame) -> dict:
-        # AN7: every reported coverage carries a Jeffreys CI and its n; below the n floor
-        # the block is flagged insufficient_n (a coverage on a handful of points is noise).
-        n = int(len(d))
-        out: dict[str, object] = {
-            "n": n,
-            "mae_days": round(float(d["abs_err"].mean()), 1),
-            "mase": round(float(d["scaled_err"].mean()), 4),
-            "cov80": round(float(d["in80"].mean()), 3),
-            "cov95": round(float(d["in95"].mean()), 3),
-        }
-        for col in ("in80", "in95"):
-            lo, hi = intervals.jeffreys_ci(int(d[col].sum()), n)
-            out[f"cov{col[2:]}_ci95"] = [round(lo, 3), round(hi, 3)]
-        if n < N_FLOOR:
-            out["insufficient_n"] = True
-        return out
-
-    overall = agg(sdf) if len(sdf) else {"n": 0}
-    by_h = {int(h): agg(g) for h, g in sdf.groupby("h")} if len(sdf) else {}
-    by_table = {t: agg(g) for t, g in sdf.groupby("table")} if len(sdf) else {}
+    # A3: overall/by_horizon/by_table se ANCLAN al modo backfill — cuando las añadas live
+    # empiecen a puntuar viven en by_mode; ningún agregado combina modos jamás.
+    back, by_mode = _mode_blocks(sdf)
+    overall = _agg(back) if len(back) else {"n": 0}
+    by_h = {int(h): _agg(g) for h, g in back.groupby("h")} if len(back) else {}
+    by_table = {t: _agg(g) for t, g in back.groupby("table")} if len(back) else {}
     # cov80 HELD-OUT: cobertura de la banda 80 % sobre las añadas NO usadas para calibrar
     # BAND80_RATIO → out-of-sample, no circular (overall.cov80 sí incluye calibración).
-    heldout = sdf[~sdf["origin"].isin(config.BAND80_CAL_VINTAGES)] if len(sdf) else sdf
+    heldout = back[~back["origin"].isin(config.BAND80_CAL_VINTAGES)] if len(back) else back
     # n efectivo por añada: muchas añadas (orígenes con último-F antiguo) NO aportan filas
     # evaluables (sus meses-objetivo caen en régimen C/U) → honestidad: el grueso del n
     # viene de pocas añadas recientes. Se reporta el desglose para no inflar la amplitud.
@@ -134,6 +210,11 @@ def run() -> Path | None:
     meta = {
         "what": "evaluación prospectiva (pronóstico congelado vs corte realmente publicado)",
         "caveat": "backfill leakage-free; NO equivale a haber servido los pronósticos en tiempo real",
+        "aggregation_scope": (
+            "overall/by_horizon/by_table = SOLO filas evaluation_mode=backfill (A3); "
+            "las añadas live se reportan aparte en by_mode y JAMÁS se agregan junto al backfill"
+        ),
+        "by_mode": by_mode,
         "n_scored": int(len(sdf)),
         "n_no_scale": n_no_scale,
         "n_pending": int(pending),
@@ -161,6 +242,45 @@ def run() -> Path | None:
     (REPORTS / "prospective" / "forecast_scorecard_meta.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2) + "\n"
     )
+
+    # A3: el ledger sombra se puntúa con la MISMA maquinaria y el mismo universo de
+    # actuals, a archivos propios (jamás se mezcla con el scorecard del campeón), y se
+    # emite la comparación campeón-vs-sombra por pares para el gate de promoción (A4).
+    shadow_path = REPORTS / "prospective" / "forecast_log_shadow.csv"
+    if shadow_path.exists():
+        sfc = pd.read_csv(shadow_path)
+        s_scored, s_pending = _score_rows(sfc, actuals, scale_for)
+        s_sdf = pd.DataFrame(s_scored)
+        s_sdf.to_csv(REPORTS / "prospective" / "forecast_scorecard_shadow.csv", index=False)
+        _s_back, s_by_mode = _mode_blocks(s_sdf)
+        shadow_meta = {
+            "what": "scoring del ledger SOMBRA (retador) con la misma maquinaria y universo que el campeón (A3)",
+            "caveat": "backfill leakage-free; NO equivale a haber servido los pronósticos en tiempo real",
+            "n_scored": int(len(s_sdf)),
+            "n_pending": int(s_pending),
+            "by_mode": s_by_mode,
+            "recipes": sorted(sfc["recipe"].astype(str).unique().tolist()) if "recipe" in sfc.columns else [],
+        }
+        (REPORTS / "prospective" / "forecast_scorecard_shadow_meta.json").write_text(
+            json.dumps(shadow_meta, ensure_ascii=False, indent=2) + "\n"
+        )
+        h2h = {
+            "what": (
+                "campeón vs sombra por pares (misma añada/serie/target/h y MISMO "
+                "evaluation_mode) — insumo del gate de promoción (A4)"
+            ),
+            **_head_to_head(sdf, s_sdf),
+        }
+        (REPORTS / "prospective" / "prospective_head_to_head.json").write_text(
+            json.dumps(h2h, ensure_ascii=False, indent=2) + "\n"
+        )
+        log.info(
+            "SOMBRA: n=%d puntuadas (%d pendientes) · head-to-head: %d pares (%d de modo mixto excluidos)",
+            len(s_sdf),
+            s_pending,
+            h2h["n_pairs"],
+            h2h["n_mixed_mode_excluded"],
+        )
 
     if len(sdf):
         tracking.log_run(

@@ -1,0 +1,10 @@
+{
+  "what": "scoring del ledger SOMBRA (retador) con la misma maquinaria y universo que el campeón (A3)",
+  "caveat": "backfill leakage-free; NO equivale a haber servido los pronósticos en tiempo real",
+  "n_scored": 0,
+  "n_pending": 1164,
+  "by_mode": {},
+  "recipes": [
+    "naive1"
+  ]
+}

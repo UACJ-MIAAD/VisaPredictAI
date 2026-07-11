@@ -1,6 +1,208 @@
 {
   "what": "evaluación prospectiva (pronóstico congelado vs corte realmente publicado)",
   "caveat": "backfill leakage-free; NO equivale a haber servido los pronósticos en tiempo real",
+  "aggregation_scope": "overall/by_horizon/by_table = SOLO filas evaluation_mode=backfill (A3); las añadas live se reportan aparte en by_mode y JAMÁS se agregan junto al backfill",
+  "by_mode": {
+    "backfill": {
+      "overall": {
+        "n": 2944,
+        "mae_days": 145.7,
+        "mase": 0.3474,
+        "cov80": 0.804,
+        "cov95": 0.924,
+        "cov80_ci95": [
+          0.79,
+          0.818
+        ],
+        "cov95_ci95": [
+          0.914,
+          0.933
+        ]
+      },
+      "by_horizon": {
+        "1": {
+          "n": 250,
+          "mae_days": 22.0,
+          "mase": 0.0532,
+          "cov80": 0.928,
+          "cov95": 0.968,
+          "cov80_ci95": [
+            0.891,
+            0.955
+          ],
+          "cov95_ci95": [
+            0.941,
+            0.985
+          ]
+        },
+        "2": {
+          "n": 250,
+          "mae_days": 59.1,
+          "mase": 0.1075,
+          "cov80": 0.912,
+          "cov95": 0.964,
+          "cov80_ci95": [
+            0.872,
+            0.942
+          ],
+          "cov95_ci95": [
+            0.935,
+            0.982
+          ]
+        },
+        "3": {
+          "n": 240,
+          "mae_days": 84.8,
+          "mase": 0.2042,
+          "cov80": 0.825,
+          "cov95": 0.933,
+          "cov80_ci95": [
+            0.773,
+            0.869
+          ],
+          "cov95_ci95": [
+            0.896,
+            0.96
+          ]
+        },
+        "4": {
+          "n": 245,
+          "mae_days": 99.8,
+          "mase": 0.2521,
+          "cov80": 0.812,
+          "cov95": 0.918,
+          "cov80_ci95": [
+            0.76,
+            0.857
+          ],
+          "cov95_ci95": [
+            0.879,
+            0.948
+          ]
+        },
+        "5": {
+          "n": 250,
+          "mae_days": 108.5,
+          "mase": 0.2691,
+          "cov80": 0.804,
+          "cov95": 0.916,
+          "cov80_ci95": [
+            0.751,
+            0.85
+          ],
+          "cov95_ci95": [
+            0.877,
+            0.946
+          ]
+        },
+        "6": {
+          "n": 245,
+          "mae_days": 132.8,
+          "mase": 0.3279,
+          "cov80": 0.804,
+          "cov95": 0.927,
+          "cov80_ci95": [
+            0.751,
+            0.85
+          ],
+          "cov95_ci95": [
+            0.889,
+            0.954
+          ]
+        },
+        "7": {
+          "n": 245,
+          "mae_days": 131.7,
+          "mase": 0.3339,
+          "cov80": 0.804,
+          "cov95": 0.931,
+          "cov80_ci95": [
+            0.751,
+            0.85
+          ],
+          "cov95_ci95": [
+            0.894,
+            0.957
+          ]
+        },
+        "8": {
+          "n": 250,
+          "mae_days": 172.5,
+          "mase": 0.3787,
+          "cov80": 0.82,
+          "cov95": 0.932,
+          "cov80_ci95": [
+            0.769,
+            0.864
+          ],
+          "cov95_ci95": [
+            0.896,
+            0.958
+          ]
+        },
+        "9": {
+          "n": 240,
+          "mae_days": 216.1,
+          "mase": 0.5071,
+          "cov80": 0.7,
+          "cov95": 0.925,
+          "cov80_ci95": [
+            0.64,
+            0.755
+          ],
+          "cov95_ci95": [
+            0.887,
+            0.953
+          ]
+        },
+        "10": {
+          "n": 240,
+          "mae_days": 232.8,
+          "mase": 0.5527,
+          "cov80": 0.746,
+          "cov95": 0.896,
+          "cov80_ci95": [
+            0.688,
+            0.798
+          ],
+          "cov95_ci95": [
+            0.852,
+            0.93
+          ]
+        },
+        "11": {
+          "n": 245,
+          "mae_days": 238.7,
+          "mase": 0.5711,
+          "cov80": 0.767,
+          "cov95": 0.898,
+          "cov80_ci95": [
+            0.712,
+            0.817
+          ],
+          "cov95_ci95": [
+            0.855,
+            0.931
+          ]
+        },
+        "12": {
+          "n": 244,
+          "mae_days": 256.8,
+          "mase": 0.6284,
+          "cov80": 0.721,
+          "cov95": 0.877,
+          "cov80_ci95": [
+            0.663,
+            0.775
+          ],
+          "cov95_ci95": [
+            0.831,
+            0.914
+          ]
+        }
+      }
+    }
+  },
   "n_scored": 2944,
   "n_no_scale": 0,
   "n_pending": 1268,

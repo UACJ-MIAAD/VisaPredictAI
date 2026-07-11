@@ -177,8 +177,8 @@ stages:
       size: 12908
     - path: reports/prospective/forecast_scorecard_meta.json
       hash: md5
-      md5: 37771765d49ba185e49c24d52e6eb34e
-      size: 4775
+      md5: 71eb892494da32ff7b3a0d0cf067f4c2
+      size: 8948
     - path: vp_model/config.py
       hash: md5
       md5: 29ca8af802c0c9d61f7930771d43fc69
