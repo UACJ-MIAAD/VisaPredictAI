@@ -1,0 +1,12 @@
+{
+  "promotion.py": 90,
+  "ledger.py": 65,
+  "champion.py": 70,
+  "metrics.py": 65,
+  "significance.py": 65,
+  "walkforward.py": 60,
+  "dataset.py": 60,
+  "feature_builder.py": 58,
+  "preprocess.py": 55,
+  "intervals.py": 45
+}
