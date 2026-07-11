@@ -54,14 +54,17 @@ jobs:
               || { echo "── pasada $i FALLÓ ──"; tail -60 paper.log; exit 1; }
           done
 
-      # Umbrales de overfull DOCUMENTADOS por documento (baseline del primer run verde;
-      # se aprietan al bajar, nunca se aflojan en silencio). Referencias/citas
-      # indefinidas y labels duplicados son SIEMPRE bloqueantes.
+      # Umbrales de overfull DOCUMENTADOS por documento (baseline del estreno 11-jul-2026:
+      # tesis y anteproyecto salieron con CERO overfulls — trinquete en 0; el paper traía
+      # 3 con máx 60.2pt: la tabla de significancia pasó a columna p{} envolvente y el
+      # umbral queda en n<=3/15pt para los residuos de guionado). Se aprietan al bajar,
+      # nunca se aflojan en silencio. Referencias/citas indefinidas y labels duplicados
+      # son SIEMPRE bloqueantes.
       - name: Gate de logs (refs, citas, labels, overfull)
         run: |
-          bash tools/check_latex_log.sh reports/latex/ProyectoI_VisaPredictAI.log 999 999
-          bash tools/check_latex_log.sh reports/latex/AnteproyectoVisaPredictAI.log 999 999
-          bash tools/check_latex_log.sh reports/paper_micai/paper.log 999 999
+          bash tools/check_latex_log.sh reports/latex/ProyectoI_VisaPredictAI.log 0 0
+          bash tools/check_latex_log.sh reports/latex/AnteproyectoVisaPredictAI.log 0 0
+          bash tools/check_latex_log.sh reports/paper_micai/paper.log 3 15
 
       - name: PDFs y logs como artefactos
         if: always()

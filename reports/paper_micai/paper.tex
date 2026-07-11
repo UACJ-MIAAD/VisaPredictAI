@@ -110,7 +110,7 @@ This paper addresses that gap with three contributions:
   reproducibility, with an explicit Current/Final/Unavailable regime annotation.
   \item A \textbf{per-series forecasting benchmark} under leakage-free expanding
   walk-forward (Sec.~\ref{sec:eval}), comparing parsimonious statistical models,
-  gradient-boosted trees, and globally trained neural models.
+  globally trained neural models, and gradient-boosted trees.
   \item A \textbf{prospective evaluation protocol} (Sec.~\ref{sec:prospective})
   that archives each forecast with its origin and scores it against subsequently
   published cutoffs---an out-of-sample measure reported alongside (not in place
@@ -139,8 +139,8 @@ archive~\cite{godahewa2021} popularized standardized multi-series benchmarking,
 which we follow.
 
 \paragraph{Models and intervals.} We compare exponential smoothing and Theta,
-(S)ARIMA, gradient-boosted trees, and global neural models~\cite{salinas2020,
-oreshkin2020,nie2023}; prediction intervals use split conformal
+(S)ARIMA, gradient-boosted trees, and global neural
+models~\cite{salinas2020,oreshkin2020,nie2023}; prediction intervals use split conformal
 prediction~\cite{vovk2005,romano2019}, which gives finite-sample coverage under
 exchangeability for one-step forecasts. Forecast accuracy is summarized with the
 scaled error MASE~\cite{hyndman2006} and compared with the Diebold--Mariano test
@@ -291,7 +291,7 @@ separates from the floor in its own favor.
 Lower mean rank is better; $^\star$ marks membership in the 90\% Model Confidence
 Set. The Friedman $p$ rejects equal performance; only naïve-1 enters the MCS.}
 \label{tab:significance}
-\begin{tabular}{llll}
+\begin{tabular}{lllp{6.1cm}}
 \toprule
 Table & \#models & Friedman $p$ & Top-6 by mean rank (MCS $^\star$) \\
 \midrule
