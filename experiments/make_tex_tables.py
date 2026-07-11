@@ -154,6 +154,48 @@ def eda_stationarity_rows() -> str:
     return "\n".join(out)
 
 
+# --- E2/#27: tablas de caracterización (antes hand-built; fuente de 2 de los 6
+# errores del audit ciego 7-jul). Derivadas de vp_model.series_characterization
+# sobre las 25 series piloto FAD familiares — equivalencia al decimal verificada
+# contra los valores corregidos del deliverable antes del reemplazo. ---
+_AREA = {"china": "CN", "india": "IN", "mexico": "MX", "philippines": "PH", "all_chargeability": "RoW"}
+_AREA_ORDER = ["CN", "IN", "MX", "PH", "RoW"]
+_CAT_ORDER = ["F1", "F2A", "F2B", "F3", "F4"]
+
+
+def _pilot_features() -> pd.DataFrame:
+    from vp_model.series_characterization import feature_table
+
+    df = feature_table("FAD", "family").copy()
+    df["area"] = df["country"].map(_AREA)
+    df = df[df["area"].notna()]
+    df["_a"] = df["area"].map(_AREA_ORDER.index)
+    df["_c"] = df["category"].map(_CAT_ORDER.index)
+    return df.sort_values(["_a", "_c"])
+
+
+def features_estructura_rows() -> str:
+    """Filas de tab:features_estructura (F_T, F_S, H, ACF1, ACF1_Δ, d)."""
+    out = ["% --- tab:features_estructura: vp_model.series_characterization (make_tex_tables.py) ---"]
+    for r in _pilot_features().itertuples():
+        out.append(
+            f"{r.area} & {r.category} & {r.trend_strength:.3f} & {r.seasonal_strength:.3f} "
+            f"& {r.spectral_entropy:.3f} & {r.acf1:.3f} & ${r.acf1_diff:+.3f}$ & {r.ndiffs} \\\\"
+        )
+    return "\n".join(out)
+
+
+def features_anomalias_rows() -> str:
+    """Filas de tab:features_anomalias (atípicos STL, Ljung-Box p, asimetría, curtosis)."""
+    out = ["% --- tab:features_anomalias: vp_model.series_characterization (make_tex_tables.py) ---"]
+    for r in _pilot_features().itertuples():
+        out.append(
+            f"{r.area} & {r.category} & {r.n_outliers} & {r.ljung_box_p:.3f} "
+            f"& ${r.step_skew:+.2f}$ & {r.step_kurtosis:.1f} \\\\"
+        )
+    return "\n".join(out)
+
+
 if __name__ == "__main__":
     for t in ("FAD", "DFF"):
         print(rows(t))
@@ -161,3 +203,7 @@ if __name__ == "__main__":
     print(eda_desc_rows())
     print()
     print(eda_stationarity_rows())
+    print()
+    print(features_estructura_rows())
+    print()
+    print(features_anomalias_rows())

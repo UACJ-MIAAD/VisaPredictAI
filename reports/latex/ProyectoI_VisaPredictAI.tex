@@ -1057,6 +1057,7 @@ reproducible.
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Área} & \textbf{Cat.} & $\mathbf{F_T}$ & $\mathbf{F_S}$ & $\mathbf{H}$ & \textbf{ACF1} & $\mathbf{ACF1_\Delta}$ & $\mathbf{d}$ \\ \midrule
+% --- tab:features_estructura: vp_model.series_characterization (make_tex_tables.py) ---
 CN & F1 & 0.993 & 0.001 & 0.292 & 0.989 & $+0.275$ & 1 \\
 CN & F2A & 0.990 & 0.000 & 0.338 & 0.987 & $+0.158$ & 1 \\
 CN & F2B & 0.998 & 0.036 & 0.299 & 0.989 & $+0.268$ & 1 \\
@@ -1095,6 +1096,7 @@ RoW & F4 & 0.997 & 0.161 & 0.327 & 0.988 & $-0.232$ & 1 \\
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Área} & \textbf{Cat.} & \textbf{Atípicos} & \textbf{LB}\,$p$ & \textbf{Asim.} & \textbf{Curt.} \\ \midrule
+% --- tab:features_anomalias: vp_model.series_characterization (make_tex_tables.py) ---
 CN & F1 & 68 & 0.000 & $-2.85$ & 55.1 \\
 CN & F2A & 68 & 0.000 & $-3.64$ & 30.9 \\
 CN & F2B & 32 & 0.000 & $-6.72$ & 95.6 \\
@@ -2309,8 +2311,10 @@ ETS/Theta $=\factEtsFadMean$--$\factThetaFadMean$ y el piso ingenuo es el naïve
 por encima del piso (validación multi-semilla más abajo).}
 \label{tab:global_deep}
 % MASE de vp_model.eval_neuralforecast.eval_global_deep('FAD'), mejor config por modelo (multi-semilla
-% en PatchTST/BiTCN/TiDE/AutoBiTCN; una semilla en KAN/TimesNet/TimeMixer). Tabla hand-built —
-% pendiente generar con make_tex_tables como eda_desc/eda_stationarity (ver auditoría 7-jul).
+% en PatchTST/BiTCN/TiDE/AutoBiTCN; una semilla en KAN/TimesNet/TimeMixer). ÚNICA tabla aún hand-built
+% (pendiente #27, alcance preciso): generarla exige mapear las variantes de los 75 CSV de
+% reports/campaign/global_* a los buckets de arquitectura×técnica de estas filas — las tablas de
+% caracterización ya se generan (make_tex_tables + test anti-drift, 11-jul).
 \begin{tabular}{lcc}
 \toprule
 \rowcolor{uacjblue!15}
