@@ -171,3 +171,7 @@ jobs:
       # TODOs) jamás suben respecto a docs/debt_baseline.json. Cero dependencias.
       - name: Check debt ratchet
         run: python tools/check_debt.py
+      # I2: todo entrypoint de experiments/ debe estar clasificado (producto/
+      # deliverable/investigacion/diagnostico/archivo) con consumidor declarado.
+      - name: Check experiments inventory
+        run: python tools/check_experiments_inventory.py

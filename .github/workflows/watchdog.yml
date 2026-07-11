@@ -20,7 +20,52 @@ jobs:
     permissions:
       actions: read
       issues: write
+      contents: read
     steps:
+      # G4 (plan auditoría 2026-07-11): salud REAL, no solo "el hook se disparó" — el
+      # sitio vivo debe servir la AÑADA del mes de este repo en estado fresh
+      # (/data/release-state.json, B2). Se compara panel_vintage, no el release_id
+      # exacto: el manifiesto avanza con commits intra-mes sin redeploy (benigno);
+      # una añada atrasada o un estado != fresh sí es incidente.
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+      - name: Production serves this repo's month vintage, fresh
+        id: prod
+        continue-on-error: true
+        run: |
+          want=$(python3 -c "import json;print(json.load(open('reports/release/release_manifest.json'))['panel_vintage'])")
+          state=$(curl -fsS --max-time 15 https://visapredictai.com/data/release-state.json || echo '{}')
+          got_v=$(echo "$state" | python3 -c "import json,sys;print(json.load(sys.stdin).get('panel_vintage'))" 2>/dev/null || echo "n/d")
+          got_st=$(echo "$state" | python3 -c "import json,sys;print(json.load(sys.stdin).get('status'))" 2>/dev/null || echo "n/d")
+          echo "prod: vintage=$got_v status=$got_st · repo espera vintage: $want"
+          echo "summary=prod sirve vintage $got_v ($got_st); el repo espera $want" >> "$GITHUB_OUTPUT"
+          [ "$got_st" = "fresh" ] && [ "$got_v" = "$want" ]
+      - name: Open/append issue if production health failed
+        if: steps.prod.outcome == 'failure'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
+        env:
+          SUMMARY: ${{ steps.prod.outputs.summary }}
+        with:
+          script: |
+            const body = `Watchdog de SALUD REAL (G4): producción no sirve el corte esperado en fresh. ${process.env.SUMMARY}. ` +
+              `Posibles causas: deploy de Netlify caído/stale, loader en fallback, o manifiesto avanzó sin redeploy.`;
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              labels: 'scrape-failure', state: 'open',
+            });
+            if (open.length) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: open[0].number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: 'Production health failed (watchdog G4)', body,
+                labels: ['scrape-failure'],
+              });
+            }
+            core.setFailed('producción no está sana');
+
       - name: Check the last successful data-cron run is recent
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
         with:

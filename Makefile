@@ -191,7 +191,10 @@ validate:
 check-debt:  ## E3: trinquete de deuda (los conteos jamás suben; docs/debt_baseline.json)
 	$(PY) tools/check_debt.py
 
-check: validate consistency check-debt lint typecheck test
+check-inventory:  ## I2: todo entrypoint de experiments/ clasificado con consumidor
+	$(PY) tools/check_experiments_inventory.py
+
+check: validate consistency check-debt check-inventory lint typecheck test
 
 all: freeze scrape panel db test figures audit
 

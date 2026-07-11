@@ -1,0 +1,40 @@
+# G5 (plan auditoría 2026-07-11): supply chain del lado Python, programado.
+# Sin secretos: audita los LOCKS versionados contra las bases de advisories (OSV/PyPI)
+# y emite el SBOM CycloneDX del perfil dev como artefacto por corrida.
+name: Scheduled quality (Python)
+
+on:
+  schedule:
+    - cron: "37 14 * * 1"  # lunes, tras el watchdog
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.14'
+      - run: pip install pip-audit
+      # GATE en los perfiles chicos (runtime/dev: dependencias directas — se arreglan
+      # por PR con tests y rollback, como el bump de requests 2.33.0 que estrenó esta
+      # política). El perfil model-cpu (232 paquetes, entorno de referencia) se
+      # REPORTA sin vetar: sus hallazgos se trian con SLA en docs/SECURITY_TRIAGE.md.
+      - name: Audit runtime + dev locks (gate)
+        run: |
+          pip-audit -r locks/runtime.txt --no-deps
+          pip-audit -r locks/dev.txt --no-deps
+      - name: Audit model-cpu lock (report only)
+        continue-on-error: true
+        run: pip-audit -r locks/model-cpu.txt --no-deps
+      - name: SBOM CycloneDX (perfil dev)
+        run: pip-audit -r locks/dev.txt --no-deps --format cyclonedx-json -o sbom-dev.cdx.json || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: sbom-dev-cyclonedx
+          path: sbom-dev.cdx.json
+          retention-days: 30
