@@ -1,9 +1,33 @@
-# Evaluación prospectiva de pronósticos
+# Evaluación de pronósticos: matriz de protocolos y registro prospectivo
 
-Mide qué tan buenos son los pronósticos **congelados** del demostrador web contra lo
-que el Visa Bulletin realmente publica después. Complementa al MASE *retrospectivo*
-del entregable (hold-out) con la única medida honesta del desempeño a 12 meses en el
-mundo real.
+Mide qué tan buenos son los pronósticos del demostrador web contra lo que el Visa
+Bulletin realmente publica después. Complementa al MASE *retrospectivo* del
+entregable (hold-out) con la medida out-of-sample del desempeño a 12 meses.
+**Precisión A1 (plan auditoría 2026-07-11):** el registro puntuado a la fecha es un
+**backfill sin fuga de información** (cada pronóstico usa solo información disponible
+hasta su origen, pero no fue servido en tiempo real); las añadas servidas en vivo se
+congelan al emitirse desde el despliegue de julio de 2026. Los claims deben respetar
+esa distinción.
+
+## Matriz de protocolos (vocabulario congelado — D1)
+
+Cada cifra publicada debe declarar de qué protocolo sale, con su población, horizonte,
+`n` y vintage. Los nombres de esta tabla son canónicos: no mezclar universos ni
+renombrar sin actualizar esta matriz.
+
+| # | Protocolo (nombre canónico) | Población | Horizonte | Métricas | n / vintage | Uso decisional | Qué NO autoriza |
+|---|---|---|---|---|---|---|---|
+| P1 | **Selección walk-forward** (región de selección) | 74 series evaluables (≥84 obs F), por tabla | h=1 expandiendo | MASE por serie (media/mediana) | según serie; corte = panel del build | Selección de modelos e hiperparámetros; listón de referencia | Claims de producto; comparación final; lenguaje prospectivo |
+| P2 | **Hold-out de confirmación** (24 m reservados) | mismas series evaluables, por tabla | h=1 | MASE media/mediana · DM+Holm · Friedman–Nemenyi · MCS 90 % | 24 m finales por serie; vintage = panel del build | Veredicto comparativo del entregable; gate campeón-retador (Wilcoxon+Holm) | Promoción de serving (el producto sirve h=1..12); lenguaje prospectivo |
+| P3 | **Rolling multi-horizonte retrospectivo** (GPU, Apéndice A.10) | celdas familia/empleo × FAD/DFF | h=1..36 (meses calendario) | MASE por horizonte | corridas dedicadas; cutoffs rolling | Análisis del cruce de horizonte (los clásicos baten al RW ~20–25 % a 12 m) | Serving; conclusiones de época única |
+| P4 | **Backfill pseudo-prospectivo** (scorecard) | universo servido por el demostrador | h=1..12 | MASE/MAE/cobertura 80–95 % por horizonte | 2,944 scored; 10 añadas, **3 efectivas** (2024-07, 2025-01, 2025-07) | Evidencia multi-horizonte del producto, **siempre con el caveat A1** | Claims de "servido/congelado en tiempo real" |
+| P5 | **Registro sombra** (retador naïve-1) | mismo universo servido | h=1..12 | las de P4 cuando se unifique el scoring (A3) | añadas congeladas por el cron desde jul-2026 | Insumo futuro del gate de promoción (A4) | Cualquier claim (aún sin scoring comparable) |
+| P6 | **Prospectivo real** (añadas servidas en vivo) | universo servido | h=1..12 | las de P4 | añadas emitidas y congeladas desde jul-2026; targets aún futuros (n scored ≈ 0) | ÚNICO protocolo que autoriza claims de servicio en tiempo real; base de la decisión de promoción (A4) | Nada lo sustituye retroactivamente: una fila es P6 solo con prueba de nacimiento anterior al target |
+
+**Vocabulario congelado:** *backfill sin fuga* (P4) · *añada servida en vivo* (P6) ·
+*hold-out de confirmación* (P2) · *región de selección* (P1) · *registro sombra* (P5) ·
+*promovible* = veredicto retrospectivo del gate en P2, **no** una autorización de
+despliegue (la promoción se decide con P5/P6, política A4).
 
 ## Idea
 
@@ -19,29 +43,32 @@ mundo real.
 | Pieza | Qué hace |
 |---|---|
 | `experiments/generate_web_forecasts.py` | Genera la añada y la archiva en `reports/prospective/forecast_log.csv`. Sin argumentos = añada **en vivo** (sirve la web). Con `YYYY-MM` = añada **histórica** leakage-free (trunca la serie a ese mes con `as_of`). |
-| `reports/prospective/forecast_log.csv` | Ledger inmutable: `origin, h, country, category, table, date, days, lo80, hi80, lo95, hi95`. Idempotente (dedup por `origin+serie+fecha`). |
+| `reports/prospective/forecast_log.csv` | Ledger inmutable: `origin, h, country, category, table, date, days, lo80, hi80, lo95, hi95, band_method`. Idempotente (dedup por `origin+serie+fecha`). ⚠️ Aún sin identidad de freeze (`frozen_at`, `panel_hash`, `git_sha`, `deployment_id`, `model_version`) — la migración a ledger v2 es el paquete A2 del plan de auditoría; mientras tanto, el `git log` del archivo es el acta de nacimiento retroactiva de cada añada. |
 | `experiments/score_forecasts.py` (`make score-forecasts`) | Califica el ledger vs los cortes reales (`dataset.actuals_F()`). Escribe `reports/prospective/forecast_scorecard.csv` (una fila por predicción evaluable) + `_meta.json` (agregados global / por horizonte / por tabla). Tracking MLflow (`web_forecast_scoring`) es local-dev; el registro durable es el scorecard en git. `--demo` corre un self-check sintético. |
 | `experiments/backfill_vintages.sh` | Siembra **reproducible**: añada en vivo + añadas históricas (`2024-07, 2025-01, 2025-07`) + scoring. Todo sale del pipeline, sin parches. |
 
-## Modelo de producción (por qué NO es el ganador del entregable)
+## Modelo de producción (por qué NO es el "ganador" del hold-out)
 
-El entregable concluye que el **deep global (BiTCN)** gana en DFF y **queda apenas por
-detrás** en FAD (AutoBiTCN 0.121 ± 0.008; su IC roza el listón ETS/Theta 0.113–0.114 sin
-que la media lo alcance). Aun así, el demostrador web
-sirve **mediana(Theta + ETS + SARIMA)** en FAD y **SARIMA** en DFF. Es una decisión
-deliberada, no un descuido:
+Tras la re-campaña AQ (catálogo de 24 modelos, jul-2026), el veredicto del hold-out de
+confirmación (P2) es un **piso**: a un paso, el **naïve-1 (random walk)** es el modelo a
+vencer y ninguno lo supera con significancia — el MCS al 90 % retiene **solo al naïve-1
+en ambas tablas** (FAD 0.100 media / 0.089 mediana; DFF 0.086, empate exacto con Theta).
+El mejor profundo (AutoBiTCN FAD 0.109 ± 0.007) queda por debajo de ETS/Theta pero por
+encima del piso. Aun así, el demostrador sirve **mediana(Theta + ETS + SARIMA)** en FAD
+(hold-out 0.121) y **SARIMA** en DFF (0.100). Es una decisión deliberada:
 
-- **En FAD el deep no aporta ventaja** (la parsimonia conserva un margen pequeño).
-- **El deep necesita GPU + un segundo venv** (`ante_nf`, neuralforecast, pandas<3); el
-  Action **semanal que regenera los pronósticos corre en CPU** (torch-CPU) y debe ser
-  reproducible y barato. Servir BiTCN exigiría GPU en CI → frágil y costoso.
-- La **mediana de 3 estadísticos** es determinista, robusta (sabiduría de las M-competitions),
-  CPU-cheap, y cae dentro del empate FAD; **SARIMA** es el mejor desplegable-en-CPU para DFF.
+- **El gate mide h=1; el producto sirve h=1..12.** El naïve-1 entrega una constante que
+  se degrada conforme las colas se mueven; el campeón sigue la trayectoria en todo el
+  horizonte (ahí vive el valor del sistema: P4 muestra la degradación ordenada).
+- El naïve-1 **pasó el gate retrospectivo** (Wilcoxon+Holm) y quedó **promovible a h=1**,
+  pero la promoción está **retenida**: se decidirá con la evidencia multi-horizonte del
+  registro sombra (P5) y de las añadas en vivo (P6), bajo la política pre-registrada A4.
+- La **mediana de 3 estadísticos** es determinista, robusta (sabiduría de las
+  M-competitions) y CPU-cheap: el Action que regenera los pronósticos corre en CPU y debe
+  ser reproducible y barato; los profundos exigen GPU + un segundo venv (`ante_nf`).
 
-Es decir: la producción **cambia una diferencia FAD estadísticamente insignificante por
-robustez/reproducibilidad/costo**. El scorecard prospectivo mide al modelo **realmente
-desplegado** (no al ganador del benchmark) — que es lo correcto para la demo. *(Si en el
-futuro hay GPU en CI, desplegar BiTCN y re-medir es un cambio de una línea en `PROD`.)*
+El scorecard (P4/P6) mide al modelo **realmente desplegado** (no al ganador de un corte
+retrospectivo) — que es lo correcto para el producto.
 
 ## Reproducir desde cero
 
@@ -65,7 +92,14 @@ make derive-band80                          # imprime ratio + cov80 held-out
 > acumula añadas realmente servidas, mes a mes. El resultado es bit-reproducible salvo
 > deriva numérica menor de la optimización de SARIMA.
 
-## Calibración de la banda 80 % (split disjunto — NO circular)
+## Bandas por horizonte (método desplegado) y calibración de la banda 80 %
+
+**Método desplegado:** el semiancho por horizonte h=1..12 se escala con los **cuantiles
+empíricos por horizonte** del propio registro (`reports/prospective/pi_scale_by_h.json`,
+por tabla y nivel 80/95 %), con ajuste **ACI** (inferencia conforme adaptativa) en línea.
+El mecanismo de esta sección (ratio escalar calibrado en split disjunto) es hoy el
+**fallback** cuando falta el archivo de escalas; cada fila del ledger marca en
+`band_method` cuál se usó.
 
 La banda 80 % conforme directa corría estrecha (cobertura prospectiva ~58 %) porque con
 residuales de cola pesada el `P80(|resid|)` queda diminuto frente al `P97.5`. Se ancla a
@@ -94,7 +128,7 @@ La banda 95 % no se toca: es el intervalo split-conforme nativo; su cobertura pr
 
 ## Automatización
 
-El Action semanal `freeze_and_rebuild.yml`, ante un boletín nuevo: reconstruye el panel
+El Action `freeze_and_rebuild.yml` (L-V, S3-driven), ante un boletín nuevo: reconstruye el panel
 → **califica** las añadas previas contra el corte real fresco (`score_forecasts`) →
 genera la nueva añada (`generate_web_forecasts`) → commitea ledger + scorecard → dispara
 el redeploy de la web. La medición se acumula sola.
@@ -107,9 +141,11 @@ meses y el acierto de la banda 95 %.
 
 ## Limitaciones (declararlas en el paper)
 
-1. **Banda √h = heurística, no garantía conforme.** La garantía split-conforme es de 1 paso;
-   ensanchar por √h a 12 meses NO la transfiere a multi-paso. La cobertura real (95 %→≈0.92,
-   degradando 0.97→0.88 con el horizonte) se mide empíricamente, no se garantiza.
+1. **Bandas por horizonte = cuantiles empíricos, no garantía conforme multi-paso.** La
+   garantía split-conforme es de 1 paso; el escalado por horizonte usa cuantiles empíricos
+   del propio registro (+ ACI) y su cobertura real (95 %→≈0.92, degradando 0.97→0.88 con el
+   horizonte) se mide empíricamente, no se garantiza. El fallback de raíz del horizonte solo
+   aplica si falta `pi_scale_by_h.json` y queda marcado en `band_method`.
 2. **`cov95 ≈ 0.92` está BAJO el nominal del 95 %** — se reporta tal cual (under-coverage honesta),
    no se ajusta para "verse" en 0.95.
 3. **n efectivo = pocas añadas.** El meta lista 10 añadas pero solo ~3 recientes (2024-07, 2025-01,

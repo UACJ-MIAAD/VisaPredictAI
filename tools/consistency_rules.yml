@@ -19,7 +19,10 @@ artifacts:
   # audit ciego r3 (5-jul): el model card publica "N modelos" (derivado de
   # n_models) y el RAG del sitio lo indexa como fuente del veredicto del bot —
   # debe seguir a key_facts o el VisaBot cita un catálogo fósil.
-  governance: ["reports/governance/MODEL_CARD.md"]
+  # D1 (plan auditoría 11-jul): FORECAST_EVAL.md es la matriz canónica de protocolos —
+  # sus cifras/claims sobrevivieron 2 re-campañas sin vigilancia (0.121±0.008, √h como
+  # método vigente); ahora el grupo governance lo cubre.
+  governance: ["reports/governance/MODEL_CARD.md", "docs/FORECAST_EVAL.md"]
   # content/source.html = la fuente ES (incluye #datos); el lado EN son páginas sueltas.
   # TODO el contenido publicado se vigila (audit 3-jul: capii/capiii/tablas quedaban fuera
   # de esta lista y por eso sus "~290/~125" sobrevivieron dos generaciones de cifras).
@@ -79,13 +82,13 @@ forbidden:
     reason: 'listones seleccion viejos (0.109 pre-resurrección / 0.111 pre-AQ); el vigente es fad_champion_mase (hoy 0.110)'
   # --- tripwires de la re-campaña AQ (4-jul-2026): valores/frases de la era pre-naive1 ---
   - pattern: '\[0\.112,\s*0\.131\]|(\\pm|±)\s*0\.008'
-    in: [deliverable, paper]
+    in: [deliverable, paper, governance]
     reason: 'intervalo multi-semilla muerto de AutoBiTCN (0.121±0.008); vigente 0.109±0.007 [0.100, 0.118]'
   - pattern: 'ya no empata|YA NO empata'
     in: [deliverable, paper]
     reason: 'frase de la era 3-jul ("AutoBiTCN ya no empata"); el framing vigente es el piso del naïve-1'
   - pattern: '\{\s*ETS\s*,\s*Theta\s*\}|ETS (y|and) Theta (entran|enter|forman|form)[^.\n]{0,40}(MCS|confidence set|conjunto de confianza)|(MCS|conjunto de confianza(?: de modelos)?)[^.\n]{0,40}=\s*\{?\s*ETS'
-    in: [deliverable, paper]
+    in: [deliverable, paper, governance]
     reason: 'MCS viejo ({ETS, Theta}); tras la re-campaña AQ el MCS al 90% retiene SOLO al naïve-1 en ambas tablas'
   - pattern: 'ensancha[^.\n]{0,40}(raíz|\\sqrt)|widen[^.\n]{0,40}\\sqrt|0\.4744'
     in: [deliverable, paper]
