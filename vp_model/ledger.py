@@ -211,8 +211,6 @@ def load_completeness_allowlist(path: Path | None = None) -> dict[str, str]:
     strings y ``reason: ""`` eximía sin motivo): una entrada malformada REVIENTA — el
     archivo es gobernanza versionada; se corrige, no se interpreta.
     """
-    import re
-
     p = path or COMPLETENESS_ALLOWLIST
     if not p.exists():
         return {}
@@ -223,8 +221,21 @@ def load_completeness_allowlist(path: Path | None = None) -> dict[str, str]:
             raise ValueError(f"allowlist de completitud: entrada '{key}' no es objeto")
         expires = str(entry.get("expires", ""))
         reason = str(entry.get("reason", "")).strip()
-        if not re.fullmatch(r"\d{4}-\d{2}", expires):
-            raise ValueError(f"allowlist de completitud: '{key}' con expires inválido {expires!r} (YYYY-MM)")
+        # Reauditoría 3: el regex aceptaba 2026-13/9999-99 — mes calendárico REAL, y con
+        # horizonte acotado: una exención no es una amnistía permanente (máx. 24 meses
+        # sobre la añada del panel; renovar exige tocar el archivo versionado otra vez).
+        try:
+            when = datetime.datetime.strptime(expires, "%Y-%m")
+        except ValueError:
+            raise ValueError(
+                f"allowlist de completitud: '{key}' con expires inválido {expires!r} (mes calendárico YYYY-MM)"
+            ) from None
+        horizon = datetime.datetime.strptime(now, "%Y-%m") if now != "n/d" else when
+        if (when.year - horizon.year) * 12 + (when.month - horizon.month) > 24:
+            raise ValueError(
+                f"allowlist de completitud: '{key}' expira {expires!r}, a más de 24 meses del panel ({now}) — "
+                "una exención no es una amnistía permanente"
+            )
         if not reason:
             raise ValueError(f"allowlist de completitud: '{key}' sin motivo — una exención sin razón no exime")
         if expires >= now:

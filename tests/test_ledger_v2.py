@@ -205,7 +205,7 @@ def test_completeness_nominal_allowlist_exempts_with_expiry(tmp_path) -> None:
     p.write_text(
         J.dumps(
             {
-                "india/F1/FAD": {"reason": "SARIMA no converge", "expires": "2099-12"},
+                "india/F1/FAD": {"reason": "SARIMA no converge", "expires": "2027-06"},
                 "china/F1/FAD": {"reason": "vieja", "expires": "2020-01"},
             }
         )
@@ -224,7 +224,7 @@ def test_completeness_allowlist_malformed_entries_fail_closed(tmp_path) -> None:
     p.write_text(J.dumps({"x/F1/FAD": {"reason": "r", "expires": "never"}}))
     with pytest.raises(ValueError, match="expires"):
         ledger.load_completeness_allowlist(p)
-    p.write_text(J.dumps({"x/F1/FAD": {"reason": "", "expires": "2099-12"}}))
+    p.write_text(J.dumps({"x/F1/FAD": {"reason": "", "expires": "2027-06"}}))
     with pytest.raises(ValueError, match="motivo"):
         ledger.load_completeness_allowlist(p)
 

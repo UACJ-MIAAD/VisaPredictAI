@@ -229,13 +229,21 @@ def candidate_hash(candidate: dict, policy: dict) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
 
-def evidence_hashes(root: Path | None = None) -> dict[str, str]:
-    """sha256-12 de los archivos de evidencia que sustentan la decisión (R0-01): los dos
-    scorecards y el ledger sombra. authorize() los recomputa del disco — si la evidencia
-    cambió desde la decisión, la autorización muere."""
+def evidence_hashes(vintages: list[str] | None = None, root: Path | None = None) -> dict[str, str]:
+    """sha256-12 de la evidencia que sustenta la decisión (R0-01 + reauditoría 3): los dos
+    scorecards y el ledger sombra, FILTRADOS a las filas cuyas añadas (``origin``) son las
+    de la decisión y serializados canónicamente.
+
+    Reauditoría 3 (P1): el hash de ARCHIVO COMPLETO se auto-invalidaba — el propio cron
+    apendea la añada sombra nueva (freeze_shadow) DESPUÉS del gate, y el scoring regenera
+    los scorecards cada mes. El crecimiento append-only legítimo NO debe matar la decisión;
+    una REESCRITURA de las filas que son su evidencia, sí. Filtrar por las añadas de la
+    decisión logra exactamente eso.
+    """
     import hashlib
 
     base = root or Path(__file__).resolve().parent.parent
+    wanted = {str(v) for v in vintages} if vintages else None
     out: dict[str, str] = {}
     for label, rel in (
         ("scorecard_champion", "reports/prospective/forecast_scorecard.csv"),
@@ -243,20 +251,35 @@ def evidence_hashes(root: Path | None = None) -> dict[str, str]:
         ("shadow_ledger", "reports/prospective/forecast_log_shadow.csv"),
     ):
         p = base / rel
-        out[label] = hashlib.sha256(p.read_bytes()).hexdigest()[:12] if p.exists() else "n/d"
+        if not p.exists():
+            out[label] = "n/d"
+            continue
+        try:
+            df = pd.read_csv(p)
+        except pd.errors.EmptyDataError:
+            out[label] = "vacio"
+            continue
+        if wanted is not None and "origin" in df.columns:
+            df = df[df["origin"].astype(str).isin(wanted)]
+        blob = df.sort_values(list(df.columns), na_position="last").to_csv(index=False)
+        out[label] = hashlib.sha256(blob.encode()).hexdigest()[:12]
     return out
 
 
-def shadow_origins() -> set[str]:
-    """Añadas presentes en el ledger sombra (para validar que las declaradas por la
-    decisión EXISTEN en la evidencia — reauditoría 2: añadas fantasma o duplicadas)."""
+def shadow_origins(table: str, challenger: str) -> set[str]:
+    """Añadas del ledger sombra PARA ESTA TABLA Y ESTE RETADOR (reauditoría 3: mezclar
+    tablas/recetas dejaba autorizar FAD con añadas que solo existían en DFF o bajo otra
+    receta). ``challenger`` puede venir unido con ``+`` si la evidencia mezcló recetas."""
     p = Path(__file__).resolve().parent.parent / "reports" / "prospective" / "forecast_log_shadow.csv"
     if not p.exists():
         return set()
-    return set(pd.read_csv(p, usecols=["origin"])["origin"].astype(str).unique())
+    df = pd.read_csv(p, usecols=["origin", "table", "recipe"])
+    recipes = set(str(challenger).split("+"))
+    mask = (df["table"].astype(str) == str(table)) & (df["recipe"].astype(str).isin(recipes))
+    return set(df[mask]["origin"].astype(str).unique())
 
 
-def _candidate_violations(cand: dict, policy: dict) -> list[str]:
+def _candidate_violations(cand: dict, policy: dict, table: str) -> list[str]:
     """Validez intrínseca del candidato (R0-01): vintages plausibles y con muestra
     mínima, fecha de decisión parseable y no futura, hash íntegro."""
     import datetime
@@ -282,9 +305,11 @@ def _candidate_violations(cand: dict, policy: dict) -> list[str]:
             v.append(f"añadas DUPLICADAS en la decisión: {sorted(vintages)}")
         if len(set(vintages)) < policy["min_live_vintages"]:
             v.append(f"añadas únicas declaradas: {len(set(vintages))} < mínimo {policy['min_live_vintages']}")
-        ghosts = sorted(set(str(x) for x in vintages) - shadow_origins())
+        ghosts = sorted(set(str(x) for x in vintages) - shadow_origins(table, str(cand.get("challenger"))))
         if ghosts:
-            v.append(f"añadas declaradas que NO existen en el ledger sombra: {ghosts}")
+            v.append(
+                f"añadas declaradas que NO existen en el ledger sombra para {table}/{cand.get('challenger')}: {ghosts}"
+            )
     da = cand.get("decided_at")
     try:
         when = datetime.datetime.fromisoformat(str(da))
@@ -298,7 +323,7 @@ def _candidate_violations(cand: dict, policy: dict) -> list[str]:
     if not isinstance(stored_ev, dict) or not stored_ev:
         v.append("candidato sin hashes de evidencia (formato pre-R0-01)")
     else:
-        now_ev = evidence_hashes()
+        now_ev = evidence_hashes(vintages=cand.get("vintages") or [])
         drift = {k: (stored_ev.get(k), now_ev.get(k)) for k in now_ev if stored_ev.get(k) != now_ev.get(k)}
         if drift:
             v.append(f"la evidencia en disco YA NO es la de la decisión: {drift}")
@@ -348,7 +373,7 @@ def authorize(table: str, decision_path: Path, *, challenger: str, champion: str
             f"el campeón actual ({champion!r}) ya no es el evaluado por el gate "
             f"({cand.get('champion')!r}) — evidencia caduca; re-corre el gate (fail closed)"
         )
-    intrinsic = _candidate_violations(cand, POLICY)
+    intrinsic = _candidate_violations(cand, POLICY, table)
     if intrinsic:
         return False, "candidato inválido (fail closed): " + "; ".join(intrinsic)
     return True, (

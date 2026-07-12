@@ -64,10 +64,11 @@ def _candidate_identity(pairs: pd.DataFrame, table: str) -> dict:
         "release_id": ledger.current_release_id(),
         "vintages": sorted(str(o) for o in live["origin"].unique()) if len(live) else [],
         "decided_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
-        # R0-01: hashes de la evidencia que sustenta ESTA decision (scorecards + ledger
-        # sombra) — authorize los recomputa del disco; evidencia cambiada = decision muerta.
-        "evidence": promotion.evidence_hashes(),
     }
+    # R0-01 + reauditoria 3: hashes de la evidencia FILTRADA a las anadas de ESTA
+    # decision — el freeze sombra del mismo cron apendea una anada nueva despues del
+    # gate y NO debe invalidarla; reescribir las filas-evidencia si la mata.
+    cand["evidence"] = promotion.evidence_hashes(vintages=cand["vintages"])
     cand["hash"] = promotion.candidate_hash(cand, promotion.POLICY)
     return cand
 

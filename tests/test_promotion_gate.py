@@ -170,9 +170,11 @@ def _pin_release(monkeypatch, value="2026-07-feedcafe0000"):
 
     monkeypatch.setattr(ledger, "current_release_id", lambda: value)
     monkeypatch.setattr(ledger, "panel_vintage", lambda path=None: "2026-12")
-    monkeypatch.setattr(promotion, "evidence_hashes", lambda root=None: dict(EVIDENCE))
+    monkeypatch.setattr(promotion, "evidence_hashes", lambda vintages=None, root=None: dict(EVIDENCE))
     monkeypatch.setattr(
-        promotion, "shadow_origins", lambda: {"2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"}
+        promotion,
+        "shadow_origins",
+        lambda table, challenger: {"2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"},
     )
 
 
@@ -273,7 +275,9 @@ def test_authorize_rejects_evidence_drift(tmp_path, monkeypatch) -> None:
     """R0-01: si los scorecards/ledger en disco ya no son los de la decision, muere."""
     _pin_release(monkeypatch)
     path = _decision_file(tmp_path)
-    monkeypatch.setattr(promotion, "evidence_hashes", lambda root=None: {**EVIDENCE, "shadow_ledger": "MUTADO"})
+    monkeypatch.setattr(
+        promotion, "evidence_hashes", lambda vintages=None, root=None: {**EVIDENCE, "shadow_ledger": "MUTADO"}
+    )
     ok, why = promotion.authorize("FAD", path, **AUTH)
     assert not ok and "evidencia" in why
 
@@ -294,3 +298,62 @@ def test_policy_is_preregistered_and_floors_positive() -> None:
     assert p["modes_allowed"] == ["live"]
     assert p["min_pairs_per_band"] >= 30 and p["min_live_vintages"] >= 3
     assert set(promotion.DECISIONS) == {"promote", "retain", "extend-shadow", "reject"}
+
+
+def test_evidence_hashes_survive_append_die_on_rewrite(tmp_path) -> None:
+    """Reauditoria 3 (P1): el hash de archivo completo se auto-invalidaba — el propio
+    cron apendea la anada sombra nueva TRAS el gate. Filtrado por anadas: el append
+    legitimo no toca el hash; reescribir una fila-evidencia si."""
+    prosp = tmp_path / "reports" / "prospective"
+    prosp.mkdir(parents=True)
+    base = "origin,table,recipe,country,category,date,days\n"
+    rows = "2026-08,FAD,naive1,mexico,F1,2026-09-01,100\n2026-09,FAD,naive1,mexico,F1,2026-10-01,110\n"
+    for f in ("forecast_scorecard.csv", "forecast_scorecard_shadow.csv", "forecast_log_shadow.csv"):
+        (prosp / f).write_text(base + rows)
+    vints = ["2026-08", "2026-09"]
+    before = promotion.evidence_hashes(vintages=vints, root=tmp_path)
+    for f in ("forecast_scorecard.csv", "forecast_scorecard_shadow.csv", "forecast_log_shadow.csv"):
+        with open(prosp / f, "a") as fh:
+            fh.write("2026-10,FAD,naive1,mexico,F1,2026-11-01,120\n")
+    assert promotion.evidence_hashes(vintages=vints, root=tmp_path) == before, "append legitimo NO invalida"
+    txt = (
+        (prosp / "forecast_log_shadow.csv")
+        .read_text()
+        .replace("2026-08,FAD,naive1,mexico,F1,2026-09-01,100", "2026-08,FAD,naive1,mexico,F1,2026-09-01,999")
+    )
+    (prosp / "forecast_log_shadow.csv").write_text(txt)
+    after = promotion.evidence_hashes(vintages=vints, root=tmp_path)
+    assert after["shadow_ledger"] != before["shadow_ledger"], "reescribir la evidencia DEBE matarla"
+
+
+def test_shadow_origins_scoped_to_table_and_recipe(tmp_path, monkeypatch) -> None:
+    """Reauditoria 3 (P2): una autorizacion FAD aceptaba anadas que solo existian en
+    otra tabla o bajo otra receta. Se apunta la implementacion REAL a un fixture."""
+    prosp = tmp_path / "reports" / "prospective"
+    prosp.mkdir(parents=True)
+    (prosp / "forecast_log_shadow.csv").write_text(
+        "origin,table,recipe\n2026-08,FAD,naive1\n2026-09,FAD,naive1\n2026-10,DFF,naive1\n2026-07,FAD,otro\n"
+    )
+    real_read = pd.read_csv
+    monkeypatch.setattr(pd, "read_csv", lambda p, **kw: real_read(prosp / "forecast_log_shadow.csv", **kw))
+    got = promotion.shadow_origins("FAD", "naive1")
+    assert got == {"2026-08", "2026-09"}
+    assert "2026-10" not in got  # solo existe en DFF
+    assert "2026-07" not in got  # solo existe bajo otra receta
+
+
+def test_allowlist_rejects_impossible_months_and_eternal_horizons(tmp_path) -> None:
+    """Reauditoria 3 (P2): 2026-13, 2026-99 y 9999-99 pasaban el regex; y un horizonte
+    eterno es 'never' con pasos extra (tope: 24 meses sobre la anada del panel)."""
+    import json as J
+
+    from vp_model import ledger
+
+    p = tmp_path / "allow.json"
+    for bad in ("2026-13", "2026-99", "9999-99"):
+        p.write_text(J.dumps({"x/F1/FAD": {"reason": "r", "expires": bad}}))
+        with pytest.raises(ValueError, match="calend"):
+            ledger.load_completeness_allowlist(p)
+    p.write_text(J.dumps({"x/F1/FAD": {"reason": "r", "expires": "2099-12"}}))
+    with pytest.raises(ValueError, match="amnist"):
+        ledger.load_completeness_allowlist(p)
