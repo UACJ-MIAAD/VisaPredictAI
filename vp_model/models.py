@@ -116,23 +116,24 @@ __all__ = ["MODEL_NAMES", "PROBABILISTIC", "build_model", "registry", "to_timese
 def to_timeseries(series: pd.Series) -> TimeSeries:
     """pd.Series mensual -> darts TimeSeries con frecuencia regular y sin huecos.
 
-    Reusa el criterio de huecos de ``preprocess`` (interpola cortos, deja largos);
-    los NaN residuales se rellenan para que los modelos que no toleran huecos puedan
-    entrenar. La conversión a float evita el dtype entero que rompe algunos modelos.
+    US-F1: la rejilla se rellena de forma CAUSAL (``preprocess.to_regular_monthly_causal``,
+    LOCF forward-only) — el valor de un mes de hueco usa SOLO observaciones anteriores,
+    así ningún origen del walk-forward ve el bracket futuro del hueco. (La versión
+    anterior interpolaba bidireccionalmente y luego ``fill_missing_values(fill="auto")``
+    volvía a mirar el futuro: fuga hacia los orígenes dentro del hueco.) La conversión
+    a float evita el dtype entero que rompe algunos modelos.
 
     ⚠️ Los valores rellenados existen SOLO para dar continuidad al entrenamiento:
     NO son objetivo predictivo y la evaluación los enmascara (B1 — `walkforward.backtest`
-    puntúa únicamente sobre las fechas F reales de `dataset.load_series`).
+    puntúa únicamente sobre las fechas F reales de `dataset.load_series`); los GBM
+    reciben además las máscaras MNAR (config.MASK_COVARIATES) para descontar el arrastre.
     """
-    regular = preprocess.to_regular_monthly(series).astype("float64")
-    ts = TimeSeries.from_series(regular)
-    from darts.utils.missing_values import fill_missing_values
-
-    filled = fill_missing_values(ts, fill="auto")
-    # AB4: el relleno de continuidad es una decisión consciente (docs/CLEANING.md,
+    regular = preprocess.to_regular_monthly_causal(series).astype("float64")
+    filled = TimeSeries.from_series(regular)
+    # AB4/F1: el relleno de continuidad es una decisión consciente (docs/CLEANING.md,
     # gap_policy_training) — el invariante duro es que no quede NaN y que la
     # evaluación enmascare todo punto fabricado (B1).
-    assert not np.isnan(filled.values(copy=False)).any(), "to_timeseries: quedaron NaN tras fill_missing_values"
+    assert not np.isnan(filled.values(copy=False)).any(), "to_timeseries: quedaron NaN tras el relleno causal"
     return filled
 
 
@@ -644,7 +645,7 @@ def registry() -> dict[str, Callable[[], Forecaster]]:
 
 def demo() -> None:
     """Self-check: cada modelo entrena y pronostica 12 meses sobre una serie piloto."""
-    from vp_model import dataset
+    from vp_model import dataset, missingness
 
     s = dataset.load_series("mexico", "F3", "FAD")
     ts = to_timeseries(s)
@@ -653,7 +654,13 @@ def demo() -> None:
     for name in ("naive", "arima", "sarima", "xgboost"):
         model = build_model(name)
         if name == "xgboost":
-            cov = TimeSeries.from_dataframe(preprocess.calendar_features(ts.time_index))
+            # F1: los árboles llevan calendario (retardo 0) + máscaras MNAR (retardo −1).
+            # Inline (no FeatureBuilder: importaría models -> ciclo); mismo contrato.
+            from vp_model.config import COVARIATE_COLS, MASK_COVARIATE_COLS
+
+            cal = preprocess.calendar_features(ts.time_index)[list(COVARIATE_COLS)]
+            masks = missingness.masking_features(s).reindex(ts.time_index)[list(MASK_COVARIATE_COLS)]
+            cov = TimeSeries.from_dataframe(pd.concat([cal, masks], axis=1))
             model.fit(train, future_covariates=cov)
             fc = model.predict(12, future_covariates=cov)
         else:

@@ -11,7 +11,7 @@ import pytest
 
 darts = pytest.importorskip("darts")  # noqa: F841
 
-from vp_model import dataset, models, preprocess  # noqa: E402
+from vp_model import dataset, models  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not dataset.DB_PATH.exists(), reason="almacén DuckDB ausente")
 
@@ -27,11 +27,13 @@ def test_registry_matches_catalog() -> None:
 
 def test_differenced_tree_extrapolates_trend() -> None:
     # El árbol-delta debe superar el máximo de train (el de nivel se satura: bug).
-    from darts import TimeSeries
+    from vp_model.feature_builder import FeatureBuilder
 
-    ts = models.to_timeseries(dataset.load_series("mexico", "F3", "FAD"))
+    raw = dataset.load_series("mexico", "F3", "FAD")
+    ts = models.to_timeseries(raw)
     train = ts[:-24]
-    cov = TimeSeries.from_dataframe(preprocess.calendar_features(ts.time_index))
+    # F1: los árboles llevan calendario + máscaras MNAR (la política vive en FeatureBuilder).
+    cov = FeatureBuilder("xgboost").covariates(ts, raw)
     m = models.build_model("xgboost")  # Differenced(XGBModel)
     m.fit(train, future_covariates=cov)
     fc = m.predict(24, future_covariates=cov)
@@ -81,12 +83,14 @@ def test_to_timeseries_regular_no_gaps() -> None:
 
 @pytest.mark.parametrize("name", FAST)
 def test_fast_model_fits_and_forecasts(name: str) -> None:
-    from darts import TimeSeries
+    from vp_model.feature_builder import FeatureBuilder
 
-    ts = models.to_timeseries(dataset.load_series("mexico", "F3", "FAD"))
+    raw = dataset.load_series("mexico", "F3", "FAD")
+    ts = models.to_timeseries(raw)
     model = models.build_model(name)
     if name == "xgboost":
-        cov = TimeSeries.from_dataframe(preprocess.calendar_features(ts.time_index))
+        # F1: calendario (retardo 0) + máscaras MNAR (retardo −1) vía FeatureBuilder.
+        cov = FeatureBuilder(name).covariates(ts, raw)
         model.fit(ts[:-12], future_covariates=cov)
         fc = model.predict(12, future_covariates=cov)
     else:

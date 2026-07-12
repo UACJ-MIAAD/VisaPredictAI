@@ -104,17 +104,18 @@ def latex_table(df: pd.DataFrame) -> str:
 def plot_winner_holdout(country: str, category: str, table: str, model_name: str) -> Path:
     """Predicho vs. real sobre el hold-out de 24 meses del modelo ganador (US-F2)."""
     from vp_model import models
+    from vp_model.feature_builder import FeatureBuilder
 
-    ts = models.to_timeseries(dataset.load_series(country, category, table))
+    raw = dataset.load_series(country, category, table)
+    ts = models.to_timeseries(raw)
     split = ts.time_index[-walkforward.HOLDOUT]
     m = models.build_model(model_name, table=table)  # tuned per-table params for GBMs (Wave-1)
     extra = {}
-    if model_name == "xgboost":
-        from darts import TimeSeries
-
-        from vp_model import preprocess
-
-        extra["future_covariates"] = TimeSeries.from_dataframe(preprocess.calendar_features(ts.time_index))
+    # F1: política de covariables por modelo vía FeatureBuilder (calendario + máscaras
+    # MNAR desde la serie F cruda) — el calendario inline previo no llevaba máscaras.
+    cov = FeatureBuilder(model_name).covariates(ts, raw)
+    if cov is not None:
+        extra["future_covariates"] = cov
     fc = m.historical_forecasts(  # type: ignore[attr-defined]
         ts,
         start=split,

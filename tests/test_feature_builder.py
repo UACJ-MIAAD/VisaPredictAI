@@ -24,7 +24,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 pytest.importorskip("darts")
 
 from vp_model import preprocess  # noqa: E402
-from vp_model.config import COVARIATES, DIFFERENCED, MAX_INTERPOLABLE_GAP, NN_DIFFERENCED  # noqa: E402
+from vp_model.config import (  # noqa: E402
+    COVARIATES,
+    DIFFERENCED,
+    MASK_COVARIATES,
+    MAX_INTERPOLABLE_GAP,
+    NN_DIFFERENCED,
+    TREE_FUTURE_COV_LAGS,
+)
 from vp_model.config import HOLDOUT as CFG_HOLDOUT  # noqa: E402
 from vp_model.feature_builder import FE_DECISIONS, FeatureBuilder  # noqa: E402
 
@@ -59,16 +66,34 @@ def test_covariate_policy_per_model():
     assert set(COVARIATES) == set(DIFFERENCED), "hoy SOLO los árboles llevan covariables (AD8)"
     assert set(COVARIATES).isdisjoint(NN_DIFFERENCED), "las NN diferenciadas van sin covariables"
     assert FeatureBuilder("xgboost").covariate_cols == COVARIATES["xgboost"]
+    # F1: las máscaras MNAR siguen la MISMA política (solo los GBM diferenciados) y sus
+    # retardos son estrictamente negativos (el régimen del mes objetivo no se conoce
+    # antes de publicarse el boletín: retardo 0 sería fuga).
+    assert set(MASK_COVARIATES) == set(DIFFERENCED), "las máscaras MNAR van solo a los GBM (F1)"
+    assert FeatureBuilder("xgboost").mask_covariate_cols == MASK_COVARIATES["xgboost"]
+    for col in MASK_COVARIATES["xgboost"]:
+        assert all(lag <= -1 for lag in TREE_FUTURE_COV_LAGS[col]), f"máscara {col} debe ir a retardo <= -1"
+    for col in COVARIATES["xgboost"]:
+        assert TREE_FUTURE_COV_LAGS[col] == [0], f"calendario {col} va a retardo 0 (determinista)"
     for plain in ("ets", "theta", "rlinear", "tft"):
         assert FeatureBuilder(plain).covariate_cols == (), f"{plain} debe ir sin covariables (política AD8)"
+        assert FeatureBuilder(plain).mask_covariate_cols == (), f"{plain} debe ir sin máscaras (política F1)"
 
 
 def test_realized_lineage_complete():
     r = FeatureBuilder("lightgbm").realized()
     assert r["differenced"] and r["differenced_family"] == "trees" and not r["scaled"] and r["lags"] == 24
-    assert r["max_interpolable_gap"] == MAX_INTERPOLABLE_GAP and r["fe_version"]
+    # Actualización DELIBERADA del golden (cambio de contrato US-F1, 12-jul-2026): la
+    # rejilla de modelado dejó de usar el cap de interpolación (era bidireccional y
+    # fugaba el bracket futuro del hueco) — el linaje ahora declara la política causal
+    # y las máscaras MNAR. MAX_INTERPOLABLE_GAP sigue vivo en la rejilla DESCRIPTIVA
+    # del EDA (to_regular_monthly / series_characterization) y anclado abajo en
+    # test_isolated_venv_scripts_pinned_to_config.
+    assert r["gap_policy"] == "locf_causal" and r["fe_version"].startswith("2.")
+    assert r["mask_covariates"] == ["observed", "months_since_obs"]
     ids = [d["id"] for d in FE_DECISIONS]
     assert len(ids) == len(set(ids)) and "differencing_trees" in ids
+    assert "missingness_mask_covariates" in ids  # F1: la decisión quedó registrada
 
 
 def test_realized_lineage_nn_differenced():

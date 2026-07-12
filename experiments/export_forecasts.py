@@ -37,13 +37,14 @@ def _local_rows(table: str) -> list[dict]:
     rows = []
     cat = dataset.list_series(table=table, block="family", countries=config.PILOT_COUNTRIES)
     for r in cat.itertuples():
-        ts = models.to_timeseries(dataset.load_series(r.country, r.category, table))
+        raw = dataset.load_series(r.country, r.category, table)
+        ts = models.to_timeseries(raw)
         split = ts.time_index[-walkforward.HOLDOUT]
         actual = ts[split:]
         for name in LOCAL:
             try:
                 m = models.build_model(name, table=table)  # tuned per-table params for GBMs (Wave-1)
-                fcov = FeatureBuilder(name).covariates(ts)  # política por modelo (AD1/AD8)
+                fcov = FeatureBuilder(name).covariates(ts, raw)  # política por modelo (AD1/AD8/F1)
                 fit_kw = {"future_covariates": fcov} if fcov is not None else {}
                 # ajustar una vez sobre el pre-hold-out, luego rodar 1-paso con retrain=False
                 # (rápido, para visualización; los MASE oficiales del .tex vienen del walk-forward).

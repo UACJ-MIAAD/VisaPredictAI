@@ -52,13 +52,18 @@ def test_arima_beats_naive_on_mx_f3() -> None:
 
 def test_no_temporal_leakage_corrupt_future() -> None:
     """Prueba de oro de fuga: corromper el hold-out NO debe alterar los pronósticos
-    de la región de selección (que solo deben ver el pasado)."""
+    de la región de selección (que solo deben ver el pasado).
+
+    F1: la corrupción se aplica a la serie F CRUDA, ANTES de transformar — la
+    versión previa mutaba la serie YA rellenada, ciega por construcción a una fuga
+    dentro de la propia transformación (la interpolación bidireccional usaba el
+    bracket futuro del hueco y esta prueba jamás lo habría visto)."""
     import numpy as np
-    import pandas as pd
 
     from vp_model import models
 
-    ts = models.to_timeseries(dataset.load_series("mexico", "F3", "FAD"))
+    raw = dataset.load_series("mexico", "F3", "FAD").astype("float64")
+    ts = models.to_timeseries(raw)
     min_train = walkforward.MIN_TRAIN["FAD"]
     split = ts.time_index[-walkforward.HOLDOUT]
 
@@ -75,7 +80,46 @@ def test_no_temporal_leakage_corrupt_future() -> None:
         )
         return fc.split_before(split)[0].values().flatten()
 
-    vals = ts.values().flatten().copy()
-    vals[-walkforward.HOLDOUT :] = 9.9e5  # basura en el futuro
-    corrupt = models.TimeSeries.from_series(pd.Series(vals, index=ts.time_index.to_series()))
+    raw_corrupt = raw.copy()
+    raw_corrupt[raw_corrupt.index >= split] = 9.9e5  # basura en el futuro, PRE-transformación
+    corrupt = models.to_timeseries(raw_corrupt)
     assert np.allclose(sel_fc(ts), sel_fc(corrupt)), "fuga temporal: el futuro alteró la selección"
+
+
+def test_backtest_captures_fit_warnings_per_series(monkeypatch) -> None:
+    """E5: los warnings de convergencia (statsmodels/SARIMA) se CAPTURAN y quedan
+    registrados por serie en ``BacktestResult.warnings`` — no silenciados globalmente."""
+    import warnings
+
+    import numpy as np
+    import pandas as pd
+    from darts import TimeSeries
+    from statsmodels.tools.sm_exceptions import ConvergenceWarning
+
+    idx = pd.date_range("2010-01-01", periods=96, freq="MS")
+    raw = pd.Series(np.arange(96, dtype="float64") * 30 + 1000, index=idx)
+    monkeypatch.setattr(dataset, "load_series", lambda *a, **k: raw)
+
+    class WarningModel:
+        """Stub que emite el warning de convergencia en cada 'fold' (fit)."""
+
+        def fit(self, series, **kwargs):
+            return self
+
+        def predict(self, n, **kwargs):
+            raise NotImplementedError
+
+        def historical_forecasts(self, series, *, start, **kwargs):
+            n = len(series) - start
+            for _ in range(n):  # un warning por origen, como statsmodels al reajustar
+                warnings.warn("Maximum Likelihood optimization failed to converge.", ConvergenceWarning, stacklevel=2)
+            return TimeSeries.from_times_and_values(series.time_index[start:], series.values()[start:])
+
+    r = walkforward.backtest("sarima", "x", "F1", "FAD", model=WarningModel())
+    assert len(r.warnings) == 1, r.warnings
+    ((key, count),) = r.warnings.items()
+    assert key.startswith("ConvergenceWarning:") and "converge" in key
+    assert count == 96 - walkforward.MIN_TRAIN["FAD"]  # registrado por fold (un fit por origen)
+    # y una corrida limpia registra dict vacío, no None
+    clean = walkforward.backtest("naive1", "x", "F1", "FAD")
+    assert clean.warnings == {}

@@ -14,7 +14,9 @@ el compromiso estándar coste/validez para forecasting con NN.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import warnings as _warnings
+from collections import Counter
+from dataclasses import dataclass, field
 from typing import cast
 
 from darts import TimeSeries
@@ -44,6 +46,11 @@ class BacktestResult:
     table: str
     selection: dict[str, float]  # métricas en la región de selección (pre-holdout)
     holdout: dict[str, float]  # métricas en los 24 meses reservados
+    # E5: warnings de ajuste (p. ej. ConvergenceWarning de statsmodels en SARIMA)
+    # CAPTURADOS durante el walk-forward de esta serie y contados por mensaje único
+    # ("Categoria: mensaje" -> n folds que lo emitieron). Registrados aquí, no
+    # silenciados globalmente: una serie que no converge deja rastro auditable.
+    warnings: dict[str, int] = field(default_factory=dict)
 
 
 def _median_point(fc: TimeSeries) -> TimeSeries:
@@ -67,9 +74,12 @@ def run_forecasts(
     ``backtest`` (para métricas) y la persistencia de pronósticos (para ensambles).
     El FE (huecos, covariables, escalado) lo compone ``FeatureBuilder`` según la
     política por modelo de config — mismo comportamiento, linaje explícito (AD1).
+    US-F1: la rejilla es CAUSAL (LOCF) — una sola serie transformada es válida para
+    todos los orígenes — y las máscaras MNAR llegan a los GBM desde la serie F cruda.
     """
     fe = FeatureBuilder(model_name)
-    ts = fe.to_timeseries(dataset.load_series(country, category, table))
+    raw = dataset.load_series(country, category, table)
+    ts = fe.to_timeseries(raw)
     min_train = MIN_TRAIN[table]
     if len(ts) < min_train + HOLDOUT + MIN_BACKTEST_BUFFER:
         raise ValueError(f"serie demasiado corta ({len(ts)}) para min_train={min_train}+holdout={HOLDOUT}")
@@ -83,7 +93,7 @@ def run_forecasts(
     )
     retrain: bool | int = True if model_name in RETRAIN_EACH_STEP else NN_RETRAIN
     # historical_forecasts recibe future_covariates UNA vez (lo usa en fit y predict).
-    cov = fe.covariates(ts)
+    cov = fe.covariates(ts, raw)
     extra: dict[str, object] = {"future_covariates": cov} if cov is not None else {}
     if model_name in LIKELIHOOD_MODELS:
         # AJ2: with the darts default num_samples=1, a SINGLE stochastic draw was
@@ -110,6 +120,16 @@ def run_forecasts(
     return ts, _median_point(forecasts)
 
 
+def _summarize_warnings(caught: list[_warnings.WarningMessage]) -> dict[str, int]:
+    """E5: colapsa los warnings capturados a conteos por mensaje único.
+
+    Clave = "Categoria: mensaje" (p. ej. "ConvergenceWarning: Maximum Likelihood
+    optimization failed to converge…"); valor = número de folds/ajustes que lo
+    emitieron durante el walk-forward de la serie.
+    """
+    return dict(Counter(f"{w.category.__name__}: {w.message}" for w in caught))
+
+
 def backtest(model_name: str, country: str, category: str, table: str, model: object | None = None) -> BacktestResult:
     """Corre el walk-forward de un modelo sobre una serie y devuelve sus métricas.
 
@@ -118,8 +138,26 @@ def backtest(model_name: str, country: str, category: str, table: str, model: ob
     meses (evaluación final del modelo elegido, US-F2). ``model`` permite inyectar un
     modelo ya configurado (el tuner pasa una plantilla con hiperparámetros de prueba);
     si es ``None`` se usa ``build_model(model_name)`` con los defaults de config.
+
+    E5: los warnings de ajuste (convergencia de statsmodels en ARIMA/SARIMA/ETS, etc.)
+    se CAPTURAN alrededor del walk-forward y quedan registrados por serie en
+    ``BacktestResult.warnings`` (conteo por mensaje único) — no se silencian con un
+    filtro global ni se pierden en el scroll de una campaña de horas.
     """
-    ts, forecasts = run_forecasts(model_name, country, category, table, model)
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter("always")
+        ts, forecasts = run_forecasts(model_name, country, category, table, model)
+    fit_warnings = _summarize_warnings(caught)
+    if fit_warnings:
+        log.info(
+            "backtest %s %s/%s/%s: %d warning(s) de ajuste capturados (%d únicos) — ver BacktestResult.warnings",
+            model_name,
+            country,
+            category,
+            table,
+            sum(fit_warnings.values()),
+            len(fit_warnings),
+        )
     # B1: las métricas se evalúan SOLO sobre observaciones F reales. `ts` viene rellenado
     # por `to_timeseries` (continuidad para entrenar); puntuar los meses interpolados
     # deprimía el error y hacía la vía local incomparable con la global (que ya enmascara
@@ -171,6 +209,7 @@ def backtest(model_name: str, country: str, category: str, table: str, model: ob
         table=table,
         selection=metrics.compute(sel_actual, sel_fc, insample, dates=fdates, scale=scale, scale1=scale1),
         holdout=holdout,
+        warnings=fit_warnings,
     )
 
 
@@ -187,7 +226,8 @@ def crps_holdout(model_name: str, country: str, category: str, table: str, num_s
             f"crps_holdout solo aplica a modelos distribucionales {sorted(PROBABILISTIC)}, no '{model_name}'"
         )
     fe = FeatureBuilder(model_name)
-    ts = fe.to_timeseries(dataset.load_series(country, category, table))
+    raw = dataset.load_series(country, category, table)
+    ts = fe.to_timeseries(raw)
     split = ts.time_index[-HOLDOUT]
     model = models.build_model(model_name, table=table, block=_block(category))
     retrain: bool | int = True if model_name in RETRAIN_EACH_STEP else NN_RETRAIN
@@ -205,9 +245,8 @@ def crps_holdout(model_name: str, country: str, category: str, table: str, num_s
     )
     if scaler is not None:
         samples = scaler.inverse_transform(samples)
-    # B1: puntuar solo sobre fechas F reales (los meses interpolados no son objetivo)
-    fdates = dataset.load_series(country, category, table).index
-    return metrics.crps(ts.slice_intersect(samples), samples, dates=fdates)
+    # B1: puntuar solo sobre fechas F reales (los meses rellenados no son objetivo)
+    return metrics.crps(ts.slice_intersect(samples), samples, dates=raw.index)
 
 
 def demo() -> None:

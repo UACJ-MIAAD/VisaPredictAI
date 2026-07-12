@@ -61,11 +61,12 @@ def main() -> None:
     for table in config.TABLES:
         cat = dataset.list_series(table=table, block="family", countries=config.PILOT_COUNTRIES)
         for r in cat.itertuples():
-            ts = models.to_timeseries(dataset.load_series(r.country, r.category, table))
+            raw = dataset.load_series(r.country, r.category, table)
+            ts = models.to_timeseries(raw)
             for name in LOCAL:
                 try:
                     model = models.build_model(name, table=table)  # tuned per-table params for GBMs (Wave-1)
-                    cov = FeatureBuilder(name).covariates(ts)  # política por modelo (AD1/AD8)
+                    cov = FeatureBuilder(name).covariates(ts, raw)  # política por modelo (AD1/AD8/F1)
                     fit_kwargs = {"future_covariates": cov} if cov is not None else {}
                     model.fit(ts, **fit_kwargs)  # type: ignore[attr-defined]
                     out = MODELS / table / "local" / name / f"{r.country}_{r.category}"

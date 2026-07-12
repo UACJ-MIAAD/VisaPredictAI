@@ -16,7 +16,7 @@
 | 5 | **Dedup por preferencia F>C>U>UNK; dos F ≠ → aborta** | `pipeline/build_panel.py` | `first` era moneda al aire: podía tirar una observación F entrenable |
 | 6 | **Fechas imparseables abortan en la causa** (F `priority_date` **y** `bulletin_date`) | `pipeline/build_panel.py` (AA3) | El NaT viajaba hasta el CHECK del almacén / merge de `dim_date`, lejos del origen |
 | 7 | **Dominios de categoría validados post-read** | `build_panel.py::load_*` (AA4) | `keep_default_na=False` desactiva coerción NA de todo el frame; un literal extraño pasaría como string |
-| 8 | **Huecos: interpolar ≤3 meses, largos NaN; relleno sólo-entrenamiento** | `vp_model/preprocess.py::to_regular_monthly` · `models.py::to_timeseries` (AB4) | Rampas lineales multi-año como "dato"; la evaluación puntúa sólo F reales (máscara B1) |
+| 8 | **Huecos de entrenamiento: relleno CAUSAL (LOCF), jamás puntuado** | `vp_model/preprocess.py::to_regular_monthly_causal` · `models.py::to_timeseries` (AB4/US-F1) | La interpolación lineal bidireccional usaba el bracket FUTURO del hueco (fuga hacia los orígenes dentro del hueco); la evaluación puntúa sólo F reales (máscara B1) y los GBM reciben las máscaras MNAR |
 | 9 | **EDA imputa con Kalman, nunca rampa sin tope** | `vp_model/series_characterization.py::_clean` → `missingness.kalman_impute` (AB1) | Tendencia fabricada contaminando STL/Hurst/changepoints/entropía |
 | 10 | **Pruebas formales sobre F crudas, con caveat de espaciado** | `experiments/build_eda_facts.py::_formal_tests` (AB3) | Imputar antes de ADF/KPSS sesga hacia "integrada"; el costo (calendario comprimido en huecos) queda documentado |
 | 11 | **Outliers = señal: se cuentan, jamás se recortan** | `series_characterization.py::count_outliers` (z-STL) · `n_point_anomalies` (Hampel) · `mega_audit::d9_jumps` (AC2) | Winsorizar borraría las retrogresiones que el modelo debe tolerar |
@@ -26,7 +26,7 @@
 
 | Ruta | Tratamiento de huecos | Por qué |
 |---|---|---|
-| **Entrenamiento local** (`models.to_timeseries`) | ≤3 meses lineal; resto relleno darts `auto` **solo para continuidad** | Los modelos no toleran NaN; los puntos fabricados jamás se puntúan (B1) |
+| **Entrenamiento local** (`models.to_timeseries` → `to_regular_monthly_causal`) | **LOCF causal** (forward-only, sin tope) **solo para continuidad** + máscaras MNAR a los GBM | Los modelos no toleran NaN; el valor de un mes de hueco usa SOLO observaciones anteriores (US-F1) y los puntos fabricados jamás se puntúan (B1) |
 | **Evaluación** (todas las rutas) | **Sin imputar**: máscara F-only (`metrics._aligned(dates=)`) | Puntuar meses inventados deprimía el error (bug B1, corregido 2-jul-2026) |
 | **Deep global** (`run_global_deep.regular_monthly`) | ≤3 lineal; hueco largo = inicio de serie nueva (segmento contiguo más reciente) | La NN no aprende de rampas sintéticas |
 | **Caracterización EDA** (`series_characterization._clean`) | ≤3 lineal + huecos largos por **Kalman** (espacio de estados), sin extrapolar bordes | STL/espectro exigen serie completa; Kalman no fabrica tendencia lineal (AB1) |

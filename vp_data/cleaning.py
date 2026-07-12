@@ -98,14 +98,17 @@ CLEANING_DECISIONS: tuple[dict[str, str], ...] = (
     },
     {
         "id": "gap_policy_training",
-        "title": "Huecos: interpolar ≤3 meses; largos NaN; relleno solo para entrenar",
-        "module": "vp_model/preprocess.py:to_regular_monthly · vp_model/models.py:to_timeseries",
+        "title": "Huecos de entrenamiento: relleno CAUSAL (LOCF), jamás puntuado",
+        "module": "vp_model/preprocess.py:to_regular_monthly_causal · vp_model/models.py:to_timeseries",
         "rationale": (
-            "Los huecos son meses C/U (MNAR: la ausencia es señal). Corridas ≤3 meses se "
-            "interpolan linealmente; las largas quedan NaN (todo-o-nada por corrida, sin "
-            "rampas parciales). to_timeseries rellena los NaN residuales SOLO para dar "
-            "continuidad al entrenamiento — jamás son objetivo: la evaluación puntúa "
-            "únicamente fechas F reales (máscara B1, fuente única metrics._aligned)."
+            "Los huecos son meses C/U (MNAR: la ausencia es señal). La rejilla de "
+            "modelado se rellena hacia adelante con la última observación (LOCF, US-F1): "
+            "el valor de un mes faltante usa SOLO observaciones anteriores, así ningún "
+            "origen del walk-forward ve el bracket futuro del hueco (la interpolación "
+            "lineal bidireccional previa filtraba el futuro al pasado). El relleno da "
+            "continuidad al entrenamiento — jamás es objetivo: la evaluación puntúa "
+            "únicamente fechas F reales (máscara B1, fuente única metrics._aligned) y "
+            "los GBM reciben las máscaras MNAR para descontar el arrastre."
         ),
     },
     {

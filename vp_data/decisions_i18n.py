@@ -58,11 +58,13 @@ DECISIONS_EN: dict[str, dict[str, str]] = {
         "explicitly after every read_csv (AA4).",
     },
     "gap_policy_training": {
-        "title": "Gaps: interpolate ≤3 months; long ones NaN; filling only to train",
-        "rationale": "Gaps are C/U months (MNAR: the absence itself is signal). Runs of ≤3 months are "
-        "linearly interpolated; longer ones stay NaN (all-or-nothing per run, no partial ramps). "
-        "to_timeseries fills residual NaNs ONLY to give the training continuity — they are never targets: "
-        "the evaluation scores real F dates only (B1 mask, single source metrics._aligned).",
+        "title": "Training gaps: CAUSAL fill (LOCF), never scored",
+        "rationale": "Gaps are C/U months (MNAR: the absence itself is signal). The modeling grid is "
+        "forward-filled with the last observation (LOCF, US-F1): a missing month's value uses ONLY earlier "
+        "observations, so no walk-forward origin sees the gap's future bracket (the previous bidirectional "
+        "linear interpolation leaked the future into the past). The fill gives the training continuity — it "
+        "is never a target: the evaluation scores real F dates only (B1 mask, single source "
+        "metrics._aligned) and the GBMs receive the MNAR masks to discount the carried values.",
     },
     "eda_kalman": {
         "title": "EDA characterization imputes with Kalman, never unbounded ramps",
@@ -95,10 +97,20 @@ DECISIONS_EN: dict[str, dict[str, str]] = {
         "arithmetic contract re-verified in the warehouse, instead of raw dates impossible to regress.",
     },
     "gap_regularization": {
-        "title": "Regular monthly grid with bounded gaps",
-        "rationale": "The models demand a regular index; C/U months are not targets. Gap runs of ≤3 months "
-        "are linearly interpolated; long ones stay NaN (all-or-nothing per run) and the later continuity "
-        "fill is never scored (F-only mask B1).",
+        "title": "Regular monthly grid with a causal fill (LOCF)",
+        "rationale": "The models demand a regular index; C/U months are not targets. Every gap is "
+        "forward-filled with the last observation (LOCF): a missing month's value uses ONLY earlier "
+        "observations, so no walk-forward origin sees the gap's future bracket (US-F1; the previous "
+        "bidirectional linear interpolation leaked the future into the past). The continuity fill is never "
+        "scored (F-only mask B1).",
+    },
+    "missingness_mask_covariates": {
+        "title": "MNAR masks (observed, months_since_obs) as GBM covariates",
+        "rationale": "Absence is signal (MNAR): the differenced trees receive the observation mask and the "
+        "months since the last observation at lag −1 (the last CLOSED month, known at the origin; the "
+        "target month's regime is unknown before publication and feeding it at lag 0 would leak). The model "
+        "can thus discount the LOCF-carried stretches instead of taking them for published dates; models "
+        "without covariates rely on the explicit forward-only fill policy (US-F1).",
     },
     "differencing_trees": {
         "title": "Trees predict the first difference, not the level",
@@ -126,9 +138,9 @@ DECISIONS_EN: dict[str, dict[str, str]] = {
     },
     "covariate_policy": {
         "title": "Explicit covariate policy per model family",
-        "rationale": "Only the differenced trees receive the calendar (the canonical campaign was derived "
-        "that way); rlinear and the NNs deliberately go without covariates. 'year' is kept for provenance "
-        "of the published figures and is documented as a removal candidate for the next re-campaign.",
+        "rationale": "Only the differenced trees receive covariates: calendar at lag 0 and MNAR masks at "
+        "lag −1 (US-F1); rlinear and the NNs deliberately go without covariates. 'year' (monotone, "
+        "unbounded over a differenced target) was RETIRED in the AQ re-campaign of 2026-07-04.",
     },
     "selection_fresh_mrmr": {
         "title": "FRESH selection (FDR) + mRMR de-redundancy of the catalog",

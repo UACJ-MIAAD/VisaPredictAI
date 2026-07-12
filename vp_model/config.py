@@ -111,6 +111,22 @@ NUM_SAMPLES_POINT = 500  # samples drawn to form the median point forecast (AJ2)
 # las cifras canónicas de esta era en adelante se derivan SIN ella.
 COVARIATE_COLS = ("month_sin", "month_cos", "fiscal_sin", "fiscal_cos")
 COVARIATES: dict[str, tuple[str, ...]] = {m: COVARIATE_COLS for m in sorted(DIFFERENCED)}
+# F1: máscaras MNAR (missingness.masking_features) como covariables de los modelos
+# CAPACES de consumirlas — los mismos árboles diferenciados que ya reciben calendario.
+# El resto del catálogo maneja los huecos con la política forward-only explícita
+# (preprocess.to_regular_monthly_causal). Las máscaras entran con retardo −1 (el
+# último mes CERRADO, conocido en el origen): el régimen del mes objetivo no se
+# conoce antes de publicarse el boletín y dárselo al modelo a retardo 0 sería fuga.
+MASK_COVARIATE_COLS = ("observed", "months_since_obs")
+MASK_COVARIATES: dict[str, tuple[str, ...]] = {m: MASK_COVARIATE_COLS for m in sorted(DIFFERENCED)}
+# Retardos POR COMPONENTE para las covariables futuras de los árboles (darts admite
+# dict): el calendario es determinista y conocido de antemano (retardo 0 legítimo);
+# las máscaras solo a retardo −1 (causal). Fuente única — la usan HYPERPARAMS['trees']
+# y el constructor de plantillas del tuner (tune._build_tuned).
+TREE_FUTURE_COV_LAGS: dict[str, list[int]] = {
+    **{c: [0] for c in COVARIATE_COLS},
+    **{c: [-1] for c in MASK_COVARIATE_COLS},
+}
 
 # Hiperparámetros externalizados (antes hardcodeados dentro de build_model).
 HYPERPARAMS: dict[str, dict] = {
@@ -125,7 +141,14 @@ HYPERPARAMS: dict[str, dict] = {
     # model-pool table compare a tuned ETS against untuned GBMs). When
     # reports/eval/tuned_params.json has a winning entry for (model, table), the
     # factory overrides these with the HPO winners (models._tree_params).
-    "trees": dict(lags=24, lags_future_covariates=[0], output_chunk_length=1, learning_rate=0.02, n_estimators=200),
+    # F1: lags_future_covariates es el dict por componente (calendario a 0, máscaras a −1).
+    "trees": dict(
+        lags=24,
+        lags_future_covariates=TREE_FUTURE_COV_LAGS,
+        output_chunk_length=1,
+        learning_rate=0.02,
+        n_estimators=200,
+    ),
     # Regresión lineal (ridge): forma cerrada, sin SGD ni early-stopping (sin leakage).
     "rlinear": dict(lags=24, output_chunk_length=1),
     # MLP/lineales y MLP residuales modernos (torch): ventana de entrada modesta.
@@ -250,9 +273,13 @@ def run_metadata() -> dict:
         # features que la produjeron (la versión viene de feature_builder).
         "features": {
             "covariates": {m: list(c) for m, c in COVARIATES.items()},
+            "mask_covariates": {m: list(c) for m, c in MASK_COVARIATES.items()},  # F1
             "differenced": sorted(DIFFERENCED),
             "nn_differenced": sorted(NN_DIFFERENCED),  # AJ1
             "scaled": sorted(NEEDS_SCALING),
+            # F1: la rejilla de modelado es LOCF causal; el cap de interpolación solo
+            # gobierna la rejilla DESCRIPTIVA (EDA/caracterización).
+            "gap_policy": "locf_causal",
             "max_interpolable_gap": MAX_INTERPOLABLE_GAP,
             "base_epoch": BASE_EPOCH,
         },

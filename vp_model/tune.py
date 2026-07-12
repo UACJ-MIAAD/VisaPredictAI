@@ -139,7 +139,10 @@ def _build_tuned(model_name: str, params: dict) -> models.Forecaster:
     base = {"xgboost": XGBModel, "lightgbm": LightGBMModel, "catboost": CatBoostModel}[model_name]
     kw = dict(
         lags=params.pop("lags", 24),
-        lags_future_covariates=[0],
+        # F1: dict por componente (fuente única en config) — calendario a retardo 0,
+        # máscaras MNAR a retardo −1; una plantilla con [0] plano filtraría el régimen
+        # del mes objetivo a través de las máscaras.
+        lags_future_covariates=config.TREE_FUTURE_COV_LAGS,
         output_chunk_length=1,
         random_state=RANDOM_SEED,
         **params,
@@ -243,7 +246,7 @@ def _val_mase(
         pinned = {"lags_future_covariates", "output_chunk_length", "random_state"}
         params = {k: v for k, v in config.HYPERPARAMS["trees"].items() if k not in pinned}
     model = _build_tuned(model_name, dict(params))
-    cov = fe.covariates(ts)  # per-model covariate policy (AD1/AD8)
+    cov = fe.covariates(ts, raw)  # per-model covariate policy (AD1/AD8/F1: masks need raw)
     extra: dict[str, object] = {"future_covariates": cov} if cov is not None else {}
     model.fit(region[:start], **extra)
     fc = model.historical_forecasts(

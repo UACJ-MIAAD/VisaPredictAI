@@ -20,10 +20,15 @@ from vp_model.config import MAX_INTERPOLABLE_GAP
 def to_regular_monthly(series: pd.Series, max_gap: int = MAX_INTERPOLABLE_GAP) -> pd.Series:
     """Reindexa a frecuencia mensual continua e interpola solo huecos cortos.
 
-    Los modelos de series de tiempo (ARIMA, darts) requieren un índice regular; el
-    panel es disperso porque los meses C/U no son objetivo. Criterio documentado:
-    interpolar linealmente corridas de NaN de hasta ``max_gap`` meses; dejar las
-    corridas más largas como NaN (decisión consciente, no imputación a ciegas).
+    ⚠️ SOLO para caracterización/EDA/figuras (uso retrospectivo sobre la serie
+    completa). La interpolación lineal es BIDIRECCIONAL: el valor de un mes de
+    hueco usa el bracket observado FUTURO, así que esta rejilla NO puede alimentar
+    el entrenamiento por origen del walk-forward (fuga temporal, US-F1). La capa
+    de modelado usa :func:`to_regular_monthly_causal`.
+
+    Criterio documentado: interpolar linealmente corridas de NaN de hasta
+    ``max_gap`` meses; dejar las corridas más largas como NaN (decisión
+    consciente, no imputación a ciegas).
     """
     full = pd.date_range(series.index.min(), series.index.max(), freq="MS")
     s = series.reindex(full).astype("float64")
@@ -36,6 +41,31 @@ def to_regular_monthly(series: pd.Series, max_gap: int = MAX_INTERPOLABLE_GAP) -
     run_len = pd.Series(isna).groupby(run_id).transform("sum").to_numpy()
     keep = ~isna | (run_len <= max_gap)
     return filled.where(keep, other=np.nan)
+
+
+def to_regular_monthly_causal(series: pd.Series) -> pd.Series:
+    """Rejilla mensual regular con relleno CAUSAL (forward-only, US-F1).
+
+    Política elegida (F1): todo mes de hueco se rellena con la ÚLTIMA observación
+    anterior (*last observation carried forward*, LOCF), sin tope. El valor
+    asignado al mes m depende SOLO de observaciones ≤ m, de modo que UNA sola
+    serie transformada es válida para TODOS los orígenes del walk-forward: mutar
+    cualquier valor posterior a un origen no puede cambiar ningún insumo de
+    entrenamiento en/antes de ese origen (propiedad metamórfica probada en
+    ``tests/test_temporal_leakage.py``). La interpolación lineal bidireccional
+    previa usaba el bracket futuro del hueco y filtraba el futuro al pasado para
+    los orígenes dentro del hueco. Los meses rellenados existen solo para dar
+    continuidad al entrenamiento: NUNCA se puntúan (máscara F-only, B1) y los
+    modelos capaces de covariables reciben además las máscaras MNAR
+    (``missingness.masking_features``) para descontar el arrastre; el resto del
+    catálogo usa esta política forward-only explícita.
+    """
+    full = pd.date_range(series.index.min(), series.index.max(), freq="MS")
+    s = series.reindex(full).astype("float64")
+    s.index.name = "month"
+    # El primer punto de la rejilla es una observación real (la rejilla arranca en
+    # series.index.min()), así que el ffill no deja NaN a la cabeza.
+    return s.ffill()
 
 
 # AD7: la clase Standardizer (z-score fit/transform propio) se ELIMINÓ — era una
@@ -84,10 +114,10 @@ def calendar_features(index: pd.DatetimeIndex) -> pd.DataFrame:
 
 
 def demo() -> None:
-    """Self-check: interpolación acotada + round-trip de diferenciación."""
+    """Self-check: interpolación acotada + relleno causal + round-trip de diferenciación."""
     from vp_model import dataset
 
-    raw = dataset.load_series("china", "F1", "FAD")  # tiene 5 huecos
+    raw = dataset.load_series("mexico", "EB4_RW", "FAD")  # serie con huecos reales (post-I1)
     reg = to_regular_monthly(raw)
     assert reg.index.freq == "MS"
     # Los valores observados no cambian; solo se rellenan huecos cortos.
@@ -97,6 +127,12 @@ def demo() -> None:
     s = pd.Series([0.0, np.nan, np.nan, np.nan, np.nan, 100.0], index=pd.date_range("2020-01-01", periods=6, freq="MS"))
     assert to_regular_monthly(s, max_gap=3).isna().sum() == 4
 
+    # F1: el relleno causal es forward-only — el hueco toma el valor del bracket
+    # IZQUIERDO (0.0), jamás una rampa hacia el bracket futuro (100.0).
+    causal = to_regular_monthly_causal(s.dropna())
+    assert causal.isna().sum() == 0
+    assert (causal.iloc[1:5] == 0.0).all(), "LOCF: el hueco debe arrastrar la última observación"
+
     # Round-trip exacto de difference/undifference (contrato AD2).
     full = dataset.load_series("mexico", "F3", "FAD").astype("float64")
     d = difference(full)
@@ -105,7 +141,10 @@ def demo() -> None:
 
     feats = calendar_features(full.index)
     assert list(feats.columns) == ["month_sin", "month_cos", "fiscal_sin", "fiscal_cos", "year"]
-    print(f"OK — CN/F1/FAD regular {len(reg)} meses; round-trip diff exacto; {feats.shape[1]} regresores de calendario")
+    print(
+        f"OK — MX/EB4_RW/FAD regular {len(reg)} meses (LOCF causal verificado); "
+        f"round-trip diff exacto; {feats.shape[1]} regresores de calendario"
+    )
 
 
 if __name__ == "__main__":

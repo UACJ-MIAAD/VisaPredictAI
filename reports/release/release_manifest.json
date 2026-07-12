@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "release_id": "2026-07-2f20754d10ce",
-  "generated_at": "2026-07-12T05:50:44+00:00",
+  "release_id": "2026-07-5f6adfa8869e",
+  "generated_at": "2026-07-12T13:49:08+00:00",
   "pipeline_run_id": "local",
-  "git_sha": "e1451f740945",
-  "worktree_dirty": false,
+  "git_sha": "f956576892ca",
+  "worktree_dirty": true,
   "panel_vintage": "2026-07",
   "panel_hash_md5_12": "00115d2dd0b6",
   "champion_recipes": {
@@ -133,8 +133,8 @@
     },
     {
       "path": "reports/fe/fe_facts.json",
-      "sha256": "25a365bcb6239637928e54f7d346167a5124fe74dd547e3e408359768d43842e",
-      "size": 17831,
+      "sha256": "16f5c4344f4b4aaa3717f138831cc06037c47c2e0b47a850462587b4994fe7fb",
+      "size": 19965,
       "mime": "application/json",
       "criticality": "required"
     },

@@ -24,6 +24,8 @@ _MODEL_TESTS = [
     "test_ens_brutal.py",  # ensembles épica AM → vp_model + darts/scipy/xgboost
     "test_forecast_scoring.py",  # importa score_forecasts → vp_model.metrics → darts
     "test_model_regression.py",  # golden-master del walk-forward → vp_model + darts
+    "test_temporal_leakage.py",  # metamórficos de fuga temporal (US-F1) → vp_model + darts
+    "test_metric_regression.py",  # protocolo de métricas en fixtures sintéticas (US-E5) → vp_model + darts
     "test_champion.py",  # harness campeón-retador → vp_model + scipy
     "test_pi_brutal.py",  # intervalos (épica AN) → vp_model.intervals + darts/scipy
     "test_tune_brutal.py",  # HPO (épica AK) → vp_model.tune + darts/optuna

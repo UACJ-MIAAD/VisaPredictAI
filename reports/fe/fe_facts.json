@@ -1,7 +1,7 @@
 {
  "_source": "experiments/build_fe_facts.py — NO editar a mano",
  "vintage": "2026-07",
- "fe_version": "1.1.0",
+ "fe_version": "2.0.0",
  "constants": {
   "base_epoch": "1975-01-01",
   "days_per_year": 365.25,
@@ -50,7 +50,7 @@
   "tide"
  ],
  "realized_example": {
-  "fe_version": "1.1.0",
+  "fe_version": "2.0.0",
   "model": "xgboost",
   "covariates": [
    "month_sin",
@@ -58,11 +58,15 @@
    "fiscal_sin",
    "fiscal_cos"
   ],
+  "mask_covariates": [
+   "observed",
+   "months_since_obs"
+  ],
   "differenced": true,
   "differenced_family": "trees",
   "scaled": false,
   "lags": 24,
-  "max_interpolable_gap": 3
+  "gap_policy": "locf_causal"
  },
  "fe_decisions": [
   {
@@ -75,11 +79,19 @@
   },
   {
    "id": "gap_regularization",
-   "title": "Rejilla mensual regular con huecos acotados",
-   "module": "vp_model/preprocess.py:to_regular_monthly",
-   "rationale": "Los modelos exigen índice regular; los meses C/U no son objetivo. Corridas de hueco ≤3 meses se interpolan linealmente; las largas quedan NaN (todo-o-nada por corrida) y el relleno de continuidad posterior jamás se puntúa (máscara F-only B1).",
-   "title_en": "Regular monthly grid with bounded gaps",
-   "rationale_en": "The models demand a regular index; C/U months are not targets. Gap runs of ≤3 months are linearly interpolated; long ones stay NaN (all-or-nothing per run) and the later continuity fill is never scored (F-only mask B1)."
+   "title": "Rejilla mensual regular con relleno causal (LOCF)",
+   "module": "vp_model/preprocess.py:to_regular_monthly_causal",
+   "rationale": "Los modelos exigen índice regular; los meses C/U no son objetivo. Cada hueco se rellena hacia adelante con la última observación (LOCF): el valor de un mes faltante usa SOLO observaciones anteriores, de modo que ningún origen del walk-forward ve el bracket futuro del hueco (US-F1; la interpolación lineal bidireccional previa filtraba el futuro al pasado). El relleno de continuidad jamás se puntúa (máscara F-only B1).",
+   "title_en": "Regular monthly grid with a causal fill (LOCF)",
+   "rationale_en": "The models demand a regular index; C/U months are not targets. Every gap is forward-filled with the last observation (LOCF): a missing month's value uses ONLY earlier observations, so no walk-forward origin sees the gap's future bracket (US-F1; the previous bidirectional linear interpolation leaked the future into the past). The continuity fill is never scored (F-only mask B1)."
+  },
+  {
+   "id": "missingness_mask_covariates",
+   "title": "Máscaras MNAR (observed, months_since_obs) como covariables de los GBM",
+   "module": "vp_model/missingness.py:masking_features · vp_model/config.py:MASK_COVARIATES",
+   "rationale": "La ausencia es señal (MNAR): los árboles diferenciados reciben la máscara de observación y los meses desde la última observación con retardo −1 (el último mes CERRADO, conocido en el origen; el régimen del mes objetivo no se conoce antes de publicarse el boletín y dárselo a retardo 0 sería fuga). Así el modelo puede descontar los tramos arrastrados por el LOCF en lugar de tomarlos por fechas publicadas; los modelos sin covariables usan la política forward-only explícita del relleno causal (US-F1).",
+   "title_en": "MNAR masks (observed, months_since_obs) as GBM covariates",
+   "rationale_en": "Absence is signal (MNAR): the differenced trees receive the observation mask and the months since the last observation at lag −1 (the last CLOSED month, known at the origin; the target month's regime is unknown before publication and feeding it at lag 0 would leak). The model can thus discount the LOCF-carried stretches instead of taking them for published dates; models without covariates rely on the explicit forward-only fill policy (US-F1)."
   },
   {
    "id": "differencing_trees",
@@ -117,9 +129,9 @@
    "id": "covariate_policy",
    "title": "Política de covariables explícita por familia de modelo",
    "module": "vp_model/config.py:COVARIATES",
-   "rationale": "Solo los árboles diferenciados reciben calendario (la campaña canónica se derivó así); rlinear y las NN van conscientemente sin covariables. 'year' (monótona, no acotada sobre target diferenciado) fue RETIRADA en la re-campaña AQ del 4-jul-2026 (PENDIENTES #12).",
+   "rationale": "Solo los árboles diferenciados reciben covariables: calendario a retardo 0 y máscaras MNAR a retardo −1 (US-F1); rlinear y las NN van conscientemente sin covariables. 'year' (monótona, no acotada sobre target diferenciado) fue RETIRADA en la re-campaña AQ del 4-jul-2026 (PENDIENTES #12).",
    "title_en": "Explicit covariate policy per model family",
-   "rationale_en": "Only the differenced trees receive the calendar (the canonical campaign was derived that way); rlinear and the NNs deliberately go without covariates. 'year' is kept for provenance of the published figures and is documented as a removal candidate for the next re-campaign."
+   "rationale_en": "Only the differenced trees receive covariates: calendar at lag 0 and MNAR masks at lag −1 (US-F1); rlinear and the NNs deliberately go without covariates. 'year' (monotone, unbounded over a differenced target) was RETIRED in the AQ re-campaign of 2026-07-04."
   },
   {
    "id": "selection_fresh_mrmr",
@@ -189,11 +201,11 @@
   },
   {
    "id": "gap_policy_training",
-   "title": "Huecos: interpolar ≤3 meses; largos NaN; relleno solo para entrenar",
-   "module": "vp_model/preprocess.py:to_regular_monthly · vp_model/models.py:to_timeseries",
-   "rationale": "Los huecos son meses C/U (MNAR: la ausencia es señal). Corridas ≤3 meses se interpolan linealmente; las largas quedan NaN (todo-o-nada por corrida, sin rampas parciales). to_timeseries rellena los NaN residuales SOLO para dar continuidad al entrenamiento — jamás son objetivo: la evaluación puntúa únicamente fechas F reales (máscara B1, fuente única metrics._aligned).",
-   "title_en": "Gaps: interpolate ≤3 months; long ones NaN; filling only to train",
-   "rationale_en": "Gaps are C/U months (MNAR: the absence itself is signal). Runs of ≤3 months are linearly interpolated; longer ones stay NaN (all-or-nothing per run, no partial ramps). to_timeseries fills residual NaNs ONLY to give the training continuity — they are never targets: the evaluation scores real F dates only (B1 mask, single source metrics._aligned)."
+   "title": "Huecos de entrenamiento: relleno CAUSAL (LOCF), jamás puntuado",
+   "module": "vp_model/preprocess.py:to_regular_monthly_causal · vp_model/models.py:to_timeseries",
+   "rationale": "Los huecos son meses C/U (MNAR: la ausencia es señal). La rejilla de modelado se rellena hacia adelante con la última observación (LOCF, US-F1): el valor de un mes faltante usa SOLO observaciones anteriores, así ningún origen del walk-forward ve el bracket futuro del hueco (la interpolación lineal bidireccional previa filtraba el futuro al pasado). El relleno da continuidad al entrenamiento — jamás es objetivo: la evaluación puntúa únicamente fechas F reales (máscara B1, fuente única metrics._aligned) y los GBM reciben las máscaras MNAR para descontar el arrastre.",
+   "title_en": "Training gaps: CAUSAL fill (LOCF), never scored",
+   "rationale_en": "Gaps are C/U months (MNAR: the absence itself is signal). The modeling grid is forward-filled with the last observation (LOCF, US-F1): a missing month's value uses ONLY earlier observations, so no walk-forward origin sees the gap's future bracket (the previous bidirectional linear interpolation leaked the future into the past). The fill gives the training continuity — it is never a target: the evaluation scores real F dates only (B1 mask, single source metrics._aligned) and the GBMs receive the MNAR masks to discount the carried values."
   },
   {
    "id": "eda_kalman",

@@ -103,7 +103,7 @@ def kalman_impute(series: pd.Series) -> pd.Series:
     return out
 
 
-def masking_features(series: pd.Series) -> pd.DataFrame:
+def masking_features(series: pd.Series, horizon: int = 0) -> pd.DataFrame:
     """Covariables imputation-free para modelar series con huecos MNAR.
 
     Devuelve, sobre el calendario mensual regular:
@@ -111,8 +111,21 @@ def masking_features(series: pd.Series) -> pd.DataFrame:
       * ``months_since_obs``: meses transcurridos desde la última observación.
     Estas dos columnas dejan que el modelo aprenda del patrón de ausencia en lugar de
     confiar en valores inventados (Che et al. GRU-D; literatura imputation-free).
+
+    Ambas son CAUSALES: el valor del mes m depende solo de la observabilidad de los
+    meses ≤ m (US-F1: entran al catálogo como covariables con retardo −1, el último
+    mes CERRADO conocido en el origen; el régimen del mes objetivo no se conoce antes
+    de publicarse el boletín y filtrarlo sería fuga).
+
+    ``horizon`` (>0) extiende la rejilla ese número de meses hacia el futuro con el
+    estado de información honesto al momento de pronosticar: ``observed=0`` y el
+    contador siguiendo su cuenta (esos meses aún no se publican). Lo usan los caminos
+    que predicen más allá del último boletín (``predict(n)``).
     """
     reg = _raw_monthly(series)
+    if horizon > 0:
+        ext = pd.date_range(reg.index[-1] + pd.offsets.MonthBegin(1), periods=horizon, freq="MS")
+        reg = reg.reindex(reg.index.append(ext))
     observed = (~reg.isna()).astype("int64")
     since = np.zeros(len(reg), dtype="int64")
     count = 0
@@ -138,12 +151,17 @@ def profile_all(table: str | None = None, block: str | None = None) -> pd.DataFr
 
 
 def demo() -> None:
-    """Self-check: caracterización de huecos, Kalman e imputation-free coherentes."""
-    p = profile("china", "F1", "FAD")
+    """Self-check: caracterización de huecos, Kalman e imputation-free coherentes.
+
+    Ejemplar: mexico/EB4_RW/FAD (con huecos reales). El ejemplar previo (china/F1)
+    quedó SIN huecos tras la resurrección I1 (2-jul-2026) y el demo fallaba — misma
+    lección que la figura Kalman (verificar con ``missingness.profile`` al elegir).
+    """
+    p = profile("mexico", "EB4_RW", "FAD")
     assert p.n_missing == p.n_months - p.n_observed
     assert p.n_gap_runs >= 1 and p.max_gap_run >= 1
 
-    raw = dataset.load_series("china", "F1", "FAD")
+    raw = dataset.load_series("mexico", "EB4_RW", "FAD")
     imp = kalman_impute(raw)
     assert imp.isna().sum() == 0, "Kalman debe rellenar todos los huecos para EDA"
     # los valores observados no se alteran (se comparan contra la rejilla cruda)
@@ -156,7 +174,7 @@ def demo() -> None:
     assert mf["months_since_obs"].max() == p.max_gap_run  # el contador llega al hueco mayor
     assert (mf.loc[mf["observed"] == 1, "months_since_obs"] == 0).all()
     print(
-        f"OK — CN/F1/FAD MNAR: {p.pct_missing:.1%} faltante en {p.n_gap_runs} corridas "
+        f"OK — MX/EB4_RW/FAD MNAR: {p.pct_missing:.1%} faltante en {p.n_gap_runs} corridas "
         f"(máx {p.max_gap_run} m); Kalman rellena {p.n_missing}; máscara+Δt como covariables"
     )
 

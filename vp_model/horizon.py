@@ -50,7 +50,8 @@ def forecasts_by_horizon(model_name: str, country: str, category: str, table: st
     asigna al horizonte h=k con su fecha objetivo (origen + k meses).
     """
     fe = FeatureBuilder(model_name)
-    ts = fe.to_timeseries(dataset.load_series(country, category, table))
+    raw = dataset.load_series(country, category, table)
+    ts = fe.to_timeseries(raw)
     min_train = MIN_TRAIN[table]
     # Cap por-serie: una serie que no alcanza hmax NO se descarta — contribuye hasta su
     # horizonte factible (así extender el grid a h=36 no sesga los horizontes cortos al
@@ -60,7 +61,7 @@ def forecasts_by_horizon(model_name: str, country: str, category: str, table: st
         raise ValueError(f"serie corta ({len(ts)}) para min_train={min_train} (ni h=1)")
     model = models.build_model(model_name, table=table, block=_block(category))
     retrain: bool | int = model_name in RETRAIN_EACH_STEP
-    cov = fe.covariates(ts)
+    cov = fe.covariates(ts, raw)  # F1: las máscaras MNAR requieren la serie F cruda
     extra: dict[str, object] = {"future_covariates": cov} if cov is not None else {}
     per_origin = model.historical_forecasts(
         ts,
