@@ -27,12 +27,14 @@
 # Uso (desde la raíz; ~8-11 h; caffeinate evita que macOS duerma a mitad de campaña):
 #   caffeinate -is bash experiments/run_rederivation.sh > reports/rederivation.log 2>&1
 #
-# Fail-closed (auditoría 12-jul-2026): las etapas OBLIGATORIAS (run_req: build_database,
-# campaña, significancia, champion-challenger, key_facts, model_card) hacen que el runbook
-# TERMINE EN ROJO (exit≠0) si fallan; las best-effort (run: modelos que fallan en series
-# cortas) solo se cuentan. La consistencia rota al final también es exit≠0 (hay cifras que
-# propagar antes de publicar). NADA se publica automáticamente: run_campaign llama a sync_all
-# en modo LOCAL (sin push); publicar exige `sync_all.sh --publish` humano tras validar.
+# Fail-closed (auditoría 12-jul-2026): las etapas OBLIGATORIAS (run_req) hacen que el runbook
+# TERMINE EN ROJO (exit≠0) si fallan: build_database · campaña · proyección de pools ·
+# finalistas · ensembles · conformal · Auto-ARIMA · CRPS · confirm_tuning · significancia ·
+# champion-challenger · key_facts · model_card · figuras de resultados. Quedan best-effort
+# (run) solo las genuinamente tolerables: stacking/FFORMA exploratorios, deep-PI diagnóstico,
+# búsqueda de tuning (confirm sí es obligatoria), drift y hero. La consistencia rota al final
+# es exit 2 (hay cifras que propagar). NADA se publica: run_campaign y save_finalists llaman
+# a sync_all con SYNC_PUBLISH=0; publicar exige `sync_all.sh --publish` humano tras validar.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 ANTE=ante/bin/python
@@ -100,32 +102,37 @@ run_req bash experiments/run_campaign.sh
 
 stage 2 "proyección pools -> model_comparison_*21.csv (consumidores: ensemble/tuning/figuras)"
 for t in FAD DFF; do
-  run cp "reports/campaign/campaign_pool_${t}_family.csv" "reports/eval/model_comparison_${t}21.csv"
-  run cp "reports/campaign/campaign_pool_${t}_employment.csv" "reports/eval/model_comparison_EB_${t}21.csv"
+  run_req cp "reports/campaign/campaign_pool_${t}_family.csv" "reports/eval/model_comparison_${t}21.csv"
+  run_req cp "reports/campaign/campaign_pool_${t}_employment.csv" "reports/eval/model_comparison_EB_${t}21.csv"
 done
 
 stage 3 "finalistas (modelos deep+locales) + holdout_forecasts frescos"
-run bash experiments/save_finalists.sh
+run_req bash experiments/save_finalists.sh
 
 stage 4 "combinadores sobre holdouts frescos (supersede el ensembles de la campaña)"
-run $ANTE experiments/run_ensembles.py --mlflow
-run $ANTE experiments/improve_conformal.py --mlflow
+run_req $ANTE experiments/run_ensembles.py --mlflow
+run_req $ANTE experiments/improve_conformal.py --mlflow
 run $ANTE experiments/improve_stacking.py --mlflow
 run $ANTE experiments/improve_fforma.py --mlflow
 
 stage 5 "baselines: Auto-ARIMA (AICc) · deep-PI · CRPS"
-run $ANTE experiments/auto_arima_baseline.py
+run_req $ANTE experiments/auto_arima_baseline.py
 for t in FAD DFF; do
   run $NF experiments/run_deep_pi.py --table "$t" --model BiTCN --max-steps 800
   run $ANTE experiments/eval_deep_pi.py --table "$t"
 done
-run $ANTE experiments/run_crps_baseline.py
+run_req $ANTE experiments/run_crps_baseline.py
 
 stage 6 "tuning GBMs (Optuna persistente + confirmación en val-confirm independiente, AK)"
 run $ANTE -m vp_model.run_tuning --n-trials 150 --mlflow
 run $ANTE -m vp_model.run_tuning --rank-check --mlflow
 run $ANTE -m vp_model.run_tuning --select-by-deploy   # fix #20: re-elige por deploy-score antes de confirmar
-run $ANTE -m vp_model.confirm_tuning --holdout-report --mlflow
+run_req $ANTE -m vp_model.confirm_tuning --holdout-report --mlflow
+
+stage 6.5 "GATE de completitud+frescura (bloques/semillas/HPO/finalists no-stale)"
+# Obligatoria: si falta un pool/HPO/finalist o alguno es viejo (reutilizado de un corte
+# anterior), la significancia/champion NO deben correr sobre inputs incompletos/stale.
+run_req $ANTE -m tools.check_campaign_completeness
 
 stage 7 "significancia (Friedman-Nemenyi + MCS + DM) y champion-challenger"
 run_req $ANTE experiments/significance_tables.py
@@ -137,7 +144,7 @@ run_req $ANTE experiments/build_model_card.py
 run $ANTE experiments/check_drift.py
 
 stage 9 "figuras de resultados (las EDA no cambian: mismo panel)"
-run $ANTE experiments/make_result_figures.py
+run_req $ANTE experiments/make_result_figures.py
 run $ANTE experiments/make_hero_figures.py
 
 stage 10 "guardián de consistencia (FALLA = hay cifras nuevas que propagar, regla #0)"

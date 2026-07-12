@@ -253,12 +253,24 @@ def run_metadata() -> dict:
         # without these hashes a run could not be tied to the exact panel it saw.
         return hashlib.md5(path.read_bytes()).hexdigest()[:12] if path.exists() else None
 
-    sha = _git("rev-parse", "HEAD")
-    dirty = _git("status", "--porcelain")
+    # Identidad de campaña sellada (auditoría 12-jul-2026): si run_rederivation.sh exportó
+    # CAMPAIGN_SHA/CAMPAIGN_ID, se usan ESOS para el ledger tradicional (experiment_runs.jsonl
+    # + run_id) en vez del HEAD/dirty VIVO — así TODOS los records de una campaña comparten
+    # una identidad, aunque HEAD avance a mitad de corrida (el bug de SHAs mezclados).
+    pinned_sha = os.environ.get("CAMPAIGN_SHA")
+    pinned_id = os.environ.get("CAMPAIGN_ID")
+    sha: str | None
+    dirty: str | None
+    if pinned_sha:
+        sha, dirty = pinned_sha, ""  # sellado ⇒ árbol limpio verificado al inicio
+    else:
+        sha = _git("rev-parse", "HEAD")
+        dirty = _git("status", "--porcelain")
     ts = datetime.datetime.now().isoformat(timespec="seconds")
     root = Path(__file__).resolve().parent.parent
     return {
-        "run_id": ts.replace(":", "").replace("-", "") + (f"-{sha[:7]}" if sha else ""),
+        "run_id": pinned_id or (ts.replace(":", "").replace("-", "") + (f"-{sha[:7]}" if sha else "")),
+        "campaign_id": pinned_id,
         "timestamp": ts,
         "git_sha": sha,
         "git_dirty": bool(dirty) if dirty is not None else None,
