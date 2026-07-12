@@ -2576,8 +2576,11 @@ sobre-suscrito no puede rebasar la fecha mundial de su categoría, y la tabla FA
 debería rebasar a la DFF de la misma serie. Auditar la añada previamente desplegada
 contra estas restricciones reveló 113 violaciones de país$\leq$mundial en 864 pares
 comparables y 30 de FAD$\leq$DFF en 363; una \textbf{proyección al cono de coherencia},
-incorporada al publicador, las reduce a \textbf{cero} sin degradar el error puntual. El
-contador de violaciones queda como métrica de calidad permanente del despliegue. La
+incorporada al publicador, las reduce a \textbf{cero}. La proyección modifica los valores
+puntuales de las celdas que violaban una restricción; su efecto sobre el error puntual
+agregado (MAE/MASE) y la cobertura se cuantifica en la rederivación causal comparando el
+desempeño antes y después de la proyección sobre la misma cohorte. El contador de
+violaciones queda como métrica de calidad permanente del despliegue. La
 cobertura empírica de los intervalos al 95\,\% se reporta junto con el desempeño puntual,
 de modo que la incertidumbre declarada sea verificable y no dependa de condiciones
 particulares.
