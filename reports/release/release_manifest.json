@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "release_id": "2026-07-8d4356af25fd",
-  "generated_at": "2026-07-12T04:59:02+00:00",
+  "generated_at": "2026-07-12T04:59:14+00:00",
   "pipeline_run_id": "local",
-  "git_sha": "446b0c5fcc51",
-  "worktree_dirty": true,
+  "git_sha": "6893d3f98ed3",
+  "worktree_dirty": false,
   "panel_vintage": "2026-07",
   "panel_hash_md5_12": "00115d2dd0b6",
   "champion_recipes": {
