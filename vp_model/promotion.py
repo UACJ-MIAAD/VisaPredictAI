@@ -261,21 +261,24 @@ def evidence_hashes(vintages: list[str] | None = None, root: Path | None = None)
             continue
         if wanted is not None and "origin" in df.columns:
             df = df[df["origin"].astype(str).isin(wanted)]
+        # Reauditoría 4: canónico también en COLUMNAS — permutar columnas del mismo
+        # contenido no debe cambiar el hash.
+        df = df[sorted(df.columns)]
         blob = df.sort_values(list(df.columns), na_position="last").to_csv(index=False)
         out[label] = hashlib.sha256(blob.encode()).hexdigest()[:12]
     return out
 
 
-def shadow_origins(table: str, challenger: str) -> set[str]:
-    """Añadas del ledger sombra PARA ESTA TABLA Y ESTE RETADOR (reauditoría 3: mezclar
-    tablas/recetas dejaba autorizar FAD con añadas que solo existían en DFF o bajo otra
-    receta). ``challenger`` puede venir unido con ``+`` si la evidencia mezcló recetas."""
+def shadow_origins(table: str, recipes: list[str]) -> set[str]:
+    """Añadas del ledger sombra PARA ESTA TABLA Y ESTAS RECETAS EXACTAS (reauditoría 3:
+    mezclar tablas/recetas autorizaba con añadas ajenas; reauditoría 4: el split por "+"
+    partía recetas ensemble como ``median(theta+ets)`` en dos inexistentes — la lista de
+    recetas viaja EXACTA en el candidato, jamás se re-parsea de un display name)."""
     p = Path(__file__).resolve().parent.parent / "reports" / "prospective" / "forecast_log_shadow.csv"
     if not p.exists():
         return set()
     df = pd.read_csv(p, usecols=["origin", "table", "recipe"])
-    recipes = set(str(challenger).split("+"))
-    mask = (df["table"].astype(str) == str(table)) & (df["recipe"].astype(str).isin(recipes))
+    mask = (df["table"].astype(str) == str(table)) & (df["recipe"].astype(str).isin([str(r) for r in recipes]))
     return set(df[mask]["origin"].astype(str).unique())
 
 
@@ -305,7 +308,8 @@ def _candidate_violations(cand: dict, policy: dict, table: str) -> list[str]:
             v.append(f"añadas DUPLICADAS en la decisión: {sorted(vintages)}")
         if len(set(vintages)) < policy["min_live_vintages"]:
             v.append(f"añadas únicas declaradas: {len(set(vintages))} < mínimo {policy['min_live_vintages']}")
-        ghosts = sorted(set(str(x) for x in vintages) - shadow_origins(table, str(cand.get("challenger"))))
+        recipes = cand.get("challenger_recipes") or [str(cand.get("challenger"))]
+        ghosts = sorted(set(str(x) for x in vintages) - shadow_origins(table, recipes))
         if ghosts:
             v.append(
                 f"añadas declaradas que NO existen en el ledger sombra para {table}/{cand.get('challenger')}: {ghosts}"

@@ -58,17 +58,21 @@ def _candidate_identity(pairs: pd.DataFrame, table: str) -> dict:
         sl = pd.read_csv(shadow_ledger, usecols=["origin", "table", "recipe"])
         mask = (sl["table"] == table) & (sl["origin"].isin(live["origin"].unique()))
         challengers = sorted(sl[mask]["recipe"].dropna().unique())
-    cand = {
+    vintages: list[str] = sorted(str(o) for o in live["origin"].unique()) if len(live) else []
+    cand: dict = {
         "champion": champ_recipe.name if champ_recipe else "n/d",
         "challenger": "+".join(challengers) if challengers else "n/d",
+        # Reauditoria 4: la lista EXACTA de recetas sombra — el join/split con "+"
+        # rompia recetas ensemble ("median(theta+ets)" se partia en dos inexistentes).
+        "challenger_recipes": challengers,
         "release_id": ledger.current_release_id(),
-        "vintages": sorted(str(o) for o in live["origin"].unique()) if len(live) else [],
+        "vintages": vintages,
         "decided_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
     }
     # R0-01 + reauditoria 3: hashes de la evidencia FILTRADA a las anadas de ESTA
     # decision — el freeze sombra del mismo cron apendea una anada nueva despues del
     # gate y NO debe invalidarla; reescribir las filas-evidencia si la mata.
-    cand["evidence"] = promotion.evidence_hashes(vintages=cand["vintages"])
+    cand["evidence"] = promotion.evidence_hashes(vintages=vintages)
     cand["hash"] = promotion.candidate_hash(cand, promotion.POLICY)
     return cand
 

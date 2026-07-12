@@ -32,6 +32,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -225,6 +226,8 @@ def load_completeness_allowlist(path: Path | None = None) -> dict[str, str]:
         # horizonte acotado: una exención no es una amnistía permanente (máx. 24 meses
         # sobre la añada del panel; renovar exige tocar el archivo versionado otra vez).
         try:
+            if not re.fullmatch(r"\d{4}-\d{2}", expires):  # reauditoría 4: strptime acepta "2026-7"
+                raise ValueError(expires)
             when = datetime.datetime.strptime(expires, "%Y-%m")
         except ValueError:
             raise ValueError(

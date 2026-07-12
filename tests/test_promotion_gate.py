@@ -174,7 +174,7 @@ def _pin_release(monkeypatch, value="2026-07-feedcafe0000"):
     monkeypatch.setattr(
         promotion,
         "shadow_origins",
-        lambda table, challenger: {"2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"},
+        lambda table, recipes: {"2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"},
     )
 
 
@@ -336,7 +336,7 @@ def test_shadow_origins_scoped_to_table_and_recipe(tmp_path, monkeypatch) -> Non
     )
     real_read = pd.read_csv
     monkeypatch.setattr(pd, "read_csv", lambda p, **kw: real_read(prosp / "forecast_log_shadow.csv", **kw))
-    got = promotion.shadow_origins("FAD", "naive1")
+    got = promotion.shadow_origins("FAD", ["naive1"])
     assert got == {"2026-08", "2026-09"}
     assert "2026-10" not in got  # solo existe en DFF
     assert "2026-07" not in got  # solo existe bajo otra receta
@@ -350,10 +350,38 @@ def test_allowlist_rejects_impossible_months_and_eternal_horizons(tmp_path) -> N
     from vp_model import ledger
 
     p = tmp_path / "allow.json"
-    for bad in ("2026-13", "2026-99", "9999-99"):
+    for bad in ("2026-13", "2026-99", "9999-99", "2026-7"):
         p.write_text(J.dumps({"x/F1/FAD": {"reason": "r", "expires": bad}}))
         with pytest.raises(ValueError, match="calend"):
             ledger.load_completeness_allowlist(p)
     p.write_text(J.dumps({"x/F1/FAD": {"reason": "r", "expires": "2099-12"}}))
     with pytest.raises(ValueError, match="amnist"):
         ledger.load_completeness_allowlist(p)
+
+
+def test_shadow_origins_handles_ensemble_recipes(tmp_path, monkeypatch) -> None:
+    """Reauditoria 4 (P2): challenger.split('+') partia 'median(theta+ets)' en dos
+    recetas inexistentes (cero origenes). La lista exacta viaja en el candidato."""
+    prosp = tmp_path / "reports" / "prospective"
+    prosp.mkdir(parents=True)
+    (prosp / "forecast_log_shadow.csv").write_text(
+        "origin,table,recipe\n2026-08,FAD,median(theta+ets)\n2026-09,FAD,median(theta+ets)\n"
+    )
+    real_read = pd.read_csv
+    monkeypatch.setattr(pd, "read_csv", lambda p, **kw: real_read(prosp / "forecast_log_shadow.csv", **kw))
+    assert promotion.shadow_origins("FAD", ["median(theta+ets)"]) == {"2026-08", "2026-09"}
+
+
+def test_evidence_hashes_canonical_under_column_permutation(tmp_path) -> None:
+    """Reauditoria 4 (P3): permutar columnas del MISMO contenido cambiaba el hash."""
+    prosp = tmp_path / "reports" / "prospective"
+    prosp.mkdir(parents=True)
+    a = "origin,table,days\n2026-08,FAD,100\n"
+    b = "days,origin,table\n100,2026-08,FAD\n"  # mismas celdas, columnas permutadas
+    for f in ("forecast_scorecard.csv", "forecast_scorecard_shadow.csv"):
+        (prosp / f).write_text(a)
+    (prosp / "forecast_log_shadow.csv").write_text(a)
+    h1 = promotion.evidence_hashes(vintages=["2026-08"], root=tmp_path)
+    (prosp / "forecast_log_shadow.csv").write_text(b)
+    h2 = promotion.evidence_hashes(vintages=["2026-08"], root=tmp_path)
+    assert h1["shadow_ledger"] == h2["shadow_ledger"]
