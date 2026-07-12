@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "release_id": "2026-07-5f6adfa8869e",
-  "generated_at": "2026-07-12T13:54:40+00:00",
+  "release_id": "2026-07-5e473ac91f60",
+  "generated_at": "2026-07-12T14:33:13+00:00",
   "pipeline_run_id": "local",
-  "git_sha": "e5e214facddf",
-  "worktree_dirty": false,
+  "git_sha": "d52366d60c29",
+  "worktree_dirty": true,
   "panel_vintage": "2026-07",
   "panel_hash_md5_12": "00115d2dd0b6",
   "champion_recipes": {
@@ -189,8 +189,8 @@
     },
     {
       "path": "reports/governance/MODEL_CARD.md",
-      "sha256": "b4d0adb3411f781c30b7b046f2257dace41953e61de1e03500ee567d54b34786",
-      "size": 3465,
+      "sha256": "8dbdd78b80a283a522485f8e7363c9bd7a1dffcb0c3dd9e0b988be9102fb0bc4",
+      "size": 3666,
       "mime": "text/markdown",
       "criticality": "required"
     },
