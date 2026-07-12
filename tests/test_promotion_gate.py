@@ -143,6 +143,7 @@ def _decision_file(tmp_path, *, policy=None, decision="promote", candidate=None,
     cand = {
         "champion": "theta+ets+sarima",
         "challenger": "naive1",
+        "challenger_recipes": ["naive1"],
         "release_id": "2026-07-feedcafe0000",
         "vintages": ["2026-08", "2026-09", "2026-10"],
         "decided_at": "2026-07-12T00:00:00+00:00",
@@ -173,8 +174,8 @@ def _pin_release(monkeypatch, value="2026-07-feedcafe0000"):
     monkeypatch.setattr(promotion, "evidence_hashes", lambda vintages=None, root=None: dict(EVIDENCE))
     monkeypatch.setattr(
         promotion,
-        "shadow_origins",
-        lambda table, recipes: {"2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"},
+        "shadow_evidence",
+        lambda table, vintages: ({"naive1"}, {"2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"}),
     )
 
 
@@ -326,9 +327,9 @@ def test_evidence_hashes_survive_append_die_on_rewrite(tmp_path) -> None:
     assert after["shadow_ledger"] != before["shadow_ledger"], "reescribir la evidencia DEBE matarla"
 
 
-def test_shadow_origins_scoped_to_table_and_recipe(tmp_path, monkeypatch) -> None:
-    """Reauditoria 3 (P2): una autorizacion FAD aceptaba anadas que solo existian en
-    otra tabla o bajo otra receta. Se apunta la implementacion REAL a un fixture."""
+def test_shadow_evidence_scoped_to_table_and_vintages(tmp_path, monkeypatch) -> None:
+    """Reauditoria 3/5: la evidencia real (recetas Y anadas) se deriva del ledger para
+    (tabla, anadas) — otra tabla u otra receta no cuentan."""
     prosp = tmp_path / "reports" / "prospective"
     prosp.mkdir(parents=True)
     (prosp / "forecast_log_shadow.csv").write_text(
@@ -336,10 +337,10 @@ def test_shadow_origins_scoped_to_table_and_recipe(tmp_path, monkeypatch) -> Non
     )
     real_read = pd.read_csv
     monkeypatch.setattr(pd, "read_csv", lambda p, **kw: real_read(prosp / "forecast_log_shadow.csv", **kw))
-    got = promotion.shadow_origins("FAD", ["naive1"])
-    assert got == {"2026-08", "2026-09"}
-    assert "2026-10" not in got  # solo existe en DFF
-    assert "2026-07" not in got  # solo existe bajo otra receta
+    recipes, origins = promotion.shadow_evidence("FAD", ["2026-08", "2026-09"])
+    assert recipes == {"naive1"} and origins == {"2026-08", "2026-09"}
+    recipes2, _ = promotion.shadow_evidence("FAD", ["2026-07"])
+    assert recipes2 == {"otro"}  # la receta ajena aparece SOLO si sus anadas se declaran
 
 
 def test_allowlist_rejects_impossible_months_and_eternal_horizons(tmp_path) -> None:
@@ -359,9 +360,8 @@ def test_allowlist_rejects_impossible_months_and_eternal_horizons(tmp_path) -> N
         ledger.load_completeness_allowlist(p)
 
 
-def test_shadow_origins_handles_ensemble_recipes(tmp_path, monkeypatch) -> None:
-    """Reauditoria 4 (P2): challenger.split('+') partia 'median(theta+ets)' en dos
-    recetas inexistentes (cero origenes). La lista exacta viaja en el candidato."""
+def test_shadow_evidence_handles_ensemble_recipes(tmp_path, monkeypatch) -> None:
+    """Reauditoria 4: 'median(theta+ets)' es UNA receta — jamas se re-parsea."""
     prosp = tmp_path / "reports" / "prospective"
     prosp.mkdir(parents=True)
     (prosp / "forecast_log_shadow.csv").write_text(
@@ -369,7 +369,8 @@ def test_shadow_origins_handles_ensemble_recipes(tmp_path, monkeypatch) -> None:
     )
     real_read = pd.read_csv
     monkeypatch.setattr(pd, "read_csv", lambda p, **kw: real_read(prosp / "forecast_log_shadow.csv", **kw))
-    assert promotion.shadow_origins("FAD", ["median(theta+ets)"]) == {"2026-08", "2026-09"}
+    recipes, _ = promotion.shadow_evidence("FAD", ["2026-08", "2026-09"])
+    assert recipes == {"median(theta+ets)"}
 
 
 def test_evidence_hashes_canonical_under_column_permutation(tmp_path) -> None:
@@ -385,3 +386,38 @@ def test_evidence_hashes_canonical_under_column_permutation(tmp_path) -> None:
     (prosp / "forecast_log_shadow.csv").write_text(b)
     h2 = promotion.evidence_hashes(vintages=["2026-08"], root=tmp_path)
     assert h1["shadow_ledger"] == h2["shadow_ledger"]
+
+
+def test_authorize_requires_exact_recipe_list(tmp_path, monkeypatch) -> None:
+    """Reauditoria 5: challenger_recipes era fail-open — ausente caia al display name y
+    la union de origenes aceptaba recetas fantasma. Los 4 negativos exigidos."""
+    _pin_release(monkeypatch)
+    ok, why = promotion.authorize("FAD", _decision_file(tmp_path, candidate={"challenger_recipes": ...}), **AUTH)
+    assert not ok and "obligatoria" in why  # ausente, re-sellada canonicamente
+    ok, why = promotion.authorize("FAD", _decision_file(tmp_path, candidate={"challenger_recipes": []}), **AUTH)
+    assert not ok and "obligatoria" in why  # vacia
+    ok, why = promotion.authorize(
+        "FAD", _decision_file(tmp_path, candidate={"challenger_recipes": ["naive1", "ghost-recipe"]}), **AUTH
+    )
+    assert not ok and "REALES" in why  # receta EXTRA (fantasma)
+    monkeypatch.setattr(
+        promotion, "shadow_evidence", lambda table, vintages: ({"naive1", "drift"}, {"2026-08", "2026-09", "2026-10"})
+    )
+    ok, why = promotion.authorize("FAD", _decision_file(tmp_path), **AUTH)
+    assert not ok and "REALES" in why  # receta FALTANTE (subconjunto)
+
+
+def test_authorize_refuses_mixed_recipe_evidence_and_display_mismatch(tmp_path, monkeypatch) -> None:
+    _pin_release(monkeypatch)
+    monkeypatch.setattr(
+        promotion, "shadow_evidence", lambda table, vintages: ({"naive1", "drift"}, {"2026-08", "2026-09", "2026-10"})
+    )
+    path = _decision_file(tmp_path, candidate={"challenger_recipes": ["naive1", "drift"], "challenger": "naive1+drift"})
+    ok, why = promotion.authorize("FAD", path, challenger="naive1+drift", champion="theta+ets+sarima")
+    assert not ok and "mezcla" in why  # evidencia de 2 recetas: ambigua — fail closed
+    monkeypatch.setattr(
+        promotion, "shadow_evidence", lambda table, vintages: ({"naive1"}, {"2026-08", "2026-09", "2026-10"})
+    )
+    path = _decision_file(tmp_path, candidate={"challenger": "otro-nombre"})
+    ok, why = promotion.authorize("FAD", path, challenger="otro-nombre", champion="theta+ets+sarima")
+    assert not ok and "display" in why  # display sin correspondencia con la receta unica

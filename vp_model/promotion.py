@@ -269,17 +269,18 @@ def evidence_hashes(vintages: list[str] | None = None, root: Path | None = None)
     return out
 
 
-def shadow_origins(table: str, recipes: list[str]) -> set[str]:
-    """Añadas del ledger sombra PARA ESTA TABLA Y ESTAS RECETAS EXACTAS (reauditoría 3:
-    mezclar tablas/recetas autorizaba con añadas ajenas; reauditoría 4: el split por "+"
-    partía recetas ensemble como ``median(theta+ets)`` en dos inexistentes — la lista de
-    recetas viaja EXACTA en el candidato, jamás se re-parsea de un display name)."""
+def shadow_evidence(table: str, vintages: list[str]) -> tuple[set[str], set[str]]:
+    """(recetas, añadas) REALES del ledger sombra para esta tabla y estas añadas —
+    la fuente contra la que el candidato debe coincidir EXACTAMENTE (reauditoría 5: la
+    unión de orígenes autorizaba listas con recetas fantasma; el fallback por display
+    name era fail-open). Se deriva del ledger, jamás de lo autorreportado."""
     p = Path(__file__).resolve().parent.parent / "reports" / "prospective" / "forecast_log_shadow.csv"
     if not p.exists():
-        return set()
+        return set(), set()
     df = pd.read_csv(p, usecols=["origin", "table", "recipe"])
-    mask = (df["table"].astype(str) == str(table)) & (df["recipe"].astype(str).isin([str(r) for r in recipes]))
-    return set(df[mask]["origin"].astype(str).unique())
+    mask = (df["table"].astype(str) == str(table)) & (df["origin"].astype(str).isin([str(v) for v in vintages]))
+    hit = df[mask]
+    return set(hit["recipe"].astype(str).unique()), set(hit["origin"].astype(str).unique())
 
 
 def _candidate_violations(cand: dict, policy: dict, table: str) -> list[str]:
@@ -308,12 +309,40 @@ def _candidate_violations(cand: dict, policy: dict, table: str) -> list[str]:
             v.append(f"añadas DUPLICADAS en la decisión: {sorted(vintages)}")
         if len(set(vintages)) < policy["min_live_vintages"]:
             v.append(f"añadas únicas declaradas: {len(set(vintages))} < mínimo {policy['min_live_vintages']}")
-        recipes = cand.get("challenger_recipes") or [str(cand.get("challenger"))]
-        ghosts = sorted(set(str(x) for x in vintages) - shadow_origins(table, recipes))
-        if ghosts:
+        # Reauditoría 5: challenger_recipes es OBLIGATORIA (el fallback por display name
+        # era fail-open) y debe coincidir EXACTAMENTE con las recetas del ledger para
+        # (tabla, añadas) — ni fantasmas ni faltantes; la unión de orígenes no basta.
+        recipes = cand.get("challenger_recipes")
+        if (
+            not isinstance(recipes, list)
+            or not recipes
+            or not all(isinstance(r, str) and r for r in recipes)
+            or len(set(recipes)) != len(recipes)
+        ):
             v.append(
-                f"añadas declaradas que NO existen en el ledger sombra para {table}/{cand.get('challenger')}: {ghosts}"
+                "challenger_recipes ausente/vacío/no-strings/duplicado — la lista EXACTA es obligatoria (fail closed)"
             )
+        else:
+            real_recipes, real_origins = shadow_evidence(table, [str(x) for x in vintages])
+            declared = set(recipes)
+            if declared != real_recipes:
+                v.append(
+                    f"recetas declaradas {sorted(declared)} ≠ recetas REALES del ledger sombra para "
+                    f"{table}/añadas {sorted(real_recipes)} (ni fantasmas ni faltantes)"
+                )
+            elif len(declared) > 1:
+                v.append(
+                    f"la evidencia mezcla {len(declared)} recetas sombra {sorted(declared)} — no autoriza "
+                    "la promoción de una receta individual (fail closed; homogeneizar la ventana y re-correr)"
+                )
+            elif str(cand.get("challenger")) != next(iter(declared)):
+                v.append(
+                    f"challenger (display {cand.get('challenger')!r}) no corresponde a la receta única "
+                    f"autorizada ({next(iter(declared))!r})"
+                )
+            ghosts = sorted(set(str(x) for x in vintages) - real_origins)
+            if ghosts:
+                v.append(f"añadas declaradas que NO existen en el ledger sombra para {table}: {ghosts}")
     da = cand.get("decided_at")
     try:
         when = datetime.datetime.fromisoformat(str(da))
