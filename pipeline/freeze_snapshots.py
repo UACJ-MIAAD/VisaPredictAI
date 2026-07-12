@@ -27,6 +27,7 @@ from pathlib import Path
 import requests
 from tqdm import tqdm
 
+from vp_data.config import SNAPSHOTS_DIR
 from vp_data.visa_common import (
     BACKOFF_BASE_S,
     MAX_RETRIES,
@@ -37,7 +38,7 @@ from vp_data.visa_common import (
     report_failures,
 )
 
-SNAP_DIR = Path("data/snapshots")
+SNAP_DIR = SNAPSHOTS_DIR  # single source (vp_data.config); build_database reads the same dir (H2)
 # A4: piso conocido del índice de boletines (~298 en jul-2026, solo crece). Si el sitio
 # renombra el markup del acordeón, extract_month_links() devuelve [] y el cron se vuelve
 # un no-op perpetuo con heartbeat verde "0 nuevos" — abortar ruidosamente en su lugar.

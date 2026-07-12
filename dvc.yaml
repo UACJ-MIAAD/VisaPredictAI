@@ -63,7 +63,14 @@ stages:
     cmd: python -m pipeline.build_database
     deps:
       - pipeline/build_database.py
+      # H1: el DDL es una cadena de migraciones versionadas (schema.sql = baseline 001,
+      # byte-idéntico a pipeline/migrations/001_*; el resto del DDL vive en migrations/).
+      - pipeline/migrations
       - schema.sql
+      # H2: extract_datetime_from_link mapea snapshot->vintage para source_artifact.
+      # data/snapshots NO es dep a propósito: es privado/gitignored (S3 máster) y no
+      # afecta el único out rastreado (el Parquet sale de v_panel_long, sin fuentes).
+      - vp_data/visa_common.py
       - vp_data/config.py
       - data/processed/visa_panel_long.csv
       - data/raw

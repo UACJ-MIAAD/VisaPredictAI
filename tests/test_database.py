@@ -128,8 +128,12 @@ def test_fact_priority_rejects_duplicate_pk():
     row = con.execute("SELECT area_id, category_id, table_id, date_id FROM fact_priority LIMIT 1").fetchone()
     with pytest.raises(duckdb.ConstraintException):
         con.execute(
-            "INSERT INTO fact_priority (area_id, category_id, table_id, date_id, status, priority_date, days_since_base, raw_value) "
-            "VALUES (?, ?, ?, ?, 'U', NULL, NULL, 'dup')",
+            # H2/H4: incluye las columnas de procedencia para que el rechazo sea
+            # genuinamente por PK duplicada, no por un NOT NULL colateral.
+            "INSERT INTO fact_priority (area_id, category_id, table_id, date_id, status, priority_date, "
+            "days_since_base, raw_value, etl_run_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 'U', NULL, NULL, 'dup', 1, "
+            "TIMESTAMPTZ '2020-01-01 00:00:00+00', TIMESTAMPTZ '2020-01-01 00:00:00+00')",
             list(row),
         )
 
@@ -253,7 +257,10 @@ def test_alias_constraints_reject_bad_rows(bad):
 
 def test_governance_etl_run():
     con, _, _ = _loaded()
-    assert con.execute("SELECT version FROM schema_version").fetchone()[0] == SCHEMA_VERSION
+    # H1: schema_version guarda una fila POR MIGRACIÓN aplicada; la versión
+    # estructural vigente es la cabeza de la cadena (max), no una fila única.
+    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == SCHEMA_VERSION
+    assert con.execute("SELECT count(*) FROM schema_version").fetchone()[0] == SCHEMA_VERSION
     n_fp, n_f, pct = con.execute("SELECT n_fact_priority, n_trainable_f, pct_trainable FROM etl_run").fetchone()
     assert n_fp == con.execute("SELECT count(*) FROM fact_priority").fetchone()[0]
     assert 0 <= pct <= 1 and n_f <= n_fp

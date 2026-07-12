@@ -4,7 +4,7 @@ Genera, en reports/latex/Figures/ (paleta UACJ + serif):
   data_source_page.png     recorte del screenshot real de travel.state.gov (la fuente)
   data_bulletin_table.pdf  la tabla FAD familiar real (jul-2026) tal como se publica, con régimen
   data_csv_panel.pdf       muestra del panel tidy visa_panel_long.csv (estados C/F/U)
-  data_duckdb_sample.pdf   muestra del almacén DuckDB (vista v_panel_long) + las 11 tablas
+  data_duckdb_sample.pdf   muestra del almacén DuckDB (vista v_panel_long) + el catálogo de tablas
   data_schema_er.png       recorte del diagrama ER del esquema estrella
 
 Insumos: /tmp/vb_month.png, /tmp/schema_er.png (capturas con Chrome), data/processed/*.

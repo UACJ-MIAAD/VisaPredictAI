@@ -14,7 +14,7 @@ escritorio. Elige la que más te acomode; todas leen el **mismo archivo**.
 |---|---|
 | **Archivo** | `data/processed/visapredict.duckdb` (≈ 11 MB) |
 | **Ruta absoluta** | `/Users/haowei/Documents/Anteproyecto/VisaPredictAI/data/processed/visapredict.duckdb` |
-| **Contenido** | 11 tablas + 6 vistas/marts (esquema estrella) |
+| **Contenido** | 12 tablas + 6 vistas/marts (esquema estrella con migraciones versionadas) |
 | **Fuente de verdad** | `data/processed/visa_panel_long.csv` (versionado en git) |
 | **El `.duckdb`** | derivado y **regenerable** — está en `.gitignore` |
 | **Regenerar** | `make db` (corre `pipeline/build_database.py`) |
@@ -216,8 +216,51 @@ duckdb -readonly data/processed/visapredict.duckdb < docs/example_queries.sql
 | `v_trainable_by_preference` | Roll-up por nivel de preferencia (EB-5 plegado) |
 
 **Tablas base:** `dim_area`, `dim_category`, `dim_table`, `dim_date`, `dim_status`,
-`dim_region`, `dim_category_alias`, `fact_priority`, `fact_dv_rank`, `schema_version`,
-`etl_run`.
+`dim_region`, `dim_category_alias`, `fact_priority`, `fact_dv_rank`, `source_artifact`,
+`schema_version`, `etl_run`.
+
+---
+
+## 5 bis. Auditoría de procedencia (fila → fuente → run)
+
+Cada fila de hechos enlaza la corrida que la cargó (`etl_run_id` → `etl_run`, con
+identidad completa del build: `git_sha`, hashes del panel/locks, `build_status`) y
+su mes resuelve al HTML congelado que lo publicó (`source_artifact`: archivo,
+`sha256`, URI de archivo en S3, licencia). La consulta canónica — la ejecuta tal
+cual `tests/test_provenance_chain.py`, extraída de este documento, para que el
+manual jamás se desfase de lo que corre:
+
+<!-- provenance-audit-query:begin -->
+```sql
+SELECT
+    a.slug            AS country,
+    c.code            AS category,
+    t.code            AS "table",
+    d.bulletin_date,
+    f.status,
+    f.raw_value,
+    s.filename        AS source_file,
+    s.sha256          AS source_sha256,
+    s.url             AS source_url,
+    r.run_id,
+    r.git_sha,
+    r.pipeline_run_id,
+    r.build_status
+FROM fact_priority f
+JOIN dim_area     a ON a.area_id     = f.area_id
+JOIN dim_category c ON c.category_id = f.category_id
+JOIN dim_table    t ON t.table_id    = f.table_id
+JOIN dim_date     d ON d.date_id     = f.date_id
+JOIN etl_run      r ON r.run_id      = f.etl_run_id
+LEFT JOIN source_artifact s ON s.vintage = d.bulletin_date
+ORDER BY d.bulletin_date, a.slug, c.code, t.code;
+```
+<!-- provenance-audit-query:end -->
+
+> `source_artifact` se llena desde `data/snapshots/` (gitignored; máster en S3).
+> En un clon sin snapshots la tabla queda vacía y el build lo registra en
+> `etl_run.build_status='degraded'` — el `LEFT JOIN` lo hace visible (columnas
+> `source_*` en NULL), nunca silencioso.
 
 ---
 

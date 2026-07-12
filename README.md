@@ -168,7 +168,7 @@ El CSV plano es el entregable abierto, pero `make db` lo carga además en un
 Las invariantes del panel se declaran como **constraints** del esquema (`PK`/`FK`/`CHECK`),
 así la base **rechaza en la carga** cualquier fila que viole el contrato.
 
-**11 tablas** + 6 vistas/marts:
+**12 tablas** + 6 vistas/marts:
 
 - **7 dimensiones** — `dim_area`, `dim_category` (con jerarquía `parent_code`/`preference_level`/`ina_basis`),
   `dim_table`, `dim_date` (con `quarter`), `dim_status` (conforme), `dim_region`, y
@@ -177,8 +177,15 @@ así la base **rechaza en la carga** cualquier fila que viole el contrato.
 - **2 hechos** — `fact_priority` (grano área × categoría × tabla × mes; la variable
   dependiente `days_since_base`) y `fact_dv_rank` (**Diversity Visa**: número de rango por
   región × mes, dataset separado, no objetivo predictivo). `dim_date` y `dim_status` son
-  **dimensiones conformes** (ambos hechos las comparten).
-- **2 de gobernanza** — `schema_version` y `etl_run` (provenance + score de calidad por build).
+  **dimensiones conformes** (ambos hechos las comparten). Cada fila de hechos enlaza la
+  corrida que la cargó (`etl_run_id`) y lleva `created_at`/`updated_at` **derivados del
+  dato** (mes del boletín / vintage del corte), jamás del reloj.
+- **3 de gobernanza y procedencia** — `schema_version` (cadena de **migraciones
+  versionadas** con checksum sha256 por archivo: `schema.sql` = baseline 001 +
+  `pipeline/migrations/NNN_*.sql`), `etl_run` (identidad completa del build:
+  `git_sha`, hashes de panel/locks, `build_status` `ok`/`degraded`) y
+  `source_artifact` (el HTML congelado detrás de cada mes: `sha256`, vintage,
+  URI de archivo en S3, licencia).
 - **Vistas/marts** — `v_panel_long`/`v_dv_long` (reconstrucción tidy sin pérdida),
   `v_category_alias`, `v_trainable_by_preference`, y los marts de modelado
   **`mart_training_F`** y **`mart_series_summary`**. Export `Parquet` tipado.

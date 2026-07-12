@@ -102,13 +102,21 @@ Vista `v_category_alias` une el bridge con `dim_category` (expone `block` +
 | `priority_date` | DATE | fecha de prioridad publicada; **no nula solo si `F`** |
 | `days_since_base` | INTEGER | días desde `1975-01-01`; **no nulo solo si `F`**; ≥ 0 (CHECK) |
 | `raw_value` | VARCHAR | celda original tal cual se publicó (`01MAY16`, `C`, `U`) — linaje |
+| `etl_run_id` | INTEGER | corrida que cargó la fila (→ `etl_run.run_id`; ver nota abajo) |
+| `created_at` | TIMESTAMPTZ | **derivado del dato**: mes del boletín de la fila (UTC), jamás reloj |
+| `updated_at` | TIMESTAMPTZ | = `created_at` salvo cambio real de contenido (ver "Timestamps deterministas") |
 
 **Constraints declarativas (el esquema *es* el contrato):**
 - PK compuesta + FK a las 4 dimensiones (integridad referencial).
 - `CHECK status IN ('C','F','U','UNK')`.
 - `CHECK days_since_base IS NULL OR >= 0`.
 - `CHECK (status='F') = (days_since_base IS NOT NULL)` y lo mismo para `priority_date`.
+- `CHECK created_at <= updated_at` (`fp_created_le_updated`; espejo en DV, alias y fuentes).
 - `priority_date ≤ bulletin_date` se valida en `tests/test_database.py` (es cruce de tablas, no constraint de columna).
+- `etl_run_id` **no lleva FK declarativa a propósito**: `etl_run` se inserta al
+  FINAL como centinela de completitud (lo exige `vp_model.dataset._connect`), y
+  una FK hija obligaría a insertar el padre antes de la carga. La integridad del
+  enlace la afirma el builder post-carga y la fija `tests/test_provenance_chain.py`.
 
 ## Vista: `v_panel_long`
 
@@ -152,6 +160,8 @@ tabular moderno (cobertura sólida) y, como fallback, el **blob de una sola celd
 | `rank_cutoff` | INTEGER | número de rango; **no nulo solo si `F`** (CHECK), ≥ 0 |
 | `raw_value` | VARCHAR | celda original (`55,000`, `CURRENT`) |
 | `exceptions` | VARCHAR | cortes por país (`Except: Egypt 30,000`) |
+| `etl_run_id` | INTEGER | corrida que cargó la fila (misma nota que en `fact_priority`) |
+| `created_at`,`updated_at` | TIMESTAMPTZ | derivados del dato (H4), mismas reglas que `fact_priority` |
 
 Vista `v_dv_long` = `fact_dv_rank ⨝ dim_region ⨝ dim_date`.
 
@@ -160,24 +170,66 @@ Vista `v_dv_long` = `fact_dv_rank ⨝ dim_region ⨝ dim_date`.
 **Arquitectura medallón:** `data/raw/` (bronze, fuente cruda) → `visa_panel_long.csv`
 (silver, panel tipado) → esquema estrella + marts (gold).
 
-- **`schema_version`** — versión estructural del esquema (bump en cada cambio).
-- **`etl_run`** — auditoría de carga: una fila por *build* (`built_at_utc`,
-  `schema_version`, conteos de hechos, `n_trainable_f`, **`pct_trainable`**,
-  `panel_floor`/`panel_ceiling`). Provenance a nivel build (la BD se reconstruye
-  entera, así que un `run_id` por fila sería uniforme y sin señal). Nota: el
-  `built_at_utc` hace el `.duckdb` no-byte-reproducible **por diseño**; el
-  **contenido sí es determinista** (verificado: dos builds → tablas idénticas).
+- **`schema_version`** — bitácora de la **cadena de migraciones versionadas** (H1):
+  una fila por migración aplicada (`version`, `description`, `applied_at`,
+  `checksum` = sha256 del archivo). El DDL vive en `schema.sql` (baseline,
+  byte-idéntico a `pipeline/migrations/001_baseline_star_schema.sql`, pinned por
+  test) + `pipeline/migrations/NNN_*.sql`; el build aplica la cadena **en orden,
+  cada archivo en su transacción**, dentro de un archivo temporal que solo
+  reemplaza a la BD viva con `os.replace` si TODO pasó (rollback = la BD anterior
+  intacta). Un checksum que no coincide con lo aplicado en la BD viva **aborta**:
+  una migración aplicada jamás se edita; se crea una nueva.
+- **`etl_run`** — identidad completa del *build* (H2), una fila por build (PK cap):
+  `built_at_utc`, `schema_version` (FK real a `schema_version.version`), conteos
+  (`n_fact_priority`/`n_fact_dv`/`n_trainable_f`, **`pct_trainable`**),
+  `panel_floor`/`panel_ceiling`, y la identidad de la corrida:
+  `pipeline_run_id`, `git_sha` (40 chars), `git_dirty`, `panel_sha256`,
+  `dvc_lock_sha256`, `env_lock_sha256`, `started_at`, `completed_at`,
+  `build_status` (`ok`/`degraded`) y `degradations` (motivos). Los valores de
+  identidad llegan por **CLI/env** (con derivación del repo real como fallback);
+  si no están disponibles quedan **NULL honesto, jamás fabricados**. Los hechos
+  enlazan `etl_run_id`; alias/DV ausentes **abortan** salvo `--allow-degraded`
+  (que construye pero deja `build_status='degraded'` registrado).
+- **`source_artifact`** — la fuente detrás de cada mes (H2): un registro por
+  snapshot HTML congelado con mes mapeable (`filename` UNIQUE, `url` = URI de
+  archivo en S3 — el href original no se persiste al congelar y **no se
+  fabrica** —, `license` = obra del gobierno de EE. UU., dominio público,
+  `sha256` del artefacto, `vintage` = mes del boletín, `source_modified_at`
+  NULL — el mtime upstream no se rastrea). Los hechos resuelven su fuente por
+  valor: `dim_date.bulletin_date = source_artifact.vintage`. La consulta
+  canónica fila→fuente→run vive en la sección "Auditoría de procedencia" del
+  [manual de conexión](manual_conexion_duckdb.md) y la ejecuta tal cual
+  `tests/test_provenance_chain.py`. Sin `data/snapshots/` (clon limpio/CI) la
+  tabla queda vacía y `build_status` lo registra como `degraded`.
+- **Timestamps deterministas (H4):** `created_at`/`updated_at` de
+  `fact_priority`, `fact_dv_rank`, `dim_category_alias` y `source_artifact` son
+  TIMESTAMPTZ (UTC) **derivados del dato, nunca del reloj**: `created_at` = mes
+  del boletín de la fila (su primera aparición en la fuente); `updated_at` =
+  `created_at`, salvo que un rebuild detecte que el **hash de contenido** de la
+  fila cambió respecto a la BD viva anterior — entonces avanza al **vintage del
+  panel** de ese build (max mes de boletín), es decir, al corte de datos que
+  introdujo el cambio. Un rebuild no-op conserva ambas columnas byte-idénticas
+  (*carry-forward* desde la BD previa); un rebuild desde cero re-deriva del dato.
+  En el alias bridge equivalen a `valid_from`/`valid_to` (función pura del dato).
+  El reloj real solo existe en la bitácora (`etl_run`, `schema_version.applied_at`)
+  y **no contamina los hechos**: por eso el archivo `.duckdb` no es
+  byte-reproducible (bitácora + orden interno de DuckDB; fuera de DVC por diseño)
+  pero su **contenido lógico sí** — `pipeline.build_database.content_fingerprint()`
+  lo verifica — y el Parquet exportado sigue byte-determinista (ORDER BY explícito).
 - **Estrategia de calidad:** el contrato se **rechaza en el esquema** (PK/FK/CHECK)
   y se **verifica en CI** (pytest); el dato entra ya limpio del gate de
-  `build_panel`. Por eso **no hay tabla `quarantine`** (estaría vacía) ni scripts
-  de migración (la BD es regenerable, no se migra in situ) — decisiones a conciencia.
+  `build_panel`. Por eso **no hay tabla `quarantine`** (estaría vacía). La BD
+  sigue siendo regenerable (no se migra *in situ*): la cadena de migraciones
+  versionadas define el esquema que cada rebuild aplica desde cero, con checksums
+  que blindan el historial.
 
 **Marts gold (para el modelado):**
 - **`mart_training_F`** — el conjunto de entrenamiento limpio: solo observaciones
   `status='F'` con la variable dependiente `days_since_base` + features de tiempo
   (`year`/`month`/`quarter`) y `preference_level`.
 - **`mart_series_summary`** — resumen por serie (`n_obs`, `n_trainable`,
-  `first_month`/`last_month`, `n_regimes`) para filtrar series *evaluables*.
+  `first_month`/`last_month`, `n_regimes`, **`last_modified_at`** = max
+  `updated_at` de la serie, H4) para filtrar series *evaluables*.
   ⚠️ `n_regimes` es **informativa** (ningún criterio de selección la consume hoy); el
   criterio canónico de evaluable es `vp_model.dataset.is_evaluable()` (N1).
 

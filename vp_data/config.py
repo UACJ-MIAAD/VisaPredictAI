@@ -18,6 +18,13 @@ PANEL_PATH = PROCESSED_DIR / "visa_panel_long.csv"
 BULLETINS_JSON_PATH = PROCESSED_DIR / "bulletins.json"  # feed del último boletín (web)
 # Diversity Visa regional rank cut-offs (separate dataset: rank, not date).
 DV_RANK_PATH = RAW_DIR / "dv_visa_rank_timecourse.csv"
+# Frozen bulletin HTML (gitignored; the S3 bucket is the master copy — see the
+# freeze workflow). Single source: freeze_snapshots writes here and
+# build_database reads it to register source_artifact provenance (H2).
+SNAPSHOTS_DIR = DATA_DIR / "snapshots"
+# Archival URI prefix for a snapshot (its stable, resolvable source of truth;
+# the original travel.state.gov href is not persisted at freeze time).
+SNAPSHOTS_S3_PREFIX = "s3://visapredictai-raw-snapshots/raw-html/"
 # Normalized star-schema database + typed columnar export, both regenerated from
 # PANEL_PATH by build_database.py (gitignored; the CSV is the versioned artifact).
 DUCKDB_PATH = PROCESSED_DIR / "visapredict.duckdb"
