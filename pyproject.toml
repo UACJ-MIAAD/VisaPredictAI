@@ -13,6 +13,9 @@ dependencies = [
     "duckdb==1.5.3",
     "matplotlib==3.10.8",
     "pandas==3.0.0",
+    # duckdb necesita pytz para materializar TIMESTAMPTZ (H4) en pandas; pandas 3 ya
+    # no lo arrastra — el lock Linux con hashes expuso la dependencia oculta (CI 12-jul).
+    "pytz==2026.2",
     "requests==2.33.0",
     "tqdm==4.67.3",
 ]

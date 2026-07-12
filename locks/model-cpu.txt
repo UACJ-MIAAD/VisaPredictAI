@@ -1,4 +1,4 @@
-# Lock transitivo del perfil 'model-cpu' — generado por tools/make_locks.sh el 2026-07-11
+# Lock transitivo del perfil 'model-cpu' — generado por tools/make_locks.sh el 2026-07-12
 # Python 3.14.2 · Darwin arm64. Instalar con:
 #   pip install -r locks/model-cpu.txt && pip install -e . --no-deps
 accelerate==1.14.0
