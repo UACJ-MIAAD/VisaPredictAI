@@ -292,11 +292,6 @@ def catch22_vector(country: str, category: str, table: str, catch24: bool = True
     return dict(zip(res["names"], res["values"], strict=True))
 
 
-def advanced_table(table: str | None = None, block: str | None = None) -> pd.DataFrame:
-    cat = dataset.list_series(table=table, block=block)
-    return pd.DataFrame([asdict(advanced(r.country, r.category, r.table)) for r in cat.itertuples()])
-
-
 # Contrato de datos del catálogo de CARACTERIZACIÓN (no es un feature store de
 # modelado: los modelos consumen vp_model.feature_builder — AD6): rangos/tipos por columna.
 # Hecho a mano en vez de pandera para no añadir dependencia por lo que 20 líneas hacen.

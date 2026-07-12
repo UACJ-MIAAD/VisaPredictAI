@@ -144,66 +144,6 @@ def plot_winner_holdout(country: str, category: str, table: str, model_name: str
     return _save(fig, f"results_holdout_{country}_{category}_{table}.png")
 
 
-_CC = {"mexico": "MX", "india": "IN", "china": "CN", "philippines": "PH", "all_chargeability": "RoW"}
-
-
-def feature_tables_latex(table: str = "FAD", block: str = "family") -> str:
-    """Dos tablas LaTeX con el catálogo de características de las 25 series piloto.
-
-    Tabla A = estructura temporal; Tabla B = anomalías y forma de la distribución.
-    stability/lumpiness se omiten (dependientes de escala; viven en el CSV).
-    """
-    from vp_model import series_characterization as feat
-
-    ft = feat.feature_table(table=table, block=block).copy()
-    ft["cc"] = ft["country"].map(_CC)
-    ft = ft.sort_values(["cc", "category"])
-
-    def _row(r, cols, fmts):
-        cells = [r.cc, r.category] + [f.format(getattr(r, c)) for c, f in zip(cols, fmts, strict=True)]
-        return " & ".join(cells) + r" \\"
-
-    a_cols = ["trend_strength", "seasonal_strength", "spectral_entropy", "acf1", "acf1_diff", "ndiffs"]
-    a_fmt = ["{:.3f}", "{:.3f}", "{:.3f}", "{:.3f}", "{:+.3f}", "{:d}"]
-    b_cols = ["n_outliers", "ljung_box_p", "step_skew", "step_kurtosis"]
-    b_fmt = ["{:d}", "{:.3f}", "{:+.2f}", "{:.1f}"]
-
-    a = [
-        r"\begin{table}[H]",
-        r"\centering",
-        r"\footnotesize",
-        r"\caption[Características estructurales de las series]{Estructura temporal de "
-        r"las 25 series FAD de preferencia familiar. $F_T$/$F_S$: fuerza de tendencia y "
-        r"estacionalidad; $H$: entropía espectral; $d$: orden de diferenciación.}",
-        r"\label{tab:features_estructura}",
-        r"\begin{tabular}{llcccccc}",
-        r"\hline",
-        r"\rowcolor{uacjblue!15}",
-        r"\textbf{Área} & \textbf{Cat.} & $\mathbf{F_T}$ & $\mathbf{F_S}$ & $\mathbf{H}$ & "
-        r"\textbf{ACF1} & $\mathbf{ACF1_\Delta}$ & $\mathbf{d}$ \\ \hline",
-    ]
-    a += [_row(r, a_cols, a_fmt) for r in ft.itertuples()]
-    a += [r"\hline", r"\end{tabular}", r"\end{table}", ""]
-
-    b = [
-        r"\begin{table}[H]",
-        r"\centering",
-        r"\footnotesize",
-        r"\caption[Anomalías y forma de las series]{Anomalías y forma de la distribución "
-        r"de los avances. Atípicos: residuos STL con $|z|>3$; LB$\,p$: p-valor de "
-        r"Ljung-Box (H0 ruido blanco); asimetría y curtosis de los avances mensuales.}",
-        r"\label{tab:features_anomalias}",
-        r"\begin{tabular}{llcccc}",
-        r"\hline",
-        r"\rowcolor{uacjblue!15}",
-        r"\textbf{Área} & \textbf{Cat.} & \textbf{Atípicos} & \textbf{LB}\,$p$ & "
-        r"\textbf{Asim.} & \textbf{Curt.} \\ \hline",
-    ]
-    b += [_row(r, b_cols, b_fmt) for r in ft.itertuples()]
-    b += [r"\hline", r"\end{tabular}", r"\end{table}", ""]
-    return "\n".join(a + b)
-
-
 def main() -> None:
     df = pd.read_csv(CSV)
     log.info("Ranking de modelos (promedio sobre series):\n%s", ranking(df).to_string())

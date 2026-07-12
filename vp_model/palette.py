@@ -119,11 +119,6 @@ DARK: dict = {
 }
 
 
-def country_color(c: str) -> str:
-    """Color de un país; gris pizarra por defecto para claves desconocidas."""
-    return COUNTRY.get(c, SLATE)
-
-
 def style() -> None:
     """Aplica rcParams comunes a todas las figuras (marco visual idéntico)."""
     import matplotlib.pyplot as plt

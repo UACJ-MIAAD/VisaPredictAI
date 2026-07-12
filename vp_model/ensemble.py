@@ -133,13 +133,6 @@ def analyze(table: str = "FAD") -> list[Strategy]:
     ]
 
 
-def selection_table(table: str = "FAD") -> pd.DataFrame:
-    """Qué modelo se eligió por serie y su error de hold-out (para auditar la selección)."""
-    df = pd.read_csv(REPORTS / "eval" / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
-    sel = _per_series_selection(df)[["country", "category", "model", "sel_mase", "hold_mase"]]
-    return sel.sort_values(["country", "category"]).reset_index(drop=True)
-
-
 # Curated combination: only the strong simple models (combining good with good helps;
 # weak GBMs/kalman drag the mean down). AM4c: the old claim here ("in FAD the median of
 # these beats the best single model by ~5%") is FALSE post-resurrection (3-jul-2026):

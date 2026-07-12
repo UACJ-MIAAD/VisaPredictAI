@@ -258,8 +258,8 @@ stages:
       size: 4877
     - path: vp_model/series_characterization.py
       hash: md5
-      md5: e5db35e980061c5b3796d16c9e556c14
-      size: 15063
+      md5: 6108f5560311a756bf91e00e8d543abd
+      size: 14815
     outs:
     - path: reports/fe/fe_facts.json
       hash: md5
