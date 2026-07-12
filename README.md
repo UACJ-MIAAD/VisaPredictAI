@@ -229,6 +229,11 @@ read-only (el driver de DuckDB lo rechaza).
 - **Respaldo inmutable**: el HTML crudo de cada mes se congela en `s3://visapredictai-raw-snapshots/raw-html/` (la fuente oficial pierde boletines viejos; el bucket no).
 - **Auditorías** programáticas de calidad de datos (`pipeline/mega_audit.py`, 12 dimensiones).
 - **Política de limpieza central** ([`docs/CLEANING.md`](docs/CLEANING.md)): registro único de decisiones (`vp_data/cleaning.py`) + **ledger por build** (`reports/governance/cleaning_ledger.json`, determinista y versionado). La ingeniería de características vive en `vp_model/feature_builder.py` y publica su catálogo (`reports/fe/fe_facts.json`) y un reporte PDF bilingüe regenerados con cada boletín.
+- **Release content-addressed**: cada corte publicable se sella en un manifiesto (`reports/release/release_manifest.json`) con SHA-256, tamaño y criticidad por artefacto bajo un `release_id` derivado del contenido; el sitio web verifica cada hash antes de servir y publica el corte que sirve en `/data/release-state.json`. El cron solo despliega tras un **release gate bloqueante** (contratos + consistencia + manifiesto fresco) y un **CI verde sobre el SHA exacto** del corte.
+- **Contratos de artefactos** (`vp_data/contracts/`, validador `tools/check_contracts.py` sin dependencias): columnas/llaves/rutas anidadas requeridas por artefacto, corte de añada única, y coherencia manifiesto↔árbol (un artefacto listado que cambia o desaparece rompe el gate).
+- **Ledgers prospectivos inmutables** (`reports/prospective/`): cada pronóstico se congela con identidad de freeze (hash de contenido por fila, vintage del panel, modo `live`/`backfill`) y el contrato v2 se valida tras cada append. La **promoción de modelos** exige una decisión pre-registrada (`vp_model/promotion.py`) ligada por hash al candidato exacto y a la evidencia del ledger — la aplica un humano, nunca el cron.
+- **Entornos gobernados por locks** (`locks/`, `make lock`): CI y el cron instalan bajo el lock de su perfil como constraints — las versiones que produjeron las cifras publicadas son las que corren en producción.
+- **Política de almacenamiento** ([`docs/STORAGE_POLICY.md`](docs/STORAGE_POLICY.md)): qué vive en git, en S3 o es regenerable, con retención y ruta de restauración por clase de artefacto.
 
 ## Fuente de datos
 
