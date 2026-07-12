@@ -4,6 +4,12 @@
 > adversarial de 5 revisores. Números **honestos** ya verificados contra el pipeline.
 > El cuerpo es un draft completo y defendible; la redacción final se pule con el asesor.
 
+> ⚠️ **Provisional retrospective metrics:** the published campaign figures were derived
+> with the protocol that predates the causal gap-fill correction (F1, 2026-07-12); the
+> correction is in code and the full re-derivation (F2) is pending. **Status (audited
+> 2026-07-12): interim fixes applied (title, leakage wording, significance table, MASE<1
+> framing, backfill scope); do not submit until P0=0.**
+
 ## Contenido
 
 ```
@@ -53,8 +59,10 @@ distintos, no solo color), PDF vectorial.
   vs Auto-ARIMA justo (0.114 media / 0.102 mediana) es ~21 % pero se disuelve contra naïve-1.
   Gobernanza: naïve-1 promovible por el gate a h=1, promoción **retenida** (el producto es
   h=1..12) + despliegue en sombra mensual.
-- **`\paragraph{Leakage prevention}`** (ventana expansible, lags pre-origen, rollout recursivo,
-  escala MASE pre-origen, congelado en fecha de origen) + máscara F-only explícita.
+- **`\paragraph{Causal gap handling and leakage controls}`** (relleno causal LOCF + máscaras
+  MNAR rezagadas, ventana expansible, lags pre-origen, rollout recursivo, escala MASE
+  pre-origen, congelado en fecha de origen) + máscara F-only explícita + nota de cifras
+  provisionales pre-corrección.
 - **194 estructurales / 74 evaluables**; "deployed" → "evaluated"; demo RAG = artefacto, no contribución.
 - **Ética/disponibilidad** (datos públicos agregados, sin IRB, no asesoría legal) + **apéndice de
   reproducibilidad** (versiones pin-eadas py3.14, semillas, walk-forward, provenance = scorecard+git SHA).

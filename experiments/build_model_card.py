@@ -77,6 +77,10 @@ def build() -> str:
 > canónicos. **No editar a mano** — se regenera con `make model-card`. Toda cifra proviene de
 > `reports/governance/key_facts.json` (fuente única de verdad).
 
+> ⚠️ **Métricas retrospectivas provisionales:** derivadas con el protocolo previo a la
+> corrección causal del relleno (F1, 2026-07-12); re-derivación en curso. No promover con
+> estas cifras.
+
 ## 1. Detalles del modelo
 - **Sistema:** predictor del U.S. Visa Bulletin — panel multiserie `y_{{p,c,b,t}}` (país × categoría × tabla × mes).
 - **Tarea:** regresión temporal de fechas de prioridad sobre observaciones con estado **F** (FAD y DFF por separado).

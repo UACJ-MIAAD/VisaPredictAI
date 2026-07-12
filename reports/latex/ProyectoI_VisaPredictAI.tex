@@ -297,9 +297,9 @@ muestra el esquema. El sistema consta de cinco módulos:
 \item \textbf{Carga de series.} Lee del almacén dimensional (capa \textit{gold},
 DuckDB) la vista entrenable, que ya restringe las observaciones a $e=F$ y separa
 FAD de DFF. Entrega cada serie $y_{p,c,b,t}$ con índice mensual.
-\item \textbf{Preprocesamiento.} Regulariza la frecuencia mensual, interpola los
-huecos cortos (meses $C$/$U$ intercalados) y deja como faltantes los huecos
-largos; estandariza con estadísticos calculados solo sobre el tramo de
+\item \textbf{Preprocesamiento.} Regulariza la frecuencia mensual rellenando los
+huecos (meses $C$/$U$) de forma estrictamente causal con la última observación
+publicada; escala al rango $[0,1]$ con extremos calculados solo sobre el tramo de
 entrenamiento y construye los regresores de calendario del año fiscal.
 \item \textbf{Catálogo de modelos.} Un repertorio de \factNModels{} modelos tras una interfaz común: tres
 líneas base de referencia (naïve-1 o paseo aleatorio, deriva y naïve estacional) y seis
@@ -475,9 +475,9 @@ La Figura~\ref{fig:csv_panel} muestra el resultado de la conversión: el panel e
 \textit{tidy} (largo), donde cada fila es una observación (país, categoría, tabla, mes) con su
 régimen, su fecha de prioridad y la variable objetivo \texttt{days\_since\_base}; las celdas
 $C$ y $U$ se conservan como anotación, sin fecha. Ese panel se materializa en el almacén
-dimensional en estrella de la Figura~\ref{fig:schema_er} (siete dimensiones, dos tablas de
-hechos y vistas/marts de gobernanza), sobre el que cualquier consulta es reproducible
-(Figura~\ref{fig:duckdb}).
+dimensional en estrella de la Figura~\ref{fig:schema_er} (doce tablas: siete dimensiones,
+dos tablas de hechos y tres de gobernanza y procedencia, además de vistas/marts), sobre
+el que cualquier consulta es reproducible (Figura~\ref{fig:duckdb}).
 
 \begin{figure}[H]
 \centering
@@ -1199,25 +1199,29 @@ diferenciada es independiente e idénticamente distribuida) se rechaza con fuerz
 incluir modelos no lineales (LSTM, DeepAR, XGBoost) en la comparación, en lugar de
 hacerlo por defecto.
 
-\subsubsection{Selección y des-redundancia de características}
+\subsubsection{Caracterización retrospectiva de la dificultad por serie}
 
 Con muestras de 130--\factNMonths{} observaciones por serie, cada grado de libertad cuenta, por
 lo que el conjunto unido de características de caracterización (catch22 y descriptores
-de pronóstico y de diagnóstico) se somete a una etapa formal de selección en dos pasos.
+de pronóstico y de diagnóstico) se somete a un análisis formal de relevancia en dos pasos.
 Primero, un filtro de relevancia univariada con corrección de multiplicidad de Benjamini-Yekutieli
 (el patrón del algoritmo FRESH \cita{11}) que controla la tasa de falso descubrimiento.
 Segundo, una des-redundancia por correlación de Spearman, en el espíritu de la selección
 de mínima redundancia y máxima relevancia (mRMR) \cita{12}, que conserva una sola
-característica representativa de cada grupo colineal. La selección se ejecuta como parte
-del catálogo vivo de ingeniería de características contra la dificultad real de
-pronóstico de cada serie (el MASE de hold-out del modelo campeón elegido en la región de
-selección, de modo que ningún dato del hold-out participa en elegir al campeón): de
-\feFactSelIn{} características candidatas sobre \feFactSelSeries{} series con campaña,
-solo \feFactSelRelevant{} sobrevive al control de falso descubrimiento
-(\texttt{\feFactSelName}, un descriptor catch22 de la distribución temporal de los
-avances extremos), evidencia directa de que apilar bibliotecas completas de
-características (que serían cientos, con fuerte redundancia mutua) no aporta: pocos
-descriptores bien elegidos superan a muchos correlacionados \cita{13}.
+característica representativa de cada grupo colineal. Es importante acotar qué es este
+análisis: una \textbf{caracterización retrospectiva de la dificultad}, que relaciona
+descriptores calculados sobre la serie completa con el MASE de hold-out del modelo
+campeón para describir \textit{qué} series resultan difíciles de pronosticar. No es una
+selección predictiva de insumos (los modelos consumen los rezagos, el calendario y las
+máscaras de ausencia a través del motor de características, no estos descriptores) ni
+una prueba libre de filtración (los descriptores ven la serie completa). Como
+descripción, el resultado es elocuente: de \feFactSelIn{} características candidatas
+sobre \feFactSelSeries{} series con campaña, solo \feFactSelRelevant{} sobrevive al
+control de falso descubrimiento (\texttt{\feFactSelName}, un descriptor catch22 de la
+distribución temporal de los avances extremos), evidencia directa de que apilar
+bibliotecas completas de características (que serían cientos, con fuerte redundancia
+mutua) no aporta: pocos descriptores bien elegidos superan a muchos correlacionados
+\cita{13}.
 
 \paragraph{Nota sobre la ingeniería de características viva.} Igual que el EDA, la
 ingeniería de características y la limpieza mantienen un catálogo versionado
@@ -1307,7 +1311,7 @@ transformaciones, todas diseñadas para evitar la fuga de información (\textit{
   \node[srcb] (ser) {Serie con fecha ($e=F$)};
   \node[fstep, right=0.7cm of ser] (dif) {Primera diferencia (avance mensual)};
   \node[fstep, right=0.7cm of dif] (cov) {Rezagos $+$ calendario cíclico $+$ máscara MNAR};
-  \node[fstep, right=0.7cm of cov] (std) {Estandarización (solo entrenamiento)};
+  \node[fstep, right=0.7cm of cov] (std) {Escalado a $[0,1]$ (solo entrenamiento)};
   \node[matb, right=0.7cm of std] (mat) {Matriz de características};
   \draw[far] (ser)--(dif); \draw[far] (dif)--(cov);
   \draw[far] (cov)--(std); \draw[far] (std)--(mat);
@@ -1315,7 +1319,8 @@ transformaciones, todas diseñadas para evitar la fuga de información (\textit{
 }
 \caption[Ingeniería de características]{Construcción de la matriz de características: la serie con
 fecha se diferencia (avance mensual), se le agregan rezagos, codificación cíclica del calendario
-y una máscara de ausencia, y se estandariza con estadísticos del tramo de entrenamiento.}
+y una máscara de ausencia, y se escala al rango $[0,1]$ con el mínimo y el máximo del tramo de
+entrenamiento.}
 \label{fig:fe_pipeline}
 \end{figure}
 
@@ -1332,22 +1337,34 @@ no hay fecha que predecir. Es un mecanismo \textit{Missing Not At Random} (MNAR)
 ausencia misma es información. Por ello el tratamiento es doble. Para
 \textbf{caracterizar y visualizar} se imputa con suavizado de Kalman sobre un modelo de
 espacio de estados, el método de referencia de \texttt{imputeTS} \cita{14}, superior a
-la interpolación lineal (Figura~\ref{fig:eda_kalman}). Para \textbf{modelar} se evita
-imputar: se añaden una máscara de observación y el tiempo transcurrido desde la última
-observación como covariables, de modo que el modelo aprenda del patrón de ausencia en
-lugar de propagar el error de valores inventados.
-\item \textbf{Regularización mensual.} Para los modelos que exigen frecuencia fija, las
-corridas de hasta tres meses sin fecha se interpolan; las más largas se conservan como
-faltantes (todo-o-nada por corrida), para no imponer una rampa artificial sobre años
-sin información. La Figura~\ref{fig:fe_gaps} ilustra la política completa sobre la
+la interpolación lineal (Figura~\ref{fig:eda_kalman}). Para \textbf{modelar}, la
+rejilla mensual de entrenamiento se construye con relleno estrictamente causal: cada
+mes sin fecha publicada ($C$/$U$) arrastra la última observación anterior
+(\textit{last observation carried forward}, LOCF), de modo que el valor de un mes
+depende solo de observaciones anteriores o iguales a ese mes; mutar cualquier valor
+posterior a un origen de pronóstico no altera ningún insumo en ese origen ni antes de
+él, propiedad verificada por pruebas metamórficas automatizadas. Esta política
+sustituye a la interpolación lineal bidireccional de las campañas previas, que usaba
+el extremo futuro de cada hueco. Los valores de relleno jamás se puntúan (solo se
+califican los meses con fecha publicada, máscara $e=F$). Los árboles de gradiente
+sobre la serie diferenciada reciben además las máscaras de ausencia MNAR (indicador
+de observación y meses desde la última observación) con retardo de un mes (el último
+mes cerrado, conocido en el origen), de modo que puedan descontar los tramos
+arrastrados; el resto del catálogo usa la política causal hacia adelante explícita,
+sin covariables de máscara.
+\item \textbf{Regularización mensual.} Para los modelos que exigen frecuencia fija, la
+rejilla se completa con el mismo relleno causal hacia adelante: todo mes sin fecha
+arrastra la última observación publicada, sin usar jamás el extremo futuro del hueco
+(el tope de interpolación de tres meses gobierna hoy solo la rejilla descriptiva del
+EDA, no la de modelado). La Figura~\ref{fig:fe_gaps} ilustra la política sobre la
 serie con las corridas de ausencia más largas del panel, y la
 Figura~\ref{fig:fe_regime} muestra su contraparte de evaluación: los meses en
 régimen \textit{Current}/\textit{Unavailable} son anotación descriptiva y solo las
 fechas efectivamente publicadas se puntúan.
-\item \textbf{Estandarización.} Los modelos de redes neuronales requieren entradas
-escaladas. El estandarizador $z = (x-\mu)/\sigma$ ajusta $\mu$ y $\sigma$
-\textit{solo} sobre la ventana inicial de entrenamiento; calcularlos sobre el
-conjunto completo filtraría el futuro al pasado.
+\item \textbf{Escalado.} Los modelos de redes neuronales requieren entradas
+escaladas. El escalador normaliza cada serie al rango $[0,1]$ por mínimo y máximo,
+y ajusta esos extremos \textit{solo} sobre la ventana inicial de entrenamiento;
+calcularlos sobre el conjunto completo filtraría el futuro al pasado.
 \item \textbf{Regresores de calendario.} Para los modelos tabulares se construyen
 variables del mes y de la posición dentro del año fiscal estadounidense (que inicia
 en octubre, cuando se reinician las cuotas), codificadas de forma cíclica con seno
@@ -1375,11 +1392,12 @@ círculo unitario diciembre y enero quedan adyacentes, evitando un orden falso e
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.9\textwidth]{fe_gaps.pdf}
-\caption[Política de huecos (MNAR)]{Política de huecos sobre México/EB4\_RW/FAD, la
-serie con las corridas de ausencia más largas del panel: las observaciones publicadas
-(puntos), las corridas cortas interpoladas para la rejilla de entrenamiento
-(segmentos), y las corridas largas que se conservan vacías (la imputación por Kalman
-existe solo para caracterizarlas en el EDA, jamás como insumo de entrenamiento).}
+\caption[Política de huecos (MNAR)]{Estructura de ausencia sobre México/EB4\_RW/FAD,
+la serie con las corridas de ausencia más largas del panel: observaciones publicadas
+(puntos) y tramos de relleno de la rejilla de entrenamiento (segmentos). La política
+vigente rellena todo hueco de la rejilla de modelado arrastrando la última
+observación publicada, sin usar el extremo futuro; la imputación por Kalman existe
+solo para caracterizar los huecos en el EDA, jamás como insumo de entrenamiento.}
 \label{fig:fe_gaps}
 \end{figure}
 
@@ -1415,8 +1433,10 @@ rezagos del propio avance dominan; el calendario cíclico aporta una señal secu
 \includegraphics[width=0.86\textwidth]{eda_kalman_mexico_EB4_RW_FAD.png}
 \caption[Huecos MNAR e imputación por Kalman]{Observaciones con fecha (puntos) y
 huecos MNAR imputados por suavizado de Kalman (marcadores) en México/EB4\_RW/FAD,
-la serie con las corridas de ausencia más largas del panel. El
-modelado no usa estos valores imputados, sino una máscara de observación.}
+la serie con las corridas de ausencia más largas del panel. El modelado no usa estos
+valores imputados: su rejilla se rellena de forma causal con la última observación
+publicada y los árboles de gradiente reciben las máscaras de ausencia como
+covariables.}
 \label{fig:eda_kalman}
 \end{figure}
 
@@ -1597,7 +1617,7 @@ incumbente vieron jamás, donde se decide la \textbf{aceptación}; el conjunto r
 meses queda solo para el número publicado y \textit{nunca} interviene en la búsqueda ni en
 la decisión. El objetivo puntúa únicamente los meses con fecha publicada (máscara $e=F$) y
 descuenta las series pseudo-replicadas del corte mundial, para que la búsqueda no optimice
-meses interpolados ni sobrepondere series repetidas. El presupuesto es real (de 150--300
+meses de relleno ni sobrepondere series repetidas. El presupuesto es real (de 150--300
 ensayos por grupo modelo$\times$tabla$\times$bloque, incluidas \textbf{por primera vez las
 categorías de empleo}) y el espacio, amplio y sesgado a la regularización (tasa de
 aprendizaje en escala logarítmica, profundidad, submuestreo de filas y columnas). La regla
@@ -1802,6 +1822,17 @@ procedencia (versión del código, hiperparámetros) queda en un registro audita
 mismo protocolo se aplica de forma independiente a la tabla DFF (§2.2), sin comparar
 ambas tablas entre sí.
 
+\paragraph{Nota sobre la vigencia de las cifras retrospectivas.} Las métricas
+retrospectivas publicadas en este capítulo se derivaron con el protocolo anterior a la
+corrección causal del relleno de huecos (auditoría del 12 de julio de 2026): la rejilla
+de entrenamiento usaba interpolación lineal bidireccional, cuyo extremo futuro
+alcanzaba a los orígenes que caen dentro de un hueco. La corrección (relleno causal
+LOCF y máscaras de ausencia, §1.2.2) ya está implementada y verificada por pruebas
+metamórficas; las cifras se re-derivarán en la campaña de rederivación programada y,
+hasta entonces, deben leerse como provisionales. El sesgo es acotado: la puntuación
+siempre se restringió a las fechas efectivamente publicadas (máscara $e=F$) y solo se
+veían afectados los huecos que cruzan un origen de pronóstico.
+
 Las cuatro métricas reportadas se definen como sigue. Sean $y_t$ el valor observado y
 $\hat{y}_t$ el pronóstico a un paso en el mes $t$ del conjunto de prueba de $h$ meses, y
 $y_1,\dots,y_n$ la serie de entrenamiento con periodo estacional $m=12$:
@@ -1891,7 +1922,8 @@ $\mathrm{CD}$ & diferencia crítica de la prueba de Nemenyi \\
 \section{2.2 Validación de los resultados}
 
 La Tabla~\ref{tab:comparacion_modelos} presenta el desempeño promedio de los \factNModels{}
-modelos sobre las 25 series, y su lectura es el hallazgo central del proyecto. Por la
+modelos sobre las 25 series (cifras provisionales en el sentido de la nota de §2.1), y su
+lectura es el hallazgo central del proyecto. Por la
 métrica de selección encabezan los árboles con hiperparámetros optimizados (XGBoost y
 LightGBM, $0.101$), seguidos de la deriva ($0.105$) y de Theta ($0.110$, el listón
 parsimonioso de selección). Pero en el conjunto reservado el orden se invierte:
@@ -3120,9 +3152,22 @@ Fuente: captura de la interfaz de MLflow del proyecto.}
 
 El panel se carga en un almac\'en dimensional en estrella implementado sobre la base de
 datos anal\'itica embebida DuckDB~\cita{50}. El modelo (ya presentado en la
-Figura~\ref{fig:schema_er}) comprende siete dimensiones, dos tablas de hechos y vistas de
-gobernanza, con restricciones de clave e integridad que act\'uan como contrato de calidad
-al cargar. A modo de ejemplo, la siguiente consulta resume las observaciones
+Figura~\ref{fig:schema_er}) comprende doce tablas: siete dimensiones, dos tablas de
+hechos y tres de gobernanza y procedencia (la versi\'on del esquema, la bit\'acora de
+ejecuci\'on ampliada y el linaje de artefactos fuente, que ata cada mes del panel al
+HTML congelado que lo public\'o, con su suma de verificaci\'on), adem\'as de vistas y
+marts, con restricciones de clave e integridad que act\'uan como contrato de calidad al
+cargar. El esquema se construye por migraciones versionadas con suma de verificaci\'on
+por archivo y una verja de historia inmutable: una migraci\'on alterada o faltante
+aborta la carga en lugar de degradarla en silencio, y la \'unica degradaci\'on admitida
+(insumos de linaje ausentes bajo una bandera expl\'icita) queda registrada en la
+bit\'acora de ejecuci\'on. Las marcas \texttt{created\_at}/\texttt{updated\_at} de las
+tablas de datos se derivan exclusivamente del dato: corresponden al mes del bolet\'in
+que public\'o la celda, y una actualizaci\'on real avanza \texttt{updated\_at} al
+vintage del corte que la introdujo, detectada por \textit{hash} de contenido por fila,
+nunca por el reloj del sistema, de modo que una reconstrucci\'on sin cambios las
+reproduce byte-id\'enticas; el reloj real queda confinado a la bit\'acora
+\texttt{etl\_run}. A modo de ejemplo, la siguiente consulta resume las observaciones
 entrenables (estado \textit{F}) por bloque y tipo de tabla directamente desde un \textit{mart},
 con el resultado en la Tabla~\ref{tab:duckdb_query}:
 

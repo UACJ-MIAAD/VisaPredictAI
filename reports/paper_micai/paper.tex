@@ -37,7 +37,7 @@
 
 \begin{document}
 
-\title{A Public Multi-Series Panel and a Leakage-Free Prospective
+\title{A Public Multi-Series Panel and an Audited Prospective
 Evaluation Protocol for Forecasting U.S. Visa Bulletin Priority Dates}
 \titlerunning{Forecasting U.S. Visa Bulletin Priority Dates}
 
@@ -64,14 +64,14 @@ for millions of applicants, yet no open, systematically evaluated forecasting
 resource exists. We contribute (i)~a public, audited multi-series panel of
 priority dates (194 structural series; country $\times$ category $\times$ table
 $\times$ month; December~2001--2026), (ii)~a per-series benchmark of forecasting
-models under leakage-free expanding walk-forward, and (iii)~a \emph{prospective}
+models under an audited expanding walk-forward, and (iii)~a \emph{prospective}
 evaluation protocol that scores forecasts built only from information available at
-a dated origin against the cutoffs actually published afterwards---to date a
-leakage-free \emph{backfill}, reported as such, with live vintages accruing since
+a dated origin against the cutoffs actually published afterwards---to date an
+origin-truncated \emph{backfill}, reported as such, with live vintages accruing since
 the mid-2026 deployment. On 2{,}944 forecasts so scored the mean absolute error
 is 146~days and the scaled error (MASE) 0.347,
-degrading smoothly from one to twelve months ahead yet remaining below the
-seasonal-naïve baseline (MASE~$<1$) at every horizon. 95\% prediction intervals
+degrading smoothly from one to twelve months ahead while remaining below~1 on the
+in-sample seasonal-naïve MASE scale at every horizon. 95\% prediction intervals
 attain 0.92 empirical coverage (under the nominal level, reported as such); the
 deployed bands are calibrated per horizon from the ledger's own realized errors.
 Our headline finding is a floor that most published comparisons omit: with 45\% of
@@ -108,14 +108,16 @@ This paper addresses that gap with three contributions:
   days since a fixed epoch) covering 194 structural series and 27{,}611
   observations (Sec.~\ref{sec:data}), built from State-Department HTML frozen for
   reproducibility, with an explicit Current/Final/Unavailable regime annotation.
-  \item A \textbf{per-series forecasting benchmark} under leakage-free expanding
-  walk-forward (Sec.~\ref{sec:eval}), comparing parsimonious statistical models,
-  globally trained neural models, and gradient-boosted trees.
+  \item A \textbf{per-series forecasting benchmark} under an audited expanding
+  walk-forward (Sec.~\ref{sec:eval}), origin-causal by design, with the causal
+  gap-fill correction applied in code and a results re-derivation pending,
+  comparing parsimonious statistical models, globally trained neural models, and
+  gradient-boosted trees.
   \item A \textbf{prospective evaluation protocol} (Sec.~\ref{sec:prospective})
   that archives each forecast with its origin and scores it against subsequently
   published cutoffs---an out-of-sample measure reported alongside (not in place
-  of) the retrospective walk-forward signal. The ledger scored to date is a
-  leakage-free \emph{backfill}; genuinely live vintages accumulate since the
+  of) the retrospective walk-forward signal. The ledger scored to date is an
+  origin-truncated \emph{backfill}; genuinely live vintages accumulate since the
   mid-2026 deployment.
 \end{enumerate}
 We deliberately frame this as an \emph{application} contribution: the dataset and
@@ -207,7 +209,18 @@ would leave the comparison without its honest floor.
 held out and never used for selection). At each origin the forecast uses only the
 past. FAD and DFF are evaluated separately and never mixed.
 
-\paragraph{Leakage prevention.} (i)~The expanding window references only pre-origin
+\paragraph{Causal gap handling and leakage controls.} The training grid is built
+with a strictly causal fill: every month without a published cutoff ($C$/$U$)
+carries the last prior observation forward (last observation carried forward,
+LOCF), so a month's value depends only on observations at or before that month;
+mutating any value after an origin changes no input at or before that origin, a
+property enforced by automated metamorphic tests. This policy replaces an earlier
+bidirectional linear interpolation, which used the future endpoint of each gap.
+Filled values are never scored (F-only masking). Differenced gradient-boosted trees
+additionally receive the MNAR missingness masks (an observed indicator and
+months-since-last-observation) lagged by one month---the last closed month, known
+at the origin; the rest of the catalog uses the explicit forward-only policy.
+Further controls: (i)~the expanding window references only pre-origin
 observations; tree-model lags and rolling statistics are computed strictly before
 the origin. (ii)~Multi-step forecasts roll out recursively, filling future lags with
 \emph{predictions}, never observed future values; error accumulation is reported as
@@ -215,7 +228,10 @@ a limitation. (iii)~The MASE denominator (in-sample seasonal-naïve error) is
 computed only on data preceding the origin, aligned by date to remain robust to
 $C/U$ gaps. (iv)~For the prospective protocol, the forecast and its calibration are
 \emph{truncated to a dated origin that precedes} the bulletins against which they are
-scored (Sec.~\ref{sec:prospective}).
+scored (Sec.~\ref{sec:prospective}). The numerical results reported in this paper
+predate the causal gap-fill correction (applied in code after a 2026-07 audit) and
+are provisional pending re-derivation; the bias is bounded, since scoring was always
+F-only and only gaps crossing a forecast origin were affected.
 
 \paragraph{Metrics and significance.} Point accuracy uses MASE (primary, scale-free
 across heterogeneous series), MAE, RMSE, and \smape. Pairwise out-of-sample
@@ -295,8 +311,8 @@ Set. The Friedman $p$ rejects equal performance; only naïve-1 enters the MCS.}
 \toprule
 Table & \#models & Friedman $p$ & Top-6 by mean rank (MCS $^\star$) \\
 \midrule
-FAD & 23 & $1{\times}10^{-65}$ & naive1 (1.3$^\star$), theta (6.1), ets (6.3), lightgbm (7.1), tft (7.4), arima (7.5) \\
-DFF & 21 & $8{\times}10^{-20}$ & naive1 (2.7$^\star$), theta (4.1), ets (5.2), llt (6.7), tft (7.6), nlinear (8.5) \\
+FAD & 23 & $8.8{\times}10^{-65}$ & naive1 (1.20$^\star$), theta (6.16), ets (6.24), lightgbm (7.16), arima (7.40), llt (7.72) \\
+DFF & 21 & $2.5{\times}10^{-21}$ & naive1 (2.39$^\star$), theta (3.86), ets (5.14), tft (6.14), llt (7.00), nlinear (8.29) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -304,7 +320,7 @@ DFF & 21 & $8{\times}10^{-20}$ & naive1 (2.7$^\star$), theta (4.1), ets (5.2), l
 \begin{figure}[t]
 \centering
 \includegraphics[width=0.92\textwidth]{fig_cd_diagram.pdf}
-% ALT-TEXT: Demsar critical-difference diagram for the FAD model pool; naive-1 (1.3)
+% ALT-TEXT: Demsar critical-difference diagram for the FAD model pool; naive-1 (1.20)
 % alone at the best end, followed by Theta and ETS; connected bars show tied groups.
 \caption{Critical-difference diagram (FAD): mean ranks of the model pool with
 Nemenyi-connected groups. Naïve-1 leads alone; Theta and ETS head the trained
@@ -333,17 +349,23 @@ Walk-forward repeatedly predicts \emph{already known} months; it measures
 selection, not the real-world quality of a forecast issued today. We therefore
 \emph{freeze} each forecast with its origin month in an append-only ledger and,
 as bulletins are published, score it against the cutoff actually observed.
-Historical origins were seeded as a leakage-free \emph{backfill} (see the scope
-paragraph below); since the mid-2026 deployment each monthly vintage is frozen
-at emission time by the automated pipeline.
+Historical origins were seeded as an origin-truncated historical \emph{backfill}
+(see the scope paragraph below); since the mid-2026 deployment each monthly vintage
+is frozen at emission time by the automated pipeline. To be precise about the
+evidence available to date: the scored ledger is that origin-truncated historical
+backfill---2{,}944 scored forecasts from three effective origin vintages, with zero
+live champion--challenger pairs at the audit cutoff---and we therefore make no claim
+about live serving performance.
 
 \paragraph{Aggregate behavior.} Over \textbf{2{,}944} scored
 forecasts (Table~\ref{tab:prospective}), the mean absolute error is
 \textbf{146~days} and MASE \textbf{0.347}. Accuracy degrades smoothly with the
 horizon (Fig.~\ref{fig:prospective} (left)): from $\approx$22~days / MASE~0.05 at one month to
-$\approx$257~days / MASE~0.63 at twelve months. Crucially, MASE stays
-\emph{below~1} at every horizon---the forecasts beat the seasonal-naïve baseline
-even a year out. The retrospective hold-out MASE ($\approx$0.11) and the prospective
+$\approx$257~days / MASE~0.63 at twelve months. MASE stays \emph{below~1} at every
+horizon relative to the in-sample seasonal-naïve scale; because MASE is scaled by
+the in-sample seasonal-naïve error, this does not by itself establish superiority
+over an out-of-sample seasonal-naïve forecast evaluated at the same origins---a
+direct comparison planned with the re-derivation. The retrospective hold-out MASE ($\approx$0.11) and the prospective
 MASE (0.347) differ by $\approx$3$\times$; this gap is expected (repeated one-step vs.\
 genuine one-to-twelve-step extrapolation through retrogression shocks) and is
 disclosed rather than hidden. This multi-horizon regime is also where the one-step
@@ -363,14 +385,14 @@ series (0.89).
 only three recent origins (2024-07, 2025-01, 2025-07) contribute scored forecasts;
 the others originate from series whose last $F$ observation predates the window and
 contribute none. We report the effective vintage count explicitly. These vintages
-are \emph{leakage-free backfills}---each model and its calibration are truncated to
-the origin---but a backfill is \emph{not} identical to having served the forecast
+are \emph{origin-truncated backfills}---each model and its calibration are truncated
+to the origin---but a backfill is \emph{not} identical to having served the forecast
 in real time; going forward the ledger accumulates genuinely live vintages.
 
 \begin{table}[t]
 \centering
 \caption{Prospective evaluation (origin-truncated forecasts vs.\ published
-cutoffs; a leakage-free backfill to date).
+cutoffs; an origin-truncated backfill to date).
 Coverage is empirical; nominal levels are 0.80 and 0.95. The 80\% band is
 calibrated on a disjoint vintage split; ``cov$_{80}$ held-out'' is its
 out-of-sample coverage.}
@@ -398,8 +420,8 @@ DFF            & 1{,}240 & 131.5 & 0.381 & 0.890 & 0.765 \\
 % forecast horizon 1-12 months, MASE staying below the dotted naive=1 line; right,
 % empirical 95% and 80% coverage vs horizon against dotted nominal references.
 \caption{\textbf{Left:} prospective error vs.\ horizon; MASE remains below the
-seasonal-naïve reference (MASE$=1$) at all horizons. \textbf{Right:} empirical
-interval coverage vs.\ horizon, with nominal references.}
+MASE$=1$ reference (in-sample seasonal-naïve scale) at all horizons. \textbf{Right:}
+empirical interval coverage vs.\ horizon, with nominal references.}
 \label{fig:prospective}
 \end{figure}
 
@@ -425,7 +447,8 @@ globally trained deep models---beats it with significance. We argue this floor i
 itself the useful finding: benchmarks on this kind of administrative queue data
 that omit the naïve-1 row overstate every trained model. The system's value then
 lies where the floor offers nothing: multi-month horizons (where the prospective
-ledger shows smooth degradation while remaining below the seasonal naïve),
+ledger shows smooth degradation while remaining below~1 on the in-sample
+seasonal-naïve MASE scale),
 per-horizon calibrated uncertainty, cross-sectional coherence, and governance that
 tracks the naïve challenger in shadow. The prospective protocol additionally
 exposes a $3\times$ optimism in the retrospective hold-out number---a discrepancy
@@ -452,10 +475,11 @@ aggregates are averaged.
 \label{sec:conclusions}
 
 We release an open, audited multi-series panel of U.S. Visa Bulletin priority dates
-and a leakage-free \emph{prospective} evaluation protocol that scores
+and an audited \emph{prospective} evaluation protocol that scores
 origin-truncated forecasts against subsequently published cutoffs (a backfill to
 date; live vintages accrue since deployment). The honest out-of-sample accuracy
-(MAE~146~days, MASE~0.347, beating the seasonal naïve at every horizon) and the
+(MAE~146~days, MASE~0.347, below~1 on the in-sample seasonal-naïve scale at every
+horizon) and the
 finding that, at one step, \emph{no} trained model significantly beats the
 random-walk floor on this panel are, we argue, more useful to practitioners than a
 single optimistic hold-out number. Future work settles the champion-vs-floor

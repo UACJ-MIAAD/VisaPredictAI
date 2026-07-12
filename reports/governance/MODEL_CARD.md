@@ -4,11 +4,15 @@
 > canónicos. **No editar a mano** — se regenera con `make model-card`. Toda cifra proviene de
 > `reports/governance/key_facts.json` (fuente única de verdad).
 
+> ⚠️ **Métricas retrospectivas provisionales:** derivadas con el protocolo previo a la
+> corrección causal del relleno (F1, 2026-07-12); re-derivación en curso. No promover con
+> estas cifras.
+
 ## 1. Detalles del modelo
 - **Sistema:** predictor del U.S. Visa Bulletin — panel multiserie `y_{p,c,b,t}` (país × categoría × tabla × mes).
 - **Tarea:** regresión temporal de fechas de prioridad sobre observaciones con estado **F** (FAD y DFF por separado).
 - **Receta desplegada (campeón):** FAD → `median(theta+ets+sarima)` · DFF → `sarima` (manifiesto versionado `champion_manifest.json`).
-- **Versión / linaje:** git `f6da6df` · hash del panel `00115d2dd0b6`.
+- **Versión / linaje:** git `7c1ca97` · hash del panel `00115d2dd0b6`.
 - **Autor:** Javier A. Rebull Saucedo · MIAAD, UACJ. Demostrador: visapredictai.com.
 
 ## 2. Uso previsto
@@ -32,8 +36,8 @@
 
 ## 6. Linaje y reproducibilidad
 - **Receta:** `champion_manifest.json` (cambia solo vía `run_champion_challenger.py --promote`, auditado).
-- **Código:** git `f6da6df`. **Datos:** panel hash `00115d2dd0b6`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
-- **Corte (H3):** release vigente al generar `2026-07-5a6bac44f88c` · pipeline_run_id `local` · añada `2026-07`.
+- **Código:** git `7c1ca97`. **Datos:** panel hash `00115d2dd0b6`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
+- **Corte (H3):** release vigente al generar `2026-07-5f6adfa8869e` · pipeline_run_id `local` · añada `2026-07`.
 - **Promoción (dos gates):** el hold-out (Wilcoxon+Holm, h=1) solo declara aptitud retrospectiva; la autorización la da el gate prospectivo PRE-REGISTRADO (docs/PROMOTION_POLICY.md) sobre pares live campeón-vs-sombra, aplicada por un humano (`--promote`, que se rehúsa sin decisión "promote") con rollback versionado.
 
 ## 7. Limitaciones y consideraciones éticas
