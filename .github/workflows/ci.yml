@@ -152,6 +152,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          # Ronda 3 audit: check_contracts verifica que el git_sha del manifiesto EXISTA
+          # (git cat-file -e) y es fail-closed en clones shallow -- necesita historial.
+          fetch-depth: 0
       - name: Checkout the web repo (best-effort, for cross-repo claims)
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
         continue-on-error: true

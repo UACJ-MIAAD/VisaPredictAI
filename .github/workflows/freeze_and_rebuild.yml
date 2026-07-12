@@ -69,6 +69,11 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+      with:
+        # Ronda 3 audit: el gate de contratos verifica que el git_sha del manifiesto
+        # commiteado EXISTA en el historial (fail-closed en shallow) -- y el manifiesto
+        # puede referenciar un commit de hace un mes: se requiere historial completo.
+        fetch-depth: 0
 
     - name: Set up Python
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6

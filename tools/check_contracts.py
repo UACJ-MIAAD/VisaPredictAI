@@ -89,11 +89,11 @@ def check(root: Path = ROOT, contracts_dir: Path = CONTRACTS_DIR) -> list[str]:
         vintages["data/processed/visa_panel_long.csv (real)"] = pv
     if len(set(vintages.values())) > 1:
         problems.append(f"CORTE CON AÑADAS MEZCLADAS: {vintages}")
-    # Auditoría 11-jul (+2ª ronda 12-jul): la identidad del manifiesto PUBLICADO debe
+    # Auditoría 11-jul (+rondas 2-3, 12-jul): la identidad del manifiesto PUBLICADO debe
     # RESOLVER a un commit. Se exige: (a) forma 12-hex (ni 'n/d' ni sufijo -dirty), y
-    # (b) cuando el repo tiene el historial (clone completo), que el objeto exista de
-    # verdad (`git cat-file -e`). En clones shallow (actions/checkout depth=1 no trae el
-    # commit PADRE que el manifiesto referencia) solo se valida la forma — documentado.
+    # (b) que el objeto exista de verdad (`git cat-file -e`). FAIL-CLOSED total (ronda 3:
+    # el bypass shallow dejaba pasar un sha fantasma justo en CI/cron): un clone shallow
+    # o sin git ES violación — los checkouts que corren este gate usan fetch-depth: 0.
     man = root / "reports" / "release" / "release_manifest.json"
     if man.exists():
         try:
@@ -110,16 +110,23 @@ def check(root: Path = ROOT, contracts_dir: Path = CONTRACTS_DIR) -> list[str]:
 
 
 def _sha_unresolvable(root: Path, sha: str) -> list[str]:
-    """[] si el sha resuelve, el repo es shallow o no hay git; violación si el repo tiene
-    historial completo y el objeto NO existe (manifiesto apuntando a un commit fantasma)."""
+    """[] SOLO si el sha resuelve en un historial completo. Fail-closed en todo lo demás
+    (ronda 3 de auditoría: el bypass shallow anulaba la garantía exactamente donde más
+    importa — CI y cron corren en checkouts de Actions)."""
     import subprocess
 
-    def _git(*args: str) -> str:
-        return subprocess.check_output(["git", *args], text=True, stderr=subprocess.DEVNULL, cwd=root).strip()
-
     try:
-        if _git("rev-parse", "--is-shallow-repository") == "true":
-            return []
+        shallow = subprocess.check_output(
+            ["git", "rev-parse", "--is-shallow-repository"], text=True, stderr=subprocess.DEVNULL, cwd=root
+        ).strip()
+    except subprocess.CalledProcessError, FileNotFoundError:
+        return [f"release_manifest.json: git_sha '{sha}' NO VERIFICABLE (sin git/repo) — fail-closed"]
+    if shallow == "true":
+        return [
+            f"release_manifest.json: clone SHALLOW — git_sha '{sha}' no verificable; "
+            "el checkout que corre este gate debe usar fetch-depth: 0 (fail-closed)"
+        ]
+    try:
         subprocess.check_call(
             ["git", "cat-file", "-e", f"{sha}^{{commit}}"],
             stdout=subprocess.DEVNULL,
@@ -129,8 +136,6 @@ def _sha_unresolvable(root: Path, sha: str) -> list[str]:
         return []
     except subprocess.CalledProcessError:
         return [f"release_manifest.json: git_sha '{sha}' NO existe en el historial (commit fantasma)"]
-    except FileNotFoundError:
-        return []
 
 
 def main() -> int:
