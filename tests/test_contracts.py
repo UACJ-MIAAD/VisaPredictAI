@@ -84,3 +84,56 @@ def test_missing_artifact_fails(tmp_path) -> None:
 def test_real_repo_passes() -> None:
     """Integración: los 13 artefactos reales cumplen sus contratos con añada única."""
     assert cc.check() == []
+
+
+# --- Ronda 4 de auditoría: las 4 ramas de _sha_unresolvable como tests PERMANENTES ---
+# (las reproducciones manuales de la ronda 3 no bloqueaban regresiones futuras).
+# Requieren el CLI de git — presente en dev y en todos los runners de CI.
+
+import subprocess  # noqa: E402
+
+
+def _run(cwd: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+    )
+
+
+def test_sha_gate_valid_sha_in_full_clone_passes() -> None:
+    head = subprocess.check_output(["git", "rev-parse", "--short=12", "HEAD"], text=True, cwd=cc.ROOT).strip()
+    assert cc._sha_unresolvable(cc.ROOT, head) == []
+
+
+def test_sha_gate_phantom_sha_fails_closed() -> None:
+    v = cc._sha_unresolvable(cc.ROOT, "deadbeefdead")
+    assert v and "fantasma" in v[0]
+
+
+def test_sha_gate_shallow_clone_fails_closed(tmp_path) -> None:
+    """Un clone shallow ES violación (la rama que el estreno en CI detonó: el bypass
+    dejaba pasar un sha fantasma exactamente en los checkouts depth-1 de Actions)."""
+    src = tmp_path / "src"
+    src.mkdir()
+    _run(src, "init", "-q")
+    (src / "a.txt").write_text("1")
+    _run(src, "add", "a.txt")
+    _run(src, "commit", "-qm", "one")
+    (src / "a.txt").write_text("2")
+    _run(src, "add", "a.txt")
+    _run(src, "commit", "-qm", "two")
+    shallow = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "1", f"file://{src}", str(shallow)],
+        check=True,
+        capture_output=True,
+    )
+    v = cc._sha_unresolvable(shallow, "abcdefabcdef")
+    assert v and "SHALLOW" in v[0] and "fetch-depth" in v[0]
+
+
+def test_sha_gate_no_git_repo_fails_closed(tmp_path) -> None:
+    v = cc._sha_unresolvable(tmp_path, "abcdefabcdef")
+    assert v and "NO VERIFICABLE" in v[0]
