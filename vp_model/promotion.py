@@ -218,6 +218,77 @@ def _decide_table(tl: pd.DataFrame, policy: dict) -> dict:
     return res
 
 
+def candidate_hash(candidate: dict, policy: dict) -> str:
+    """sha256-12 canónico de la identidad COMPLETA del candidato (R0-01): política íntegra
+    + campos del candidato (sin el propio hash) — la decisión deja de ser campos
+    autorreportados sueltos; mutar cualquiera invalida el hash."""
+    import hashlib
+
+    core = {k: v for k, v in candidate.items() if k != "hash"}
+    blob = json.dumps({"policy": policy, "candidate": core}, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(blob.encode()).hexdigest()[:12]
+
+
+def evidence_hashes(root: Path | None = None) -> dict[str, str]:
+    """sha256-12 de los archivos de evidencia que sustentan la decisión (R0-01): los dos
+    scorecards y el ledger sombra. authorize() los recomputa del disco — si la evidencia
+    cambió desde la decisión, la autorización muere."""
+    import hashlib
+
+    base = root or Path(__file__).resolve().parent.parent
+    out: dict[str, str] = {}
+    for label, rel in (
+        ("scorecard_champion", "reports/prospective/forecast_scorecard.csv"),
+        ("scorecard_shadow", "reports/prospective/forecast_scorecard_shadow.csv"),
+        ("shadow_ledger", "reports/prospective/forecast_log_shadow.csv"),
+    ):
+        p = base / rel
+        out[label] = hashlib.sha256(p.read_bytes()).hexdigest()[:12] if p.exists() else "n/d"
+    return out
+
+
+def _candidate_violations(cand: dict, policy: dict) -> list[str]:
+    """Validez intrínseca del candidato (R0-01): vintages plausibles y con muestra
+    mínima, fecha de decisión parseable y no futura, hash íntegro."""
+    import datetime
+    import re
+
+    v: list[str] = []
+    vintages = cand.get("vintages")
+    if not isinstance(vintages, list) or not vintages:
+        v.append("candidato sin añadas live (vintages vacío/ausente)")
+    else:
+        from vp_model import ledger
+
+        panel_now = ledger.panel_vintage()
+        bad = [x for x in vintages if not re.fullmatch(r"\d{4}-\d{2}", str(x))]
+        future = [x for x in vintages if str(x) > panel_now]
+        if bad:
+            v.append(f"añadas con formato inválido: {bad}")
+        if future:
+            v.append(f"añadas POSTERIORES al panel vigente ({panel_now}): {future}")
+        if len(vintages) < policy["min_live_vintages"]:
+            v.append(f"añadas declaradas: {len(vintages)} < mínimo {policy['min_live_vintages']}")
+    da = cand.get("decided_at")
+    try:
+        when = datetime.datetime.fromisoformat(str(da))
+        if when > datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=5):
+            v.append(f"decided_at en el futuro: {da}")
+    except ValueError, TypeError:
+        v.append(f"decided_at no es una fecha ISO válida: {da!r}")
+    if cand.get("hash") != candidate_hash(cand, policy):
+        v.append("candidate_hash no re-deriva de sus campos (identidad manipulada o formato viejo)")
+    stored_ev = cand.get("evidence")
+    if not isinstance(stored_ev, dict) or not stored_ev:
+        v.append("candidato sin hashes de evidencia (formato pre-R0-01)")
+    else:
+        now_ev = evidence_hashes()
+        drift = {k: (stored_ev.get(k), now_ev.get(k)) for k in now_ev if stored_ev.get(k) != now_ev.get(k)}
+        if drift:
+            v.append(f"la evidencia en disco YA NO es la de la decisión: {drift}")
+    return v
+
+
 def authorize(table: str, decision_path: Path, *, challenger: str, champion: str) -> tuple[bool, str]:
     """¿La decisión prospectiva vigente autoriza promover ESTE candidato? Fail closed.
 
@@ -263,6 +334,9 @@ def authorize(table: str, decision_path: Path, *, challenger: str, champion: str
             f"el campeón actual ({champion!r}) ya no es el evaluado por el gate "
             f"({cand.get('champion')!r}) — evidencia caduca; re-corre el gate (fail closed)"
         )
+    intrinsic = _candidate_violations(cand, POLICY)
+    if intrinsic:
+        return False, "candidato inválido (fail closed): " + "; ".join(intrinsic)
     return True, (
         f"decisión prospectiva = promote para {challenger!r} vs {champion!r} bajo release "
         f"{current_release} (política pre-registrada v{POLICY['policy_version']})"

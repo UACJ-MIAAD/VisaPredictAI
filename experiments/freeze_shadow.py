@@ -224,11 +224,15 @@ def main() -> int:
     # evidencia de promocion para siempre (el ledger es inmutable).
     if WEB_META.exists():
         meta_series = json.loads(WEB_META.read_text()).get("series", {})
+        allowed = ledger.load_completeness_allowlist()
         problems: list[str] = []
         for table in config.TABLES:
             expected = {k for k in meta_series if k.endswith(f"/{table}")}
             got = {f"{r['country']}/{r['category']}/{table}" for r in all_rows if r["table"] == table}
-            problems += ledger.completeness_problems(expected, got, label=f"sombra {table}")
+            problems += ledger.completeness_problems(expected, got, label=f"sombra {table}", allowed=allowed)
+            for k in sorted(expected - got):
+                if k in allowed:
+                    log.warning("[sombra %s] omision permitida por allowlist: %s (%s)", table, k, allowed[k])
         if problems:
             raise SystemExit("ABORT (completitud sombra fail-closed): " + " | ".join(problems))
     path = append_shadow(all_rows)

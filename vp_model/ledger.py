@@ -198,25 +198,50 @@ def append(path: Path, rows: list[dict], cols: list[str] | None = None) -> pd.Da
     return combined
 
 
-def completeness_problems(expected: set[str], got: set[str], *, label: str, min_frac: float = 0.9) -> list[str]:
-    """Completitud de una añada por SET DE CLAVES esperadas — fail-closed (A-05, auditoría
-    ciega 11-jul: ``if got and expected`` dejaba pasar got==0, y la completitud se medía
-    contra el meta del run ANTERIOR en vez del catálogo vigente).
+COMPLETENESS_ALLOWLIST = ROOT / "reports" / "governance" / "completeness_allowlist.json"
 
-    Reglas: expected vacío = sin señal (no gate); got vacío = tabla completa ausente;
-    got < min_frac·expected = añada parcial; claves fuera del catálogo = deriva.
+
+def load_completeness_allowlist(path: Path | None = None) -> dict[str, str]:
+    """Excepciones NOMINALES de completitud (R0-04): clave → motivo, con expiración.
+    Un porcentaje global no es trazable; cada omisión tolerada se registra POR CLAVE en
+    git con motivo y mes de expiración (``expires`` >= añada del panel para contar).
+    Entradas expiradas dejan de eximir — la añada vuelve a abortar hasta renovarlas."""
+    p = path or COMPLETENESS_ALLOWLIST
+    if not p.exists():
+        return {}
+    now = panel_vintage()
+    out: dict[str, str] = {}
+    for key, entry in json.loads(p.read_text()).items():
+        if isinstance(entry, dict) and str(entry.get("expires", "")) >= now:
+            out[key] = str(entry.get("reason", "sin motivo"))
+    return out
+
+
+def completeness_problems(
+    expected: set[str], got: set[str], *, label: str, allowed: dict[str, str] | None = None
+) -> list[str]:
+    """Completitud de una añada por IGUALDAD DE SETS (A-05 + R0-04, auditoría ciega:
+    el umbral 90 % dejaba desaparecer 1-2 series por mes en silencio — 19/20 pasaba).
+
+    Reglas fail-closed: expected vacío = sin señal (no gate); got vacío = tabla completa
+    ausente; CUALQUIER clave esperada ausente = violación salvo excepción NOMINAL vigente
+    del allowlist versionado (por clave, con motivo y expiración — jamás un porcentaje);
+    claves fuera del catálogo = deriva. Las omisiones eximidas se reportan aparte por el
+    caller (visibles en log/SES), nunca silenciosas.
     """
     if not expected:
         return []
+    allowed = allowed or {}
     problems: list[str] = []
     missing = sorted(expected - got)
+    unexcused = [k for k in missing if k not in allowed]
     extra = sorted(got - expected)
     if not got:
         problems.append(f"{label}: 0 de {len(expected)} claves esperadas — tabla completa ausente")
-    elif len(got & expected) < min_frac * len(expected):
+    elif unexcused:
         problems.append(
-            f"{label}: {len(got & expected)}/{len(expected)} claves esperadas (<{min_frac:.0%}); "
-            f"faltan p.ej. {missing[:5]}"
+            f"{label}: {len(unexcused)} clave(s) esperada(s) AUSENTE(s) sin excepción nominal: "
+            f"{unexcused[:8]}{' …' if len(unexcused) > 8 else ''}"
         )
     if extra:
         problems.append(f"{label}: {len(extra)} claves FUERA del catálogo vigente (deriva): p.ej. {extra[:5]}")

@@ -137,3 +137,26 @@ def test_sha_gate_shallow_clone_fails_closed(tmp_path) -> None:
 def test_sha_gate_no_git_repo_fails_closed(tmp_path) -> None:
     v = cc._sha_unresolvable(tmp_path, "abcdefabcdef")
     assert v and "NO VERIFICABLE" in v[0]
+
+
+def test_champion_contract_required_paths_catch_schema_drift(tmp_path) -> None:
+    """Reproduccion EXACTA de R0-03: quitar gate_scope y holdout_winner pasaba el
+    contrato nominal (solo exigia FAD/DFF dict). required_paths lo rompe ahora."""
+    import shutil
+
+    root = tmp_path / "repo"
+    (root / "reports" / "governance").mkdir(parents=True)
+    (root / "data" / "processed").mkdir(parents=True)
+    shutil.copy(cc.ROOT / "data" / "processed" / "visa_panel_long.csv", root / "data" / "processed")
+    cdir = tmp_path / "contracts"
+    cdir.mkdir()
+    shutil.copy(cc.CONTRACTS_DIR / "champion_challenger.json", cdir)
+    art = json.loads((cc.ROOT / "reports" / "governance" / "champion_challenger.json").read_text())
+    for t in ("FAD", "DFF"):
+        art[t].pop("gate_scope", None)
+        art[t].pop("holdout_winner", None)
+    (root / "reports" / "governance" / "champion_challenger.json").write_text(json.dumps(art))
+    problems = cc.check(root, cdir)
+    assert any("gate_scope" in p for p in problems) and any("holdout_winner" in p for p in problems)
+    # y el artefacto REAL del repo si cumple el contrato profundo
+    assert not [p for p in cc.check() if "champion_challenger" in p]

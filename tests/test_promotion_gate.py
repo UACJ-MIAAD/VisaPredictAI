@@ -131,22 +131,33 @@ def test_dedup_collapses_world_replicas() -> None:
     assert "mexico" not in kept  # réplica exacta del corte mundial → colapsa
 
 
-def _decision_file(tmp_path, *, policy=None, decision="promote", candidate=None):
-    """Decision file bien formada por default; cada test muta UN campo (A-02)."""
+EVIDENCE = {"scorecard_champion": "aaa111", "scorecard_shadow": "bbb222", "shadow_ledger": "ccc333"}
+
+
+def _decision_file(tmp_path, *, policy=None, decision="promote", candidate=None, rehash=True):
+    """Decision file bien formada por default; cada test muta UN campo (A-02/R0-01).
+    ``rehash=True`` re-sella el candidate_hash tras la mutación (para probar que el
+    CONTENIDO mutado falla por su propia regla); ``rehash=False`` deja el hash viejo
+    (para probar que la manipulación del registro muere por hash)."""
+    pol = policy if policy is not None else promotion.POLICY
     cand = {
         "champion": "theta+ets+sarima",
         "challenger": "naive1",
         "release_id": "2026-07-feedcafe0000",
         "vintages": ["2026-08", "2026-09", "2026-10"],
         "decided_at": "2026-07-12T00:00:00+00:00",
+        "evidence": dict(EVIDENCE),
     }
+    base_hash = promotion.candidate_hash(cand, pol)
     if candidate is not None:
         cand = {**cand, **candidate}
+        cand = {k: v for k, v in cand.items() if v is not ...}  # Ellipsis = borrar campo
+    cand["hash"] = promotion.candidate_hash(cand, pol) if rehash else base_hash
     path = tmp_path / "promotion_decision.json"
     path.write_text(
         json.dumps(
             {
-                "policy": policy if policy is not None else promotion.POLICY,
+                "policy": pol,
                 "by_table": {"FAD": {"decision": decision, "reasons": [], "candidate": cand}},
             }
         )
@@ -158,6 +169,8 @@ def _pin_release(monkeypatch, value="2026-07-feedcafe0000"):
     from vp_model import ledger
 
     monkeypatch.setattr(ledger, "current_release_id", lambda: value)
+    monkeypatch.setattr(ledger, "panel_vintage", lambda path=None: "2026-12")
+    monkeypatch.setattr(promotion, "evidence_hashes", lambda root=None: dict(EVIDENCE))
 
 
 AUTH = dict(challenger="naive1", champion="theta+ets+sarima")
@@ -208,6 +221,41 @@ def test_authorize_rejects_replayed_decision_from_old_release(tmp_path, monkeypa
     _pin_release(monkeypatch, "2026-08-000000000000")  # release nuevo tras la decision
     ok, why = promotion.authorize("FAD", _decision_file(tmp_path), **AUTH)
     assert not ok and "release" in why
+
+
+def test_authorize_rejects_future_vintages_and_bad_date(tmp_path, monkeypatch) -> None:
+    """Reproducciones EXACTAS de R0-01: vintages ['2099-01'] y decided_at 'not-a-date'
+    eran autorizados; ausentes tambien. Todo eso muere ahora."""
+    _pin_release(monkeypatch)
+    ok, why = promotion.authorize(
+        "FAD", _decision_file(tmp_path, candidate={"vintages": ["2099-01", "2099-02", "2099-03"]}), **AUTH
+    )
+    assert not ok and "POSTERIORES" in why
+    ok, why = promotion.authorize("FAD", _decision_file(tmp_path, candidate={"decided_at": "not-a-date"}), **AUTH)
+    assert not ok and "ISO" in why
+    ok, why = promotion.authorize(
+        "FAD", _decision_file(tmp_path, candidate={"vintages": ..., "decided_at": ...}), **AUTH
+    )
+    assert not ok
+    ok, why = promotion.authorize("FAD", _decision_file(tmp_path, candidate={"vintages": ["2026-08"]}), **AUTH)
+    assert not ok and "mínimo" in why  # muestra de añadas bajo el piso de la política
+
+
+def test_authorize_rejects_tampered_record_by_hash(tmp_path, monkeypatch) -> None:
+    """R0-01: mutar el registro SIN re-sellar el hash muere por candidate_hash."""
+    _pin_release(monkeypatch)
+    path = _decision_file(tmp_path, candidate={"vintages": ["2026-05", "2026-06", "2026-07"]}, rehash=False)
+    ok, why = promotion.authorize("FAD", path, **AUTH)
+    assert not ok and "candidate_hash" in why
+
+
+def test_authorize_rejects_evidence_drift(tmp_path, monkeypatch) -> None:
+    """R0-01: si los scorecards/ledger en disco ya no son los de la decision, muere."""
+    _pin_release(monkeypatch)
+    path = _decision_file(tmp_path)
+    monkeypatch.setattr(promotion, "evidence_hashes", lambda root=None: {**EVIDENCE, "shadow_ledger": "MUTADO"})
+    ok, why = promotion.authorize("FAD", path, **AUTH)
+    assert not ok and "evidencia" in why
 
 
 def test_authorize_rejects_pre_a02_decision_without_candidate(tmp_path, monkeypatch) -> None:

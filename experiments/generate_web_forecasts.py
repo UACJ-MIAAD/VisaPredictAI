@@ -355,13 +355,15 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
     csv_path = REPORTS / "prospective" / "web_forecasts.csv"
     meta_path = REPORTS / "prospective" / "web_forecasts_meta.json"
     got_keys = set(all_meta)
+    allowed = ledger.load_completeness_allowlist()
     problems: list[str] = []
     for table in config.TABLES:
-        problems += ledger.completeness_problems(
-            {k for k in expected_keys if k.endswith(f"/{table}")},
-            {k for k in got_keys if k.endswith(f"/{table}")},
-            label=table,
-        )
+        exp_t = {k for k in expected_keys if k.endswith(f"/{table}")}
+        got_t = {k for k in got_keys if k.endswith(f"/{table}")}
+        problems += ledger.completeness_problems(exp_t, got_t, label=table, allowed=allowed)
+        for k in sorted(exp_t - got_t):
+            if k in allowed:  # eximida NOMINALMENTE — visible, jamas silenciosa (R0-04)
+                log.warning("[%s] omision permitida por allowlist: %s (%s)", table, k, allowed[k])
     if problems:
         raise SystemExit("ABORT (completitud fail-closed): " + " | ".join(problems))
 

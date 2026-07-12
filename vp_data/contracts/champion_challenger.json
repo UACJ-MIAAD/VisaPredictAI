@@ -5,5 +5,19 @@
   "required_keys": {
     "FAD": "dict",
     "DFF": "dict"
+  },
+  "required_paths": {
+    "FAD.champion": "str",
+    "FAD.champion_mean": "number",
+    "FAD.champion_median": "number",
+    "FAD.challengers": "list",
+    "FAD.gate_scope": "str",
+    "FAD.holdout_winner": "dict",
+    "DFF.champion": "str",
+    "DFF.champion_mean": "number",
+    "DFF.champion_median": "number",
+    "DFF.challengers": "list",
+    "DFF.gate_scope": "str",
+    "DFF.holdout_winner": "dict"
   }
 }

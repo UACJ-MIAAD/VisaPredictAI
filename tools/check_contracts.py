@@ -81,6 +81,19 @@ def check(root: Path = ROOT, contracts_dir: Path = CONTRACTS_DIR) -> list[str]:
                     problems.append(f"{c['artifact']}: llave requerida ausente '{key}'")
                 elif not isinstance(data[key], TYPES[tname]):
                     problems.append(f"{c['artifact']}: '{key}' debería ser {tname}, es {type(data[key]).__name__}")
+            # R0-03 (reauditoría ciega): un contrato que solo exige dicts top-level es
+            # nominal — la deriva de esquema que motivó A-04 (gate_scope/holdout_winner
+            # ausentes) pasaba limpia. required_paths exige rutas anidadas con tipo.
+            for dotted, tname in c.get("required_paths", {}).items():
+                node = data
+                for part in dotted.split("."):
+                    node = node.get(part) if isinstance(node, dict) else None
+                    if node is None:
+                        problems.append(f"{c['artifact']}: ruta requerida ausente '{dotted}'")
+                        break
+                else:
+                    if not isinstance(node, TYPES[tname]):
+                        problems.append(f"{c['artifact']}: '{dotted}' debería ser {tname}, es {type(node).__name__}")
             vk = c.get("vintage_key")
             if vk and isinstance(data.get(vk), str):
                 vintages[c["artifact"]] = str(data[vk])[:7]

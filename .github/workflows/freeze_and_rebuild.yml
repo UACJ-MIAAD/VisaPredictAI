@@ -421,10 +421,15 @@ jobs:
           echo "CI: no aparecio un run para $want (¿main avanzo en paralelo?) — SIN deploy (fail-closed)" | tee /tmp/ciwait.txt
           exit 1
         fi
-        if gh run watch "$run_id" --exit-status --interval 30; then
+        # R0-05: gh run watch NO tiene timeout propio — sin `timeout`, un CI colgado
+        # retenia el cron hasta el timeout del job entero. 35 min cubre el run completo
+        # (model-tests ~20 min); exit 124 = colgado = fail-closed igual que rojo.
+        if timeout 2100 gh run watch "$run_id" --exit-status --interval 30; then
           echo "CI VERDE sobre $want (run $run_id)" | tee /tmp/ciwait.txt
         else
-          echo "CI ROJO/timeout sobre $want (run $run_id) — SIN deploy (fail-closed)" | tee /tmp/ciwait.txt
+          rc=$?
+          verdict=$([ "$rc" = "124" ] && echo "COLGADO (timeout 35 min)" || echo "ROJO")
+          echo "CI $verdict sobre $want (run $run_id) — SIN deploy (fail-closed)" | tee /tmp/ciwait.txt
           exit 1
         fi
 

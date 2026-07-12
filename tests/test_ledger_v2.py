@@ -171,17 +171,47 @@ def test_validate_is_fail_closed_on_null_seals() -> None:
 
 
 def test_completeness_problems_fail_closed() -> None:
-    """A-05 (auditoria ciega): got==0 con expected>0 era invisible ('if got and expected');
-    la completitud ahora es por SET de claves del catalogo vigente."""
+    """A-05 + R0-04 (auditoria ciega, 2 rondas): got==0 era invisible Y el umbral 90%
+    dejaba pasar 19/20. Ahora: igualdad de sets; excepciones SOLO nominales."""
     exp = {"mexico/F1/FAD", "india/F1/FAD", "china/F1/FAD"}
     assert ledger.completeness_problems(exp, exp, label="FAD") == []
     assert ledger.completeness_problems(set(), set(), label="FAD") == []  # sin senal, sin gate
     zero = ledger.completeness_problems(exp, set(), label="FAD")
     assert zero and "tabla completa ausente" in zero[0]
-    partial = ledger.completeness_problems(exp, {"mexico/F1/FAD"}, label="FAD")
-    assert partial and "<90%" in partial[0]
     drift = ledger.completeness_problems(exp, exp | {"belice/F9/FAD"}, label="FAD")
     assert drift and "FUERA del cat" in drift[0]
+
+
+def test_completeness_nineteen_of_twenty_aborts() -> None:
+    """Reproduccion EXACTA de R0-04: 19/20 y 18/20 devolvian [] con el umbral 90%."""
+    exp = {f"pais{i}/F1/FAD" for i in range(20)}
+    for n_missing in (1, 2):
+        got = set(sorted(exp)[n_missing:])
+        v = ledger.completeness_problems(exp, got, label="FAD")
+        assert v and "AUSENTE" in v[0], f"{20 - n_missing}/20 debe abortar"
+
+
+def test_completeness_nominal_allowlist_exempts_with_expiry(tmp_path) -> None:
+    exp = {"mexico/F1/FAD", "india/F1/FAD"}
+    got = {"mexico/F1/FAD"}
+    # sin excepcion: aborta
+    assert ledger.completeness_problems(exp, got, label="FAD")
+    # excepcion nominal vigente: pasa (el caller la reporta aparte)
+    assert ledger.completeness_problems(exp, got, label="FAD", allowed={"india/F1/FAD": "SARIMA no converge"}) == []
+    # loader: la entrada expirada deja de eximir
+    import json as J
+
+    p = tmp_path / "allow.json"
+    p.write_text(
+        J.dumps(
+            {
+                "india/F1/FAD": {"reason": "SARIMA no converge", "expires": "2099-12"},
+                "china/F1/FAD": {"reason": "vieja", "expires": "2020-01"},
+            }
+        )
+    )
+    allowed = ledger.load_completeness_allowlist(p)
+    assert "india/F1/FAD" in allowed and "china/F1/FAD" not in allowed
 
 
 def test_validate_clean_ledger_passes(tmp_path) -> None:
