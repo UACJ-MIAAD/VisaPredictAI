@@ -6,6 +6,10 @@ through static identifiers. This is the #1 candidate to dethrone ETS/Theta.
 
 Design (runs in the main ``ante`` venv — vp_model available):
 
+  * densification: the regular monthly grid is the CANONICAL causal fill
+    (``preprocess.to_regular_monthly_causal``, LOCF forward-only — F1): a gap
+    month carries the last prior observation, so no feature/target row ever sees
+    the future bracket of a gap. Filled months are never scored (B1 mask);
   * target: Δy (first difference of the densified level, per series), causally
     reintegrated onto the last known level, exactly like ``models.Differenced``;
   * features (all computed from information available at the forecast origin,
@@ -81,9 +85,14 @@ DEFAULT_PARAMS: dict[str, dict] = {
 
 
 def dense_level(raw: pd.Series) -> pd.Series:
-    """Raw F series -> regular monthly level (mirror of models.to_timeseries fill)."""
-    full = pd.date_range(raw.index.min(), raw.index.max(), freq="MS")
-    return raw.reindex(full).astype("float64").interpolate(method="linear", limit_area="inside")
+    """Raw F series -> regular monthly level, SAME causal grid as models.to_timeseries.
+
+    F1: LOCF forward-only via the canonical ``preprocess.to_regular_monthly_causal``
+    (the previous linear interpolation used the FUTURE bracket of each gap — leaky
+    for origins inside the gap). Mutating any post-origin value cannot change any
+    feature at or before that origin.
+    """
+    return preprocess.to_regular_monthly_causal(raw)
 
 
 def _trailing_streak(flags: pd.Series) -> pd.Series:
@@ -268,6 +277,7 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=None, help="cap the number of SCORED series (smoke)")
     args = ap.parse_args()
     config.seed_everything(args.seed)
+    log.info("gap_policy=locf_causal (F1)")  # procedencia de campaña: rejilla causal LOCF
     for table in ("FAD", "DFF") if args.table == "both" else (args.table,):
         panel, eval_keys = build_panel_frame(table, args.limit)
         log.info("[%s] pooled rows=%d, scored series=%d", table, len(panel), len(eval_keys))

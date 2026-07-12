@@ -37,30 +37,28 @@ import pandas as pd
 
 HOLDOUT = 24
 PILOT = ("mexico", "india", "china", "philippines", "all_chargeability")
-MAX_GAP = 3  # huecos <= 3 meses se interpolan; los más largos cortan la serie
 BASE = pd.Timestamp("1975-01-01")  # época de days_since_base (t0)
 
 
-def regular_monthly(s: pd.Series, max_gap: int = MAX_GAP) -> pd.Series:
-    """Serie mensual regular sin inventar datos sobre huecos largos (= run_global_deep)."""
-    full = s.reindex(pd.date_range(s.index.min(), s.index.max(), freq="MS"))
-    isna = full.isna().to_numpy()
-    total = np.zeros(len(isna), dtype=int)
-    run = 0
-    for i in range(len(isna)):
-        run = run + 1 if isna[i] else 0
-        total[i] = run
-    for i in range(len(isna) - 2, -1, -1):
-        if isna[i] and isna[i + 1]:
-            total[i] = total[i + 1]
-    long_gap = isna & (total > max_gap)
-    start = int(np.where(long_gap)[0].max()) + 1 if long_gap.any() else 0
-    return full.iloc[start:].interpolate(method="linear", limit_area="inside").dropna()
+def regular_monthly(s: pd.Series) -> pd.Series:
+    """Serie mensual regular con relleno CAUSAL LOCF (F1) — ESPEJO auto-contenido de
+    ``vp_model.preprocess.to_regular_monthly_causal`` (este bundle corre en EC2 con su
+    propio lock, sin vp_model; ``tests/test_feature_builder.py`` ancla la equivalencia —
+    si cambia el canónico, actualizar AMBOS). Todo mes de hueco arrastra la ÚLTIMA
+    observación anterior (forward-only, sin tope): mutar el futuro no cambia el pasado.
+    Los meses rellenados jamás se puntúan (la evaluación es F-only). La interpolación
+    bidireccional + corte de segmento previa queda como evidencia congelada de F1."""
+    s = s.dropna()
+    full = pd.date_range(s.index.min(), s.index.max(), freq="MS")
+    out = s.reindex(full).astype("float64").ffill()
+    out.index.name = "month"  # = canónico (paridad exacta con vp_model.preprocess)
+    return out
 
 
 def encode_regime(g: pd.DataFrame) -> pd.Series:
     """C/F/U como UNA serie continua: F=fecha de prioridad, C=mes del boletín (cutoff=hoy),
-    U/UNK=NaN (puenteados como hueco corto). EVALUACIÓN sigue F-only. (= run_global_deep)."""
+    U/UNK=NaN (rellenados con LOCF causal por regular_monthly). EVALUACIÓN sigue F-only.
+    (= run_global_deep)."""
     g = g.sort_values("ds")
     y = g["days_since_base"].astype("float64").to_numpy().copy()
     is_c = (g["status"] == "C").to_numpy()
@@ -286,6 +284,7 @@ def main() -> None:
     args = ap.parse_args()
 
     try:
+        print("gap_policy=locf_causal (F1)")  # procedencia de campaña: rejilla causal LOCF
         # load_panel DENTRO del try: si el path del panel está mal, igual se dispara el
         # shutdown (si no, un error temprano dejaría la GPU encendida cobrando).
         panel = load_panel(args.panel, args.table, args.block)
@@ -323,7 +322,7 @@ def main() -> None:
 
 
 def _selfcheck() -> None:
-    """Reintegración: Δ reintegrada con el nivel previo real reconstruye el nivel."""
+    """Reintegración exacta + relleno causal LOCF (F1: mutar futuro no cambia pasado)."""
     lvl = pd.DataFrame(
         {"unique_id": "a", "ds": pd.date_range("2020-01-01", periods=4, freq="MS"), "y": [10.0, 13.0, 12.0, 20.0]}
     )
@@ -332,6 +331,16 @@ def _selfcheck() -> None:
     pred["d"] = lvl["y"].diff().iloc[1:].to_numpy()  # Δ "predicho" perfecto
     got = reintegrate(pred, "d", lmap)
     assert np.allclose(got, lvl["y"].iloc[1:].to_numpy()), got
+    # F1: LOCF causal — el hueco arrastra el bracket IZQUIERDO y el futuro mutado no toca el pasado
+    idx = pd.date_range("2020-01-01", periods=12, freq="MS")
+    v = np.arange(12, dtype=float)
+    v[[4, 5, 6, 7]] = np.nan  # hueco de 4 (antes cortaba; ahora LOCF)
+    reg = regular_monthly(pd.Series(v, index=idx).dropna())
+    assert len(reg) == 12 and (reg.iloc[4:8] == v[3]).all()
+    mut = v.copy()
+    mut[9:] += 1_000.0
+    reg_mut = regular_monthly(pd.Series(mut, index=idx).dropna())
+    assert (reg_mut.iloc[:9] == reg.iloc[:9]).all(), "LOCF: el futuro mutado cambió el pasado"
     print("selfcheck OK")
 
 

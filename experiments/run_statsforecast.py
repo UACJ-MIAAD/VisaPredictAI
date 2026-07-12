@@ -9,16 +9,18 @@ Runs in the ISOLATED venv ``ante_nf`` (statsforecast does not build on the main
 py3.14 env because of its ``scipy<1.16`` pin; in ante_nf it is installed with
 ``pip install --no-deps statsforecast`` + cloudpickle/statsmodels/tqdm/
 threadpoolctl/fugue on top of the existing scipy 1.17 — verified working).
-Because ``ante_nf`` has no darts/vp_model, this script follows the CSV-bridge
-pattern of ``run_global_deep.py``: panel parquet in, tidy CSV out, and the
-F-only mask + naive scale are REPLICATED locally (``vp_model.metrics`` imports
-darts, so it cannot be imported here; ``tests/test_newmodels_brutal.py`` anchors
-the replicas against the canonical implementations, same contract as the
-constants pinned below).
+Because ``ante_nf`` has no darts, this script follows the CSV-bridge pattern of
+``run_global_deep.py``: panel parquet in, tidy CSV out. The dependency-light
+``vp_model.preprocess``/``vp_model.config`` ARE importable from ante_nf (same
+pattern as run_global_deep), so the causal grid is the canonical function; only
+the darts-heavy pieces (``vp_model.metrics``) are REPLICATED locally
+(``tests/test_newmodels_brutal.py`` anchors the replicas against the canonical
+implementations, same contract as the constants pinned below).
 
 Protocol equivalence with ``vp_model.walkforward``:
-  * series = raw F observations, densified to a regular monthly grid with linear
-    interpolation of internal gaps (mirror of ``models.to_timeseries``);
+  * series = raw F observations, densified to a regular monthly grid with the
+    CANONICAL causal fill (``preprocess.to_regular_monthly_causal``, LOCF
+    forward-only — F1; same grid as ``models.to_timeseries``);
   * expanding walk-forward, h=1, step=1, from MIN_TRAIN[table] onward, via the
     native ``StatsForecast.cross_validation`` per series (per-series window
     counts differ, so one call per series);
@@ -41,7 +43,9 @@ NON-seasonal (0/74 stationary, F_S ~ 0), so there is no seasonal structure to
 decompose. Standard hierarchical reconciliation (MinT et al.) requires series
 that AGGREGATE (children sum to parents); visa cutoff dates are order
 statistics, not additive quantities — the panel has no summing hierarchy, only
-order constraints, which are exploited instead by ``apply_cone_constraints.py``.
+order constraints, which are exploited instead by the cone projection
+(``vp_model.cone``, wired into the web publisher; ``apply_cone_constraints.py``
+audits retrospectively).
 
 Usage (from repo root):
     ante_nf/bin/python experiments/run_statsforecast.py --table both [--refit 1] [--limit 2]
@@ -50,6 +54,7 @@ Usage (from repo root):
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from pathlib import Path
 
@@ -57,6 +62,11 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
+# F1: vp_model.preprocess/config son dependency-light (numpy+pandas) e importables
+# también desde ante_nf — la rejilla causal es la función CANÓNICA, no una réplica.
+sys.path.insert(0, str(ROOT))
+from vp_model.preprocess import to_regular_monthly_causal  # noqa: E402
+
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
 OUT_DIR = ROOT / "reports" / "eval"
 PILOT = ("mexico", "india", "china", "philippines", "all_chargeability")
@@ -87,15 +97,15 @@ def naive_scale_before(full: pd.Series, cutoff: pd.Timestamp, m: int = SEASONAL_
 
 
 def densify(raw: pd.Series) -> pd.Series:
-    """Raw F series -> regular monthly grid, internal gaps linearly interpolated.
+    """Raw F series -> regular monthly grid via the CANONICAL causal fill (F1).
 
-    Mirror of the local path (``preprocess.to_regular_monthly`` followed by
-    darts ``fill_missing_values(fill="auto")``): ALL internal gaps end up
-    linearly interpolated for training continuity; the filled months are never
-    scored (the B1 mask keeps evaluation on real F dates only).
+    Same grid as ``models.to_timeseries``: LOCF forward-only
+    (``preprocess.to_regular_monthly_causal``) — a gap month carries the last
+    prior observation, so mutating any future value cannot change the training
+    input at or before an origin. Filled months exist only for continuity and
+    are never scored (the B1 mask keeps evaluation on real F dates only).
     """
-    full = pd.date_range(raw.index.min(), raw.index.max(), freq="MS")
-    return raw.reindex(full).astype("float64").interpolate(method="linear", limit_area="inside")
+    return to_regular_monthly_causal(raw)
 
 
 def load_f_series(table: str) -> dict[tuple[str, str, str], pd.Series]:
@@ -219,6 +229,7 @@ def main() -> None:
     ap.add_argument("--refit", type=int, default=1, help="re-select/re-fit every N origins (1 = every origin)")
     ap.add_argument("--limit", type=int, default=None, help="cap the number of series (smoke)")
     args = ap.parse_args()
+    print("gap_policy=locf_causal (F1)")  # procedencia de campaña: rejilla causal LOCF
     for table in ("FAD", "DFF") if args.table == "both" else (args.table,):
         run_table(table, args.refit, args.limit)
 

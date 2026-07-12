@@ -41,11 +41,13 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 # AK8e: vp_model.config / vp_data.config son dependency-light (stdlib) e importables
-# también desde el venv aislado ante_nf — mueren los hardcodes de HOLDOUT/MAX_GAP/BASE.
+# también desde el venv aislado ante_nf — mueren los hardcodes de HOLDOUT/BASE.
+# F1: vp_model.preprocess también es dependency-light (numpy+pandas) — la rejilla
+# causal LOCF es la función CANÓNICA, no una réplica.
 sys.path.insert(0, str(ROOT))
 from vp_data.config import BASE_EPOCH  # noqa: E402
 from vp_model.config import HOLDOUT  # noqa: E402
-from vp_model.config import MAX_INTERPOLABLE_GAP as MAX_GAP  # noqa: E402
+from vp_model.preprocess import to_regular_monthly_causal  # noqa: E402
 
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
 PILOT = ("mexico", "india", "china", "philippines", "all_chargeability")
@@ -63,8 +65,8 @@ def encode_regime(g: pd.DataFrame) -> pd.Series:
     * C (Current) → ``days_since_base`` del MES DEL BOLETÍN: "Current" significa que el cutoff
       es el presente, así que el valor real es la fecha del propio boletín (no una rampa sintética).
       Captura la dinámica real (p. ej. la retrogresión Current→F) en lugar de inventarla.
-    * U/UNK → se dejan NaN: en familia son marginales y ``regular_monthly`` los puentea como hueco
-      corto. (Semánticamente U = espera infinita = cutoff mínimo; trato dedicado en empleo.)
+    * U/UNK → se dejan NaN: ``regular_monthly`` los rellena con LOCF causal (F1).
+      (Semánticamente U = espera infinita = cutoff mínimo; trato dedicado en empleo.)
     """
     g = g.sort_values("ds")
     y = g["days_since_base"].astype("float64").to_numpy().copy()
@@ -73,29 +75,18 @@ def encode_regime(g: pd.DataFrame) -> pd.Series:
     return pd.Series(y, index=pd.DatetimeIndex(g["ds"]))
 
 
-def regular_monthly(s: pd.Series, max_gap: int = MAX_GAP) -> pd.Series:
-    """Serie mensual regular SIN inventar datos sobre huecos largos.
+def regular_monthly(s: pd.Series) -> pd.Series:
+    """Serie mensual regular con relleno CAUSAL (LOCF forward-only, F1).
 
-    Reindexa a frecuencia mensual; interpola solo huecos <= ``max_gap``. Un hueco más
-    largo (mes C/U prolongado) se trata como INICIO DE SERIE NUEVA: se conserva solo el
-    segmento contiguo más reciente (después del último hueco largo). Así el modelo no
-    entrena sobre rampas sintéticas largas — misma regla que ``vp_model.preprocess``.
+    MISMA política que ``models.to_timeseries`` (delega en la función canónica
+    ``vp_model.preprocess.to_regular_monthly_causal``): todo mes de hueco arrastra
+    la ÚLTIMA observación anterior, sin tope — mutar cualquier valor posterior a un
+    origen no cambia ningún insumo de entrenamiento en/antes de ese origen. Los NaN
+    de ``encode_regime`` (meses U/UNK) se descartan antes de regridear. La versión
+    previa (interpolación bidireccional <=3 meses + corte del segmento en huecos
+    largos) queda solo como evidencia congelada de la campaña F1.
     """
-    full = s.reindex(pd.date_range(s.index.min(), s.index.max(), freq="MS"))
-    isna = full.isna().to_numpy()
-    # largo total de la corrida de NaN a la que pertenece cada posición
-    total = np.zeros(len(isna), dtype=int)
-    run = 0
-    for i in range(len(isna)):
-        run = run + 1 if isna[i] else 0
-        total[i] = run
-    for i in range(len(isna) - 2, -1, -1):
-        if isna[i] and isna[i + 1]:
-            total[i] = total[i + 1]
-    long_gap = isna & (total > max_gap)
-    start = int(np.where(long_gap)[0].max()) + 1 if long_gap.any() else 0
-    seg = full.iloc[start:].interpolate(method="linear", limit_area="inside")
-    return seg.dropna()
+    return to_regular_monthly_causal(s.dropna())
 
 
 def load_panel(table: str, block: str) -> pd.DataFrame:
@@ -377,6 +368,7 @@ def main() -> None:
     torch.set_num_threads(1)  # py3.14/macOS: evita segfault multihilo (igual que el env principal)
     from neuralforecast import NeuralForecast
 
+    print("gap_policy=locf_causal (F1)")  # procedencia de campaña: rejilla causal LOCF
     panel = load_panel(args.table, args.block)
     uids = panel["unique_id"].nunique()
     print(f"panel: {uids} series, {len(panel)} filas ({args.table}/{args.block}), diff={args.diff}")
@@ -449,7 +441,7 @@ def main() -> None:
 
 
 def _selfcheck() -> None:
-    """Valida el encoding de régimen y el guard de huecos (lógica no trivial)."""
+    """Valida el encoding de régimen y el relleno causal LOCF (F1)."""
     base = BASE
     # C se codifica como el mes del boletín (days_since_base del propio mes), F tal cual, U=NaN
     ds = pd.date_range("2020-01-01", periods=4, freq="MS")
@@ -457,16 +449,19 @@ def _selfcheck() -> None:
     s = encode_regime(g)
     assert s.iloc[0] == 16000.0 and s.iloc[3] == 16100.0
     assert s.iloc[1] == (ds[1] - base).days  # C -> mes del boletín
-    assert np.isnan(s.iloc[2])  # U -> NaN (lo puentea regular_monthly)
-    # guard: hueco largo (>3) corta y conserva el segmento reciente; hueco corto se interpola
+    assert np.isnan(s.iloc[2])  # U -> NaN (lo rellena regular_monthly con LOCF)
+    # F1: LOCF causal — el hueco arrastra el bracket IZQUIERDO, jamás una rampa al futuro,
+    # y mutar el futuro no cambia el pasado (propiedad metamórfica del walk-forward).
     idx = pd.date_range("2020-01-01", periods=20, freq="MS")
     v = np.arange(20, dtype=float)
-    v[[5, 6, 7, 8, 9]] = np.nan  # hueco de 5 (>3) -> corta
-    assert len(regular_monthly(pd.Series(v, index=idx).dropna())) == 10
-    v2 = np.arange(20, dtype=float)
-    v2[[5, 6]] = np.nan  # hueco de 2 (<=3) -> interpola, no corta
-    assert len(regular_monthly(pd.Series(v2, index=idx).dropna())) == 20
-    print("selfcheck OK (encoding C/F/U + guard de huecos)")
+    v[[5, 6, 7, 8, 9]] = np.nan  # hueco de 5: LOCF lo arrastra (ya no corta el segmento)
+    reg = regular_monthly(pd.Series(v, index=idx).dropna())
+    assert len(reg) == 20 and (reg.iloc[5:10] == v[4]).all()
+    mut = v.copy()
+    mut[15:] += 1_000.0  # reescribe SOLO el futuro
+    reg_mut = regular_monthly(pd.Series(mut, index=idx).dropna())
+    assert (reg_mut.iloc[:15] == reg.iloc[:15]).all(), "LOCF: el futuro mutado cambió el pasado"
+    print("selfcheck OK (encoding C/F/U + relleno causal LOCF)")
 
 
 if __name__ == "__main__":

@@ -28,7 +28,6 @@ from vp_model.config import (  # noqa: E402
     COVARIATES,
     DIFFERENCED,
     MASK_COVARIATES,
-    MAX_INTERPOLABLE_GAP,
     NN_DIFFERENCED,
     TREE_FUTURE_COV_LAGS,
 )
@@ -86,9 +85,9 @@ def test_realized_lineage_complete():
     # Actualización DELIBERADA del golden (cambio de contrato US-F1, 12-jul-2026): la
     # rejilla de modelado dejó de usar el cap de interpolación (era bidireccional y
     # fugaba el bracket futuro del hueco) — el linaje ahora declara la política causal
-    # y las máscaras MNAR. MAX_INTERPOLABLE_GAP sigue vivo en la rejilla DESCRIPTIVA
-    # del EDA (to_regular_monthly / series_characterization) y anclado abajo en
-    # test_isolated_venv_scripts_pinned_to_config.
+    # y las máscaras MNAR. MAX_INTERPOLABLE_GAP sigue vivo SOLO en la rejilla
+    # DESCRIPTIVA del EDA (to_regular_monthly / series_characterization); las rutas de
+    # campaña aisladas usan LOCF causal (anclado en test_isolated_venv_scripts_pinned_to_config).
     assert r["gap_policy"] == "locf_causal" and r["fe_version"].startswith("2.")
     assert r["mask_covariates"] == ["observed", "months_since_obs"]
     ids = [d["id"] for d in FE_DECISIONS]
@@ -134,11 +133,24 @@ def test_isolated_venv_scripts_pinned_to_config():
     from vp_data.config import BASE_EPOCH
 
     deep = _load_module(ROOT / "experiments" / "run_global_deep.py", "rgd_pin")
-    assert deep.HOLDOUT == CFG_HOLDOUT and deep.MAX_GAP == MAX_INTERPOLABLE_GAP
+    assert deep.HOLDOUT == CFG_HOLDOUT
     assert deep.BASE == pd.Timestamp(BASE_EPOCH)
     gpu = _load_module(ROOT / "aws_gpu" / "train_gpu.py", "gpu_pin")
-    assert gpu.HOLDOUT == CFG_HOLDOUT and gpu.MAX_GAP == MAX_INTERPOLABLE_GAP
+    assert gpu.HOLDOUT == CFG_HOLDOUT
     assert gpu.BASE == pd.Timestamp(BASE_EPOCH)
+    # F1: la rejilla de ambos runners de campaña es la política causal LOCF canónica.
+    # run_global_deep DELEGA en la función canónica (identidad de objeto); el espejo
+    # auto-contenido de aws_gpu (EC2, sin vp_model) se ancla por EQUIVALENCIA exacta.
+    assert deep.to_regular_monthly_causal is preprocess.to_regular_monthly_causal
+    idx = pd.date_range("2019-01-01", periods=14, freq="MS")
+    raw = pd.Series(np.arange(14, dtype="float64") * 10 + 100, index=idx).drop(idx[[3, 4, 5, 6, 10]])
+    want = preprocess.to_regular_monthly_causal(raw)
+    pd.testing.assert_series_equal(deep.regular_monthly(raw), want)
+    pd.testing.assert_series_equal(gpu.regular_monthly(raw), want)
+    # propiedad metamórfica que exige el walk-forward: mutar el futuro no cambia el pasado
+    mutated = raw.copy()
+    mutated.loc[idx[11] :] += 5_000.0
+    pd.testing.assert_series_equal(gpu.regular_monthly(mutated).loc[: idx[9]], want.loc[: idx[9]])
 
 
 def _run():

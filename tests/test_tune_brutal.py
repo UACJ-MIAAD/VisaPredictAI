@@ -407,13 +407,15 @@ def _load_deep():
 
 
 def test_deep_constants_imported_from_config(monkeypatch):
-    """AK8e: HOLDOUT/MAX_GAP/BASE vienen de config (mueren los hardcodes)."""
+    """AK8e/F1: HOLDOUT/BASE vienen de config y la rejilla es la LOCF causal canónica."""
     deep = _load_deep()
     from vp_data.config import BASE_EPOCH
+    from vp_model import preprocess
 
     assert deep.HOLDOUT is config.HOLDOUT
-    assert deep.MAX_GAP == config.MAX_INTERPOLABLE_GAP
     assert deep.BASE == pd.Timestamp(BASE_EPOCH)
+    # F1: run_global_deep importa la función canónica (no una réplica que derive)
+    assert deep.to_regular_monthly_causal is preprocess.to_regular_monthly_causal
 
 
 def test_deep_accelerator_env_override(monkeypatch):

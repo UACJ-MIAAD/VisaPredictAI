@@ -125,6 +125,23 @@ def test_statsforecast_densify_keeps_f_values():
     assert np.allclose(dense.loc[raw.index].to_numpy(), raw.to_numpy())  # observed F values untouched
 
 
+def test_statsforecast_densify_is_causal_locf():
+    # F1: la rejilla es LOCF causal — el hueco arrastra el bracket IZQUIERDO (no una
+    # rampa hacia el bracket futuro) y es la MISMA función canónica de vp_model.
+    from vp_model import preprocess
+
+    sf = _load_module(ROOT / "experiments" / "run_statsforecast.py", "sf_bridge4")
+    assert sf.to_regular_monthly_causal is preprocess.to_regular_monthly_causal
+    idx = pd.date_range("2020-01-01", periods=12, freq="MS")
+    raw = pd.Series(np.arange(12, dtype="float64") * 10 + 100, index=idx).drop(idx[[4, 5]])
+    dense = sf.densify(raw)
+    assert (dense.loc[idx[[4, 5]]] == raw.loc[idx[3]]).all()
+    # metamórfico: mutar SOLO el futuro no cambia ningún mes en/antes del origen
+    mutated = raw.copy()
+    mutated.loc[idx[8] :] += 9_000.0
+    pd.testing.assert_series_equal(sf.densify(mutated).loc[: idx[7]], dense.loc[: idx[7]])
+
+
 # --- AL2: global GBM feature causality -----------------------------------------
 
 
@@ -165,6 +182,21 @@ def test_global_gbm_spread_uses_only_past():
     assert np.isnan(f["spread_other_table"].iloc[0])
 
 
+def test_global_gbm_dense_level_is_causal_locf():
+    # F1: dense_level = to_regular_monthly_causal (LOCF forward-only). El hueco arrastra
+    # el bracket IZQUIERDO y mutar el futuro no cambia ninguna fila pasada del diseño.
+    from experiments.run_global_gbm import dense_level
+
+    idx = pd.date_range("2020-01-01", periods=12, freq="MS")
+    raw = pd.Series(np.arange(12, dtype="float64") * 10 + 100, index=idx).drop(idx[[4, 5, 6, 7]])
+    dense = dense_level(raw)
+    assert len(dense) == 12 and not dense.isna().any()
+    assert (dense.loc[idx[4:8]] == raw.loc[idx[3]]).all()  # LOCF, no rampa al bracket futuro
+    mutated = raw.copy()
+    mutated.loc[idx[8] :] += 5_000.0  # reescribe SOLO el futuro
+    pd.testing.assert_series_equal(dense_level(mutated).loc[: idx[7]], dense.loc[: idx[7]])
+
+
 # --- AL3: hurdle combination ----------------------------------------------------
 
 
@@ -198,7 +230,9 @@ def _cone_frame() -> pd.DataFrame:
 
 
 def test_cone_projection_fixes_violations_and_preserves_band_widths():
-    from experiments.apply_cone_constraints import (
+    # F1: single-source — la proyección vive en vp_model.cone (el publicador y la
+    # herramienta de auditoría retrospectiva importan las MISMAS funciones).
+    from vp_model.cone import (
         apply_country_cap,
         apply_fad_dff,
         count_country_violations,
@@ -222,6 +256,21 @@ def test_cone_projection_fixes_violations_and_preserves_band_widths():
     # idempotent: projecting a coherent frame changes nothing
     again = apply_fad_dff(apply_country_cap(proj))
     pd.testing.assert_frame_equal(again.reset_index(drop=True), proj.reset_index(drop=True))
+
+
+def test_cone_project_counters_and_passthrough():
+    from vp_model.cone import count_country_violations, count_fad_dff_violations, project
+
+    df = _cone_frame()
+    projected, counters = project(df)
+    assert counters["cone_violations_pre"] == 2 and counters["cone_violations_post"] == 0
+    assert counters["cone_violations_detail"]["fad_le_dff"] == {"pre": 1, "post": 0}
+    assert counters["cone_violations_detail"]["country_le_allcharg"] == {"pre": 1, "post": 0}
+    assert count_fad_dff_violations(projected) == 0 and count_country_violations(projected) == 0
+    # coherent input -> the SAME frame back (byte-stable passthrough), counters all zero
+    clean, counters2 = project(projected)
+    assert clean is projected and counters2["cone_violations_pre"] == 0
+    assert counters2["cone_violations_post"] == 0
 
 
 def _run():

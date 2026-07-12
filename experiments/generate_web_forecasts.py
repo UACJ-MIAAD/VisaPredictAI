@@ -29,6 +29,13 @@ Prediction interval (AN1/AN2/AN4):
     gamma comes from ``reports/eval/aci_gamma.json`` (written by
     ``experiments/improve_conformal.py``), default 0.05.
 
+Cono de coherencia (AL5/F1): la añada completa se PROYECTA al cono de orden
+(país ≤ all_chargeability, luego FAD ≤ DFF) ANTES de serializarse — tanto el ledger
+como el CSV que sirve la web congelan la añada YA proyectada. El punto se proyecta
+(isotónica min/max, ``vp_model.cone``) y las bandas se desplazan con él preservando
+su ancho calibrado; los contadores pre/post quedan en el meta JSON
+(``cone_violations_pre``/``cone_violations_post``) para el correo SES y los gates.
+
 Salidas (tidy, versionadas en git como el resto de reports/):
   • reports/prospective/web_forecasts.csv       — country,category,table,date,days,lo80,hi80,lo95,hi95
   • reports/prospective/web_forecasts_meta.json — método + métricas hold-out por serie (procedencia)
@@ -51,7 +58,7 @@ import pandas as pd
 from darts import TimeSeries
 
 from vp_data import tracking
-from vp_model import champion, config, dataset, intervals, ledger, metrics, models
+from vp_model import champion, cone, config, dataset, intervals, ledger, metrics, models
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
@@ -292,6 +299,44 @@ def _compute_series_forecast(
     return rows, {f"{country}/{category}/{table}": meta}
 
 
+def _project_rows(rows: list[dict]) -> tuple[list[dict], dict]:
+    """AL5/F1: proyecta la añada al cono (país≤AllCharg, FAD≤DFF) antes de serializar.
+
+    Single-source en ``vp_model.cone`` (la misma proyección que audita
+    ``apply_cone_constraints``): punto proyectado por isotónica min/max y bandas
+    DESPLAZADAS con el punto (ancho calibrado preservado). Los valores publicados
+    son enteros (días); la proyección mueve un entero a otro entero, así que el
+    redondeo de vuelta es sin pérdida y, sin violaciones, el passthrough es
+    byte-estable. Devuelve ``(filas, contadores pre/post)`` para el meta/SES.
+    """
+    frame, counters = cone.project(pd.DataFrame(rows))
+    if counters["cone_violations_pre"]:  # _shift_row pudo promover a float; restaurar int
+        for col in ("days", *cone.BAND_COLS):
+            frame[col] = frame[col].round().astype("int64")
+    return frame.to_dict("records"), counters
+
+
+def _meta_payload(method: dict, all_meta: dict, cone_meta: dict) -> dict:
+    """Payload del meta JSON del publicador (testeable sin correr la añada completa).
+
+    Expone los contadores del cono (``cone_violations_pre``/``post`` + desglose) como
+    métrica de primera clase: el correo SES y los gates los vigilan por añada.
+    """
+    return {
+        "method": method,
+        "horizon_months": HORIZON,
+        "base_date": config.BASE_EPOCH,
+        "n_series": len(all_meta),
+        # AL5/F1: proyección al cono incorporada al publicador — el pre es la métrica
+        # vigilada (SES/gates); el post se mide tras ambas pasadas, no se asume.
+        "cone_policy": "punto proyectado (isotonica min/max); bandas desplazadas con el punto",
+        "cone_violations_pre": cone_meta["cone_violations_pre"],
+        "cone_violations_post": cone_meta["cone_violations_post"],
+        "cone_violations_detail": cone_meta["cone_violations_detail"],
+        "series": all_meta,
+    }
+
+
 WEB_COLS = ["country", "category", "table", "date", "days", "lo80", "hi80", "lo95", "hi95"]
 LOG_COLS = ["origin", "h", *WEB_COLS, "band_method", *ledger.V2_COLS, "deployment_id", "pipeline_run_id"]
 LOG_KEYS = ledger.KEYS
@@ -369,6 +414,17 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
     if problems:
         raise SystemExit("ABORT (completitud fail-closed): " + " | ".join(problems))
 
+    # AL5/F1: proyección al cono de coherencia ANTES de serializar — el ledger congela
+    # exactamente la añada que se publica (misma proyección para punto y bandas; ver
+    # _project_rows). El contador pre-proyección es la métrica que vigilan meta/SES.
+    all_rows, cone_meta = _project_rows(all_rows)
+    log.info(
+        "cono de coherencia: %d violaciones pre-proyección -> %d post (detalle: %s)",
+        cone_meta["cone_violations_pre"],
+        cone_meta["cone_violations_post"],
+        cone_meta["cone_violations_detail"],
+    )
+
     # A2: la añada se archiva con identidad de freeze — receta desplegada por tabla y
     # modo honesto (as_of explícito ⇒ backfill; en vivo, live solo si el target es futuro).
     log_path = _append_log(all_rows, model_version={t: r.name for t, r in manifest.items()}, as_of=as_of)
@@ -408,15 +464,7 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
 
         meta_path.write_text(
             json.dumps(
-                _no_nan(
-                    {
-                        "method": method,
-                        "horizon_months": HORIZON,
-                        "base_date": config.BASE_EPOCH,
-                        "n_series": len(all_meta),
-                        "series": all_meta,
-                    }
-                ),
+                _no_nan(_meta_payload(method, all_meta, cone_meta)),
                 ensure_ascii=False,
                 indent=2,
                 allow_nan=False,
