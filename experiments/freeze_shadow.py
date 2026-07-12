@@ -233,6 +233,8 @@ def main() -> int:
             for k in sorted(expected - got):
                 if k in allowed:
                     log.warning("[sombra %s] omision permitida por allowlist: %s (%s)", table, k, allowed[k])
+                    with open("/tmp/completeness.txt", "a") as fh:
+                        fh.write(f"[sombra {table}] omitida con excepcion nominal: {k} ({allowed[k]})\n")
         if problems:
             raise SystemExit("ABORT (completitud sombra fail-closed): " + " | ".join(problems))
     path = append_shadow(all_rows)

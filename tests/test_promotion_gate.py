@@ -171,6 +171,9 @@ def _pin_release(monkeypatch, value="2026-07-feedcafe0000"):
     monkeypatch.setattr(ledger, "current_release_id", lambda: value)
     monkeypatch.setattr(ledger, "panel_vintage", lambda path=None: "2026-12")
     monkeypatch.setattr(promotion, "evidence_hashes", lambda root=None: dict(EVIDENCE))
+    monkeypatch.setattr(
+        promotion, "shadow_origins", lambda: {"2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"}
+    )
 
 
 AUTH = dict(challenger="naive1", champion="theta+ets+sarima")
@@ -217,10 +220,27 @@ def test_authorize_rejects_changed_champion(tmp_path, monkeypatch) -> None:
     assert not ok and "campe" in why.lower()
 
 
-def test_authorize_rejects_replayed_decision_from_old_release(tmp_path, monkeypatch) -> None:
-    _pin_release(monkeypatch, "2026-08-000000000000")  # release nuevo tras la decision
+def test_authorize_survives_manifest_reseal(tmp_path, monkeypatch) -> None:
+    """Reauditoria 2: la igualdad release==vigente se AUTO-INVALIDABA (la decision entra
+    al manifiesto; sellarlo cambiaba el release). Un re-sellado SIN cambio de evidencia
+    debe seguir autorizando; la liga sustantiva son los hashes de evidencia."""
+    _pin_release(monkeypatch, "2026-08-000000000000")  # release re-sellado tras la decision
     ok, why = promotion.authorize("FAD", _decision_file(tmp_path), **AUTH)
-    assert not ok and "release" in why
+    assert ok, why  # misma evidencia => autoriza aunque el release_id haya rotado
+
+
+def test_authorize_rejects_duplicate_and_ghost_vintages(tmp_path, monkeypatch) -> None:
+    """Reauditoria 2: tres copias de la MISMA anada satisfacian el piso; y anadas que no
+    existen en el ledger sombra no son evidencia."""
+    _pin_release(monkeypatch)
+    ok, why = promotion.authorize(
+        "FAD", _decision_file(tmp_path, candidate={"vintages": ["2026-08", "2026-08", "2026-08"]}), **AUTH
+    )
+    assert not ok and ("DUPLICADAS" in why or "únicas" in why)
+    ok, why = promotion.authorize(
+        "FAD", _decision_file(tmp_path, candidate={"vintages": ["2026-01", "2026-02", "2026-03"]}), **AUTH
+    )
+    assert not ok and "NO existen" in why
 
 
 def test_authorize_rejects_future_vintages_and_bad_date(tmp_path, monkeypatch) -> None:

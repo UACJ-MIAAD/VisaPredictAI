@@ -84,6 +84,7 @@ def artifact_spec(root: Path = ROOT) -> list[tuple[str, str]]:
         ("reports/governance/key_facts.json", "critical"),
         ("reports/governance/champion_manifest.json", "critical"),
         ("reports/governance/champion_challenger.json", "required"),
+        ("reports/governance/completeness_allowlist.json", "required"),
         ("reports/governance/promotion_decision.json", "required"),
         ("reports/governance/MODEL_CARD.md", "required"),
         ("reports/governance/mega_audit_report.md", "optional"),

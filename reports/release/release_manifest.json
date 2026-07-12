@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "release_id": "2026-07-8d4356af25fd",
-  "generated_at": "2026-07-12T04:59:14+00:00",
+  "release_id": "2026-07-2f20754d10ce",
+  "generated_at": "2026-07-12T05:29:09+00:00",
   "pipeline_run_id": "local",
-  "git_sha": "6893d3f98ed3",
-  "worktree_dirty": false,
+  "git_sha": "9115d372970c",
+  "worktree_dirty": true,
   "panel_vintage": "2026-07",
   "panel_hash_md5_12": "00115d2dd0b6",
   "champion_recipes": {
@@ -23,7 +23,7 @@
     "n_series_evaluable": 74,
     "n_months": 296
   },
-  "n_artifacts": 110,
+  "n_artifacts": 111,
   "missing_optional": [],
   "artifacts": [
     {
@@ -170,6 +170,13 @@
       "path": "reports/governance/champion_challenger.json",
       "sha256": "364e1ae951a6274756c331a2c24c706fac265a1fd5ce2a0c893729dd33f3e7e3",
       "size": 7341,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
+      "path": "reports/governance/completeness_allowlist.json",
+      "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+      "size": 3,
       "mime": "application/json",
       "criticality": "required"
     },

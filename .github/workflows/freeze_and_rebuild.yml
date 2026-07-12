@@ -533,6 +533,12 @@ jobs:
         if [ -f /tmp/ciwait.txt ]; then
           CIWAIT_LINE=$(tr -d '"\\' < /tmp/ciwait.txt)
         fi
+        # Reauditoria 2: las exenciones nominales de completitud viajan al correo, no
+        # solo al log del runner.
+        COMPLETENESS_LINE="sin omisiones eximidas"
+        if [ -f /tmp/completeness.txt ]; then
+          COMPLETENESS_LINE=$(tr -d '"\\' < /tmp/completeness.txt | paste -sd' | ' -)
+        fi
         DEPLOY_LINE="n/d (sin rebuild este run)"
         if [ -f /tmp/deploy.txt ]; then
           DEPLOY_LINE=$(tr -d '"\\' < /tmp/deploy.txt)
@@ -547,7 +553,7 @@ jobs:
           "Destination": {"ToAddresses": ["al263483@alumnos.uacj.mx"]},
           "Content": {"Simple": {
             "Subject": {"Data": "VisaPredict | corrida $JOB_STATUS — $NEW boletín(es) nuevo(s)"},
-            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nEDA vivo: $EDA_LINE\nFE vivo: $FE_LINE\nCampeon-retador: $CHAMPION_LINE\nSombra: $SHADOW_LINE\nPublicacion (allowlist): $PUBLISH_LINE\nRelease gate (A-01): $RELEASE_LINE\nCI del SHA exacto: $CIWAIT_LINE\nDeploy verificado: $DEPLOY_LINE\nTamanos (I3): $SIZES_LINE\nLogs: $RUN_URL"}}
+            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nEDA vivo: $EDA_LINE\nFE vivo: $FE_LINE\nCampeon-retador: $CHAMPION_LINE\nSombra: $SHADOW_LINE\nPublicacion (allowlist): $PUBLISH_LINE\nRelease gate (A-01): $RELEASE_LINE\nCI del SHA exacto: $CIWAIT_LINE\nCompletitud (exenciones): $COMPLETENESS_LINE\nDeploy verificado: $DEPLOY_LINE\nTamanos (I3): $SIZES_LINE\nLogs: $RUN_URL"}}
           }}
         }
         JSON

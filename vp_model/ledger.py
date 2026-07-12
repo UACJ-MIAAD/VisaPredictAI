@@ -205,15 +205,30 @@ def load_completeness_allowlist(path: Path | None = None) -> dict[str, str]:
     """Excepciones NOMINALES de completitud (R0-04): clave → motivo, con expiración.
     Un porcentaje global no es trazable; cada omisión tolerada se registra POR CLAVE en
     git con motivo y mes de expiración (``expires`` >= añada del panel para contar).
-    Entradas expiradas dejan de eximir — la añada vuelve a abortar hasta renovarlas."""
+    Entradas expiradas dejan de eximir — la añada vuelve a abortar hasta renovarlas.
+
+    FAIL-CLOSED en la forma (reauditoría 2: ``expires: "never"`` pasaba el comparador de
+    strings y ``reason: ""`` eximía sin motivo): una entrada malformada REVIENTA — el
+    archivo es gobernanza versionada; se corrige, no se interpreta.
+    """
+    import re
+
     p = path or COMPLETENESS_ALLOWLIST
     if not p.exists():
         return {}
     now = panel_vintage()
     out: dict[str, str] = {}
     for key, entry in json.loads(p.read_text()).items():
-        if isinstance(entry, dict) and str(entry.get("expires", "")) >= now:
-            out[key] = str(entry.get("reason", "sin motivo"))
+        if not isinstance(entry, dict):
+            raise ValueError(f"allowlist de completitud: entrada '{key}' no es objeto")
+        expires = str(entry.get("expires", ""))
+        reason = str(entry.get("reason", "")).strip()
+        if not re.fullmatch(r"\d{4}-\d{2}", expires):
+            raise ValueError(f"allowlist de completitud: '{key}' con expires inválido {expires!r} (YYYY-MM)")
+        if not reason:
+            raise ValueError(f"allowlist de completitud: '{key}' sin motivo — una exención sin razón no exime")
+        if expires >= now:
+            out[key] = reason
     return out
 
 

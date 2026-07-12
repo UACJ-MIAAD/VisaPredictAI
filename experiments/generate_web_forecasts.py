@@ -362,8 +362,10 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
         got_t = {k for k in got_keys if k.endswith(f"/{table}")}
         problems += ledger.completeness_problems(exp_t, got_t, label=table, allowed=allowed)
         for k in sorted(exp_t - got_t):
-            if k in allowed:  # eximida NOMINALMENTE — visible, jamas silenciosa (R0-04)
+            if k in allowed:  # eximida NOMINALMENTE — visible en log Y en el correo SES
                 log.warning("[%s] omision permitida por allowlist: %s (%s)", table, k, allowed[k])
+                with open("/tmp/completeness.txt", "a") as fh:
+                    fh.write(f"[{table}] omitida con excepcion nominal: {k} ({allowed[k]})\n")
     if problems:
         raise SystemExit("ABORT (completitud fail-closed): " + " | ".join(problems))
 

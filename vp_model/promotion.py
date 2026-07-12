@@ -247,6 +247,15 @@ def evidence_hashes(root: Path | None = None) -> dict[str, str]:
     return out
 
 
+def shadow_origins() -> set[str]:
+    """Añadas presentes en el ledger sombra (para validar que las declaradas por la
+    decisión EXISTEN en la evidencia — reauditoría 2: añadas fantasma o duplicadas)."""
+    p = Path(__file__).resolve().parent.parent / "reports" / "prospective" / "forecast_log_shadow.csv"
+    if not p.exists():
+        return set()
+    return set(pd.read_csv(p, usecols=["origin"])["origin"].astype(str).unique())
+
+
 def _candidate_violations(cand: dict, policy: dict) -> list[str]:
     """Validez intrínseca del candidato (R0-01): vintages plausibles y con muestra
     mínima, fecha de decisión parseable y no futura, hash íntegro."""
@@ -267,8 +276,15 @@ def _candidate_violations(cand: dict, policy: dict) -> list[str]:
             v.append(f"añadas con formato inválido: {bad}")
         if future:
             v.append(f"añadas POSTERIORES al panel vigente ({panel_now}): {future}")
-        if len(vintages) < policy["min_live_vintages"]:
-            v.append(f"añadas declaradas: {len(vintages)} < mínimo {policy['min_live_vintages']}")
+        # Reauditoría 2: tres copias de la MISMA añada satisfacían el piso — el conteo es
+        # sobre añadas ÚNICAS, y cada una debe EXISTIR en el ledger sombra (evidencia).
+        if len(set(vintages)) != len(vintages):
+            v.append(f"añadas DUPLICADAS en la decisión: {sorted(vintages)}")
+        if len(set(vintages)) < policy["min_live_vintages"]:
+            v.append(f"añadas únicas declaradas: {len(set(vintages))} < mínimo {policy['min_live_vintages']}")
+        ghosts = sorted(set(str(x) for x in vintages) - shadow_origins())
+        if ghosts:
+            v.append(f"añadas declaradas que NO existen en el ledger sombra: {ghosts}")
     da = cand.get("decided_at")
     try:
         when = datetime.datetime.fromisoformat(str(da))
@@ -316,14 +332,12 @@ def authorize(table: str, decision_path: Path, *, challenger: str, champion: str
     cand = entry.get("candidate")
     if not cand:
         return False, "decisión sin identidad de candidato (formato pre-A-02) — re-corre el gate (fail closed)"
-    from vp_model import ledger
-
-    current_release = ledger.current_release_id()
-    if cand.get("release_id") != current_release:
-        return False, (
-            f"la decisión se tomó bajo el release {cand.get('release_id')!r} y el vigente es "
-            f"{current_release!r} — evidencia de otro corte; re-corre el gate (fail closed)"
-        )
+    # Reauditoría 2 (12-jul): la igualdad release==vigente se AUTO-INVALIDABA — la propia
+    # promotion_decision.json entra al manifiesto, así que el sellado posterior al gate
+    # cambiaba el release y mataba toda promoción humana normal. La liga SUSTANTIVA con
+    # el corte son los hashes de EVIDENCIA (scorecards + ledger sombra, recomputados del
+    # disco): si un boletín nuevo llegó, la evidencia cambió y la decisión muere por esa
+    # regla. release_id queda REGISTRADO como procedencia, no como candado.
     if cand.get("challenger") != challenger:
         return False, (
             f"el retador a promover ({challenger!r}) NO es el que ganó la evidencia prospectiva "
@@ -338,6 +352,6 @@ def authorize(table: str, decision_path: Path, *, challenger: str, champion: str
     if intrinsic:
         return False, "candidato inválido (fail closed): " + "; ".join(intrinsic)
     return True, (
-        f"decisión prospectiva = promote para {challenger!r} vs {champion!r} bajo release "
-        f"{current_release} (política pre-registrada v{POLICY['policy_version']})"
+        f"decisión prospectiva = promote para {challenger!r} vs {champion!r} — evidencia sellada "
+        f"bajo release {cand.get('release_id')} (política pre-registrada v{POLICY['policy_version']})"
     )

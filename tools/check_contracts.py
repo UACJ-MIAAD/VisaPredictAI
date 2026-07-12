@@ -119,7 +119,13 @@ def check(root: Path = ROOT, contracts_dir: Path = CONTRACTS_DIR) -> list[str]:
 
             for a in manifest.get("artifacts", []):
                 ap = root / a["path"]
-                if ap.exists() and hashlib.sha256(ap.read_bytes()).hexdigest() != a["sha256"]:
+                # Reauditoría 2 (12-jul): `if ap.exists() and…` era fail-open — un artefacto
+                # required listado pero BORRADO producía cero problemas.
+                if not ap.exists():
+                    problems.append(
+                        f"release_manifest.json: '{a['path']}' listado en el manifiesto pero AUSENTE del árbol"
+                    )
+                elif hashlib.sha256(ap.read_bytes()).hexdigest() != a["sha256"]:
                     problems.append(
                         f"release_manifest.json: '{a['path']}' cambió tras sellar el manifiesto — regenerarlo"
                     )

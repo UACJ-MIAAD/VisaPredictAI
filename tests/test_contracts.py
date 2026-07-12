@@ -160,3 +160,30 @@ def test_champion_contract_required_paths_catch_schema_drift(tmp_path) -> None:
     assert any("gate_scope" in p for p in problems) and any("holdout_winner" in p for p in problems)
     # y el artefacto REAL del repo si cumple el contrato profundo
     assert not [p for p in cc.check() if "champion_challenger" in p]
+
+
+def test_manifest_missing_listed_artifact_fails_closed(tmp_path) -> None:
+    """Reauditoria 2: un artefacto listado en el manifiesto pero BORRADO producia cero
+    problemas (el rehash solo corria con ap.exists())."""
+    import shutil
+
+    root = tmp_path / "repo"
+    (root / "reports" / "release").mkdir(parents=True)
+    (root / "data" / "processed").mkdir(parents=True)
+    shutil.copy(cc.ROOT / "data" / "processed" / "visa_panel_long.csv", root / "data" / "processed")
+    man = json.loads((cc.ROOT / "reports" / "release" / "release_manifest.json").read_text())
+    (root / "reports" / "release" / "release_manifest.json").write_text(json.dumps(man))
+    cdir = tmp_path / "contracts"
+    cdir.mkdir()  # sin contratos de artefactos: aisla el chequeo del manifiesto
+    (cdir / "visa_panel_long.csv.json").write_text(
+        json.dumps(
+            {
+                "contract_version": 1,
+                "artifact": "data/processed/visa_panel_long.csv",
+                "kind": "csv",
+                "required_columns": ["country"],
+            }
+        )
+    )
+    problems = cc.check(root, cdir)
+    assert any("AUSENTE del árbol" in p for p in problems)

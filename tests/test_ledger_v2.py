@@ -214,6 +214,21 @@ def test_completeness_nominal_allowlist_exempts_with_expiry(tmp_path) -> None:
     assert "india/F1/FAD" in allowed and "china/F1/FAD" not in allowed
 
 
+def test_completeness_allowlist_malformed_entries_fail_closed(tmp_path) -> None:
+    """Reauditoria 2: expires 'never' pasaba el comparador de strings y reason '' eximia."""
+    import json as J
+
+    import pytest
+
+    p = tmp_path / "allow.json"
+    p.write_text(J.dumps({"x/F1/FAD": {"reason": "r", "expires": "never"}}))
+    with pytest.raises(ValueError, match="expires"):
+        ledger.load_completeness_allowlist(p)
+    p.write_text(J.dumps({"x/F1/FAD": {"reason": "", "expires": "2099-12"}}))
+    with pytest.raises(ValueError, match="motivo"):
+        ledger.load_completeness_allowlist(p)
+
+
 def test_validate_clean_ledger_passes(tmp_path) -> None:
     path = tmp_path / "forecast_log.csv"
     ledger.append(path, _stamp([dict(ROW), {**ROW, "date": "2026-09-01", "h": 2}]))
