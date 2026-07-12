@@ -110,7 +110,19 @@ def check(root: Path = ROOT, contracts_dir: Path = CONTRACTS_DIR) -> list[str]:
     man = root / "reports" / "release" / "release_manifest.json"
     if man.exists():
         try:
-            sha = str(json.loads(man.read_text()).get("git_sha", ""))
+            manifest = json.loads(man.read_text())
+            sha = str(manifest.get("git_sha", ""))
+            # Reauditoría 12-jul (hueco cazado en vivo): cambiar un artefacto listado SIN
+            # regenerar el manifiesto solo lo detectaba el verifyEntry del web (stale en
+            # el deploy). El manifiesto debe describir los bytes del árbol AHORA.
+            import hashlib
+
+            for a in manifest.get("artifacts", []):
+                ap = root / a["path"]
+                if ap.exists() and hashlib.sha256(ap.read_bytes()).hexdigest() != a["sha256"]:
+                    problems.append(
+                        f"release_manifest.json: '{a['path']}' cambió tras sellar el manifiesto — regenerarlo"
+                    )
             if sha.endswith("-dirty"):
                 problems.append(f"release_manifest.json: git_sha '{sha}' es -dirty — regenerar con árbol limpio")
             elif not re.fullmatch(r"[0-9a-f]{12}", sha):
