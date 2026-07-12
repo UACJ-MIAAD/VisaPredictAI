@@ -1,5 +1,8 @@
 """E1 (plan auditoría 2026-07-11): el mapa de dependencias, con dientes.
 
+Contrato de fronteras: ``docs/adr/0001-project-boundaries.md`` (ADR-0001, US B1 del
+plan 2026-07-12) — este archivo es su brazo ejecutor para la dirección de imports.
+
 Las capas y su dirección de imports (verificadas por AST, no por grep de substrings —
 `pipeline_run_id` matcheaba "pipeline" en un grep ingenuo):
 
@@ -14,6 +17,15 @@ Puertos (I/O detrás de una sola puerta): la RED vive exclusivamente en
 métricas y postproceso se prueban sin red/DVC/MLflow (esta suite corre offline).
 El reloj es inyectable donde importa (``ledger.stamp_rows(frozen_at=…)``); el tracking
 es un puerto JSONL append-only (MLflow es un adapter histórico vía ``sync_mlflow``).
+
+Reglas del ADR que NO viven aquí (una sola fuente de verdad por regla):
+- "Ningún paquete de dominio ni ``.py`` nuevo en la raíz" la hace cumplir el whitelist
+  cerrado de ``tools/validate_structure.sh`` (``make validate``, encadenado a
+  ``make check`` y CI) — no se duplica en esta suite.
+- "El repo web consume EXCLUSIVAMENTE releases content-addressed, jamás importa
+  código" es frontera cross-repo: la hacen cumplir ``build_release_manifest.py``
+  (productor) y ``fetch-data.mjs``/``release.mjs`` del repo web (consumidor,
+  verificación SHA-256 + swap atómico).
 """
 
 from __future__ import annotations
@@ -52,6 +64,10 @@ def _layer_files(layer: str) -> list[Path]:
 
 
 def test_import_direction_between_layers() -> None:
+    """ADR-0001 §1 (diagrama de dependencias permitido): codifica los imports
+    invertidos prohibidos — vp_data no importa vp_model/pipeline/experiments/tools;
+    pipeline y vp_model no importan hacia arriba (pipeline/experiments/tools);
+    tools no importa experiments."""
     violations = []
     for layer, banned in FORBIDDEN.items():
         for f in _layer_files(layer):

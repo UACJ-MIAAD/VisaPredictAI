@@ -35,6 +35,19 @@ vp_data/       dominio de datos: parseo, limpieza, config, contratos, tracking
 3. **Dominio sin MLflow/DVC**: reglas de visas, métricas y postproceso se importan y
    prueban sin ninguno de los dos (el DAG los orquesta desde fuera).
 
+## Fronteras del workspace (ADR-0001)
+
+Las fronteras del proyecto completo — este mapa de capas, el porqué de **dos repos +
+una superficie documental** (no "tres repos" ni monorepo), el contrato del repo web
+(consume EXCLUSIVAMENTE releases content-addressed vía `release_manifest.json` +
+verificación SHA-256; jamás importa código) y el estado PROPUESTA de la migración a
+`src/visapredictai` (US B2) con sus prerequisitos — están decididas y justificadas en
+**[`docs/adr/0001-project-boundaries.md`](adr/0001-project-boundaries.md)**. Ese ADR
+es la fuente de verdad de las fronteras; este documento solo detalla el mapa de capas
+y los puertos del repo de datos. La regla "ningún paquete de dominio nuevo en la
+raíz" la hace cumplir el whitelist de `tools/validate_structure.sh` (`make validate`,
+CI); el ADR la registra, el test de arquitectura la referencia sin duplicarla.
+
 ## Decisiones deliberadas (no "faltantes")
 
 - **Adaptación de CCDS, no conformidad (I1):** la estructura está *inspirada en

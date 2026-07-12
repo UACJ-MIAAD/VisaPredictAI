@@ -1,12 +1,22 @@
 {
-  "promotion.py": 90,
-  "ledger.py": 65,
-  "champion.py": 70,
-  "metrics.py": 65,
-  "significance.py": 65,
-  "walkforward.py": 60,
-  "dataset.py": 60,
-  "feature_builder.py": 58,
-  "preprocess.py": 55,
-  "intervals.py": 45
+  "ratchet_policy": "trimestral: críticos ≥80, core ≥70, global ≥60. Los pisos SOLO SUBEN editando este archivo en un PR (trinquete explícito, como debt_baseline). Pisos INICIALES = baseline honesta medida 2026-07-12 (instrumentación amplia, 451 tests, env de referencia ante/) redondeada hacia abajo, con margen por varianza local↔CI (el job de CI puede saltar tests de deps opcionales); NO son aspiracionales: rompen si una capa CAE, no exigen subir.",
+  "modules": {
+    "promotion.py": 90,
+    "ledger.py": 65,
+    "champion.py": 70,
+    "metrics.py": 65,
+    "significance.py": 65,
+    "walkforward.py": 60,
+    "dataset.py": 60,
+    "feature_builder.py": 58,
+    "preprocess.py": 55,
+    "intervals.py": 45
+  },
+  "layers": {
+    "data": { "floor": 55, "paths": ["vp_data/", "pipeline/"], "measured_2026_07_12": 61.3 },
+    "model": { "floor": 65, "paths": ["vp_model/"], "measured_2026_07_12": 73.02 },
+    "experiments": { "floor": 15, "paths": ["experiments/"], "measured_2026_07_12": 18.23 },
+    "tools": { "floor": 20, "paths": ["tools/"], "measured_2026_07_12": 26.16 }
+  },
+  "global": { "floor": 30, "measured_2026_07_12": 38.56 }
 }
