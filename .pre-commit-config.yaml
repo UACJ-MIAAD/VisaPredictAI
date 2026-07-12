@@ -82,3 +82,14 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-push]
+      # O1 (plan auditoría 2026-07-12): contrato de la lista viva de pendientes. Vive
+      # FUERA del repo (Anteproyecto/Prompts/), por eso se valida aquí y no en CI de
+      # GitHub. Fail-closed: si el archivo no existe, el push se bloquea (este hook
+      # solo corre en la máquina del autor, donde la lista viva siempre existe).
+      - id: pending-contract
+        name: contrato de PENDIENTES.md (IDs, estados, campos, pie ISO)
+        entry: python tools/check_pending_contract.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
