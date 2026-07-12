@@ -77,8 +77,11 @@ reports/governance/solid_clean_audit_report.md
 # MLflow tracking (local file store) + staging — regenerable, no versionar en git
 mlruns/
 mlruns_staging/
+mlruns_staging.quarantine_*/
 mlflow.db
 mlartifacts/
+# Manifiesto por-corrida de la campaña (identidad; efímero, no versionar)
+reports/campaign/campaign_manifest.json
 # Modelos entrenados -> versionados con DVC, no git
 models/
 /models

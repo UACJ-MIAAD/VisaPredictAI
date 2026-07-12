@@ -65,15 +65,29 @@ _SEQ = itertools.count()
 def pipeline_run_id() -> str:
     """Identidad del run de pipeline que produjo esta corrida (C3, jerarquía de IDs).
 
-    El cron exporta ``VP_PIPELINE_RUN_ID=$GITHUB_RUN_ID``; cualquier otro contexto de
-    Actions cae a ``GITHUB_RUN_ID``; una corrida de escritorio queda como ``local``.
-    Enlaza DVC/ledger/manifiesto/JSONL: mismo id ⇒ misma corrida del pipeline.
+    Precedencia (auditoría 12-jul-2026): ``CAMPAIGN_ID`` (sellado por
+    run_rederivation.sh: TODOS los records de una campaña comparten un id) →
+    ``VP_PIPELINE_RUN_ID`` (cron, =$GITHUB_RUN_ID) → ``GITHUB_RUN_ID`` (otras Actions)
+    → ``local`` (escritorio). Enlaza DVC/ledger/manifiesto/JSONL: mismo id ⇒ misma corrida.
     """
-    return os.environ.get("VP_PIPELINE_RUN_ID") or os.environ.get("GITHUB_RUN_ID") or "local"
+    return (
+        os.environ.get("CAMPAIGN_ID")
+        or os.environ.get("VP_PIPELINE_RUN_ID")
+        or os.environ.get("GITHUB_RUN_ID")
+        or "local"
+    )
 
 
 def git_state() -> tuple[str, bool]:
-    """(short sha, dirty) for provenance; tolerant when git is unavailable."""
+    """(short sha, dirty) for provenance; tolerant when git is unavailable.
+
+    Si ``CAMPAIGN_SHA`` está sellado (run_rederivation.sh exigió árbol limpio al inicio),
+    se usa ESE sha fijo con dirty=False para TODOS los records de la campaña — así, aunque
+    HEAD avance a mitad de corrida, los outputs no quedan con SHAs mezclados (bug 12-jul).
+    """
+    pinned = os.environ.get("CAMPAIGN_SHA")
+    if pinned:
+        return pinned[:7], False
     try:
         sha = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=ROOT, check=False
@@ -97,8 +111,12 @@ def code_sha() -> str:
     """SHA COMPLETO de HEAD (procedencia v2). ``unknown`` si git no está disponible.
 
     Cacheado por proceso: HEAD no cambia a mitad de una campaña y ahorra un
-    subprocess por cada record (hay campañas de ~5,000 records).
+    subprocess por cada record (hay campañas de ~5,000 records). Si ``CAMPAIGN_SHA``
+    está sellado, se usa ESE (identidad fija de campaña) en vez del HEAD vivo.
     """
+    pinned = os.environ.get("CAMPAIGN_SHA")
+    if pinned:
+        return pinned
     try:
         sha = subprocess.run(
             ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=ROOT, check=False

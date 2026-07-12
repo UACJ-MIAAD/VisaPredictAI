@@ -44,11 +44,19 @@ NF=ante_nf/bin/python
 # para toda la corrida. Si el árbol está sucio, se aborta: commitear código a mitad
 # de campaña marca los outputs con SHAs distintos (el bug de "identidades mezcladas").
 # ⚠️ NO commitear NADA en este repo mientras la campaña corre.
-if [ -z "${ALLOW_DIRTY:-}" ] && [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-  echo "ERROR: el árbol tiene cambios sin commitear. La campaña exige árbol limpio para" >&2
-  echo "       sellar una identidad única (SHA). Commitea/revierte, o usa ALLOW_DIRTY=1" >&2
-  echo "       explícitamente si sabes lo que haces. Aborta." >&2
+# Sucio = tracked modificado O código untracked (.py/.sh/.sql/.yaml/.yml/.toml). Los
+# outputs generados (reports/, data/, models/, *.log, staging) son untracked legítimos y
+# NO cuentan; un .py suelto SÍ cambia el comportamiento y debe abortar.
+tree_dirty() {
+  git status --porcelain --untracked-files=no | grep -q . && { echo "tracked-modificado"; return; }
+  git ls-files --others --exclude-standard | grep -qE '\.(py|sh|sql|ya?ml|toml)$' && { echo "codigo-untracked"; return; }
+}
+if [ -z "${ALLOW_DIRTY:-}" ] && [ -n "$(tree_dirty)" ]; then
+  echo "ERROR: el árbol tiene cambios de código sin commitear ($(tree_dirty)). La campaña" >&2
+  echo "       exige árbol limpio para sellar una identidad única (SHA). Commitea/revierte," >&2
+  echo "       o usa ALLOW_DIRTY=1 explícitamente. Aborta." >&2
   git status --short >&2
+  git ls-files --others --exclude-standard | grep -E '\.(py|sh|sql|ya?ml|toml)$' >&2
   exit 1
 fi
 CAMPAIGN_SHA="$(git rev-parse HEAD)"
@@ -61,7 +69,17 @@ printf '{"campaign_id":"%s","sha":"%s","started_at":"%s"}\n' \
 
 FAILS=0
 REQ_FAILS=0
-stage() { echo ""; echo "##### [$1] $2 — $(date '+%F %T')"; }
+# stage(): además de rotular, verifica que HEAD NO cambió desde el sellado — si alguien
+# commitea a mitad de campaña, aborta (los outputs quedarían con SHAs mezclados).
+stage() {
+  local now; now="$(git rev-parse HEAD)"
+  if [ "$now" != "$CAMPAIGN_SHA" ]; then
+    echo "ERROR: HEAD cambió a mitad de campaña ($CAMPAIGN_SHA -> $now). Aborta para no" >&2
+    echo "       mezclar identidades. Re-lanza desde árbol limpio." >&2
+    exit 3
+  fi
+  echo ""; echo "##### [$1] $2 — $(date '+%F %T')"
+}
 # run(): best-effort — un fallo se cuenta pero la corrida sigue (para modelos que
 # fallan legítimamente en series cortas dentro de un pool).
 run()   { "$@" || { echo "##### ETAPA FALLIDA (exit $?): $*"; FAILS=$((FAILS+1)); }; }
