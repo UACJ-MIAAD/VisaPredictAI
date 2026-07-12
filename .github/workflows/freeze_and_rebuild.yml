@@ -82,10 +82,13 @@ jobs:
 
     - name: Install runtime dependencies
       run: |
-        python -m pip install --upgrade pip
-        # 2a ronda audit 12-jul: TODAS las fases del cron instalan bajo el lock de su
-        # perfil como constraints (-c) -- no solo el modelado.
-        pip install -e . -c locks/runtime.txt
+        # A5: toolchain de instalación pinneado (pip/setuptools/wheel — mismo pin que ci.yml)
+        python -m pip install "pip==26.1.2" "setuptools==81.0.0" "wheel==0.47.0"
+        # 2a ronda audit 12-jul + A5: TODAS las fases del cron instalan bajo el lock de
+        # su perfil Y su plataforma. runtime/dev: lock Linux x86_64 con hashes sha256
+        # (-r + hash-checking mode); el proyecto entra aparte con --no-deps.
+        pip install --require-hashes -r locks/runtime-linux-x86_64.txt
+        pip install -e . --no-deps
 
     - name: Configure AWS credentials
       # F2: OIDC role de corta vida con política mínima (Put/Get/List + ses:SendEmail,
@@ -126,7 +129,7 @@ jobs:
           model=$(python tools/check_ingestion.py --mode model-pending)
           if [ "$model" = "stale" ]; then
             echo "Panel al dia pero key_facts/eda_facts van detras -- re-lanzando el bloque de modelado."
-            pip install -e ".[dev]" -c locks/dev.txt
+            pip install --require-hashes -r locks/dev-linux-x86_64.txt && pip install -e . --no-deps
             python -m pipeline.build_database
             python -m pytest tests/test_database.py --cov-fail-under=0
             echo "rebuilt=true" >> "$GITHUB_OUTPUT"
@@ -144,7 +147,7 @@ jobs:
         # 1. Rebuild CSVs/panel/DuckDB OFFLINE from the frozen snapshots.
         #    (The S3 backup sync moved to AFTER the commit: pushing unvalidated
         #    HTML first left a poisoned/never-ingested month frozen forever.)
-        pip install -e ".[dev]" -c locks/dev.txt   # duckdb + pytest for the DB rebuild/gate
+        pip install --require-hashes -r locks/dev-linux-x86_64.txt && pip install -e . --no-deps   # duckdb + pytest for the DB rebuild/gate
         python -m pipeline.scrape_all           # parse snapshots -> per-country CSVs (no network)
         python -m pipeline.build_panel          # -> data/processed/visa_panel_long.csv
         python -m pipeline.build_bulletins_json # -> data/processed/bulletins.json (website news feed)
@@ -219,8 +222,10 @@ jobs:
         #     DFF: SARIMA; split-conformal 80/95% bands). The website fetches these
         #     at build time. Per-series MASE/coverage land in the committed meta.json.
         pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu
-        # C3 (auditoria 11-jul): constraints del lock de referencia tambien en el cron
-        pip install -e ".[model]" -c locks/model-cpu.txt
+        # C3 (auditoria 11-jul) + A5: constraints del lock Linux x86_64 (closure real
+        # de la plataforma del runner; sin drift vs locks/model-cpu.txt de referencia).
+        # Sigue -c (no -r): torch viene del indice CPU y constraints no admite hashes.
+        pip install -e ".[model]" -c locks/model-cpu-linux-x86_64.txt
         python experiments/generate_web_forecasts.py
 
         # 4c. Prospective scoring: now that this month's REAL cutoffs are in the

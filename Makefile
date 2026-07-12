@@ -58,7 +58,7 @@ db:
 news:
 	$(PY) -m pipeline.build_bulletins_json
 
-lock:  ## C3: regenera los locks transitivos por perfil (locks/{runtime,dev,model-cpu}.txt)
+lock:  ## C3+A5: regenera los locks por perfil (macOS {runtime,dev,model-cpu}.txt + espejos -linux-x86_64 con uv)
 	bash tools/make_locks.sh
 
 repro:  ## reconstruye TODO el DAG de datos determinísticamente (solo lo que cambió) con DVC

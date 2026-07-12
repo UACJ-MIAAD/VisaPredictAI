@@ -63,7 +63,7 @@ jobs:
           # shallow — SU ESTRENO cazó este checkout depth-1 en el primer run.
           fetch-depth: 0
 
-      - name: Validate cookiecutter structure
+      - name: Validate project structure contract
         run: bash tools/validate_structure.sh
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
@@ -73,10 +73,14 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          # C3: instalación por LOCK transitivo (locks/dev.txt) — versiones exactas de
-          # toda la cadena, no solo de las directas; regenerar con `make lock`.
-          pip install -r locks/dev.txt
+          # A5: toolchain de instalación PINNEADO (pip/setuptools/wheel) — mismo pip que
+          # el entorno de referencia ante/; sin esto cada corrida instala el pip del día.
+          python -m pip install "pip==26.1.2" "setuptools==81.0.0" "wheel==0.47.0"
+          # C3+A5: instalación por LOCK transitivo DE LA PLATAFORMA DEL RUNNER
+          # (locks/dev-linux-x86_64.txt, con hashes sha256 → hash-checking mode de pip).
+          # El lock macOS arm64 (locks/dev.txt) es el del entorno de referencia; ambos
+          # se generan sin drift de versiones (uv pip compile -c lock-macOS).
+          pip install --require-hashes -r locks/dev-linux-x86_64.txt
           pip install -e . --no-deps
 
       - name: Lint (ruff check)
@@ -105,13 +109,16 @@ jobs:
 
       - name: Install with modeling extra
         run: |
-          python -m pip install --upgrade pip
+          # A5: toolchain de instalación pinneado (mismo pin que lint-and-test)
+          python -m pip install "pip==26.1.2" "setuptools==81.0.0" "wheel==0.47.0"
           # E3: wheel CPU primero — sin el índice, .[model] bajaba el torch CUDA (~2 GB) en cada push
           pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu
-          # C3 (auditoria 11-jul): el lock del entorno de referencia gobierna como
-          # CONSTRAINTS (-c) -- mismo pin de version que produjo las cifras publicadas,
-          # wheel de la plataforma del runner (el freeze es de Darwin; -r no instalaria).
-          pip install -e ".[dev,model]" -c locks/model-cpu.txt
+          # C3/A5: constraints del lock Linux x86_64 (closure real de .[dev,model] en la
+          # plataforma del runner, compilado SIN drift contra el freeze de referencia
+          # locks/model-cpu.txt). Sigue siendo -c y no -r: torch debe venir del índice
+          # CPU (arriba), no del pin CUDA de PyPI — y un constraints file no admite
+          # hashes (limitación de pip), por eso este perfil va sin --generate-hashes.
+          pip install -e ".[dev,model]" -c locks/model-cpu-linux-x86_64.txt
 
       - name: Build the panel + DuckDB warehouse (modeling reads from it)
         run: |

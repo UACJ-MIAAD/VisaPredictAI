@@ -1,6 +1,9 @@
-# G5 (plan auditoría 2026-07-11): supply chain del lado Python, programado.
-# Sin secretos: audita los LOCKS versionados contra las bases de advisories (OSV/PyPI)
-# y emite el SBOM CycloneDX del perfil dev como artefacto por corrida.
+# G5 (plan auditoría 2026-07-11) + A5 (plan 3 repos 2026-07-12): supply chain del lado
+# Python, programado. Sin secretos: audita los LOCKS versionados (macOS arm64 = entorno
+# de referencia; Linux x86_64 = lo que instalan CI y el cron) contra las bases de
+# advisories (OSV/PyPI) y emite el SBOM CycloneDX del perfil dev como artefacto.
+# --disable-pip: los locks están 100% pinneados, se parsean sin resolver — necesario
+# para auditar locks de OTRA plataforma (el dry-run de pip rechaza pins ajenos al SO).
 name: Scheduled quality (Python)
 
 on:
@@ -19,20 +22,40 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: '3.14'
-      - run: pip install pip-audit
-      # GATE en los perfiles chicos (runtime/dev: dependencias directas — se arreglan
-      # por PR con tests y rollback, como el bump de requests 2.33.0 que estrenó esta
-      # política). El perfil model-cpu (232 paquetes, entorno de referencia) se
-      # REPORTA sin vetar: sus hallazgos se trian con SLA en docs/SECURITY_TRIAGE.md.
-      - name: Audit runtime + dev locks (gate)
+      - run: pip install "pip-audit==2.10.1"   # A5: herramienta de audit también pinneada
+      # GATE fail-closed en los perfiles chicos (runtime/dev, ambas plataformas):
+      # dependencias directas — se arreglan por PR con tests y rollback, como el bump
+      # de requests 2.33.0 que estrenó esta política.
+      - name: Audit runtime + dev locks (gate, macOS arm64 + Linux x86_64)
         run: |
-          pip-audit -r locks/runtime.txt --no-deps
-          pip-audit -r locks/dev.txt --no-deps
-      - name: Audit model-cpu lock (report only)
-        continue-on-error: true
-        run: pip-audit -r locks/model-cpu.txt --no-deps
+          pip-audit -r locks/runtime.txt --no-deps --disable-pip
+          pip-audit -r locks/dev.txt --no-deps --disable-pip
+          pip-audit -r locks/runtime-linux-x86_64.txt --no-deps --disable-pip
+          pip-audit -r locks/dev-linux-x86_64.txt --no-deps --disable-pip
+      # A5: el perfil model dejó de ser report-only. GATE con allowlist EXPLÍCITA:
+      # los 9 avisos aceptados están triados con superficie, decisión, owner y fecha
+      # de revisión (2026-08-12) en docs/SECURITY_TRIAGE.md — cualquier aviso NUEVO
+      # (incluido un high/critical) bloquea este job. Al cerrar un aviso (bump vía
+      # `make lock` deliberado), retirar su --ignore-vuln aquí Y su fila del triage.
+      - name: Audit model locks (gate con allowlist triada — docs/SECURITY_TRIAGE.md)
+        run: |
+          IGNORES=(
+            --ignore-vuln CVE-2025-3000          # torch 2.12.0 (sin fix publicado)
+            --ignore-vuln PYSEC-2025-217         # transformers 4.57.6 (sin fix)
+            --ignore-vuln CVE-2026-1839          # transformers 4.57.6 (fix 5.0.0rc3, major)
+            --ignore-vuln CVE-2026-4372          # transformers 4.57.6 (fix 5.3.0, major)
+            --ignore-vuln CVE-2025-69872         # diskcache 5.6.3 (sin fix)
+            --ignore-vuln GHSA-6v7p-g79w-8964    # msgpack 1.2.0 (fix 1.2.1)
+            --ignore-vuln GHSA-4xgf-cpjx-pc3j    # pydantic-settings 2.14.1 (fix 2.14.2)
+            --ignore-vuln GHSA-jm82-fx9c-mx94    # pypdf 6.13.2 (fix 6.13.3)
+            --ignore-vuln CVE-2026-31221         # pytorch-lightning 2.5.6 (sin fix)
+          )
+          pip-audit -r locks/model-cpu.txt --no-deps --disable-pip "${IGNORES[@]}"
+          pip-audit -r locks/model-cpu-linux-x86_64.txt --no-deps --disable-pip "${IGNORES[@]}"
+      # A5: sin `|| true` — si CycloneDX falla, el job falla (antes un SBOM roto
+      # subía un artefacto vacío en silencio).
       - name: SBOM CycloneDX (perfil dev)
-        run: pip-audit -r locks/dev.txt --no-deps --format cyclonedx-json -o sbom-dev.cdx.json || true
+        run: pip-audit -r locks/dev.txt --no-deps --disable-pip --format cyclonedx-json -o sbom-dev.cdx.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: sbom-dev-cyclonedx

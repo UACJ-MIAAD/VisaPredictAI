@@ -48,7 +48,10 @@ model = [
 ]
 
 [build-system]
-requires = ["setuptools>=77"]
+# A5: backend de build PINNEADO — con build isolation, pip instala EXACTAMENTE esta
+# versión al construir el paquete (antes ">=77" flotaba al setuptools del día).
+# Misma versión que el entorno de referencia ante/; se bumpea junto con `make lock`.
+requires = ["setuptools==81.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
