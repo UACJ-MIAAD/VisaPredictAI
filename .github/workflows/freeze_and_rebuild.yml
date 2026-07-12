@@ -78,7 +78,9 @@ jobs:
     - name: Install runtime dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -e .   # runtime deps from pyproject (single source of truth)
+        # 2a ronda audit 12-jul: TODAS las fases del cron instalan bajo el lock de su
+        # perfil como constraints (-c) -- no solo el modelado.
+        pip install -e . -c locks/runtime.txt
 
     - name: Configure AWS credentials
       # F2: OIDC role de corta vida con política mínima (Put/Get/List + ses:SendEmail,
@@ -119,7 +121,7 @@ jobs:
           model=$(python tools/check_ingestion.py --mode model-pending)
           if [ "$model" = "stale" ]; then
             echo "Panel al dia pero key_facts/eda_facts van detras -- re-lanzando el bloque de modelado."
-            pip install -e ".[dev]"
+            pip install -e ".[dev]" -c locks/dev.txt
             python -m pipeline.build_database
             python -m pytest tests/test_database.py --cov-fail-under=0
             echo "rebuilt=true" >> "$GITHUB_OUTPUT"
@@ -137,7 +139,7 @@ jobs:
         # 1. Rebuild CSVs/panel/DuckDB OFFLINE from the frozen snapshots.
         #    (The S3 backup sync moved to AFTER the commit: pushing unvalidated
         #    HTML first left a poisoned/never-ingested month frozen forever.)
-        pip install -e ".[dev]"        # duckdb + pytest for the DB rebuild/gate
+        pip install -e ".[dev]" -c locks/dev.txt   # duckdb + pytest for the DB rebuild/gate
         python -m pipeline.scrape_all           # parse snapshots -> per-country CSVs (no network)
         python -m pipeline.build_panel          # -> data/processed/visa_panel_long.csv
         python -m pipeline.build_bulletins_json # -> data/processed/bulletins.json (website news feed)

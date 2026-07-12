@@ -201,9 +201,15 @@ def append(path: Path, rows: list[dict], cols: list[str] | None = None) -> pd.Da
 def validate(df: pd.DataFrame) -> list[str]:
     """Contrato del ledger v2 — regresa violaciones (lista vacía = OK).
 
-    Guardias: clave única; columnas v2 presentes; ninguna fila ``live`` con un target que
-    ya estaba publicado a su ``freeze_panel_vintage`` (manipulación temporal); y todo
-    ``forecast_id`` debe re-derivarse de su propia fila (manipulación de contenido).
+    FAIL-CLOSED (2ª ronda de auditoría, 12-jul): TODA fila debe traer el sello v2
+    completo — anular ``frozen_at`` o ``row_hash`` era una vía de escape que dejaba
+    la fila fuera de todos los chequeos. Los ledgers están 100 % sellados desde el
+    backfill; una fila sin sello ES una violación, no una fila exenta.
+
+    Guardias: clave única; columnas v2 presentes; sello v2 no nulo en cada fila;
+    ninguna fila ``live`` con un target ya publicado a su ``freeze_panel_vintage``
+    (manipulación temporal); ``forecast_id`` re-deriva de clave+receta (identidad) y
+    ``row_hash`` re-deriva del payload (contenido) en TODAS las filas.
     """
     v: list[str] = []
     if df.duplicated(subset=KEYS).any():
@@ -212,18 +218,20 @@ def validate(df: pd.DataFrame) -> list[str]:
     if missing:
         v.append(f"faltan columnas v2: {missing}")
         return v
-    stamped = df[df["frozen_at"].notna()]
-    live = stamped[stamped["evaluation_mode"] == "live"]
+    for c in V2_COLS:
+        nulls = int(df[c].isna().sum())
+        if nulls:
+            v.append(f"{nulls} filas con {c} nulo — sello v2 incompleto (fail-closed)")
+    live = df[df["evaluation_mode"] == "live"]
     bad = live[live["date"].astype(str).str[:7] <= live["freeze_panel_vintage"].astype(str)]
     if len(bad):
         v.append(f"{len(bad)} filas 'live' cuyo target ya estaba publicado a su freeze_panel_vintage")
-    ids = stamped.apply(lambda r: forecast_id(r.to_dict()), axis=1)
-    tampered = int((ids != stamped["forecast_id"]).sum())
+    ids = df.apply(lambda r: forecast_id(r.to_dict()), axis=1)
+    tampered = int((ids != df["forecast_id"]).sum())
     if tampered:
         v.append(f"{tampered} filas con forecast_id que no re-deriva de su clave+receta")
-    hashed = stamped[stamped["row_hash"].notna()]
-    rehash = hashed.apply(lambda r: row_hash(r.to_dict()), axis=1)
-    mutated = int((rehash != hashed["row_hash"]).sum())
+    rehash = df.apply(lambda r: row_hash(r.to_dict()), axis=1)
+    mutated = int((rehash != df["row_hash"]).sum())
     if mutated:
         v.append(f"{mutated} filas con row_hash que no re-deriva de su contenido (days/bandas mutados)")
     return v

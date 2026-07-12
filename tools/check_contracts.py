@@ -18,6 +18,7 @@ Corre desde la raíz:  python tools/check_contracts.py
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -88,18 +89,48 @@ def check(root: Path = ROOT, contracts_dir: Path = CONTRACTS_DIR) -> list[str]:
         vintages["data/processed/visa_panel_long.csv (real)"] = pv
     if len(set(vintages.values())) > 1:
         problems.append(f"CORTE CON AÑADAS MEZCLADAS: {vintages}")
-    # Auditoría 11-jul: la identidad del manifiesto PUBLICADO debe resolver a un commit —
-    # un git_sha con sufijo -dirty (árbol sucio al generar) no es reproducible y no debe
-    # commitearse; regenerar con árbol limpio da el MISMO release_id (content-addressed).
+    # Auditoría 11-jul (+2ª ronda 12-jul): la identidad del manifiesto PUBLICADO debe
+    # RESOLVER a un commit. Se exige: (a) forma 12-hex (ni 'n/d' ni sufijo -dirty), y
+    # (b) cuando el repo tiene el historial (clone completo), que el objeto exista de
+    # verdad (`git cat-file -e`). En clones shallow (actions/checkout depth=1 no trae el
+    # commit PADRE que el manifiesto referencia) solo se valida la forma — documentado.
     man = root / "reports" / "release" / "release_manifest.json"
     if man.exists():
         try:
             sha = str(json.loads(man.read_text()).get("git_sha", ""))
             if sha.endswith("-dirty"):
                 problems.append(f"release_manifest.json: git_sha '{sha}' es -dirty — regenerar con árbol limpio")
+            elif not re.fullmatch(r"[0-9a-f]{12}", sha):
+                problems.append(f"release_manifest.json: git_sha '{sha}' no es un sha 12-hex resoluble")
+            else:
+                problems.extend(_sha_unresolvable(root, sha))
         except json.JSONDecodeError:
             problems.append("release_manifest.json: JSON ilegible")
     return problems
+
+
+def _sha_unresolvable(root: Path, sha: str) -> list[str]:
+    """[] si el sha resuelve, el repo es shallow o no hay git; violación si el repo tiene
+    historial completo y el objeto NO existe (manifiesto apuntando a un commit fantasma)."""
+    import subprocess
+
+    def _git(*args: str) -> str:
+        return subprocess.check_output(["git", *args], text=True, stderr=subprocess.DEVNULL, cwd=root).strip()
+
+    try:
+        if _git("rev-parse", "--is-shallow-repository") == "true":
+            return []
+        subprocess.check_call(
+            ["git", "cat-file", "-e", f"{sha}^{{commit}}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            cwd=root,
+        )
+        return []
+    except subprocess.CalledProcessError:
+        return [f"release_manifest.json: git_sha '{sha}' NO existe en el historial (commit fantasma)"]
+    except FileNotFoundError:
+        return []
 
 
 def main() -> int:

@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "release_id": "2026-07-8326b2a6cdbc",
-  "generated_at": "2026-07-12T01:27:18+00:00",
+  "release_id": "2026-07-4c92ba93ce7d",
+  "generated_at": "2026-07-12T02:09:25+00:00",
   "pipeline_run_id": "local",
-  "git_sha": "5a37e7d2c3f9",
-  "worktree_dirty": false,
+  "git_sha": "d2b2950673e8",
+  "worktree_dirty": true,
   "panel_vintage": "2026-07",
   "panel_hash_md5_12": "00115d2dd0b6",
   "champion_recipes": {
@@ -217,15 +217,15 @@
     },
     {
       "path": "vp_data/contracts/forecast_log.csv.json",
-      "sha256": "a598fc48385f7746aacedef29cde45cd82176c164764749bb9a1ef64f2ccb250",
-      "size": 475,
+      "sha256": "2917e044c7c9a660ebd858e905e51a751e05a3da50f475502e412d9f037922b8",
+      "size": 491,
       "mime": "application/json",
       "criticality": "required"
     },
     {
       "path": "vp_data/contracts/forecast_log_shadow.csv.json",
-      "sha256": "70554904d9c05eeda999cf973443c8465df0678492a39bd364407f68dac3b49c",
-      "size": 527,
+      "sha256": "fcd018569913830e3160a0152dde3f628bf8936febe0a3bb5119a5626c1de80b",
+      "size": 543,
       "mime": "application/json",
       "criticality": "required"
     },

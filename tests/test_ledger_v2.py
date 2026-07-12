@@ -154,6 +154,22 @@ def test_row_hash_survives_csv_roundtrip(tmp_path) -> None:
     assert ledger.row_hash(back.iloc[0].to_dict()) == rows[0]["row_hash"]
 
 
+def test_validate_is_fail_closed_on_null_seals() -> None:
+    """2a ronda audit (12-jul): anular row_hash o frozen_at sacaba la fila de TODOS los
+    chequeos y la mutacion pasaba limpia — reproducciones exactas del auditor."""
+    base = _stamp([dict(ROW), {**ROW, "date": "2026-09-01", "h": 2}])
+    d1 = pd.DataFrame(base).copy()
+    d1.loc[0, "row_hash"] = None
+    d1.loc[0, "days"] = 999
+    assert any("row_hash nulo" in p for p in ledger.validate(d1))
+    d2 = pd.DataFrame(base).copy()
+    d2.loc[0, "frozen_at"] = None
+    d2.loc[0, "days"] = 999
+    problems = ledger.validate(d2)
+    assert any("frozen_at nulo" in p for p in problems)
+    assert any("row_hash que no re-deriva" in p for p in problems)  # el contenido mutado se caza igual
+
+
 def test_validate_clean_ledger_passes(tmp_path) -> None:
     path = tmp_path / "forecast_log.csv"
     ledger.append(path, _stamp([dict(ROW), {**ROW, "date": "2026-09-01", "h": 2}]))

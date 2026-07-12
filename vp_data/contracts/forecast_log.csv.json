@@ -16,6 +16,7 @@
     "hi95",
     "band_method",
     "forecast_id",
+    "row_hash",
     "frozen_at",
     "freeze_panel_vintage",
     "panel_hash",

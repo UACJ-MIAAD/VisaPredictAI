@@ -178,6 +178,9 @@ def migrate(path_key: str, force: bool = False) -> bool:
         mode = "live" if str(r["date"])[:7] > b["freeze_panel_vintage"] else "backfill"
         row = {**r, **b, "evaluation_mode": mode}
         row["forecast_id"] = ledger.forecast_id(row)
+        row["row_hash"] = ledger.row_hash(
+            row
+        )  # 2a ronda audit: V2_COLS lo exige; sin esto --force revienta con KeyError
         stamps.append(row)
     if rewritten:
         log.warning(
