@@ -3,6 +3,7 @@
   "aggregate_seeds.py": {"clase": "investigacion", "consumidor": "campañas multi-semilla (tablas del deliverable via make_tex_tables)"},
   "apply_cone_constraints.py": {"clase": "producto", "consumidor": "generate_web_forecasts (cono FAD<=DFF/pais<=mundial)"},
   "auto_arima_baseline.py": {"clase": "investigacion", "consumidor": "reports/eval/auto_arima_baseline.csv (dep DVC de key_facts)"},
+  "backfill_mlflow_legacy.py": {"clase": "diagnostico", "consumidor": "backfill A2 unico de mlflow.db (etiqueta legacy_status + raices portables; dry-run por defecto, jamas productivo)"},
   "backfill_vintages.sh": {"clase": "archivo", "consumidor": "siembra reproducible del ledger (docs/FORECAST_EVAL.md); re-ejecutar solo para reconstruir desde cero"},
   "build_eda_facts.py": {"clase": "producto", "consumidor": "stage DVC eda_facts + cron 4g + web #eda"},
   "build_eda_report.py": {"clase": "producto", "consumidor": "cron 4g -> reports/eda/{,en/}eda_report.pdf (web descargable)"},

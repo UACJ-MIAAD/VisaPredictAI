@@ -20,6 +20,68 @@ escribe records JSONL. `experiments/sync_mlflow.py` (en `ante_nf`) los vuelca a 
 El sync preserva el **timestamp real** de cada corrida (`MlflowClient.create_run(start_time=ts)`,
 AO4): la UI ordena por la fecha del experimento, no por la fecha del sync.
 
+## Contrato del record v2 (A2/A6, plan auditoría 2026-07-12)
+
+Cada línea del staging lleva `schema_version: 2`; las líneas viejas **sin** `schema_version`
+se tratan como **v1** (el sync las sigue leyendo). Campos v2:
+
+| Campo | Contenido |
+|---|---|
+| `experiment` / `run_name` / `params` / `metrics` / `tags` / `artifacts` / `ts` | igual que v1 (métricas no finitas se filtran; `tags` siempre incluye `git_sha`, `git_dirty`, `pipeline_run_id`) |
+| `content_hash` | hash de CONTENIDO `{experiment, run_name, params, metrics}` — **idéntico al `rec_id` v1** (dos corridas con las mismas métricas lo comparten) |
+| `rec_id` | **clave de EVENTO**: hash de `experiment + run_name + pipeline_run_id + data_hash + code_sha + recipe_version + seed + content_hash + ts + seq`. Dos eventos distintos jamás colisionan (`seq = pid:contador` desambigua el mismo instante) |
+| `provenance` | `pipeline_run_id` · `data_hash` (sha256 del panel canónico) · `code_sha` (SHA completo) · `recipe_version` · `seed` · `env_lock_hash` (sha256 conjunto de `locks/*.txt`) · `seq` |
+| `telemetry` (opcional, A6) | `status` (ok/failed) · `duration_s` · `rss_peak_mb` · `gpu_mem_mb` · `artifact_bytes` · `warnings` · `exception` tipada (`{type, message}`) |
+
+**Fallbacks (jamás se fabrica procedencia):** `data_hash` sin panel ⇒ `unknown`;
+`recipe_version`/`seed` sin kwarg ni entrada en `params` ⇒ `unknown`; `code_sha`/`env_lock_hash`
+irresolubles ⇒ `unknown`.
+
+**Escritura transaccional (A6):** `log_run` toma `fcntl.flock` exclusivo sobre el JSONL +
+append + flush + `fsync` — N escritores paralelos no pierden ni mezclan registros
+(`tests/test_tracking_concurrency.py`). Para campañas usar el context-manager
+`vp_model.tracking.track_run(...)`: mide duración/RSS/GPU/artefactos, acumula warnings y
+loguea INCLUSO si el bloque falla (status `failed` + excepción tipada, re-lanzada).
+
+## Sync v2: idempotente, concurrent-safe y con dedup EXPLÍCITA
+
+- El sync corre bajo lock de archivo (`mlruns_staging/.sync.lock`): dos syncs paralelos se
+  serializan; re-correr sobre el mismo staging no duplica (clave = `rec_id`).
+- **Deduplicación v1 explícita**: el `rec_id` v1 (hash de contenido) colapsa eventos idénticos
+  en métricas pero distintos en `pipeline_run_id`/tags/ts (~1,777 líneas del staging histórico).
+  Cada corrida del sync escribe `reports/governance/mlflow_sync_reconciliation.json` con los
+  rec_id colapsados, sus conteos y el motivo — nada se descarta en silencio.
+- Los records v2 ingieren además: procedencia como tags `vp.*`, `content_hash`,
+  `schema_version`, el panel como **input dataset** (best-effort `client.log_inputs`, digest =
+  `data_hash`), telemetría (duración/RSS/GPU/bytes como métricas `telemetry_*`;
+  warnings/excepción como tags) y estado `FINISHED`/`FAILED` según `telemetry.status`.
+
+## Artefactos portables + backfill de los 13,165 runs históricos
+
+- Los **experiments nuevos** se piden con `artifact_location` RELATIVA al repo
+  (`mlartifacts/{name}`); ⚠️ mlflow 3.x la **canonicaliza a absoluta** al crearla, así que
+  el sync la regresa a la forma relativa con `_portabilize` (reescribe SOLO las filas
+  experiment/run creadas en esa pasada; verificado contra mlflow 3.14 real) → ninguna URI
+  nueva contiene `/Users/`. Correr sync y UI **desde la raíz del repo** (la ruta relativa
+  se resuelve contra el cwd).
+- Los **runs históricos** conservan `artifact_uri` absoluta (`file:///Users/...`). NO se
+  reescriben: para leerlos, resolver el sufijo tras `mlartifacts/` contra la raíz del repo
+  (solo 5 runs tienen artefactos físicos: `mlartifacts/champion_challenger/*`).
+- **Backfill** (`experiments/backfill_mlflow_legacy.py`, stdlib, corre en `ante`):
+  etiqueta cada run legado (sin tag `schema_version`) con `legacy_status` ∈
+  {`legacy_complete` (artefactos físicos presentes), `legacy_metrics_only` (la mayoría),
+  `invalid` (0 métricas — 2 runs, no cuentan como exitosos)} y repara las raíces de los 19
+  experiments a rutas relativas. Idempotente; **dry-run por defecto**:
+
+  ```bash
+  ante/bin/python experiments/backfill_mlflow_legacy.py           # dry-run (reporta, no escribe)
+  ante/bin/python experiments/backfill_mlflow_legacy.py --apply   # aplica (1 transacción)
+  ```
+
+- **⚠️ Impacto en `mlflow.db.dvc`**: `mlflow.db` es DVC-tracked y gitignored. Tras un
+  `--apply` (o cualquier sync que ingiera runs) hay que correr `dvc commit mlflow.db.dvc`
+  en el mismo commit para que el pointer refleje la db nueva.
+
 ## ⚠️ Decisión (AO9): MLflow = archivo histórico, NO dashboard en vivo
 
 MLflow se sincroniza **manualmente** (`make mlflow-sync`, o como paso 1 de

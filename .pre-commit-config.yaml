@@ -43,7 +43,9 @@ repos:
     hooks:
       - id: no-emdash-proyecto-i
         name: sin raya larga (—) como inciso en ProyectoI_VisaPredictAI.tex
-        entry: ante/bin/python tools/check_no_emdash.py
+        # A5: `python` del PATH (venv activo), no `ante/bin/python` — portable a CI y
+        # a clones sin el venv local; activar `source ante/bin/activate` antes de commitear.
+        entry: python tools/check_no_emdash.py
         language: system
         pass_filenames: false
         always_run: true
@@ -54,13 +56,14 @@ repos:
     hooks:
       - id: pipeline-tests
         name: pipeline tests (parsers + offline extraction + panel invariants)
-        entry: bash -c 'ante/bin/python tests/test_parsers.py && ante/bin/python tests/test_extraction.py && ante/bin/python tests/test_panel_integrity.py'
+        # A5: `python` del PATH (venv activo) en vez de ante/bin/python — portable.
+        entry: bash -c 'python tests/test_parsers.py && python tests/test_extraction.py && python tests/test_panel_integrity.py'
         language: system
         pass_filenames: false
         always_run: true
       - id: typecheck
         name: mypy (vp_model) — mismo gate que CI
-        entry: bash -c 'ante/bin/python -m mypy vp_model'
+        entry: bash -c 'python -m mypy vp_model'
         language: system
         pass_filenames: false
         always_run: true
@@ -74,7 +77,7 @@ repos:
     hooks:
       - id: consistency
         name: guardián de consistencia (web/LaTeX/paper/README/docs vs key_facts.json)
-        entry: ante/bin/python tools/check_consistency.py
+        entry: python tools/check_consistency.py
         language: system
         pass_filenames: false
         always_run: true
