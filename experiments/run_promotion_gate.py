@@ -41,12 +41,40 @@ def _load(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _candidate_identity(pairs: pd.DataFrame, table: str) -> dict:
+    """Identidad COMPLETA del candidato evaluado (A-02): campeon y retador exactos,
+    release vigente al decidir y anadas live que sustentan la evidencia — lo que
+    ``promotion.authorize`` exigira al pie de la letra en ``--promote``."""
+    import datetime
+
+    from vp_model import champion, ledger
+
+    champ_recipe = champion.load_manifest().get(table)
+    tl = pairs[pairs["table"] == table] if len(pairs) else pairs
+    live = tl[tl["evaluation_mode_champ"] == "live"] if len(tl) else tl
+    shadow_ledger = ROOT / "reports" / "prospective" / "forecast_log_shadow.csv"
+    challengers: list[str] = []
+    if shadow_ledger.exists() and len(live):
+        sl = pd.read_csv(shadow_ledger, usecols=["origin", "table", "recipe"])
+        mask = (sl["table"] == table) & (sl["origin"].isin(live["origin"].unique()))
+        challengers = sorted(sl[mask]["recipe"].dropna().unique())
+    return {
+        "champion": champ_recipe.name if champ_recipe else "n/d",
+        "challenger": "+".join(challengers) if challengers else "n/d",
+        "release_id": ledger.current_release_id(),
+        "vintages": sorted(str(o) for o in live["origin"].unique()) if len(live) else [],
+        "decided_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+    }
+
+
 def main() -> int:
     prosp = ROOT / "reports" / "prospective"
     champ = _load(prosp / "forecast_scorecard.csv")
     shadow = _load(prosp / "forecast_scorecard_shadow.csv")
     pairs = sf._pairs(champ, shadow)
     decision = promotion.decide(pairs)
+    for table, entry in decision["by_table"].items():
+        entry["candidate"] = _candidate_identity(pairs, table)
     out = ROOT / "reports" / "governance" / "promotion_decision.json"
     out.write_text(json.dumps(decision, ensure_ascii=False, indent=2) + "\n")
     if decision["by_table"]:

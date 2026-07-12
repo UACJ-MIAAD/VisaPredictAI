@@ -19,6 +19,7 @@
           "agg": "median"
         },
         "holm_p": 0.00042,
+        "holdout_pass": true,
         "promotable": true
       },
       {
@@ -35,6 +36,7 @@
           "agg": "median"
         },
         "holm_p": 1.0,
+        "holdout_pass": false,
         "promotable": false
       },
       {
@@ -52,6 +54,7 @@
           "agg": "median"
         },
         "holm_p": 1.0,
+        "holdout_pass": false,
         "promotable": false
       },
       {
@@ -68,6 +71,7 @@
           "agg": "median"
         },
         "holm_p": 1.0,
+        "holdout_pass": false,
         "promotable": false
       },
       {
@@ -84,6 +88,7 @@
           "agg": "median"
         },
         "holm_p": 0.15342,
+        "holdout_pass": false,
         "promotable": false
       },
       {
@@ -103,6 +108,7 @@
           "agg": "median"
         },
         "holm_p": 1.0,
+        "holdout_pass": false,
         "promotable": false
       },
       {
@@ -121,9 +127,28 @@
           "agg": "mean"
         },
         "holm_p": 1.0,
+        "holdout_pass": false,
         "promotable": false
       }
     ],
+    "gate_scope": "retrospective-holdout-h1 (ver docs/PROMOTION_POLICY.md)",
+    "holdout_winner": {
+      "challenger": "naive1",
+      "mean": 0.1046,
+      "median": 0.0808,
+      "n_series": 15,
+      "mean_margin_vs_champion": 0.016,
+      "wilcoxon_p": 6e-05,
+      "recipe": {
+        "models": [
+          "naive1"
+        ],
+        "agg": "median"
+      },
+      "holm_p": 0.00042,
+      "holdout_pass": true,
+      "promotable": true
+    },
     "promote": {
       "challenger": "naive1",
       "mean": 0.1046,
@@ -138,6 +163,7 @@
         "agg": "median"
       },
       "holm_p": 0.00042,
+      "holdout_pass": true,
       "promotable": true
     }
   },
@@ -161,6 +187,7 @@
           "agg": "median"
         },
         "holm_p": 0.0117,
+        "holdout_pass": true,
         "promotable": true
       },
       {
@@ -179,6 +206,7 @@
           "agg": "median"
         },
         "holm_p": 0.0117,
+        "holdout_pass": true,
         "promotable": true
       },
       {
@@ -195,6 +223,7 @@
           "agg": "median"
         },
         "holm_p": 0.52344,
+        "holdout_pass": false,
         "promotable": false
       },
       {
@@ -212,6 +241,7 @@
           "agg": "median"
         },
         "holm_p": 0.52344,
+        "holdout_pass": false,
         "promotable": false
       },
       {
@@ -228,6 +258,7 @@
           "agg": "median"
         },
         "holm_p": 0.52344,
+        "holdout_pass": false,
         "promotable": false
       },
       {
@@ -244,9 +275,28 @@
           "agg": "median"
         },
         "holm_p": 0.52344,
+        "holdout_pass": false,
         "promotable": false
       }
     ],
+    "gate_scope": "retrospective-holdout-h1 (ver docs/PROMOTION_POLICY.md)",
+    "holdout_winner": {
+      "challenger": "naive1",
+      "mean": 0.0773,
+      "median": 0.0694,
+      "n_series": 10,
+      "mean_margin_vs_champion": 0.0223,
+      "wilcoxon_p": 0.00195,
+      "recipe": {
+        "models": [
+          "naive1"
+        ],
+        "agg": "median"
+      },
+      "holm_p": 0.0117,
+      "holdout_pass": true,
+      "promotable": true
+    },
     "promote": {
       "challenger": "naive1",
       "mean": 0.0773,
@@ -261,6 +311,7 @@
         "agg": "median"
       },
       "holm_p": 0.0117,
+      "holdout_pass": true,
       "promotable": true
     }
   }

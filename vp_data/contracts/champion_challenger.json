@@ -1,0 +1,9 @@
+{
+  "contract_version": 1,
+  "artifact": "reports/governance/champion_challenger.json",
+  "kind": "json",
+  "required_keys": {
+    "FAD": "dict",
+    "DFF": "dict"
+  }
+}

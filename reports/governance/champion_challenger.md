@@ -2,7 +2,7 @@
 
 ## FAD — campeón `median(theta+ets+sarima)` (MASE media 0.1206 · mediana 0.1075 · CRPS 32.13 (informativo))
 
-| retador | MASE media | margen vs campeón | Wilcoxon p | Holm p | ¿promovible? |
+| retador | MASE media | margen vs campeón | Wilcoxon p | Holm p | ¿apto hold-out h=1? |
 |---|---|---|---|---|---|
 | `naive1` | 0.1046 | +0.0160 | 6e-05 | 0.00042 | **SÍ** |
 | `ets` | 0.1192 | +0.0014 | 0.4212 | 1.0 | no |
@@ -16,7 +16,7 @@
 
 ## DFF — campeón `sarima` (MASE media 0.0996 · mediana 0.1076 · CRPS 31.33 (informativo))
 
-| retador | MASE media | margen vs campeón | Wilcoxon p | Holm p | ¿promovible? |
+| retador | MASE media | margen vs campeón | Wilcoxon p | Holm p | ¿apto hold-out h=1? |
 |---|---|---|---|---|---|
 | `naive1` | 0.0773 | +0.0223 | 0.00195 | 0.0117 | **SÍ** |
 | `median(sarima+ets+theta)` | 0.0856 | +0.0140 | 0.00195 | 0.0117 | **SÍ** |
@@ -27,6 +27,8 @@
 
 **Veredicto:** naive1.
 
-> Margen >0 = el retador mejora la MASE media. La promoción exige Holm-significancia
-> + margen material. La confirmación PROSPECTIVA (ledger congelado) requiere despliegue
-> en sombra del retador; hoy el ledger solo califica al campeón desplegado.
+> Margen >0 = el retador mejora la MASE media. `Apto hold-out h=1` = Holm-significativo
+> + margen material en el hold-out retrospectivo — NO autoriza producción. La
+> autorización la da el gate prospectivo pre-registrado (docs/PROMOTION_POLICY.md,
+> decisión en reports/governance/promotion_decision.json) sobre pares live
+> campeón-vs-sombra, aplicada por un humano con --promote.

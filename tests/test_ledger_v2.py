@@ -170,6 +170,20 @@ def test_validate_is_fail_closed_on_null_seals() -> None:
     assert any("row_hash que no re-deriva" in p for p in problems)  # el contenido mutado se caza igual
 
 
+def test_completeness_problems_fail_closed() -> None:
+    """A-05 (auditoria ciega): got==0 con expected>0 era invisible ('if got and expected');
+    la completitud ahora es por SET de claves del catalogo vigente."""
+    exp = {"mexico/F1/FAD", "india/F1/FAD", "china/F1/FAD"}
+    assert ledger.completeness_problems(exp, exp, label="FAD") == []
+    assert ledger.completeness_problems(set(), set(), label="FAD") == []  # sin senal, sin gate
+    zero = ledger.completeness_problems(exp, set(), label="FAD")
+    assert zero and "tabla completa ausente" in zero[0]
+    partial = ledger.completeness_problems(exp, {"mexico/F1/FAD"}, label="FAD")
+    assert partial and "<90%" in partial[0]
+    drift = ledger.completeness_problems(exp, exp | {"belice/F9/FAD"}, label="FAD")
+    assert drift and "FUERA del cat" in drift[0]
+
+
 def test_validate_clean_ledger_passes(tmp_path) -> None:
     path = tmp_path / "forecast_log.csv"
     ledger.append(path, _stamp([dict(ROW), {**ROW, "date": "2026-09-01", "h": 2}]))

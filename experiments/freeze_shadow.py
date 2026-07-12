@@ -217,20 +217,25 @@ def main() -> int:
     if not all_rows:
         log.info("sin filas sombra este run (sin retador distinto o todas las series fallaron)")
         return 0
-    # C2-style exit gate PER TABLE (audit: the global gate compared one table's
-    # series count against BOTH tables' expectation and aborted valid freezes).
+    # A-05 (auditoria ciega 11-jul): gate por tabla FAIL-CLOSED por set de claves — el
+    # `if got and expected` anterior dejaba pasar got==0 (una tabla completa ausente se
+    # archivaba callada si la otra producia filas). Ahora una tabla ausente o parcial
+    # ABORTA el freeze sombra entero: una añada sombra incompleta congelada contamina la
+    # evidencia de promocion para siempre (el ledger es inmutable).
     if WEB_META.exists():
         meta_series = json.loads(WEB_META.read_text()).get("series", {})
+        problems: list[str] = []
         for table in config.TABLES:
-            expected = sum(1 for k in meta_series if k.endswith(f"/{table}"))
-            got = len({(r["country"], r["category"]) for r in all_rows if r["table"] == table})
-            if got and expected and got < 0.9 * expected:
-                log.warning("[%s] solo %d/%d series sombra (<90%%) — se descarta la tabla", table, got, expected)
-                all_rows = [r for r in all_rows if r["table"] != table]
-    if not all_rows:
-        log.info("todas las tablas descartadas por el gate — nada que archivar")
-        return 0
+            expected = {k for k in meta_series if k.endswith(f"/{table}")}
+            got = {f"{r['country']}/{r['category']}/{table}" for r in all_rows if r["table"] == table}
+            problems += ledger.completeness_problems(expected, got, label=f"sombra {table}")
+        if problems:
+            raise SystemExit("ABORT (completitud sombra fail-closed): " + " | ".join(problems))
     path = append_shadow(all_rows)
+    # A-05: validar el ledger PERSISTIDO tras el append — violacion del contrato v2 aborta.
+    violations = ledger.validate(pd.read_csv(path))
+    if violations:
+        raise SystemExit("ABORT (ledger sombra viola el contrato v2 tras el append): " + "; ".join(violations))
     log.info("shadow ledger -> %s (+%d filas de %d series)", path, len(all_rows), n_series)
     return 0
 

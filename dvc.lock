@@ -175,6 +175,10 @@ stages:
       hash: md5
       md5: be80710533d58afaafea5e194425b44a
       size: 12908
+    - path: reports/governance/champion_challenger.json
+      hash: md5
+      md5: 8ea7749b3a72c18d1b49110ccaab792a
+      size: 7341
     - path: reports/governance/promotion_decision.json
       hash: md5
       md5: 92b55d847f5c1b2899583b69b5e5a324

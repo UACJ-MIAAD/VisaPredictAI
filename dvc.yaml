@@ -85,6 +85,10 @@ stages:
       - reports/prospective/forecast_scorecard_meta.json
       # H2: el namespace "prospective" de la vista v2 lee los pares live del gate A4.
       - reports/governance/promotion_decision.json
+      # A-04 (auditoria ciega 11-jul): dep NO declarada — las macros champion/CRPS se
+      # derivan de este artefacto; sin declararlo, regenerar el veredicto no forzaba
+      # la re-derivacion de key_facts.
+      - reports/governance/champion_challenger.json
       - reports/eval/auto_arima_baseline.csv
       - reports/eval/significance_summary.json
       - reports/eval/tuned_params.json

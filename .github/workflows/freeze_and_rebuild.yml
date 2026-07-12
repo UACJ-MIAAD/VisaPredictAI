@@ -340,12 +340,9 @@ jobs:
         fi
         python -c "import json;f=json.load(open('reports/eda/eda_facts.json'));p=f['panel'];print(f\"EDA {f['vintage']}: {p['n_series_structural']} series censadas, {p['n_series_evaluable']} evaluables, reporte OK\")" > /tmp/eda.txt
         python -c "import json;f=json.load(open('reports/fe/fe_facts.json'));fs=f['feature_selection'];print(f\"FE {f['vintage']}: {len(f['fe_decisions'])}+{len(f['cleaning_decisions'])} decisiones, selección {fs['n_features_in']}->{fs['n_selected']}, reportes ES+EN OK\")" > /tmp/fe.txt
-        # 4h (B1+B3). Contratos primero (columnas/llaves de cada artefacto + corte de
-        # añada única: un corte con añadas mezcladas NO se publica) y luego el
-        # manifiesto de release: con TODOS los artefactos del corte finales, emite
-        # release_id + SHA-256 por artefacto. Cualquier falla aborta el bloque.
-        python tools/check_contracts.py
-        python experiments/build_release_manifest.py
+        # 4h se movio al paso BLOQUEANTE "Release gate" (A-01): el manifiesto ya no se
+        # emite dentro de este bloque opcional — un fallo aqui deja al gate de release
+        # sin anada fresca y ES el gate quien decide (contratos de anada unica).
         # C1: eda_facts/fe_facts son ahora stages DVC — registrar sus hashes frescos en
         # dvc.lock EN EL MISMO commit o el gate E2 de CI detona en el siguiente push.
         dvc commit -f eda_facts fe_facts
@@ -363,19 +360,78 @@ jobs:
           echo "pushed=true" >> "$GITHUB_OUTPUT"
         fi
 
-    - name: "Run CI on the cron's commits (GITHUB_TOKEN pushes never fire on-push)"
-      # L2 (ideal): la mitad "correr CI de verdad". workflow_dispatch es la excepción
-      # documentada a la regla anti-recursión, así que este disparo SÍ crea el run.
-      if: always() && (steps.run.outputs.pushed == 'true' || steps.model.outputs.pushed == 'true' || steps.eda.outputs.pushed == 'true')
+    - name: "Release gate (A-01): manifest + contracts + consistency, BLOCKING"
+      id: release
+      # El corte publicable se sella AQUI, fuera de todo bloque opcional. Politica
+      # explicita ante EDA rojo: sus artefactos quedan del mes anterior => el gate de
+      # contratos (anada unica) FALLA => no hay release nuevo ni deploy este run; jamas
+      # se reutiliza en silencio el manifiesto previo. El arbol se restaura al estado
+      # COMMITEADO antes de hashear (un artefacto parcial en disco que nunca se comiteo
+      # no debe entrar al manifiesto).
+      if: steps.run.outputs.rebuilt == 'true' && steps.model.outcome == 'success'
+      run: |
+        set -eo pipefail
+        git checkout -- data reports dvc.lock 2>/dev/null || true
+        git clean -fdq reports data 2>/dev/null || true
+        {
+          python tools/check_contracts.py &&
+          python tools/check_consistency.py &&
+          python experiments/build_release_manifest.py
+        } > /tmp/release_gate.txt 2>&1 || {
+          tail -5 /tmp/release_gate.txt
+          echo "release gate ROJO: sin release nuevo ni deploy este run (ver log)" | tee -a /tmp/release_gate.txt
+          exit 1
+        }
+        tail -2 /tmp/release_gate.txt
+        git config --local user.email "168046724+jrebull@users.noreply.github.com"
+        git config --local user.name "Javier Rebull"
+        python tools/cron_publish.py --stage release --marker /tmp/publish_release.txt
+        if git diff --cached --quiet; then
+          echo "Manifiesto sin cambios -- nada que comitear."
+        else
+          git commit -m "Seal the release manifest for this cut"
+          git pull --rebase origin main
+          git push
+        fi
+        echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        python -c "import json;m=json.load(open('reports/release/release_manifest.json'));print('release gate OK:',m['release_id'])" | tee /tmp/release_gate.txt
+
+    - name: "Wait for CI GREEN on the exact SHA before any deploy (A-01)"
+      id: ciwait
+      # Antes: el CI se disparaba fire-and-forget y el hook de Netlify corria sin
+      # conocer su veredicto — un CI rojo llegaba tarde. Ahora el deploy espera el run
+      # de ci.yml sobre el SHA EXACTO sellado por el release gate; timeout o fallo
+      # bloquean el hook (fail-closed; el sitio conserva el deploy anterior).
+      if: steps.run.outputs.rebuilt == 'true' && steps.release.outcome == 'success'
       env:
         GH_TOKEN: ${{ github.token }}
-      run: gh workflow run ci.yml --ref main || echo "::warning::no se pudo disparar CI sobre el commit de datos"
+      run: |
+        set -eo pipefail
+        want="${{ steps.release.outputs.sha }}"
+        gh workflow run ci.yml --ref main
+        echo "esperando el run de ci.yml sobre $want…"
+        run_id=""
+        for i in $(seq 1 20); do
+          run_id=$(gh run list --workflow=ci.yml --limit 10 --json databaseId,headSha \
+            -q ".[] | select(.headSha == \"$want\") | .databaseId" | head -1)
+          [ -n "$run_id" ] && break
+          sleep 15
+        done
+        if [ -z "$run_id" ]; then
+          echo "CI: no aparecio un run para $want (¿main avanzo en paralelo?) — SIN deploy (fail-closed)" | tee /tmp/ciwait.txt
+          exit 1
+        fi
+        if gh run watch "$run_id" --exit-status --interval 30; then
+          echo "CI VERDE sobre $want (run $run_id)" | tee /tmp/ciwait.txt
+        else
+          echo "CI ROJO/timeout sobre $want (run $run_id) — SIN deploy (fail-closed)" | tee /tmp/ciwait.txt
+          exit 1
+        fi
 
     - name: Redeploy the website on a rebuild (Netlify build hook)
-      # L4: keyed on REBUILT (covers the stale self-healing path, which used to
-      # leave the site a month behind) and on the modeling block having produced
-      # fresh forecasts. The web build re-fetches panel + forecasts from this repo.
-      if: steps.run.outputs.rebuilt == 'true' && steps.model.outcome == 'success'
+      # L4 + A-01: keyed on REBUILT, modeling OK, release gate sellado y CI VERDE
+      # sobre el SHA exacto. The web build re-fetches panel + forecasts from this repo.
+      if: steps.run.outputs.rebuilt == 'true' && steps.model.outcome == 'success' && steps.release.outcome == 'success' && steps.ciwait.outcome == 'success'
       env:
         HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
       run: |
@@ -387,11 +443,12 @@ jobs:
           echo "y agrégalo como secret del repo: NETLIFY_BUILD_HOOK."
         fi
 
-    - name: "Verify the deploy actually served this run's release (C4)"
-      # No bloqueante: el deploy es de Netlify, no de este job — pero su RESULTADO ya no
-      # es invisible: se sondea /data/release-state.json (B2) hasta ver el release_id de
-      # ESTE corte servido con status fresh, y el veredicto viaja en el correo SES.
-      if: steps.run.outputs.rebuilt == 'true' && steps.model.outcome == 'success'
+    - name: "Verify the deploy actually served this run's release (C4/A-01)"
+      # No bloqueante (el deploy es de Netlify, no de este job) pero HONESTO: compara el
+      # release_id content-addressed que ESTE run sello en el release gate (paso
+      # bloqueante — ya no puede ser el manifiesto del mes anterior) y reporta
+      # esperado-vs-visto al correo SES.
+      if: steps.run.outputs.rebuilt == 'true' && steps.release.outcome == 'success' && steps.ciwait.outcome == 'success'
       continue-on-error: true
       run: |
         want=$(python -c "import json;print(json.load(open('reports/release/release_manifest.json'))['release_id'])")
@@ -459,8 +516,17 @@ jobs:
         # C4: resumen de publicación por allowlist (archivos publicados + RECHAZADOS) —
         # un artefacto extraño en reports/ ahora se ve en la bandeja, no viaja callado.
         PUBLISH_LINE="n/d (sin rebuild este run)"
-        if [ -f /tmp/publish_model.txt ] || [ -f /tmp/publish_eda.txt ]; then
-          PUBLISH_LINE=$(cat /tmp/publish_model.txt /tmp/publish_eda.txt 2>/dev/null | tr -d '"\\' | paste -sd' | ' -)
+        if [ -f /tmp/publish_model.txt ] || [ -f /tmp/publish_eda.txt ] || [ -f /tmp/publish_release.txt ]; then
+          PUBLISH_LINE=$(cat /tmp/publish_model.txt /tmp/publish_eda.txt /tmp/publish_release.txt 2>/dev/null | tr -d '"\\' | paste -sd' | ' -)
+        fi
+        # A-01: veredictos del release gate bloqueante y de la espera del CI exacto.
+        RELEASE_LINE="n/d (sin rebuild este run)"
+        if [ -f /tmp/release_gate.txt ]; then
+          RELEASE_LINE=$(tail -1 /tmp/release_gate.txt | tr -d '"\\')
+        fi
+        CIWAIT_LINE="n/d (sin rebuild este run)"
+        if [ -f /tmp/ciwait.txt ]; then
+          CIWAIT_LINE=$(tr -d '"\\' < /tmp/ciwait.txt)
         fi
         DEPLOY_LINE="n/d (sin rebuild este run)"
         if [ -f /tmp/deploy.txt ]; then
@@ -476,7 +542,7 @@ jobs:
           "Destination": {"ToAddresses": ["al263483@alumnos.uacj.mx"]},
           "Content": {"Simple": {
             "Subject": {"Data": "VisaPredict | corrida $JOB_STATUS — $NEW boletín(es) nuevo(s)"},
-            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nEDA vivo: $EDA_LINE\nFE vivo: $FE_LINE\nCampeon-retador: $CHAMPION_LINE\nSombra: $SHADOW_LINE\nPublicacion (allowlist): $PUBLISH_LINE\nDeploy verificado: $DEPLOY_LINE\nTamanos (I3): $SIZES_LINE\nLogs: $RUN_URL"}}
+            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nEDA vivo: $EDA_LINE\nFE vivo: $FE_LINE\nCampeon-retador: $CHAMPION_LINE\nSombra: $SHADOW_LINE\nPublicacion (allowlist): $PUBLISH_LINE\nRelease gate (A-01): $RELEASE_LINE\nCI del SHA exacto: $CIWAIT_LINE\nDeploy verificado: $DEPLOY_LINE\nTamanos (I3): $SIZES_LINE\nLogs: $RUN_URL"}}
           }}
         }
         JSON

@@ -334,10 +334,12 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
     hits = _ledger_hits()
     all_rows: list[dict] = []
     all_meta: dict = {}
+    expected_keys: set[str] = set()  # A-05: el universo esperado ES el catalogo vigente
     for table in config.TABLES:
         for block in ("family", "employment"):
             cat = dataset.list_series(table=table, block=block, countries=config.PILOT_COUNTRIES)
             for r in cat.itertuples():
+                expected_keys.add(f"{r.country}/{r.category}/{table}")
                 out = _series_forecast(r.country, r.category, table, as_of, prod, pi_scales, aci_gamma, hits)
                 if out is None:
                     continue
@@ -346,21 +348,31 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
                 all_meta.update(meta)
                 log.info("✓ %s/%s/%s (%d series acumuladas)", table, r.country, r.category, len(all_meta))
 
-    # C2: gate de salida — un env roto a medias (dep faltante, BD vieja) produce una
-    # añada casi vacía vía los error-boundaries por serie. NO publicar, NO archivar:
-    # el ledger es inmutable (C3) y una añada parcial congelada lo contamina para siempre.
+    # C2 + A-05 (auditoria ciega 11-jul): gate de salida por TABLA y SET DE CLAVES contra
+    # el catalogo VIGENTE (antes: n_series del meta del run ANTERIOR con 10% de tolerancia
+    # global — una tabla completa ausente pasaba si la otra producia filas). Un env roto a
+    # medias NO publica ni archiva: el ledger es inmutable (C3).
     csv_path = REPORTS / "prospective" / "web_forecasts.csv"
     meta_path = REPORTS / "prospective" / "web_forecasts_meta.json"
-    expected = json.loads(meta_path.read_text())["n_series"] if meta_path.exists() else 0
-    if expected and len(all_meta) < 0.9 * expected:
-        raise SystemExit(
-            f"ABORT: solo {len(all_meta)} series pronosticadas (<90% de las {expected} del run previo) "
-            "— entorno roto a medias; no se publica ni se archiva la añada"
+    got_keys = set(all_meta)
+    problems: list[str] = []
+    for table in config.TABLES:
+        problems += ledger.completeness_problems(
+            {k for k in expected_keys if k.endswith(f"/{table}")},
+            {k for k in got_keys if k.endswith(f"/{table}")},
+            label=table,
         )
+    if problems:
+        raise SystemExit("ABORT (completitud fail-closed): " + " | ".join(problems))
 
     # A2: la añada se archiva con identidad de freeze — receta desplegada por tabla y
     # modo honesto (as_of explícito ⇒ backfill; en vivo, live solo si el target es futuro).
-    _append_log(all_rows, model_version={t: r.name for t, r in manifest.items()}, as_of=as_of)
+    log_path = _append_log(all_rows, model_version={t: r.name for t, r in manifest.items()}, as_of=as_of)
+    # A-05: validar el ledger PERSISTIDO inmediatamente tras el append — una violacion
+    # del contrato v2 (sello nulo, hash que no re-deriva, live imposible) impide publicar.
+    violations = ledger.validate(pd.read_csv(log_path))
+    if violations:
+        raise SystemExit("ABORT (ledger campeon viola el contrato v2 tras el append): " + "; ".join(violations))
     # La añada en vivo (as_of=None) es además la que sirve la web; el meta describe el
     # CSV vivo, así que un backfill histórico NO debe reescribirlo (C3).
     if as_of is None:

@@ -24,9 +24,14 @@ def test_model_stage_publishes_its_artifacts_and_rejects_strays() -> None:
     ]
     publish, reject = cp.partition(dirty, "model")
     assert "reports/prospective/forecast_log.csv" in publish
-    assert "dvc.lock" in publish and "reports/release/release_manifest.json" in publish
+    assert "dvc.lock" in publish
+    # A-01: el manifiesto tiene DUEÑO ÚNICO (stage release, paso bloqueante del cron) —
+    # las fases model/eda lo RECHAZAN a gritos en vez de publicar uno a medio sellar.
+    assert "reports/release/release_manifest.json" in reject
     assert "reports/notas_sueltas.md" in reject
     assert "reports/campaign/experimento_tmp.csv" in reject
+    publish_r, _ = cp.partition(dirty, "release")
+    assert publish_r == ["reports/release/release_manifest.json"]
 
 
 def test_data_stage_owns_the_cleaning_ledger() -> None:

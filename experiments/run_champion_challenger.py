@@ -114,7 +114,11 @@ def main() -> int:
                 continue
             # A4: la aptitud retrospectiva NO basta — el gate prospectivo pre-registrado
             # debe decir "promote" para esta tabla, o la promoción se rehúsa (fail closed).
-            ok, why = promotion.authorize(v.table, decision_path)
+            # A-02: la autorizacion se liga al candidato EXACTO — retador y campeon por
+            # nombre de receta; cualquier diferencia con la evidencia del gate la invalida.
+            ok, why = promotion.authorize(
+                v.table, decision_path, challenger=v.promote["challenger"], champion=v.champion
+            )
             if not ok:
                 print(f"  ✗ PROMOCIÓN REHUSADA [{v.table}] {v.promote['challenger']}: {why}")
                 continue

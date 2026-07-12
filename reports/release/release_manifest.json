@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "release_id": "2026-07-4c92ba93ce7d",
-  "generated_at": "2026-07-12T02:12:49+00:00",
+  "release_id": "2026-07-9ecd1fa69783",
+  "generated_at": "2026-07-12T04:16:04+00:00",
   "pipeline_run_id": "local",
-  "git_sha": "f68597e42919",
-  "worktree_dirty": false,
+  "git_sha": "4f1b276a9e51",
+  "worktree_dirty": true,
   "panel_vintage": "2026-07",
   "panel_hash_md5_12": "00115d2dd0b6",
   "champion_recipes": {
@@ -23,7 +23,7 @@
     "n_series_evaluable": 74,
     "n_months": 296
   },
-  "n_artifacts": 109,
+  "n_artifacts": 110,
   "missing_optional": [],
   "artifacts": [
     {
@@ -168,8 +168,8 @@
     },
     {
       "path": "reports/governance/champion_challenger.json",
-      "sha256": "1e8250947ba66a59321dbf5c9c9e0f378d239844ed9b5a10b55cd31f5b388dec",
-      "size": 5979,
+      "sha256": "364e1ae951a6274756c331a2c24c706fac265a1fd5ce2a0c893729dd33f3e7e3",
+      "size": 7341,
       "mime": "application/json",
       "criticality": "required"
     },
@@ -198,6 +198,13 @@
       "path": "vp_data/contracts/bulletins.json",
       "sha256": "a6883f0817d73cd791e4f62d9db3e64cdca3662201d2c52632276dd0e2539ceb",
       "size": 260,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
+      "path": "vp_data/contracts/champion_challenger.json",
+      "sha256": "8e67693a9aab730f7e12315ea76ae2db59de5e3e1429fce40eb3d755b105364d",
+      "size": 170,
       "mime": "application/json",
       "criticality": "required"
     },

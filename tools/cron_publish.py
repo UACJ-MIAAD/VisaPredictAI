@@ -38,7 +38,6 @@ ALLOWLIST: dict[str, tuple[str, ...]] = {
         "reports/prospective/",
         "reports/governance/",
         "reports/latex/key_facts.tex",
-        "reports/release/",
     ),
     "eda": (
         "dvc.lock",
@@ -46,8 +45,10 @@ ALLOWLIST: dict[str, tuple[str, ...]] = {
         "reports/fe/",
         "reports/latex/fe_facts.tex",
         "reports/latex/Figures/",
-        "reports/release/",
     ),
+    # A-01 (auditoria ciega 11-jul): el manifiesto de release se emite en su PROPIO paso
+    # BLOQUEANTE del cron (tras datos+modelo+EDA), nunca dentro del bloque opcional.
+    "release": ("reports/release/",),
 }
 # Fuera de estos árboles el cron no publica nada; lo sucio ahí ni se stagea ni se reporta
 # (p. ej. venvs locales) — el reporte de rechazados se limita al territorio publicable.

@@ -198,6 +198,31 @@ def append(path: Path, rows: list[dict], cols: list[str] | None = None) -> pd.Da
     return combined
 
 
+def completeness_problems(expected: set[str], got: set[str], *, label: str, min_frac: float = 0.9) -> list[str]:
+    """Completitud de una añada por SET DE CLAVES esperadas — fail-closed (A-05, auditoría
+    ciega 11-jul: ``if got and expected`` dejaba pasar got==0, y la completitud se medía
+    contra el meta del run ANTERIOR en vez del catálogo vigente).
+
+    Reglas: expected vacío = sin señal (no gate); got vacío = tabla completa ausente;
+    got < min_frac·expected = añada parcial; claves fuera del catálogo = deriva.
+    """
+    if not expected:
+        return []
+    problems: list[str] = []
+    missing = sorted(expected - got)
+    extra = sorted(got - expected)
+    if not got:
+        problems.append(f"{label}: 0 de {len(expected)} claves esperadas — tabla completa ausente")
+    elif len(got & expected) < min_frac * len(expected):
+        problems.append(
+            f"{label}: {len(got & expected)}/{len(expected)} claves esperadas (<{min_frac:.0%}); "
+            f"faltan p.ej. {missing[:5]}"
+        )
+    if extra:
+        problems.append(f"{label}: {len(extra)} claves FUERA del catálogo vigente (deriva): p.ej. {extra[:5]}")
+    return problems
+
+
 def validate(df: pd.DataFrame) -> list[str]:
     """Contrato del ledger v2 — regresa violaciones (lista vacía = OK).
 

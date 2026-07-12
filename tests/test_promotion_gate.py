@@ -131,22 +131,93 @@ def test_dedup_collapses_world_replicas() -> None:
     assert "mexico" not in kept  # réplica exacta del corte mundial → colapsa
 
 
-def test_authorize_fails_closed(tmp_path) -> None:
+def _decision_file(tmp_path, *, policy=None, decision="promote", candidate=None):
+    """Decision file bien formada por default; cada test muta UN campo (A-02)."""
+    cand = {
+        "champion": "theta+ets+sarima",
+        "challenger": "naive1",
+        "release_id": "2026-07-feedcafe0000",
+        "vintages": ["2026-08", "2026-09", "2026-10"],
+        "decided_at": "2026-07-12T00:00:00+00:00",
+    }
+    if candidate is not None:
+        cand = {**cand, **candidate}
     path = tmp_path / "promotion_decision.json"
-    ok, why = promotion.authorize("FAD", path)
+    path.write_text(
+        json.dumps(
+            {
+                "policy": policy if policy is not None else promotion.POLICY,
+                "by_table": {"FAD": {"decision": decision, "reasons": [], "candidate": cand}},
+            }
+        )
+    )
+    return path
+
+
+def _pin_release(monkeypatch, value="2026-07-feedcafe0000"):
+    from vp_model import ledger
+
+    monkeypatch.setattr(ledger, "current_release_id", lambda: value)
+
+
+AUTH = dict(challenger="naive1", champion="theta+ets+sarima")
+
+
+def test_authorize_fails_closed(tmp_path, monkeypatch) -> None:
+    _pin_release(monkeypatch)
+    ok, why = promotion.authorize("FAD", tmp_path / "nope.json", **AUTH)
     assert not ok and "fail closed" in why
-    path.write_text(
-        json.dumps({"policy": {"policy_version": "1.0"}, "by_table": {"FAD": {"decision": "retain", "reasons": ["x"]}}})
-    )
-    ok, _ = promotion.authorize("FAD", path)
-    assert not ok
-    ok, _ = promotion.authorize("DFF", path)  # tabla no cubierta
-    assert not ok
-    path.write_text(
-        json.dumps({"policy": {"policy_version": "1.0"}, "by_table": {"FAD": {"decision": "promote", "reasons": []}}})
-    )
-    ok, why = promotion.authorize("FAD", path)
+    path = _decision_file(tmp_path, decision="retain")
+    assert not promotion.authorize("FAD", path, **AUTH)[0]
+    assert not promotion.authorize("DFF", path, **AUTH)[0]  # tabla no cubierta
+    ok, why = promotion.authorize("FAD", _decision_file(tmp_path), **AUTH)
     assert ok and "pre-registrada" in why
+
+
+def test_authorize_rejects_stale_policy_version(tmp_path, monkeypatch) -> None:
+    """Reproduccion EXACTA del auditor (A-02): policy_version '0.0-stale' + promote
+    era aceptada. Ahora la politica integra debe coincidir con la vigente."""
+    _pin_release(monkeypatch)
+    path = _decision_file(tmp_path, policy={"policy_version": "0.0-stale"})
+    ok, why = promotion.authorize("FAD", path, **AUTH)
+    assert not ok and "0.0-stale" in why
+
+
+def test_authorize_rejects_edited_policy_param(tmp_path, monkeypatch) -> None:
+    _pin_release(monkeypatch)
+    tampered = {**promotion.POLICY, "material_margin": 0.0}  # misma version, umbral relajado
+    ok, why = promotion.authorize("FAD", _decision_file(tmp_path, policy=tampered), **AUTH)
+    assert not ok and "pol" in why.lower()
+
+
+def test_authorize_rejects_foreign_challenger(tmp_path, monkeypatch) -> None:
+    """El shadow_recipe ajeno del auditor: la decision NO es cheque al portador."""
+    _pin_release(monkeypatch)
+    path = _decision_file(tmp_path)
+    ok, why = promotion.authorize("FAD", path, challenger="deep_forgery", champion="theta+ets+sarima")
+    assert not ok and "deep_forgery" in why
+
+
+def test_authorize_rejects_changed_champion(tmp_path, monkeypatch) -> None:
+    _pin_release(monkeypatch)
+    ok, why = promotion.authorize("FAD", _decision_file(tmp_path), challenger="naive1", champion="otro")
+    assert not ok and "campe" in why.lower()
+
+
+def test_authorize_rejects_replayed_decision_from_old_release(tmp_path, monkeypatch) -> None:
+    _pin_release(monkeypatch, "2026-08-000000000000")  # release nuevo tras la decision
+    ok, why = promotion.authorize("FAD", _decision_file(tmp_path), **AUTH)
+    assert not ok and "release" in why
+
+
+def test_authorize_rejects_pre_a02_decision_without_candidate(tmp_path, monkeypatch) -> None:
+    _pin_release(monkeypatch)
+    path = tmp_path / "promotion_decision.json"
+    path.write_text(
+        json.dumps({"policy": promotion.POLICY, "by_table": {"FAD": {"decision": "promote", "reasons": []}}})
+    )
+    ok, why = promotion.authorize("FAD", path, **AUTH)
+    assert not ok and "candidato" in why
 
 
 def test_policy_is_preregistered_and_floors_positive() -> None:

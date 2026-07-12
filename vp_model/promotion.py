@@ -218,20 +218,52 @@ def _decide_table(tl: pd.DataFrame, policy: dict) -> dict:
     return res
 
 
-def authorize(table: str, decision_path: Path) -> tuple[bool, str]:
-    """¿La decisión prospectiva vigente autoriza promover esta tabla? Fail closed.
+def authorize(table: str, decision_path: Path, *, challenger: str, champion: str) -> tuple[bool, str]:
+    """¿La decisión prospectiva vigente autoriza promover ESTE candidato? Fail closed.
 
-    La usa ``run_champion_challenger.py --promote``: sin archivo de decisión o con
-    cualquier decisión distinta de ``promote``, la promoción se rehúsa.
+    A-02 (auditoría ciega 11-jul): una decisión ``promote`` NO es un cheque al portador.
+    La autorización se liga a la identidad COMPLETA evaluada: política íntegra (no solo
+    la versión), release vigente al decidir, campeón y retador exactos. Cualquier
+    diferencia — política editada, release nuevo, otro retador, campeón cambiado o una
+    decisión de formato viejo sin candidato — invalida la decisión y exige re-correr el
+    gate. La reproducción del auditor (política ``0.0-stale`` + retador ajeno) muere aquí.
     """
     if not decision_path.exists():
         return False, f"sin {decision_path.name} — corre experiments/run_promotion_gate.py primero (fail closed)"
     data = json.loads(decision_path.read_text())
+    stored_policy = data.get("policy", {})
+    if json.dumps(stored_policy, sort_keys=True) != json.dumps(POLICY, sort_keys=True):
+        return False, (
+            f"la política de la decisión (v{stored_policy.get('policy_version')}) NO es la política "
+            f"vigente (v{POLICY['policy_version']}) — decisión inválida; re-corre el gate (fail closed)"
+        )
     entry = data.get("by_table", {}).get(table)
     if not entry:
         return False, f"la decisión vigente no cubre la tabla {table} (fail closed)"
     if entry.get("decision") != "promote":
         return False, f"decisión prospectiva vigente = {entry.get('decision')!r}: {'; '.join(entry.get('reasons', []))}"
-    return True, "decisión prospectiva = promote (política pre-registrada v" + str(
-        data.get("policy", {}).get("policy_version")
-    ) + ")"
+    cand = entry.get("candidate")
+    if not cand:
+        return False, "decisión sin identidad de candidato (formato pre-A-02) — re-corre el gate (fail closed)"
+    from vp_model import ledger
+
+    current_release = ledger.current_release_id()
+    if cand.get("release_id") != current_release:
+        return False, (
+            f"la decisión se tomó bajo el release {cand.get('release_id')!r} y el vigente es "
+            f"{current_release!r} — evidencia de otro corte; re-corre el gate (fail closed)"
+        )
+    if cand.get("challenger") != challenger:
+        return False, (
+            f"el retador a promover ({challenger!r}) NO es el que ganó la evidencia prospectiva "
+            f"({cand.get('challenger')!r}) — la decisión no lo autoriza (fail closed)"
+        )
+    if cand.get("champion") != champion:
+        return False, (
+            f"el campeón actual ({champion!r}) ya no es el evaluado por el gate "
+            f"({cand.get('champion')!r}) — evidencia caduca; re-corre el gate (fail closed)"
+        )
+    return True, (
+        f"decisión prospectiva = promote para {challenger!r} vs {champion!r} bajo release "
+        f"{current_release} (política pre-registrada v{POLICY['policy_version']})"
+    )
