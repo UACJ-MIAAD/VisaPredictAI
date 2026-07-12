@@ -69,7 +69,9 @@ done
 echo ">>> F2 ensembles tracked $(date)"
 $ANTE experiments/run_ensembles.py --mlflow || true
 
-# ---------- TODO MACHIN: MLflow + DVC->S3 + git ----------
-echo ">>> sync_all (MLflow + DVC->S3 + git) $(date)"
-bash experiments/sync_all.sh "campaña: MLflow + DVC->S3 ($(date +%Y-%m-%d))" || true
+# ---------- MLflow + DVC re-hash LOCAL (NO publica; auditoría 12-jul-2026) ----------
+# sync_all sin --publish: sincroniza MLflow y re-hashea con dvc add, pero NO hace
+# git push / dvc push. Publicar es un paso humano posterior a la validación.
+echo ">>> sync_all LOCAL (MLflow + dvc add, sin push) $(date)"
+bash experiments/sync_all.sh "campaña: MLflow + DVC local ($(date +%Y-%m-%d))" || true
 echo "=== CAMPAÑA termina $(date) ==="
