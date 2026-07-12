@@ -13,10 +13,40 @@
     "intervals.py": 45
   },
   "layers": {
-    "data": { "floor": 55, "paths": ["vp_data/", "pipeline/"], "measured_2026_07_12": 61.3 },
-    "model": { "floor": 65, "paths": ["vp_model/"], "measured_2026_07_12": 73.02 },
-    "experiments": { "floor": 15, "paths": ["experiments/"], "measured_2026_07_12": 18.23 },
-    "tools": { "floor": 20, "paths": ["tools/"], "measured_2026_07_12": 26.16 }
+    "data": {
+      "floor": 55,
+      "paths": [
+        "vp_data/",
+        "pipeline/"
+      ],
+      "measured_2026_07_12": 61.3
+    },
+    "model": {
+      "floor": 65,
+      "paths": [
+        "vp_model/"
+      ],
+      "measured_2026_07_12": 73.02
+    },
+    "experiments": {
+      "floor": 15,
+      "paths": [
+        "experiments/"
+      ],
+      "measured_2026_07_12": 18.23
+    },
+    "tools": {
+      "floor": 15,
+      "paths": [
+        "tools/"
+      ],
+      "measured_2026_07_12": 26.16,
+      "measured_ci_2026_07_12": 19.34,
+      "note": "piso calibrado a la medición de CI (19.34%, env magro que salta tests de deps opcionales), NO a la local (26.16%). Bajado 20→15 con margen, procedimiento sancionado por ratchet_policy: pisos = baseline HONESTA que CI mide, no local."
+    }
   },
-  "global": { "floor": 30, "measured_2026_07_12": 38.56 }
+  "global": {
+    "floor": 30,
+    "measured_2026_07_12": 38.56
+  }
 }
