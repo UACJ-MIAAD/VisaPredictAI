@@ -13,6 +13,14 @@ on:
       - "reports/paper_micai/**"
       - "tools/check_latex_log.sh"
       - ".github/workflows/latex.yml"
+  # Auditoria 11-jul: el gate tambien debe correr en PRs que toquen los .tex,
+  # no solo tras el merge a main.
+  pull_request:
+    paths:
+      - "reports/latex/**"
+      - "reports/paper_micai/**"
+      - "tools/check_latex_log.sh"
+      - ".github/workflows/latex.yml"
   workflow_dispatch:
 
 permissions:
@@ -25,7 +33,10 @@ concurrency:
 jobs:
   compile:
     runs-on: ubuntu-latest
-    container: texlive/texlive:latest
+    # Fijada por digest (auditoria 11-jul: ':latest' NO es una imagen fijada --
+    # deriva callada de TeX Live rompe la reproducibilidad del gate). Actualizar el
+    # digest = PR deliberado con el gate verde encima.
+    container: texlive/texlive@sha256:20fa06486e76ebc91b93422153e22d8bca7d4e5366f4baf11693feea47d7ecde
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5

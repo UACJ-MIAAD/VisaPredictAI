@@ -1,6 +1,6 @@
 {
   "policy": {
-    "policy_version": "1.0",
+    "policy_version": "1.0.1",
     "preregistered_at": "2026-07-11",
     "preregistered_with_zero_live_pairs": true,
     "modes_allowed": [

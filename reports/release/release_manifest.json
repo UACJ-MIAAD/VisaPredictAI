@@ -1,9 +1,10 @@
 {
   "schema_version": 1,
-  "release_id": "2026-07-3f5ad5e1eaaa",
-  "generated_at": "2026-07-11T20:44:58+00:00",
+  "release_id": "2026-07-8326b2a6cdbc",
+  "generated_at": "2026-07-12T01:22:50+00:00",
   "pipeline_run_id": "local",
-  "git_sha": "dc6b76537333-dirty",
+  "git_sha": "9d91ab8f9fc0",
+  "worktree_dirty": true,
   "panel_vintage": "2026-07",
   "panel_hash_md5_12": "00115d2dd0b6",
   "champion_recipes": {
@@ -83,15 +84,15 @@
     },
     {
       "path": "reports/prospective/forecast_log.csv",
-      "sha256": "8c70ecae137e22d8ba6f18d76cbe9a3ed33377e5470e624126e0c8c244e636b2",
-      "size": 651869,
+      "sha256": "63a55badc83bbc734b44be848a7d9a298355df76d56b867190a88b29dd6872da",
+      "size": 706634,
       "mime": "text/csv",
       "criticality": "required"
     },
     {
       "path": "reports/prospective/forecast_log_shadow.csv",
-      "sha256": "8d867cc3cf6c888e97f723ba3bfae6d55deebae54a115edc4c66f46ab3c36274",
-      "size": 206259,
+      "sha256": "6e3d89d718fb722a647ac33c93c01fa68916054780f13c34c2ca8b465b736fe8",
+      "size": 221400,
       "mime": "text/csv",
       "criticality": "required"
     },
@@ -174,8 +175,8 @@
     },
     {
       "path": "reports/governance/promotion_decision.json",
-      "sha256": "741ff85ee9327539572febe9e2203f99377a39a8082fb0c0da77ac92e0444915",
-      "size": 1027,
+      "sha256": "261847166d658b8e161bac72f4191436fb8646b7f194a5e479c6a115a81f78d9",
+      "size": 1029,
       "mime": "application/json",
       "criticality": "required"
     },

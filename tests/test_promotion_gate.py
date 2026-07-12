@@ -89,6 +89,19 @@ def test_significant_regression_rejects() -> None:
     assert out["by_table"]["FAD"]["decision"] == "reject"
 
 
+def test_reject_requires_holm_adjusted_worse() -> None:
+    """Auditoria 11-jul: el rechazo evaluaba p_worse CRUDO en multiples bandas (falso
+    positivo familiar posible). La decision debe usar la familia Holm-ajustada; el
+    veredicto expone holm_p_worse/significantly_worse por banda."""
+    pytest.importorskip("scipy")
+    out = promotion.decide(_pairs_frame(factor=1.30))  # retador uniformemente peor
+    res = out["by_table"]["FAD"]
+    assert res["decision"] == "reject"
+    for s_ in res["by_band"].values():
+        assert "holm_p_worse" in s_ and "significantly_worse" in s_
+        assert s_["holm_p_worse"] >= s_["p_worse"]  # Holm nunca hace mas facil rechazar
+
+
 def test_immaterial_margin_retains() -> None:
     pytest.importorskip("scipy")
     out = promotion.decide(_pairs_frame(factor=0.97))  # mejora 3% < margen material 10%

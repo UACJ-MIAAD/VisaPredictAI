@@ -88,6 +88,17 @@ def check(root: Path = ROOT, contracts_dir: Path = CONTRACTS_DIR) -> list[str]:
         vintages["data/processed/visa_panel_long.csv (real)"] = pv
     if len(set(vintages.values())) > 1:
         problems.append(f"CORTE CON AÑADAS MEZCLADAS: {vintages}")
+    # Auditoría 11-jul: la identidad del manifiesto PUBLICADO debe resolver a un commit —
+    # un git_sha con sufijo -dirty (árbol sucio al generar) no es reproducible y no debe
+    # commitearse; regenerar con árbol limpio da el MISMO release_id (content-addressed).
+    man = root / "reports" / "release" / "release_manifest.json"
+    if man.exists():
+        try:
+            sha = str(json.loads(man.read_text()).get("git_sha", ""))
+            if sha.endswith("-dirty"):
+                problems.append(f"release_manifest.json: git_sha '{sha}' es -dirty — regenerar con árbol limpio")
+        except json.JSONDecodeError:
+            problems.append("release_manifest.json: JSON ilegible")
     return problems
 
 

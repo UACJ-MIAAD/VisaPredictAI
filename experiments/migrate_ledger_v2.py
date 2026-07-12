@@ -208,7 +208,35 @@ def migrate(path_key: str, force: bool = False) -> bool:
     return True
 
 
+def backfill_row_hash() -> int:
+    """Sella ``row_hash`` (integridad de contenido, auditoría 11-jul) en las filas que no
+    lo traen. El hash se calcula sobre el contenido TAL COMO ESTÁ HOY — el ancla histórica
+    de ese contenido son las actas git de la migración v2; de aquí en adelante ``validate``
+    caza cualquier mutación de days/bandas en una fila congelada."""
+    import pandas as pd
+
+    from vp_model import ledger
+
+    for key in LEDGERS:
+        p = ROOT / key
+        if not p.exists():
+            continue
+        df = pd.read_csv(p)
+        if "row_hash" not in df.columns:
+            df["row_hash"] = None
+        blank = df["row_hash"].isna()
+        df.loc[blank, "row_hash"] = df[blank].apply(lambda r: ledger.row_hash(r.to_dict()), axis=1)
+        cols = [c for c in df.columns if c != "row_hash"]
+        idx = cols.index("forecast_id") + 1  # junto a la identidad, mismo orden que V2_COLS
+        df = df[cols[:idx] + ["row_hash"] + cols[idx:]]
+        df.to_csv(p, index=False)
+        print(f"backfill_row_hash: {key} — {int(blank.sum())} filas selladas de {len(df)}")
+    return 0
+
+
 def main() -> int:
+    if "--backfill-row-hash" in sys.argv:
+        return backfill_row_hash()
     force = "--force" in sys.argv
     changed = [migrate(k, force=force) for k in LEDGERS]
     return 0 if any(changed) or all((ROOT / k).exists() for k in LEDGERS) else 1

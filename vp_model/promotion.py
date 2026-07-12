@@ -27,7 +27,11 @@ from pathlib import Path
 import pandas as pd
 
 POLICY: dict = {
-    "policy_version": "1.0",
+    # 1.0.1: fix de implementación a la política registrada (11-jul, auditoría del autor,
+    # aún con 0 pares live vistos): Holm aplicado también a la familia del RECHAZO —
+    # el texto registrado decía "significativamente peor" bajo Holm; el código usaba
+    # p_worse crudo. Ningún parámetro cambió.
+    "policy_version": "1.0.1",
     "preregistered_at": "2026-07-11",
     "preregistered_with_zero_live_pairs": True,
     # Solo P6 (añadas servidas en vivo) autoriza — el backfill jamás produce promoción.
@@ -171,6 +175,13 @@ def _decide_table(tl: pd.DataFrame, policy: dict) -> dict:
     for b, (p_adj, reject) in adj.items():
         stats[b]["holm_p_better"] = round(float(p_adj), 5)
         stats[b]["significantly_better"] = bool(reject)
+    # Auditoría 11-jul: la familia del RECHAZO también se prueba en múltiples bandas —
+    # sin Holm, un falso positivo familiar podía rechazar (la política documenta Holm
+    # para AMBAS direcciones; el promote ya lo aplicaba).
+    adj_worse = significance.holm({b: s["p_worse"] for b, s in stats.items()}, alpha=policy["alpha_holm"])
+    for b, (p_adj, reject) in adj_worse.items():
+        stats[b]["holm_p_worse"] = round(float(p_adj), 5)
+        stats[b]["significantly_worse"] = bool(reject)
     res["by_band"] = stats
 
     cov_sh = float(tl["in95_shadow"].mean())
@@ -179,9 +190,7 @@ def _decide_table(tl: pd.DataFrame, policy: dict) -> dict:
     cov_ok = cov_sh >= policy["min_cov95"] and cov_sh >= cov_ch - policy["max_cov95_gap_vs_champion"]
 
     worse = [
-        b
-        for b, s in stats.items()
-        if s["rel_margin"] <= -policy["max_band_regression"] and s["p_worse"] < policy["alpha_holm"]
+        b for b, s in stats.items() if s["rel_margin"] <= -policy["max_band_regression"] and s["significantly_worse"]
     ]
     if worse:
         res["decision"] = "reject"

@@ -43,6 +43,7 @@ PANEL_CSV = ROOT / "data" / "processed" / "visa_panel_long.csv"
 KEYS = ["origin", "country", "category", "table", "date"]
 V2_COLS = [
     "forecast_id",
+    "row_hash",
     "frozen_at",
     "freeze_panel_vintage",
     "panel_hash",
@@ -50,6 +51,12 @@ V2_COLS = [
     "model_version",
     "evaluation_mode",
 ]
+
+# Contenido del pronóstico protegido por ``row_hash`` (auditoría 11-jul: ``forecast_id``
+# solo cubre clave+receta — mutar days/bandas no lo alteraba). Lista FIJA presente en
+# ambos ledgers; los campos de procedencia sombra (shadow/recipe/hold_mase) quedan
+# anclados por git, no por el hash.
+PAYLOAD_COLS = ("h", "days", "lo80", "hi80", "lo95", "hi95")
 
 
 def git_sha() -> str:
@@ -93,10 +100,30 @@ def current_release_id() -> str:
 def forecast_id(row: dict) -> str:
     """Identificador determinista de la fila: sha1 12-hex de clave + receta.
 
-    Determinista a propósito (no UUID): re-derivar el id de una fila congelada debe dar
-    el mismo valor — es la base de la verificación anti-manipulación de ``validate``.
+    Es IDENTIDAD (qué pronóstico es), no integridad de contenido: no incorpora days ni
+    bandas. La integridad del contenido la verifica ``row_hash`` (auditoría 11-jul).
     """
     key = "|".join(str(row.get(k, "")) for k in ("origin", "country", "category", "table", "date", "model_version"))
+    return hashlib.sha1(key.encode()).hexdigest()[:12]
+
+
+def _norm_payload(v: object) -> str:
+    """Forma canónica que sobrevive el round-trip CSV↔pandas: NaN/None → ``""``; un float
+    entero (25.0, resultado de una columna con NaN) y el int que lo originó (25) dan la
+    MISMA forma — si no, el hash sellado al freeze no re-derivaría tras releer el CSV."""
+    if v is None:
+        return ""
+    if isinstance(v, float):
+        if v != v:  # NaN
+            return ""
+        return str(int(v)) if v.is_integer() else repr(v)
+    return str(v)
+
+
+def row_hash(row: dict) -> str:
+    """sha1 12-hex del CONTENIDO del pronóstico (``PAYLOAD_COLS``) — mutar days o una
+    banda en una fila congelada hace que ``validate`` truene."""
+    key = "|".join(_norm_payload(row.get(c)) for c in PAYLOAD_COLS)
     return hashlib.sha1(key.encode()).hexdigest()[:12]
 
 
@@ -150,6 +177,7 @@ def stamp_rows(
             "pipeline_run_id": run_id,
         }
         rr["forecast_id"] = forecast_id(rr)
+        rr["row_hash"] = row_hash(rr)
         out.append(rr)
     return out
 
@@ -192,5 +220,10 @@ def validate(df: pd.DataFrame) -> list[str]:
     ids = stamped.apply(lambda r: forecast_id(r.to_dict()), axis=1)
     tampered = int((ids != stamped["forecast_id"]).sum())
     if tampered:
-        v.append(f"{tampered} filas con forecast_id que no re-deriva de su contenido")
+        v.append(f"{tampered} filas con forecast_id que no re-deriva de su clave+receta")
+    hashed = stamped[stamped["row_hash"].notna()]
+    rehash = hashed.apply(lambda r: row_hash(r.to_dict()), axis=1)
+    mutated = int((rehash != hashed["row_hash"]).sum())
+    if mutated:
+        v.append(f"{mutated} filas con row_hash que no re-deriva de su contenido (days/bandas mutados)")
     return v

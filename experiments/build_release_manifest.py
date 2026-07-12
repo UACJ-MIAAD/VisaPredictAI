@@ -154,7 +154,12 @@ def build(root: Path = ROOT) -> dict:
         "release_id": release_id,
         "generated_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
         "pipeline_run_id": pipeline_run_id(),
-        "git_sha": ledger.git_sha(),
+        # Auditoria 11-jul: git_sha SIEMPRE resoluble a un commit (sin sufijo -dirty --
+        # el cron genera con el arbol sucio por diseno: los artefactos del run aun no se
+        # commitean). La suciedad se registra aparte como worktree_dirty; un manifiesto
+        # commiteado con worktree_dirty=true por CODIGO local sucio es rastreable aqui.
+        "git_sha": ledger.git_sha().removesuffix("-dirty"),
+        "worktree_dirty": ledger.git_sha().endswith("-dirty"),
         "panel_vintage": vintage,
         "panel_hash_md5_12": ledger.panel_hash(root / "data" / "processed" / "visa_panel_long.csv"),
         "champion_recipes": {t: r.get("models") for t, r in champions.items()} if champions else {},
@@ -169,6 +174,13 @@ def main() -> int:
     manifest = build()
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+    if manifest.get("worktree_dirty"):
+        # Esperado en el cron (artefactos del run sin commitear); en escritorio significa
+        # codigo sin commitear mezclado -- regenerar tras commitear da worktree_dirty=false
+        # y el MISMO release_id (content-addressed).
+        log.warning(
+            "worktree_dirty=true: arbol sucio al generar (normal en el cron; en local, regenera tras commitear)"
+        )
     log.info(
         "release %s · vintage %s · %d artefactos (%d opcionales ausentes) → %s",
         manifest["release_id"],

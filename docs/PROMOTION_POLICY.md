@@ -34,7 +34,10 @@ archivo o con otra decisión, se rehúsa: *fail closed*).
   Holm entre bandas por tabla, α=0.05.
 - **Margen material:** mejora relativa de MASE ≥10 % en cada banda, significativa tras
   Holm. **Retroceso:** si el retador es significativamente peor en alguna banda por más
-  de 5 %, `reject`.
+  de 5 %, `reject` — "significativamente peor" TAMBIÉN bajo Holm (v1.0.1, 11-jul,
+  auditoría del autor: la implementación evaluaba `p_worse` crudo en la familia del
+  rechazo; corregida a la política registrada con 0 pares live vistos y ningún
+  parámetro cambiado).
 - **Cobertura:** el intervalo 95 % del retador debe cubrir ≥0.90 en pares live y no
   quedar >3 puntos debajo del campeón; si falla, no hay `promote`.
 - **Decisiones:** `promote` (todo lo anterior en regla) · `reject` (retroceso

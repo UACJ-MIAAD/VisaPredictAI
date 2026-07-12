@@ -130,6 +130,30 @@ def test_validate_catches_content_tampering() -> None:
     assert any("forecast_id" in p for p in problems)
 
 
+def test_validate_catches_payload_mutation() -> None:
+    """Auditoria 11-jul: mutar days/bandas en una fila congelada pasaba validate() == []
+    (forecast_id solo cubre clave+receta). row_hash lo caza ahora."""
+    rows = _stamp([dict(ROW), {**ROW, "date": "2026-09-01", "h": 2}])
+    df = pd.DataFrame(rows)
+    assert ledger.validate(df) == []
+    df.loc[0, "days"] = 999999
+    df.loc[1, "lo95"] = -999
+    problems = ledger.validate(df)
+    assert any("row_hash" in p for p in problems)
+
+
+def test_row_hash_survives_csv_roundtrip(tmp_path) -> None:
+    """La forma canonica de _norm_payload: un int sellado que el CSV relee como float
+    entero (columna con NaN) debe re-derivar el MISMO hash."""
+    r = {**ROW, "days": 18000, "lo95": float("nan")}
+    rows = _stamp([r])
+    path = tmp_path / "log.csv"
+    ledger.append(path, rows)
+    back = pd.read_csv(path)
+    assert ledger.validate(back) == []
+    assert ledger.row_hash(back.iloc[0].to_dict()) == rows[0]["row_hash"]
+
+
 def test_validate_clean_ledger_passes(tmp_path) -> None:
     path = tmp_path / "forecast_log.csv"
     ledger.append(path, _stamp([dict(ROW), {**ROW, "date": "2026-09-01", "h": 2}]))
