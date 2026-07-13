@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "_doc": "Fuente UNICA machine-readable de la allowlist de supply chain Python (P0R.3, ronda 10). tools/audit_python_supply_chain.py audita los locks con pip-audit (sin ocultar nada primero) y reconcilia el resultado BRUTO contra este archivo con BIYECCION EXACTA por perfil: todo advisory observado debe estar permitido para ese perfil, y toda excepcion permitida debe estar observada (una excepcion huerfana o expirada BLOQUEA). Reemplaza la allowlist textual --ignore-vuln del workflow como autoridad. Al cerrar un aviso (bump via make lock deliberado), retirar su entrada aqui en el MISMO commit.",
+  "advisories": [
+    {
+      "id": "CVE-2025-3000",
+      "aliases": [],
+      "package": "torch",
+      "versions": ["2.12.0"],
+      "profiles": ["model"],
+      "decision": "accept",
+      "severity": "low",
+      "scope": "offline-own-checkpoints",
+      "owner": "Javier",
+      "expires_at": "2026-08-12",
+      "rationale": "Solo entrenamiento/inferencia offline sobre el panel propio; sin deserializacion de modelos de terceros (checkpoints propios). Sin fix publicado; vigilar release."
+    },
+    {
+      "id": "PYSEC-2026-3043",
+      "aliases": ["CVE-2026-31221", "GHSA-75m9-98v2-hjpm"],
+      "package": "pytorch-lightning",
+      "versions": ["2.5.6"],
+      "profiles": ["model"],
+      "decision": "accept",
+      "severity": "low",
+      "scope": "offline-own-checkpoints",
+      "owner": "Javier",
+      "expires_at": "2026-08-12",
+      "rationale": "load_from_checkpoint llama torch.load sin weights_only=True; F2 carga SOLO checkpoints PROPIOS (entrenamiento local/campanas), nunca de terceros; sin superficie remota. Sin fix publicado."
+    }
+  ]
+}

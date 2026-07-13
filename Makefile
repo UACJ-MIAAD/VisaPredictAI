@@ -3,7 +3,7 @@
 PY ?= ante/bin/python
 DVC ?= ante/bin/dvc
 
-.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger shadow model-card drift figures audit test test-model lint typecheck check all update eda eda-facts eda-all eda-report fe-facts fe-figures fe-report fe-all compare report validate key-facts consistency web-forecasts score-forecasts derive-band80 significance horizon-facts horizon-figure auto-arima paper-figures sync mlflow-sync
+.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger shadow model-card drift figures audit test test-model lint typecheck check all update eda eda-facts eda-all eda-report fe-facts fe-figures fe-report fe-all compare report validate key-facts consistency supply-chain web-forecasts score-forecasts derive-band80 significance horizon-facts horizon-figure auto-arima paper-figures sync mlflow-sync
 
 help:
 	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"
@@ -178,7 +178,10 @@ key-facts:  ## regenera la fuente única de verdad reports/governance/key_facts.
 
 consistency:  ## GUARDIÁN: web/LaTeX/paper/README/docs deben dar el MISMO número (vs key_facts.json)
 	$(PY) tools/check_consistency.py
-	$(PY) tools/check_supply_chain_triage.py  # P0R: allowlist ↔ triage ↔ docs de supply chain
+	$(PY) tools/check_supply_chain_triage.py  # P0R.3: docs ↔ security/python_advisories.json
+
+supply-chain:  ## AUTORIDAD supply chain: locks vs security/python_advisories.json (requiere pip-audit==2.10.1 en PATH)
+	$(PY) tools/audit_python_supply_chain.py
 
 lint:
 	$(PY) -m ruff check .

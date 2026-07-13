@@ -22,32 +22,15 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: '3.14'
-      - run: pip install "pip-audit==2.10.1"   # A5: herramienta de audit también pinneada
-      # GATE fail-closed en los perfiles chicos (runtime/dev, ambas plataformas):
-      # dependencias directas — se arreglan por PR con tests y rollback, como el bump
-      # de requests 2.33.0 que estrenó esta política.
-      - name: Audit runtime + dev locks (gate, macOS arm64 + Linux x86_64)
-        run: |
-          pip-audit -r locks/runtime.txt --no-deps --disable-pip
-          pip-audit -r locks/dev.txt --no-deps --disable-pip
-          pip-audit -r locks/runtime-linux-x86_64.txt --no-deps --disable-pip
-          pip-audit -r locks/dev-linux-x86_64.txt --no-deps --disable-pip
-      # A5: el perfil model dejó de ser report-only. GATE con allowlist EXPLÍCITA:
-      # los 2 avisos aceptados (torch + pytorch-lightning) están triados con superficie,
-      # decisión, owner y fecha de revisión (2026-08-12) en docs/SECURITY_TRIAGE.md —
-      # cualquier aviso NUEVO (incluido un high/critical) bloquea este job. Al cerrar un
-      # aviso (bump vía `make lock` deliberado), retirar su --ignore-vuln aquí Y su fila del
-      # triage. Ronda 10: el upgrade chronos 2.3.1 + transformers 5.13.1 CERRÓ PYSEC-2026-2290
-      # (RCE) y retiró 7 ignores (los 3 de transformers 4.x + diskcache/msgpack/pydantic-
-      # settings/pypdf, ausentes del cierre fresco). No se añadió ningún ignore nuevo.
-      - name: Audit model locks (gate con allowlist triada — docs/SECURITY_TRIAGE.md)
-        run: |
-          IGNORES=(
-            --ignore-vuln CVE-2025-3000          # torch 2.12.0 (sin fix; offline, checkpoints propios)
-            --ignore-vuln PYSEC-2026-3043        # pytorch-lightning 2.5.6 (alias CVE-2026-31221; sin fix)
-          )
-          pip-audit -r locks/model-cpu.txt --no-deps --disable-pip "${IGNORES[@]}"
-          pip-audit -r locks/model-cpu-linux-x86_64.txt --no-deps --disable-pip "${IGNORES[@]}"
+      - run: pip install "pip-audit==2.10.1"   # A5: herramienta de audit pinneada
+      # P0R.3 (ronda 10): un ÚNICO ejecutor gobierna la supply chain. Audita los 6 locks con
+      # pip-audit (sin ocultar nada) y reconcilia el resultado BRUTO contra
+      # security/python_advisories.json con BIYECCIÓN EXACTA por perfil (runtime/dev vetan;
+      # model con allowlist triada). Un aviso nuevo, una excepción huérfana o expirada, un
+      # paquete/versión distinto o un perfil incorrecto bloquean. Sin allowlist textual en YAML.
+      # El MISMO runner corre en el job `supply-chain` de ci.yml (PR/push).
+      - name: Audit supply chain (runner único — security/python_advisories.json)
+        run: python tools/audit_python_supply_chain.py --receipt reports/governance/supply_chain_receipt.json
       # A5: sin `|| true` — si CycloneDX falla, el job falla (antes un SBOM roto
       # subía un artefacto vacío en silencio).
       - name: SBOM CycloneDX (perfil dev)
