@@ -9,8 +9,9 @@ Corre en `ante_nf` (pandas, SIN vp_model/vp_data). Da al productor:
   que el gate compara entre las 5 semillas: dos archivos con 600 filas distintas NO son
   equivalentes; una prediccion parcialmente NaN cambia la finite-mask -> fallo de cobertura.
 
-Stdlib + pandas. Inserta la raiz del repo en sys.path para importar tools.campaign_hashing
-tambien desde ante_nf (donde no hay instalacion editable del paquete).
+Stdlib + pandas. El importador (run_global_deep en ante_nf) debe poner la raiz del repo en
+sys.path ANTES de ``import seed_coverage`` para resolver ``tools.campaign_hashing`` (en `ante`
+y en los tests ya esta en el path). Ver el wiring en experiments/run_global_deep.py.
 """
 
 from __future__ import annotations
@@ -18,17 +19,12 @@ from __future__ import annotations
 import json
 import math
 import os
-import sys
 import tempfile
 from pathlib import Path
 
 import pandas as pd
 
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
-from tools.campaign_hashing import finite_mask_sha256, grid_sha256, truth_sha256  # noqa: E402
+from tools.campaign_hashing import finite_mask_sha256, grid_sha256, truth_sha256
 
 SIDECAR_SCHEMA = 1
 
@@ -45,7 +41,7 @@ def _iso(d) -> str:
 
 
 def canonical_grid(level: pd.DataFrame, holdout: int) -> pd.DataFrame:
-    """Las ULTIMAS `holdout` filas (unique_id, ds, y) por serie = grilla que TODO modelo cubre."""
+    """Las ULTIMAS `holdout` filas (unique_id, ds, y) por serie = grilla que cada modelo cubre."""
     g = level.sort_values(["unique_id", "ds"]).groupby("unique_id", group_keys=False).tail(holdout)
     return g[["unique_id", "ds", "y"]].reset_index(drop=True)
 
