@@ -24,6 +24,18 @@ PUBLISH="${SYNC_PUBLISH:-0}"
 if [ "${1:-}" = "--publish" ]; then PUBLISH=1; shift; fi
 MSG="${1:-experiments: sync MLflow + DVC->S3 ($(date +%Y-%m-%d' '%H:%M))}"
 
+# ⚠️ Publicar una campaña DIAGNÓSTICA (dirty=true) queda BLOQUEADO (auditoría 13-jul-2026):
+# los ledgers pudieron sellar dirty=False mientras el manifiesto marca dirty=true — publicar
+# esas cifras sería una mentira. CAMPAIGN_DIAGNOSTIC no debe poder llegar a producción.
+if [ "$PUBLISH" = 1 ] && [ -f reports/campaign/campaign_manifest.json ]; then
+  if grep -q '"dirty": *true' reports/campaign/campaign_manifest.json; then
+    echo "ERROR: el manifiesto de campaña marca dirty=true (campaña diagnóstica). Publicar" >&2
+    echo "       está BLOQUEADO — re-lanza una campaña OFICIAL desde árbol limpio antes de" >&2
+    echo "       --publish. Aborta." >&2
+    exit 7
+  fi
+fi
+
 echo ">>> [1/3] MLflow: staging -> mlflow.db"
 ante_nf/bin/python experiments/sync_mlflow.py
 

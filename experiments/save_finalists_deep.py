@@ -8,7 +8,10 @@ Corre en ``ante_nf``. Uso:  ante_nf/bin/python experiments/save_finalists_deep.p
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import subprocess
 from pathlib import Path
 
 import pandas as pd
@@ -17,7 +20,35 @@ from run_global_deep import HOLDOUT, encode_regime, load_panel, regular_monthly 
 ROOT = Path(__file__).resolve().parent.parent
 MODELS = ROOT / "models"
 MANIFEST = MODELS / "manifest.jsonl"
+PANEL_CSV = ROOT / "data" / "processed" / "visa_panel_long.csv"
 DET = ("BiTCN", "PatchTST", "TiDE", "NHITS")  # deterministas finalistas
+
+
+def _identity() -> dict:
+    """git_sha/git_dirty/panel_hash — MISMA convención que save_finalists.py (acta de
+    nacimiento de cada modelo). Autocontenido (corre en ante_nf, sin vp_data). Prefiere
+    CAMPAIGN_SHA sellado (identidad de campaña) sobre el HEAD vivo. El gate de completitud
+    EXIGE git_sha y panel_hash en cada entrada del manifiesto."""
+    pinned = os.environ.get("CAMPAIGN_SHA")
+    if pinned:
+        sha, dirty = pinned, os.environ.get("CAMPAIGN_DIRTY", "false") == "true"
+    else:
+        try:
+            sha = (
+                subprocess.run(
+                    ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=ROOT, check=False
+                ).stdout.strip()
+                or "unknown"
+            )
+            dirty = bool(
+                subprocess.run(
+                    ["git", "status", "--porcelain"], capture_output=True, text=True, cwd=ROOT, check=False
+                ).stdout.strip()
+            )
+        except OSError:
+            sha, dirty = "unknown", True
+    panel_hash = hashlib.md5(PANEL_CSV.read_bytes()).hexdigest()[:12] if PANEL_CSV.exists() else "n/d"
+    return {"git_sha": sha, "git_dirty": dirty, "panel_hash": panel_hash}
 
 
 def _diff(panel: pd.DataFrame) -> pd.DataFrame:
@@ -88,6 +119,7 @@ def main() -> None:
                         "recipe": "diff+global+HPO" if name.startswith("Auto") else "diff+global",
                         "path": str(out.relative_to(ROOT)),
                         "n_series": int(panel["unique_id"].nunique()),
+                        **_identity(),  # git_sha/git_dirty/panel_hash (exigidos por el gate)
                     }
                 )
                 print(f"  ✓ {table}/{name} -> {out.relative_to(ROOT)}")

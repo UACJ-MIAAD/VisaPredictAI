@@ -45,6 +45,14 @@ def main() -> None:
     # un MASE por semilla = media sobre las series del bloque
     per_seed = df.groupby("variant")["hold_mase"].mean().sort_index()
     vals = per_seed.to_numpy()
+    # Rechaza métricas NO FINITAS (auditoría 13-jul): 5 semillas con hold_mase Inf/NaN
+    # daban media infinita e IC NaN que pasaban como "agregado válido". Fail-closed.
+    if not np.all(np.isfinite(vals)):
+        bad = {v: float(x) for v, x in per_seed.items() if not np.isfinite(x)}
+        raise SystemExit(
+            f"agregación {args.model}/{args.prefix}* en {args.table}/{args.block}: "
+            f"MASE no finito en {bad} — semillas inutilizables, no se agrega"
+        )
     n = len(vals)
     mean, sd = float(vals.mean()), float(vals.std(ddof=1))
     se = sd / np.sqrt(n)

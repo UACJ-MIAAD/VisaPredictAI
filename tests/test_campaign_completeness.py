@@ -298,3 +298,38 @@ def test_preflight_ignores_freshness(sandbox):
     _write_inputs(sandbox)
     _seal(sandbox, started="2099-01-01T00:00:00+00:00")
     assert gate.check("inputs", preflight=True) == []
+
+
+# ── regresión productor↔gate (auditoría 13-jul): el gate debe aceptar la forma EXACTA
+#    que escribe save_finalists_deep, y el productor DEBE incluir git_sha/panel_hash. ──
+def test_gate_accepts_real_deep_manifest_entry(sandbox):
+    _write_inputs(sandbox)
+    _seal(sandbox)
+    # entrada EXACTA de save_finalists_deep (con la identidad que ahora escribe)
+    (sandbox / "models" / "FAD" / "global" / "d.pt").write_text("x")
+    real_deep = {
+        "model": "AutoBiTCN",
+        "table": "FAD",
+        "type": "global_deep",
+        "recipe": "diff+global+HPO",
+        "path": "models/FAD/global/d.pt",
+        "n_series": 25,
+        "git_sha": "abc",
+        "git_dirty": False,
+        "panel_hash": "h",
+    }
+    local = {"model": "ets", "type": "local", "path": "models/FAD/local/m.pkl", "git_sha": "abc", "panel_hash": "h"}
+    (sandbox / "models" / "manifest.jsonl").write_text(
+        "\n".join([json.dumps(local)] * 260 + [json.dumps(real_deep)] * 8) + "\n"
+    )
+    assert not [p for p in gate.check("inputs", preflight=False) if p.startswith("MANIFEST")]
+
+
+def test_deep_producer_source_writes_identity():
+    # guarda contra la regresión que reportó el autor: save_finalists_deep NO escribía
+    # git_sha/panel_hash y el gate rechazaba un global válido.
+    import pathlib
+
+    repo = pathlib.Path(gate.__file__).resolve().parent.parent
+    text = (repo / "experiments" / "save_finalists_deep.py").read_text()
+    assert "_identity()" in text and "git_sha" in text and "panel_hash" in text
