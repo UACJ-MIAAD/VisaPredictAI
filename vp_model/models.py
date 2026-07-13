@@ -424,6 +424,23 @@ class Differenced:
         return TimeSeries.from_times_and_values(prev_level.time_index, vals)
 
 
+def load_chronos_pipeline(model: str, *, device_map: str = "cpu") -> object:
+    """Carga HARDENED del pipeline Chronos (P0R, ronda 10) — FUENTE ÚNICA de esta política.
+
+    Seguridad de supply chain (PYSEC-2026-2290): ``trust_remote_code=False`` + ``use_safetensors``
+    (nunca un ``.bin`` pickle) siempre, y ``revision`` inmutable para el checkpoint canónico. La
+    ruta AWS (``aws_gpu/chronos_lora.py``, bundle standalone que no importa vp_model) replica los
+    4 argumentos con la MISMA revisión; un test verifica la igualdad literal."""
+    from chronos import BaseChronosPipeline
+
+    from vp_model.config import CHRONOS_MODEL, CHRONOS_REVISION
+
+    kw: dict[str, object] = {"device_map": device_map, "trust_remote_code": False, "use_safetensors": True}
+    if model == CHRONOS_MODEL:
+        kw["revision"] = CHRONOS_REVISION
+    return BaseChronosPipeline.from_pretrained(model, **kw)
+
+
 class ChronosForecaster:
     """Foundation model zero-shot (Amazon Chronos-Bolt): pronostica por TRANSFERENCIA.
 
@@ -446,16 +463,7 @@ class ChronosForecaster:
     @classmethod
     def _pipeline(cls, model: str) -> object:
         if model not in cls._pipes:
-            from chronos import BaseChronosPipeline
-
-            from vp_model.config import CHRONOS_MODEL, CHRONOS_REVISION
-
-            # Seguridad (PYSEC-2026-2290, ronda 10): trust_remote_code=False + revision inmutable
-            # para el checkpoint canonico confiable. use_safetensors evita cualquier .bin (pickle).
-            kw: dict[str, object] = {"device_map": "cpu", "trust_remote_code": False, "use_safetensors": True}
-            if model == CHRONOS_MODEL:
-                kw["revision"] = CHRONOS_REVISION
-            cls._pipes[model] = BaseChronosPipeline.from_pretrained(model, **kw)
+            cls._pipes[model] = load_chronos_pipeline(model)
         return cls._pipes[model]
 
     def _q(self, context: np.ndarray, n: int) -> np.ndarray:

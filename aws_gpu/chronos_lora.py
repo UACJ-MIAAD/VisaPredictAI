@@ -29,6 +29,11 @@ import pandas as pd
 HOLDOUT = 24
 PILOT = ("mexico", "india", "china", "philippines", "all_chargeability")
 CONTEXT = 60  # longitud de contexto que recibe Chronos para predecir el siguiente mes
+# Seguridad de supply chain (P0R, ronda 10): checkpoint canónico + revisión inmutable.
+# ⚠️ CHRONOS_REVISION DEBE coincidir con vp_model.config.CHRONOS_REVISION — este bundle es
+# STANDALONE (no importa vp_model), así que un test del repo principal verifica la igualdad.
+DEFAULT_MODEL = "amazon/chronos-bolt-base"
+CHRONOS_REVISION = "5d9f166d69f47aef3401367a7b842e78fe97b121"
 
 
 def load_series(panel_path: str, table: str, block: str = "family") -> dict[str, np.ndarray]:
@@ -68,11 +73,17 @@ def zeroshot(args) -> None:
     import torch
     from chronos import BaseChronosPipeline
 
-    pipe = BaseChronosPipeline.from_pretrained(
-        args.model,
+    # Hardening P0R: trust_remote_code=False + safetensors siempre; revisión inmutable para el
+    # checkpoint canónico (misma política que vp_model.models.load_chronos_pipeline).
+    kw = dict(
         device_map="cuda" if torch.cuda.is_available() else "cpu",
         torch_dtype=torch.bfloat16,
+        trust_remote_code=False,
+        use_safetensors=True,
     )
+    if args.model == DEFAULT_MODEL:
+        kw["revision"] = CHRONOS_REVISION
+    pipe = BaseChronosPipeline.from_pretrained(args.model, **kw)
     rows = []
     for uid, s in load_series(args.panel, args.table).items():
         for i, ctx, y in holdout_windows(s):
@@ -131,7 +142,7 @@ if __name__ == "__main__":
     ap.add_argument("cmd", choices=["zeroshot", "finetune", "selfcheck"])
     ap.add_argument("--panel", default="visa_panel_long.parquet")
     ap.add_argument("--table", default="FAD")
-    ap.add_argument("--model", default="amazon/chronos-bolt-base")
+    ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--out-dir", default="reports/campaign")
     ap.add_argument("--epochs", type=int, default=3)
     a = ap.parse_args()
