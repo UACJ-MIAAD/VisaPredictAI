@@ -27,7 +27,15 @@ def _df(prefix, model, block, seed_to_vals):
     for seed, vals in seed_to_vals.items():
         for uid, v in enumerate(vals):
             rows.append(
-                {"block": block, "model": model, "variant": f"{prefix}{seed}", "hold_mase": v, "unique_id": f"s{uid}"}
+                {
+                    "block": block,
+                    "model": model,
+                    "variant": f"{prefix}{seed}",
+                    "hold_mase": v,
+                    "unique_id": f"s{uid}",
+                    "country": f"c{uid}",  # (country, category) = universo evaluado por semilla
+                    "category": "F1",
+                }
             )
     return pd.DataFrame(rows)
 
@@ -51,6 +59,21 @@ def test_missing_seed_aborts():
     df = _df("auto_s", "AutoBiTCN", "family", {i: [0.1, 0.11] for i in range(1, 5)})  # solo 4
     with pytest.raises(SystemExit):
         _call(df)
+
+
+def test_extra_variant_aborts():
+    # s6 sobrante: el prefijo lo ve ANTES de isin -> aborta (ya no se descarta en silencio)
+    df = _df("auto_s", "AutoBiTCN", "family", {i: [0.1, 0.11, 0.12] for i in range(1, 7)})
+    with pytest.raises(SystemExit, match="prefijo"):
+        _call(df)
+
+
+def test_seeds_evaluate_different_universe_aborts():
+    # 5 semillas presentes, pero la semilla 3 evalúa MENOS series (universo no idéntico)
+    seeds = {i: [0.1, 0.11, 0.12] for i in range(1, 6)}
+    seeds[3] = [0.1, 0.11]  # solo c0, c1 -> universo distinto
+    with pytest.raises(SystemExit, match="universo|series DISTINTAS"):
+        _call(_df("auto_s", "AutoBiTCN", "family", seeds))
 
 
 def test_all_nan_seeds_abort():

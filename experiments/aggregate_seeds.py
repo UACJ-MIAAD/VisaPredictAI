@@ -35,6 +35,15 @@ def aggregate(df, *, prefix: str, model: str, block: str, n_seeds: int = N_SEEDS
       pero su suma desborda el float64 (media/IC = ``Inf``) y pasarían el chequeo de arriba.
     """
     want = {f"{prefix}{i}" for i in range(1, n_seeds + 1)}
+    # (paso 4.2) detectar variantes con el prefijo ANTES de filtrar con isin: s6/s01/s1_backup
+    # deben ABORTAR la agregación, no descartarse en silencio (`isin(want)` las escondía).
+    prefixed = set(df.loc[df.variant.astype(str).str.startswith(prefix), "variant"])
+    if prefixed != want:
+        raise SystemExit(
+            f"agregación {model}/{prefix}* en {block}: variantes con prefijo {sorted(prefixed)} "
+            f"!= las {n_seeds} esperadas {sorted(want)} (extra {sorted(prefixed - want)}, "
+            f"falta {sorted(want - prefixed)})"
+        )
     sub = df[(df.block == block) & (df.model == model) & df.variant.isin(want)]
     got = set(sub.variant.unique())
     if got != want:
@@ -42,6 +51,19 @@ def aggregate(df, *, prefix: str, model: str, block: str, n_seeds: int = N_SEEDS
             f"agregación {model}/{prefix}* en {block}: semillas {sorted(got)} != las {n_seeds} "
             f"esperadas {sorted(want)} (falta {sorted(want - got)}, sobra {sorted(got - want)})"
         )
+    # (paso 4.1) universo evaluado IDÉNTICO entre semillas: cada semilla debe evaluar EXACTAMENTE
+    # el mismo conjunto de series (country, category). Un CSV parcial evalúa menos series y daría
+    # un promedio no comparable; dos archivos con series distintas NO son equivalentes.
+    universe: frozenset | None = None
+    for variant, group in sub.groupby("variant"):
+        keys = frozenset(zip(group["country"], group["category"], strict=True))
+        if universe is None:
+            universe = keys
+        elif keys != universe:
+            raise SystemExit(
+                f"agregación {model}/{prefix}* en {block}: las semillas evalúan series DISTINTAS "
+                f"(universo no idéntico); {variant} difiere en {sorted(keys ^ universe)[:4]}"
+            )
     raw = sub["hold_mase"].to_numpy(dtype=float)
     if raw.size == 0 or not np.all(np.isfinite(raw)):
         n_bad = int((~np.isfinite(raw)).sum())
