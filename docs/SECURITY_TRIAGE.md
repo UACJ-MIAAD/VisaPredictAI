@@ -47,16 +47,17 @@ el siguiente upgrade. **Prohibido el auto-fix**: todo bump va por PR con suite v
   frescos + suite de parsers/extracción verde — el único consumidor es la capa de
   scraping). `pip-audit` de runtime/dev: **limpio**.
 
-## Triage vigente — perfil model (9 avisos en 7 paquetes, allowlist del gate)
+## Triage vigente — perfil model (2 avisos en 2 paquetes, allowlist del gate)
 
-Auditado el 2026-07-12 con `pip-audit --disable-pip` sobre `locks/model-cpu.txt`
-(232 paquetes, entorno de referencia). El lock Linux del perfil (closure de
-`.[dev,model]`, 107 paquetes) contiene un SUBCONJUNTO: solo torch y pytorch-lightning
-de esta tabla (transformers/diskcache/msgpack/pydantic-settings/pypdf llegan a `ante/`
-por herramientas locales fuera de los extras). Contexto común de superficie: **nada del
-perfil model sirve tráfico** — torch/transformers/lightning corren OFFLINE en el
-modelado local y en el bloque de modelado del cron (entrada: el panel propio, no datos
-de terceros); no hay endpoint que los exponga.
+Auditado el 2026-07-13 (ronda 10) con `pip-audit --disable-pip` sobre `locks/model-cpu.txt`
+y `locks/model-cpu-linux-x86_64.txt`, ambos regenerados desde un venv FRESCO `.[dev,model]`
+(109 paquetes; ya NO es el freeze del `ante/` mutable de 232 que arrastraba Ray + strays).
+Los DOS avisos restantes (torch, pytorch-lightning) aparecen en ambas plataformas. El upgrade
+chronos 2.3.1 + transformers 5.13.1 cerró `PYSEC-2026-2290` y retiró 7 excepciones (los 3 de
+transformers 4.x + diskcache/msgpack/pydantic-settings/pypdf, ausentes del cierre fresco).
+Contexto común de superficie: **nada del perfil model sirve tráfico** — torch/transformers/
+lightning corren OFFLINE en el modelado local y en el bloque de modelado del cron (entrada:
+el panel propio, no datos de terceros); no hay endpoint que los exponga.
 
 | Paquete | Aviso | ¿Nos afecta? | Decisión | Owner | Revisión |
 |---|---|---|---|---|---|

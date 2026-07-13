@@ -178,6 +178,7 @@ key-facts:  ## regenera la fuente única de verdad reports/governance/key_facts.
 
 consistency:  ## GUARDIÁN: web/LaTeX/paper/README/docs deben dar el MISMO número (vs key_facts.json)
 	$(PY) tools/check_consistency.py
+	$(PY) tools/check_supply_chain_triage.py  # P0R: allowlist ↔ triage ↔ docs de supply chain
 
 lint:
 	$(PY) -m ruff check .

@@ -229,3 +229,9 @@ jobs:
       # comparación; el manifiesto campeón solo despliega clase 'active'.
       - name: Check model catalog
         run: python tools/check_model_catalog.py
+      # P0R (ronda 10): la allowlist de supply chain (--ignore-vuln del workflow scheduled-quality)
+      # debe coincidir 1:1 con las filas de SECURITY_TRIAGE.md y con los conteos de la prosa
+      # (SECURITY_TRIAGE + THREAT_MODEL). Corre en push/PR — caza la deriva "9 avisos" que el
+      # guardián no cubría.
+      - name: Check supply-chain triage ↔ allowlist ↔ docs
+        run: python tools/check_supply_chain_triage.py
