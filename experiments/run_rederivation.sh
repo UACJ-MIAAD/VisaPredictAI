@@ -129,10 +129,13 @@ run $ANTE -m vp_model.run_tuning --rank-check --mlflow
 run $ANTE -m vp_model.run_tuning --select-by-deploy   # fix #20: re-elige por deploy-score antes de confirmar
 run_req $ANTE -m vp_model.confirm_tuning --holdout-report --mlflow
 
-stage 6.5 "GATE de completitud+frescura (bloques/semillas/HPO/finalists no-stale)"
-# Obligatoria: si falta un pool/HPO/finalist o alguno es viejo (reutilizado de un corte
-# anterior), la significancia/champion NO deben correr sobre inputs incompletos/stale.
-run_req $ANTE -m tools.check_campaign_completeness
+stage 6.5 "GATE de INPUTS (pools/semillas/HPO/finalists frescos y con métricas finitas)"
+# ABORTA INMEDIATAMENTE (no run_req): la significancia/champion/key_facts NO deben correr
+# sobre inputs incompletos, stale o con NaN. Es un candado duro antes de los consumidores.
+if ! $ANTE -m tools.check_campaign_completeness --phase inputs; then
+  echo "✗ GATE DE INPUTS FALLIDO: inputs incompletos/stale. Aborta antes de significancia." >&2
+  exit 4
+fi
 
 stage 7 "significancia (Friedman-Nemenyi + MCS + DM) y champion-challenger"
 run_req $ANTE experiments/significance_tables.py
@@ -142,6 +145,9 @@ stage 8 "fuente única de verdad: key_facts + model card + drift"
 run_req $ANTE experiments/build_key_facts.py
 run_req $ANTE experiments/build_model_card.py
 run $ANTE experiments/check_drift.py
+
+stage 8.5 "GATE de OUTPUTS (significancia/champion/key_facts frescos + identidad)"
+run_req $ANTE -m tools.check_campaign_completeness --phase outputs
 
 stage 9 "figuras de resultados (las EDA no cambian: mismo panel)"
 run_req $ANTE experiments/make_result_figures.py
