@@ -16,6 +16,7 @@ y en los tests ya esta en el path). Ver el wiring en experiments/run_global_deep
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -82,9 +83,12 @@ def validate_output(out: pd.DataFrame, grid: pd.DataFrame, required: list[str]) 
 
 
 def coverage_sidecar(
-    out: pd.DataFrame, required: list[str], *, campaign: dict, table: str, variant: str, seed: int
+    out: pd.DataFrame, required: list[str], *, campaign: dict, table: str, variant: str, seed: int, csv_sha256: str
 ) -> dict:
-    """Sidecar de cobertura por semilla (hashes de grilla/verdad/mascara + inventario)."""
+    """Sidecar de cobertura por semilla (hashes de grilla/verdad/mascara + CSV + inventario).
+
+    ``csv_sha256`` liga el sidecar al CSV por BYTES: el gate lo recalcula del archivo y no confia
+    en el sidecar como fuente de verdad (un CSV alterado despues del sidecar no coincide)."""
     grid_rows = [(str(u), _iso(d)) for u, d in zip(out["unique_id"], out["ds"], strict=True)]
     truth_rows = [(str(u), _iso(d), float(y)) for u, d, y in zip(out["unique_id"], out["ds"], out["y"], strict=True)]
     models: dict[str, dict] = {}
@@ -102,6 +106,7 @@ def coverage_sidecar(
         "table": table,
         "variant": variant,
         "seed": int(seed),
+        "csv_sha256": csv_sha256,
         "grid_sha256": grid_sha256(grid_rows),
         "truth_sha256": truth_sha256(truth_rows),
         "n_rows": int(len(out)),
@@ -114,7 +119,7 @@ def _atomic_write(path: Path, write) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".seed.", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             write(fh)
             fh.flush()
             os.fsync(fh.fileno())
@@ -141,7 +146,12 @@ def finalize_seed(
     problems = validate_output(out, grid, required)
     if problems:
         raise SystemExit(f"seed {table}/{variant}/s{seed}: salida invalida -> {problems}")
-    sidecar = coverage_sidecar(out, required, campaign=campaign, table=table, variant=variant, seed=seed)
-    _atomic_write(Path(out_path), lambda fh: out.to_csv(fh, index=False))
+    # hashea los BYTES EXACTOS que se escriben (el CSV se escribe desde este mismo texto).
+    csv_text = out.to_csv(index=False)
+    csv_sha256 = "sha256:" + hashlib.sha256(csv_text.encode("utf-8")).hexdigest()
+    sidecar = coverage_sidecar(
+        out, required, campaign=campaign, table=table, variant=variant, seed=seed, csv_sha256=csv_sha256
+    )
+    _atomic_write(Path(out_path), lambda fh: fh.write(csv_text))
     _atomic_write(Path(sidecar_path), lambda fh: json.dump(sidecar, fh, ensure_ascii=False, indent=2, sort_keys=True))
     return sidecar

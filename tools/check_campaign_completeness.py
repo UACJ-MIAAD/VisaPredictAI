@@ -39,8 +39,10 @@ from __future__ import annotations
 import argparse
 import csv
 import datetime as dt
+import hashlib
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -50,6 +52,9 @@ MANIFEST = ROOT / "reports" / "campaign" / "campaign_manifest.json"
 TABLES = ("FAD", "DFF")
 SEED_VARIANTS = ("camp_levels", "camp_diff", "camp_diffls", "camp_auto")
 N_SEEDS = 5
+SIDECAR_SCHEMA = 1  # == experiments/seed_coverage.SIDECAR_SCHEMA
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
+_SHA256P = re.compile(r"^sha256:[0-9a-f]{64}$")
 # Columnas de MODELO esperadas en cada CSV de semilla, por variante (verificado 13-jul).
 SEED_MODELS = {
     "camp_levels": ("NHITS", "PatchTST", "TiDE", "BiTCN"),
@@ -305,16 +310,57 @@ def _seed_problems(started: dt.datetime | None, preflight: bool) -> list[str]:
     return probs
 
 
-def validate_seed_group(table: str, variant: str, camp_dir: Path, *, sealed_sha: str | None = None) -> list[str]:
-    """Cobertura IDENTICA entre las 5 semillas via sidecars (paso 4, contrato real, ronda 9).
+def _csv_sha256(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
-    No basta comparar cantidades: dos archivos con 600 filas DISTINTAS no son equivalentes.
-    Exige exactamente s1..s5, la MISMA grilla (grid_sha256), los MISMOS valores reales
-    (truth_sha256), el inventario EXACTO de modelos de la variante, y la MISMA mascara finita
-    por modelo (una prediccion parcialmente NaN mueve el hash -> cobertura no identica). El
-    sidecar lo emite ``experiments/seed_coverage.py`` junto a cada CSV de semilla.
+
+def _sidecar_schema_problems(d: dict, table: str, variant: str, seed: int, sealed_sha: str | None) -> list[str]:
+    """Esquema ESTRICTO de un sidecar: metadata, formatos de hash, no vacio/degenerado."""
+    p: list[str] = []
+    tag = f"SEMILLA-COV {table}/{variant}/s{seed}"
+    if d.get("schema_version") != SIDECAR_SCHEMA:
+        p.append(f"{tag}: schema_version {d.get('schema_version')!r} != {SIDECAR_SCHEMA}")
+    sv = d.get("seed")
+    seed_ok = isinstance(sv, int) and not isinstance(sv, bool) and sv == seed
+    if d.get("table") != table or d.get("variant") != variant or not seed_ok:
+        p.append(f"{tag}: metadata tabla/variante/seed no coincide con el archivo")
+    if sealed_sha and d.get("source_git_sha") != sealed_sha:
+        p.append(f"{tag}: source_git_sha != sellado")
+    for h, rx in (("grid_sha256", _HEX64), ("truth_sha256", _HEX64), ("csv_sha256", _SHA256P)):
+        v = d.get(h)
+        if not isinstance(v, str) or not rx.match(v):
+            p.append(f"{tag}: {h} con formato invalido")
+    nr, ns = d.get("n_rows"), d.get("n_series")
+    if not isinstance(nr, int) or isinstance(nr, bool) or nr <= 0:
+        p.append(f"{tag}: n_rows {nr!r} debe ser int > 0 (sidecar vacio?)")
+    if not isinstance(ns, int) or isinstance(ns, bool) or ns <= 0:
+        p.append(f"{tag}: n_series {ns!r} debe ser int > 0")
+    models = d.get("models")
+    exp = set(SEED_MODELS.get(variant, ()))
+    if not isinstance(models, dict) or (exp and set(models) != exp):
+        got = sorted(models) if isinstance(models, dict) else models
+        p.append(f"{tag}: inventario de modelos {got} != {sorted(exp)}")
+        return p
+    finite = [(models.get(m) or {}).get("finite_rows") for m in exp]
+    if exp and not any(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in finite):
+        p.append(f"{tag}: TODOS los modelos con finite_rows=0 (cobertura vacia)")
+    return p
+
+
+def validate_seed_group(table: str, variant: str, camp_dir: Path, *, sealed_sha: str | None = None) -> list[str]:
+    """Cobertura IDENTICA y VERIFICABLE entre las 5 semillas (endurecido, ronda 10).
+
+    Dos archivos con 600 filas DISTINTAS no son equivalentes. Exige exactamente s1..s5 (sin
+    CSV extra s6/s01), esquema estricto por sidecar (no vacio/degenerado), y RE-LEE cada CSV
+    recalculando su sha256: el sidecar es un COMPROMISO, no la fuente de verdad. Entre semillas:
+    misma grilla, misma verdad y misma mascara finita por modelo (parcial-NaN mueve el hash).
     """
     probs: list[str] = []
+    # CSVs extra (s6, s01, backups) con el prefijo -> rechazo por set exacto
+    present_csv = {q.stem.rsplit("_s", 1)[1] for q in camp_dir.glob(f"global_{table}_{variant}_s*.csv")}
+    extra = present_csv - {str(i) for i in range(1, N_SEEDS + 1)}
+    if extra:
+        return [f"SEMILLA-COV {table}/{variant}: CSVs extra {sorted(extra)} (set exacto s1..s{N_SEEDS})"]
     sidecars: dict[int, dict] = {}
     for seed in range(1, N_SEEDS + 1):
         d = _load_json(camp_dir / f"coverage_{table}_{variant}_s{seed}.json")
@@ -322,25 +368,25 @@ def validate_seed_group(table: str, variant: str, camp_dir: Path, *, sealed_sha:
             sidecars[seed] = d
     if set(sidecars) != set(range(1, N_SEEDS + 1)):
         return [f"SEMILLA-COV {table}/{variant}: sidecars {sorted(sidecars)} != s1..s{N_SEEDS} (falta cobertura)"]
+    for seed, d in sidecars.items():
+        probs += _sidecar_schema_problems(d, table, variant, seed, sealed_sha)
+        csvp = camp_dir / f"global_{table}_{variant}_s{seed}.csv"
+        if not csvp.exists():
+            probs.append(f"SEMILLA-COV {table}/{variant}/s{seed}: sidecar sin CSV")
+        elif d.get("csv_sha256") != _csv_sha256(csvp):
+            probs.append(
+                f"SEMILLA-COV {table}/{variant}/s{seed}: csv_sha256 != recalculado (CSV alterado tras el sidecar)"
+            )
     if len({d.get("grid_sha256") for d in sidecars.values()}) != 1:
         probs.append(f"SEMILLA-COV {table}/{variant}: grid_sha256 DIFIERE entre semillas (grillas distintas)")
     if len({d.get("truth_sha256") for d in sidecars.values()}) != 1:
         probs.append(f"SEMILLA-COV {table}/{variant}: truth_sha256 DIFIERE entre semillas (y real distinta)")
-    exp_models = set(SEED_MODELS.get(variant, ()))
-    for seed, d in sidecars.items():
-        got = set((d.get("models") or {}).keys())
-        if exp_models and got != exp_models:
-            probs.append(f"SEMILLA-COV {table}/{variant}/s{seed}: modelos {sorted(got)} != {sorted(exp_models)}")
-    for m in exp_models:
+    for m in set(SEED_MODELS.get(variant, ())):
         masks = {(sidecars[s].get("models") or {}).get(m, {}).get("finite_mask_sha256") for s in sidecars}
         if len(masks) != 1:
             probs.append(
                 f"SEMILLA-COV {table}/{variant}: finite-mask de {m} DIFIERE entre semillas (cobertura parcial)"
             )
-    if sealed_sha:
-        for seed, d in sidecars.items():
-            if d.get("source_git_sha") != sealed_sha:
-                probs.append(f"SEMILLA-COV {table}/{variant}/s{seed}: source_git_sha != sellado")
     return probs
 
 
