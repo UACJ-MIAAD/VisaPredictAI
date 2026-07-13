@@ -17,7 +17,7 @@ CAMP = {
     "campaign_id": "rederiv_deadbee_20260713",
     "source_git_sha": "a" * 40,
     "git_dirty": False,
-    "panel_sha256": "sha256:" + "p" * 64,
+    "panel_sha256": "sha256:" + "a" * 64,  # hex valido (validate_campaign lo exige)
 }
 
 
@@ -115,7 +115,7 @@ def test_duplicate_path_fails(tmp_path):
     clone["artifact_sha256"] = entries[1]["artifact_sha256"]
     entries.append(clone)
     expected = expected | {mm.semantic_key(clone)}
-    assert any("path duplicado" in p for p in _run(tmp_path, entries, expected))
+    assert any("duplicado" in p for p in _run(tmp_path, entries, expected))
 
 
 def test_unexpected_key_fails(tmp_path):
@@ -177,4 +177,147 @@ def test_failed_entry_without_reason_fails(tmp_path):
 def test_path_escape_fails(tmp_path):
     entries, expected = _fixture(tmp_path)
     entries[1]["path"] = "../../etc/passwd"
-    assert any("escapa del repo" in p for p in _run(tmp_path, entries, expected))
+    assert any("etc/passwd" in p for p in _run(tmp_path, entries, expected))
+
+
+# ── ronda 10: artefacto degenerado + alias + campana + release + JSONL ──
+def _bare_ok(*, typ, table, model, path, sha):
+    return {
+        "schema_version": mm.SCHEMA_VERSION,
+        "campaign_id": CAMP["campaign_id"],
+        "source_git_sha": CAMP["source_git_sha"],
+        "git_dirty": CAMP["git_dirty"],
+        "panel_sha256": CAMP["panel_sha256"],
+        "type": typ,
+        "table": table,
+        "model": model,
+        "status": "ok",
+        "path": path,
+        "artifact_sha256": sha,
+    }
+
+
+def test_empty_dir_artifact_fails(tmp_path):
+    entries, expected = _fixture(tmp_path)
+    d = tmp_path / "models/FAD/global/EMPTY"
+    d.mkdir(parents=True)
+    e = _bare_ok(
+        typ="global_deep", table="FAD", model="EMPTY", path="models/FAD/global/EMPTY", sha=artifact_tree_sha256(d)
+    )
+    entries.append(e)
+    expected = expected | {mm.semantic_key(e)}
+    assert any("modelo vacio" in p or "artefacto invalido" in p for p in _run(tmp_path, entries, expected))
+
+
+def test_empty_file_artifact_fails(tmp_path):
+    entries, expected = _fixture(tmp_path)
+    f = tmp_path / "models/FAD/global/ZERO"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_bytes(b"")
+    e = _bare_ok(
+        typ="global_deep", table="FAD", model="ZERO", path="models/FAD/global/ZERO", sha=artifact_tree_sha256(f)
+    )
+    entries.append(e)
+    expected = expected | {mm.semantic_key(e)}
+    assert any("archivo vacio" in p for p in _run(tmp_path, entries, expected))
+
+
+def test_symlink_artifact_fails(tmp_path):
+    entries, expected = _fixture(tmp_path)
+    (tmp_path / "real.bin").write_text("x")
+    link = tmp_path / "models/FAD/global/LINK"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(tmp_path / "real.bin")
+    e = _bare_ok(typ="global_deep", table="FAD", model="LINK", path="models/FAD/global/LINK", sha="sha256:" + "0" * 64)
+    entries.append(e)
+    expected = expected | {mm.semantic_key(e)}
+    assert any("symlink" in p for p in _run(tmp_path, entries, expected))
+
+
+def test_absolute_path_fails(tmp_path):
+    entries, expected = _fixture(tmp_path)
+    e = _bare_ok(typ="global_deep", table="FAD", model="ABS", path="/etc/passwd", sha="sha256:" + "0" * 64)
+    entries.append(e)
+    expected = expected | {mm.semantic_key(e)}
+    assert any("absoluto" in p for p in _run(tmp_path, entries, expected))
+
+
+def test_alias_same_realpath_fails(tmp_path):
+    entries, expected = _fixture(tmp_path)
+    # otra clave semantica, path DISTINTO como string pero MISMO realpath (colapsa "/./")
+    aliased = entries[1]["path"].replace("models/", "models/./")
+    e = _bare_ok(typ="local", table="FAD", model="kalman", path=aliased, sha=entries[1]["artifact_sha256"])
+    e["country"], e["category"] = "china", "F2A"
+    entries.append(e)
+    expected = expected | {mm.semantic_key(e)}
+    assert any("alias" in p for p in _run(tmp_path, entries, expected))
+
+
+def test_invalid_campaign_schema_blocks(tmp_path):
+    entries, expected = _fixture(tmp_path)
+    bad = {**CAMP, "panel_sha256": "n/d"}
+    probs = mm.validate_attempt_inventory(entries, expected=expected, campaign=bad, root=tmp_path)
+    assert any("panel_sha256" in p for p in probs)
+
+
+def test_release_all_failed_blocks(tmp_path):
+    # todas las claves esperadas con status=failed (legitimo) -> attempt pasa, release NO
+    failed = []
+    for typ, table, model, c, cat in (
+        ("global_deep", "FAD", "BiTCN", None, None),
+        ("local", "FAD", "ets", "mexico", "F1"),
+    ):
+        e = {
+            "schema_version": mm.SCHEMA_VERSION,
+            "campaign_id": CAMP["campaign_id"],
+            "source_git_sha": CAMP["source_git_sha"],
+            "git_dirty": CAMP["git_dirty"],
+            "panel_sha256": CAMP["panel_sha256"],
+            "type": typ,
+            "table": table,
+            "model": model,
+            "status": "failed",
+            "error_type": "RuntimeError",
+            "reason": "no convergio",
+        }
+        if c:
+            e["country"], e["category"] = c, cat
+        failed.append(e)
+    expected = {mm.semantic_key(e) for e in failed}
+    assert mm.validate_attempt_inventory(failed, expected=expected, campaign=CAMP, root=tmp_path) == []
+    assert any(
+        "100% failed" in p
+        for p in mm.validate_release_inventory(failed, expected=expected, campaign=CAMP, root=tmp_path)
+    )
+
+
+def test_release_required_ok_enforced(tmp_path):
+    entries, expected = _fixture(tmp_path)
+    # exige que una clave concreta este ok; la marcamos failed -> release bloquea
+    req = mm.semantic_key(entries[0])
+    entries[0] = {
+        "schema_version": mm.SCHEMA_VERSION,
+        "campaign_id": CAMP["campaign_id"],
+        "source_git_sha": CAMP["source_git_sha"],
+        "git_dirty": CAMP["git_dirty"],
+        "panel_sha256": CAMP["panel_sha256"],
+        "type": "global_deep",
+        "table": "FAD",
+        "model": "BiTCN",
+        "status": "failed",
+        "error_type": "E",
+        "reason": "r",
+    }
+    probs = mm.validate_release_inventory(
+        entries, expected=expected, campaign=CAMP, root=tmp_path, failure_policy={"required_ok": {req}}
+    )
+    assert any("REQUERIDOS" in p for p in probs)
+
+
+def test_strict_jsonl_rejects_dup_keys(tmp_path):
+    import pytest
+
+    f = tmp_path / "manifest.jsonl"
+    f.write_text('{"model": "a", "model": "b"}\n')
+    with pytest.raises(ValueError, match="duplicada"):
+        mm.load_jsonl_strict(f)
