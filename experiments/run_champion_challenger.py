@@ -70,7 +70,7 @@ def main() -> int:
     champions = champion.load_manifest()
     verdicts = [champion.evaluate(t, champions[t]) for t in ("FAD", "DFF")]
 
-    payload = {
+    payload: dict[str, object] = {
         v.table: {
             "champion": v.champion,
             "champion_mean": v.champion_mean,
