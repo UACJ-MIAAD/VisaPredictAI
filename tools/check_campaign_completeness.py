@@ -44,6 +44,14 @@ MANIFEST = ROOT / "reports" / "campaign" / "campaign_manifest.json"
 TABLES = ("FAD", "DFF")
 SEED_VARIANTS = ("camp_levels", "camp_diff", "camp_diffls", "camp_auto")
 N_SEEDS = 5
+# Columnas de MODELO esperadas en cada CSV de semilla, por variante (verificado 13-jul).
+SEED_MODELS = {
+    "camp_levels": ("NHITS", "PatchTST", "TiDE", "BiTCN"),
+    "camp_diff": ("NHITS", "PatchTST", "TiDE", "BiTCN"),
+    "camp_diffls": ("NHITS", "PatchTST", "TiDE", "BiTCN"),
+    "camp_auto": ("AutoBiTCN", "AutoTiDE", "AutoNHITS"),
+}
+SEED_BASE_COLS = ("unique_id", "ds", "y")
 
 # HPO best: claves REALES por modelo (verificadas 13-jul contra run_global_deep).
 _HPO_COMMON = frozenset({"learning_rate", "max_steps", "input_size", "scaler_type"})
@@ -64,10 +72,12 @@ POOL_ELIGIBLE_FLOOR = {
     "campaign_pool_DFF_employment.csv": 8,
 }
 TUNED_GBM_KEYS = frozenset({"catboost", "lightgbm", "xgboost"})
-MANIFEST_LOCAL_FLOOR = 50
-MANIFEST_GLOBAL_FLOOR = 1  # al menos un modelo global_deep manifestado
-KEY_FACTS_MIN_KEYS = 20
-SIG_REQUIRED = frozenset({"ranking", "dm"})
+TUNED_GROUPS = frozenset({"FAD_family", "DFF_family", "FAD_employment", "DFF_employment"})
+MANIFEST_LOCAL_FLOOR = 250  # el productor manifiesta ~300 locales
+MANIFEST_GLOBAL_FLOOR = 6  # save_finalists_deep manifiesta ~10 globales (piso conservador)
+MANIFEST_ENTRY_KEYS = frozenset({"model", "type", "path", "git_sha", "panel_hash"})
+KEY_FACTS_REQUIRED = frozenset({"n_series_structural", "n_obs", "fad_champion_mean", "dff_champion_mean", "n_models"})
+CHAMPION_TABLE_KEYS = frozenset({"champion", "champion_mean", "challengers"})
 
 EXPECTED_INPUTS: list[tuple[str, int, int]] = [
     ("reports/campaign/campaign_pool_FAD_family.csv", 1, 5),
@@ -104,15 +114,6 @@ def _manifest_started() -> dt.datetime | None:
         return None
 
 
-def _sealed_campaign_id() -> str | None:
-    if not MANIFEST.exists():
-        return None
-    try:
-        return json.loads(MANIFEST.read_text()).get("campaign_id")
-    except json.JSONDecodeError:
-        return None
-
-
 def _useful_lines(path: Path) -> int:
     try:
         return max(0, sum(1 for line in path.read_text().splitlines() if line.strip()) - 1)
@@ -131,21 +132,41 @@ def _finite(v: str) -> bool:
         return False
 
 
-def _eligible_series(path: Path) -> int:
-    """Series distintas (country,category) con hold_mase FINITO en el pool."""
+def _pool_rows(path: Path) -> tuple[int, int] | None:
+    """(series elegibles distintas, n modelos distintos) o None si faltan columnas."""
     try:
         with path.open(newline="") as fh:
             rd = csv.DictReader(fh)
-            if rd.fieldnames is None or not {"country", "category", "hold_mase"} <= set(rd.fieldnames):
-                return -1
-            return len({(r["country"], r["category"]) for r in rd if _finite(r.get("hold_mase", ""))})
+            cols = set(rd.fieldnames or ())
+            if not {"country", "category", "hold_mase", "model"} <= cols:
+                return None
+            series, models = set(), set()
+            for r in rd:
+                models.add(r.get("model", ""))
+                if _finite(r.get("hold_mase", "")):
+                    series.add((r["country"], r["category"]))
+            return len(series), len(models)
     except OSError:
-        return -1
+        return None
 
 
-def _seed_metric_ok(path: Path) -> bool:
-    """Un CSV de semilla no vacio: header + >=1 fila de datos."""
-    return _useful_lines(path) >= 1
+def _seed_content_ok(path: Path, variant: str) -> str | None:
+    """El CSV de semilla debe traer unique_id/ds/y + las columnas de modelo de su variante,
+    con pronosticos FINITOS en >=1 fila. Devuelve el motivo del fallo o None si OK."""
+    try:
+        with path.open(newline="") as fh:
+            rd = csv.DictReader(fh)
+            cols = set(rd.fieldnames or ())
+            need = set(SEED_BASE_COLS) | set(SEED_MODELS[variant])
+            if not need <= cols:
+                return f"faltan columnas {sorted(need - cols)}"
+            finite_rows = 0
+            for r in rd:
+                if any(_finite(r.get(m, "")) for m in SEED_MODELS[variant]):
+                    finite_rows += 1
+            return None if finite_rows >= 1 else "0 filas con pronostico finito"
+    except OSError:
+        return "ilegible"
 
 
 def _load_json(path: Path):
@@ -160,12 +181,16 @@ def _check_pool(path: Path) -> list[str]:
     floor = POOL_ELIGIBLE_FLOOR.get(path.name)
     if floor is None:
         return []
-    n = _eligible_series(path)
-    if n < 0:
-        return [f"POOL {rel}: columnas country/category/hold_mase ausentes"]
-    if n < floor:
-        return [f"POOL {rel}: {n} series elegibles (hold_mase finito) < piso {floor} (¿pool degenerado?)"]
-    return []
+    got = _pool_rows(path)
+    if got is None:
+        return [f"POOL {rel}: faltan columnas country/category/hold_mase/model"]
+    n_series, n_models = got
+    probs = []
+    if n_series < floor:
+        probs.append(f"POOL {rel}: {n_series} series elegibles < piso {floor} (¿pool degenerado?)")
+    if n_models < 10:  # el pool compara ~24 modelos; <10 es un pool truncado
+        probs.append(f"POOL {rel}: solo {n_models} modelos (esperados ~24) — pool truncado")
+    return probs
 
 
 def _check_hpo(path: Path) -> list[str]:
@@ -183,7 +208,13 @@ def _check_tuned(path: Path) -> list[str]:
     d = _load_json(path)
     if not isinstance(d, dict) or not TUNED_GBM_KEYS.issubset(d.keys()):
         return [f"TUNED {path.relative_to(ROOT)}: faltan llaves GBM {sorted(TUNED_GBM_KEYS)}"]
-    return []
+    probs = []
+    for gbm in sorted(TUNED_GBM_KEYS):
+        groups = d.get(gbm)
+        if not isinstance(groups, dict) or not TUNED_GROUPS.issubset(groups.keys()):
+            faltan = sorted(TUNED_GROUPS - set(groups.keys())) if isinstance(groups, dict) else "no-dict"
+            probs.append(f"TUNED {gbm}: faltan grupos tabla/bloque {faltan} (se exigen 4 por modelo)")
+    return probs
 
 
 def _check_manifest(path: Path) -> list[str]:
@@ -191,11 +222,15 @@ def _check_manifest(path: Path) -> list[str]:
         entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     except OSError, json.JSONDecodeError:
         return [f"MANIFEST {path.relative_to(ROOT)}: JSONL invalido"]
-    if any(not isinstance(e, dict) or "model" not in e or "type" not in e for e in entries):
-        return [f"MANIFEST {path.relative_to(ROOT)}: entradas sin model/type"]
-    n_local = sum(1 for e in entries if e.get("type") == "local")
-    n_global = sum(1 for e in entries if str(e.get("type", "")).startswith("global"))
     probs = []
+    bad = sum(1 for e in entries if not isinstance(e, dict) or not MANIFEST_ENTRY_KEYS <= set(e.keys()))
+    if bad:
+        probs.append(f"MANIFEST: {bad} entradas sin las claves {sorted(MANIFEST_ENTRY_KEYS)}")
+    missing = sum(1 for e in entries if isinstance(e, dict) and "path" in e and not (ROOT / e["path"]).exists())
+    if missing:
+        probs.append(f"MANIFEST: {missing} rutas de modelo no existen en disco")
+    n_local = sum(1 for e in entries if isinstance(e, dict) and e.get("type") == "local")
+    n_global = sum(1 for e in entries if isinstance(e, dict) and str(e.get("type", "")).startswith("global"))
     if n_local < MANIFEST_LOCAL_FLOOR:
         probs.append(f"MANIFEST: {n_local} modelos locales < {MANIFEST_LOCAL_FLOOR}")
     if n_global < MANIFEST_GLOBAL_FLOOR:
@@ -210,25 +245,24 @@ def _seed_problems(started: dt.datetime | None, preflight: bool) -> list[str]:
     camp = ROOT / "reports" / "campaign"
     for table in TABLES:
         for variant in SEED_VARIANTS:
-            present = {
-                int(p.stem.rsplit("_s", 1)[1])
-                for p in camp.glob(f"global_{table}_{variant}_s*.csv")
-                if p.stem.rsplit("_s", 1)[1].isdigit()
-            }
-            want = set(range(1, N_SEEDS + 1))
+            # sufijos como STRING: {"1".."5"} exacto. Asi s01/sOLD/s1_backup/s6 (que los
+            # consumidores por prefijo `variant_s*` SI recogerian) se marcan como sobrantes.
+            present = {p.stem.rsplit("_s", 1)[1] for p in camp.glob(f"global_{table}_{variant}_s*.csv")}
+            want = {str(i) for i in range(1, N_SEEDS + 1)}
             if present != want:
                 extra = sorted(present - want)
                 missing = sorted(want - present)
                 probs.append(
-                    f"SEMILLAS {table}/{variant}: conjunto {sorted(present)} != {sorted(want)}"
-                    + (f" (sobra {extra})" if extra else "")
+                    f"SEMILLAS {table}/{variant}: sufijos {sorted(present)} != {sorted(want)}"
+                    + (f" (sobra {extra} — contamina la agregacion por prefijo)" if extra else "")
                     + (f" (falta {missing})" if missing else "")
                 )
                 continue
             for seed in want:
                 p = camp / f"global_{table}_{variant}_s{seed}.csv"
-                if not _seed_metric_ok(p):
-                    probs.append(f"SEMILLA vacia: {p.relative_to(ROOT)}")
+                bad = _seed_content_ok(p, variant)
+                if bad is not None:
+                    probs.append(f"SEMILLA {p.relative_to(ROOT)}: {bad}")
                 elif not preflight and started is not None and _stale(p, started):
                     probs.append(f"SEMILLA stale: {p.relative_to(ROOT)}")
     return probs
@@ -258,24 +292,51 @@ def _check_list(expected: list[tuple[str, int, int]], started: dt.datetime | Non
     return probs
 
 
+def _sealed(field: str) -> str | None:
+    if not MANIFEST.exists():
+        return None
+    try:
+        return json.loads(MANIFEST.read_text()).get(field)
+    except json.JSONDecodeError:
+        return None
+
+
 def _check_outputs_content(started: dt.datetime | None) -> list[str]:
     probs: list[str] = []
+    # significancia: ranking Y dm deben ser dicts anidados con FAD y DFF (no {})
     sig = _load_json(ROOT / "reports" / "eval" / "significance_summary.json")
-    if not isinstance(sig, dict) or not SIG_REQUIRED.issubset(sig.keys()):
-        probs.append(f"SIGNIFICANCIA: faltan claves {sorted(SIG_REQUIRED)}")
+    if not isinstance(sig, dict):
+        probs.append("SIGNIFICANCIA: no es un objeto")
+    else:
+        for key in ("ranking", "dm"):
+            sub = sig.get(key)
+            if not isinstance(sub, dict) or not {"FAD", "DFF"}.issubset(sub.keys()):
+                probs.append(f"SIGNIFICANCIA.{key}: debe ser dict con FAD/DFF no vacio")
+    # key_facts: deben estar las claves INSIGNIA (no 20 claves arbitrarias)
     kf = _load_json(ROOT / "reports" / "governance" / "key_facts.json")
-    if not isinstance(kf, dict) or len(kf) < KEY_FACTS_MIN_KEYS:
-        probs.append(f"KEY_FACTS: trivial (<{KEY_FACTS_MIN_KEYS} claves)")
+    if not isinstance(kf, dict) or not KEY_FACTS_REQUIRED.issubset(kf.keys()):
+        faltan = sorted(KEY_FACTS_REQUIRED - set(kf.keys())) if isinstance(kf, dict) else "no-dict"
+        probs.append(f"KEY_FACTS: faltan claves insignia {faltan}")
+    # champion: FAD/DFF con champion_mean FINITO + campaign_id Y git_sha == sellados
     cc = _load_json(ROOT / "reports" / "governance" / "champion_challenger.json")
-    sealed = _sealed_campaign_id()
     if not isinstance(cc, dict) or not {"FAD", "DFF"}.issubset(cc.keys()):
         probs.append("CHAMPION: faltan tablas FAD/DFF")
-    elif sealed is not None:
-        rec_cid = cc.get("campaign_id")
-        if rec_cid is None:
-            probs.append("CHAMPION: sin campaign_id (el productor debe sellarlo)")
-        elif rec_cid != sealed:
-            probs.append(f"CHAMPION: campaign_id {rec_cid!r} != sellado {sealed!r}")
+    else:
+        for tbl in ("FAD", "DFF"):
+            d = cc.get(tbl)
+            if not isinstance(d, dict) or not CHAMPION_TABLE_KEYS.issubset(d.keys()):
+                probs.append(f"CHAMPION.{tbl}: faltan {sorted(CHAMPION_TABLE_KEYS)}")
+            elif not _finite(str(d.get("champion_mean", ""))):
+                probs.append(f"CHAMPION.{tbl}: champion_mean no finito")
+        for field in ("campaign_id", "git_sha"):
+            sealed = _sealed(field)
+            rec = cc.get(field)
+            if sealed is None:
+                probs.append(f"IDENTIDAD: el manifiesto no sella {field} (campaña sin identidad)")
+            elif rec is None:
+                probs.append(f"CHAMPION: sin {field} (el productor debe sellarlo)")
+            elif rec != sealed:
+                probs.append(f"CHAMPION: {field} {rec!r} != sellado {sealed!r}")
     return probs
 
 

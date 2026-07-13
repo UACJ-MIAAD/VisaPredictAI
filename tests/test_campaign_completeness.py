@@ -11,29 +11,30 @@ import tools.check_campaign_completeness as gate
 
 @pytest.fixture
 def sandbox(tmp_path, monkeypatch):
-    for sub in ("reports/campaign", "reports/eval", "reports/governance", "models"):
+    for sub in ("reports/campaign", "reports/eval", "reports/governance", "models/FAD/local", "models/FAD/global"):
         (tmp_path / sub).mkdir(parents=True)
     monkeypatch.setattr(gate, "ROOT", tmp_path)
     monkeypatch.setattr(gate, "MANIFEST", tmp_path / "reports" / "campaign" / "campaign_manifest.json")
     return tmp_path
 
 
-def _seal(root, started="2000-01-01T00:00:00+00:00", cid="camp1"):
+def _seal(root, started="2000-01-01T00:00:00+00:00", cid="camp1", sha="abc"):
     (root / "reports" / "campaign" / "campaign_manifest.json").write_text(
-        json.dumps({"campaign_id": cid, "sha": "abc", "started_at": started})
+        json.dumps({"campaign_id": cid, "sha": sha, "git_sha": sha, "dirty": False, "started_at": started})
     )
 
 
-# --- pool con 25 series elegibles (>= piso) y no-finitos legitimos ---
-def _pool(n_series=25, n_models=4, inject_nan=3):
-    hdr = "country,category,table,hold_mase"
-    rows = []
-    for s in range(n_series):
-        for m in range(n_models):
-            rows.append(f"c{s},F{m % 3},FAD,{0.1 + 0.01 * m}")
-    for _ in range(inject_nan):  # series inelegibles: hold_mase no finito (legitimo)
-        rows.append("cX,F9,FAD,nan")
+def _pool(n_series=25, n_models=24, nan=3):
+    hdr = "country,category,table,model,hold_mase"
+    rows = [f"c{s},F{s % 5},FAD,m{m},{0.1 + 0.01 * m}" for s in range(n_series) for m in range(n_models)]
+    rows += ["cX,F9,FAD,m0,nan"] * nan  # series inelegibles (legitimo)
     return hdr + "\n" + "\n".join(rows) + "\n"
+
+
+def _seed(models):
+    cols = "unique_id,ds," + "y," + ",".join(models)
+    body = "\n".join("s1,2026-01-01,100," + ",".join(str(1.0 + i) for i, _ in enumerate(models)) for _ in range(3))
+    return cols + "\n" + body + "\n"
 
 
 HPO = {
@@ -62,6 +63,10 @@ HPO = {
         "decoder_output_dim": 4,
     },
 }
+TUNED = {
+    gbm: {g: {"lr": 0.1} for g in ("FAD_family", "DFF_family", "FAD_employment", "DFF_employment")}
+    for gbm in ("catboost", "lightgbm", "xgboost")
+}
 SMALL = "col\n" + "\n".join(f"r{i}" for i in range(6))
 
 
@@ -83,28 +88,50 @@ def _write_inputs(root):
     for t in ("FAD", "DFF"):
         for mdl, cfg in HPO.items():
             (camp / f"hpo_deep_best_{t}_{mdl}.json").write_text(json.dumps(cfg))
-        for variant in ("camp_levels", "camp_diff", "camp_diffls", "camp_auto"):
+        for variant in ("camp_levels", "camp_diff", "camp_diffls"):
             for seed in range(1, 6):
-                (camp / f"global_{t}_{variant}_s{seed}.csv").write_text("m,x\na,1\n")
-    (ev / "tuned_params.json").write_text(json.dumps({"catboost": {}, "lightgbm": {}, "xgboost": {}}))
-    (root / "models" / "manifest.jsonl").write_text(
-        "\n".join('{"model":"ets","type":"local"}' for _ in range(60)) + '\n{"model":"bitcn","type":"global_deep"}\n'
+                (camp / f"global_{t}_{variant}_s{seed}.csv").write_text(_seed(("NHITS", "PatchTST", "TiDE", "BiTCN")))
+        for seed in range(1, 6):
+            (camp / f"global_{t}_camp_auto_s{seed}.csv").write_text(_seed(("AutoBiTCN", "AutoTiDE", "AutoNHITS")))
+    (ev / "tuned_params.json").write_text(json.dumps(TUNED))
+    # manifest con locales+globales cuyas rutas EXISTEN
+    (root / "models" / "FAD" / "local" / "m.pkl").write_text("x")
+    (root / "models" / "FAD" / "global" / "d.pt").write_text("x")
+    entry_l = {"model": "ets", "type": "local", "path": "models/FAD/local/m.pkl", "git_sha": "abc", "panel_hash": "h"}
+    entry_g = {
+        "model": "bitcn",
+        "type": "global_deep",
+        "path": "models/FAD/global/d.pt",
+        "git_sha": "abc",
+        "panel_hash": "h",
+    }
+    lines = [json.dumps(entry_l)] * 260 + [json.dumps(entry_g)] * 8
+    (root / "models" / "manifest.jsonl").write_text("\n".join(lines) + "\n")
+
+
+def _write_outputs(root, cid="camp1", sha="abc"):
+    (root / "reports" / "eval" / "significance_summary.json").write_text(
+        json.dumps({"ranking": {"FAD": {}, "DFF": {}}, "dm": {"FAD": {}, "DFF": {}}})
     )
-
-
-def _write_outputs(root, cid="camp1"):
-    (root / "reports" / "eval" / "significance_summary.json").write_text(json.dumps({"ranking": {}, "dm": {}}))
+    tbl = {"champion": "naive1", "champion_mean": 0.1, "challengers": []}
     (root / "reports" / "governance" / "champion_challenger.json").write_text(
-        json.dumps({"FAD": {}, "DFF": {}, "campaign_id": cid})
+        json.dumps({"FAD": tbl, "DFF": tbl, "campaign_id": cid, "git_sha": sha})
     )
-    (root / "reports" / "governance" / "key_facts.json").write_text(json.dumps({f"k{i}": i for i in range(25)}))
+    kf = {k: 1 for k in ("n_series_structural", "n_obs", "fad_champion_mean", "dff_champion_mean", "n_models")}
+    (root / "reports" / "governance" / "key_facts.json").write_text(json.dumps(kf))
 
 
-# ── el bug del orden: inputs NO exige los outputs ──
-def test_inputs_pass_before_outputs_exist(sandbox):
+# ── happy path: sin falsos rechazos ──
+def test_inputs_pass_with_realistic_artifacts(sandbox):
     _write_inputs(sandbox)
     _seal(sandbox)
     assert gate.check("inputs", preflight=False) == []
+
+
+def test_outputs_pass_with_realistic_artifacts(sandbox):
+    _seal(sandbox)
+    _write_outputs(sandbox)
+    assert gate.check("outputs", preflight=False) == []
 
 
 def test_missing_manifest_fails_closed(sandbox):
@@ -112,8 +139,8 @@ def test_missing_manifest_fails_closed(sandbox):
     assert gate.check("inputs", preflight=False)
 
 
-# ── #1 HPO por modelo: NHITS valido pasa; sin su llave propia falla ──
-def test_autonhits_valid_passes(sandbox):
+# ── #1 HPO por modelo ──
+def test_autonhits_valid_passes_without_hidden_size(sandbox):
     _write_inputs(sandbox)
     _seal(sandbox)
     assert not [p for p in gate.check("inputs", preflight=False) if "AutoNHITS" in p]
@@ -127,32 +154,46 @@ def test_autonhits_missing_own_key_fails(sandbox):
     assert any("AutoNHITS" in p and "n_pool_kernel_size" in p for p in gate.check("inputs", preflight=False))
 
 
-def test_hidden_size_not_required_for_nhits(sandbox):
-    # regresion del falso-rechazo: AutoNHITS NO tiene hidden_size y debe pasar
+# ── #2 pools: modelo + elegibilidad ──
+def test_pool_without_model_column_fails(sandbox):
     _write_inputs(sandbox)
     _seal(sandbox)
-    assert not [p for p in gate.check("inputs", preflight=False) if "AutoNHITS" in p and "hidden_size" in p]
+    (sandbox / "reports" / "campaign" / "campaign_pool_FAD_family.csv").write_text(
+        "country,category,table,hold_mase\nc0,F1,FAD,0.1\n" * 25
+    )
+    assert any("POOL" in p and "FAD_family" in p for p in gate.check("inputs", preflight=False))
 
 
-# ── #2 pools: elegibilidad, no "todo finito" ──
-def test_pool_with_legit_nonfinite_passes(sandbox):
+def test_pool_single_model_fails(sandbox):
     _write_inputs(sandbox)
     _seal(sandbox)
-    assert not [p for p in gate.check("inputs", preflight=False) if p.startswith("POOL")]
+    (sandbox / "reports" / "campaign" / "campaign_pool_FAD_family.csv").write_text(_pool(n_series=25, n_models=1))
+    assert any("POOL" in p and "modelos" in p for p in gate.check("inputs", preflight=False))
 
 
 def test_degenerate_pool_fails(sandbox):
     _write_inputs(sandbox)
     _seal(sandbox)
-    (sandbox / "reports" / "campaign" / "campaign_pool_FAD_family.csv").write_text(_pool(n_series=3))  # <20
-    assert any(p.startswith("POOL") and "FAD_family" in p for p in gate.check("inputs", preflight=False))
+    (sandbox / "reports" / "campaign" / "campaign_pool_FAD_family.csv").write_text(_pool(n_series=3))
+    assert any("POOL" in p and "series elegibles" in p for p in gate.check("inputs", preflight=False))
 
 
-# ── #3 semillas exactas ──
-def test_extra_sixth_seed_fails(sandbox):
+# ── #3 semillas: conjunto exacto + contenido ──
+def test_extra_string_seed_fails(sandbox):
     _write_inputs(sandbox)
     _seal(sandbox)
-    (sandbox / "reports" / "campaign" / "global_FAD_camp_auto_s6.csv").write_text("m,x\na,1\n")
+    (sandbox / "reports" / "campaign" / "global_FAD_camp_auto_sOLD.csv").write_text(
+        _seed(("AutoBiTCN", "AutoTiDE", "AutoNHITS"))
+    )
+    assert any("SEMILLAS" in p and "sobra" in p for p in gate.check("inputs", preflight=False))
+
+
+def test_zero_padded_seed_fails(sandbox):
+    _write_inputs(sandbox)
+    _seal(sandbox)
+    (sandbox / "reports" / "campaign" / "global_FAD_camp_auto_s01.csv").write_text(
+        _seed(("AutoBiTCN", "AutoTiDE", "AutoNHITS"))
+    )
     assert any("SEMILLAS" in p and "sobra" in p for p in gate.check("inputs", preflight=False))
 
 
@@ -163,69 +204,94 @@ def test_missing_seed_fails(sandbox):
     assert any("SEMILLAS" in p and "falta" in p for p in gate.check("inputs", preflight=False))
 
 
-def test_empty_seed_fails(sandbox):
+def test_seed_missing_model_column_fails(sandbox):
     _write_inputs(sandbox)
     _seal(sandbox)
-    (sandbox / "reports" / "campaign" / "global_FAD_camp_auto_s2.csv").write_text("only_header\n")
-    assert any("SEMILLA vacia" in p for p in gate.check("inputs", preflight=False))
+    (sandbox / "reports" / "campaign" / "global_FAD_camp_auto_s2.csv").write_text("unique_id,ds,y\ns1,2026-01-01,100\n")
+    assert any("SEMILLA" in p and "faltan columnas" in p for p in gate.check("inputs", preflight=False))
 
 
-# ── #5 tuned + manifest ──
-def test_trivial_tuned_fails(sandbox):
+def test_seed_no_finite_forecast_fails(sandbox):
     _write_inputs(sandbox)
     _seal(sandbox)
-    (sandbox / "reports" / "eval" / "tuned_params.json").write_text("{}")
-    assert any("TUNED" in p for p in gate.check("inputs", preflight=False))
+    (sandbox / "reports" / "campaign" / "global_FAD_camp_auto_s2.csv").write_text(
+        "unique_id,ds,y,AutoBiTCN,AutoTiDE,AutoNHITS\ns1,2026-01-01,100,nan,nan,nan\n"
+    )
+    assert any("pronostico finito" in p for p in gate.check("inputs", preflight=False))
+
+
+# ── #5 tuned (12 grupos) + manifest (rutas, identidad, globales) ──
+def test_tuned_missing_group_fails(sandbox):
+    _write_inputs(sandbox)
+    _seal(sandbox)
+    bad = {gbm: {"FAD_family": {}} for gbm in ("catboost", "lightgbm", "xgboost")}  # solo 1 grupo
+    (sandbox / "reports" / "eval" / "tuned_params.json").write_text(json.dumps(bad))
+    assert any("TUNED" in p and "grupos" in p for p in gate.check("inputs", preflight=False))
 
 
 def test_manifest_without_global_fails(sandbox):
     _write_inputs(sandbox)
     _seal(sandbox)
-    (sandbox / "models" / "manifest.jsonl").write_text(
-        "\n".join('{"model":"ets","type":"local"}' for _ in range(60))  # 0 global
-    )
+    entry_l = {"model": "ets", "type": "local", "path": "models/FAD/local/m.pkl", "git_sha": "abc", "panel_hash": "h"}
+    (sandbox / "models" / "manifest.jsonl").write_text("\n".join(json.dumps(entry_l) for _ in range(260)))
     assert any("MANIFEST" in p and "globales" in p for p in gate.check("inputs", preflight=False))
 
 
-def test_junk_manifest_fails(sandbox):
+def test_manifest_missing_path_fails(sandbox):
     _write_inputs(sandbox)
     _seal(sandbox)
-    (sandbox / "models" / "manifest.jsonl").write_text("\n".join("garbage" for _ in range(60)))
-    assert any("MANIFEST" in p for p in gate.check("inputs", preflight=False))
+    entry = {"model": "x", "type": "local", "path": "models/does/not/exist.pkl", "git_sha": "abc", "panel_hash": "h"}
+    (sandbox / "models" / "manifest.jsonl").write_text("\n".join(json.dumps(entry) for _ in range(260)))
+    assert any("MANIFEST" in p and "no existen" in p for p in gate.check("inputs", preflight=False))
 
 
-# ── #4 outputs: contenido + identidad obligatoria ──
-def test_outputs_valid_passes(sandbox):
+def test_manifest_missing_identity_fails(sandbox):
+    _write_inputs(sandbox)
     _seal(sandbox)
-    _write_outputs(sandbox)
-    assert gate.check("outputs", preflight=False) == []
+    entry = {"model": "x", "type": "local", "path": "models/FAD/local/m.pkl"}  # sin git_sha/panel_hash
+    (sandbox / "models" / "manifest.jsonl").write_text("\n".join(json.dumps(entry) for _ in range(260)))
+    assert any("MANIFEST" in p and "claves" in p for p in gate.check("inputs", preflight=False))
 
 
+# ── #4 outputs: contenido anidado + identidad completa ──
 def test_trivial_significance_fails(sandbox):
     _seal(sandbox)
     _write_outputs(sandbox)
-    (sandbox / "reports" / "eval" / "significance_summary.json").write_text("{}")
+    (sandbox / "reports" / "eval" / "significance_summary.json").write_text(json.dumps({"ranking": {}, "dm": {}}))
     assert any("SIGNIFICANCIA" in p for p in gate.check("outputs", preflight=False))
 
 
-def test_trivial_key_facts_fails(sandbox):
+def test_key_facts_missing_badge_fails(sandbox):
     _seal(sandbox)
     _write_outputs(sandbox)
-    (sandbox / "reports" / "governance" / "key_facts.json").write_text("{}")
-    assert any("KEY_FACTS" in p for p in gate.check("outputs", preflight=False))
+    (sandbox / "reports" / "governance" / "key_facts.json").write_text(json.dumps({f"k{i}": i for i in range(25)}))
+    assert any("KEY_FACTS" in p and "insignia" in p for p in gate.check("outputs", preflight=False))
 
 
-def test_champion_without_campaign_id_fails(sandbox):
+def test_champion_non_finite_mean_fails(sandbox):
     _seal(sandbox)
     _write_outputs(sandbox)
-    (sandbox / "reports" / "governance" / "champion_challenger.json").write_text(json.dumps({"FAD": {}, "DFF": {}}))
-    assert any("CHAMPION" in p and "campaign_id" in p for p in gate.check("outputs", preflight=False))
+    bad = {"champion": "x", "champion_mean": "nan", "challengers": []}
+    (sandbox / "reports" / "governance" / "champion_challenger.json").write_text(
+        json.dumps({"FAD": bad, "DFF": bad, "campaign_id": "camp1", "git_sha": "abc"})
+    )
+    assert any("champion_mean no finito" in p for p in gate.check("outputs", preflight=False))
+
+
+def test_champion_without_git_sha_fails(sandbox):
+    _seal(sandbox)
+    _write_outputs(sandbox)
+    tbl = {"champion": "n", "champion_mean": 0.1, "challengers": []}
+    (sandbox / "reports" / "governance" / "champion_challenger.json").write_text(
+        json.dumps({"FAD": tbl, "DFF": tbl, "campaign_id": "camp1"})  # sin git_sha
+    )
+    assert any("git_sha" in p for p in gate.check("outputs", preflight=False))
 
 
 def test_champion_wrong_campaign_id_fails(sandbox):
     _seal(sandbox, cid="camp1")
     _write_outputs(sandbox, cid="OTRA")
-    assert any("CHAMPION" in p and "OTRA" in p for p in gate.check("outputs", preflight=False))
+    assert any("campaign_id" in p and "OTRA" in p for p in gate.check("outputs", preflight=False))
 
 
 def test_preflight_ignores_freshness(sandbox):

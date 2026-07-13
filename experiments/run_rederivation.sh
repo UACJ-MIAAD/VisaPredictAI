@@ -64,10 +64,21 @@ fi
 CAMPAIGN_SHA="$(git rev-parse HEAD)"
 CAMPAIGN_ID="rederiv_$(git rev-parse --short HEAD)_$(date +%Y%m%dT%H%M%S)"
 export CAMPAIGN_SHA CAMPAIGN_ID
-echo "campaign_id=$CAMPAIGN_ID  ·  sha=$CAMPAIGN_SHA  ·  dirty=${ALLOW_DIRTY:+SI (forzado)}"
+CAMPAIGN_DIRTY="${ALLOW_DIRTY:+true}"; CAMPAIGN_DIRTY="${CAMPAIGN_DIRTY:-false}"
+export CAMPAIGN_GIT_SHA="$CAMPAIGN_SHA"
+echo "campaign_id=$CAMPAIGN_ID  ·  sha=$CAMPAIGN_SHA  ·  dirty=$CAMPAIGN_DIRTY"
+# ⚠️ Una campaña OFICIAL (para publicar) NO debe correr con ALLOW_DIRTY: los ledgers
+# sellan dirty=False y quedaria una mentira. ALLOW_DIRTY solo para diagnostico/depuracion.
+if [ -n "${ALLOW_DIRTY:-}" ] && [ -z "${CAMPAIGN_DIAGNOSTIC:-}" ]; then
+  echo "ERROR: ALLOW_DIRTY=1 sin CAMPAIGN_DIAGNOSTIC=1. Una campaña oficial exige árbol" >&2
+  echo "       limpio (los ledgers sellan dirty=False). Usa CAMPAIGN_DIAGNOSTIC=1 solo" >&2
+  echo "       para una corrida de depuracion que NO se publicara. Aborta." >&2
+  exit 6
+fi
 mkdir -p reports/campaign
-printf '{"campaign_id":"%s","sha":"%s","started_at":"%s"}\n' \
-  "$CAMPAIGN_ID" "$CAMPAIGN_SHA" "$(date -u +%FT%TZ)" > reports/campaign/campaign_manifest.json
+printf '{"campaign_id":"%s","sha":"%s","git_sha":"%s","dirty":%s,"started_at":"%s"}\n' \
+  "$CAMPAIGN_ID" "$CAMPAIGN_SHA" "$CAMPAIGN_SHA" "$CAMPAIGN_DIRTY" "$(date -u +%FT%TZ)" \
+  > reports/campaign/campaign_manifest.json
 
 FAILS=0
 REQ_FAILS=0
@@ -130,10 +141,16 @@ run $ANTE -m vp_model.run_tuning --select-by-deploy   # fix #20: re-elige por de
 run_req $ANTE -m vp_model.confirm_tuning --holdout-report --mlflow
 
 stage 6.5 "GATE de INPUTS (pools/semillas/HPO/finalists frescos y con métricas finitas)"
-# ABORTA INMEDIATAMENTE (no run_req): la significancia/champion/key_facts NO deben correr
-# sobre inputs incompletos, stale o con NaN. Es un candado duro antes de los consumidores.
+# Candado 1: si ya fallo CUALQUIER etapa obligatoria (0-6), NO correr los consumidores
+# (significancia/champion) sobre outputs parciales — aborta antes.
+if [ "$REQ_FAILS" -gt 0 ]; then
+  echo "✗ $REQ_FAILS etapa(s) obligatoria(s) fallaron antes de significancia. Aborta." >&2
+  exit 5
+fi
+# Candado 2: gate de inputs (ABORTA, no run_req): significancia/champion/key_facts NO deben
+# correr sobre inputs incompletos, stale, con NaN o con el conjunto de semillas equivocado.
 if ! $ANTE -m tools.check_campaign_completeness --phase inputs; then
-  echo "✗ GATE DE INPUTS FALLIDO: inputs incompletos/stale. Aborta antes de significancia." >&2
+  echo "✗ GATE DE INPUTS FALLIDO: inputs incompletos/stale/invalidos. Aborta antes de significancia." >&2
   exit 4
 fi
 

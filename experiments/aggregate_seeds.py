@@ -30,9 +30,17 @@ def main() -> None:
     args = ap.parse_args()
 
     df = eval_global_deep(args.table)
-    df = df[(df.block == args.block) & (df.model == args.model) & df.variant.str.startswith(args.prefix)]
-    if df.empty:
-        raise SystemExit(f"sin datos para {args.model}/{args.prefix}* en {args.table}/{args.block}")
+    # EXACTAMENTE las 5 variantes {prefix}1..{prefix}5 (auditoría 13-jul): `startswith`
+    # recogía s01/sOLD/s1_backup/s6 y contaminaba la agregación multi-semilla.
+    want = {f"{args.prefix}{i}" for i in range(1, 6)}
+    df = df[(df.block == args.block) & (df.model == args.model) & df.variant.isin(want)]
+    got = set(df.variant.unique())
+    if got != want:
+        raise SystemExit(
+            f"agregación {args.model}/{args.prefix}* en {args.table}/{args.block}: "
+            f"semillas {sorted(got)} != las 5 esperadas {sorted(want)} "
+            f"(falta {sorted(want - got)}, sobra {sorted(got - want)})"
+        )
 
     # un MASE por semilla = media sobre las series del bloque
     per_seed = df.groupby("variant")["hold_mase"].mean().sort_index()
