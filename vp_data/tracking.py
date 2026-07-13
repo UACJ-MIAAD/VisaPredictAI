@@ -82,12 +82,14 @@ def git_state() -> tuple[str, bool]:
     """(short sha, dirty) for provenance; tolerant when git is unavailable.
 
     Si ``CAMPAIGN_SHA`` está sellado (run_rederivation.sh exigió árbol limpio al inicio),
-    se usa ESE sha fijo con dirty=False para TODOS los records de la campaña — así, aunque
-    HEAD avance a mitad de corrida, los outputs no quedan con SHAs mezclados (bug 12-jul).
+    se usa ESE sha fijo para TODOS los records de la campaña — así, aunque HEAD avance a mitad
+    de corrida, los outputs no quedan con SHAs mezclados (bug 12-jul). El dirty se toma de
+    ``CAMPAIGN_DIRTY`` (auditoría 13-jul ronda 8): una campaña OFICIAL es limpia (false), pero
+    una diagnóstica (ALLOW_DIRTY) sella dirty=true de verdad en vez de mentir con un false fijo.
     """
     pinned = os.environ.get("CAMPAIGN_SHA")
     if pinned:
-        return pinned[:7], False
+        return pinned[:7], os.environ.get("CAMPAIGN_DIRTY", "false") == "true"
     try:
         sha = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=ROOT, check=False

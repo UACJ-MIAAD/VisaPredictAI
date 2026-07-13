@@ -63,8 +63,12 @@ if [ -z "${ALLOW_DIRTY:-}" ] && [ -n "$(tree_dirty)" ]; then
 fi
 CAMPAIGN_SHA="$(git rev-parse HEAD)"
 CAMPAIGN_ID="rederiv_$(git rev-parse --short HEAD)_$(date +%Y%m%dT%H%M%S)"
-export CAMPAIGN_SHA CAMPAIGN_ID
 CAMPAIGN_DIRTY="${ALLOW_DIRTY:+true}"; CAMPAIGN_DIRTY="${CAMPAIGN_DIRTY:-false}"
+# ⚠️ CAMPAIGN_DIRTY debe EXPORTARSE (auditoría 13-jul ronda 8): sin esto, save_finalists_deep
+# y los ledgers (tracking.py/config.py) leían "false" por defecto y estampaban git_dirty=false
+# aunque la campaña fuese diagnóstica — la identidad mentía. Ahora todos los productores ven
+# el mismo dirty sellado.
+export CAMPAIGN_SHA CAMPAIGN_ID CAMPAIGN_DIRTY
 export CAMPAIGN_GIT_SHA="$CAMPAIGN_SHA"
 echo "campaign_id=$CAMPAIGN_ID  ·  sha=$CAMPAIGN_SHA  ·  dirty=$CAMPAIGN_DIRTY"
 # ⚠️ Una campaña OFICIAL (para publicar) NO debe correr con ALLOW_DIRTY: los ledgers

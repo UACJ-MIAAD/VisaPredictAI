@@ -23,17 +23,18 @@ cd "$(dirname "$0")/.."
 PUBLISH="${SYNC_PUBLISH:-0}"
 if [ "${1:-}" = "--publish" ]; then PUBLISH=1; shift; fi
 MSG="${1:-experiments: sync MLflow + DVC->S3 ($(date +%Y-%m-%d' '%H:%M))}"
+MANIFEST=reports/campaign/campaign_manifest.json
 
-# ⚠️ Publicar una campaña DIAGNÓSTICA (dirty=true) queda BLOQUEADO (auditoría 13-jul-2026):
-# los ledgers pudieron sellar dirty=False mientras el manifiesto marca dirty=true — publicar
-# esas cifras sería una mentira. CAMPAIGN_DIAGNOSTIC no debe poder llegar a producción.
-if [ "$PUBLISH" = 1 ] && [ -f reports/campaign/campaign_manifest.json ]; then
-  if grep -q '"dirty": *true' reports/campaign/campaign_manifest.json; then
-    echo "ERROR: el manifiesto de campaña marca dirty=true (campaña diagnóstica). Publicar" >&2
-    echo "       está BLOQUEADO — re-lanza una campaña OFICIAL desde árbol limpio antes de" >&2
-    echo "       --publish. Aborta." >&2
-    exit 7
-  fi
+# ⚠️ Publicar exige un manifiesto de campaña que EXISTA, sea JSON válido y selle dirty=false
+# BOOLEANO explícito (contrato único fail-closed: tools/campaign_manifest.py). Fail-closed ante
+# manifiesto ausente/ilegible/malformado, sin la clave `dirty`, o dirty!=false (auditoría
+# 13-jul-2026 ronda 8: el grep '"dirty": *true' era FAIL-OPEN — no cubría ausencia/malformado/
+# `{"dirty" : true}` con espacios ni cambios TOCTOU). CAMPAIGN_DIAGNOSTIC NO llega a producción.
+publishable() { ante_nf/bin/python -m tools.campaign_manifest --assert-publishable "$MANIFEST"; }
+manifest_sha() { ante_nf/bin/python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$MANIFEST"; }
+if [ "$PUBLISH" = 1 ]; then
+  publishable || exit 7
+  PUB_SHA0="$(manifest_sha)"
 fi
 
 echo ">>> [1/3] MLflow: staging -> mlflow.db"
@@ -47,6 +48,13 @@ git add models.dvc mlflow.db.dvc .gitignore
 if git diff --cached --quiet; then
     echo "    sin cambios que commitear"
 elif [ "$PUBLISH" = 1 ]; then
+    # Re-valida el manifiesto JUSTO antes de publicar (cierra TOCTOU: pudo cambiar entre el
+    # gate inicial y aquí) y exige que su contenido siga BYTE-idéntico al validado.
+    publishable || exit 7
+    [ "$(manifest_sha)" = "$PUB_SHA0" ] || {
+        echo "ERROR: el manifiesto de campaña cambió durante sync_all (TOCTOU). Aborta." >&2
+        exit 7
+    }
     dvc push
     git commit -q -m "$MSG"
     git push

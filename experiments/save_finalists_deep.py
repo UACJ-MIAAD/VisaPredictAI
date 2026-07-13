@@ -25,18 +25,21 @@ DET = ("BiTCN", "PatchTST", "TiDE", "NHITS")  # deterministas finalistas
 
 
 def _identity() -> dict:
-    """git_sha/git_dirty/panel_hash — MISMA convención que save_finalists.py (acta de
-    nacimiento de cada modelo). Autocontenido (corre en ante_nf, sin vp_data). Prefiere
-    CAMPAIGN_SHA sellado (identidad de campaña) sobre el HEAD vivo. El gate de completitud
-    EXIGE git_sha y panel_hash en cada entrada del manifiesto."""
+    """git_sha (corto, 7)/git_dirty/panel_hash — MISMA convención EXACTA que
+    ``vp_data.tracking.git_state`` (el productor local usa ``[:7]``), para que el manifiesto
+    no mezcle SHAs de 40 y de 7 chars (auditoría 13-jul ronda 8). Autocontenido (corre en
+    ante_nf, sin vp_data). Prefiere ``CAMPAIGN_SHA``/``CAMPAIGN_DIRTY`` sellados por
+    run_rederivation.sh sobre el HEAD vivo — una campaña diagnóstica (dirty=true) estampa
+    git_dirty=true de verdad, no un false hardcodeado. El gate de completitud EXIGE que
+    git_sha coincida con el SHA sellado (corto) y que panel_hash sea válido (no 'n/d')."""
     pinned = os.environ.get("CAMPAIGN_SHA")
     if pinned:
-        sha, dirty = pinned, os.environ.get("CAMPAIGN_DIRTY", "false") == "true"
+        sha, dirty = pinned[:7], os.environ.get("CAMPAIGN_DIRTY", "false") == "true"
     else:
         try:
             sha = (
                 subprocess.run(
-                    ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=ROOT, check=False
+                    ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=ROOT, check=False
                 ).stdout.strip()
                 or "unknown"
             )

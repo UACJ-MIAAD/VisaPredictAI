@@ -14,10 +14,67 @@ Uso:  ante/bin/python experiments/aggregate_seeds.py --table FAD --prefix auto_s
 from __future__ import annotations
 
 import argparse
+import math
 
 import numpy as np
 
-from vp_model.eval_neuralforecast import eval_global_deep
+N_SEEDS = 5
+
+
+def aggregate(df, *, prefix: str, model: str, block: str, n_seeds: int = N_SEEDS) -> dict:
+    """Agrega las ``n_seeds`` corridas de ``model`` en ``block`` a un MASE medio ± IC 95 %.
+
+    Fail-closed (auditoría 13-jul-2026 ronda 8 — antes solo abortaba con las 5 semillas Inf/NaN):
+
+    * exige EXACTAMENTE ``{prefix}1..{prefix}n`` (``startswith`` recogía ``s01/sOLD/s6`` y
+      contaminaba la agregación);
+    * **valida finitud ANTES de agregar**: rechaza cualquier ``hold_mase`` no finito en el
+      subconjunto — ``groupby.mean()`` omite los NaN en silencio y produce un promedio sobre un
+      subconjunto DISTINTO por semilla (no comparable) que salía con exit 0;
+    * **valida finitud DESPUÉS de agregar**: cinco valores ~1e308 son finitos individualmente
+      pero su suma desborda el float64 (media/IC = ``Inf``) y pasarían el chequeo de arriba.
+    """
+    want = {f"{prefix}{i}" for i in range(1, n_seeds + 1)}
+    sub = df[(df.block == block) & (df.model == model) & df.variant.isin(want)]
+    got = set(sub.variant.unique())
+    if got != want:
+        raise SystemExit(
+            f"agregación {model}/{prefix}* en {block}: semillas {sorted(got)} != las {n_seeds} "
+            f"esperadas {sorted(want)} (falta {sorted(want - got)}, sobra {sorted(got - want)})"
+        )
+    raw = sub["hold_mase"].to_numpy(dtype=float)
+    if raw.size == 0 or not np.all(np.isfinite(raw)):
+        n_bad = int((~np.isfinite(raw)).sum())
+        raise SystemExit(
+            f"agregación {model}/{prefix}* en {block}: {n_bad}/{raw.size} hold_mase no "
+            f"finito(s) — semillas inutilizables, no se agrega (fail-closed)"
+        )
+
+    per_seed = sub.groupby("variant")["hold_mase"].mean().sort_index()
+    vals = per_seed.to_numpy()
+    n = len(vals)
+    mean, sd = float(vals.mean()), float(vals.std(ddof=1))
+    se = sd / np.sqrt(n)
+    from scipy.stats import t
+
+    tcrit = float(t.ppf(0.975, n - 1)) if n > 1 else float("nan")
+    lo, hi = mean - tcrit * se, mean + tcrit * se
+    if not all(math.isfinite(x) for x in (mean, sd, se, lo, hi)):
+        raise SystemExit(
+            f"agregación {model}/{prefix}* en {block}: estadísticos agregados no finitos "
+            f"(media={mean}, sd={sd}, IC=[{lo}, {hi}]) — ¿valores enormes desbordan el promedio?"
+        )
+    return {
+        "per_seed": per_seed,
+        "n": n,
+        "mean": mean,
+        "sd": sd,
+        "se": se,
+        "lo": lo,
+        "hi": hi,
+        "min": float(vals.min()),
+        "max": float(vals.max()),
+    }
 
 
 def main() -> None:
@@ -29,46 +86,18 @@ def main() -> None:
     ap.add_argument("--mlflow", action="store_true", help="loguear el agregado multi-semilla a tracking")
     args = ap.parse_args()
 
+    from vp_model.eval_neuralforecast import eval_global_deep
+
     df = eval_global_deep(args.table)
-    # EXACTAMENTE las 5 variantes {prefix}1..{prefix}5 (auditoría 13-jul): `startswith`
-    # recogía s01/sOLD/s1_backup/s6 y contaminaba la agregación multi-semilla.
-    want = {f"{args.prefix}{i}" for i in range(1, 6)}
-    df = df[(df.block == args.block) & (df.model == args.model) & df.variant.isin(want)]
-    got = set(df.variant.unique())
-    if got != want:
-        raise SystemExit(
-            f"agregación {args.model}/{args.prefix}* en {args.table}/{args.block}: "
-            f"semillas {sorted(got)} != las 5 esperadas {sorted(want)} "
-            f"(falta {sorted(want - got)}, sobra {sorted(got - want)})"
-        )
+    st = aggregate(df, prefix=args.prefix, model=args.model, block=args.block)
 
-    # un MASE por semilla = media sobre las series del bloque
-    per_seed = df.groupby("variant")["hold_mase"].mean().sort_index()
-    vals = per_seed.to_numpy()
-    # Rechaza métricas NO FINITAS (auditoría 13-jul): 5 semillas con hold_mase Inf/NaN
-    # daban media infinita e IC NaN que pasaban como "agregado válido". Fail-closed.
-    if not np.all(np.isfinite(vals)):
-        bad = {v: float(x) for v, x in per_seed.items() if not np.isfinite(x)}
-        raise SystemExit(
-            f"agregación {args.model}/{args.prefix}* en {args.table}/{args.block}: "
-            f"MASE no finito en {bad} — semillas inutilizables, no se agrega"
-        )
-    n = len(vals)
-    mean, sd = float(vals.mean()), float(vals.std(ddof=1))
-    se = sd / np.sqrt(n)
-    # IC 95% con t de Student (n pequeño)
-    from scipy.stats import t
-
-    tcrit = float(t.ppf(0.975, n - 1)) if n > 1 else float("nan")
-    lo, hi = mean - tcrit * se, mean + tcrit * se
-
-    print(f"\n=== {args.model} · {args.table}/{args.block} · {n} semillas ===")
-    for v, x in per_seed.items():
+    print(f"\n=== {args.model} · {args.table}/{args.block} · {st['n']} semillas ===")
+    for v, x in st["per_seed"].items():
         print(f"  {v:>14}: MASE {x:.4f}")
-    print(f"\n  media   : {mean:.4f}")
-    print(f"  desv.   : {sd:.4f}")
-    print(f"  IC 95%  : [{lo:.4f}, {hi:.4f}]  (t, n={n})")
-    print(f"  min/max : {vals.min():.4f} / {vals.max():.4f}")
+    print(f"\n  media   : {st['mean']:.4f}")
+    print(f"  desv.   : {st['sd']:.4f}")
+    print(f"  IC 95%  : [{st['lo']:.4f}, {st['hi']:.4f}]  (t, n={st['n']})")
+    print(f"  min/max : {st['min']:.4f} / {st['max']:.4f}")
 
     if args.mlflow:
         from vp_data import tracking
@@ -81,16 +110,16 @@ def main() -> None:
                 "variant": args.prefix,
                 "table": args.table,
                 "block": args.block,
-                "n_seeds": n,
+                "n_seeds": st["n"],
                 "layer": "deep_global",
             },
             metrics={
-                "mase_mean": mean,
-                "mase_std": sd,
-                "mase_ci_lo": lo,
-                "mase_ci_hi": hi,
-                "mase_min": float(vals.min()),
-                "mase_max": float(vals.max()),
+                "mase_mean": st["mean"],
+                "mase_std": st["sd"],
+                "mase_ci_lo": st["lo"],
+                "mase_ci_hi": st["hi"],
+                "mase_min": st["min"],
+                "mase_max": st["max"],
             },
             tags={"layer": "deep_global"},
         )

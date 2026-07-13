@@ -22,10 +22,16 @@ Frescura = mtime >= inicio de campana sellado en reports/campaign/campaign_manif
 
 Uso: python -m tools.check_campaign_completeness --phase {inputs|outputs} [--preflight]
 
+Identidad (ronda 8, 13-jul): el manifiesto ahora se valida de verdad, no por presencia de
+claves — las entradas de la campana deben portar el SHA sellado (prefijo corto), panel_hash
+valido (no "n/d") y git_dirty consistente con lo sellado; el champion sella git_sha completo
+== sellado. Una campana diagnostica (dirty=true) queda marcada como tal en toda la cadena.
+
 Limitaciones honestas: los pisos de elegibilidad por bloque son conservadores; el ideal es
 un MANIFIESTO DE COBERTURA emitido por run_comparison (n_elegibles por serie). No cuenta los
-40 trials de Optuna dentro de cada hpo_best (solo la config ganadora se persiste), ni valida
-hashes de contenido, ni detecta una edicion de codigo SIN commit a mitad de una etapa larga.
+40 trials de Optuna dentro de cada hpo_best (solo la config ganadora se persiste), NO valida
+el hash de CONTENIDO de cada archivo de modelo (solo su identidad de campana), ni detecta una
+edicion de codigo SIN commit a mitad de una etapa larga (el HEAD-guard del runbook cubre commits).
 """
 
 from __future__ import annotations
@@ -217,7 +223,12 @@ def _check_tuned(path: Path) -> list[str]:
     return probs
 
 
-def _check_manifest(path: Path) -> list[str]:
+_BAD_PANEL_HASH = frozenset({"", "n/d", "nan", "none", "unknown"})
+
+
+def _check_manifest(
+    path: Path, sealed_sha: str | None = None, sealed_dirty: object = None, strict_identity: bool = False
+) -> list[str]:
     try:
         entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     except OSError, json.JSONDecodeError:
@@ -237,6 +248,32 @@ def _check_manifest(path: Path) -> list[str]:
         probs.append(
             f"MANIFEST: {n_global} modelos globales (deep) < {MANIFEST_GLOBAL_FLOOR} (¿falta save_finalists_deep?)"
         )
+    # IDENTIDAD REAL (auditoría 13-jul ronda 8): el gate solo comprobaba que existieran las
+    # claves — aceptaba SHA incorrecto, hashes mezclados y panel_hash="n/d". Ahora, con la
+    # identidad sellada, exige que las entradas de ESTA campaña la porten de verdad. Comparación
+    # por prefijo corto (7) porque el manifiesto sella el SHA completo y los productores estampan
+    # el corto (tracking.git_state / save_finalists_deep._identity).
+    if strict_identity and sealed_sha:
+        short = str(sealed_sha)[:7]
+        fresh = [e for e in entries if isinstance(e, dict) and str(e.get("git_sha", ""))[:7] == short]
+        fresh_global = [e for e in fresh if str(e.get("type", "")).startswith("global")]
+        # DEEP: >= piso de globales con la identidad de ESTA campaña. Un deep de otra campaña
+        # (SHA distinto) NO cuenta → cierra "SHA incorrecto / hashes mezclados" para los globales.
+        if len(fresh_global) < MANIFEST_GLOBAL_FLOOR:
+            probs.append(
+                f"MANIFEST: {len(fresh_global)} globales con el SHA de campaña {short} "
+                f"< {MANIFEST_GLOBAL_FLOOR} (¿deep no corrió esta campaña o estampó otro SHA?)"
+            )
+        # panel_hash válido en toda entrada fresca → cierra panel_hash="n/d".
+        bad_ph = [e for e in fresh if str(e.get("panel_hash", "")).strip().lower() in _BAD_PANEL_HASH]
+        if bad_ph:
+            probs.append(f"MANIFEST: {len(bad_ph)} entradas frescas con panel_hash invalido (n/d)")
+        # git_dirty consistente con lo sellado (solo entradas que lo declaran, p.ej. deep):
+        # un modelo diagnóstico (dirty=true) no debe colarse en una campaña oficial (dirty=false).
+        if sealed_dirty is not None:
+            bad_dirty = [e for e in fresh if "git_dirty" in e and bool(e["git_dirty"]) != bool(sealed_dirty)]
+            if bad_dirty:
+                probs.append(f"MANIFEST: {len(bad_dirty)} entradas frescas con git_dirty != sellado ({sealed_dirty})")
     return probs
 
 
@@ -268,7 +305,13 @@ def _seed_problems(started: dt.datetime | None, preflight: bool) -> list[str]:
     return probs
 
 
-def _check_list(expected: list[tuple[str, int, int]], started: dt.datetime | None, preflight: bool) -> list[str]:
+def _check_list(
+    expected: list[tuple[str, int, int]],
+    started: dt.datetime | None,
+    preflight: bool,
+    sealed_sha: str | None = None,
+    sealed_dirty: object = None,
+) -> list[str]:
     probs: list[str] = []
     for pattern, want, floor in expected:
         matches = sorted(ROOT.glob(pattern))
@@ -286,7 +329,7 @@ def _check_list(expected: list[tuple[str, int, int]], started: dt.datetime | Non
             if m.name == "tuned_params.json":
                 probs += _check_tuned(m)
             if m.name == "manifest.jsonl":
-                probs += _check_manifest(m)
+                probs += _check_manifest(m, sealed_sha, sealed_dirty, strict_identity=not preflight)
             if not preflight and started is not None and _stale(m, started):
                 probs.append(f"STALE {rel}: reutilizado de un corte anterior")
     return probs
@@ -350,8 +393,10 @@ def check(phase: str, preflight: bool = False) -> list[str]:
         )
         if not preflight:
             return probs
+    sealed_sha = _sealed("git_sha")
+    sealed_dirty = _sealed("dirty")
     if phase == "inputs":
-        probs += _check_list(EXPECTED_INPUTS, started, preflight)
+        probs += _check_list(EXPECTED_INPUTS, started, preflight, sealed_sha, sealed_dirty)
         probs += _seed_problems(started, preflight)
     else:
         probs += _check_list(EXPECTED_OUTPUTS, started, preflight)

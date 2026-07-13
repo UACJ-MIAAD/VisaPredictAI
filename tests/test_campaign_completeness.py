@@ -333,3 +333,103 @@ def test_deep_producer_source_writes_identity():
     repo = pathlib.Path(gate.__file__).resolve().parent.parent
     text = (repo / "experiments" / "save_finalists_deep.py").read_text()
     assert "_identity()" in text and "git_sha" in text and "panel_hash" in text
+
+
+# ── conductual: EJECUTA _identity() del productor deep (auditoría 13-jul ronda 8) ──
+def _load_deep(monkeypatch):
+    """Carga save_finalists_deep con run_global_deep STUB-eado (no hay torch en `ante`)."""
+    import importlib.util
+    import pathlib
+    import sys
+    import types
+
+    repo = pathlib.Path(gate.__file__).resolve().parent.parent
+    stub = types.ModuleType("run_global_deep")
+    for n in ("HOLDOUT", "encode_regime", "load_panel", "regular_monthly", "_auto_config", "_optuna_sampler"):
+        setattr(stub, n, None)
+    monkeypatch.setitem(sys.modules, "run_global_deep", stub)
+    spec = importlib.util.spec_from_file_location(
+        "save_finalists_deep_under_test", repo / "experiments" / "save_finalists_deep.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_deep_identity_stamps_short_sealed_sha(monkeypatch):
+    mod = _load_deep(monkeypatch)
+    monkeypatch.setenv("CAMPAIGN_SHA", "deadbeefcafebabe1234567890abcdef")
+    monkeypatch.setenv("CAMPAIGN_DIRTY", "false")
+    ident = mod._identity()
+    assert ident["git_sha"] == "deadbee"  # corto (7) == vp_data.tracking.git_state
+    assert ident["git_dirty"] is False
+    # panel versionado ⇒ md5[:12] real, jamás "n/d" (el gate rechaza "n/d")
+    assert ident["panel_hash"] != "n/d" and len(ident["panel_hash"]) == 12
+
+
+def test_deep_identity_reflects_diagnostic_dirty(monkeypatch):
+    # una campaña diagnóstica (ALLOW_DIRTY) debe estampar git_dirty=true, no mentir con false
+    mod = _load_deep(monkeypatch)
+    monkeypatch.setenv("CAMPAIGN_SHA", "abc123def4567890")
+    monkeypatch.setenv("CAMPAIGN_DIRTY", "true")
+    assert mod._identity()["git_dirty"] is True
+
+
+# ── conductual: el gate valida la IDENTIDAD del manifiesto contra lo sellado ──
+def _manifest(root, deep_entry):
+    (root / "models" / "FAD" / "global" / "d.pt").write_text("x")
+    local = {"model": "ets", "type": "local", "path": "models/FAD/local/m.pkl", "git_sha": "abc", "panel_hash": "h"}
+    (root / "models" / "manifest.jsonl").write_text(
+        "\n".join([json.dumps(local)] * 260 + [json.dumps(deep_entry)] * 8) + "\n"
+    )
+
+
+def test_manifest_wrong_campaign_sha_fails_identity(sandbox):
+    _write_inputs(sandbox)
+    _seal(sandbox, sha="abc")
+    _manifest(  # deep de OTRA campaña (SHA distinto) → 0 globales frescos
+        sandbox,
+        {
+            "model": "b",
+            "type": "global_deep",
+            "path": "models/FAD/global/d.pt",
+            "git_sha": "zzz9999",
+            "panel_hash": "h",
+            "git_dirty": False,
+        },
+    )
+    assert any("SHA de campaña" in p for p in gate.check("inputs", preflight=False))
+
+
+def test_manifest_nd_panel_hash_fails_identity(sandbox):
+    _write_inputs(sandbox)
+    _seal(sandbox, sha="abc")
+    _manifest(
+        sandbox,
+        {
+            "model": "b",
+            "type": "global_deep",
+            "path": "models/FAD/global/d.pt",
+            "git_sha": "abc",
+            "panel_hash": "n/d",
+            "git_dirty": False,
+        },
+    )
+    assert any("panel_hash" in p for p in gate.check("inputs", preflight=False))
+
+
+def test_manifest_diagnostic_dirty_in_clean_campaign_fails(sandbox):
+    _write_inputs(sandbox)
+    _seal(sandbox, sha="abc")  # dirty=False sellado
+    _manifest(
+        sandbox,
+        {
+            "model": "b",
+            "type": "global_deep",
+            "path": "models/FAD/global/d.pt",
+            "git_sha": "abc",
+            "panel_hash": "h",
+            "git_dirty": True,
+        },
+    )
+    assert any("git_dirty" in p for p in gate.check("inputs", preflight=False))

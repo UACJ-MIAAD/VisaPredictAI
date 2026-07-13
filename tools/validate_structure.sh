@@ -44,7 +44,10 @@ allowed_root=(
 )
 while IFS= read -r entry; do
   ok=0
-  case "$entry" in .coverage.*) ok=1 ;; esac   # shards de coverage paralelo
+  case "$entry" in
+    .coverage.*) ok=1 ;;                  # shards de coverage paralelo
+    mlruns_staging.quarantine_*) ok=1 ;;  # cuarentena MLflow (gitignored, local; ver .gitignore L80)
+  esac
   for a in "${allowed_root[@]}"; do
     if [ "$entry" = "$a" ]; then ok=1; break; fi
   done

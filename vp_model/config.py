@@ -262,7 +262,10 @@ def run_metadata() -> dict:
     sha: str | None
     dirty: str | None
     if pinned_sha:
-        sha, dirty = pinned_sha, ""  # sellado ⇒ árbol limpio verificado al inicio
+        # dirty desde CAMPAIGN_DIRTY (auditoría 13-jul ronda 8): oficial=limpia (""),
+        # diagnóstica (ALLOW_DIRTY)=sucia — no mentir con "" fijo. `bool(dirty)` abajo lo mapea.
+        sha = pinned_sha
+        dirty = "dirty" if os.environ.get("CAMPAIGN_DIRTY", "false") == "true" else ""
     else:
         sha = _git("rev-parse", "HEAD")
         dirty = _git("status", "--porcelain")
