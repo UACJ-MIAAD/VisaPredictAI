@@ -61,14 +61,17 @@ de terceros); no hay endpoint que los exponga.
 | Paquete | Aviso | ¿Nos afecta? | Decisión | Owner | Revisión |
 |---|---|---|---|---|---|
 | torch 2.12.0 | CVE-2025-3000 (sin fix publicado) | BAJA: solo entrenamiento/inferencia offline sobre el panel propio; sin deserialización de modelos de terceros (checkpoints propios) | **Accept** (allowlist); vigilar release con fix | Javier | 2026-08-12 |
-| transformers 4.57.6 | PYSEC-2025-217 (sin fix) | BAJA: solo lo usa Chronos zero-shot/LoRA en experimentos locales; modelos descargados de HF oficiales (amazon/chronos-bolt), no de usuarios | **Accept** (allowlist) | Javier | 2026-08-12 |
-| transformers 4.57.6 | CVE-2026-1839 (fix 5.0.0rc3) | BAJA (ídem); el fix es un MAJOR (5.x) que rompe la API que usa chronos-forecasting 2.2.2 | **Accept**; upgrade cuando chronos soporte transformers 5.x | Javier | 2026-08-12 |
-| transformers 4.57.6 | CVE-2026-4372 (fix 5.3.0) | BAJA (ídem) | **Accept**; ídem | Javier | 2026-08-12 |
-| diskcache 5.6.3 | CVE-2025-69872 (sin fix) | BAJA: cache local en disco (transitiva de la pila de modelado); sin datos no confiables | **Accept** (allowlist); vigilar upstream | Javier | 2026-08-12 |
-| msgpack 1.2.0 | GHSA-6v7p-g79w-8964 (fix 1.2.1) | BAJA: serialización local (transitiva); sin input remoto | **Upgrade** en el siguiente `make lock` deliberado | Javier | 2026-08-12 |
-| pydantic-settings 2.14.1 | GHSA-4xgf-cpjx-pc3j (fix 2.14.2) | BAJA: transitiva de la pila de modelado; no parsea config no confiable | **Upgrade** en el siguiente `make lock` deliberado | Javier | 2026-08-12 |
-| pypdf 6.13.2 | GHSA-jm82-fx9c-mx94 (fix 6.13.3) | BAJA: solo herramientas locales de extracción de PDFs de revisión (confiables, del director) | **Upgrade** en el siguiente `make lock` deliberado | Javier | 2026-08-12 |
-| pytorch-lightning 2.5.6 | CVE-2026-31221 (sin fix) | BAJA: entrenamiento local/campañas; no corre en la ruta de datos del cron; sin superficie remota | **Accept** (allowlist); vigilar release del upstream | Javier | 2026-08-12 |
+| pytorch-lightning 2.5.6 | PYSEC-2026-3043 (alias CVE-2026-31221 / GHSA-75m9-98v2-hjpm; sin fix) | BAJA: `load_from_checkpoint` llama `torch.load` sin `weights_only=True`; F2 carga SOLO checkpoints PROPIOS (entrenamiento local/campañas), nunca de terceros; sin superficie remota | **Accept** (allowlist); vigilar release del upstream | Javier | 2026-08-12 |
+
+**Reconciliación ronda 10 (13-jul-2026):** el upgrade DELIBERADO `chronos-forecasting 2.3.1`
++ `transformers 5.13.1` + `pillow 12.3.0`, con `model-cpu` regenerado desde un venv FRESCO
+`.[dev,model]` (antes `pip freeze` del `ante/` mutable), **cerró `PYSEC-2026-2290`** (RCE crítico
+de transformers, CVSS 9.6) y **retiró 7 excepciones**: los 3 avisos de `transformers 4.57.6`
+(PYSEC-2025-217, CVE-2026-1839, CVE-2026-4372 — 5.13.1 los corrige) y los de `diskcache`,
+`msgpack`, `pydantic-settings` y `pypdf`, que **desaparecieron del cierre fresco** (no eran
+dependencias reales del perfil). `Ray` también salió (huérfano, sin import). **No se añadió
+ningún `--ignore-vuln` nuevo.** Verificado: `pip-audit -r` sobre `model-cpu.txt` y
+`model-cpu-linux-x86_64.txt` reporta EXACTAMENTE estos 2 avisos; runtime/dev sin avisos.
 
 **Regla de cierre:** al aplicar un upgrade (o cuando salga fix de un "Accept"), el PR
 retira el `--ignore-vuln` correspondiente del workflow **y** la fila de esta tabla en

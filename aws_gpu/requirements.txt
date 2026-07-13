@@ -7,12 +7,13 @@
 neuralforecast==3.1.9
 optuna==4.9.0
 # A5: pins tomados del entorno que produjo las cifras publicadas — pyarrow==24.0.0
-# está tanto en ante_nf-requirements.lock como en locks/model-cpu.txt (referencia);
-# chronos-forecasting==2.2.2 es la versión del entorno de referencia (locks/model-cpu.txt)
-# que reprodujo el 0.225 zero-shot del pool local.
+# está tanto en ante_nf-requirements.lock como en locks/model-cpu.txt (referencia).
 pyarrow==24.0.0
 # Chronos zero-shot (chronos_lora.py zeroshot). Necesario solo si corres ese paso.
-chronos-forecasting==2.2.2
+# Ronda 10: 2.2.2 forzaba transformers<5 (vulnerable a PYSEC-2026-2290 RCE). 2.3.1 soporta
+# transformers>=5; se fija AMBOS explícitamente (transformers transitivo permitiría drift).
+chronos-forecasting==2.3.1
+transformers==5.13.1
 # Opcional — Chronos fine-tuning (LoRA), ver chronos_lora.py finetune (scaffold GPU):
 #   pip install peft
 # Opcional — Mamba / state-space (NO viene en neuralforecast; requiere build CUDA + wrapper):

@@ -45,6 +45,11 @@ model = [
     "lightgbm==4.6.0",
     "catboost==1.2.10",
     "scikit-posthocs==0.14.0",
+    # Foundation model zero-shot (Chronos-Bolt) + su backend Transformers PINNEADO EXPLICITO
+    # (ronda 10): antes entraban sueltos (freeze de ante/). transformers 5.13.1 cierra
+    # PYSEC-2026-2290 (RCE); fijarlo evita drift transitivo. chronos 2.3.1 soporta transformers>=5.
+    "chronos-forecasting==2.3.1",
+    "transformers==5.13.1",
     # figuras del entregable (make_eda_figures / make_fe_figures) — no declarado rompía
     # la regeneración de 12 figuras en un env limpio (E3)
     "seaborn==0.13.2",

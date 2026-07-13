@@ -5,8 +5,9 @@
 #
 # - locks/runtime.txt   : venv FRESCO con `pip install -e .`        (perfil de datos puros)
 # - locks/dev.txt       : venv FRESCO con `pip install -e .[dev]`   (perfil CI/lint/tests)
-# - locks/model-cpu.txt : freeze del venv ante/ (dev+model CPU) — el ENTORNO DE REFERENCIA
-#                         que produjo las cifras publicadas, congelado tal cual.
+# - locks/model-cpu.txt : venv FRESCO con `pip install -e .[dev,model]` (ronda 10). Antes era
+#                         un freeze del ante/ MUTABLE, que arrastraba Ray (huérfano, sin import)
+#                         y otras deps extraviadas; el venv fresco resuelve el cierre real.
 # - locks/*-linux-x86_64.txt : espejos Linux de los tres perfiles (uv pip compile, A5
 #                         2026-07-12); runtime/dev con hashes para --require-hashes en CI.
 # - GPU/deep            : ya versionado en aws_gpu/ante_nf-requirements.lock (bundle EC2).
@@ -42,9 +43,8 @@ echo "make_locks: perfiles runtime y dev (venvs frescos)…"
 freeze_profile runtime ""
 freeze_profile dev "[dev]"
 
-echo "make_locks: perfil model-cpu (freeze del entorno de referencia ante/)…"
-{ header "model-cpu" "$PY"; "${PY%python}pip" freeze --exclude-editable; } > locks/model-cpu.txt
-echo "  ✓ locks/model-cpu.txt ($(grep -vc '^#' locks/model-cpu.txt) paquetes)"
+echo "make_locks: perfil model-cpu (venv FRESCO .[dev,model], ronda 10; NO toca ante/)…"
+freeze_profile model-cpu "[dev,model]"
 
 # A5 (plan auditoría 2026-07-12): perfiles Linux x86_64 para que CI instale EXACTAMENTE
 # lo verificado. Derivados con `uv pip compile` CONSTREÑIDOS por los locks macOS de
@@ -70,9 +70,11 @@ echo "  ✓ locks/model-cpu-linux-x86_64.txt ($(grep -c '==' locks/model-cpu-lin
 
 # Ningún secreto: las líneas `nombre==versión` son seguras por construcción (el paquete
 # `tokenizers` cazó el primer grep ingenuo); se escanea todo lo que NO tenga esa forma.
+# Ronda 10: se excluyen comentarios INDENTADOS (`^[[:space:]]*#`), no solo `^#` — uv emite
+# bloques `# via` indentados (`    #   tokenizers`) que hacían falso-positivo por "token".
 # Clase POSIX portable: `]` va PRIMERO dentro de [...] — con `\[` el grep BSD cerraba la
 # clase prematuramente y el filtro no excluía nada (cazado en el estreno del guard).
-if grep -hv -e '^#' -e '^[][A-Za-z0-9_.-]\{1,\}==' locks/*.txt | grep -qiE "secret|token|password|aws_access|://.*@"; then
+if grep -hv -e '^[[:space:]]*#' -e '^[][A-Za-z0-9_.-]\{1,\}==' locks/*.txt | grep -qiE "secret|token|password|aws_access|://.*@"; then
   echo "✗ posible secreto en locks/ — revisar" && exit 1
 fi
 echo "make_locks: OK — sin secretos, 3 perfiles + GPU en aws_gpu/ante_nf-requirements.lock"

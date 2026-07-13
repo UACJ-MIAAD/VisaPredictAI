@@ -33,22 +33,18 @@ jobs:
           pip-audit -r locks/runtime-linux-x86_64.txt --no-deps --disable-pip
           pip-audit -r locks/dev-linux-x86_64.txt --no-deps --disable-pip
       # A5: el perfil model dejó de ser report-only. GATE con allowlist EXPLÍCITA:
-      # los 9 avisos aceptados están triados con superficie, decisión, owner y fecha
-      # de revisión (2026-08-12) en docs/SECURITY_TRIAGE.md — cualquier aviso NUEVO
-      # (incluido un high/critical) bloquea este job. Al cerrar un aviso (bump vía
-      # `make lock` deliberado), retirar su --ignore-vuln aquí Y su fila del triage.
+      # los 2 avisos aceptados (torch + pytorch-lightning) están triados con superficie,
+      # decisión, owner y fecha de revisión (2026-08-12) en docs/SECURITY_TRIAGE.md —
+      # cualquier aviso NUEVO (incluido un high/critical) bloquea este job. Al cerrar un
+      # aviso (bump vía `make lock` deliberado), retirar su --ignore-vuln aquí Y su fila del
+      # triage. Ronda 10: el upgrade chronos 2.3.1 + transformers 5.13.1 CERRÓ PYSEC-2026-2290
+      # (RCE) y retiró 7 ignores (los 3 de transformers 4.x + diskcache/msgpack/pydantic-
+      # settings/pypdf, ausentes del cierre fresco). No se añadió ningún ignore nuevo.
       - name: Audit model locks (gate con allowlist triada — docs/SECURITY_TRIAGE.md)
         run: |
           IGNORES=(
-            --ignore-vuln CVE-2025-3000          # torch 2.12.0 (sin fix publicado)
-            --ignore-vuln PYSEC-2025-217         # transformers 4.57.6 (sin fix)
-            --ignore-vuln CVE-2026-1839          # transformers 4.57.6 (fix 5.0.0rc3, major)
-            --ignore-vuln CVE-2026-4372          # transformers 4.57.6 (fix 5.3.0, major)
-            --ignore-vuln CVE-2025-69872         # diskcache 5.6.3 (sin fix)
-            --ignore-vuln GHSA-6v7p-g79w-8964    # msgpack 1.2.0 (fix 1.2.1)
-            --ignore-vuln GHSA-4xgf-cpjx-pc3j    # pydantic-settings 2.14.1 (fix 2.14.2)
-            --ignore-vuln GHSA-jm82-fx9c-mx94    # pypdf 6.13.2 (fix 6.13.3)
-            --ignore-vuln CVE-2026-31221         # pytorch-lightning 2.5.6 (sin fix)
+            --ignore-vuln CVE-2025-3000          # torch 2.12.0 (sin fix; offline, checkpoints propios)
+            --ignore-vuln PYSEC-2026-3043        # pytorch-lightning 2.5.6 (alias CVE-2026-31221; sin fix)
           )
           pip-audit -r locks/model-cpu.txt --no-deps --disable-pip "${IGNORES[@]}"
           pip-audit -r locks/model-cpu-linux-x86_64.txt --no-deps --disable-pip "${IGNORES[@]}"

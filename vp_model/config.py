@@ -61,6 +61,10 @@ MODEL_NAMES = (
 # AI5: bolt-base (~205M) replaces bolt-small — better zero-shot accuracy at the same
 # zero-training cost; the pipeline cache is keyed by model name (ChronosForecaster).
 CHRONOS_MODEL = "amazon/chronos-bolt-base"
+# Seguridad de supply chain (PYSEC-2026-2290, ronda 10): el checkpoint confiable se fija por
+# REVISION inmutable y se carga con trust_remote_code=False (ver ChronosForecaster). El repo de
+# Chronos-Bolt-Base es safetensors-only (no .bin), asi que la carga es safetensors por construccion.
+CHRONOS_REVISION = "5d9f166d69f47aef3401367a7b842e78fe97b121"
 # Modelos con muestreo probabilístico nativo (CRPS/PI distribucional). 'sarima' se construye
 # como ARIMA estacional, así que también lo es en runtime (estaba ausente del set por omisión).
 PROBABILISTIC = frozenset({"deepar", "arima", "sarima"})
