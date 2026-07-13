@@ -53,6 +53,7 @@
   "run_statsforecast.py": {"clase": "investigacion", "consumidor": "AutoARIMA/AutoETS statsforecast (evaluado)"},
   "save_finalists_deep.py": {"clase": "investigacion", "consumidor": "persistencia de finalistas deep"},
   "save_finalists.py": {"clase": "investigacion", "consumidor": "persistencia de finalistas (holdout_forecasts_*)"},
+  "seed_coverage.py": {"clase": "investigacion", "consumidor": "contrato de cobertura por semilla del productor deep (run_global_deep) + gate validate_seed_group"},
   "save_finalists.sh": {"clase": "investigacion", "consumidor": "invocado por run_rederivation.sh + run_campaign_aq.sh + run_campaign_aq_tail.sh (finalistas + holdout_forecasts_* frescos)"},
   "score_forecasts.py": {"clase": "producto", "consumidor": "cron 4c -> scorecards campeon+sombra + head-to-head (A3)"},
   "significance_tables.py": {"clase": "investigacion", "consumidor": "significance_summary.json (dep DVC de key_facts)"},
