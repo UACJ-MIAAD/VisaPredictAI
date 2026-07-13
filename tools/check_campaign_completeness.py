@@ -305,6 +305,45 @@ def _seed_problems(started: dt.datetime | None, preflight: bool) -> list[str]:
     return probs
 
 
+def validate_seed_group(table: str, variant: str, camp_dir: Path, *, sealed_sha: str | None = None) -> list[str]:
+    """Cobertura IDENTICA entre las 5 semillas via sidecars (paso 4, contrato real, ronda 9).
+
+    No basta comparar cantidades: dos archivos con 600 filas DISTINTAS no son equivalentes.
+    Exige exactamente s1..s5, la MISMA grilla (grid_sha256), los MISMOS valores reales
+    (truth_sha256), el inventario EXACTO de modelos de la variante, y la MISMA mascara finita
+    por modelo (una prediccion parcialmente NaN mueve el hash -> cobertura no identica). El
+    sidecar lo emite ``experiments/seed_coverage.py`` junto a cada CSV de semilla.
+    """
+    probs: list[str] = []
+    sidecars: dict[int, dict] = {}
+    for seed in range(1, N_SEEDS + 1):
+        d = _load_json(camp_dir / f"coverage_{table}_{variant}_s{seed}.json")
+        if isinstance(d, dict):
+            sidecars[seed] = d
+    if set(sidecars) != set(range(1, N_SEEDS + 1)):
+        return [f"SEMILLA-COV {table}/{variant}: sidecars {sorted(sidecars)} != s1..s{N_SEEDS} (falta cobertura)"]
+    if len({d.get("grid_sha256") for d in sidecars.values()}) != 1:
+        probs.append(f"SEMILLA-COV {table}/{variant}: grid_sha256 DIFIERE entre semillas (grillas distintas)")
+    if len({d.get("truth_sha256") for d in sidecars.values()}) != 1:
+        probs.append(f"SEMILLA-COV {table}/{variant}: truth_sha256 DIFIERE entre semillas (y real distinta)")
+    exp_models = set(SEED_MODELS.get(variant, ()))
+    for seed, d in sidecars.items():
+        got = set((d.get("models") or {}).keys())
+        if exp_models and got != exp_models:
+            probs.append(f"SEMILLA-COV {table}/{variant}/s{seed}: modelos {sorted(got)} != {sorted(exp_models)}")
+    for m in exp_models:
+        masks = {(sidecars[s].get("models") or {}).get(m, {}).get("finite_mask_sha256") for s in sidecars}
+        if len(masks) != 1:
+            probs.append(
+                f"SEMILLA-COV {table}/{variant}: finite-mask de {m} DIFIERE entre semillas (cobertura parcial)"
+            )
+    if sealed_sha:
+        for seed, d in sidecars.items():
+            if d.get("source_git_sha") != sealed_sha:
+                probs.append(f"SEMILLA-COV {table}/{variant}/s{seed}: source_git_sha != sellado")
+    return probs
+
+
 def _check_list(
     expected: list[tuple[str, int, int]],
     started: dt.datetime | None,
