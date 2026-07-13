@@ -37,6 +37,9 @@ def _call(df):
 
 
 def test_five_finite_seeds_aggregate():
+    # el happy path calcula el t crítico del IC → necesita scipy (extra `model`). El perfil
+    # `dev` de CI no lo instala; el job model-tests sí. Las guardas fail-closed NO usan scipy.
+    pytest.importorskip("scipy")
     df = _df("auto_s", "AutoBiTCN", "family", {i: [0.10 + 0.001 * i, 0.11, 0.12] for i in range(1, 6)})
     st = _call(df)
     assert st["n"] == 5

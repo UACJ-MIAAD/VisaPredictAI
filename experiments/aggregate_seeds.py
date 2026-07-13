@@ -55,15 +55,20 @@ def aggregate(df, *, prefix: str, model: str, block: str, n_seeds: int = N_SEEDS
     n = len(vals)
     mean, sd = float(vals.mean()), float(vals.std(ddof=1))
     se = sd / np.sqrt(n)
+    # El overflow de valores enormes (media/desv./error) se detecta SIN scipy, ANTES de
+    # importarlo: así el fail-closed no depende de un extra que el perfil `dev` de CI no
+    # instala (el import de scipy vive abajo, solo para el t crítico del IC).
+    if not all(math.isfinite(x) for x in (mean, sd, se)):
+        raise SystemExit(
+            f"agregación {model}/{prefix}* en {block}: media/desv. no finitas "
+            f"(media={mean}, sd={sd}) — ¿valores enormes desbordan el promedio?"
+        )
     from scipy.stats import t
 
     tcrit = float(t.ppf(0.975, n - 1)) if n > 1 else float("nan")
     lo, hi = mean - tcrit * se, mean + tcrit * se
-    if not all(math.isfinite(x) for x in (mean, sd, se, lo, hi)):
-        raise SystemExit(
-            f"agregación {model}/{prefix}* en {block}: estadísticos agregados no finitos "
-            f"(media={mean}, sd={sd}, IC=[{lo}, {hi}]) — ¿valores enormes desbordan el promedio?"
-        )
+    if not all(math.isfinite(x) for x in (lo, hi)):
+        raise SystemExit(f"agregación {model}/{prefix}* en {block}: IC no finito ([{lo}, {hi}])")
     return {
         "per_seed": per_seed,
         "n": n,
