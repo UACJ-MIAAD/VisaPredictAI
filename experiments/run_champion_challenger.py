@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -85,6 +86,11 @@ def main() -> int:
         }
         for v in verdicts
     }
+    # Identidad de campaña sellada (auditoría 13-jul-2026): el gate de outputs EXIGE que
+    # este artefacto la registre y coincida con el manifiesto — atar el veredicto a la
+    # campaña exacta que lo produjo. None fuera de una campaña sellada (corrida suelta).
+    payload["campaign_id"] = os.environ.get("CAMPAIGN_ID")
+    payload["git_sha"] = os.environ.get("CAMPAIGN_SHA")
     (REPORTS / "governance").mkdir(parents=True, exist_ok=True)
     (REPORTS / "governance" / "champion_challenger.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
