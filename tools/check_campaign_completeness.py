@@ -4,7 +4,7 @@
 DOS FASES (la 1ª ronda mezclaba inputs y outputs -> una campaña limpia siempre fallaba
 porque exigia significance/champion ANTES de generarlos):
 
-  --phase inputs   ANTES de significancia. Verifica que TODO lo que la significancia /
+  --phase inputs   ANTES de significancia. Verifica que cuanto la significancia /
                    champion / key_facts van a consumir este completo, fresco y sano:
                    4 pools (con hold_mase FINITO), 4 comparaciones, 6 HPO (dict real),
                    40 CSV globales (5 semillas x 4 variantes x 2 tablas), finalistas
