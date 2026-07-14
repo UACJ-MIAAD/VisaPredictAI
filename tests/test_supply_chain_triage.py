@@ -7,12 +7,14 @@ import tools.check_supply_chain_triage as m
 _JSON = (
     '{"schema_version":1,"advisories":['
     '{"id":"CVE-2025-3000","aliases":[],"package":"torch","versions":["2.12.0"],'
-    '"profiles":["model"],"decision":"accept","owner":"J","expires_at":"2026-08-12"},'
+    '"profiles":["model"],"decision":"accept","severity":"low","scope":"offline",'
+    '"owner":"J","expires_at":"2026-08-12","rationale":"fixture"},'
     '{"id":"PYSEC-2026-3043","aliases":["CVE-2026-31221"],"package":"pytorch-lightning",'
-    '"versions":["2.5.6"],"profiles":["model"],"decision":"accept","owner":"J","expires_at":"2026-08-12"}]}'
+    '"versions":["2.5.6"],"profiles":["model"],"decision":"accept","severity":"low",'
+    '"scope":"offline","owner":"J","expires_at":"2026-08-12","rationale":"fixture"}]}'
 )
 _TR = (
-    "## Triage (2 avisos en 2 paquetes)\n"
+    "## Triage vigente — perfil model (2 avisos en 2 paquetes)\n"
     "| Paquete | Aviso | Decisión |\n|---|---|---|\n"
     "| torch 2.12.0 | CVE-2025-3000 (x) | Accept |\n"
     "| pytorch-lightning 2.5.6 | PYSEC-2026-3043 (alias CVE-2026-31221) | Accept |\n"
@@ -49,6 +51,17 @@ def test_json_id_without_triage_row_fails(monkeypatch, tmp_path):
     # el JSON referencia un id que no está en ninguna fila de la tabla
     tr = _TR.replace("PYSEC-2026-3043 (alias CVE-2026-31221)", "OTRO-9999 (x)")
     _wire(monkeypatch, tmp_path, tr=tr)
+    assert m.main() == 1
+
+
+def test_two_json_advisories_in_one_row_plus_orphan_row_fails(monkeypatch, tmp_path):
+    bad = (
+        "## Triage vigente (2 avisos en 2 paquetes)\n"
+        "| Paquete | Aviso | Decisión |\n|---|---|---|\n"
+        "| mixed | CVE-2025-3000 + PYSEC-2026-3043 | Accept |\n"
+        "| orphan | GHSA-aaaa-bbbb-cccc | Accept |\n"
+    )
+    _wire(monkeypatch, tmp_path, tr=bad)
     assert m.main() == 1
 
 

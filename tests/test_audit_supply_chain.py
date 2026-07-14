@@ -17,8 +17,11 @@ ENTRIES = [
         "versions": ["2.12.0"],
         "profiles": ["model"],
         "decision": "accept",
+        "severity": "low",
+        "scope": "offline",
         "owner": "Javier",
         "expires_at": "2026-08-12",
+        "rationale": "fixture",
     },
     {
         "id": "PYSEC-2026-3043",
@@ -27,8 +30,11 @@ ENTRIES = [
         "versions": ["2.5.6"],
         "profiles": ["model"],
         "decision": "accept",
+        "severity": "low",
+        "scope": "offline",
         "owner": "Javier",
         "expires_at": "2026-08-12",
+        "rationale": "fixture",
     },
 ]
 TODAY = dt.date(2026, 7, 20)  # antes de expirar
@@ -44,43 +50,62 @@ def test_schema_valid():
     assert m.validate_advisory_schema(ENTRIES) == []
 
 
+def _reconcile(obs=None, profile="model", lock="locks/model-cpu.txt"):
+    return m.reconcile_lock((obs or _OBS)[profile], ENTRIES, profile=profile, lock=lock, today=TODAY)
+
+
 def test_reconcile_coherent_passes():
-    assert m.reconcile(_OBS, ENTRIES, TODAY) == []
+    assert _reconcile() == []
 
 
 def test_reconcile_new_advisory_fails():
     obs = {"model": _OBS["model"] + [{"package": "numpy", "version": "2.5", "id": "CVE-9999-1", "aliases": []}]}
-    assert any("NUEVO" in p for p in m.reconcile(obs, ENTRIES, TODAY))
+    assert any("NUEVO" in p for p in _reconcile(obs))
 
 
 def test_reconcile_orphan_allowed_fails():
     # solo se observa uno de los dos permitidos -> el otro es huérfano
     obs = {"model": _OBS["model"][:1]}
-    assert any("HUÉRFANA" in p for p in m.reconcile(obs, ENTRIES, TODAY))
+    assert any("HUÉRFANA" in p for p in _reconcile(obs))
 
 
 def test_reconcile_wrong_version_fails():
     obs = {"model": [{"package": "torch", "version": "2.99.0", "id": "CVE-2025-3000", "aliases": []}, _OBS["model"][1]]}
-    assert any("versión" in p for p in m.reconcile(obs, ENTRIES, TODAY))
+    assert any("versión" in p for p in _reconcile(obs))
 
 
 def test_reconcile_wrong_profile_fails():
     # el mismo aviso observado en 'deep', pero solo está permitido para 'model'
-    obs = {"deep": [_OBS["model"][0]], "model": _OBS["model"]}
-    assert any("NO permitido para este perfil" in p for p in m.reconcile(obs, ENTRIES, TODAY))
+    assert any(
+        "NO permitido" in p
+        for p in m.reconcile_lock(
+            [_OBS["model"][0]], ENTRIES, profile="deep", lock="locks/deep-macos-arm64.txt", today=TODAY
+        )
+    )
 
 
 def test_reconcile_expired_fails():
-    assert any("EXPIRADA" in p for p in m.reconcile(_OBS, ENTRIES, dt.date(2026, 9, 1)))
+    assert any(
+        "EXPIRADA" in p
+        for p in m.reconcile_lock(
+            _OBS["model"], ENTRIES, profile="model", lock="locks/model-cpu.txt", today=dt.date(2026, 9, 1)
+        )
+    )
 
 
 def test_reconcile_runtime_must_be_empty():
-    obs = {
-        "runtime": [{"package": "torch", "version": "2.12.0", "id": "CVE-2025-3000", "aliases": []}],
-        "model": _OBS["model"],
-    }
-    # torch aparece en runtime (sintético): el aviso existe pero NO está permitido para runtime
-    assert any("[runtime]" in p for p in m.reconcile(obs, ENTRIES, TODAY))
+    obs = [{"package": "torch", "version": "2.12.0", "id": "CVE-2025-3000", "aliases": []}]
+    assert any(
+        "[runtime:" in p
+        for p in m.reconcile_lock(obs, ENTRIES, profile="runtime", lock="locks/runtime.txt", today=TODAY)
+    )
+
+
+def test_reconcile_is_per_lock_other_platform_cannot_mask_orphan():
+    # macOS observa ambos; Linux vacío debe fallar por sí mismo.
+    assert _reconcile() == []
+    probs = m.reconcile_lock([], ENTRIES, profile="model", lock="locks/model-cpu-linux-x86_64.txt", today=TODAY)
+    assert len([p for p in probs if "HUÉRFANA" in p]) == 2
 
 
 def test_schema_alias_reuse_fails():
@@ -115,9 +140,38 @@ def test_run_pip_audit_bad_json(tmp_path, monkeypatch):
     class _P:
         stdout = "no es json"
         stderr = ""
+        returncode = 0
 
     monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: _P())
     with pytest.raises(ValueError, match="ilegible"):
+        m.run_pip_audit(lock)
+
+
+def test_run_pip_audit_operational_failure_is_not_empty_success(tmp_path, monkeypatch):
+    lock = tmp_path / "l.txt"
+    lock.write_text("requests==2.33.0\n")
+
+    class _P:
+        stdout = '{"dependencies":[]}'
+        stderr = "network failure"
+        returncode = 2
+
+    monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: _P())
+    with pytest.raises(ValueError, match="operacionalmente"):
+        m.run_pip_audit(lock)
+
+
+def test_run_pip_audit_exit_and_findings_must_agree(tmp_path, monkeypatch):
+    lock = tmp_path / "l.txt"
+    lock.write_text("requests==2.33.0\n")
+
+    class _P:
+        stdout = '{"dependencies":[]}'
+        stderr = ""
+        returncode = 1
+
+    monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: _P())
+    with pytest.raises(ValueError, match="incoherente"):
         m.run_pip_audit(lock)
 
 

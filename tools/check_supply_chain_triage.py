@@ -15,10 +15,14 @@ runner. Stdlib puro; corre en el job ``consistency`` de CI.)
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 from pathlib import Path
+
+if __package__:
+    from tools.audit_python_supply_chain import load_advisories, validate_advisory_schema
+else:  # ``python tools/check_supply_chain_triage.py`` (forma usada por CI/Makefile)
+    from audit_python_supply_chain import load_advisories, validate_advisory_schema
 
 ROOT = Path(__file__).resolve().parent.parent
 ADVISORIES = ROOT / "security" / "python_advisories.json"
@@ -28,13 +32,20 @@ _ADV = re.compile(r"\b(?:CVE-\d{4}-\d+|PYSEC-\d{4}-\d+|GHSA-[0-9a-z]{4}-[0-9a-z]
 
 
 def _json_ids() -> list[set[str]]:
-    obj = json.loads(ADVISORIES.read_text())
-    return [{e["id"], *(e.get("aliases") or [])} for e in obj["advisories"]]
+    entries = load_advisories(ADVISORIES)
+    probs = validate_advisory_schema(entries)
+    if probs:
+        raise ValueError(f"schema advisories inválido: {probs}")
+    return [{e["id"], *(e.get("aliases") or [])} for e in entries]
 
 
 def _triage_row_ids(text: str) -> list[list[str]]:
+    # Solo la sección vigente: otros historiales/tablas de seguridad no son allowlist.
+    m = re.search(r"^## Triage vigente[^\n]*\n(?P<body>.*?)(?=^## |\Z)", text, flags=re.MULTILINE | re.DOTALL)
+    if not m:
+        return []
     rows = []
-    for line in text.splitlines():
+    for line in m.group("body").splitlines():
         s = line.strip()
         if not s.startswith("|") or s.startswith("|---") or "Aviso" in s:
             continue
@@ -45,24 +56,39 @@ def _triage_row_ids(text: str) -> list[list[str]]:
 
 
 def _header_count(text: str) -> int | None:
-    m = re.search(r"(\d+)\s+avisos", text)
+    m = re.search(r"^## Triage vigente[^\n]*\((\d+)\s+avisos", text, flags=re.MULTILINE)
+    return int(m.group(1)) if m else None
+
+
+def _threat_count(text: str) -> int | None:
+    m = re.search(r"MEDIO-BAJO:\s*(\d+)\s+avisos aceptados", text)
     return int(m.group(1)) if m else None
 
 
 def main() -> int:
     probs: list[str] = []
-    json_ids = _json_ids()
+    try:
+        json_ids = _json_ids()
+    except (OSError, ValueError) as exc:
+        print(f"✗ DOCS ↔ advisories JSON abortado: {exc}")
+        return 1
     n = len(json_ids)
     tr, th = TRIAGE.read_text(), THREAT.read_text()
     rows = _triage_row_ids(tr)
 
     if len(rows) != n:
         probs.append(f"SECURITY_TRIAGE.md: {len(rows)} filas de tabla != {n} advisories del JSON")
-    triage_tokens = {i for row in rows for i in row}
-    for toks in json_ids:
-        if not (toks & triage_tokens):
-            probs.append(f"advisory {sorted(toks)} en el JSON pero SIN fila en SECURITY_TRIAGE.md")
-    for name, cnt in (("SECURITY_TRIAGE.md", _header_count(tr)), ("THREAT_MODEL.md", _header_count(th))):
+    matched: list[list[int]] = []
+    for row_i, row in enumerate(rows):
+        hits = [i for i, toks in enumerate(json_ids) if toks & set(row)]
+        matched.append(hits)
+        if len(hits) != 1:
+            probs.append(f"SECURITY_TRIAGE.md fila #{row_i + 1}: debe casar con 1 advisory JSON, casa con {hits}")
+    for i, toks in enumerate(json_ids):
+        row_hits = [row_i for row_i, hits in enumerate(matched) if i in hits]
+        if len(row_hits) != 1:
+            probs.append(f"advisory {sorted(toks)} debe aparecer en 1 fila, aparece en {row_hits}")
+    for name, cnt in (("SECURITY_TRIAGE.md", _header_count(tr)), ("THREAT_MODEL.md", _threat_count(th))):
         if cnt is None:
             probs.append(f"{name}: no se halló el conteo 'N avisos'")
         elif cnt != n:

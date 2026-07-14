@@ -20,6 +20,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -37,6 +38,24 @@ LOCKS: list[tuple[str, str]] = [
     ("locks/model-cpu.txt", "model"),
     ("locks/model-cpu-linux-x86_64.txt", "model"),
 ]
+_ADV_ID = re.compile(r"^(?:CVE-\d{4}-\d+|PYSEC-\d{4}-\d+|GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4})$")
+_PKG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_ENTRY_KEYS = frozenset(
+    {
+        "id",
+        "aliases",
+        "package",
+        "versions",
+        "profiles",
+        "locks",
+        "decision",
+        "severity",
+        "scope",
+        "owner",
+        "expires_at",
+        "rationale",
+    }
+)
 
 
 def _norm_pkg(name: str) -> str:
@@ -57,6 +76,11 @@ def load_advisories(path: Path) -> list[dict]:
     obj = json.loads(path.read_text(), object_pairs_hook=_no_dupes)
     if not isinstance(obj, dict) or not isinstance(obj.get("advisories"), list):
         raise ValueError("python_advisories.json: falta la lista 'advisories'")
+    if obj.get("schema_version") != 1:
+        raise ValueError(f"python_advisories.json: schema_version {obj.get('schema_version')!r} != 1")
+    unknown = set(obj) - {"schema_version", "_doc", "advisories"}
+    if unknown:
+        raise ValueError(f"python_advisories.json: claves desconocidas {sorted(unknown)}")
     return obj["advisories"]
 
 
@@ -68,24 +92,69 @@ def validate_advisory_schema(entries: list[dict]) -> list[str]:
         if not isinstance(e, dict):
             probs.append(f"advisory #{i}: no es objeto")
             continue
-        need = {"id", "aliases", "package", "versions", "profiles", "decision", "owner", "expires_at"}
+        need = _ENTRY_KEYS - {"locks"}
         missing = need - set(e.keys())
         if missing:
             probs.append(f"advisory #{i}: faltan campos {sorted(missing)}")
             continue
+        unknown = set(e) - _ENTRY_KEYS
+        if unknown:
+            probs.append(f"advisory #{i}: claves desconocidas {sorted(unknown)}")
+        aid = e.get("id")
+        aliases = e.get("aliases")
+        package = e.get("package")
+        versions = e.get("versions")
+        profiles = e.get("profiles")
+        locks = e.get("locks")
+        if not isinstance(aid, str) or not _ADV_ID.fullmatch(aid):
+            probs.append(f"advisory #{i}: id inválido {aid!r}")
+            continue
+        if not isinstance(aliases, list) or any(not isinstance(a, str) or not _ADV_ID.fullmatch(a) for a in aliases):
+            probs.append(f"advisory {aid}: aliases inválidos {aliases!r}")
+            aliases = []
+        elif len(set(aliases)) != len(aliases) or aid in aliases:
+            probs.append(f"advisory {aid}: aliases duplicados o iguales al id")
+        if not isinstance(package, str) or not _PKG.fullmatch(package) or _norm_pkg(package) != package:
+            probs.append(f"advisory {aid}: package debe estar normalizado, recibido {package!r}")
         if e["decision"] not in ("accept",):
-            probs.append(f"advisory {e['id']}: decision {e['decision']!r} fuera del enum")
+            probs.append(f"advisory {aid}: decision {e['decision']!r} fuera del enum")
+        if e.get("severity") not in {"low", "moderate", "high", "critical"}:
+            probs.append(f"advisory {aid}: severity inválida {e.get('severity')!r}")
+        for field in ("scope", "owner", "rationale"):
+            if not isinstance(e.get(field), str) or not e[field].strip():
+                probs.append(f"advisory {aid}: {field} vacío/no-string")
         if not isinstance(e["owner"], str) or not e["owner"].strip():
-            probs.append(f"advisory {e['id']}: owner vacío")
-        if not isinstance(e["versions"], list) or not e["versions"]:
-            probs.append(f"advisory {e['id']}: versions debe ser lista no vacía")
-        if not isinstance(e["profiles"], list) or not e["profiles"] or set(e["profiles"]) - set(PROFILES):
-            probs.append(f"advisory {e['id']}: profiles inválidos {e.get('profiles')}")
+            probs.append(f"advisory {aid}: owner vacío")
+        if (
+            not isinstance(versions, list)
+            or not versions
+            or any(not isinstance(v, str) or not v.strip() for v in versions)
+            or len(set(versions)) != len(versions)
+        ):
+            probs.append(f"advisory {aid}: versions debe ser lista única de strings no vacíos")
+        if (
+            not isinstance(profiles, list)
+            or not profiles
+            or any(not isinstance(p, str) for p in profiles)
+            or set(profiles) - set(PROFILES)
+            or len(set(profiles)) != len(profiles)
+        ):
+            probs.append(f"advisory {aid}: profiles inválidos {profiles}")
+        if locks is not None:
+            known_locks = {rel for rel, _profile in LOCKS}
+            if (
+                not isinstance(locks, list)
+                or not locks
+                or any(not isinstance(lock, str) for lock in locks)
+                or set(locks) - known_locks
+                or len(set(locks)) != len(locks)
+            ):
+                probs.append(f"advisory {aid}: locks inválidos {locks!r}")
         try:
             dt.date.fromisoformat(str(e["expires_at"]))
         except TypeError, ValueError:
-            probs.append(f"advisory {e['id']}: expires_at {e['expires_at']!r} no es fecha ISO")
-        toks = [e["id"], *(e.get("aliases") or [])]
+            probs.append(f"advisory {aid}: expires_at {e['expires_at']!r} no es fecha ISO")
+        toks = [aid, *aliases]
         for t in toks:
             if t in seen_tokens and seen_tokens[t] != i:
                 probs.append(f"advisory {e['id']}: ID/alias {t!r} reutilizado (ya en entrada #{seen_tokens[t]})")
@@ -107,16 +176,27 @@ def run_pip_audit(lock: Path) -> list[dict]:
         text=True,
         check=False,
     )
-    # pip-audit sale con código != 0 cuando HAY vulnerabilidades; eso es esperado (parseamos el JSON).
+    # pip-audit: 0 = limpio; 1 = halló vulnerabilidades. Cualquier otro código es un fallo
+    # operacional y NO puede convertirse en "cero findings".
+    if proc.returncode not in (0, 1):
+        raise ValueError(
+            f"pip-audit falló operacionalmente para {lock.name}: exit={proc.returncode}; stderr={proc.stderr[:200]}"
+        )
     try:
         data = json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
         raise ValueError(
             f"pip-audit produjo JSON ilegible para {lock.name}: {exc}; stderr={proc.stderr[:200]}"
         ) from exc
+    if not isinstance(data, dict) or not isinstance(data.get("dependencies"), list):
+        raise ValueError(f"pip-audit JSON sin lista dependencies para {lock.name}")
     out: list[dict] = []
-    for dep in data.get("dependencies", []):
+    for dep in data["dependencies"]:
+        if not isinstance(dep, dict) or not isinstance(dep.get("vulns", []), list):
+            raise ValueError(f"pip-audit JSON con dependency inválida para {lock.name}")
         for v in dep.get("vulns", []) or []:
+            if not isinstance(v, dict) or not isinstance(v.get("id"), str):
+                raise ValueError(f"pip-audit JSON con vulnerability inválida para {lock.name}")
             out.append(
                 {
                     "package": _norm_pkg(dep.get("name", "")),
@@ -125,40 +205,47 @@ def run_pip_audit(lock: Path) -> list[dict]:
                     "aliases": list(v.get("aliases", []) or []),
                 }
             )
+    if (proc.returncode == 0 and out) or (proc.returncode == 1 and not out):
+        raise ValueError(f"pip-audit salida incoherente para {lock.name}: exit={proc.returncode}, findings={len(out)}")
     return out
 
 
-def reconcile(observed_by_profile: dict[str, list[dict]], entries: list[dict], today: dt.date) -> list[str]:
-    """Biyección EXACTA observado↔permitido por perfil. Devuelve la lista de problemas."""
+def reconcile_lock(observed: list[dict], entries: list[dict], *, profile: str, lock: str, today: dt.date) -> list[str]:
+    """Biyección EXACTA observado↔permitido para UN lock; otro lock nunca puede ocultarlo."""
     probs: list[str] = []
     entries_by_token = {t: e for e in entries for t in _entry_tokens(e)}
-    for profile in PROFILES:
-        observed = observed_by_profile.get(profile, [])
-        allowed = [e for e in entries if profile in e.get("profiles", [])]
-        matched_ids: set[str] = set()
-        # cada observado debe casar con una entrada permitida (por id/alias), paquete y versión
-        for obs in observed:
-            toks = {obs["id"], *obs["aliases"]}
-            hit = next((e for t in toks if (e := entries_by_token.get(t)) is not None), None)
-            if hit is None:
-                probs.append(
-                    f"[{profile}] advisory NUEVO no permitido: {obs['id']} en {obs['package']} {obs['version']}"
-                )
-                continue
-            if profile not in hit.get("profiles", []):
-                probs.append(f"[{profile}] {hit['id']} observado pero NO permitido para este perfil")
-                continue
-            if _norm_pkg(hit["package"]) != obs["package"]:
-                probs.append(f"[{profile}] {hit['id']}: paquete {obs['package']} != permitido {hit['package']}")
-            if obs["version"] not in [str(x) for x in hit["versions"]]:
-                probs.append(f"[{profile}] {hit['id']}: versión {obs['version']} != permitidas {hit['versions']}")
-            if today > dt.date.fromisoformat(str(hit["expires_at"])):
-                probs.append(f"[{profile}] {hit['id']}: excepción EXPIRADA ({hit['expires_at']})")
-            matched_ids.add(hit["id"])
-        # toda excepción permitida para el perfil debe haber sido observada (huérfana ⇒ bloquea)
-        for e in allowed:
-            if e["id"] not in matched_ids:
-                probs.append(f"[{profile}] excepción HUÉRFANA permitida pero no observada: {e['id']} ({e['package']})")
+    allowed = [
+        e for e in entries if profile in e.get("profiles", []) and (not e.get("locks") or lock in e.get("locks", []))
+    ]
+    matched_ids: set[str] = set()
+    seen_findings: set[tuple[str, str, str]] = set()
+    for obs in observed:
+        toks = {obs["id"], *obs["aliases"]}
+        hits = {entries_by_token[t]["id"]: entries_by_token[t] for t in toks if t in entries_by_token}
+        if not hits:
+            probs.append(f"[{profile}:{lock}] advisory NUEVO: {obs['id']} en {obs['package']} {obs['version']}")
+            continue
+        if len(hits) != 1:
+            probs.append(f"[{profile}:{lock}] finding AMBIGUO {sorted(toks)} casa con {sorted(hits)}")
+            continue
+        hit = next(iter(hits.values()))
+        finding_key = (hit["id"], obs["package"], obs["version"])
+        if finding_key in seen_findings:
+            probs.append(f"[{profile}:{lock}] finding DUPLICADO {finding_key}")
+        seen_findings.add(finding_key)
+        if hit not in allowed:
+            probs.append(f"[{profile}:{lock}] {hit['id']} observado pero NO permitido para este lock/perfil")
+            continue
+        if _norm_pkg(hit["package"]) != obs["package"]:
+            probs.append(f"[{profile}:{lock}] {hit['id']}: paquete {obs['package']} != {hit['package']}")
+        if obs["version"] not in [str(x) for x in hit["versions"]]:
+            probs.append(f"[{profile}:{lock}] {hit['id']}: versión {obs['version']} != {hit['versions']}")
+        if today > dt.date.fromisoformat(str(hit["expires_at"])):
+            probs.append(f"[{profile}:{lock}] {hit['id']}: excepción EXPIRADA ({hit['expires_at']})")
+        matched_ids.add(hit["id"])
+    for e in allowed:
+        if e["id"] not in matched_ids:
+            probs.append(f"[{profile}:{lock}] excepción HUÉRFANA no observada: {e['id']} ({e['package']})")
     return probs
 
 
@@ -168,18 +255,26 @@ def audit(today: dt.date | None = None) -> tuple[list[str], dict]:
     probs = validate_advisory_schema(entries)
     if probs:  # sin esquema válido no reconciliamos
         return probs, {}
-    observed_by_profile: dict[str, list[dict]] = {p: [] for p in PROFILES}
+    observed_by_lock: dict[str, list[dict]] = {}
     lock_hashes: dict[str, str] = {}
     for rel, profile in LOCKS:
         lp = ROOT / rel
-        observed_by_profile[profile].extend(run_pip_audit(lp))
+        observed = run_pip_audit(lp)
+        observed_by_lock[rel] = observed
+        probs += reconcile_lock(observed, entries, profile=profile, lock=rel, today=today)
         lock_hashes[rel] = "sha256:" + hashlib.sha256(lp.read_bytes()).hexdigest()
-    probs += reconcile(observed_by_profile, entries, today)
     receipt = {
         "tool": f"pip-audit=={PIP_AUDIT_VERSION}",
+        "evaluated_on": today.isoformat(),
         "advisories_sha256": "sha256:" + hashlib.sha256(ADVISORIES.read_bytes()).hexdigest(),
         "lock_hashes": lock_hashes,
-        "observed": {p: sorted({o["id"] for o in v}) for p, v in observed_by_profile.items()},
+        "observed": {
+            rel: sorted(
+                ({"id": o["id"], "package": o["package"], "version": o["version"]} for o in observed),
+                key=lambda x: (x["package"], x["version"], x["id"]),
+            )
+            for rel, observed in observed_by_lock.items()
+        },
         "n_accepted": len(entries),
     }
     return probs, receipt
@@ -189,9 +284,11 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--receipt", metavar="PATH", help="escribe un receipt JSON determinista")
     ns = ap.parse_args(argv[1:])
-    ver = subprocess.run(["pip-audit", "--version"], capture_output=True, text=True, check=False).stdout
-    if PIP_AUDIT_VERSION not in ver:
-        print(f"⚠ pip-audit {ver.strip()!r} != esperado {PIP_AUDIT_VERSION} (continúo, pero el CI lo pinnea)")
+    ver_proc = subprocess.run(["pip-audit", "--version"], capture_output=True, text=True, check=False)
+    installed = ver_proc.stdout.strip().split()[-1] if ver_proc.returncode == 0 and ver_proc.stdout.strip() else ""
+    if installed != PIP_AUDIT_VERSION:
+        print(f"✗ pip-audit {installed or ver_proc.stderr.strip()!r} != esperado {PIP_AUDIT_VERSION}")
+        return 1
     try:
         probs, receipt = audit()
     except (FileNotFoundError, ValueError) as exc:
