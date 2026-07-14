@@ -258,12 +258,12 @@ def test_stray_yaml_extension_scanned(tmp_path):
 def test_stray_python_subprocess_blocks(tmp_path):
     # R4/B3: invocación por subprocess en .py
     root = _git_repo(tmp_path, {"m.py": 'import subprocess\nsubprocess.run(["dvc", "status"])\n'})
-    assert any("subprocess/os.system" in p for p in stray.check(root))
+    assert any("subprocess fuera del wrapper" in p for p in stray.check(root))
 
 
 def test_stray_python_os_system_blocks(tmp_path):
     root = _git_repo(tmp_path, {"m.py": 'import os\nos.system("dvc push")\n'})
-    assert any("subprocess/os.system" in p for p in stray.check(root))
+    assert any("os.system fuera del wrapper" in p for p in stray.check(root))
 
 
 def test_stray_dvc_bin_and_legacy_block(tmp_path):
@@ -293,6 +293,58 @@ def test_stray_fixture_string_not_flagged(tmp_path):
     # una cadena de datos con 'dvc' en un .py (fixture write_text) NO es invocación real
     root = _git_repo(tmp_path, {"t.py": '(p).write_text("run: |\\n  dvc commit\\n")\n'})
     assert stray.check(root) == []
+
+
+# ----------------------------- C1: regresiones guard/gate (B7/B8) -----------------------------
+
+
+def test_b7_broken_dvc_symlink_blocks(tmp_path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / ".dvc").symlink_to(root / "nope")  # symlink roto
+    assert any("symlink" in x for x in guard.check(root))
+
+
+def test_b7_dvc_not_directory_blocks(tmp_path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / ".dvc").write_text("x")
+    assert any("no es un directorio" in x for x in guard.check(root))
+
+
+def test_b7_external_global_config_blocks(tmp_path, monkeypatch):
+    root = _cache_root(tmp_path)
+    ext = tmp_path / "gconf"
+    ext.write_text("[cache]\n    dir = /var/evil\n")
+    monkeypatch.setattr(guard, "_external_config_layers", lambda: [ext])
+    assert any("config externa" in x for x in guard.check(root))
+
+
+def test_b8_gate_alias_and_tuple_and_module(tmp_path):
+    root = _git_repo(
+        tmp_path,
+        {
+            "a.py": "import subprocess as sp\nsp.run(['dvc','status'])\n",
+            "b.py": "import subprocess\nsubprocess.run(('dvc','status'))\n",
+            "c.sh": "python -m dvc status\n",
+            "e.py": "from subprocess import run as r\nr(['dvc','push'])\n",
+            "f.py": "import subprocess\nsubprocess.run(['python','-m','dvc','status'])\n",
+        },
+    )
+    probs = stray.check(root)
+    for f in ("a.py", "b.py", "c.sh", "e.py", "f.py"):
+        assert any(f in p for p in probs), f"no cazó {f}"
+
+
+def test_b8_gate_fail_closed_on_git_failure(tmp_path):
+    with pytest.raises(SystemExit):
+        stray.check(tmp_path / "not-a-git-repo")
+
+
+def test_b8_gate_pipx_uv_install_dvc_block(tmp_path):
+    root = _git_repo(tmp_path, {"x.sh": "pipx install dvc\nuv tool install dvc\n"})
+    probs = stray.check(root)
+    assert sum("fuera de tools/python_env.py" in p for p in probs) >= 2
 
 
 if __name__ == "__main__":

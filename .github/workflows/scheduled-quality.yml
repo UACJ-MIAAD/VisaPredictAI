@@ -23,7 +23,7 @@ jobs:
         with:
           python-version: '3.14'
       - run: pip install "pip-audit==2.10.1"   # A5: herramienta de audit pinneada
-      # P0R.3/P0R.4R (ronda 10): un ÚNICO ejecutor gobierna la supply chain. Audita los 9 locks
+      # P0R.3/P0R.4R (ronda 10): un ÚNICO ejecutor gobierna la supply chain. Audita los 11 locks
       # (runtime/dev/model-cpu × macOS+Linux + los 3 deep) con pip-audit (sin ocultar nada) y
       # reconcilia el resultado BRUTO contra security/python_advisories.json con BIYECCIÓN EXACTA
       # por perfil/lock (runtime/dev vetan; model y deep con allowlist triada). Corre PRIMERO el

@@ -60,8 +60,8 @@
     "requirements/deep-linux-cu126.in": "sha256:c08c113f24a6367961a5f8b1a3a22a88d13684f05c9354f2bf8a858ef23ad5fe",
     "requirements/deep.in": "sha256:66f71ed981944982e6276be13e7a89c6321d975ec5d6a0f444db7ee25fbb86e2",
     "requirements/dvc.in": "sha256:06fba603a4b1f3d73da52c236c647eff751d1cce994138d7a7f3f99fcaa91f01",
-    "tools/lock_contracts.py": "sha256:bb4c8dc8bb5cc9ae2bc0141f3ab725f11c9fb85b8cbae5f745553fff93439d46",
-    "tools/make_locks.sh": "sha256:2480a9777d14df167d06a60dc677f1637665ef2e2edd128a9bb7a7173535f16b",
-    "tools/promote_lockset.py": "sha256:741c4f65cbe8dc63d5bd6a4c71d90c1b9b1560f97e5a64e1833516b17e9e5485"
+    "tools/lock_contracts.py": "sha256:4e4ba0c3347b96736b6d4465e5f79be5c7b29d9b498113d6240c8a17a898198f",
+    "tools/make_locks.sh": "sha256:d2289b421799d67caa890766967c0897514549985817468592a498ff516fa78c",
+    "tools/promote_lockset.py": "sha256:38d144eda77118517822b9974d162fcc889f208832ddb9fdee3c7e7eb5897e0f"
   }
 }

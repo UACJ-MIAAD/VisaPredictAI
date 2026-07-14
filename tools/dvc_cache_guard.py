@@ -25,9 +25,26 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 # Claves que RE-apuntarían la caché fuera de <repo>/.dvc/cache (override prohibido), en cualquiera de
-# las capas de config del repo.
-_CACHE_OVERRIDE_KEYS = ("[cache]", "dir =", "dir=", "site_cache_dir", "cache =", "cache=")
+# las capas de config (repo, global de usuario, system).
+_CACHE_OVERRIDE_KEYS = ("[cache]", "dir =", "dir=", "site_cache_dir", "cache =", "cache=", "remote_config")
 _CONFIG_FILES = ("config", "config.local")
+
+
+def _external_config_layers() -> list[Path]:
+    """Ficheros de config GLOBAL (usuario) y SYSTEM que DVC honra además de los del repo. Un
+    `cache.dir` externo en cualquiera de ellos alcanzaría la ejecución (Linux/macOS + XDG)."""
+    home = Path.home()
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    layers = [
+        home / ".config" / "dvc" / "config",
+        home / "Library" / "Application Support" / "dvc" / "config",
+        Path("/etc/xdg/dvc/config"),
+        Path("/etc/dvc/config"),
+        Path("/Library/Application Support/dvc/config"),
+    ]
+    if xdg:
+        layers.append(Path(xdg) / "dvc" / "config")
+    return layers
 
 
 def _unsafe_stat(p: Path, label: str) -> list[str]:
@@ -46,21 +63,38 @@ def _unsafe_stat(p: Path, label: str) -> list[str]:
     return probs
 
 
+def _scan_override(path: Path, label: str) -> list[str]:
+    try:
+        text = path.read_text()
+    except OSError, UnicodeDecodeError:
+        return [f"{label} ilegible — fail-closed"]
+    for key in _CACHE_OVERRIDE_KEYS:
+        if key in text:
+            return [f"{label} declara override de caché ({key!r}) — no permitido"]
+    return []
+
+
 def check(root: Path = ROOT) -> list[str]:
-    """Lista de problemas de seguridad de la caché DVC del repo (vacía = segura)."""
+    """Lista de problemas de seguridad de la caché DVC (vacía = segura). Cubre repo + config.local +
+    capas GLOBAL/SYSTEM, `.dvc` symlink/tipo, y permisos de cada componente."""
     probs: list[str] = []
     dvc_dir = root / ".dvc"
-    # 1) overrides de caché en config y config.local
+    # 0) `.dvc` NO puede ser symlink: exists() lo seguiría y evadiría todo lo demás (B7)
+    if dvc_dir.is_symlink():
+        return [".dvc es symlink — prohibido"]
+    # 1) overrides de caché en config y config.local del repo
     for cfg_name in _CONFIG_FILES:
         cfg = dvc_dir / cfg_name
         if cfg.exists():
-            text = cfg.read_text()
-            for key in _CACHE_OVERRIDE_KEYS:
-                if key in text:
-                    probs.append(f".dvc/{cfg_name} declara override de caché ({key!r}) — no permitido")
-                    break
-    # 2) el padre .dvc debe ser seguro aunque cache/tmp no existan aún
+            probs += _scan_override(cfg, f".dvc/{cfg_name}")
+    # 1b) capas GLOBAL (usuario) y SYSTEM: un cache.dir externo ahí también alcanza la ejecución (B7)
+    for layer in _external_config_layers():
+        if layer.exists():
+            probs += _scan_override(layer, f"config externa {layer}")
+    # 2) el padre .dvc debe existir, ser directorio y seguro aunque cache/tmp no existan aún
     if dvc_dir.exists():
+        if not dvc_dir.is_dir():
+            return [".dvc existe pero no es un directorio — prohibido"]
         probs += _unsafe_stat(dvc_dir, ".dvc")
         try:
             dvc_dir.resolve().relative_to(root.resolve())
@@ -73,6 +107,8 @@ def check(root: Path = ROOT) -> list[str]:
             continue  # prepare() lo creará con 0700; ausencia no es violación
         probs += _unsafe_stat(p, f".dvc/{name}")
         if p.exists() and not p.is_symlink():
+            if not p.is_dir():
+                probs.append(f".dvc/{name} existe pero no es un directorio — prohibido")
             try:
                 p.resolve().relative_to(root.resolve())
             except ValueError, OSError:

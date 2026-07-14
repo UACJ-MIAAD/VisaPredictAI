@@ -8,7 +8,7 @@ y el generador (`tools/make_locks.sh`, sobre el staging). NO debe existir una se
 implementación del contrato. Stdlib puro, sin dependencias externas.
 
 Responsabilidades (valida y BLOQUEA ante):
-  1. los 9 locks y las 7 fuentes gobernadas exactas (incluye make_locks.sh/promote_lockset.py/
+  1. los 11 locks y las 8 fuentes gobernadas exactas (incluye make_locks.sh/promote_lockset.py/
      lock_contracts.py: alterar el generador cambia el hash de fuentes del manifiesto);
   2. pins duplicados dentro de un lock;
   3. un pin de un lock HASHEADO sin al menos un sha256;
@@ -426,10 +426,10 @@ def validate_manifest(manifest: dict, root: Path = ROOT) -> list[str]:
             actual = _sha256((root / s).read_bytes()) if (root / s).exists() else "MISSING"
             if manifest["sources"][s] != actual:
                 probs.append(f"manifiesto.sources[{s}] hash != real")
-    # locks: exactamente los 9, hash + conteo de pins recalculados
+    # locks: exactamente los 11, hash + conteo de pins recalculados
     exp_keys = {f"locks/{n}" for n in LOCK_NAMES}
     if set(manifest.get("locks", {})) != exp_keys:
-        probs.append(f"manifiesto.locks {sorted(manifest.get('locks', {}))} != los 9")
+        probs.append(f"manifiesto.locks {sorted(manifest.get('locks', {}))} != los 11")
     else:
         for rel in exp_keys:
             p = root / rel
@@ -453,7 +453,7 @@ def validate_manifest(manifest: dict, root: Path = ROOT) -> list[str]:
 
 
 def validate_files(root: Path = ROOT, locks_dir: Path | None = None) -> list[str]:
-    """Los 9 locks + wrappers + deep-direct + cross-platform. NO valida el manifiesto (ver validate_manifest).
+    """Los 11 locks + wrappers + deep-direct + cross-platform. NO valida el manifiesto (ver validate_manifest).
     Con locks_dir se validan los locks de un directorio de STAGING (planos, sin prefijo locks/)."""
     probs: list[str] = []
     # conjunto EXACTO de .txt (ni faltantes ni adicionales), en el repo o en el staging
@@ -461,7 +461,7 @@ def validate_files(root: Path = ROOT, locks_dir: Path | None = None) -> list[str
     present_txt = {p.name for p in txt_dir.glob("*.txt")} if txt_dir.exists() else set()
     if present_txt != set(LOCK_NAMES):
         probs.append(
-            f"conjunto de .txt {sorted(present_txt)} != los 9 esperados (dif {sorted(present_txt ^ set(LOCK_NAMES))})"
+            f"conjunto de .txt {sorted(present_txt)} != los esperados (dif {sorted(present_txt ^ set(LOCK_NAMES))})"
         )
     for rel, _profile, hashed in LOCK_SPECS:
         p = _lock_path(rel, root, locks_dir)
@@ -479,7 +479,7 @@ def validate_files(root: Path = ROOT, locks_dir: Path | None = None) -> list[str
 
 
 def validate_staging(staged: Path, root: Path = ROOT) -> list[str]:
-    """Contrato estático sobre un STAGING (9 locks planos), SIN manifiesto — lo escribe el promotor después."""
+    """Contrato estático sobre un STAGING (11 locks planos), SIN manifiesto — lo escribe el promotor después."""
     return validate_files(root, locks_dir=staged)
 
 

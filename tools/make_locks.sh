@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Matriz de 9 locks TRANSITIVOS por perfil (P0R.4, ronda 10). Invocar con `bash` (100644):
+# Matriz de 11 locks TRANSITIVOS por perfil (P0R.4, ronda 10). Invocar con `bash` (100644):
 #
 #   bash tools/make_locks.sh          # (o: make lock)
 #
@@ -23,7 +23,7 @@
 #  - SIN fecha en los headers -> REGENERAR es repetible bajo el MISMO estado del índice (bytes
 #    idénticos); la instalación desde los locks sí es byte-reproducible. NO se promete que el
 #    resolver produzca los mismos transitivos meses después (el índice upstream cambia);
-#  - los 9 se resuelven en STAGING; la promoción a locks/ tiene ROLLBACK TRANSACCIONAL y DETECCIÓN
+#  - los 11 se resuelven en STAGING; la promoción a locks/ tiene ROLLBACK TRANSACCIONAL y DETECCIÓN
 #    DE MATRIZ PARCIAL (tools/promote_lockset.py valida el staging con tools/lock_contracts.py,
 #    escribe el manifiesto locks/lockset.json AL FINAL y se autovalida) — NO es atomicidad de bundle;
 #  - ninguna ruta temporal de staging se filtra a los locks (espejos Linux con --no-annotate);

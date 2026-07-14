@@ -37,10 +37,14 @@ _ALLOWLIST = frozenset({WRAPPER, "tools/check_no_stray_dvc.py"})
 _SCAN_EXT = (".yml", ".yaml", ".sh", ".py", ".md")
 _SCAN_BASE = ("Makefile", "dvc.yaml")
 
-# `pip install ... dvc ...` (dvc token / dvc== / dvc[s3]); NO matchea `.[dev]`/`.[model]`.
-_PIP_DVC = re.compile(r"pip\s+install\b.*(?<![\w./-])dvc(?:\[[^\]]*\])?(?:==|\b)")
+# `pip install ... dvc ...` / `pipx install dvc` / `uv tool install dvc`; NO matchea `.[dev]`/`.[model]`.
+_PIP_DVC = re.compile(
+    r"(?:pip\s+install|pipx\s+install|uv\s+tool\s+install)\b.*(?<![\w./-])dvc(?:\[[^\]]*\])?(?:==|\b)"
+)
 # invocación shell de dvc en posición de comando: inicio, tras ;/&/|/&&/||, o tras `run:`/`--`.
 _SH_DVC = re.compile(r"(?:^|[;&|]|&&|\|\||run:|--)\s*dvc(?:\.exe)?\s+\S")
+# `python -m dvc …` (ejecutar dvc como módulo, evadiendo el wrapper).
+_SH_PYM_DVC = re.compile(r"python[0-9.]*\s+-m\s+dvc\b")
 # el wrapper: `… tools.python_env exec … -- dvc …`
 _WRAPPER_CALL = re.compile(r"tools\.python_env\s+exec\b.*--\s+dvc\b")
 # uso y definición de la variable DVC
@@ -54,12 +58,13 @@ _LEGACY = (
 
 
 def _tracked_files(root: Path) -> list[Path]:
+    # FAIL-CLOSED: si `git ls-files` falla, NO devolvemos [] (eso dejaría pasar todo) — reventamos.
     try:
         out = subprocess.run(
             ["git", "ls-files", "-z"], cwd=str(root), capture_output=True, text=True, check=True
         ).stdout
-    except subprocess.CalledProcessError, OSError:
-        return []
+    except (subprocess.CalledProcessError, OSError) as exc:
+        raise SystemExit(f"check_no_stray_dvc: `git ls-files` falló en {root} ({exc}) — fail-closed") from exc
     files = []
     for rel in out.split("\0"):
         if not rel:
@@ -82,15 +87,40 @@ def _str_const(node: ast.AST) -> str | None:
     return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
 
 
+def _import_aliases(tree: ast.AST) -> tuple[set[str], set[str], set[str]]:
+    """(nombres ligados a subprocess, nombres ligados a os, funciones de subprocess importadas
+    directamente). Cierra el evasion `import subprocess as sp` / `from subprocess import run as r`."""
+    subp, osm, subp_funcs = {"subprocess"}, {"os"}, set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name == "subprocess":
+                    subp.add(a.asname or a.name)
+                elif a.name == "os":
+                    osm.add(a.asname or a.name)
+        elif isinstance(node, ast.ImportFrom) and node.module == "subprocess":
+            for a in node.names:
+                if a.name in _SUBPROC_ATTRS:
+                    subp_funcs.add(a.asname or a.name)
+    return subp, osm, subp_funcs
+
+
+def _seq_tokens(node: ast.AST) -> list[str | None] | None:
+    """Tokens string de una List o Tuple argv, o None si no lo es."""
+    if isinstance(node, (ast.List, ast.Tuple)) and node.elts:
+        return [_str_const(e) for e in node.elts]
+    return None
+
+
 def _py_dvc_problems(text: str, rel: str) -> list[str]:
-    """Invocaciones REALES de dvc en Python vía AST (NO cadenas de datos como `write_text('… dvc …')`):
-    subprocess.run/Popen/check_output/check_call/call con argv0=='dvc' o pip-install de dvc; os.system/
-    os.popen('dvc …')."""
+    """Invocaciones REALES de dvc en Python vía AST (NO cadenas de datos como `write_text('… dvc …')`).
+    Cubre alias de import, argv en list/tuple, `python -m dvc`, y os.system/os.popen('dvc …')."""
     probs: list[str] = []
     try:
         tree = ast.parse(text)
     except SyntaxError:
         return probs
+    subp_names, os_names, subp_funcs = _import_aliases(tree)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not node.args:
             continue
@@ -99,29 +129,32 @@ def _py_dvc_problems(text: str, rel: str) -> list[str]:
             isinstance(func, ast.Attribute)
             and func.attr in _SUBPROC_ATTRS
             and isinstance(func.value, ast.Name)
-            and func.value.id == "subprocess"
-        ) or (isinstance(func, ast.Name) and func.id == "Popen")
+            and func.value.id in subp_names
+        ) or (isinstance(func, ast.Name) and func.id in subp_funcs | {"Popen"})
         is_ossys = (
             isinstance(func, ast.Attribute)
             and func.attr in _OS_ATTRS
             and isinstance(func.value, ast.Name)
-            and func.value.id == "os"
+            and func.value.id in os_names
         )
-        if is_subproc and isinstance(node.args[0], ast.List) and node.args[0].elts:
-            toks = [_str_const(e) for e in node.args[0].elts]
-            if toks and toks[0] and _canon(toks[0]) == "dvc":
-                probs.append(f"{rel}:{node.lineno}: invoca dvc por subprocess/os.system fuera del wrapper")
+        if is_subproc and (toks := _seq_tokens(node.args[0])) is not None:
             strs = [t for t in toks if t]
+            if toks and toks[0] and _canon(toks[0]) == "dvc":
+                probs.append(f"{rel}:{node.lineno}: invoca dvc por subprocess fuera del wrapper")
+            # `python -m dvc` dentro del argv (evade el argv0)
+            for a, b in zip(strs, strs[1:], strict=False):
+                if a == "-m" and _canon(b) == "dvc":
+                    probs.append(f"{rel}:{node.lineno}: ejecuta `-m dvc` por subprocess fuera del wrapper")
             if (
-                "pip" in strs
-                and "install" in strs
-                and any(_canon(t).startswith("dvc") for t in strs if t not in ("pip", "install"))
+                {"install"} <= set(strs)
+                and {"pip", "pipx", "uv"} & set(strs)
+                and any(_canon(t).startswith("dvc") for t in strs if t not in ("pip", "pipx", "uv", "install", "tool"))
             ):
-                probs.append(f"{rel}:{node.lineno}: pip-instala dvc por subprocess fuera de tools/python_env.py")
+                probs.append(f"{rel}:{node.lineno}: instala dvc por subprocess fuera de tools/python_env.py")
         elif is_subproc and (s := _str_const(node.args[0])) and s.strip().split()[:1] == ["dvc"]:
             probs.append(f"{rel}:{node.lineno}: invoca dvc por subprocess (shell) fuera del wrapper")
         elif is_ossys and (s := _str_const(node.args[0])) and s.strip().split()[:1] == ["dvc"]:
-            probs.append(f"{rel}:{node.lineno}: invoca dvc por subprocess/os.system fuera del wrapper")
+            probs.append(f"{rel}:{node.lineno}: invoca dvc por os.system fuera del wrapper")
     return probs
 
 
@@ -173,6 +206,8 @@ def check(root: Path = ROOT) -> list[str]:
                 probs.append(f"{rel}:{i}: instala dvc fuera de tools/python_env.py -> {' '.join(line.split())}")
             if _SH_DVC.search(line) and not _WRAPPER_CALL.search(line):
                 probs.append(f"{rel}:{i}: invoca dvc sin el wrapper python_env exec -> {line.strip()}")
+            if _SH_PYM_DVC.search(line):
+                probs.append(f"{rel}:{i}: ejecuta `python -m dvc` (evade el wrapper) -> {line.strip()}")
     return probs
 
 

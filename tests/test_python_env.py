@@ -74,10 +74,17 @@ def _fake_env(tmp_path, monkeypatch, *, digest_ok=True, env_id_ok=True):
     (envp / "bin").mkdir(parents=True)
     (envp / "bin" / "python").write_text("#!/bin/sh\n")  # existe; no se ejecuta (freeze monkeypatched)
     monkeypatch.setattr(pe, "_pip_freeze", lambda py: _FREEZE)
+    monkeypatch.setattr(pe, "_pip_check", lambda py: True)
     monkeypatch.setattr(pe, "env_id", lambda *a, **k: "KNOWNID")
-    digest = pe._inventory_digest(_FREEZE if digest_ok else ["gamma==9.9.9"])
     (envp / "READY.json").write_text(
-        json.dumps({"env_id": "KNOWNID" if env_id_ok else "OTHER", "inventory_digest": digest})
+        json.dumps(
+            {
+                "env_id": "KNOWNID" if env_id_ok else "OTHER",
+                "inventory": _FREEZE if digest_ok else ["gamma==9.9.9"],
+                "inventory_digest": pe._inventory_digest(_FREEZE if digest_ok else ["gamma==9.9.9"]),
+                "file_hashes": {},
+            }
+        )
     )
     return envp
 
@@ -104,6 +111,82 @@ def test_ready_valid_tamper(tmp_path, monkeypatch):
     envp = _fake_env(tmp_path, monkeypatch, digest_ok=False)
     ok, why = pe.ready_valid(envp, "dvc-tool")
     assert not ok and "TAMPER" in why
+
+
+# ----------------------------- C1: regresiones de los falsos verdes cerrados -----------------------------
+
+
+def test_b3_cache_guarded_changes_env_id():
+    prof = pe.load_profiles()
+    base = pe.env_id("dvc-tool", None, prof)
+    prof["profiles"]["dvc-tool"]["cache_guarded"] = False
+    import hashlib
+
+    alt = hashlib.sha256(json.dumps(pe.descriptor("dvc-tool", None, prof), sort_keys=True).encode()).hexdigest()
+    assert base != alt
+
+
+def test_b3_governance_hashes_in_descriptor():
+    gov = pe.descriptor("dvc-tool")["governance"]
+    assert set(gov) == {"python_env_sha256", "dvc_cache_guard_sha256", "profiles_json_sha256"}
+    assert all(v.startswith("sha256:") for v in gov.values())
+
+
+def test_b3_variant_in_descriptor_and_deep_requires_variant():
+    assert pe.descriptor("deep", "cpu")["variant"] == "cpu"
+    with pytest.raises(SystemExit):
+        pe.env_id("deep")  # nunca CUDA/CPU en silencio
+
+
+def test_auto_recipe_resolves_by_hashes(tmp_path, monkeypatch):
+    # un lock con --hash= => hash-verified; sin => version-locked
+    hashed = pe.ROOT / "locks/dvc-tool-macos-arm64.txt"
+    plain = pe.ROOT / "locks/runtime.txt"
+    cfg = {"install_mode": "auto"}
+    assert pe._resolved_recipe(cfg, str(hashed.relative_to(pe.ROOT))) == "hash-verified"
+    assert pe._resolved_recipe(cfg, str(plain.relative_to(pe.ROOT))) == "version-locked"
+
+
+def test_all_profiles_compute_env_id():
+    combos = [("runtime", None), ("dev", None), ("model", None), ("deep", "cpu"), ("dvc-tool", None)]
+    ids = {pe.env_id(p, v) for p, v in combos}
+    assert len(ids) == len(combos)  # todos distintos y computables
+
+
+def test_b4_extra_package_blocks(tmp_path, monkeypatch):
+    envp = _fake_env(tmp_path, monkeypatch)
+    # inventario vivo con un paquete EXTRA no sellado
+    monkeypatch.setattr(pe, "_pip_freeze", lambda py: _FREEZE + ["evil==6.6.6"])
+    ok, why = pe.ready_valid(envp, "dvc-tool")
+    assert not ok and "TAMPER" in why
+
+
+def test_b4_pip_check_on_reuse(tmp_path, monkeypatch):
+    envp = _fake_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(pe, "_pip_check", lambda py: False)  # pip check roto en reuso
+    ok, why = pe.ready_valid(envp, "dvc-tool")
+    assert not ok and "pip check" in why
+
+
+def test_no_force_flag_in_cli():
+    # `build` ya no acepta --force (no se puede reconstruir un entorno sellado)
+    with pytest.raises(SystemExit):
+        pe.main(["python_env", "build", "--profile", "dvc-tool", "--force"])
+
+
+def test_prune_only_touches_staging(tmp_path, monkeypatch):
+    monkeypatch.setattr(pe, "STAGING_ROOT", tmp_path / ".staging")
+    (tmp_path / ".staging" / "x").mkdir(parents=True)
+    n = pe.prune_staging()
+    assert n == 1 and not (tmp_path / ".staging" / "x").exists()
+
+
+def test_provenance_distinguishes_head_checkout(monkeypatch):
+    monkeypatch.setenv("GITHUB_PR_HEAD_SHA", "aaaa")
+    monkeypatch.setenv("GITHUB_BASE_SHA", "bbbb")
+    prov = pe.provenance()
+    assert prov["source_head_sha"] == "aaaa" and prov["base_sha"] == "bbbb"
+    assert "checkout_sha" in prov and "git_dirty" in prov
 
 
 if __name__ == "__main__":

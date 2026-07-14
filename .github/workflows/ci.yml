@@ -258,10 +258,12 @@ jobs:
       # es el job `supply-chain` (runner vs locks); esto solo evita deriva de docs.
       - name: Check docs ↔ advisories JSON
         run: python tools/check_supply_chain_triage.py
-      # P0R.5 (D10): cero instalaciones de dvc fuera del lock dvc-tool hasheado y todo uso de dvc
-      # pasa por el cache guard (dvc arrastra diskcache 5.6.3 / PYSEC-2026-2447, aceptado ACOTADO).
-      - name: DVC gobernado (sin instalaciones sueltas)
+      # P0R.5 (R4): cero rutas dvc fuera del wrapper `python_env exec` (git ls-files + AST).
+      - name: DVC gobernado (sin instalaciones/invocaciones sueltas)
         run: python tools/check_no_stray_dvc.py
+      # P0R.5 (C4/B2): trinquete de migración del call graph fuera de ante/ante_nf.
+      - name: Sin uso legacy nuevo de ante/ante_nf (trinquete)
+        run: python tools/check_no_legacy_envs.py
 
   # P0R.3: gate de supply chain como CHECK DE CAMBIO (PR/push), no solo cron. Autoridad única
   # = tools/audit_python_supply_chain.py reconciliando los locks contra el JSON. Sin path
@@ -347,25 +349,35 @@ jobs:
         with:
           python-version: '3.14'
       - name: Build isolated dvc-tool env + governed smoke + receipt
+        env:
+          # B6: procedencia REAL — el checkout de un PR es el merge sintético; el head fuente y la base
+          # vienen del evento para que el recibo no induzca a creer que certifica el head.
+          GITHUB_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           # toolchain PINEADO (mismo que el generador de locks). NO se instala dvc en ESTE python:
           # python_env crea un venv content-addressed y ahí instala el lock hasheado.
           python -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
           # sello del inventario del job ANTES: python_env NO debe tocarlo (aislamiento real).
           python -m pip freeze --all | sort > /tmp/job_before.txt
-          python -m tools.dvc_tool_smoke --receipt dvc-tool-receipt-${{ matrix.variant }}.json
+          python -m tools.dvc_tool_smoke --receipt dvc-tool-receipt-${{ matrix.variant }}.json --sbom sbom-dvc-tool-env-${{ matrix.variant }}.json
           python -m pip freeze --all | sort > /tmp/job_after.txt
           diff /tmp/job_before.txt /tmp/job_after.txt \
             || { echo "::error::construir el env dvc-tool contaminó el python del job"; exit 1; }
           # el env aislado NO debe tener dvc en el python del JOB (prueba de que no se derramó).
           python -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('dvc') is None else 1)" \
             || { echo "::error::dvc quedó importable en el python del job"; exit 1; }
-          # gate R4: cero rutas dvc fuera del wrapper.
+          # el recibo debe declarar smoke_ok, ligar el env_id y traer sbom_sha256 != null.
+          python -c "import json; r=json.load(open('dvc-tool-receipt-${{ matrix.variant }}.json')); assert r['smoke_ok'], r; assert r['sbom_sha256'], 'sbom_sha256 null'; assert r['sbom_component_count']==r['n_packages']; print('recibo OK', r['env_id'][:12], r['sbom_component_count'],'comp')"
+          # gates R4 + C4.
           python tools/check_no_stray_dvc.py
+          python tools/check_no_legacy_envs.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: dvc-tool-receipt-${{ matrix.variant }}
-          path: dvc-tool-receipt-${{ matrix.variant }}.json
+          path: |
+            dvc-tool-receipt-${{ matrix.variant }}.json
+            sbom-dvc-tool-env-${{ matrix.variant }}.json
           if-no-files-found: error
           retention-days: 30
 
@@ -391,6 +403,9 @@ jobs:
       - name: Env-system contract + isolation + tamper + stray-dvc gate
         run: |
           python tools/check_no_stray_dvc.py
+          python tools/check_no_legacy_envs.py
+          # C3: TODOS los perfiles declarados computan env_id determinista (deep exige variante).
+          python -c "import tools.python_env as pe; combos=[('runtime',None),('dev',None),('model',None),('deep','cpu'),('deep','cu126'),('dvc-tool',None)]; ids={pe.env_id(p,v) for p,v in combos}; assert len(ids)==len(combos), 'env_id colisiona o falta'; print('env_id OK:', {f'{p}/{v}' if v else p: pe.env_id(p,v)[:12] for p,v in combos})"
           python -m pytest tests/test_python_env.py tests/test_dvc_tool.py -q -p no:cacheprovider --no-cov
 
   # P0R.4R2: check ESTABLE y único a exigir en branch protection. Depende de todos los jobs y falla

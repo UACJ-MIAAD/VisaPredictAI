@@ -62,7 +62,7 @@ db:
 news:
 	$(PY) -m pipeline.build_bulletins_json
 
-lock:  ## P0R.4R: regenera los 9 locks (base macOS + espejos Linux + 3 deep hasheados) + manifiesto lockset.json
+lock:  ## P0R.4R: regenera los 11 locks (base macOS + espejos Linux + 3 deep + 2 dvc-tool hasheados) + manifiesto lockset.json
 	bash tools/make_locks.sh
 
 repro:  ## reconstruye TODO el DAG de datos determinísticamente (solo lo que cambió) con DVC

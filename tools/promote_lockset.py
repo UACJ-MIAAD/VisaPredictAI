@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Promoción con ROLLBACK TRANSACCIONAL y DETECCIÓN DE MATRIZ PARCIAL (P0R.4R, ronda 10).
 
-`make_locks.sh` resuelve los 9 locks en staging; este helper los promueve a `locks/`. NO es
+`make_locks.sh` resuelve los 11 locks en staging; este helper los promueve a `locks/`. NO es
 atomicidad de bundle (son nueve renames sucesivos), sino:
 
   1. VALIDA todo el staging con el contrato estático único (tools/lock_contracts.py) antes del
