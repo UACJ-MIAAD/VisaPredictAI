@@ -62,8 +62,9 @@ def run(lock: Path, expected_torch: str, variant: str) -> tuple[list[str], dict]
     if not bool(torch.isfinite(prod).all()):
         probs.append("operación tensorial produjo valores no finitos")
     checksum = round(float(prod.sum().item()), 4)
-    if checksum != 55.0:  # (0..5)^2 sumados por el producto matricial determinista
-        probs.append(f"checksum tensorial {checksum} != 55.0 (no determinista)")
+    # t=[[0,1,2],[3,4,5]]; t@t.T=[[5,14],[14,50]]; suma=83 (determinista en cualquier plataforma).
+    if checksum != 83.0:
+        probs.append(f"checksum tensorial {checksum} != 83.0 (no determinista)")
     receipt = {
         "variant": variant,
         "python": platform.python_version(),
