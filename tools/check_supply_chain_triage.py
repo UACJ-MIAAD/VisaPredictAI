@@ -15,14 +15,10 @@ runner. Stdlib puro; corre en el job ``consistency`` de CI.)
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
-
-if __package__:
-    from tools.audit_python_supply_chain import load_advisories, validate_advisory_schema
-else:  # ``python tools/check_supply_chain_triage.py`` (forma usada por CI/Makefile)
-    from audit_python_supply_chain import load_advisories, validate_advisory_schema
 
 ROOT = Path(__file__).resolve().parent.parent
 ADVISORIES = ROOT / "security" / "python_advisories.json"
@@ -32,11 +28,12 @@ _ADV = re.compile(r"\b(?:CVE-\d{4}-\d+|PYSEC-\d{4}-\d+|GHSA-[0-9a-z]{4}-[0-9a-z]
 
 
 def _json_ids() -> list[set[str]]:
-    entries = load_advisories(ADVISORIES)
-    probs = validate_advisory_schema(entries)
-    if probs:
-        raise ValueError(f"schema advisories inválido: {probs}")
-    return [{e["id"], *(e.get("aliases") or [])} for e in entries]
+    """IDs/alias de cada advisory del JSON. Guard DOCUMENTAL: no valida el esquema completo
+    (eso lo hace autoritativamente el runner tools/audit_python_supply_chain.py en el job
+    supply-chain). Un JSON malformado lanza aquí y main() lo captura -> fallo. Se lee inline
+    (sin importar del runner) para no depender del modo script/paquete (mypy no-redef)."""
+    obj = json.loads(ADVISORIES.read_text())
+    return [{e["id"], *(e.get("aliases") or [])} for e in obj["advisories"]]
 
 
 def _triage_row_ids(text: str) -> list[list[str]]:
