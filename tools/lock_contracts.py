@@ -45,10 +45,14 @@ LOCK_SPECS: tuple[tuple[str, str, bool], ...] = (
     ("locks/deep-macos-arm64.txt", "deep", True),
     ("locks/deep-linux-x86_64-cpu.txt", "deep", True),
     ("locks/deep-linux-x86_64-cu126.txt", "deep", True),
+    # dvc-tool: herramienta CLI gobernada y AISLADA (no dependencia de producto); hasheada.
+    ("locks/dvc-tool-macos-arm64.txt", "dvc-tool", True),
+    ("locks/dvc-tool-linux-x86_64.txt", "dvc-tool", True),
 )
 LOCK_NAMES = tuple(rel.split("/", 1)[1] for rel, _p, _h in LOCK_SPECS)
 DEEP_LOCKS = tuple(rel for rel, p, _h in LOCK_SPECS if p == "deep")
-PROFILES = ("runtime", "dev", "model", "deep")
+DVC_TOOL_LOCKS = tuple(rel for rel, p, _h in LOCK_SPECS if p == "dvc-tool")
+PROFILES = ("runtime", "dev", "model", "deep", "dvc-tool")
 
 # Fuentes GOBERNADAS: su hash entra al manifiesto. Incluye los 3 scripts del contrato de locks.
 SOURCES: tuple[str, ...] = (
@@ -56,6 +60,7 @@ SOURCES: tuple[str, ...] = (
     "requirements/deep.in",
     "requirements/deep-linux-cpu.in",
     "requirements/deep-linux-cu126.in",
+    "requirements/dvc.in",
     "tools/make_locks.sh",
     "tools/promote_lockset.py",
     "tools/lock_contracts.py",
@@ -89,6 +94,15 @@ DEEP_TORCH: dict[str, str] = {
 LOCAL_VERSION_QUERIES: dict[tuple[str, str], str] = {
     (rel, "torch"): ver.split("+", 1)[0] for rel, ver in DEEP_TORCH.items() if "+" in ver
 }
+
+# Perfil dvc-tool: cierre DIRECTO de requirements/dvc.in. dvc-s3 se pinea directo (capacidad S3).
+DVC_TOOL_DIRECT: dict[str, str] = {"dvc": "3.67.1", "dvc-s3": "3.3.0"}
+# diskcache arrastrado por dvc-data; PYSEC-2026-2447 SIN fix — aceptado SOLO en dvc-tool. Se fija
+# la versión exacta para que un bump silencioso (que cerrara/moviera el aviso) rompa el contrato.
+DVC_TOOL_DISKCACHE = "5.6.3"
+# Paquetes que JAMÁS deben aparecer en un lock de PRODUCTO (runtime/dev/model/deep): entran solo
+# vía dvc y su aviso está acotado a dvc-tool. Su aparición fuera bloquea.
+DVC_TOOL_EXCLUSIVE = ("dvc", "dvc-s3", "dvc-data", "dvc-objects", "diskcache")
 
 _PYPI = "--index-url https://pypi.org/simple"
 DEEP_INDEX: dict[str, list[str]] = {
@@ -330,6 +344,71 @@ def validate_deep_cross_platform(root: Path = ROOT, locks_dir: Path | None = Non
     return probs
 
 
+def validate_dvc_tool(root: Path = ROOT, locks_dir: Path | None = None) -> list[str]:
+    """dvc.in fija EXACTO {dvc, dvc-s3}; ambos locks dvc-tool fijan DVC_TOOL_DIRECT + diskcache==5.6.3;
+    versiones públicas comunes idénticas macOS/Linux."""
+    probs: list[str] = []
+    dvc_in = root / "requirements/dvc.in"
+    if not dvc_in.exists():
+        probs.append("requirements/dvc.in ausente")
+    else:
+        try:
+            pins = pin_map(dvc_in.read_text())
+        except ValueError as exc:
+            probs.append(f"[requirements/dvc.in] {exc}")
+            pins = {}
+        if set(pins) != set(DVC_TOOL_DIRECT):
+            probs.append(f"[requirements/dvc.in] pins {sorted(set(pins) ^ set(DVC_TOOL_DIRECT))} != {{dvc, dvc-s3}}")
+        for pkg, ver in DVC_TOOL_DIRECT.items():
+            if pins.get(pkg) is not None and pins.get(pkg) != ver:
+                probs.append(f"[requirements/dvc.in] {pkg}: {pins.get(pkg)} != {ver}")
+    maps: dict[str, dict[str, str]] = {}
+    for rel in DVC_TOOL_LOCKS:
+        p = _lock_path(rel, root, locks_dir)
+        if not p.exists():
+            probs.append(f"dvc-tool lock ausente: {rel}")
+            continue
+        try:
+            maps[rel] = pin_map(p.read_text())
+        except ValueError as exc:
+            probs.append(f"[{rel}] {exc}")
+            continue
+        for pkg, ver in DVC_TOOL_DIRECT.items():
+            if maps[rel].get(pkg) != ver:
+                probs.append(f"[{rel}] {pkg}: {maps[rel].get(pkg)} != {ver} (dvc.in)")
+        if maps[rel].get("diskcache") != DVC_TOOL_DISKCACHE:
+            probs.append(
+                f"[{rel}] diskcache: {maps[rel].get('diskcache')} != {DVC_TOOL_DISKCACHE} (PYSEC-2026-2447 acotado)"
+            )
+    if len(maps) == len(DVC_TOOL_LOCKS):
+        common = set.intersection(*[set(m) for m in maps.values()])
+        for pkg in sorted(common):
+            publics = {rel: maps[rel][pkg].split("+", 1)[0] for rel in DVC_TOOL_LOCKS}
+            if len(set(publics.values())) != 1:
+                probs.append(f"divergencia de versión pública de {pkg} entre dvc-tool: {publics}")
+    return probs
+
+
+def validate_no_dvc_in_product(root: Path = ROOT, locks_dir: Path | None = None) -> list[str]:
+    """Ningún lock de PRODUCTO (runtime/dev/model/deep) puede contener paquetes exclusivos de dvc-tool
+    (dvc/dvc-s3/dvc-data/dvc-objects/diskcache): su aviso está acotado a dvc-tool."""
+    probs: list[str] = []
+    for rel, profile, _h in LOCK_SPECS:
+        if profile == "dvc-tool":
+            continue
+        p = _lock_path(rel, root, locks_dir)
+        if not p.exists():
+            continue
+        try:
+            m = pin_map(p.read_text())
+        except ValueError:
+            continue
+        for pkg in DVC_TOOL_EXCLUSIVE:
+            if pkg in m:
+                probs.append(f"[{rel}] contiene {pkg}=={m[pkg]} — exclusivo de dvc-tool, prohibido en {profile}")
+    return probs
+
+
 def validate_manifest(manifest: dict, root: Path = ROOT) -> list[str]:
     """Esquema estricto + recálculo de hashes de locks y fuentes + conteos + Python/plataforma/toolchain."""
     probs: list[str] = []
@@ -394,6 +473,8 @@ def validate_files(root: Path = ROOT, locks_dir: Path | None = None) -> list[str
     probs += validate_wrappers(root)
     probs += validate_deep_direct(root, locks_dir)
     probs += validate_deep_cross_platform(root, locks_dir)
+    probs += validate_dvc_tool(root, locks_dir)
+    probs += validate_no_dvc_in_product(root, locks_dir)
     return probs
 
 
@@ -433,7 +514,7 @@ def main() -> int:
         for p in probs:
             print(f"  - {p}")
         return 1
-    print(f"✓ Contrato de locks OK: 9 locks + {len(SOURCES)} fuentes + manifiesto coherentes")
+    print(f"✓ Contrato de locks OK: {len(LOCK_NAMES)} locks + {len(SOURCES)} fuentes + manifiesto coherentes")
     return 0
 
 

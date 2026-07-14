@@ -2,7 +2,7 @@
 
 Gate programado: `.github/workflows/scheduled-quality.yml` (lunes + dispatch) **y** el job
 `supply-chain` de `ci.yml` (cada PR/push) corren `tools/audit_python_supply_chain.py`, que
-audita los **9 locks versionados** con `pip-audit --disable-pip` (sin ocultar nada primero) y
+audita los **11 locks versionados** con `pip-audit --disable-pip` (sin ocultar nada primero) y
 reconcilia el resultado BRUTO contra la fuente única `security/python_advisories.json` con
 **biyección exacta por perfil/lock**. runtime/dev VETAN sin excepciones (dependencias directas:
 se arreglan por PR con tests y rollback). model y deep son **gate con allowlist explícita** — los
@@ -23,6 +23,7 @@ el siguiente upgrade. **Prohibido el auto-fix**: todo bump va por PR con suite v
 | dev | `locks/dev.txt` | `locks/dev-linux-x86_64.txt` | Linux sí (`-r` + hash-checking) |
 | model-cpu | `locks/model-cpu.txt` (venv fresco `.[dev,model]`) | `locks/model-cpu-linux-x86_64.txt` | **No** (ver abajo) |
 | deep (aislado, pandas 2.x) | `locks/deep-macos-arm64.txt` | `locks/deep-linux-x86_64-cpu.txt` · `locks/deep-linux-x86_64-cu126.txt` | **Sí** los 3 (`--generate-hashes`) |
+| dvc-tool (herramienta CLI, aislada del producto) | `locks/dvc-tool-macos-arm64.txt` | `locks/dvc-tool-linux-x86_64.txt` | **Sí** los 2 (`--generate-hashes`) |
 
 - Los espejos Linux se compilan con `uv pip compile --python-platform x86_64-unknown-linux-gnu
   --python-version 3.14 --no-annotate -c <lock macOS staged>`: el constraint contra el lock
@@ -36,8 +37,8 @@ el siguiente upgrade. **Prohibido el auto-fix**: todo bump va por PR con suite v
 - El backend de build está pinneado en `pyproject.toml` (`setuptools==83.0.0`) y el
   toolchain de instalación (`pip==26.1.2`, `setuptools==83.0.0`, `wheel==0.47.0`) en
   cada workflow que crea el entorno.
-- **`tools/make_locks.sh` (`make lock`) regenera los 9 locks en UNA tanda** (3 base macOS +
-  3 espejos Linux + 3 deep) y los promueve con `tools/promote_lockset.py` mediante **rollback
+- **`tools/make_locks.sh` (`make lock`) regenera los 11 locks en UNA tanda** (3 base macOS +
+  3 espejos Linux + 3 deep + 2 dvc-tool) y los promueve con `tools/promote_lockset.py` mediante **rollback
   transaccional + detección de matriz parcial** (NO atomicidad de bundle): valida el staging con
   el contrato estático único (`tools/lock_contracts.py`), hace rename por lock, escribe el
   manifiesto `locks/lockset.json` AL FINAL (ligando hashes de locks + fuentes, incluidos los 3
@@ -67,7 +68,9 @@ el siguiente upgrade. **Prohibido el auto-fix**: todo bump va por PR con suite v
   cuyo wheel declara `setuptools<82` (el resolver de uv lo rechazó en el perfil deep). Se descartó
   aceptar el aviso (violaría el veto runtime/dev). Solución: **subir torch a `2.13.0`** (permite
   `setuptools>=77.0.3`, y sigue cerrando CVE-2025-3000; compatible con lightning 2.5.6 / NF 3.1.9 /
-  chronos 2.3.1 / transformers 5.13.1), lo que habilita `setuptools 83` UNIFORME en los 9 locks.
+  chronos 2.3.1 / transformers 5.13.1), lo que habilita **`setuptools 83` como toolchain UNIFORME**;
+  aparece en los **7 locks** donde forma parte del cierre (`runtime-linux`/`dev-linux` no lo incluyen:
+  uv no lo arrastra como dep de ejecución — 0 exposición a 81, solo no está pinneado ahí).
   Remediación: pins torch 2.13.0 (+cpu/+cu126) y setuptools 83 subidos en las fuentes autoritativas
   (pyproject build-system + model extra + toolchain de generación/workflows + `deep.in` +
   `TORCH_PUBLIC`/`TOOLCHAIN`/`DEEP_DIRECT` del contrato) + `make lock`. Certificado: resolución +
@@ -75,9 +78,9 @@ el siguiente upgrade. **Prohibido el auto-fix**: todo bump va por PR con suite v
   A10G en P0R.5). **Sin fila nueva en la tabla activa; sin incrementar `n_accepted`** — la allowlist
   sigue con exactamente un aviso (pytorch-lightning). Decisión: **fix, no accept.**
 
-## Triage vigente — perfiles model y deep (1 avisos en 1 paquete, allowlist del gate)
+## Triage vigente — model/deep + dvc-tool (2 avisos en 2 paquetes, allowlist del gate)
 
-Auditado el 2026-07-13 (ronda 10, P0R.4) con `pip-audit --disable-pip` sobre los **9 locks**
+Auditado el 2026-07-13 (ronda 10, P0R.4) con `pip-audit --disable-pip` sobre los **11 locks**
 (runtime/dev/model-cpu × macOS+Linux + los 3 deep hasheados), reconciliado por
 `tools/audit_python_supply_chain.py` contra `security/python_advisories.json` con biyección
 exacta por perfil/lock. El único aviso restante (pytorch-lightning) aparece en los 2 locks
@@ -91,6 +94,7 @@ propio, no datos de terceros); no hay endpoint que los exponga.
 | Paquete | Aviso | ¿Nos afecta? | Decisión | Owner | Revisión |
 |---|---|---|---|---|---|
 | pytorch-lightning 2.5.6 (perfiles model y deep) | PYSEC-2026-3043 (alias CVE-2026-31221 / GHSA-75m9-98v2-hjpm; sin fix) | BAJA: `load_from_checkpoint` llama `torch.load` sin `weights_only=True`; F2 carga SOLO checkpoints PROPIOS (entrenamiento local/campañas), nunca de terceros; sin superficie remota | **Accept** (allowlist); vigilar release del upstream | Javier | 2026-08-12 |
+| diskcache 5.6.3 (perfil **dvc-tool**) | PYSEC-2026-2447 (alias CVE-2025-69872 / GHSA-w8v5-vhqr-4h9v; **sin fix**) | MODERATE (CVSS 5.2): DiskCache usa `pickle`; RCE si un atacante ESCRIBE en el dir de caché y la víctima lo LEE después. Transitiva de `dvc-data` usada SOLO por el CLI DVC gobernado (sin imports desde producto). Exposición local: `tools/dvc_cache_guard.py` exige caché solo-usuario dentro del repo, sin symlink/override, `mode & 0o022 == 0`, umask 077 | **Accept** (allowlist, ACOTADO a los 2 locks dvc-tool); vigilar fix upstream | Javier | 2026-08-12 |
 
 **Reconciliación P0R.4 (13-jul-2026):** el upgrade DELIBERADO `torch 2.12.0 → 2.12.1` **cerró
 `CVE-2025-3000`** y retiró su excepción (torch queda limpio en los 5 locks que lo pinan). Se

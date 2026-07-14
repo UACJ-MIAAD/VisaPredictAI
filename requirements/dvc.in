@@ -1,0 +1,6 @@
+# Herramienta standalone para DAG y artefactos; NO es dependencia del producto (dvc se consume
+# como CLI, sin imports desde vp_*/pipeline). Perfil gobernado `dvc-tool`, aislado de model/deep.
+# dvc-s3 se declara DIRECTO porque S3 es una capacidad usada por `dvc push`, no una transitiva
+# accidental. Arrastra diskcache==5.6.3 (PYSEC-2026-2447, sin fix) — aceptado SOLO en dvc-tool.
+dvc[s3]==3.67.1
+dvc-s3==3.3.0

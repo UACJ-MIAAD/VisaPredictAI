@@ -1,7 +1,12 @@
 # One-command operations for the VisaPredictAI pipeline.
 # Override the interpreter with: make test PY=python
 PY ?= ante/bin/python
-DVC ?= ante/bin/dvc
+# P0R.5: toda invocación oficial de DVC pasa por el cache guard (umask 077 + verifica que la
+# caché sea solo-usuario, sin symlink/override) — mitiga la superficie de PYSEC-2026-2447
+# (diskcache/pickle). El binario dvc sigue siendo overridable (DVC_BIN) mientras el entorno
+# content-addressed dvc-tool no esté cableado localmente.
+DVC_BIN ?= ante/bin/dvc
+DVC ?= $(PY) -m tools.dvc_cache_guard --run $(DVC_BIN)
 
 .PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger shadow model-card drift figures audit test test-model lint typecheck check all update eda eda-facts eda-all eda-report fe-facts fe-figures fe-report fe-all compare report validate key-facts consistency supply-chain web-forecasts score-forecasts derive-band80 significance horizon-facts horizon-figure auto-arima paper-figures sync mlflow-sync
 

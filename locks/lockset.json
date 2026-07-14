@@ -28,6 +28,14 @@
       "pins": 38,
       "sha256": "sha256:4270cd1ca05e1000167effe62d4399e21c2791a4d163552d769ba2cb8433263a"
     },
+    "locks/dvc-tool-linux-x86_64.txt": {
+      "pins": 105,
+      "sha256": "sha256:2485cd7ab458c09f0dabbe3772b5e44343e5a418c09c70b514660920659eb525"
+    },
+    "locks/dvc-tool-macos-arm64.txt": {
+      "pins": 105,
+      "sha256": "sha256:2485cd7ab458c09f0dabbe3772b5e44343e5a418c09c70b514660920659eb525"
+    },
     "locks/model-cpu-linux-x86_64.txt": {
       "pins": 129,
       "sha256": "sha256:706f671b83f1ac65ce179320d1d157836729fb22b40c1f6453b7785372378606"
@@ -51,8 +59,9 @@
     "requirements/deep-linux-cpu.in": "sha256:31a69d2407e771faf50b2190a62576d45b117bb3788a940cd704fa589297a4dd",
     "requirements/deep-linux-cu126.in": "sha256:c08c113f24a6367961a5f8b1a3a22a88d13684f05c9354f2bf8a858ef23ad5fe",
     "requirements/deep.in": "sha256:66f71ed981944982e6276be13e7a89c6321d975ec5d6a0f444db7ee25fbb86e2",
-    "tools/lock_contracts.py": "sha256:feb52901ba28a8dd5413f0a97a5b958a68e88420816726a95eac081074ec74ad",
-    "tools/make_locks.sh": "sha256:96142058af3399f6845f32c486d71ca68b9f81d4129a87b9d73e2fc9249705dd",
+    "requirements/dvc.in": "sha256:06fba603a4b1f3d73da52c236c647eff751d1cce994138d7a7f3f99fcaa91f01",
+    "tools/lock_contracts.py": "sha256:bb4c8dc8bb5cc9ae2bc0141f3ab725f11c9fb85b8cbae5f745553fff93439d46",
+    "tools/make_locks.sh": "sha256:2480a9777d14df167d06a60dc677f1637665ef2e2edd128a9bb7a7173535f16b",
     "tools/promote_lockset.py": "sha256:741c4f65cbe8dc63d5bd6a4c71d90c1b9b1560f97e5a64e1833516b17e9e5485"
   }
 }

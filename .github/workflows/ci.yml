@@ -141,8 +141,11 @@ jobs:
         # (antes llevaba semanas desfasado y nada lo detectaba). C1: eda_facts y
         # fe_facts entraron al DAG — sus deps/outs viven en git, así que se vigilan.
         run: |
-          pip install "dvc==3.67.1"
-          out=$(dvc status --json panel bulletins key_facts eda_facts fe_facts)
+          # P0R.5: dvc gobernado — instalar del lock dvc-tool HASHEADO (no `pip install dvc` suelto)
+          # y ejecutar SIEMPRE vía el cache guard (mitiga PYSEC-2026-2447). El guard NO imprime en
+          # modo --run, así que $out es solo el JSON de dvc.
+          pip install --require-hashes -r locks/dvc-tool-linux-x86_64.txt
+          out=$(python -m tools.dvc_cache_guard --run dvc status --json panel bulletins key_facts eda_facts fe_facts)
           echo "$out"
           [ "$out" = "{}" ] || { echo "::error::dvc.lock desfasado del pipeline commiteado — corre make repro y commitea el lock"; exit 1; }
 
@@ -152,7 +155,7 @@ jobs:
         # (portable `python` commands — this run is itself the clean-clone proof) and
         # fail if any committed output drifts from the pipeline.
         run: |
-          dvc repro --force --single-item key_facts eda_facts fe_facts
+          python -m tools.dvc_cache_guard --run dvc repro --force --single-item key_facts eda_facts fe_facts
           git diff --exit-code reports/governance/key_facts.json reports/latex/key_facts.tex \
             reports/eda/eda_facts.json reports/fe/fe_facts.json reports/latex/fe_facts.tex
 
@@ -239,6 +242,10 @@ jobs:
       # es el job `supply-chain` (runner vs locks); esto solo evita deriva de docs.
       - name: Check docs ↔ advisories JSON
         run: python tools/check_supply_chain_triage.py
+      # P0R.5 (D10): cero instalaciones de dvc fuera del lock dvc-tool hasheado y todo uso de dvc
+      # pasa por el cache guard (dvc arrastra diskcache 5.6.3 / PYSEC-2026-2447, aceptado ACOTADO).
+      - name: DVC gobernado (sin instalaciones sueltas)
+        run: python tools/check_no_stray_dvc.py
 
   # P0R.3: gate de supply chain como CHECK DE CAMBIO (PR/push), no solo cron. Autoridad única
   # = tools/audit_python_supply_chain.py reconciliando los locks contra el JSON. Sin path
@@ -301,13 +308,45 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # P0R.5 (D11): la herramienta DVC se INSTALA de verdad del lock dvc-tool HASHEADO y se hace smoke
+  # a través del cache guard (aislada del producto; arrastra diskcache 5.6.3 aceptado ACOTADO). Prueba
+  # que el cierre hasheado instala limpio (`pip check`), que el guard no bloquea la caché de un checkout
+  # limpio y que el dvc gobernado parsea el DAG commiteado. Nombre ESTABLE (check requerible).
+  dvc-tool-install:
+    name: dvc-tool-install
+    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.14'
+      - name: Install dvc-tool lock (--require-hashes) + cache guard + DAG smoke
+        run: |
+          # toolchain PINEADO (mismo que el generador de locks); luego el cierre HASHEADO de dvc-tool.
+          python -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
+          pip install --require-hashes -r locks/dvc-tool-linux-x86_64.txt
+          pip check
+          # el guard verifica la caché y ejecuta dvc con umask 077; smoke: versión + parseo del DAG.
+          python -m tools.dvc_cache_guard --run dvc --version
+          python -m tools.dvc_cache_guard --run dvc dag
+          # gate D10: cero instalaciones de dvc fuera del lock, todo uso pasa por el guard.
+          python tools/check_no_stray_dvc.py
+          python -c "import json,subprocess; v=subprocess.run(['dvc','--version'],capture_output=True,text=True).stdout.strip(); json.dump({'dvc':v,'lock':'locks/dvc-tool-linux-x86_64.txt','guard':'dvc_cache_guard'}, open('dvc-tool-receipt.json','w'), indent=2)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: dvc-tool-install-receipt
+          path: dvc-tool-receipt.json
+          if-no-files-found: error
+          retention-days: 30
+
   # P0R.4R2: check ESTABLE y único a exigir en branch protection. Depende de todos los jobs y falla
   # si CUALQUIERA no terminó en success (failure/cancelled/skipped incluidos). Los nombres largos del
   # matrix deep NO deben registrarse como checks requeridos (cambian al bumpear torch).
   ci-gate:
     name: ci-gate
     if: always()
-    needs: [commit-policy, lint-and-test, model-tests, consistency, supply-chain, deep-lock-install]
+    needs: [commit-policy, lint-and-test, model-tests, consistency, supply-chain, deep-lock-install, dvc-tool-install]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any required job was not success

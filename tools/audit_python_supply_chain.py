@@ -391,6 +391,8 @@ def audit(today: dt.date | None = None) -> tuple[list[str], dict]:
             for rel, observed in observed_by_lock.items()
         },
         "n_accepted": len(entries),
+        "product_accepted": sum(1 for e in entries if set(e.get("profiles", [])) & {"runtime", "dev", "model", "deep"}),
+        "tool_accepted": sum(1 for e in entries if "dvc-tool" in e.get("profiles", [])),
     }
     return probs, receipt
 

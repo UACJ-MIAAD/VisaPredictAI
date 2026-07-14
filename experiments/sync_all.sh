@@ -25,6 +25,11 @@ if [ "${1:-}" = "--publish" ]; then PUBLISH=1; shift; fi
 MSG="${1:-experiments: sync MLflow + DVC->S3 ($(date +%Y-%m-%d' '%H:%M))}"
 MANIFEST=reports/campaign/campaign_manifest.json
 
+# P0R.5: toda invocación oficial de DVC pasa por el cache guard (umask 077 + caché solo-usuario,
+# sin symlink/override) — mitiga la superficie de PYSEC-2026-2447 (diskcache/pickle). El binario
+# dvc es overridable con DVC_BIN; el guard corre con el python del venv principal.
+DVC="ante/bin/python -m tools.dvc_cache_guard --run ${DVC_BIN:-dvc}"
+
 # ⚠️ Publicar exige un manifiesto de campaña que EXISTA, sea JSON válido y selle dirty=false
 # BOOLEANO explícito (contrato único fail-closed: tools/campaign_manifest.py). Fail-closed ante
 # manifiesto ausente/ilegible/malformado, sin la clave `dirty`, o dirty!=false (auditoría
@@ -41,7 +46,7 @@ echo ">>> [1/3] MLflow: staging -> mlflow.db"
 ante_nf/bin/python experiments/sync_mlflow.py
 
 echo ">>> [2/3] DVC: re-hash local (modelos + tracking)"
-dvc add models mlflow.db
+$DVC add models mlflow.db
 
 echo ">>> [3/3] git: pointers .dvc"
 git add models.dvc mlflow.db.dvc .gitignore
@@ -55,7 +60,7 @@ elif [ "$PUBLISH" = 1 ]; then
         echo "ERROR: el manifiesto de campaña cambió durante sync_all (TOCTOU). Aborta." >&2
         exit 7
     }
-    dvc push
+    $DVC push
     git commit -q -m "$MSG"
     git push
     echo "    ✓ PUBLICADO: dvc push + commit + git push"

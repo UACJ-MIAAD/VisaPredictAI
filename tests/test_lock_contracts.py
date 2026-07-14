@@ -37,6 +37,12 @@ def _lock_text(rel: str, hashed: bool) -> str:
             lines.append(f"{pkg}=={ver} \\")
             lines.append(f"    --hash={_H}")
         return "\n".join(lines) + "\n"
+    if rel in lc.DVC_TOOL_LOCKS:
+        lines = []
+        for pkg, ver in {**lc.DVC_TOOL_DIRECT, "diskcache": lc.DVC_TOOL_DISKCACHE}.items():
+            lines.append(f"{pkg}=={ver} \\")
+            lines.append(f"    --hash={_H}")
+        return "\n".join(lines) + "\n"
     # locks base: 2 pins (con hash si el perfil es hasheado)
     lines = []
     for i, pkg in enumerate(("alpha", "beta")):
@@ -75,6 +81,7 @@ def repo(tmp_path):
     (root / "requirements/deep.in").write_text(
         "\n".join(f"{p}=={v}" for p, v in {**lc.DEEP_DIRECT, "torch": lc.TORCH_PUBLIC}.items()) + "\n"
     )
+    (root / "requirements/dvc.in").write_text("\n".join(f"{p}=={v}" for p, v in lc.DVC_TOOL_DIRECT.items()) + "\n")
     for w, lines in lc.WRAPPERS.items():
         (root / w).write_text("\n".join(lines) + "\n")
     for rel, _profile, hashed in lc.LOCK_SPECS:
