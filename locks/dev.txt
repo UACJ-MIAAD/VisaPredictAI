@@ -1,6 +1,6 @@
-# Lock transitivo del perfil 'dev' — generado por tools/make_locks.sh el 2026-07-13
-# Python 3.14.2 · Darwin arm64. Instalar con:
-#   pip install -r locks/dev.txt && pip install -e . --no-deps
+# Lock transitivo del perfil 'dev' — tools/make_locks.sh (P0R.4). NO editar a mano.
+# Python 3.14.2 · plataforma de referencia macOS arm64. Instalar con:
+#   pip install --require-hashes -r locks/dev.txt  # (macOS: sin hashes) && pip install -e . --no-deps
 ast_serialize==0.6.0
 beautifulsoup4==4.14.3
 certifi==2026.6.17
@@ -32,8 +32,10 @@ pytz==2026.2
 PyYAML==6.0.3
 requests==2.33.0
 ruff==0.15.17
+setuptools==81.0.0
 six==1.17.0
 soupsieve==2.8.4
 tqdm==4.67.3
 typing_extensions==4.16.0
 urllib3==2.7.0
+wheel==0.47.0

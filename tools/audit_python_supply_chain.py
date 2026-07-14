@@ -20,9 +20,11 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -37,7 +39,45 @@ LOCKS: list[tuple[str, str]] = [
     ("locks/dev-linux-x86_64.txt", "dev"),
     ("locks/model-cpu.txt", "model"),
     ("locks/model-cpu-linux-x86_64.txt", "model"),
+    ("locks/deep-macos-arm64.txt", "deep"),
+    ("locks/deep-linux-x86_64-cpu.txt", "deep"),
+    ("locks/deep-linux-x86_64-cu126.txt", "deep"),
 ]
+
+# --- Contrato del perfil DEEP (P0R.4): los 3 locks deep DEBEN fijar EXACTO el cierre directo de
+#     requirements/deep.in (torch aparte por variante) y llevar hashes. Divergencia ⇒ bloquea. ----
+DEEP_LOCKS = ("locks/deep-macos-arm64.txt", "locks/deep-linux-x86_64-cpu.txt", "locks/deep-linux-x86_64-cu126.txt")
+DEEP_DIRECT: dict[str, str] = {
+    "neuralforecast": "3.1.9",
+    "optuna": "4.9.0",
+    "ray": "2.56.0",
+    "mlflow": "3.14.0",
+    "pyarrow": "24.0.0",
+    "numpy": "2.4.6",
+    "pandas": "2.3.3",
+    "scipy": "1.17.1",
+    "pytorch-lightning": "2.5.6",
+    "chronos-forecasting": "2.3.1",
+    "transformers": "5.13.1",
+    "pillow": "12.3.0",
+    "setuptools": "81.0.0",
+}
+DEEP_TORCH: dict[str, str] = {
+    "locks/deep-macos-arm64.txt": "2.12.1",
+    "locks/deep-linux-x86_64-cpu.txt": "2.12.1+cpu",
+    "locks/deep-linux-x86_64-cu126.txt": "2.12.1+cu126",
+}
+
+# --- Cierre del hueco de versión LOCAL (P0R.4): pip-audit consulta OSV por la versión EXACTA del
+#     lock. Un wheel de índice no-PyPI con versión local (torch 2.12.1+cpu) puede recibir "sin
+#     vulnerabilidades" porque OSV no reconoce ese artefacto. Para cada (lock, paquete) AUTORIZADO
+#     se AÑADE una consulta con la versión PÚBLICA normalizada; el universo de findings es la UNIÓN.
+#     ACOTADO: una versión local NO declarada aquí BLOQUEA (fail-closed) — nunca se normaliza sola.
+LOCAL_VERSION_QUERIES: dict[tuple[str, str], str] = {
+    ("locks/deep-linux-x86_64-cpu.txt", "torch"): "2.12.1",
+    ("locks/deep-linux-x86_64-cu126.txt", "torch"): "2.12.1",
+}
+_PIN_LINE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_.-]*)==([^\s\\;]+)")
 _ADV_ID = re.compile(r"^(?:CVE-\d{4}-\d+|PYSEC-\d{4}-\d+|GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4})$")
 _PKG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _ENTRY_KEYS = frozenset(
@@ -249,25 +289,115 @@ def reconcile_lock(observed: list[dict], entries: list[dict], *, profile: str, l
     return probs
 
 
+def read_pins(lock: Path) -> dict[str, str]:
+    """paquete_normalizado -> versión (primer ==). Ignora comentarios, opciones (-…) y hashes."""
+    pins: dict[str, str] = {}
+    for ln in lock.read_text().splitlines():
+        s = ln.strip()
+        if not s or s.startswith(("#", "-")):
+            continue
+        m = _PIN_LINE.match(s)
+        if m:
+            pins.setdefault(_norm_pkg(m.group(1)), m.group(2))
+    return pins
+
+
+def check_local_version_policy(lock_rel: str, pins: dict[str, str]) -> list[str]:
+    """FAIL-CLOSED: toda versión local (`+…`) del lock debe estar DECLARADA en LOCAL_VERSION_QUERIES
+    con su parte pública coincidente; y toda consulta declarada debe corresponder a una versión
+    local presente. Impide ocultar una vuln tras una etiqueta local no autorizada."""
+    probs: list[str] = []
+    for pkg, ver in pins.items():
+        if "+" in ver:
+            key = (lock_rel, pkg)
+            if key not in LOCAL_VERSION_QUERIES:
+                probs.append(
+                    f"[{lock_rel}] versión local NO declarada: {pkg}=={ver} (autorizar en LOCAL_VERSION_QUERIES)"
+                )
+            elif LOCAL_VERSION_QUERIES[key] != ver.split("+", 1)[0]:
+                probs.append(
+                    f"[{lock_rel}] {pkg}: normalización declarada {LOCAL_VERSION_QUERIES[key]} != pública del lock {ver.split('+', 1)[0]}"
+                )
+    for (lk, pkg), _public in LOCAL_VERSION_QUERIES.items():
+        if lk != lock_rel:
+            continue
+        if pkg not in pins:
+            probs.append(f"[{lock_rel}] normalización declarada para {pkg} pero ausente del lock")
+        elif "+" not in pins[pkg]:
+            probs.append(
+                f"[{lock_rel}] normalización declarada para {pkg} pero el lock no fija versión local ({pins[pkg]})"
+            )
+    return probs
+
+
+def run_pip_audit_normalized(lock_rel: str) -> list[dict]:
+    """Consulta pip-audit por las versiones PÚBLICAS autorizadas de este lock (cierre del hueco
+    de versión local). Devuelve findings extra a UNIR con los del lock as-is."""
+    out: list[dict] = []
+    for (lk, pkg), public in sorted(LOCAL_VERSION_QUERIES.items()):
+        if lk != lock_rel:
+            continue
+        fd, synth = tempfile.mkstemp(suffix=".txt", prefix="vp_norm_")
+        try:
+            with os.fdopen(fd, "w") as fh:
+                fh.write(f"{pkg}=={public}\n")
+            out.extend(run_pip_audit(Path(synth)))
+        finally:
+            Path(synth).unlink(missing_ok=True)
+    return out
+
+
+def validate_deep_lock_contract() -> list[str]:
+    """Los 3 locks deep fijan EXACTO el cierre directo de deep.in (torch por variante) y llevan hashes."""
+    probs: list[str] = []
+    for rel in DEEP_LOCKS:
+        lp = ROOT / rel
+        if not lp.exists():
+            probs.append(f"deep lock ausente: {rel}")
+            continue
+        text = lp.read_text()
+        pins = read_pins(lp)
+        for pkg, ver in DEEP_DIRECT.items():
+            if pins.get(pkg) != ver:
+                probs.append(f"[{rel}] {pkg}: {pins.get(pkg)} != {ver} esperado (requirements/deep.in)")
+        if pins.get("torch") != DEEP_TORCH[rel]:
+            probs.append(f"[{rel}] torch: {pins.get('torch')} != {DEEP_TORCH[rel]} esperado")
+        if "--hash=sha256:" not in text:
+            probs.append(f"[{rel}] sin hashes (deep exige --generate-hashes)")
+    return probs
+
+
 def audit(today: dt.date | None = None) -> tuple[list[str], dict]:
     today = today or dt.date.today()
     entries = load_advisories(ADVISORIES)
     probs = validate_advisory_schema(entries)
     if probs:  # sin esquema válido no reconciliamos
         return probs, {}
+    probs += validate_deep_lock_contract()
     observed_by_lock: dict[str, list[dict]] = {}
     lock_hashes: dict[str, str] = {}
+    normalizations: dict[str, list[str]] = {}
     for rel, profile in LOCKS:
         lp = ROOT / rel
+        pins = read_pins(lp)
+        probs += check_local_version_policy(rel, pins)
         observed = run_pip_audit(lp)
-        observed_by_lock[rel] = observed
-        probs += reconcile_lock(observed, entries, profile=profile, lock=rel, today=today)
+        # registra la consulta normalizada REALIZADA (evidencia de que el hueco de versión local se
+        # revisó), sea o no que haya hallado algo — un receipt sin ella no probaría la cobertura.
+        applicable = sorted(f"{pkg}=={pub}" for (lk, pkg), pub in LOCAL_VERSION_QUERIES.items() if lk == rel)
+        if applicable:
+            normalizations[rel] = applicable
+        extra = run_pip_audit_normalized(rel)
+        all_observed = observed + extra
+        observed_by_lock[rel] = all_observed
+        probs += reconcile_lock(all_observed, entries, profile=profile, lock=rel, today=today)
         lock_hashes[rel] = "sha256:" + hashlib.sha256(lp.read_bytes()).hexdigest()
     receipt = {
         "tool": f"pip-audit=={PIP_AUDIT_VERSION}",
         "evaluated_on": today.isoformat(),
         "advisories_sha256": "sha256:" + hashlib.sha256(ADVISORIES.read_bytes()).hexdigest(),
         "lock_hashes": lock_hashes,
+        "normalizations": normalizations,
         "observed": {
             rel: sorted(
                 ({"id": o["id"], "package": o["package"], "version": o["version"]} for o in observed),

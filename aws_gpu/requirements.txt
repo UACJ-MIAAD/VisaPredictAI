@@ -1,22 +1,16 @@
-# Entorno GPU (AWS) para el frontier pesado de forecasting. Instalar en una instancia
-# con CUDA (p.ej. AWS g5.xlarge / A10G, Deep Learning AMI). torch CUDA lo provee la AMI;
-# si no, instalar el wheel CUDA de torch antes que neuralforecast.
+# Entorno GPU (AWS A10G / g5.xlarge) para el frontier pesado de forecasting — perfil DEEP.
 #
-# IMPORTANTE: misma versión de neuralforecast que el entorno local `ante_nf` para que la
-# RECETA GANADORA (global + diferencia + local_scaler + HPO Optuna) corra IDÉNTICA en GPU.
-neuralforecast==3.1.9
-optuna==4.9.0
-# A5: pins tomados del entorno que produjo las cifras publicadas — pyarrow==24.0.0
-# está tanto en ante_nf-requirements.lock como en locks/model-cpu.txt (referencia).
-pyarrow==24.0.0
-# Chronos zero-shot (chronos_lora.py zeroshot). Necesario solo si corres ese paso.
-# Ronda 10: 2.2.2 forzaba transformers<5 (vulnerable a PYSEC-2026-2290 RCE). 2.3.1 soporta
-# transformers>=5; se fija AMBOS explícitamente (transformers transitivo permitiría drift).
-chronos-forecasting==2.3.1
-transformers==5.13.1
-# Opcional — Chronos fine-tuning (LoRA), ver chronos_lora.py finetune (scaffold GPU):
-#   pip install peft
-# Opcional — Mamba / state-space (NO viene en neuralforecast; requiere build CUDA + wrapper):
-#   pip install mamba-ssm causal-conv1d
-# Opcional — otros foundation models (cada uno su entorno recomendado):
-#   uni2ts   # Moirai (Salesforce)   ·   timesfm  # TimesFM (Google)
+# SHIM al lock HASHEADO del perfil deep (P0R.4, ronda 10): instala el cierre transitivo EXACTO,
+# reproducible y AUDITADO (torch 2.12.1+cu126 desde el índice oficial PyTorch CUDA 12.6, con
+# verificación de hashes). Es la MISMA receta que corre local en `ante_nf`, de modo que la receta
+# ganadora (global + diferencia + local_scaler + HPO Optuna) es idéntica en GPU.
+#
+#   pip install -r aws_gpu/requirements.txt   # desde la raíz del repo, en la instancia EC2
+#
+# La fuente directa del perfil está en requirements/deep.in (+ wrapper deep-linux-cu126.in);
+# regenerar con `bash tools/make_locks.sh` (make lock) — nunca editar el lock a mano.
+# NOTA P0R.4: este perfil RESUELVE+audita+hashea el cierre CUDA; la EJECUCIÓN GPU real en A10G
+# se certifica en P0R.5. Chronos zero-shot / fine-tuning (LoRA) opcional: chronos-forecasting y
+# transformers ya vienen en el lock; ver aws_gpu/chronos_lora.py. Mamba/uni2ts/timesfm siguen
+# fuera del perfil (cada uno requiere su propio entorno CUDA).
+-r ../locks/deep-linux-x86_64-cu126.txt

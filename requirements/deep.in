@@ -1,0 +1,30 @@
+# Perfil DEEP — fuente directa única (P0R.4, ronda 10). Separado de pyproject.toml porque el
+# stack deep exige pandas 2.x mientras el proyecto base fija pandas 3. Solo dependencias
+# importadas directamente por los runners deep o pins deliberados (compat/seguridad/toolchain).
+# Los locks transitivos + hasheados se generan con tools/make_locks.sh (deep-macos-arm64,
+# deep-linux-x86_64-cpu, deep-linux-x86_64-cu126).
+
+# Ejecución deep/HPO (importados directamente: neuralforecast, optuna; ray es dep legítima de NF 3.1.9)
+neuralforecast==3.1.9
+optuna==4.9.0
+ray[train,tune]==2.56.0
+
+# Tracking y evaluación
+mlflow==3.14.0
+pyarrow==24.0.0
+numpy==2.4.6
+pandas==2.3.3
+scipy==1.17.1
+
+# Entrenamiento (compat: NF 3.1.9 exige torch>=2.4.0 y pytorch-lightning<2.6.0)
+# seguridad: torch 2.12.1 cierra CVE-2025-3000 (2.12.0 lo reportaba)
+torch==2.12.1
+pytorch-lightning==2.5.6
+
+# Chronos zero-shot + su backend transformers (5.13.1 cierra PYSEC-2026-2290)
+chronos-forecasting==2.3.1
+transformers==5.13.1
+pillow==12.3.0
+
+# Toolchain/import runtime deliberado
+setuptools==81.0.0

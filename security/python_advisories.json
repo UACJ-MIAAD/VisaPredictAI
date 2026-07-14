@@ -1,32 +1,19 @@
 {
   "schema_version": 1,
-  "_doc": "Fuente UNICA machine-readable de la allowlist de supply chain Python (P0R.3, ronda 10). tools/audit_python_supply_chain.py audita los locks con pip-audit (sin ocultar nada primero) y reconcilia el resultado BRUTO contra este archivo con BIYECCION EXACTA por perfil: todo advisory observado debe estar permitido para ese perfil, y toda excepcion permitida debe estar observada (una excepcion huerfana o expirada BLOQUEA). Reemplaza la allowlist textual --ignore-vuln del workflow como autoridad. Al cerrar un aviso (bump via make lock deliberado), retirar su entrada aqui en el MISMO commit.",
+  "_doc": "Fuente UNICA machine-readable de la allowlist de supply chain Python (P0R.3-P0R.4, ronda 10). tools/audit_python_supply_chain.py audita los 9 locks con pip-audit (sin ocultar nada primero) y reconcilia el resultado BRUTO contra este archivo con BIYECCION EXACTA por perfil/lock: todo advisory observado debe estar permitido para ese perfil, y toda excepcion permitida debe estar observada (una excepcion huerfana o expirada BLOQUEA). Cierra ademas el hueco de version local (torch +cpu/+cu126) via LOCAL_VERSION_QUERIES. Reemplaza la allowlist textual --ignore-vuln del workflow como autoridad. Al cerrar un aviso (bump via make lock deliberado), retirar su entrada aqui en el MISMO commit: P0R.4 retiro CVE-2025-3000 al subir torch 2.12.0->2.12.1 (fix publicado).",
   "advisories": [
-    {
-      "id": "CVE-2025-3000",
-      "aliases": [],
-      "package": "torch",
-      "versions": ["2.12.0"],
-      "profiles": ["model"],
-      "decision": "accept",
-      "severity": "low",
-      "scope": "offline-own-checkpoints",
-      "owner": "Javier",
-      "expires_at": "2026-08-12",
-      "rationale": "Solo entrenamiento/inferencia offline sobre el panel propio; sin deserializacion de modelos de terceros (checkpoints propios). Sin fix publicado; vigilar release."
-    },
     {
       "id": "PYSEC-2026-3043",
       "aliases": ["CVE-2026-31221", "GHSA-75m9-98v2-hjpm"],
       "package": "pytorch-lightning",
       "versions": ["2.5.6"],
-      "profiles": ["model"],
+      "profiles": ["model", "deep"],
       "decision": "accept",
       "severity": "low",
       "scope": "offline-own-checkpoints",
       "owner": "Javier",
       "expires_at": "2026-08-12",
-      "rationale": "load_from_checkpoint llama torch.load sin weights_only=True; F2 carga SOLO checkpoints PROPIOS (entrenamiento local/campanas), nunca de terceros; sin superficie remota. Sin fix publicado."
+      "rationale": "load_from_checkpoint llama torch.load sin weights_only=True; F2 (perfil model y deep) carga SOLO checkpoints PROPIOS (entrenamiento local/campanas), nunca de terceros; sin superficie remota. Sin fix publicado (pytorch-lightning<2.6.0 exigido por neuralforecast 3.1.9). Observado en los 3 locks deep y los 2 model."
     }
   ]
 }
