@@ -129,6 +129,9 @@ jobs:
           # el pin CPU debe SOBREVIVIR a .[model]: sin esto, un torch CUDA silencioso pasaría el CI.
           pip check
           python -c 'import torch; assert torch.__version__ == "2.13.0+cpu", torch.__version__'
+          # P0R.5 R3: sello del inventario del PRODUCTO antes de cualquier operación DVC (prueba de
+          # no-contaminación: DVC corre en un ENV AISLADO, no en este intérprete).
+          python -m pip freeze --all | sort > /tmp/prod_before.txt
 
       - name: Build the panel + DuckDB warehouse (modeling reads from it)
         run: |
@@ -141,11 +144,12 @@ jobs:
         # (antes llevaba semanas desfasado y nada lo detectaba). C1: eda_facts y
         # fe_facts entraron al DAG — sus deps/outs viven en git, así que se vigilan.
         run: |
-          # P0R.5: dvc gobernado — instalar del lock dvc-tool HASHEADO (no `pip install dvc` suelto)
-          # y ejecutar SIEMPRE vía el cache guard (mitiga PYSEC-2026-2447). El guard NO imprime en
-          # modo --run, así que $out es solo el JSON de dvc.
-          pip install --require-hashes -r locks/dvc-tool-linux-x86_64.txt
-          out=$(python -m tools.dvc_cache_guard --run dvc status --json panel bulletins key_facts eda_facts fe_facts)
+          # P0R.5 R3: DVC corre desde su ENTORNO AISLADO content-addressed (.vp_envs/dvc-tool), JAMÁS
+          # en el intérprete del producto (dvc[s3] arrastra requests/tqdm más nuevos y los degradaría).
+          # El build va en su propia línea (sus logs de pip NO deben caer en $out); el exec reusa
+          # (instantáneo) y aplica el cache guard internamente, así $out es solo el JSON de dvc.
+          python -m tools.python_env build --profile dvc-tool
+          out=$(python -m tools.python_env exec --profile dvc-tool -- dvc status --json panel bulletins key_facts eda_facts fe_facts)
           echo "$out"
           [ "$out" = "{}" ] || { echo "::error::dvc.lock desfasado del pipeline commiteado — corre make repro y commitea el lock"; exit 1; }
 
@@ -153,11 +157,23 @@ jobs:
         # The consistency job checks prose-vs-JSON; this closes the loop by checking
         # JSON-vs-DATA through the REAL dag: force-reproduce the fact stages with dvc
         # (portable `python` commands — this run is itself the clean-clone proof) and
-        # fail if any committed output drifts from the pipeline.
+        # fail if any committed output drifts from the pipeline. DVC desde el env aislado; los
+        # comandos de stage (`python -m ...`) heredan el PATH ambiente = intérprete del PRODUCTO.
         run: |
-          python -m tools.dvc_cache_guard --run dvc repro --force --single-item key_facts eda_facts fe_facts
+          python -m tools.python_env exec --profile dvc-tool -- dvc repro --force --single-item key_facts eda_facts fe_facts
           git diff --exit-code reports/governance/key_facts.json reports/latex/key_facts.tex \
             reports/eda/eda_facts.json reports/fe/fe_facts.json reports/latex/fe_facts.tex
+
+      - name: No model to DVC contamination (R3 -- inventario del producto intacto)
+        # El corazón del hallazgo B1: instalar/ejecutar DVC NO debe mover una sola dep del producto.
+        # Compara el inventario ANTES/DESPUÉS de todas las operaciones DVC y reafirma los pines que
+        # dvc[s3] intentaría subir (requests 2.33.0 / tqdm 4.67.3).
+        run: |
+          python -m pip freeze --all | sort > /tmp/prod_after.txt
+          diff /tmp/prod_before.txt /tmp/prod_after.txt \
+            || { echo "::error::el inventario del producto cambió tras operaciones DVC (contaminación)"; exit 1; }
+          pip check
+          python -c 'import importlib.metadata as m; assert m.version("requests")=="2.33.0", m.version("requests"); assert m.version("tqdm")=="4.67.3", m.version("tqdm")'
 
       - name: Modeling tests + vp_model coverage
         run: make test-model PY=python
@@ -308,37 +324,73 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # P0R.5 (D11): la herramienta DVC se INSTALA de verdad del lock dvc-tool HASHEADO y se hace smoke
-  # a través del cache guard (aislada del producto; arrastra diskcache 5.6.3 aceptado ACOTADO). Prueba
-  # que el cierre hasheado instala limpio (`pip check`), que el guard no bloquea la caché de un checkout
-  # limpio y que el dvc gobernado parsea el DAG commiteado. Nombre ESTABLE (check requerible).
+  # P0R.5 R6: DVC se construye en su ENTORNO CONTENT-ADDRESSED AISLADO (tools.python_env), NUNCA en el
+  # python del job, y se hace smoke por la interfaz única con recibo ligado al commit/env. Matriz
+  # Linux+macOS. Nombre de job ESTABLE (check requerible). El python del job NO recibe dvc: se verifica.
   dvc-tool-install:
     name: dvc-tool-install
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: linux-x86_64
+            os: ubuntu-24.04
+          - variant: macos-arm64
+            os: macos-15
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.14'
+      - name: Build isolated dvc-tool env + governed smoke + receipt
+        run: |
+          # toolchain PINEADO (mismo que el generador de locks). NO se instala dvc en ESTE python:
+          # python_env crea un venv content-addressed y ahí instala el lock hasheado.
+          python -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
+          # sello del inventario del job ANTES: python_env NO debe tocarlo (aislamiento real).
+          python -m pip freeze --all | sort > /tmp/job_before.txt
+          python -m tools.dvc_tool_smoke --receipt dvc-tool-receipt-${{ matrix.variant }}.json
+          python -m pip freeze --all | sort > /tmp/job_after.txt
+          diff /tmp/job_before.txt /tmp/job_after.txt \
+            || { echo "::error::construir el env dvc-tool contaminó el python del job"; exit 1; }
+          # el env aislado NO debe tener dvc en el python del JOB (prueba de que no se derramó).
+          python -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('dvc') is None else 1)" \
+            || { echo "::error::dvc quedó importable en el python del job"; exit 1; }
+          # gate R4: cero rutas dvc fuera del wrapper.
+          python tools/check_no_stray_dvc.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: dvc-tool-receipt-${{ matrix.variant }}
+          path: dvc-tool-receipt-${{ matrix.variant }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  # P0R.5 R6: contrato del sistema de entornos content-addressed (determinismo del env_id, aislamiento,
+  # detección de tamper, y el gate anti-dvc-suelto). Nombre ESTABLE (check requerible).
+  environment-contract:
+    name: environment-contract
     timeout-minutes: 15
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: '3.14'
-      - name: Install dvc-tool lock (--require-hashes) + cache guard + DAG smoke
+          cache: pip
+      - name: Install dev toolchain
         run: |
-          # toolchain PINEADO (mismo que el generador de locks); luego el cierre HASHEADO de dvc-tool.
           python -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
-          pip install --require-hashes -r locks/dvc-tool-linux-x86_64.txt
-          pip check
-          # el guard verifica la caché y ejecuta dvc con umask 077; smoke: versión + parseo del DAG.
-          python -m tools.dvc_cache_guard --run dvc --version
-          python -m tools.dvc_cache_guard --run dvc dag
-          # gate D10: cero instalaciones de dvc fuera del lock, todo uso pasa por el guard.
+          pip install -e ".[dev]" -c locks/dev-linux-x86_64.txt
+      - name: Env-system contract + isolation + tamper + stray-dvc gate
+        run: |
           python tools/check_no_stray_dvc.py
-          python -c "import json,subprocess; v=subprocess.run(['dvc','--version'],capture_output=True,text=True).stdout.strip(); json.dump({'dvc':v,'lock':'locks/dvc-tool-linux-x86_64.txt','guard':'dvc_cache_guard'}, open('dvc-tool-receipt.json','w'), indent=2)"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
-        with:
-          name: dvc-tool-install-receipt
-          path: dvc-tool-receipt.json
-          if-no-files-found: error
-          retention-days: 30
+          python -m pytest tests/test_python_env.py tests/test_dvc_tool.py -q -p no:cacheprovider --no-cov
 
   # P0R.4R2: check ESTABLE y único a exigir en branch protection. Depende de todos los jobs y falla
   # si CUALQUIERA no terminó en success (failure/cancelled/skipped incluidos). Los nombres largos del
@@ -346,7 +398,7 @@ jobs:
   ci-gate:
     name: ci-gate
     if: always()
-    needs: [commit-policy, lint-and-test, model-tests, consistency, supply-chain, deep-lock-install, dvc-tool-install]
+    needs: [commit-policy, lint-and-test, model-tests, consistency, supply-chain, deep-lock-install, dvc-tool-install, environment-contract]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any required job was not success

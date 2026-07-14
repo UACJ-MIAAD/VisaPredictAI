@@ -117,10 +117,12 @@ El **CSV abierto** (`visa_panel_long.csv`) sigue en git (fuente de verdad legibl
 **modelos entrenados** (`models/`). Pointers `.dvc` en git; binarios en el remote S3.
 
 ```bash
-dvc add models/ data/processed/visa_panel_long.parquet data/processed/visapredict.duckdb
+# P0R.5: DVC gobernado por la interfaz única (entorno aislado dvc-tool).
+DVC="python -m tools.python_env exec --profile dvc-tool -- dvc"
+$DVC add models/ data/processed/visa_panel_long.parquet data/processed/visapredict.duckdb
 git add *.dvc data/processed/*.dvc .gitignore        # los punteros van a git
-dvc push                                              # sube los binarios al remote S3 (necesita creds AWS)
-# en otra máquina: dvc pull  reconstruye datos+modelos
+$DVC push                                            # sube los binarios al remote S3 (necesita creds AWS)
+# en otra máquina: $DVC pull  reconstruye datos+modelos
 ```
 
 Remote: `s3://visapredictai-raw-snapshots/dvc-store` (cuenta AWS del proyecto; el autor hace

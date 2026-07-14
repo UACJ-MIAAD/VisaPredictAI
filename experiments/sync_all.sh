@@ -25,10 +25,10 @@ if [ "${1:-}" = "--publish" ]; then PUBLISH=1; shift; fi
 MSG="${1:-experiments: sync MLflow + DVC->S3 ($(date +%Y-%m-%d' '%H:%M))}"
 MANIFEST=reports/campaign/campaign_manifest.json
 
-# P0R.5: toda invocación oficial de DVC pasa por el cache guard (umask 077 + caché solo-usuario,
-# sin symlink/override) — mitiga la superficie de PYSEC-2026-2447 (diskcache/pickle). El binario
-# dvc es overridable con DVC_BIN; el guard corre con el python del venv principal.
-DVC="ante/bin/python -m tools.dvc_cache_guard --run ${DVC_BIN:-dvc}"
+# P0R.5 R3: DVC corre EXCLUSIVAMENTE desde su entorno content-addressed aislado (.vp_envs/dvc-tool),
+# vía la interfaz única `python_env exec` (aplica el cache guard, prohíbe el binario legacy y evita
+# que las deps de dvc degraden el producto). NUNCA `ante/bin/dvc` ni un dvc de PATH.
+DVC="ante/bin/python -m tools.python_env exec --profile dvc-tool -- dvc"
 
 # ⚠️ Publicar exige un manifiesto de campaña que EXISTA, sea JSON válido y selle dirty=false
 # BOOLEANO explícito (contrato único fail-closed: tools/campaign_manifest.py). Fail-closed ante

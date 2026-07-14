@@ -56,9 +56,9 @@ def test_make_locks_pin():
 
 
 def test_workflow_bootstrap_counts():
-    # 4 bootstraps en ci.yml: lint-and-test, model-tests, deep-lock-install y dvc-tool-install
-    # (P0R.5 D11: el job dvc-tool instala el toolchain pineado antes del lock hasheado).
-    assert _text(".github/workflows/ci.yml").count(f'"setuptools=={EXPECTED}"') == 4
+    # 5 bootstraps en ci.yml: lint-and-test, model-tests, deep-lock-install, dvc-tool-install y
+    # environment-contract (P0R.5 R6: los jobs del sistema de entornos pinnean el toolchain).
+    assert _text(".github/workflows/ci.yml").count(f'"setuptools=={EXPECTED}"') == 5
     assert _text(".github/workflows/freeze_and_rebuild.yml").count(f'"setuptools=={EXPECTED}"') == 1
 
 

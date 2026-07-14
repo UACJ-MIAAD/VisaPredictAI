@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "toolchain": {
+    "pip": "26.1.2",
+    "setuptools": "83.0.0",
+    "wheel": "0.47.0",
+    "uv": "0.11.28"
+  },
+  "profiles": {
+    "dvc-tool": {
+      "install_mode": "hash-verified",
+      "locks": {
+        "Darwin-arm64": "locks/dvc-tool-macos-arm64.txt",
+        "Linux-x86_64": "locks/dvc-tool-linux-x86_64.txt"
+      },
+      "console_scripts": ["dvc"],
+      "cache_guarded": true,
+      "note": "DVC CLI aislado del producto (P0R.5). NUNCA compartir intérprete con runtime/model/freeze."
+    }
+  }
+}

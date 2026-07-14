@@ -177,9 +177,10 @@ jobs:
         #    forecast scripts. A3's AC demanded this separation: a PyTorch-index
         #    outage or a forecast bug used to hold the already-validated bulletin
         #    (and its S3 backup) hostage indefinitely.
-        # P0R.5: dvc del lock dvc-tool HASHEADO (aislado del producto) + cache guard (umask 077)
-        pip install --require-hashes -r locks/dvc-tool-linux-x86_64.txt
-        python -m tools.dvc_cache_guard --run dvc commit --force scrape panel bulletins
+        # P0R.5 R3: DVC desde su ENTORNO AISLADO (.vp_envs/dvc-tool), nunca en el intérprete del
+        # producto (evita degradar requests/tqdm). El exec aplica el cache guard internamente.
+        python -m tools.python_env build --profile dvc-tool
+        python -m tools.python_env exec --profile dvc-tool -- dvc commit --force scrape panel bulletins
         git config --local user.email "168046724+jrebull@users.noreply.github.com"
         git config --local user.name "Javier Rebull"
         # A5+C4: publicación por ALLOWLIST (nada de `git add -A` ni barridos de dirs) —
@@ -284,11 +285,10 @@ jobs:
         fi
 
         # L1: key_facts.json just changed — keep its DVC stage fresh too.
-        # (M2 audit 3-jul: el pip install -e ".[model]" de arriba re-resuelve deps y
-        # puede desplazar las de dvc; reinstalar del lock dvc-tool es idempotente.)
-        # P0R.5: dvc del lock dvc-tool HASHEADO (no `pip install dvc` suelto) + cache guard.
-        pip install --require-hashes -r locks/dvc-tool-linux-x86_64.txt --quiet
-        python -m tools.dvc_cache_guard --run dvc commit --force key_facts
+        # P0R.5 R3: DVC desde su ENTORNO AISLADO (.vp_envs/dvc-tool), nunca en el intérprete del
+        # producto — así el .[model] de arriba no puede ser degradado por las deps de dvc.
+        python -m tools.python_env build --profile dvc-tool
+        python -m tools.python_env exec --profile dvc-tool -- dvc commit --force key_facts
         # La identidad git del paso `run` solo se escribe en su sección de commit de
         # datos, que la ruta self-heal (#17) salta con exit 0 — sin estas líneas el
         # primer commit de este paso moría con "empty ident" (cazado en el estreno).
@@ -356,10 +356,10 @@ jobs:
         # sin anada fresca y ES el gate quien decide (contratos de anada unica).
         # C1: eda_facts/fe_facts son ahora stages DVC — registrar sus hashes frescos en
         # dvc.lock EN EL MISMO commit o el gate E2 de CI detona en el siguiente push.
-        # P0R.5: dvc del lock dvc-tool HASHEADO + cache guard. Autocontenido: en la ruta
-        # self-heal este paso puede correr sin la instalación del bloque de forecasts.
-        pip install --require-hashes -r locks/dvc-tool-linux-x86_64.txt --quiet
-        python -m tools.dvc_cache_guard --run dvc commit -f eda_facts fe_facts
+        # P0R.5 R3: DVC desde su ENTORNO AISLADO (.vp_envs/dvc-tool). Autocontenido: en la ruta
+        # self-heal este paso puede correr sin el env construido, así que se construye aquí (reusa).
+        python -m tools.python_env build --profile dvc-tool
+        python -m tools.python_env exec --profile dvc-tool -- dvc commit -f eda_facts fe_facts
         # Identidad propia: en la ruta self-heal ningún paso previo la configura.
         git config --local user.email "168046724+jrebull@users.noreply.github.com"
         git config --local user.name "Javier Rebull"

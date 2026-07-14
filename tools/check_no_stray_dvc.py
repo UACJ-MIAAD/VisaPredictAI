@@ -1,51 +1,135 @@
 #!/usr/bin/env python
-"""Gate P0R.5 (D10): CERO instalaciones de DVC fuera del lock dvc-tool HASHEADO.
+"""Gate P0R.5 (R4): DVC se invoca EXCLUSIVAMENTE por la interfaz única
 
-DVC es una herramienta CLI AISLADA del producto: arrastra `diskcache 5.6.3` con PYSEC-2026-2447
-(RCE vía pickle, sin fix), aceptado ACOTADO al perfil dvc-tool en `security/python_advisories.json`.
-Cualquier `pip install` de dvc que NO venga del lock hasheado reintroduciría una versión de diskcache
-sin gobernar. Este guard escanea los workflows, los scripts shell y el Makefile y exige que toda
-instalación de dvc use EXACTAMENTE la forma aprobada:
+    python -m tools.python_env exec --profile dvc-tool -- dvc <args>
 
-    pip install --require-hashes -r locks/dvc-tool-linux-x86_64.txt [--quiet]
+y se instala EXCLUSIVAMENTE por `tools/python_env.py` (del lock dvc-tool hasheado, en un entorno
+content-addressed aislado). Cualquier otra ruta reintroduciría `diskcache 5.6.3` (PYSEC-2026-2447) o
+degradaría las deps del producto (dvc[s3] fija requests/tqdm más nuevos).
 
-Además exige que toda invocación de `dvc` en workflows/scripts pase por el cache guard
-(`tools.dvc_cache_guard --run`), nunca el binario suelto (mitiga la superficie de la caché).
+Escanea TODOS los ficheros versionados relevantes (`git ls-files`: *.yml, *.yaml, *.sh, *.py, Makefile,
+dvc.yaml, *.md) y BLOQUEA:
+  - binario/instalación legacy: `ante/bin/dvc`, `DVC_BIN`, `dvc_cache_guard --run`, `pip install <dvc>`;
+  - invocación shell de `dvc <verbo|--flag>` que NO pase por el wrapper (`… exec … -- dvc …`);
+  - invocación Python de dvc: `subprocess.run/Popen/check_output/check_call([... "dvc" ...])`,
+    `os.system("dvc …")`, `os.popen("dvc …")`;
+  - uso de `$DVC`/`$(DVC)`/`${DVC}` en un fichero que NO defina `DVC` como el wrapper.
 
-    python -m tools.check_no_stray_dvc      # exit 1 si hay una instalación/uso fuera de política
+Sin excepciones generales de `$DVC`/`$(DVC)`. Único fichero autorizado a instalar/lanzar el
+console-script dvc: `tools/python_env.py` (el wrapper).
+
+    python -m tools.check_no_stray_dvc      # exit 1 ante cualquier ruta prohibida
 """
 
 from __future__ import annotations
 
+import ast
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-APPROVED_INSTALL = "pip install --require-hashes -r locks/dvc-tool-linux-x86_64.txt"
-GUARD_TOKEN = "dvc_cache_guard"
+WRAPPER = "tools/python_env.py"  # único autorizado a construir/lanzar dvc
+# Auto-exclusión justificada: el wrapper (invoca dvc por diseño) y ESTE gate (define los patrones
+# prohibidos en su docstring/regex; un linter no puede lintar sus propias definiciones).
+_ALLOWLIST = frozenset({WRAPPER, "tools/check_no_stray_dvc.py"})
+_SCAN_EXT = (".yml", ".yaml", ".sh", ".py", ".md")
+_SCAN_BASE = ("Makefile", "dvc.yaml")
 
-
-def _targets(root: Path) -> list[Path]:
-    """Ficheros donde dvc puede instalarse o invocarse."""
-    return (
-        sorted((root / ".github" / "workflows").glob("*.yml"))
-        + sorted((root / "experiments").glob("*.sh"))
-        + [root / "Makefile"]
-    )
-
-
-# `pip install ... dvc ...` (dvc como token, dvc==, dvc[s3]) — NO matchea `.[dev]`/`.[model]`.
-_PIP_DVC = re.compile(r"pip\s+install\b.*(?<![\w.-])dvc(?:\[[^\]]*\])?(?:==|\b)")
-# Una invocación real del binario dvc (arranque de comando o tras `python -m ... --run`),
-# excluyendo `$DVC`, `$(DVC)`, `dvc.lock`, `.dvc`, y las referencias a rutas `locks/dvc-tool`.
-_DVC_CMD = re.compile(
-    r"(?:^\s*|[;&|]\s*|--run\s+\S*\s+)dvc(?:\.exe)?\s+(?:add|push|pull|commit|repro|dag|status|checkout|fetch|gc|remove)\b"
+# `pip install ... dvc ...` (dvc token / dvc== / dvc[s3]); NO matchea `.[dev]`/`.[model]`.
+_PIP_DVC = re.compile(r"pip\s+install\b.*(?<![\w./-])dvc(?:\[[^\]]*\])?(?:==|\b)")
+# invocación shell de dvc en posición de comando: inicio, tras ;/&/|/&&/||, o tras `run:`/`--`.
+_SH_DVC = re.compile(r"(?:^|[;&|]|&&|\|\||run:|--)\s*dvc(?:\.exe)?\s+\S")
+# el wrapper: `… tools.python_env exec … -- dvc …`
+_WRAPPER_CALL = re.compile(r"tools\.python_env\s+exec\b.*--\s+dvc\b")
+# uso y definición de la variable DVC
+_USE_DVC_VAR = re.compile(r"\$\{?\(?DVC\b")
+_DEF_DVC_WRAPPER = re.compile(r"\bDVC\s*[:?]?=.*python_env\s+exec\b.*dvc\b")
+_DVC_BIN = re.compile(r"\bDVC_BIN\b")
+_LEGACY = (
+    ("ante/bin/dvc", "referencia al binario dvc legacy (ante/bin/dvc)"),
+    ("dvc_cache_guard --run", "interfaz `dvc_cache_guard --run` eliminada (usar python_env exec)"),
 )
 
 
-def _strip_comment(line: str) -> str:
-    """Quita comentarios de shell/YAML (`#`) respetando que no haya `#` dentro de literales simples."""
+def _tracked_files(root: Path) -> list[Path]:
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=str(root), capture_output=True, text=True, check=True
+        ).stdout
+    except subprocess.CalledProcessError, OSError:
+        return []
+    files = []
+    for rel in out.split("\0"):
+        if not rel:
+            continue
+        p = root / rel
+        if p.suffix in _SCAN_EXT or p.name in _SCAN_BASE:
+            files.append(p)
+    return files
+
+
+_SUBPROC_ATTRS = {"run", "Popen", "check_output", "check_call", "call"}
+_OS_ATTRS = {"system", "popen"}
+
+
+def _canon(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _str_const(node: ast.AST) -> str | None:
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+
+def _py_dvc_problems(text: str, rel: str) -> list[str]:
+    """Invocaciones REALES de dvc en Python vía AST (NO cadenas de datos como `write_text('… dvc …')`):
+    subprocess.run/Popen/check_output/check_call/call con argv0=='dvc' o pip-install de dvc; os.system/
+    os.popen('dvc …')."""
+    probs: list[str] = []
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return probs
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        func = node.func
+        is_subproc = (
+            isinstance(func, ast.Attribute)
+            and func.attr in _SUBPROC_ATTRS
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "subprocess"
+        ) or (isinstance(func, ast.Name) and func.id == "Popen")
+        is_ossys = (
+            isinstance(func, ast.Attribute)
+            and func.attr in _OS_ATTRS
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "os"
+        )
+        if is_subproc and isinstance(node.args[0], ast.List) and node.args[0].elts:
+            toks = [_str_const(e) for e in node.args[0].elts]
+            if toks and toks[0] and _canon(toks[0]) == "dvc":
+                probs.append(f"{rel}:{node.lineno}: invoca dvc por subprocess/os.system fuera del wrapper")
+            strs = [t for t in toks if t]
+            if (
+                "pip" in strs
+                and "install" in strs
+                and any(_canon(t).startswith("dvc") for t in strs if t not in ("pip", "install"))
+            ):
+                probs.append(f"{rel}:{node.lineno}: pip-instala dvc por subprocess fuera de tools/python_env.py")
+        elif is_subproc and (s := _str_const(node.args[0])) and s.strip().split()[:1] == ["dvc"]:
+            probs.append(f"{rel}:{node.lineno}: invoca dvc por subprocess (shell) fuera del wrapper")
+        elif is_ossys and (s := _str_const(node.args[0])) and s.strip().split()[:1] == ["dvc"]:
+            probs.append(f"{rel}:{node.lineno}: invoca dvc por subprocess/os.system fuera del wrapper")
+    return probs
+
+
+def _strip_comment(line: str, ext: str) -> str:
+    """Para shell/yaml/make/md quita `#`…; para .py deja la línea (los `#` de .py son código raro,
+    y las cadenas con 'dvc' NO matchean los detectores de subprocess/os.system)."""
+    if ext == ".py":
+        return line
     out, in_s, in_d = [], False, False
     for ch in line:
         if ch == "'" and not in_d:
@@ -60,35 +144,47 @@ def _strip_comment(line: str) -> str:
 
 def check(root: Path = ROOT) -> list[str]:
     probs: list[str] = []
-    for path in _targets(root):
-        if not path.exists():
+    for path in _tracked_files(root):
+        rel = path.relative_to(root).as_posix()
+        if rel in _ALLOWLIST:
             continue
-        rel = path.relative_to(root)
-        for i, raw in enumerate(path.read_text().splitlines(), 1):
-            line = _strip_comment(raw)
+        try:
+            text = path.read_text()
+        except UnicodeDecodeError, OSError:
+            continue
+        if path.suffix == ".py":
+            # En Python la invocación REAL de dvc se detecta por AST (Call nodes), no por texto: las
+            # cadenas de datos (fixtures `write_text('… dvc …')`) son Constant, no llamadas.
+            probs += _py_dvc_problems(text, rel)
+            continue
+        # shell / yaml / make / docs
+        if _USE_DVC_VAR.search(text) and not _DEF_DVC_WRAPPER.search(text):
+            probs.append(f"{rel}: usa $DVC/$(DVC) sin definir DVC como el wrapper python_env exec")
+        for i, raw in enumerate(text.splitlines(), 1):
+            line = _strip_comment(raw, path.suffix)
+            for tok, why in _LEGACY:
+                if tok in line:
+                    probs.append(f"{rel}:{i}: {why} -> {line.strip()}")
+            if _DVC_BIN.search(line):
+                probs.append(
+                    f"{rel}:{i}: DVC_BIN prohibido (dvc solo desde el env content-addressed) -> {line.strip()}"
+                )
             if _PIP_DVC.search(line):
-                norm = " ".join(line.split())
-                # aprobada = la forma exacta (con o sin --quiet al final), nada más pegado.
-                allowed = norm.startswith(APPROVED_INSTALL) and set(norm[len(APPROVED_INSTALL) :].split()) <= {
-                    "--quiet"
-                }
-                if not allowed:
-                    probs.append(f"{rel}:{i}: instala dvc fuera del lock dvc-tool hasheado → {norm}")
-            if _DVC_CMD.search(line) and GUARD_TOKEN not in line and "$DVC" not in line and "$(DVC)" not in line:
-                probs.append(f"{rel}:{i}: invoca dvc sin el cache guard (dvc_cache_guard --run) → {line.strip()}")
+                probs.append(f"{rel}:{i}: instala dvc fuera de tools/python_env.py -> {' '.join(line.split())}")
+            if _SH_DVC.search(line) and not _WRAPPER_CALL.search(line):
+                probs.append(f"{rel}:{i}: invoca dvc sin el wrapper python_env exec -> {line.strip()}")
     return probs
 
 
 def main() -> int:
     probs = check()
     if probs:
-        print("✗ CHECK NO-STRAY-DVC bloqueó (P0R.5 D10):")
+        print("✗ CHECK NO-STRAY-DVC bloqueó (P0R.5 R4):")
         for p in probs:
             print(f"  - {p}")
         return 1
-    print(
-        f"✓ DVC gobernado: {len(_targets(ROOT))} ficheros; toda instalación usa el lock dvc-tool, todo uso pasa por el guard"
-    )
+    n = len(_tracked_files(ROOT))
+    print(f"✓ DVC gobernado: {n} ficheros escaneados; dvc solo vía `python_env exec`, instalado solo por {WRAPPER}")
     return 0
 
 

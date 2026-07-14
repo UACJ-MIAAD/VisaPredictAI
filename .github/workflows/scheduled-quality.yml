@@ -37,6 +37,13 @@ jobs:
       # subía un artefacto vacío en silencio).
       - name: SBOM CycloneDX (perfil dev)
         run: pip-audit -r locks/dev.txt --no-deps --disable-pip --format cyclonedx-json -o sbom-dev.cdx.json
+      # P0R.5 R5/R6: SBOM del perfil dvc-tool (herramienta AISLADA) + gate de contenido: DEBE listar
+      # dvc 3.67.1, dvc-s3 3.3.0 y diskcache 5.6.3 (el aviso PYSEC-2026-2447 vive aquí). Sin este SBOM
+      # la herramienta gobernada quedaba fuera del inventario de componentes.
+      - name: SBOM CycloneDX (perfil dvc-tool) + gate de contenido
+        run: |
+          pip-audit -r locks/dvc-tool-linux-x86_64.txt --no-deps --disable-pip --format cyclonedx-json -o sbom-dvc-tool.cdx.json
+          python -c "import json; c=json.load(open('sbom-dvc-tool.cdx.json')); comps={ (x['name'].lower(), x.get('version')) for x in c.get('components',[]) }; req={('dvc','3.67.1'),('dvc-s3','3.3.0'),('diskcache','5.6.3')}; missing=req-comps; assert not missing, f'SBOM dvc-tool sin: {missing}'; print('SBOM dvc-tool OK:', sorted(req))"
       # P0R.4R: sube el RECIBO del auditor (hashes de manifiesto/locks/fuentes + normalizaciones +
       # skips autorizados + Python/plataforma), no solo el SBOM — evidencia de la corrida.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
@@ -49,5 +56,11 @@ jobs:
         with:
           name: sbom-dev-cyclonedx
           path: sbom-dev.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: sbom-dvc-tool-cyclonedx
+          path: sbom-dvc-tool.cdx.json
           if-no-files-found: error
           retention-days: 30

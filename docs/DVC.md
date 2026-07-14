@@ -72,18 +72,22 @@ binarios sin re-construir hace `dvc pull` **con credenciales S3 del proyecto**; 
 ## Cómo activarlo cuando haga falta
 
 ```bash
+# P0R.5: TODA invocación de DVC pasa por la interfaz gobernada (entorno content-addressed aislado
+# dvc-tool; jamás `dvc` suelto ni `ante/bin/dvc` — sus deps degradarían el producto).
+DVC="python -m tools.python_env exec --profile dvc-tool -- dvc"
+
 # 1) provisionar un remoto (S3, GCS, GDrive…) y configurarlo
-dvc remote add -d storage s3://<bucket>/visapredict
-dvc remote modify storage region us-east-1
+$DVC remote add -d storage s3://<bucket>/visapredict
+$DVC remote modify storage region us-east-1
 
 # 2) versionar un artefacto de modelo (NO los CSV abiertos)
-dvc add checkpoints/best_model.ckpt
+$DVC add checkpoints/best_model.ckpt
 git add checkpoints/best_model.ckpt.dvc checkpoints/.gitignore
 git commit -m "data: track model checkpoint with DVC"
 
 # 3) subir/bajar
-dvc push        # sube al remoto
-dvc pull        # baja en otro clon
+$DVC push        # sube al remoto
+$DVC pull        # baja en otro clon
 
 # en la GitHub Action, las credenciales del remoto van como secrets.
 ```
