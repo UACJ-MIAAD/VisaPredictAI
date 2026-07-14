@@ -265,10 +265,25 @@ def test_run_pip_audit_dep_without_version_or_skip_blocks(tmp_path, monkeypatch)
         m.run_pip_audit(lock)
 
 
-def _audit_one_lock(monkeypatch, *, pins, run_result, syn_result=None, entries=None):
-    """Corre m.audit() sobre UN lock simulado, saltando el contrato/advisories reales."""
+def test_run_pip_audit_duplicate_dependency_blocks(tmp_path, monkeypatch):
+    lock = tmp_path / "l.txt"
+    lock.write_text("numpy==2.4.6\n")
+    payload = {
+        "dependencies": [
+            {"name": "numpy", "version": "2.4.6", "vulns": []},
+            {"name": "numpy", "version": "2.4.6", "vulns": []},
+        ]
+    }
+    monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: _fake_proc(m.json.dumps(payload)))
+    with pytest.raises(ValueError, match="DUPLICADO"):
+        m.run_pip_audit(lock)
+
+
+def _audit_one_lock(monkeypatch, *, lock="locks/dev.txt", pins, run_result, syn_result=None, entries=None):
+    """Corre m.audit() sobre UN lock simulado, saltando el contrato/advisories reales.
+    lock por defecto 'dev.txt' (sin consulta local); usa el CPU deep para probar torch +cpu."""
     monkeypatch.setattr(m.lc, "validate_all", lambda *a, **k: [])
-    monkeypatch.setattr(m, "LOCKS", [("locks/deep-linux-x86_64-cpu.txt", "deep")])
+    monkeypatch.setattr(m, "LOCKS", [(lock, "deep" if "deep" in lock else "dev")])
     monkeypatch.setattr(m, "read_pins", lambda p: pins)
     monkeypatch.setattr(m, "run_pip_audit", lambda p: run_result)
     monkeypatch.setattr(
@@ -279,8 +294,10 @@ def _audit_one_lock(monkeypatch, *, pins, run_result, syn_result=None, entries=N
     return m.audit(TODAY)[0]
 
 
+CPU = "locks/deep-linux-x86_64-cpu.txt"
+
+
 def test_audit_blocks_unauthorized_skip(monkeypatch):
-    # un paquete OMITIDO por pip-audit que NO está autorizado (LOCAL_VERSION_QUERIES) bloquea
     probs = _audit_one_lock(
         monkeypatch,
         pins={"evil": "1.0.0"},
@@ -290,30 +307,94 @@ def test_audit_blocks_unauthorized_skip(monkeypatch):
 
 
 def test_audit_blocks_omitted_package(monkeypatch):
-    # pip-audit no devolvió 'b' aunque está en el lock -> completitud rota
     probs = _audit_one_lock(
-        monkeypatch,
-        pins={"a": "1.0", "b": "2.0"},
-        run_result={"findings": [], "audited": {"a": "1.0"}, "skipped": {}},
+        monkeypatch, pins={"a": "1.0", "b": "2.0"}, run_result={"findings": [], "audited": {"a": "1.0"}, "skipped": {}}
     )
     assert any("pip-audit cubrió != lock" in p for p in probs)
 
 
-def test_audit_blocks_when_public_query_also_skips_torch(monkeypatch):
-    # torch (autorizado) omitido en el lock Y la consulta pública TAMBIÉN lo omite -> bloquea
+def test_audit_public_query_runs_even_when_torch_audited(monkeypatch):
+    # B1: torch AUDITADO por pip-audit (no omitido) — la consulta pública corre IGUAL. Se prueba con un
+    # finding sintético que SOLO aflora si la consulta se ejecutó: aparece como advisory NUEVO.
     probs = _audit_one_lock(
         monkeypatch,
+        lock=CPU,
+        pins={"torch": "2.12.1+cpu"},
+        run_result={"findings": [], "audited": {"torch": "2.12.1+cpu"}, "skipped": {}},
+        syn_result={
+            "findings": [{"package": "torch", "version": "2.12.1", "id": "CVE-9999-2", "aliases": []}],
+            "audited": {"torch": "2.12.1"},
+            "skipped": {},
+        },
+    )
+    assert any("NUEVO" in p for p in probs)  # el finding sintético afloró -> la consulta corrió sin skip
+
+
+def test_audit_public_query_wrong_version_blocks(monkeypatch):
+    probs = _audit_one_lock(
+        monkeypatch,
+        lock=CPU,
+        pins={"torch": "2.12.1+cpu"},
+        run_result={"findings": [], "audited": {}, "skipped": {"torch": "not on PyPI"}},
+        syn_result={"findings": [], "audited": {"torch": "2.12.0"}, "skipped": {}},
+    )
+    assert any("consulta pública" in p for p in probs)
+
+
+def test_audit_public_query_extra_package_blocks(monkeypatch):
+    probs = _audit_one_lock(
+        monkeypatch,
+        lock=CPU,
+        pins={"torch": "2.12.1+cpu"},
+        run_result={"findings": [], "audited": {}, "skipped": {"torch": "not on PyPI"}},
+        syn_result={"findings": [], "audited": {"torch": "2.12.1", "evil": "1.0"}, "skipped": {}},
+    )
+    assert any("consulta pública" in p for p in probs)
+
+
+def test_audit_public_query_still_skipped_blocks(monkeypatch):
+    probs = _audit_one_lock(
+        monkeypatch,
+        lock=CPU,
         pins={"torch": "2.12.1+cpu"},
         run_result={"findings": [], "audited": {}, "skipped": {"torch": "not on PyPI"}},
         syn_result={"findings": [], "audited": {}, "skipped": {"torch": "still not found"}},
     )
-    assert any("consulta pública" in p and "NO auditó torch" in p for p in probs)
+    assert any("consulta pública" in p for p in probs)
+
+
+def test_audit_local_audited_version_mismatch_blocks(monkeypatch):
+    # pip-audit auditó torch en una versión local DISTINTA del pin -> bloquea
+    probs = _audit_one_lock(
+        monkeypatch,
+        lock=CPU,
+        pins={"torch": "2.12.1+cpu"},
+        run_result={"findings": [], "audited": {"torch": "2.12.0+cpu"}, "skipped": {}},
+        syn_result={"findings": [], "audited": {"torch": "2.12.1"}, "skipped": {}},
+    )
+    assert any("!= pin local" in p for p in probs)
+
+
+def test_audit_advisory_only_via_public_query_blocks(monkeypatch):
+    # un advisory que SOLO aparece en la consulta pública (no en el lock) igual bloquea
+    probs = _audit_one_lock(
+        monkeypatch,
+        lock=CPU,
+        pins={"torch": "2.12.1+cpu"},
+        run_result={"findings": [], "audited": {}, "skipped": {"torch": "not on PyPI"}},
+        syn_result={
+            "findings": [{"package": "torch", "version": "2.12.1", "id": "CVE-9999-1", "aliases": []}],
+            "audited": {"torch": "2.12.1"},
+            "skipped": {},
+        },
+    )
+    assert any("NUEVO" in p for p in probs)
 
 
 def test_audit_authorized_skip_with_clean_public_passes(monkeypatch):
-    # torch omitido pero la consulta pública SÍ lo audita limpio -> sin problemas
     probs = _audit_one_lock(
         monkeypatch,
+        lock=CPU,
         pins={"torch": "2.12.1+cpu"},
         run_result={"findings": [], "audited": {}, "skipped": {"torch": "not on PyPI"}},
         syn_result={"findings": [], "audited": {"torch": "2.12.1"}, "skipped": {}},

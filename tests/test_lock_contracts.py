@@ -203,12 +203,62 @@ def test_manifest_python_not_full_blocks(repo):
     m = json.loads((repo / "locks/lockset.json").read_text())
     m["generator"]["python"] = "3.14"  # sin patch
     (repo / "locks/lockset.json").write_text(json.dumps(m, indent=2, sort_keys=True) + "\n")
-    assert any("X.Y.Z" in x for x in lc.validate_all(repo))
+    assert any("no es 3.14.Z" in x for x in lc.validate_all(repo))
 
 
 def test_missing_manifest_blocks(repo):
     (repo / "locks/lockset.json").unlink()
     assert any("manifiesto ausente" in x for x in lc.validate_all(repo))
+
+
+def test_manifest_wrong_platform_blocks(repo):
+    m = json.loads((repo / "locks/lockset.json").read_text())
+    m["generator"]["platform"] = "Linux x86_64"
+    (repo / "locks/lockset.json").write_text(json.dumps(m, indent=2, sort_keys=True) + "\n")
+    assert any("platform" in x for x in lc.validate_all(repo))
+
+
+def test_json_duplicate_key_blocks(repo):
+    # manifiesto con clave duplicada (json.dumps no lo produce; se escribe crudo)
+    (repo / "locks/lockset.json").write_text('{"schema_version": 1, "schema_version": 1}\n')
+    assert any("duplicada" in x for x in lc.validate_all(repo))
+
+
+def test_extra_txt_in_locks_blocks(repo):
+    (repo / "locks/extra.txt").write_text("junk==1.0.0\n")
+    assert any("conjunto de .txt" in x for x in lc.validate_all(repo))
+
+
+def test_symlink_lock_blocks(repo, tmp_path):
+    target = tmp_path / "outside.txt"
+    target.write_text((repo / "locks/runtime.txt").read_text())
+    (repo / "locks/runtime.txt").unlink()
+    (repo / "locks/runtime.txt").symlink_to(target)
+    assert any("symlink" in x or "fuera de la raíz" in x for x in lc.validate_all(repo))
+
+
+def test_deep_in_extra_pin_blocks(repo):
+    p = repo / "requirements/deep.in"
+    p.write_text(p.read_text() + "extrapkg==9.9.9\n")
+    _remanifest(repo)
+    assert any("requirements/deep.in" in x and "conjunto gobernado" in x for x in lc.validate_all(repo))
+
+
+def test_strict_hash_format_blocks(repo):
+    p = repo / "locks/deep-macos-arm64.txt"
+    p.write_text(p.read_text().replace(_H, "sha256:notavalidhash", 1))
+    _remanifest(repo)
+    assert any("hash no es sha256" in x for x in lc.validate_all(repo))
+
+
+def test_validate_generator_unit():
+    good = dict(_GEN)
+    assert lc.validate_generator(good) == []
+    assert any("python" in x for x in lc.validate_generator({**good, "python": "3.14"}))
+    assert any("python" in x for x in lc.validate_generator({**good, "python": "3.13.2"}))
+    assert any("platform" in x for x in lc.validate_generator({**good, "platform": "Linux x86_64"}))
+    assert any("pip" in x for x in lc.validate_generator({**good, "pip": "1.0.0"}))
+    assert lc.validate_generator({"python": "3.14.2"}) != []  # claves faltantes
 
 
 def test_real_repo_contract_holds():

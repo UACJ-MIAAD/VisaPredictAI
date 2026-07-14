@@ -99,11 +99,45 @@ WRAPPERS: dict[str, list[str]] = {
     "requirements/deep-linux-cu126.in": ["--extra-index-url https://download.pytorch.org/whl/cu126", "-r deep.in"],
 }
 TOOLCHAIN: dict[str, str] = {"pip": "26.1.2", "setuptools": "81.0.0", "wheel": "0.47.0", "uv": "0.11.28"}
-PY_SERIES = "3.14"  # el manifiesto debe registrar el Python COMPLETO X.Y.Z con X.Y == PY_SERIES
+PLATFORM_EXPECTED = "Darwin arm64"  # plataforma de referencia EXACTA del manifiesto
+
+# Expectativas de ejecución por lock deep, DERIVADAS del contrato (no de la matriz del workflow):
+# el smoke las consume para que la matriz no se autoconfirme (B3). Fuente única.
+DEEP_RUNTIME: dict[str, dict[str, str]] = {
+    "locks/deep-macos-arm64.txt": {"variant": "macos-arm64", "system": "Darwin", "machine": "arm64", "torch": "2.12.1"},
+    "locks/deep-linux-x86_64-cpu.txt": {
+        "variant": "linux-cpu",
+        "system": "Linux",
+        "machine": "x86_64",
+        "torch": "2.12.1+cpu",
+    },
+    "locks/deep-linux-x86_64-cu126.txt": {
+        "variant": "linux-cu126",
+        "system": "Linux",
+        "machine": "x86_64",
+        "torch": "2.12.1+cu126",
+    },
+}
 
 _PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_.-]*)(?:\[[^\]]*\])?==([^\s\\;]+)")
 _CREDS = re.compile(r"://[^/\s]*@")
 _ALLOWED_OPT = ("--hash=", "--index-url", "--extra-index-url")
+_HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")  # hash ESTRICTO (sha256: vacío no vale)
+_PY_RE = re.compile(r"^3\.14\.\d+$")  # Python COMPLETO 3.14.Z
+
+
+def load_json_no_dupes(path: Path):
+    """json.load rechazando claves duplicadas (una llave repetida en lockset.json es tampering)."""
+
+    def _no_dupes(pairs):
+        seen: dict = {}
+        for k, v in pairs:
+            if k in seen:
+                raise ValueError(f"clave JSON duplicada: {k!r}")
+            seen[k] = v
+        return seen
+
+    return json.loads(path.read_text(), object_pairs_hook=_no_dupes)
 
 
 def _sha256(b: bytes) -> str:
@@ -112,6 +146,34 @@ def _sha256(b: bytes) -> str:
 
 def _norm(name: str) -> str:
     return name.strip().lower().replace("_", "-")
+
+
+def _reject_symlink(p: Path, root: Path, label: str) -> list[str]:
+    """Rechaza symlinks y rutas que resuelven FUERA de la raíz (evita escapes de árbol)."""
+    probs: list[str] = []
+    if p.is_symlink():
+        probs.append(f"{label}: es un symlink ({p})")
+    try:
+        p.resolve().relative_to(root.resolve())
+    except ValueError, OSError:
+        probs.append(f"{label}: resuelve fuera de la raíz ({p})")
+    return probs
+
+
+def validate_generator(gen: dict) -> list[str]:
+    """Objeto generator ESTRICTO: 6 claves exactas, Python 3.14.Z, plataforma exacta, toolchain fijo.
+    El promotor lo llama ANTES del primer rename (no tras promover nueve archivos)."""
+    if not isinstance(gen, dict) or set(gen) != {"python", "platform", "pip", "setuptools", "wheel", "uv"}:
+        return [f"generator: claves {sorted(gen) if isinstance(gen, dict) else gen!r} != esperado"]
+    probs: list[str] = []
+    if not _PY_RE.match(str(gen["python"])):
+        probs.append(f"generator.python {gen['python']!r} no es 3.14.Z")
+    if gen["platform"] != PLATFORM_EXPECTED:
+        probs.append(f"generator.platform {gen['platform']!r} != {PLATFORM_EXPECTED!r}")
+    for k, v in TOOLCHAIN.items():
+        if gen.get(k) != v:
+            probs.append(f"generator.{k} {gen.get(k)!r} != {v}")
+    return probs
 
 
 def parse_lock(text: str) -> tuple[list[dict], list[str], list[str]]:
@@ -173,8 +235,8 @@ def validate_lock_text(rel: str, text: str, hashed: bool) -> list[str]:
         seen.add(e["name"])
         if hashed and not e["hashes"]:
             probs.append(f"[{rel}] pin sin hash: {e['name']}=={e['version']}")
-        if hashed and any(not h.startswith("sha256:") for h in e["hashes"]):
-            probs.append(f"[{rel}] hash no-sha256 en {e['name']}")
+        if hashed and any(not _HASH_RE.match(h) for h in e["hashes"]):
+            probs.append(f"[{rel}] hash no es sha256:<64 hex> en {e['name']}")
     if rel in DEEP_INDEX:
         if index_opts != DEEP_INDEX[rel]:
             probs.append(f"[{rel}] índices {index_opts} != esperado {DEEP_INDEX[rel]}")
@@ -190,6 +252,7 @@ def validate_wrappers(root: Path = ROOT) -> list[str]:
         if not p.exists():
             probs.append(f"wrapper ausente: {rel}")
             continue
+        probs += _reject_symlink(p, root, f"[{rel}]")
         lines = [ln.strip() for ln in p.read_text().splitlines() if ln.strip() and not ln.strip().startswith("#")]
         if lines != expected:
             probs.append(f"[{rel}] wrapper {lines} != esperado {expected}")
@@ -204,16 +267,21 @@ def _lock_path(rel: str, root: Path, locks_dir: Path | None) -> Path:
 def validate_deep_direct(root: Path = ROOT, locks_dir: Path | None = None) -> list[str]:
     """Cada lock deep fija EXACTO el cierre directo de deep.in (+ torch por variante)."""
     probs: list[str] = []
-    # deep.in coincide con DEEP_DIRECT + torch==2.12.1 (siempre desde el repo)
+    # deep.in DEBE existir y contener EXACTAMENTE DEEP_DIRECT + torch==2.12.1 (sin pins extra)
     deep_in = root / "requirements/deep.in"
-    if deep_in.exists():
+    if not deep_in.exists():
+        probs.append("requirements/deep.in ausente")
+    else:
+        expected = {**DEEP_DIRECT, "torch": "2.12.1"}
         try:
             pins = pin_map(deep_in.read_text())
         except ValueError as exc:
             probs.append(f"[requirements/deep.in] {exc}")
             pins = {}
-        for pkg, ver in {**DEEP_DIRECT, "torch": "2.12.1"}.items():
-            if pins.get(pkg) != ver:
+        if set(pins) != set(expected):
+            probs.append(f"[requirements/deep.in] pins {sorted(set(pins) ^ set(expected))} != conjunto gobernado")
+        for pkg, ver in expected.items():
+            if pins.get(pkg) is not None and pins.get(pkg) != ver:
                 probs.append(f"[requirements/deep.in] {pkg}: {pins.get(pkg)} != {ver}")
     for rel in DEEP_LOCKS:
         p = _lock_path(rel, root, locks_dir)
@@ -261,18 +329,7 @@ def validate_manifest(manifest: dict, root: Path = ROOT) -> list[str]:
         return probs
     if manifest.get("schema_version") != 1:
         probs.append(f"manifiesto: schema_version {manifest.get('schema_version')} != 1")
-    gen = manifest.get("generator", {})
-    if set(gen) != {"python", "platform", "pip", "setuptools", "wheel", "uv"}:
-        probs.append(f"manifiesto.generator: claves {sorted(gen)} != esperado")
-    else:
-        py = str(gen["python"]).split(".")
-        if len(py) < 3 or ".".join(py[:2]) != PY_SERIES:
-            probs.append(f"manifiesto.generator.python {gen['python']!r} no es X.Y.Z con X.Y=={PY_SERIES}")
-        if not str(gen["platform"]).strip():
-            probs.append("manifiesto.generator.platform vacío")
-        for k, v in TOOLCHAIN.items():
-            if gen.get(k) != v:
-                probs.append(f"manifiesto.generator.{k} {gen.get(k)!r} != {v}")
+    probs += [f"manifiesto.{p}" for p in validate_generator(manifest.get("generator", {}))]
     # fuentes: exactamente las 7, hash recalculado
     if set(manifest.get("sources", {})) != set(SOURCES):
         probs.append(f"manifiesto.sources {sorted(manifest.get('sources', {}))} != {sorted(SOURCES)}")
@@ -311,11 +368,19 @@ def validate_files(root: Path = ROOT, locks_dir: Path | None = None) -> list[str
     """Los 9 locks + wrappers + deep-direct + cross-platform. NO valida el manifiesto (ver validate_manifest).
     Con locks_dir se validan los locks de un directorio de STAGING (planos, sin prefijo locks/)."""
     probs: list[str] = []
+    # conjunto EXACTO de .txt (ni faltantes ni adicionales), en el repo o en el staging
+    txt_dir = locks_dir if locks_dir is not None else (root / "locks")
+    present_txt = {p.name for p in txt_dir.glob("*.txt")} if txt_dir.exists() else set()
+    if present_txt != set(LOCK_NAMES):
+        probs.append(
+            f"conjunto de .txt {sorted(present_txt)} != los 9 esperados (dif {sorted(present_txt ^ set(LOCK_NAMES))})"
+        )
     for rel, _profile, hashed in LOCK_SPECS:
         p = _lock_path(rel, root, locks_dir)
         if not p.exists():
             probs.append(f"lock ausente: {rel}")
             continue
+        probs += _reject_symlink(p, root if locks_dir is None else locks_dir, f"[{rel}]")
         probs += validate_lock_text(rel, p.read_text(), hashed)
     probs += validate_wrappers(root)
     probs += validate_deep_direct(root, locks_dir)
@@ -331,13 +396,19 @@ def validate_staging(staged: Path, root: Path = ROOT) -> list[str]:
 def validate_all(root: Path = ROOT, *, manifest: dict | None = None, require_manifest: bool = True) -> list[str]:
     """Contrato completo. Si require_manifest, lee y valida locks/lockset.json."""
     probs = validate_files(root)
+    # symlinks en las fuentes gobernadas (los locks/wrappers ya se chequean en validate_files)
+    for s in SOURCES:
+        sp = root / s
+        if sp.exists():
+            probs += _reject_symlink(sp, root, f"fuente {s}")
     if manifest is None and require_manifest:
         mp = root / MANIFEST_REL
         if not mp.exists():
             probs.append(f"manifiesto ausente: {MANIFEST_REL}")
             return probs
+        probs += _reject_symlink(mp, root, "manifiesto")
         try:
-            manifest = json.loads(mp.read_text())
+            manifest = load_json_no_dupes(mp)  # rechaza claves duplicadas
         except ValueError as exc:
             probs.append(f"manifiesto ilegible: {exc}")
             return probs

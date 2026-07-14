@@ -64,6 +64,10 @@ def _atomic_write(path: Path, data: bytes) -> None:
 
 
 def promote(staged: Path, generator: dict) -> dict:
+    # el generator se valida ANTES de leer backups o renombrar (no tras promover nueve archivos)
+    gen_probs = lc.validate_generator(generator)
+    if gen_probs:
+        raise SystemExit("promote: generator inválido -> " + "; ".join(gen_probs))
     probs = lc.validate_staging(staged, ROOT)
     if probs:
         raise SystemExit("promote: staging inválido -> " + "; ".join(probs))
@@ -102,10 +106,11 @@ def promote(staged: Path, generator: dict) -> dict:
         }
         _atomic_write(MANIFEST, (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode())
         _fsync_dir(LOCKS)
-        # autovalidación: el árbol promovido + el manifiesto recién escrito deben cumplir el contrato.
-        post = lc.validate_all(ROOT, manifest=manifest)
+        # autovalidación RELEYENDO locks/lockset.json del DISCO (no el objeto en memoria): si la
+        # escritura quedó truncada/adulterada, el contrato lo detecta aquí y dispara rollback.
+        post = lc.validate_all(ROOT)
         if post:
-            raise RuntimeError("post-promoción incoherente con el contrato: " + "; ".join(post))
+            raise RuntimeError("post-promoción incoherente con el contrato (relectura de disco): " + "; ".join(post))
         return manifest
     except BaseException as promote_exc:
         try:

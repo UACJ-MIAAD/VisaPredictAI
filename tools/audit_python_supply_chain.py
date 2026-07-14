@@ -198,10 +198,14 @@ def run_pip_audit(lock: Path) -> dict:
     findings: list[dict] = []
     audited: dict[str, str] = {}
     skipped: dict[str, str] = {}
+    seen: set[str] = set()
     for dep in data["dependencies"]:
         if not isinstance(dep, dict) or not isinstance(dep.get("name"), str) or not dep["name"].strip():
             raise ValueError(f"pip-audit JSON con dependency inválida para {lock.name}: {dep!r:.120}")
         name = _norm_pkg(dep["name"])
+        if name in seen:  # dependency duplicada en la salida de pip-audit
+            raise ValueError(f"pip-audit devolvió {name} DUPLICADO para {lock.name}")
+        seen.add(name)
         if dep.get("skip_reason"):  # pip-audit no pudo auditar este paquete (p. ej. versión local)
             skipped[name] = str(dep["skip_reason"])
             continue
@@ -326,7 +330,6 @@ def audit(today: dt.date | None = None) -> tuple[list[str], dict]:
     observed_by_lock: dict[str, list[dict]] = {}
     lock_hashes: dict[str, str] = {}
     normalizations: dict[str, list[str]] = {}
-    skipped_authorized: dict[str, list[str]] = {}
     for rel, profile in LOCKS:
         lp = ROOT / rel
         try:
@@ -346,21 +349,26 @@ def audit(today: dt.date | None = None) -> tuple[list[str], dict]:
             lv = pins.get(name)
             if lv is not None and "+" not in lv and lv != ver:
                 probs.append(f"[{rel}] {name}: pip-audit vio {ver} != lock {lv}")
-        # OMITIDOS: solo se toleran si están AUTORIZADOS (LOCAL_VERSION_QUERIES) Y la consulta pública
-        # sintética SÍ auditó realmente el paquete (no volvió a omitirlo). Cualquier otro skip BLOQUEA.
         findings = list(result["findings"])
+        # OMITIDOS: cualquier skip NO autorizado (fuera de LOCAL_VERSION_QUERIES) BLOQUEA.
         for name, reason in sorted(result["skipped"].items()):
-            key = (rel, name)
-            if key not in LOCAL_VERSION_QUERIES:
+            if (rel, name) not in LOCAL_VERSION_QUERIES:
                 probs.append(f"[{rel}] {name} OMITIDO por pip-audit sin autorización ({reason})")
+        # Consulta pública INCONDICIONAL de cada versión local autorizada de este lock (no depende de
+        # que haya habido skip: una futura pip-audit podría auditar la etiqueta local de otra forma).
+        # Exige que la respuesta sintética sea EXACTAMENTE {pkg: pub} auditado y NADA omitido.
+        for (lk, name), pub in sorted(LOCAL_VERSION_QUERIES.items()):
+            if lk != rel:
                 continue
-            pub = LOCAL_VERSION_QUERIES[key]
+            if name in result["audited"] and result["audited"][name] != pins.get(name):
+                probs.append(f"[{rel}] {name} auditado {result['audited'][name]} != pin local {pins.get(name)}")
             syn = _run_pip_audit_req(f"{name}=={pub}")
-            if name not in syn["audited"]:
-                probs.append(f"[{rel}] consulta pública {name}=={pub} NO auditó {name} (omitido: {syn['skipped']})")
+            if syn["audited"] != {name: pub} or syn["skipped"]:
+                probs.append(
+                    f"[{rel}] consulta pública {name}=={pub}: audited={syn['audited']} skipped={syn['skipped']} != {{'{name}':'{pub}'}}"
+                )
                 continue
             normalizations.setdefault(rel, []).append(f"{name}=={pub}")
-            skipped_authorized.setdefault(rel, []).append(f"{name} (local; auditado como {pub})")
             findings += syn["findings"]
         observed_by_lock[rel] = findings
         probs += reconcile_lock(findings, entries, profile=profile, lock=rel, today=today)
@@ -375,7 +383,6 @@ def audit(today: dt.date | None = None) -> tuple[list[str], dict]:
         "lock_hashes": lock_hashes,
         "source_hashes": {s: _sha_file(ROOT / s) for s in lc.SOURCES},
         "normalizations": {rel: sorted(v) for rel, v in normalizations.items()},
-        "skipped_authorized": {rel: sorted(v) for rel, v in skipped_authorized.items()},
         "observed": {
             rel: sorted(
                 ({"id": o["id"], "package": o["package"], "version": o["version"]} for o in observed),

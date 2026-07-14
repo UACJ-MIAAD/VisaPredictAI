@@ -67,6 +67,14 @@ def test_happy_path_promotes_nine_and_manifest(sandbox, tmp_path):
         assert manifest["locks"][f"locks/{name}"]["pins"] == 2
 
 
+def test_invalid_generator_aborts(sandbox, tmp_path):
+    # el generator se valida ANTES de tocar locks (validate_generator NO está monkeypatcheado)
+    _root, locks = sandbox
+    with pytest.raises(SystemExit, match="generator inválido"):
+        promote_lockset.promote(_staged(tmp_path), {**GEN, "platform": "Linux x86_64"})
+    assert not (locks / "lockset.json").exists()
+
+
 def test_invalid_staging_aborts_without_mutation(sandbox, tmp_path, monkeypatch):
     _root, locks = sandbox
     (locks / "runtime.txt").write_text("# viejo\nold==0.0.1\n")
