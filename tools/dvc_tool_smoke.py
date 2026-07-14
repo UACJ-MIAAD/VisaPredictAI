@@ -73,6 +73,9 @@ def build_receipt(sbom_path: Path | None) -> dict:
     from tools import dvc_cache_guard
 
     profile = "dvc-tool"
+    # Procedencia PRIMERO: el `git_dirty` debe reflejar el árbol FUENTE, no los artefactos que este
+    # propio smoke emite después (SBOM/recibo). `.vp_envs/` es gitignored y no ensucia.
+    prov = pe.provenance()
     env_path = pe.build(profile)  # transaccional; valida contrato + pip check + inventario + file hashes
     ready = json.loads((env_path / "READY.json").read_text())
     lock_rel = pe.lock_rel_for(profile)
@@ -103,7 +106,7 @@ def build_receipt(sbom_path: Path | None) -> dict:
     return {
         "schema_version": 2,
         "profile": profile,
-        **pe.provenance(),
+        **prov,
         "env_id": ready["env_id"],
         "python": ready["descriptor"]["python"],
         "platform": ready["descriptor"]["platform"],
