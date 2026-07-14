@@ -41,7 +41,7 @@ def test_happy_path_receipt_is_lock_bound():
     assert probs == []
     assert receipt["lock_sha256"].startswith("sha256:") and len(receipt["lock_sha256"]) == 71
     assert receipt["manifest_sha256"].startswith("sha256:")
-    assert receipt["commit_sha"] and receipt["torch_observed"] == "2.12.1+cpu"
+    assert receipt["commit_sha"] and receipt["torch_observed"] == lc.DEEP_TORCH[CPU]
     assert receipt["variant_expected"] == "linux-cpu" and receipt["pip_check"] == "ok"
 
 

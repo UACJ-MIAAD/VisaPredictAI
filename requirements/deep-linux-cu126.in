@@ -1,4 +1,4 @@
-# Wrapper Linux x86_64 CUDA 12.6 (AWS A10G): torch 2.12.1+cu126 desde el índice oficial PyTorch.
+# Wrapper Linux x86_64 CUDA 12.6 (AWS A10G): torch 2.13.0+cu126 desde el índice oficial PyTorch.
 # El cierre transitivo hasheado se genera en locks/deep-linux-x86_64-cu126.txt.
 # NOTA: P0R.4 solo RESUELVE+audita+hashea este cierre; la ejecución GPU real en A10G se certifica
 # en P0R.5, no aquí.

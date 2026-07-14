@@ -36,11 +36,23 @@ def test_freeze_torch_matches_pyproject():
 
 
 def test_workflows_assert_cpu_variant_survives():
-    # tras `.[model]`, un assert exige que torch siga siendo +cpu (no el CUDA de PyPI).
+    # tras `.[model]`, un assert exige que torch siga siendo +cpu (no el CUDA de PyPI). La versión
+    # esperada se DERIVA del pin de pyproject (no se re-tipea): así no queda un literal viejo suelto.
+    expected = f"{_pyproject_torch_public()}+cpu"
     for name in ("ci.yml", "freeze_and_rebuild.yml"):
         text = (WF / name).read_text()
-        assert 'torch.__version__ == "2.12.1+cpu"' in text, f"{name} sin assert +cpu"
+        assert f'torch.__version__ == "{expected}"' in text, f"{name} sin assert {expected}"
         assert "pip check" in text, f"{name} sin pip check tras .[model]"
+        # ningún assert con OTRA versión de torch (literal viejo)
+        for stray in re.findall(r'torch\.__version__ == "([^"]+)"', text):
+            assert stray == expected, f"{name}: assert torch obsoleto {stray} != {expected}"
+
+
+def test_single_cpu_bootstrap_per_workflow():
+    # exactamente un bootstrap `pip install torch==…+cpu` por workflow (sin un segundo pin CPU)
+    for name in ("ci.yml", "freeze_and_rebuild.yml"):
+        text = (WF / name).read_text()
+        assert len(_BOOTSTRAP.findall(text)) == 1, f"{name}: != 1 bootstrap torch +cpu"
 
 
 if __name__ == "__main__":

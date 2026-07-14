@@ -11,8 +11,8 @@
 #
 # Perfil DEEP (pandas 2.x, requirements/deep.in — AISLADO del base):
 #   locks/deep-macos-arm64.txt         cierre nativo macOS arm64 (uv, HASHEADO)
-#   locks/deep-linux-x86_64-cpu.txt    Linux CPU  torch 2.12.1+cpu   (uv, HASHEADO)
-#   locks/deep-linux-x86_64-cu126.txt  Linux CUDA torch 2.12.1+cu126 (uv, HASHEADO)
+#   locks/deep-linux-x86_64-cpu.txt    Linux CPU  torch 2.13.0+cpu   (uv, HASHEADO)
+#   locks/deep-linux-x86_64-cu126.txt  Linux CUDA torch 2.13.0+cu126 (uv, HASHEADO)
 #
 # CONTRATOS P0R.4 / P0R.4R:
 #  - toolchain PINEADO (python 3.14 + pip/setuptools/wheel/uv exactos) — sin flotar al del día;
@@ -30,7 +30,7 @@ cd "$(dirname "$0")/.."
 # --- 5.1 bootstrap: intérprete + toolchain PINEADOS (no ante/, no versiones del día) ----------
 PY="${PY:-python3.14}"
 PIP_VERSION="26.1.2"
-SETUPTOOLS_VERSION="81.0.0"
+SETUPTOOLS_VERSION="83.0.0"
 WHEEL_VERSION="0.47.0"
 UV_VERSION="0.11.28"
 

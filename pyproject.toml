@@ -32,7 +32,7 @@ model = [
     "darts==0.44.1",
     "xgboost==3.2.0",
     "prophet==1.3.0",
-    "torch==2.12.1",
+    "torch==2.13.0",
     "pytorch-lightning==2.5.6",
     "scipy==1.17.1",
     # EDA/FE avanzado: features canónicas (catch22), detección de cambios de régimen
@@ -58,8 +58,8 @@ model = [
 [build-system]
 # A5: backend de build PINNEADO — con build isolation, pip instala EXACTAMENTE esta
 # versión al construir el paquete (antes ">=77" flotaba al setuptools del día).
-# Misma versión que el entorno de referencia ante/; se bumpea junto con `make lock`.
-requires = ["setuptools==81.0.0"]
+# P0R.4R3: 81.0.0 -> 83.0.0 para cerrar PYSEC-2026-3447 (moderate); se bumpea junto con `make lock`.
+requires = ["setuptools==83.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]

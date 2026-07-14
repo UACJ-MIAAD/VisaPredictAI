@@ -89,7 +89,7 @@ scikit-learn==1.9.0
 scikit-posthocs==0.14.0
 scipy==1.17.1
 seaborn==0.13.2
-setuptools==81.0.0
+setuptools==83.0.0
 shap==0.52.0
 shellingham==1.5.4
 six==1.17.0
@@ -100,7 +100,7 @@ statsmodels==0.14.6
 sympy==1.14.0
 threadpoolctl==3.6.0
 tokenizers==0.22.2
-torch==2.12.1
+torch==2.13.0
 torchmetrics==1.9.0
 tqdm==4.67.3
 transformers==5.13.1

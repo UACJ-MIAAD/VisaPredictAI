@@ -75,12 +75,15 @@ DEEP_DIRECT: dict[str, str] = {
     "chronos-forecasting": "2.3.1",
     "transformers": "5.13.1",
     "pillow": "12.3.0",
-    "setuptools": "81.0.0",
+    "setuptools": "83.0.0",
 }
+# Fuente ÚNICA de la versión pública de torch. P0R.4R3: 2.12.1 -> 2.13.0 (torch 2.12.1 exigía
+# setuptools<82, incompatible con el fix setuptools 83; torch 2.13.0 permite setuptools>=77.0.3).
+TORCH_PUBLIC = "2.13.0"
 DEEP_TORCH: dict[str, str] = {
-    "locks/deep-macos-arm64.txt": "2.12.1",
-    "locks/deep-linux-x86_64-cpu.txt": "2.12.1+cpu",
-    "locks/deep-linux-x86_64-cu126.txt": "2.12.1+cu126",
+    "locks/deep-macos-arm64.txt": TORCH_PUBLIC,
+    "locks/deep-linux-x86_64-cpu.txt": f"{TORCH_PUBLIC}+cpu",
+    "locks/deep-linux-x86_64-cu126.txt": f"{TORCH_PUBLIC}+cu126",
 }
 # Consultas de versión LOCAL -> PÚBLICA para el auditor (derivadas de los torch con sufijo local).
 LOCAL_VERSION_QUERIES: dict[tuple[str, str], str] = {
@@ -98,24 +101,30 @@ WRAPPERS: dict[str, list[str]] = {
     "requirements/deep-linux-cpu.in": ["--extra-index-url https://download.pytorch.org/whl/cpu", "-r deep.in"],
     "requirements/deep-linux-cu126.in": ["--extra-index-url https://download.pytorch.org/whl/cu126", "-r deep.in"],
 }
-TOOLCHAIN: dict[str, str] = {"pip": "26.1.2", "setuptools": "81.0.0", "wheel": "0.47.0", "uv": "0.11.28"}
+TOOLCHAIN: dict[str, str] = {"pip": "26.1.2", "setuptools": "83.0.0", "wheel": "0.47.0", "uv": "0.11.28"}
 PLATFORM_EXPECTED = "Darwin arm64"  # plataforma de referencia EXACTA del manifiesto
 
 # Expectativas de ejecución por lock deep, DERIVADAS del contrato (no de la matriz del workflow):
-# el smoke las consume para que la matriz no se autoconfirme (B3). Fuente única.
+# el smoke las consume para que la matriz no se autoconfirme (B3). torch se toma de DEEP_TORCH (no
+# se repite el literal). Fuente única.
 DEEP_RUNTIME: dict[str, dict[str, str]] = {
-    "locks/deep-macos-arm64.txt": {"variant": "macos-arm64", "system": "Darwin", "machine": "arm64", "torch": "2.12.1"},
+    "locks/deep-macos-arm64.txt": {
+        "variant": "macos-arm64",
+        "system": "Darwin",
+        "machine": "arm64",
+        "torch": DEEP_TORCH["locks/deep-macos-arm64.txt"],
+    },
     "locks/deep-linux-x86_64-cpu.txt": {
         "variant": "linux-cpu",
         "system": "Linux",
         "machine": "x86_64",
-        "torch": "2.12.1+cpu",
+        "torch": DEEP_TORCH["locks/deep-linux-x86_64-cpu.txt"],
     },
     "locks/deep-linux-x86_64-cu126.txt": {
         "variant": "linux-cu126",
         "system": "Linux",
         "machine": "x86_64",
-        "torch": "2.12.1+cu126",
+        "torch": DEEP_TORCH["locks/deep-linux-x86_64-cu126.txt"],
     },
 }
 
@@ -267,12 +276,12 @@ def _lock_path(rel: str, root: Path, locks_dir: Path | None) -> Path:
 def validate_deep_direct(root: Path = ROOT, locks_dir: Path | None = None) -> list[str]:
     """Cada lock deep fija EXACTO el cierre directo de deep.in (+ torch por variante)."""
     probs: list[str] = []
-    # deep.in DEBE existir y contener EXACTAMENTE DEEP_DIRECT + torch==2.12.1 (sin pins extra)
+    # deep.in DEBE existir y contener EXACTAMENTE DEEP_DIRECT + torch==TORCH_PUBLIC (sin pins extra)
     deep_in = root / "requirements/deep.in"
     if not deep_in.exists():
         probs.append("requirements/deep.in ausente")
     else:
-        expected = {**DEEP_DIRECT, "torch": "2.12.1"}
+        expected = {**DEEP_DIRECT, "torch": TORCH_PUBLIC}
         try:
             pins = pin_map(deep_in.read_text())
         except ValueError as exc:

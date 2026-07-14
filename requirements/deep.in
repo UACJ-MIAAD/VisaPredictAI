@@ -16,9 +16,10 @@ numpy==2.4.6
 pandas==2.3.3
 scipy==1.17.1
 
-# Entrenamiento (compat: NF 3.1.9 exige torch>=2.4.0 y pytorch-lightning<2.6.0)
-# seguridad: torch 2.12.1 cierra CVE-2025-3000 (2.12.0 lo reportaba)
-torch==2.12.1
+# Entrenamiento (compat: NF 3.1.9 exige torch>=2.4.0 y pytorch-lightning<2.6.0; torch 2.13 los cumple)
+# seguridad: torch>=2.12.1 cierra CVE-2025-3000. P0R.4R3: 2.12.1 -> 2.13.0 porque 2.12.1 exigía
+# setuptools<82 (bloqueaba el fix setuptools 83 de PYSEC-2026-3447); 2.13.0 permite setuptools>=77.0.3.
+torch==2.13.0
 pytorch-lightning==2.5.6
 
 # Chronos zero-shot + su backend transformers (5.13.1 cierra PYSEC-2026-2290)
@@ -26,5 +27,5 @@ chronos-forecasting==2.3.1
 transformers==5.13.1
 pillow==12.3.0
 
-# Toolchain/import runtime deliberado
-setuptools==81.0.0
+# Toolchain/import runtime deliberado (83.0.0 cierra PYSEC-2026-3447, P0R.4R3)
+setuptools==83.0.0

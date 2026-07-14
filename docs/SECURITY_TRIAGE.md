@@ -33,8 +33,8 @@ el siguiente upgrade. **Prohibido el auto-fix**: todo bump va por PR con suite v
   ~2 GB y arrastra `nvidia-*`), y pip no admite hashes en constraints files. Los
   `nvidia-*`/`triton` del lock Linux son inertes bajo `-c` (solo fijarían versión si
   algo los instalara).
-- El backend de build está pinneado en `pyproject.toml` (`setuptools==81.0.0`) y el
-  toolchain de instalación (`pip==26.1.2`, `setuptools==81.0.0`, `wheel==0.47.0`) en
+- El backend de build está pinneado en `pyproject.toml` (`setuptools==83.0.0`) y el
+  toolchain de instalación (`pip==26.1.2`, `setuptools==83.0.0`, `wheel==0.47.0`) en
   cada workflow que crea el entorno.
 - **`tools/make_locks.sh` (`make lock`) regenera los 9 locks en UNA tanda** (3 base macOS +
   3 espejos Linux + 3 deep) y los promueve con `tools/promote_lockset.py` mediante **rollback
@@ -56,6 +56,24 @@ el siguiente upgrade. **Prohibido el auto-fix**: todo bump va por PR con suite v
   fix disponible → actualizada en el acto (pyproject + locks regenerados de venvs
   frescos + suite de parsers/extracción verde — el único consumidor es la capa de
   scraping). `pip-audit` de runtime/dev: **limpio**.
+- **setuptools 81.0.0 → 83.0.0** (`PYSEC-2026-3447` / `CVE-2026-59890` / `GHSA-h35f-9h28-mq5c`,
+  P0R.4R3). Severidad **upstream Moderate (CVSS 6.1)**; exposición contextual **baja** (el repo no
+  construye ni publica sdists — es una vulnerabilidad local de empaquetado de sdists en macOS por
+  falta de normalización Unicode en las exclusiones de `MANIFEST.in`). `setuptools` es dependencia
+  DIRECTA del build system y aparece en `runtime.txt`/`dev.txt`, perfiles que **VETAN sin
+  excepciones**; con fix publicado, la única remediación conforme es el **bump, no accept**.
+  **Descubierto por el gate post-merge** (CI de `push` sobre `d91064a`): pip-audit consulta OSV en
+  vivo y el aviso apareció tras validar el PR #2. ⚠️ El bump directo a 83 CHOCÓ con `torch 2.12.1`,
+  cuyo wheel declara `setuptools<82` (el resolver de uv lo rechazó en el perfil deep). Se descartó
+  aceptar el aviso (violaría el veto runtime/dev). Solución: **subir torch a `2.13.0`** (permite
+  `setuptools>=77.0.3`, y sigue cerrando CVE-2025-3000; compatible con lightning 2.5.6 / NF 3.1.9 /
+  chronos 2.3.1 / transformers 5.13.1), lo que habilita `setuptools 83` UNIFORME en los 9 locks.
+  Remediación: pins torch 2.13.0 (+cpu/+cu126) y setuptools 83 subidos en las fuentes autoritativas
+  (pyproject build-system + model extra + toolchain de generación/workflows + `deep.in` +
+  `TORCH_PUBLIC`/`TOOLCHAIN`/`DEEP_DIRECT` del contrato) + `make lock`. Certificado: resolución +
+  install real + smoke en macOS ARM64 y Linux CPU; CUDA cu126 resuelto+hasheado+auditado (ejecución
+  A10G en P0R.5). **Sin fila nueva en la tabla activa; sin incrementar `n_accepted`** — la allowlist
+  sigue con exactamente un aviso (pytorch-lightning). Decisión: **fix, no accept.**
 
 ## Triage vigente — perfiles model y deep (1 avisos en 1 paquete, allowlist del gate)
 

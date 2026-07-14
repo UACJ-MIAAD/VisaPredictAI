@@ -20,7 +20,7 @@ GEN = {
     "python": "3.14.2",
     "platform": "Darwin arm64",
     "pip": "26.1.2",
-    "setuptools": "81.0.0",
+    "setuptools": "83.0.0",
     "wheel": "0.47.0",
     "uv": "0.11.28",
 }

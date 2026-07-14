@@ -1,7 +1,7 @@
 # Entorno GPU (AWS A10G / g5.xlarge) para el frontier pesado de forecasting — perfil DEEP.
 #
 # SHIM al lock HASHEADO del perfil deep (P0R.4, ronda 10): instala el cierre transitivo EXACTO,
-# reproducible y AUDITADO (torch 2.12.1+cu126 desde el índice oficial PyTorch CUDA 12.6, con
+# reproducible y AUDITADO (torch 2.13.0+cu126 desde el índice oficial PyTorch CUDA 12.6, con
 # verificación de hashes). Es la MISMA receta que corre local en `ante_nf`, de modo que la receta
 # ganadora (global + diferencia + local_scaler + HPO Optuna) es idéntica en GPU.
 #
