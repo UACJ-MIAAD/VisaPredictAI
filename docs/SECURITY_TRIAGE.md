@@ -37,12 +37,18 @@ el siguiente upgrade. **Prohibido el auto-fix**: todo bump va por PR con suite v
   toolchain de instalación (`pip==26.1.2`, `setuptools==81.0.0`, `wheel==0.47.0`) en
   cada workflow que crea el entorno.
 - **`tools/make_locks.sh` (`make lock`) regenera los 9 locks en UNA tanda** (3 base macOS +
-  3 espejos Linux + 3 deep) y los promueve ATÓMICAMENTE con `tools/promote_lockset.py`
-  (rename por lock + manifest `locks/lockset.json` escrito al final ⇒ una interrupción no
-  deja matriz mezclada aceptada). Toolchain PINEADO y sin fecha en headers ⇒ regenerar dos
-  veces da bytes idénticos (reproducible). El **perfil deep** (aislado, pandas 2.x) tiene su
-  fuente directa en `requirements/deep.in` (+ wrappers `deep-linux-{cpu,cu126}.in`), separado
-  de `pyproject.toml` porque el stack deep exige pandas 2.x mientras el base fija pandas 3.
+  3 espejos Linux + 3 deep) y los promueve con `tools/promote_lockset.py` mediante **rollback
+  transaccional + detección de matriz parcial** (NO atomicidad de bundle): valida el staging con
+  el contrato estático único (`tools/lock_contracts.py`), hace rename por lock, escribe el
+  manifiesto `locks/lockset.json` AL FINAL (ligando hashes de locks + fuentes, incluidos los 3
+  scripts del contrato) y se autovalida ⇒ una interrupción deja árbol y manifiesto divergentes y
+  el auditor recalcula ambos y BLOQUEA. Toolchain PINEADO y sin fecha ⇒ REGENERAR es repetible
+  bajo el mismo estado del índice (la instalación desde los locks sí es byte-reproducible). El
+  **perfil deep** (aislado, pandas 2.x) tiene su fuente directa en `requirements/deep.in`
+  (+ wrappers `deep-linux-{cpu,cu126}.in`), separado de `pyproject.toml` porque el stack deep exige
+  pandas 2.x mientras el base fija pandas 3. **CI instala de verdad** los locks deep CPU/macOS
+  (job `deep-lock-install`: `--require-hashes` + `pip check` + smoke con tensor finito); CUDA queda
+  en resolución+hash+audit (su ejecución A10G se certifica en P0R.5).
 
 ## Resuelto al estrenar la política (2026-07-11)
 

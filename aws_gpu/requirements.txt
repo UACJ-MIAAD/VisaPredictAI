@@ -6,6 +6,8 @@
 # ganadora (global + diferencia + local_scaler + HPO Optuna) es idéntica en GPU.
 #
 #   pip install -r aws_gpu/requirements.txt   # desde la raíz del repo, en la instancia EC2
+# El lock lleva un sha256 por pin, así que pip entra automáticamente en modo --require-hashes
+# (todo requirement debe traer hash o la instalación aborta) — verificación de integridad de wheels.
 #
 # La fuente directa del perfil está en requirements/deep.in (+ wrapper deep-linux-cu126.in);
 # regenerar con `bash tools/make_locks.sh` (make lock) — nunca editar el lock a mano.

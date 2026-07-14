@@ -1,17 +1,22 @@
 #!/usr/bin/env python
-"""Promoción CRASH-DETECTABLE de la matriz de 9 locks (P0R.4, ronda 10).
+"""Promoción con ROLLBACK TRANSACCIONAL y DETECCIÓN DE MATRIZ PARCIAL (P0R.4R, ronda 10).
 
-`make_locks.sh` resuelve los 9 locks en un directorio de staging; este helper los promueve a
-`locks/` de forma que una interrupción (kill -9, corte) NUNCA deje una matriz mezclada aceptada:
+`make_locks.sh` resuelve los 9 locks en staging; este helper los promueve a `locks/`. NO es
+atomicidad de bundle (son nueve renames sucesivos), sino:
 
-  1. exige EXACTAMENTE los 9 locks esperados en staging, no vacíos y con pins;
-  2. respalda en memoria bytes+existencia de los locks actuales;
-  3. copia cada staged a un temporal DENTRO de locks/, luego rename sobre el destino;
-  4. ante CUALQUIER excepción restaura todos los anteriores y borra los que no existían;
-  5. escribe `locks/lockset.json` (hashes de fuentes + 9 locks) por ULTIMO, con rename atómico.
+  1. VALIDA todo el staging con el contrato estático único (tools/lock_contracts.py) antes del
+     primer rename — staging inválido aborta sin tocar locks/;
+  2. respalda bytes+existencia de los locks actuales;
+  3. copia cada staged a un temporal dentro de locks/ y rename sobre el destino (fsync fichero);
+  4. ante CUALQUIER excepción hace ROLLBACK: restaura previos, borra los que no existían; si el
+     rollback TAMBIÉN falla, reporta ambas excepciones y deja una SEÑAL inequívoca de matriz
+     inválida (elimina el manifiesto) para que el auditor bloquee;
+  5. escribe `locks/lockset.json` por ÚLTIMO (fsync fichero + fsync directorio con fd cerrado);
+  6. se autovalida con el contrato completo tras escribir el manifiesto.
 
-Como el manifest se escribe al final, un kill -9 a mitad deja hashes que NO coinciden con el
-manifest anterior -> el runner de auditoría detecta la promoción parcial y bloquea. Stdlib puro.
+Como el manifiesto es la última escritura y liga los hashes de locks + fuentes (incluidos los 3
+scripts del contrato), una interrupción a mitad deja el árbol y el manifiesto DIVERGENTES: el
+auditor recalcula ambos y BLOQUEA (detección de matriz parcial). Stdlib puro.
 """
 
 from __future__ import annotations
@@ -20,55 +25,29 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+from tools import lock_contracts as lc
+
+ROOT = lc.ROOT
 LOCKS = ROOT / "locks"
 MANIFEST = LOCKS / "lockset.json"
-LOCK_NAMES = (
-    "runtime.txt",
-    "dev.txt",
-    "model-cpu.txt",
-    "runtime-linux-x86_64.txt",
-    "dev-linux-x86_64.txt",
-    "model-cpu-linux-x86_64.txt",
-    "deep-macos-arm64.txt",
-    "deep-linux-x86_64-cpu.txt",
-    "deep-linux-x86_64-cu126.txt",
-)
-SOURCES = (
-    "pyproject.toml",
-    "requirements/deep.in",
-    "requirements/deep-linux-cpu.in",
-    "requirements/deep-linux-cu126.in",
-)
-_PIN = re.compile(r"^[A-Za-z0-9_.-]+==")
+LOCK_NAMES = lc.LOCK_NAMES
+SOURCES = lc.SOURCES
 
 
 def _sha256(b: bytes) -> str:
     return "sha256:" + hashlib.sha256(b).hexdigest()
 
 
-def _pins(text: str) -> int:
-    return sum(1 for ln in text.splitlines() if _PIN.match(ln.strip()))
-
-
-def _validate_staged(staged: Path) -> list[str]:
-    present = {p.name for p in staged.glob("*.txt")}
-    probs: list[str] = []
-    if present != set(LOCK_NAMES):
-        probs.append(f"staging: {sorted(present)} != los 9 esperados {sorted(LOCK_NAMES)}")
-        return probs
-    for name in LOCK_NAMES:
-        text = (staged / name).read_text()
-        if _pins(text) < 1:
-            probs.append(f"staging {name}: 0 pins (lock vacío)")
-        if "/var/folders" in text or "/tmp/" in text or str(staged) in text:
-            probs.append(f"staging {name}: contiene ruta temporal de staging")
-    return probs
+def _fsync_dir(path: Path) -> None:
+    dfd = os.open(str(path), os.O_RDONLY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
@@ -85,11 +64,10 @@ def _atomic_write(path: Path, data: bytes) -> None:
 
 
 def promote(staged: Path, generator: dict) -> dict:
-    probs = _validate_staged(staged)
+    probs = lc.validate_staging(staged, ROOT)
     if probs:
         raise SystemExit("promote: staging inválido -> " + "; ".join(probs))
     LOCKS.mkdir(parents=True, exist_ok=True)
-    # respaldo: bytes de los locks actuales (o None si no existían)
     backup: dict[str, bytes | None] = {
         n: (LOCKS / n).read_bytes() if (LOCKS / n).exists() else None for n in LOCK_NAMES
     }
@@ -106,49 +84,77 @@ def promote(staged: Path, generator: dict) -> dict:
                     os.fsync(fh.fileno())
                 os.replace(tmp, LOCKS / name)
             except BaseException:
-                Path(tmp).unlink(missing_ok=True)  # limpia el .tmp en vuelo antes del rollback
+                Path(tmp).unlink(missing_ok=True)
                 raise
             promoted.append(name)
-        # manifest AL FINAL (última escritura). Un kill -9 antes deja hashes != manifest viejo.
+        # manifiesto AL FINAL: liga hashes de locks + fuentes (incl. los 3 scripts del contrato).
         manifest = {
             "schema_version": 1,
             "generator": generator,
             "sources": {s: _sha256((ROOT / s).read_bytes()) for s in SOURCES},
             "locks": {
-                f"locks/{n}": {"sha256": _sha256((LOCKS / n).read_bytes()), "pins": _pins((LOCKS / n).read_text())}
+                f"locks/{n}": {
+                    "sha256": _sha256((LOCKS / n).read_bytes()),
+                    "pins": len(lc.pin_map((LOCKS / n).read_text())),
+                }
                 for n in LOCK_NAMES
             },
         }
         _atomic_write(MANIFEST, (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode())
-        os.fsync(os.open(str(LOCKS), os.O_RDONLY))
+        _fsync_dir(LOCKS)
+        # autovalidación: el árbol promovido + el manifiesto recién escrito deben cumplir el contrato.
+        post = lc.validate_all(ROOT, manifest=manifest)
+        if post:
+            raise RuntimeError("post-promoción incoherente con el contrato: " + "; ".join(post))
         return manifest
-    except BaseException:
-        # rollback: restaura cada lock a su estado previo (o lo borra si no existía)
-        for name in promoted:
-            prev = backup[name]
-            if prev is None:
-                (LOCKS / name).unlink(missing_ok=True)
+    except BaseException as promote_exc:
+        try:
+            for name in promoted:
+                prev = backup[name]
+                if prev is None:
+                    (LOCKS / name).unlink(missing_ok=True)
+                else:
+                    _atomic_write(LOCKS / name, prev)
+            if old_manifest is None:
+                MANIFEST.unlink(missing_ok=True)
             else:
-                _atomic_write(LOCKS / name, prev)
-        if old_manifest is None:
-            MANIFEST.unlink(missing_ok=True)
-        else:
-            _atomic_write(MANIFEST, old_manifest)
+                _atomic_write(MANIFEST, old_manifest)
+            _fsync_dir(LOCKS)
+        except BaseException as rollback_exc:
+            # rollback fallido: matriz posiblemente parcial. Elimina el manifiesto (señal inequívoca
+            # de invalidez para el auditor) y reporta AMBAS excepciones.
+            try:
+                MANIFEST.unlink(missing_ok=True)
+                _fsync_dir(LOCKS)
+            except BaseException:
+                pass
+            raise RuntimeError(
+                f"ROLLBACK FALLIDO tras {promote_exc!r}: {rollback_exc!r} — manifiesto eliminado, "
+                f"MATRIZ POSIBLEMENTE INVÁLIDA en locks/, regenerar con `make lock`"
+            ) from rollback_exc
         raise
 
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--staged", required=True)
-    ap.add_argument("--python", required=True)
+    ap.add_argument("--python", required=True, help="versión COMPLETA X.Y.Z")
+    ap.add_argument("--platform", required=True, help="p. ej. 'Darwin arm64'")
     ap.add_argument("--pip", required=True)
     ap.add_argument("--setuptools", required=True)
     ap.add_argument("--wheel", required=True)
     ap.add_argument("--uv", required=True)
     ns = ap.parse_args(argv[1:])
-    gen = {"python": ns.python, "pip": ns.pip, "setuptools": ns.setuptools, "wheel": ns.wheel, "uv": ns.uv}
+    gen = {
+        "python": ns.python,
+        "platform": ns.platform,
+        "pip": ns.pip,
+        "setuptools": ns.setuptools,
+        "wheel": ns.wheel,
+        "uv": ns.uv,
+    }
     m = promote(Path(ns.staged), gen)
-    print(f"✓ lockset promovido: {len(m['locks'])} locks + manifest (locks/lockset.json)")
+    print(f"✓ lockset promovido: {len(m['locks'])} locks + manifest (locks/lockset.json), contrato OK")
     return 0
 
 

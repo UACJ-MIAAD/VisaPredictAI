@@ -14,11 +14,14 @@
 #   locks/deep-linux-x86_64-cpu.txt    Linux CPU  torch 2.12.1+cpu   (uv, HASHEADO)
 #   locks/deep-linux-x86_64-cu126.txt  Linux CUDA torch 2.12.1+cu126 (uv, HASHEADO)
 #
-# CONTRATOS P0R.4:
+# CONTRATOS P0R.4 / P0R.4R:
 #  - toolchain PINEADO (python 3.14 + pip/setuptools/wheel/uv exactos) — sin flotar al del día;
-#  - SIN fecha en los headers -> regenerar dos veces produce bytes IDÉNTICOS (reproducibilidad);
-#  - los 9 se resuelven en STAGING; la promoción a locks/ es ATÓMICA y crash-detectable
-#    (tools/promote_lockset.py: rename por lock + manifest locks/lockset.json escrito al FINAL);
+#  - SIN fecha en los headers -> REGENERAR es repetible bajo el MISMO estado del índice (bytes
+#    idénticos); la instalación desde los locks sí es byte-reproducible. NO se promete que el
+#    resolver produzca los mismos transitivos meses después (el índice upstream cambia);
+#  - los 9 se resuelven en STAGING; la promoción a locks/ tiene ROLLBACK TRANSACCIONAL y DETECCIÓN
+#    DE MATRIZ PARCIAL (tools/promote_lockset.py valida el staging con tools/lock_contracts.py,
+#    escribe el manifiesto locks/lockset.json AL FINAL y se autovalida) — NO es atomicidad de bundle;
 #  - ninguna ruta temporal de staging se filtra a los locks (espejos Linux con --no-annotate);
 #  - regenerarlos es una decisión DELIBERADA (upgrade auditado), nunca parte de un build.
 set -euo pipefail
@@ -33,6 +36,7 @@ UV_VERSION="0.11.28"
 
 command -v "$PY" >/dev/null 2>&1 || { echo "✗ intérprete '$PY' no está en PATH" >&2; exit 1; }
 PY_VER="$("$PY" -c 'import sys;print("%d.%d"%sys.version_info[:2])')"
+PY_FULL="$("$PY" -c 'import sys;print("%d.%d.%d"%sys.version_info[:3])')"   # X.Y.Z para el manifiesto
 [ "$PY_VER" = "3.14" ] || { echo "✗ se requiere Python 3.14 (hay $PY_VER en '$PY')" >&2; exit 1; }
 command -v uv >/dev/null 2>&1 || { echo "✗ uv no está en PATH (brew install uv==$UV_VERSION)" >&2; exit 1; }
 UV_VER="$(uv --version | awk '{print $2}')"
@@ -47,10 +51,10 @@ STAGED="$(mktemp -d "${TMPDIR:-/tmp}/vp_locks_staged.XXXXXX")"
 cleanup() { rm -rf "$STAGED"; }
 trap cleanup EXIT INT TERM HUP
 
-header() {  # $1 = perfil, $2 = python del venv. SIN fecha (determinista).
-  echo "# Lock transitivo del perfil '$1' — tools/make_locks.sh (P0R.4). NO editar a mano."
+header() {  # $1 = perfil, $2 = python del venv. SIN fecha (determinista). Locks macOS SIN hashes.
+  echo "# Lock transitivo del perfil '$1' — tools/make_locks.sh (P0R.4R). NO editar a mano."
   echo "# Python $("$2" --version 2>&1 | cut -d' ' -f2) · plataforma de referencia macOS arm64. Instalar con:"
-  echo "#   pip install --require-hashes -r locks/$1.txt  # (macOS: sin hashes) && pip install -e . --no-deps"
+  echo "#   pip install -r locks/$1.txt && pip install -e . --no-deps   # (macOS base: sin hashes)"
 }
 
 freeze_profile() {  # $1 = perfil, $2 = extras (""|"[dev]"|"[dev,model]") -> STAGED/$1.txt
@@ -115,8 +119,11 @@ if grep -hv -e '^[[:space:]]*#' -e '^[][A-Za-z0-9_.-]\{1,\}==' "$STAGED"/*.txt \
   echo "✗ posible secreto en los locks staged — abortando (nada se promovió)" >&2; exit 1
 fi
 
-# --- promoción ATÓMICA + crash-detectable de los 9 + manifest locks/lockset.json --------------
-"$PY" tools/promote_lockset.py --staged "$STAGED" \
-  --python "$PY_VER" --pip "$PIP_VERSION" --setuptools "$SETUPTOOLS_VERSION" \
-  --wheel "$WHEEL_VERSION" --uv "$UV_VERSION"
-echo "make_locks: OK — 9 locks promovidos + manifest. Perfil deep aislado en requirements/deep.in."
+# --- promoción con ROLLBACK TRANSACCIONAL + DETECCIÓN DE MATRIZ PARCIAL. El promotor valida el
+#     staging con tools/lock_contracts.py ANTES del primer rename, escribe el manifiesto al final
+#     (con Python COMPLETO + plataforma + toolchain) y se autovalida. Invocar en modo -m para que
+#     `from tools import lock_contracts` resuelva. -----------------------------------------------
+"$PY" -m tools.promote_lockset --staged "$STAGED" \
+  --python "$PY_FULL" --platform "$PLATFORM" --pip "$PIP_VERSION" \
+  --setuptools "$SETUPTOOLS_VERSION" --wheel "$WHEEL_VERSION" --uv "$UV_VERSION"
+echo "make_locks: OK — 9 locks promovidos + manifest (contrato OK). Perfil deep en requirements/deep.in."

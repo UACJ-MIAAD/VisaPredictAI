@@ -226,70 +226,103 @@ def test_macos_deep_has_no_local_version_policy():
     assert m.check_local_version_policy(MAC_LOCK, {"torch": "2.12.1", "numpy": "2.4.6"}) == []
 
 
-def _write_fake_deep(root, mutate=None):
-    """Escribe los 3 locks deep VÁLIDOS bajo root/locks; mutate(rel, pins, torch) -> (pins, torch, extra_text)."""
-    (root / "locks").mkdir(parents=True, exist_ok=True)
-    for rel in m.DEEP_LOCKS:
-        pins = dict(m.DEEP_DIRECT)
-        torch = m.DEEP_TORCH[rel]
-        extra = "    --hash=sha256:" + "0" * 64 + "\n"
-        if mutate:
-            pins, torch, extra = mutate(rel, pins, torch, extra)
-        lines = ["# lock deep"]
-        for pkg, ver in pins.items():
-            lines.append(f"{pkg}=={ver} \\")
-        if torch is not None:
-            lines.append(f"torch=={torch} \\")
-        (root / rel).write_text("\n".join(lines) + "\n" + extra)
+# El contrato deep (versiones/torch/hashes/índices) vive ahora en tools/lock_contracts.py y se
+# prueba en tests/test_lock_contracts.py. Aquí solo los FALSOS VERDES del auditor (P0R.4R).
+
+# --- run_pip_audit: separa auditados de OMITIDOS (skip_reason) y valida cada dependency ----------
 
 
-def test_deep_contract_real_locks_pass():
-    # los locks REALES del repo deben cumplir el contrato deep
-    assert m.validate_deep_lock_contract() == []
+def _fake_proc(stdout, returncode=0, stderr=""):
+    class _P:
+        pass
+
+    p = _P()
+    p.stdout, p.returncode, p.stderr = stdout, returncode, stderr
+    return p
 
 
-def test_deep_contract_wrong_direct_version_blocks(tmp_path, monkeypatch):
-    def mutate(rel, pins, torch, extra):
-        pins["pandas"] = "3.0.0"  # deep exige 2.3.3
-        return pins, torch, extra
-
-    _write_fake_deep(tmp_path, mutate)
-    monkeypatch.setattr(m, "ROOT", tmp_path)
-    probs = m.validate_deep_lock_contract()
-    assert any("pandas" in p and "3.0.0" in p for p in probs)
-
-
-def test_deep_contract_wrong_torch_variant_blocks(tmp_path, monkeypatch):
-    def mutate(rel, pins, torch, extra):
-        return pins, "2.12.1", extra  # macOS OK, pero linux debería llevar +cpu/+cu126
-
-    _write_fake_deep(tmp_path, mutate)
-    monkeypatch.setattr(m, "ROOT", tmp_path)
-    probs = m.validate_deep_lock_contract()
-    assert any("torch" in p and CPU_LOCK in p for p in probs)
+def test_run_pip_audit_separates_skipped(tmp_path, monkeypatch):
+    lock = tmp_path / "l.txt"
+    lock.write_text("torch==2.12.1+cpu\nnumpy==2.4.6\n")
+    payload = {
+        "dependencies": [
+            {"name": "torch", "skip_reason": "Dependency not found on PyPI: torch (2.12.1+cpu)"},
+            {"name": "numpy", "version": "2.4.6", "vulns": []},
+        ]
+    }
+    monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: _fake_proc(m.json.dumps(payload)))
+    res = m.run_pip_audit(lock)
+    assert res["skipped"] == {"torch": "Dependency not found on PyPI: torch (2.12.1+cpu)"}
+    assert res["audited"] == {"numpy": "2.4.6"} and res["findings"] == []
 
 
-def test_deep_contract_missing_hashes_blocks(tmp_path, monkeypatch):
-    def mutate(rel, pins, torch, extra):
-        return pins, torch, ""  # sin línea --hash
+def test_run_pip_audit_dep_without_version_or_skip_blocks(tmp_path, monkeypatch):
+    lock = tmp_path / "l.txt"
+    lock.write_text("numpy==2.4.6\n")
+    payload = {"dependencies": [{"name": "numpy", "vulns": []}]}  # ni version ni skip_reason
+    monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: _fake_proc(m.json.dumps(payload)))
+    with pytest.raises(ValueError, match="sin versión ni skip_reason"):
+        m.run_pip_audit(lock)
 
-    _write_fake_deep(tmp_path, mutate)
-    monkeypatch.setattr(m, "ROOT", tmp_path)
-    probs = m.validate_deep_lock_contract()
-    assert any("sin hashes" in p for p in probs)
+
+def _audit_one_lock(monkeypatch, *, pins, run_result, syn_result=None, entries=None):
+    """Corre m.audit() sobre UN lock simulado, saltando el contrato/advisories reales."""
+    monkeypatch.setattr(m.lc, "validate_all", lambda *a, **k: [])
+    monkeypatch.setattr(m, "LOCKS", [("locks/deep-linux-x86_64-cpu.txt", "deep")])
+    monkeypatch.setattr(m, "read_pins", lambda p: pins)
+    monkeypatch.setattr(m, "run_pip_audit", lambda p: run_result)
+    monkeypatch.setattr(
+        m, "_run_pip_audit_req", lambda req: syn_result or {"findings": [], "audited": {}, "skipped": {}}
+    )
+    monkeypatch.setattr(m, "load_advisories", lambda p: entries or [])
+    monkeypatch.setattr(m, "validate_advisory_schema", lambda e: [])
+    return m.audit(TODAY)[0]
 
 
-def test_normalized_query_only_for_matching_lock(monkeypatch):
-    captured = {}
+def test_audit_blocks_unauthorized_skip(monkeypatch):
+    # un paquete OMITIDO por pip-audit que NO está autorizado (LOCAL_VERSION_QUERIES) bloquea
+    probs = _audit_one_lock(
+        monkeypatch,
+        pins={"evil": "1.0.0"},
+        run_result={"findings": [], "audited": {}, "skipped": {"evil": "not on PyPI"}},
+    )
+    assert any("OMITIDO" in p and "sin autorización" in p for p in probs)
 
-    def fake_audit(path):
-        captured["content"] = path.read_text()
-        return [{"package": "torch", "version": "2.12.1", "id": "CVE-X", "aliases": []}]
 
-    monkeypatch.setattr(m, "run_pip_audit", fake_audit)
-    # lock con consulta declarada -> consulta la versión PÚBLICA
-    out = m.run_pip_audit_normalized(CPU_LOCK)
-    assert out and captured["content"].strip() == "torch==2.12.1"
-    # lock sin consulta declarada -> no consulta nada
-    captured.clear()
-    assert m.run_pip_audit_normalized("locks/runtime.txt") == []
+def test_audit_blocks_omitted_package(monkeypatch):
+    # pip-audit no devolvió 'b' aunque está en el lock -> completitud rota
+    probs = _audit_one_lock(
+        monkeypatch,
+        pins={"a": "1.0", "b": "2.0"},
+        run_result={"findings": [], "audited": {"a": "1.0"}, "skipped": {}},
+    )
+    assert any("pip-audit cubrió != lock" in p for p in probs)
+
+
+def test_audit_blocks_when_public_query_also_skips_torch(monkeypatch):
+    # torch (autorizado) omitido en el lock Y la consulta pública TAMBIÉN lo omite -> bloquea
+    probs = _audit_one_lock(
+        monkeypatch,
+        pins={"torch": "2.12.1+cpu"},
+        run_result={"findings": [], "audited": {}, "skipped": {"torch": "not on PyPI"}},
+        syn_result={"findings": [], "audited": {}, "skipped": {"torch": "still not found"}},
+    )
+    assert any("consulta pública" in p and "NO auditó torch" in p for p in probs)
+
+
+def test_audit_authorized_skip_with_clean_public_passes(monkeypatch):
+    # torch omitido pero la consulta pública SÍ lo audita limpio -> sin problemas
+    probs = _audit_one_lock(
+        monkeypatch,
+        pins={"torch": "2.12.1+cpu"},
+        run_result={"findings": [], "audited": {}, "skipped": {"torch": "not on PyPI"}},
+        syn_result={"findings": [], "audited": {"torch": "2.12.1"}, "skipped": {}},
+    )
+    assert probs == []
+
+
+def test_audit_blocks_on_contract(monkeypatch):
+    # si el contrato estático/manifiesto falla (p. ej. lock mutado tras el manifiesto), audit() corta
+    monkeypatch.setattr(m.lc, "validate_all", lambda *a, **k: ["manifiesto.locks[locks/dev.txt] sha256 != real"])
+    probs, receipt = m.audit(TODAY)
+    assert receipt == {} and any("contrato" in p for p in probs)
