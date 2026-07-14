@@ -42,7 +42,11 @@ jobs:
       # la herramienta gobernada quedaba fuera del inventario de componentes.
       - name: SBOM CycloneDX (perfil dvc-tool) + gate de contenido
         run: |
-          pip-audit -r locks/dvc-tool-linux-x86_64.txt --no-deps --disable-pip --format cyclonedx-json -o sbom-dvc-tool.cdx.json
+          # pip-audit sale != 0 al hallar el aviso diskcache ACEPTADO. La AUTORIDAD de avisos es el
+          # paso `Audit supply chain` (ya verde); aquí solo generamos el SBOM, suprimiendo el aviso
+          # DERIVADO de la fuente única (no una allowlist textual nueva -> sin drift).
+          IGNORE=$(python -c "import tools.audit_python_supply_chain as m; print(' '.join('--ignore-vuln '+e['id'] for e in m.load_advisories(m.ADVISORIES) if 'dvc-tool' in e.get('profiles',[])))")
+          pip-audit -r locks/dvc-tool-linux-x86_64.txt $IGNORE --no-deps --disable-pip --format cyclonedx-json -o sbom-dvc-tool.cdx.json
           python -c "import json; c=json.load(open('sbom-dvc-tool.cdx.json')); comps={ (x['name'].lower(), x.get('version')) for x in c.get('components',[]) }; req={('dvc','3.67.1'),('dvc-s3','3.3.0'),('diskcache','5.6.3')}; missing=req-comps; assert not missing, f'SBOM dvc-tool sin: {missing}'; print('SBOM dvc-tool OK:', sorted(req))"
       # P0R.4R: sube el RECIBO del auditor (hashes de manifiesto/locks/fuentes + normalizaciones +
       # skips autorizados + Python/plataforma), no solo el SBOM — evidencia de la corrida.
