@@ -1,0 +1,58 @@
+{
+  "generator": {
+    "pip": "26.1.2",
+    "platform": "Darwin arm64",
+    "python": "3.14.2",
+    "setuptools": "81.0.0",
+    "uv": "0.11.28",
+    "wheel": "0.47.0"
+  },
+  "locks": {
+    "locks/deep-linux-x86_64-cpu.txt": {
+      "pins": 132,
+      "sha256": "sha256:747c08860d6a859dc5d1d8dc3ca96b46b7e0559c9c6c4d809114d9830d0d28cd"
+    },
+    "locks/deep-linux-x86_64-cu126.txt": {
+      "pins": 151,
+      "sha256": "sha256:13893fa3e8f4e9412ed20c344d2d173d63b8c0b3395cbad3cf8b31dcbeebb485"
+    },
+    "locks/deep-macos-arm64.txt": {
+      "pins": 131,
+      "sha256": "sha256:7846678313d441732e2a3c4ed2bdb3158b4c3056ecba32e0e085848eb399d427"
+    },
+    "locks/dev-linux-x86_64.txt": {
+      "pins": 36,
+      "sha256": "sha256:20cd99992f527885a2c8e3cbd500c7c86871f482a39a15ff3f79831a6bce0a62"
+    },
+    "locks/dev.txt": {
+      "pins": 38,
+      "sha256": "sha256:4aa74a774ff66e29542757a2b8b843c875afde0352ba30105abfed218077f9ca"
+    },
+    "locks/model-cpu-linux-x86_64.txt": {
+      "pins": 129,
+      "sha256": "sha256:6c61c9eac1249812788b0dde30d589dfa4e7f7cd972ed5d182c6834ecf19722b"
+    },
+    "locks/model-cpu.txt": {
+      "pins": 110,
+      "sha256": "sha256:93972e9e3564d868346cd866999de86cb54a8dfee0b361140798e8a5033801ad"
+    },
+    "locks/runtime-linux-x86_64.txt": {
+      "pins": 23,
+      "sha256": "sha256:b7171cd60601f1272ae0b861eec6428eda2922bdebe2b90ca5fc4c043cbbf89c"
+    },
+    "locks/runtime.txt": {
+      "pins": 25,
+      "sha256": "sha256:38385242fbc429bda4fffe1b443efbbc1b345e58ff9941d3706d59eca31aae3a"
+    }
+  },
+  "schema_version": 1,
+  "sources": {
+    "pyproject.toml": "sha256:9c045c5ad7fe57899d1c1d377e22e2bff6a2a9f55b962243d09db51abfc8b066",
+    "requirements/deep-linux-cpu.in": "sha256:ca91f04f6385fdae5a45cdc436084b027bb83abdd723591495aa9f6ef080ef30",
+    "requirements/deep-linux-cu126.in": "sha256:eb207049dddc6406292ae5d14ab3a2be834014ffd6610dae88e77189a265132d",
+    "requirements/deep.in": "sha256:17e239728e987613b28b64b7943e648a08dfbbbab0b16eec2aec8e30bb443349",
+    "tools/lock_contracts.py": "sha256:f33df35214b3896c88cd7a729187d7515d70c66e06d2622bd176dc513a847d3f",
+    "tools/make_locks.sh": "sha256:6d0e02dd739cc83f61f1cd24f055aeae8752e5f5fc853301e4f932adbb5c08fe",
+    "tools/promote_lockset.py": "sha256:741c4f65cbe8dc63d5bd6a4c71d90c1b9b1560f97e5a64e1833516b17e9e5485"
+  }
+}

@@ -20,24 +20,27 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import os
+import platform
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+from tools import lock_contracts as lc
+
+ROOT = lc.ROOT
 ADVISORIES = ROOT / "security" / "python_advisories.json"
 PIP_AUDIT_VERSION = "2.10.1"
-PROFILES = ("runtime", "dev", "model", "deep")
-# (lock relativo, perfil). Los espejos Linux comparten perfil con su lock macOS.
-LOCKS: list[tuple[str, str]] = [
-    ("locks/runtime.txt", "runtime"),
-    ("locks/runtime-linux-x86_64.txt", "runtime"),
-    ("locks/dev.txt", "dev"),
-    ("locks/dev-linux-x86_64.txt", "dev"),
-    ("locks/model-cpu.txt", "model"),
-    ("locks/model-cpu-linux-x86_64.txt", "model"),
-]
+PROFILES = lc.PROFILES
+# (lock relativo, perfil), derivados del contrato estático único (tools/lock_contracts.py).
+LOCKS: list[tuple[str, str]] = [(rel, profile) for rel, profile, _hashed in lc.LOCK_SPECS]
+# Contrato/estructura del perfil deep + cierre del hueco de versión local: fuente única en lc.
+DEEP_LOCKS = lc.DEEP_LOCKS
+DEEP_DIRECT = lc.DEEP_DIRECT
+DEEP_TORCH = lc.DEEP_TORCH
+LOCAL_VERSION_QUERIES = lc.LOCAL_VERSION_QUERIES
 _ADV_ID = re.compile(r"^(?:CVE-\d{4}-\d+|PYSEC-\d{4}-\d+|GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4})$")
 _PKG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _ENTRY_KEYS = frozenset(
@@ -166,8 +169,10 @@ def _entry_tokens(e: dict) -> set[str]:
     return {e["id"], *(e.get("aliases") or [])}
 
 
-def run_pip_audit(lock: Path) -> list[dict]:
-    """Ejecuta pip-audit en JSON sobre un lock; devuelve [{package,version,id,aliases}]. RAW (sin ignores)."""
+def run_pip_audit(lock: Path) -> dict:
+    """pip-audit JSON RAW sobre un lock (sin ocultar). VALIDA cada dependency y separa auditadas de
+    OMITIDAS. -> {findings:[{package,version,id,aliases}], audited:{pkg:ver}, skipped:{pkg:reason}}.
+    Una dependency sin versión ni skip_reason, o con vulns malformadas, es un fallo (no cero-clean)."""
     if not lock.exists():
         raise FileNotFoundError(f"lock inexistente: {lock}")
     proc = subprocess.run(
@@ -190,24 +195,37 @@ def run_pip_audit(lock: Path) -> list[dict]:
         ) from exc
     if not isinstance(data, dict) or not isinstance(data.get("dependencies"), list):
         raise ValueError(f"pip-audit JSON sin lista dependencies para {lock.name}")
-    out: list[dict] = []
+    findings: list[dict] = []
+    audited: dict[str, str] = {}
+    skipped: dict[str, str] = {}
+    seen: set[str] = set()
     for dep in data["dependencies"]:
-        if not isinstance(dep, dict) or not isinstance(dep.get("vulns", []), list):
-            raise ValueError(f"pip-audit JSON con dependency inválida para {lock.name}")
+        if not isinstance(dep, dict) or not isinstance(dep.get("name"), str) or not dep["name"].strip():
+            raise ValueError(f"pip-audit JSON con dependency inválida para {lock.name}: {dep!r:.120}")
+        name = _norm_pkg(dep["name"])
+        if name in seen:  # dependency duplicada en la salida de pip-audit
+            raise ValueError(f"pip-audit devolvió {name} DUPLICADO para {lock.name}")
+        seen.add(name)
+        if dep.get("skip_reason"):  # pip-audit no pudo auditar este paquete (p. ej. versión local)
+            skipped[name] = str(dep["skip_reason"])
+            continue
+        if not isinstance(dep.get("vulns", []), list):
+            raise ValueError(f"pip-audit JSON con vulns inválidas para {name} en {lock.name}")
+        ver = str(dep.get("version", "")).strip()
+        if not ver:
+            raise ValueError(f"pip-audit: {name} sin versión ni skip_reason en {lock.name} (¿salida truncada?)")
+        audited[name] = ver
         for v in dep.get("vulns", []) or []:
             if not isinstance(v, dict) or not isinstance(v.get("id"), str):
                 raise ValueError(f"pip-audit JSON con vulnerability inválida para {lock.name}")
-            out.append(
-                {
-                    "package": _norm_pkg(dep.get("name", "")),
-                    "version": str(dep.get("version", "")),
-                    "id": v.get("id", ""),
-                    "aliases": list(v.get("aliases", []) or []),
-                }
+            findings.append(
+                {"package": name, "version": ver, "id": v["id"], "aliases": list(v.get("aliases", []) or [])}
             )
-    if (proc.returncode == 0 and out) or (proc.returncode == 1 and not out):
-        raise ValueError(f"pip-audit salida incoherente para {lock.name}: exit={proc.returncode}, findings={len(out)}")
-    return out
+    if (proc.returncode == 0 and findings) or (proc.returncode == 1 and not findings):
+        raise ValueError(
+            f"pip-audit salida incoherente para {lock.name}: exit={proc.returncode}, findings={len(findings)}"
+        )
+    return {"findings": findings, "audited": audited, "skipped": skipped}
 
 
 def reconcile_lock(observed: list[dict], entries: list[dict], *, profile: str, lock: str, today: dt.date) -> list[str]:
@@ -249,25 +267,122 @@ def reconcile_lock(observed: list[dict], entries: list[dict], *, profile: str, l
     return probs
 
 
+def read_pins(lock: Path) -> dict[str, str]:
+    """paquete_normalizado -> versión, usando el parser único del contrato (lc.pin_map).
+    LANZA ValueError ante pin duplicado o línea no reconocida (resp. 2 del contrato)."""
+    return lc.pin_map(lock.read_text())
+
+
+def check_local_version_policy(lock_rel: str, pins: dict[str, str]) -> list[str]:
+    """FAIL-CLOSED: toda versión local (`+…`) del lock debe estar DECLARADA en LOCAL_VERSION_QUERIES
+    con su parte pública coincidente; y toda consulta declarada debe corresponder a una versión
+    local presente. Impide ocultar una vuln tras una etiqueta local no autorizada."""
+    probs: list[str] = []
+    for pkg, ver in pins.items():
+        if "+" in ver:
+            key = (lock_rel, pkg)
+            if key not in LOCAL_VERSION_QUERIES:
+                probs.append(
+                    f"[{lock_rel}] versión local NO declarada: {pkg}=={ver} (autorizar en LOCAL_VERSION_QUERIES)"
+                )
+            elif LOCAL_VERSION_QUERIES[key] != ver.split("+", 1)[0]:
+                probs.append(
+                    f"[{lock_rel}] {pkg}: normalización declarada {LOCAL_VERSION_QUERIES[key]} != pública del lock {ver.split('+', 1)[0]}"
+                )
+    for (lk, pkg), _public in LOCAL_VERSION_QUERIES.items():
+        if lk != lock_rel:
+            continue
+        if pkg not in pins:
+            probs.append(f"[{lock_rel}] normalización declarada para {pkg} pero ausente del lock")
+        elif "+" not in pins[pkg]:
+            probs.append(
+                f"[{lock_rel}] normalización declarada para {pkg} pero el lock no fija versión local ({pins[pkg]})"
+            )
+    return probs
+
+
+def _run_pip_audit_req(req: str) -> dict:
+    """pip-audit sobre un requirement sintético (versión PÚBLICA normalizada). Mismo dict que run_pip_audit."""
+    fd, synth = tempfile.mkstemp(suffix=".txt", prefix="vp_norm_")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(req + "\n")
+        return run_pip_audit(Path(synth))
+    finally:
+        Path(synth).unlink(missing_ok=True)
+
+
+def _sha_file(p: Path) -> str:
+    return "sha256:" + hashlib.sha256(p.read_bytes()).hexdigest()
+
+
 def audit(today: dt.date | None = None) -> tuple[list[str], dict]:
     today = today or dt.date.today()
+    # 1. CONTRATO ESTÁTICO + manifiesto lockset.json PRIMERO — si la matriz no es coherente
+    #    consigo misma (hashes/pins/fuentes/estructura), no tiene sentido reconciliar advisories.
+    contract = lc.validate_all(ROOT)
+    if contract:
+        return [f"[contrato] {p}" for p in contract], {}
     entries = load_advisories(ADVISORIES)
     probs = validate_advisory_schema(entries)
     if probs:  # sin esquema válido no reconciliamos
         return probs, {}
     observed_by_lock: dict[str, list[dict]] = {}
     lock_hashes: dict[str, str] = {}
+    normalizations: dict[str, list[str]] = {}
     for rel, profile in LOCKS:
         lp = ROOT / rel
-        observed = run_pip_audit(lp)
-        observed_by_lock[rel] = observed
-        probs += reconcile_lock(observed, entries, profile=profile, lock=rel, today=today)
-        lock_hashes[rel] = "sha256:" + hashlib.sha256(lp.read_bytes()).hexdigest()
+        try:
+            pins = read_pins(lp)  # lc.pin_map: falla en pin duplicado / línea no reconocida
+        except ValueError as exc:
+            probs.append(f"[{rel}] pins ilegibles: {exc}")
+            continue
+        probs += check_local_version_policy(rel, pins)
+        result = run_pip_audit(lp)
+        # COMPLETITUD: el conjunto de paquetes que pip-audit reportó (auditados ∪ omitidos) debe ser
+        # EXACTAMENTE el del lock — un paquete omitido de la salida sería un cero-findings silencioso.
+        returned = set(result["audited"]) | set(result["skipped"])
+        if returned != set(pins):
+            probs.append(f"[{rel}] pip-audit cubrió != lock (dif: {sorted(returned ^ set(pins))})")
+        # versiones AUDITADAS deben coincidir con el pin del lock (paquetes sin sufijo local).
+        for name, ver in result["audited"].items():
+            lv = pins.get(name)
+            if lv is not None and "+" not in lv and lv != ver:
+                probs.append(f"[{rel}] {name}: pip-audit vio {ver} != lock {lv}")
+        findings = list(result["findings"])
+        # OMITIDOS: cualquier skip NO autorizado (fuera de LOCAL_VERSION_QUERIES) BLOQUEA.
+        for name, reason in sorted(result["skipped"].items()):
+            if (rel, name) not in LOCAL_VERSION_QUERIES:
+                probs.append(f"[{rel}] {name} OMITIDO por pip-audit sin autorización ({reason})")
+        # Consulta pública INCONDICIONAL de cada versión local autorizada de este lock (no depende de
+        # que haya habido skip: una futura pip-audit podría auditar la etiqueta local de otra forma).
+        # Exige que la respuesta sintética sea EXACTAMENTE {pkg: pub} auditado y NADA omitido.
+        for (lk, name), pub in sorted(LOCAL_VERSION_QUERIES.items()):
+            if lk != rel:
+                continue
+            if name in result["audited"] and result["audited"][name] != pins.get(name):
+                probs.append(f"[{rel}] {name} auditado {result['audited'][name]} != pin local {pins.get(name)}")
+            syn = _run_pip_audit_req(f"{name}=={pub}")
+            if syn["audited"] != {name: pub} or syn["skipped"]:
+                probs.append(
+                    f"[{rel}] consulta pública {name}=={pub}: audited={syn['audited']} skipped={syn['skipped']} != {{'{name}':'{pub}'}}"
+                )
+                continue
+            normalizations.setdefault(rel, []).append(f"{name}=={pub}")
+            findings += syn["findings"]
+        observed_by_lock[rel] = findings
+        probs += reconcile_lock(findings, entries, profile=profile, lock=rel, today=today)
+        lock_hashes[rel] = _sha_file(lp)
     receipt = {
         "tool": f"pip-audit=={PIP_AUDIT_VERSION}",
+        "python": platform.python_version(),
+        "platform": f"{platform.system()} {platform.machine()}",
         "evaluated_on": today.isoformat(),
-        "advisories_sha256": "sha256:" + hashlib.sha256(ADVISORIES.read_bytes()).hexdigest(),
+        "manifest_sha256": _sha_file(ROOT / lc.MANIFEST_REL),
+        "advisories_sha256": _sha_file(ADVISORIES),
         "lock_hashes": lock_hashes,
+        "source_hashes": {s: _sha_file(ROOT / s) for s in lc.SOURCES},
+        "normalizations": {rel: sorted(v) for rel, v in normalizations.items()},
         "observed": {
             rel: sorted(
                 ({"id": o["id"], "package": o["package"], "version": o["version"]} for o in observed),
@@ -294,14 +409,15 @@ def main(argv: list[str]) -> int:
     except (FileNotFoundError, ValueError) as exc:
         print(f"✗ AUDIT SUPPLY-CHAIN abortado: {exc}")
         return 1
-    if ns.receipt and receipt:
-        Path(ns.receipt).parent.mkdir(parents=True, exist_ok=True)
-        Path(ns.receipt).write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
     if probs:
+        # el receipt se emite SOLO tras validar todo — un audit incoherente no deja recibo válido.
         print(f"✗ SUPPLY-CHAIN incoherente ({len(probs)}):")
         for p in probs:
             print(f"  - {p}")
         return 1
+    if ns.receipt and receipt:
+        Path(ns.receipt).parent.mkdir(parents=True, exist_ok=True)
+        Path(ns.receipt).write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
     obs = receipt.get("observed", {})
     print(f"✓ Supply-chain OK: {receipt.get('n_accepted')} avisos permitidos, biyección por perfil. Observados: {obs}")
     return 0

@@ -177,9 +177,11 @@ dependencia productiva: el registro durable es el artefacto commiteado en git.
 - `locks/runtime.txt` — venv fresco con `pip install -e .` (datos puros).
 - `locks/dev.txt` — venv fresco con `.[dev]`; **el job lint-and-test de CI instala de
   este lock** (toda la cadena transitiva fijada, no solo las directas).
-- `locks/model-cpu.txt` — freeze del venv `ante/` de referencia (el entorno que produjo
-  las cifras publicadas).
-- GPU/deep — ya versionado en `aws_gpu/ante_nf-requirements.lock` (bundle EC2).
+- `locks/model-cpu.txt` — venv FRESCO `.[dev,model]` (P0R.4; antes freeze del `ante/` mutable).
+- GPU/deep — perfil **aislado** (`requirements/deep.in`, pandas 2.x): 3 locks HASHEADOS
+  `locks/deep-{macos-arm64,linux-x86_64-cpu,linux-x86_64-cu126}.txt`. El bundle EC2 instala
+  `-r ../locks/deep-linux-x86_64-cu126.txt` (torch 2.12.1+cu126). Sustituye al viejo
+  `aws_gpu/ante_nf-requirements.lock` (borrado en P0R.4: freeze mutable con torch 2.12.0).
 
 Sin hashes ni secretos (guard en el generador — ojo: la clase POSIX lleva `]` primero;
 `\[` en grep BSD cierra la clase). Regenerar locks es un upgrade deliberado y auditado

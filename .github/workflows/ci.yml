@@ -116,14 +116,19 @@ jobs:
         run: |
           # A5: toolchain de instalación pinneado (mismo pin que lint-and-test)
           python -m pip install "pip==26.1.2" "setuptools==81.0.0" "wheel==0.47.0"
-          # E3: wheel CPU primero — sin el índice, .[model] bajaba el torch CUDA (~2 GB) en cada push
-          pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu
+          # P0R.4R: wheel CPU +cpu del pin CANÓNICO (antes 2.12.0, que .[model] luego reemplazaba
+          # por el torch 2.12.1 CUDA de PyPI ~532 MB, rompiendo la intención CPU). Debe coincidir
+          # con el pin torch de pyproject.toml — lo verifica tests/test_workflow_torch_pin.py.
+          pip install torch==2.12.1+cpu --index-url https://download.pytorch.org/whl/cpu
           # C3/A5: constraints del lock Linux x86_64 (closure real de .[dev,model] en la
           # plataforma del runner, compilado SIN drift contra el freeze de referencia
           # locks/model-cpu.txt). Sigue siendo -c y no -r: torch debe venir del índice
           # CPU (arriba), no del pin CUDA de PyPI — y un constraints file no admite
           # hashes (limitación de pip), por eso este perfil va sin --generate-hashes.
           pip install -e ".[dev,model]" -c locks/model-cpu-linux-x86_64.txt
+          # el pin CPU debe SOBREVIVIR a .[model]: sin esto, un torch CUDA silencioso pasaría el CI.
+          pip check
+          python -c 'import torch; assert torch.__version__ == "2.12.1+cpu", torch.__version__'
 
       - name: Build the panel + DuckDB warehouse (modeling reads from it)
         run: |
@@ -247,4 +252,69 @@ jobs:
           python-version: '3.14'
       - run: pip install "pip-audit==2.10.1"
       - name: Audit supply chain (runner único — security/python_advisories.json)
-        run: python tools/audit_python_supply_chain.py
+        # -m: el auditor importa tools/lock_contracts.py (contrato estático + manifiesto primero).
+        # P0R.4R2: emite el receipt también en el CI de PR (no solo en Scheduled quality).
+        run: python -m tools.audit_python_supply_chain --receipt supply-chain-receipt.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: supply-chain-receipt-ci
+          path: supply-chain-receipt.json
+          if-no-files-found: error
+          retention-days: 30
+
+  # P0R.4R: instalación REAL de los locks deep en runners hosteados (antes CI solo los AUDITABA como
+  # texto; nada probaba resolución + hashes + pip check + imports). CUDA queda en resolución+hash+
+  # audit — su ejecución A10G se certifica en P0R.5. macos-15 = runner ARM64 estándar.
+  # P0R.4R2: sin `torch:` en la matriz — la versión esperada la DERIVA tools/deep_smoke.py desde
+  # lock_contracts.DEEP_RUNTIME (la matriz no se autoconfirma). Nombre de job ESTABLE (no incluye la
+  # versión de torch): así el check requerido (via ci-gate) no cambia de nombre al bumpear torch.
+  deep-lock-install:
+    name: deep-lock-install / ${{ matrix.variant }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: linux-cpu
+            os: ubuntu-24.04
+            lock: locks/deep-linux-x86_64-cpu.txt
+          - variant: macos-arm64
+            os: macos-15
+            lock: locks/deep-macos-arm64.txt
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.14'
+      - name: Install deep lock (--require-hashes) + real smoke
+        run: |
+          # toolchain PINEADO (mismo que el generador de locks); luego el cierre HASHEADO del perfil.
+          python -m pip install "pip==26.1.2" "setuptools==81.0.0" "wheel==0.47.0"
+          pip install --require-hashes -r ${{ matrix.lock }}
+          # deep_smoke corre `pip check` internamente + deriva plataforma/torch del contrato.
+          python -m tools.deep_smoke --lock ${{ matrix.lock }} --receipt deep-receipt-${{ matrix.variant }}.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: deep-install-receipt-${{ matrix.variant }}
+          path: deep-receipt-${{ matrix.variant }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  # P0R.4R2: check ESTABLE y único a exigir en branch protection. Depende de todos los jobs y falla
+  # si CUALQUIERA no terminó en success (failure/cancelled/skipped incluidos). Los nombres largos del
+  # matrix deep NO deben registrarse como checks requeridos (cambian al bumpear torch).
+  ci-gate:
+    name: ci-gate
+    if: always()
+    needs: [commit-policy, lint-and-test, model-tests, consistency, supply-chain, deep-lock-install]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any required job was not success
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
+        run: |
+          echo "resultados: ${{ join(needs.*.result, ', ') }}"
+          echo "✗ ci-gate: al menos un job no terminó en success"
+          exit 1
+      - name: All required jobs succeeded
+        run: echo "ci-gate OK - todos los jobs en success"

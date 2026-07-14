@@ -23,20 +23,31 @@ jobs:
         with:
           python-version: '3.14'
       - run: pip install "pip-audit==2.10.1"   # A5: herramienta de audit pinneada
-      # P0R.3 (ronda 10): un ÚNICO ejecutor gobierna la supply chain. Audita los 6 locks con
-      # pip-audit (sin ocultar nada) y reconcilia el resultado BRUTO contra
-      # security/python_advisories.json con BIYECCIÓN EXACTA por perfil (runtime/dev vetan;
-      # model con allowlist triada). Un aviso nuevo, una excepción huérfana o expirada, un
-      # paquete/versión distinto o un perfil incorrecto bloquean. Sin allowlist textual en YAML.
-      # El MISMO runner corre en el job `supply-chain` de ci.yml (PR/push).
+      # P0R.3/P0R.4R (ronda 10): un ÚNICO ejecutor gobierna la supply chain. Audita los 9 locks
+      # (runtime/dev/model-cpu × macOS+Linux + los 3 deep) con pip-audit (sin ocultar nada) y
+      # reconcilia el resultado BRUTO contra security/python_advisories.json con BIYECCIÓN EXACTA
+      # por perfil/lock (runtime/dev vetan; model y deep con allowlist triada). Corre PRIMERO el
+      # contrato estático + manifiesto (tools/lock_contracts.py); bloquea un aviso nuevo, una
+      # excepción huérfana/expirada, un skip_reason no autorizado, un paquete omitido por pip-audit,
+      # un paquete/versión distinto o un perfil incorrecto. Sin allowlist textual en YAML. El MISMO
+      # runner corre en el job `supply-chain` de ci.yml (PR/push). -m: importa lock_contracts.
       - name: Audit supply chain (runner único — security/python_advisories.json)
-        run: python tools/audit_python_supply_chain.py --receipt reports/governance/supply_chain_receipt.json
+        run: python -m tools.audit_python_supply_chain --receipt reports/governance/supply_chain_receipt.json
       # A5: sin `|| true` — si CycloneDX falla, el job falla (antes un SBOM roto
       # subía un artefacto vacío en silencio).
       - name: SBOM CycloneDX (perfil dev)
         run: pip-audit -r locks/dev.txt --no-deps --disable-pip --format cyclonedx-json -o sbom-dev.cdx.json
+      # P0R.4R: sube el RECIBO del auditor (hashes de manifiesto/locks/fuentes + normalizaciones +
+      # skips autorizados + Python/plataforma), no solo el SBOM — evidencia de la corrida.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: supply-chain-receipt
+          path: reports/governance/supply_chain_receipt.json
+          if-no-files-found: error
+          retention-days: 30
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: sbom-dev-cyclonedx
           path: sbom-dev.cdx.json
+          if-no-files-found: error
           retention-days: 30

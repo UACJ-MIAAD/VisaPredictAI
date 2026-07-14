@@ -58,7 +58,7 @@ db:
 news:
 	$(PY) -m pipeline.build_bulletins_json
 
-lock:  ## C3+A5: regenera los locks por perfil (macOS {runtime,dev,model-cpu}.txt + espejos -linux-x86_64 con uv)
+lock:  ## P0R.4R: regenera los 9 locks (base macOS + espejos Linux + 3 deep hasheados) + manifiesto lockset.json
 	bash tools/make_locks.sh
 
 repro:  ## reconstruye TODO el DAG de datos determinísticamente (solo lo que cambió) con DVC
