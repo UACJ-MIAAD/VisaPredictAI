@@ -3,22 +3,22 @@
     "pip": "26.1.2",
     "platform": "Darwin arm64",
     "python": "3.14.2",
-    "setuptools": "81.0.0",
+    "setuptools": "83.0.0",
     "uv": "0.11.28",
     "wheel": "0.47.0"
   },
   "locks": {
     "locks/deep-linux-x86_64-cpu.txt": {
       "pins": 132,
-      "sha256": "sha256:747c08860d6a859dc5d1d8dc3ca96b46b7e0559c9c6c4d809114d9830d0d28cd"
+      "sha256": "sha256:66f007af6e915086e92a25e98b70158149265386c218cd3d2a0268ae1c22fb66"
     },
     "locks/deep-linux-x86_64-cu126.txt": {
       "pins": 151,
-      "sha256": "sha256:13893fa3e8f4e9412ed20c344d2d173d63b8c0b3395cbad3cf8b31dcbeebb485"
+      "sha256": "sha256:f94be0038ec9fcce9a119d1328b97a82a62df21af02e0109bf6ea02ec063324f"
     },
     "locks/deep-macos-arm64.txt": {
       "pins": 131,
-      "sha256": "sha256:7846678313d441732e2a3c4ed2bdb3158b4c3056ecba32e0e085848eb399d427"
+      "sha256": "sha256:a75c7d097352bad8c1d833af5ee80500d511190d90caa96f3c27dedc697afac9"
     },
     "locks/dev-linux-x86_64.txt": {
       "pins": 36,
@@ -26,15 +26,15 @@
     },
     "locks/dev.txt": {
       "pins": 38,
-      "sha256": "sha256:4aa74a774ff66e29542757a2b8b843c875afde0352ba30105abfed218077f9ca"
+      "sha256": "sha256:4270cd1ca05e1000167effe62d4399e21c2791a4d163552d769ba2cb8433263a"
     },
     "locks/model-cpu-linux-x86_64.txt": {
       "pins": 129,
-      "sha256": "sha256:6c61c9eac1249812788b0dde30d589dfa4e7f7cd972ed5d182c6834ecf19722b"
+      "sha256": "sha256:706f671b83f1ac65ce179320d1d157836729fb22b40c1f6453b7785372378606"
     },
     "locks/model-cpu.txt": {
       "pins": 110,
-      "sha256": "sha256:93972e9e3564d868346cd866999de86cb54a8dfee0b361140798e8a5033801ad"
+      "sha256": "sha256:333e0f65742418a5d36f5e8021fb02480dbea8af03409f09c5961618e3a02c7f"
     },
     "locks/runtime-linux-x86_64.txt": {
       "pins": 23,
@@ -42,17 +42,17 @@
     },
     "locks/runtime.txt": {
       "pins": 25,
-      "sha256": "sha256:38385242fbc429bda4fffe1b443efbbc1b345e58ff9941d3706d59eca31aae3a"
+      "sha256": "sha256:c9485c5641232f7fdbb37e89648873370c54c5e61fed4e2c4987ac6928f07448"
     }
   },
   "schema_version": 1,
   "sources": {
-    "pyproject.toml": "sha256:9c045c5ad7fe57899d1c1d377e22e2bff6a2a9f55b962243d09db51abfc8b066",
-    "requirements/deep-linux-cpu.in": "sha256:ca91f04f6385fdae5a45cdc436084b027bb83abdd723591495aa9f6ef080ef30",
-    "requirements/deep-linux-cu126.in": "sha256:eb207049dddc6406292ae5d14ab3a2be834014ffd6610dae88e77189a265132d",
-    "requirements/deep.in": "sha256:17e239728e987613b28b64b7943e648a08dfbbbab0b16eec2aec8e30bb443349",
-    "tools/lock_contracts.py": "sha256:f33df35214b3896c88cd7a729187d7515d70c66e06d2622bd176dc513a847d3f",
-    "tools/make_locks.sh": "sha256:6d0e02dd739cc83f61f1cd24f055aeae8752e5f5fc853301e4f932adbb5c08fe",
+    "pyproject.toml": "sha256:d0c11f00c55a84fc0dd14c5bf60cee75e69538c8da921d0ca9c643890840db88",
+    "requirements/deep-linux-cpu.in": "sha256:31a69d2407e771faf50b2190a62576d45b117bb3788a940cd704fa589297a4dd",
+    "requirements/deep-linux-cu126.in": "sha256:c08c113f24a6367961a5f8b1a3a22a88d13684f05c9354f2bf8a858ef23ad5fe",
+    "requirements/deep.in": "sha256:66f71ed981944982e6276be13e7a89c6321d975ec5d6a0f444db7ee25fbb86e2",
+    "tools/lock_contracts.py": "sha256:feb52901ba28a8dd5413f0a97a5b958a68e88420816726a95eac081074ec74ad",
+    "tools/make_locks.sh": "sha256:96142058af3399f6845f32c486d71ca68b9f81d4129a87b9d73e2fc9249705dd",
     "tools/promote_lockset.py": "sha256:741c4f65cbe8dc63d5bd6a4c71d90c1b9b1560f97e5a64e1833516b17e9e5485"
   }
 }

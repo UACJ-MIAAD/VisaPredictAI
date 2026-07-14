@@ -1,4 +1,4 @@
-# Wrapper Linux x86_64 CPU: torch 2.12.1+cpu desde el índice oficial PyTorch CPU.
+# Wrapper Linux x86_64 CPU: torch 2.13.0+cpu desde el índice oficial PyTorch CPU.
 # El cierre transitivo hasheado se genera en locks/deep-linux-x86_64-cpu.txt.
 --extra-index-url https://download.pytorch.org/whl/cpu
 -r deep.in

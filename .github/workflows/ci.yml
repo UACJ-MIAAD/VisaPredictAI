@@ -75,7 +75,7 @@ jobs:
         run: |
           # A5: toolchain de instalación PINNEADO (pip/setuptools/wheel) — mismo pip que
           # el entorno de referencia ante/; sin esto cada corrida instala el pip del día.
-          python -m pip install "pip==26.1.2" "setuptools==81.0.0" "wheel==0.47.0"
+          python -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
           # C3+A5: instalación por LOCK transitivo DE LA PLATAFORMA DEL RUNNER
           # (locks/dev-linux-x86_64.txt, con hashes sha256 → hash-checking mode de pip).
           # El lock macOS arm64 (locks/dev.txt) es el del entorno de referencia; ambos
@@ -115,11 +115,11 @@ jobs:
       - name: Install with modeling extra
         run: |
           # A5: toolchain de instalación pinneado (mismo pin que lint-and-test)
-          python -m pip install "pip==26.1.2" "setuptools==81.0.0" "wheel==0.47.0"
-          # P0R.4R: wheel CPU +cpu del pin CANÓNICO (antes 2.12.0, que .[model] luego reemplazaba
-          # por el torch 2.12.1 CUDA de PyPI ~532 MB, rompiendo la intención CPU). Debe coincidir
-          # con el pin torch de pyproject.toml — lo verifica tests/test_workflow_torch_pin.py.
-          pip install torch==2.12.1+cpu --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
+          # P0R.4R/R3: wheel CPU +cpu del pin CANÓNICO (sin él, .[model] baja el torch CUDA de PyPI
+          # ~GB y rompe la intención CPU). Debe coincidir con el pin torch de pyproject.toml
+          # (2.13.0) — lo verifica tests/test_workflow_torch_pin.py.
+          pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
           # C3/A5: constraints del lock Linux x86_64 (closure real de .[dev,model] en la
           # plataforma del runner, compilado SIN drift contra el freeze de referencia
           # locks/model-cpu.txt). Sigue siendo -c y no -r: torch debe venir del índice
@@ -128,7 +128,7 @@ jobs:
           pip install -e ".[dev,model]" -c locks/model-cpu-linux-x86_64.txt
           # el pin CPU debe SOBREVIVIR a .[model]: sin esto, un torch CUDA silencioso pasaría el CI.
           pip check
-          python -c 'import torch; assert torch.__version__ == "2.12.1+cpu", torch.__version__'
+          python -c 'import torch; assert torch.__version__ == "2.13.0+cpu", torch.__version__'
 
       - name: Build the panel + DuckDB warehouse (modeling reads from it)
         run: |
@@ -290,7 +290,7 @@ jobs:
       - name: Install deep lock (--require-hashes) + real smoke
         run: |
           # toolchain PINEADO (mismo que el generador de locks); luego el cierre HASHEADO del perfil.
-          python -m pip install "pip==26.1.2" "setuptools==81.0.0" "wheel==0.47.0"
+          python -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
           pip install --require-hashes -r ${{ matrix.lock }}
           # deep_smoke corre `pip check` internamente + deriva plataforma/torch del contrato.
           python -m tools.deep_smoke --lock ${{ matrix.lock }} --receipt deep-receipt-${{ matrix.variant }}.json

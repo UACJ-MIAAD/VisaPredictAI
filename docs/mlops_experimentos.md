@@ -180,7 +180,7 @@ dependencia productiva: el registro durable es el artefacto commiteado en git.
 - `locks/model-cpu.txt` — venv FRESCO `.[dev,model]` (P0R.4; antes freeze del `ante/` mutable).
 - GPU/deep — perfil **aislado** (`requirements/deep.in`, pandas 2.x): 3 locks HASHEADOS
   `locks/deep-{macos-arm64,linux-x86_64-cpu,linux-x86_64-cu126}.txt`. El bundle EC2 instala
-  `-r ../locks/deep-linux-x86_64-cu126.txt` (torch 2.12.1+cu126). Sustituye al viejo
+  `-r ../locks/deep-linux-x86_64-cu126.txt` (torch 2.13.0+cu126). Sustituye al viejo
   `aws_gpu/ante_nf-requirements.lock` (borrado en P0R.4: freeze mutable con torch 2.12.0).
 
 Sin hashes ni secretos (guard en el generador — ojo: la clase POSIX lleva `]` primero;

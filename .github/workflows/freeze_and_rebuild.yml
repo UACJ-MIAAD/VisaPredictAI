@@ -83,7 +83,7 @@ jobs:
     - name: Install runtime dependencies
       run: |
         # A5: toolchain de instalación pinneado (pip/setuptools/wheel — mismo pin que ci.yml)
-        python -m pip install "pip==26.1.2" "setuptools==81.0.0" "wheel==0.47.0"
+        python -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
         # 2a ronda audit 12-jul + A5: TODAS las fases del cron instalan bajo el lock de
         # su perfil Y su plataforma. runtime/dev: lock Linux x86_64 con hashes sha256
         # (-r + hash-checking mode); el proyecto entra aparte con --no-deps.
@@ -221,15 +221,15 @@ jobs:
         #     — per-series 12-month forecasts (FAD: median Theta+ETS+SARIMA;
         #     DFF: SARIMA; split-conformal 80/95% bands). The website fetches these
         #     at build time. Per-series MASE/coverage land in the committed meta.json.
-        # P0R.4R: pin CANONICO +cpu (antes 2.12.0, reemplazado por el 2.12.1 CUDA de PyPI).
+        # P0R.4R/R3: pin CANONICO +cpu (sin el indice CPU, .[model] baja el torch CUDA de PyPI).
         # Debe coincidir con el torch de pyproject.toml (tests/test_workflow_torch_pin.py).
-        pip install torch==2.12.1+cpu --index-url https://download.pytorch.org/whl/cpu
+        pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu
         # C3 (auditoria 11-jul) + A5: constraints del lock Linux x86_64 (closure real
         # de la plataforma del runner; sin drift vs locks/model-cpu.txt de referencia).
         # Sigue -c (no -r): torch viene del indice CPU y constraints no admite hashes.
         pip install -e ".[model]" -c locks/model-cpu-linux-x86_64.txt
         pip check
-        python -c 'import torch; assert torch.__version__ == "2.12.1+cpu", torch.__version__'
+        python -c 'import torch; assert torch.__version__ == "2.13.0+cpu", torch.__version__'
         python experiments/generate_web_forecasts.py
 
         # 4c. Prospective scoring: now that this month's REAL cutoffs are in the

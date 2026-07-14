@@ -20,7 +20,7 @@ _GEN = {
     "python": "3.14.2",
     "platform": "Darwin arm64",
     "pip": "26.1.2",
-    "setuptools": "81.0.0",
+    "setuptools": "83.0.0",
     "wheel": "0.47.0",
     "uv": "0.11.28",
 }
@@ -33,9 +33,8 @@ def _sha(b: bytes) -> str:
 def _lock_text(rel: str, hashed: bool) -> str:
     if rel in lc.DEEP_LOCKS:
         lines = list(lc.DEEP_INDEX[rel]) + [""]
-        for pkg, ver in {**lc.DEEP_DIRECT, "torch": lc.DEEP_TORCH[rel].replace("2.12.1", "2.12.1", 1)}.items():
-            v = lc.DEEP_TORCH[rel] if pkg == "torch" else ver
-            lines.append(f"{pkg}=={v} \\")
+        for pkg, ver in {**lc.DEEP_DIRECT, "torch": lc.DEEP_TORCH[rel]}.items():
+            lines.append(f"{pkg}=={ver} \\")
             lines.append(f"    --hash={_H}")
         return "\n".join(lines) + "\n"
     # locks base: 2 pins (con hash si el perfil es hasheado)
@@ -74,7 +73,7 @@ def repo(tmp_path):
     (root / "tools/promote_lockset.py").write_text("# stub promotor\n")
     (root / "tools/lock_contracts.py").write_text("# stub contrato\n")
     (root / "requirements/deep.in").write_text(
-        "\n".join(f"{p}=={v}" for p, v in {**lc.DEEP_DIRECT, "torch": "2.12.1"}.items()) + "\n"
+        "\n".join(f"{p}=={v}" for p, v in {**lc.DEEP_DIRECT, "torch": lc.TORCH_PUBLIC}.items()) + "\n"
     )
     for w, lines in lc.WRAPPERS.items():
         (root / w).write_text("\n".join(lines) + "\n")
