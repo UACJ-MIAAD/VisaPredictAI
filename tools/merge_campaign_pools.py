@@ -4,8 +4,8 @@
 
 FAIL-CLOSED (B74): exige las OCHO mitades exactas (2 tablas × 2 bloques × 2 mitades), cada una fichero regular
 no vacío, con las columnas requeridas y el MISMO esquema entre mitades, `run_id` no nulo y finito. Prepara y
-valida TODO antes de escribir nada; escribe de forma ATÓMICA (temp 0600 + fsync + os.replace). Ante cualquier
-error: exit ≠ 0 y CERO outputs nuevos/parciales.
+valida las ocho ANTES de escribir nada; escribe de forma ATÓMICA (temp 0600 + fsync + os.replace). Ante
+cualquier error: exit ≠ 0 y CERO outputs nuevos/parciales.
 
 UNA campaña = UN run_id: 9 consumidores aguas abajo filtran por `run_id==max()`. El id por-mitad sobrevive en
 `source_run_id`.
@@ -77,7 +77,7 @@ def merge() -> int:
             full["source_run_id"] = full["run_id"]
             full["run_id"] = full["run_id"].max()
             prepared[(table, block)] = full
-    # 2. Escritura ATÓMICA de TODO, solo tras validar las ocho.
+    # 2. Escritura ATÓMICA de las ocho, solo tras validar todas.
     for (table, block), full in prepared.items():
         _atomic_write_csv(camp / f"campaign_pool_{table}_{block}.csv", full)
         tgt = f"model_comparison_{table}21.csv" if block == "family" else f"model_comparison_EB_{table}21.csv"
