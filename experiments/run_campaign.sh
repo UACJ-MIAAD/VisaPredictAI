@@ -14,11 +14,11 @@
 #   bash experiments/run_campaign.sh > reports/campaign.log 2>&1
 set -uo pipefail
 cd "$(dirname "$0")/.."   # los intérpretes y las rutas de salida viven en la RAÍZ del repo
-ANTE=ante/bin/python
-NF=ante_nf/bin/python
-# Guard fail-loud: sin esto, con el cwd/venv equivocado un paso se convertía en un no-op
-# silencioso que imprimía éxito (E1).
-[ -x "$ANTE" ] && [ -x "$NF" ] || { echo "ERROR: faltan venvs ante/ y/o ante_nf/ en la raíz" >&2; exit 1; }
+# R9.4: bootstrap orquestador (tools.python_env es stdlib-only). La LÓGICA DE PRODUCTO corre en los
+# entornos `model`/`deep-cpu` content-addressed que abre `run-command`, jamás en el python ambiental.
+PYBOOT=${PYBOOT:-python3}
+command -v "$PYBOOT" >/dev/null 2>&1 || { echo "ERROR: falta $PYBOOT (bootstrap del orquestador)" >&2; exit 1; }
+runc() { "$PYBOOT" -m tools.python_env run-command --id "$1" -- "${@:2}"; }
 SEEDS="1 2 3 4 5"
 CAMP_FAILS=0
 step() { local label="$1"; shift; echo ">>> $label $(date)"; "$@" || { echo "##### PASO FALLIDO (exit $?): $label :: $*"; CAMP_FAILS=$((CAMP_FAILS+1)); }; }
@@ -28,7 +28,7 @@ echo "campaign_id=${CAMPAIGN_ID:-standalone}  ·  sha=${CAMPAIGN_SHA:-$(git rev-
 # ---------- F1: pool local 24 modelos (tracked) ----------
 for table in FAD DFF; do
   for block in family employment; do
-    step "F1 pool $table/$block" $ANTE -m vp_model.run_comparison --country all --table "$table" --block "$block" --mlflow \
+    step "F1 pool $table/$block" runc run_comparison --country all --table "$table" --block "$block" --mlflow \
       --out "reports/campaign/campaign_pool_${table}_${block}.csv"
   done
 done
@@ -38,21 +38,21 @@ done
 DET_MODELS="BiTCN PatchTST TiDE NHITS"
 for table in FAD DFF; do
   for seed in $SEEDS; do
-    step "deep levels $table s$seed" $NF experiments/run_global_deep.py --table "$table" --block family --max-steps 800 --models $DET_MODELS \
+    step "deep levels $table s$seed" runc run_global_deep --table "$table" --block family --max-steps 800 --models $DET_MODELS \
       --seed "$seed" --suffix "camp_levels_s${seed}"
-    step "deep diff $table s$seed" $NF experiments/run_global_deep.py --table "$table" --block family --diff --max-steps 800 --models $DET_MODELS \
+    step "deep diff $table s$seed" runc run_global_deep --table "$table" --block family --diff --max-steps 800 --models $DET_MODELS \
       --seed "$seed" --suffix "camp_diff_s${seed}"
-    step "deep diffls $table s$seed" $NF experiments/run_global_deep.py --table "$table" --block family --diff --local-scaler --max-steps 800 \
+    step "deep diffls $table s$seed" runc run_global_deep --table "$table" --block family --diff --local-scaler --max-steps 800 \
       --models $DET_MODELS --seed "$seed" --suffix "camp_diffls_s${seed}"
   done
   # Variante con HPO (Auto*), AK8c: UNA búsqueda (40 trials, arquitectura + early stop)
   # que persiste la config ganadora por modelo, y el ganador re-entrenado con las 5
   # semillas. El sufijo de búsqueda NO empieza con camp_auto_s para no contaminar la
   # agregación multi-semilla por prefijo.
-  step "deep hposearch $table" $NF experiments/run_global_deep.py --table "$table" --block family --diff --auto --num-samples 40 \
+  step "deep hposearch $table" runc run_global_deep --table "$table" --block family --diff --auto --num-samples 40 \
     --models AutoBiTCN AutoTiDE AutoNHITS --seed 1 --suffix "camp_hposearch"
   for seed in $SEEDS; do
-    step "deep auto $table s$seed" $NF experiments/run_global_deep.py --table "$table" --block family --diff \
+    step "deep auto $table s$seed" runc run_global_deep --table "$table" --block family --diff \
       --models BiTCN TiDE NHITS --config "reports/campaign/hpo_deep_best_${table}_Auto{model}.json" \
       --seed "$seed" --suffix "camp_auto_s${seed}"
   done
@@ -63,16 +63,16 @@ echo ">>> F2 agregación tracked $(date)"
 for table in FAD DFF; do
   for m in $DET_MODELS; do
     for v in camp_levels_s camp_diff_s camp_diffls_s; do
-      step "agg $table $m $v" $ANTE experiments/aggregate_seeds.py --table "$table" --prefix "$v" --model "$m" --mlflow
+      step "agg $table $m $v" runc aggregate_seeds --table "$table" --prefix "$v" --model "$m" --mlflow
     done
   done
   for m in AutoBiTCN AutoTiDE AutoNHITS; do
-    step "agg $table $m auto" $ANTE experiments/aggregate_seeds.py --table "$table" --prefix camp_auto_s --model "$m" --mlflow
+    step "agg $table $m auto" runc aggregate_seeds --table "$table" --prefix camp_auto_s --model "$m" --mlflow
   done
 done
 
 # ---------- F2: ensembles (combinaciones) -> MLflow ----------
-step "F2 ensembles" $ANTE experiments/run_ensembles.py --mlflow
+step "F2 ensembles" runc run_ensembles --mlflow
 
 # ---------- MLflow + DVC re-hash LOCAL (NO publica; auditoría 12-jul-2026) ----------
 # sync_all sin --publish: sincroniza MLflow y re-hashea con dvc add, pero NO hace
