@@ -78,12 +78,13 @@ def _fake_env(tmp_path, monkeypatch, *, digest_ok=True, env_id_ok=True, envp=Non
         envp = tmp_path / "env"
     (envp / "bin").mkdir(parents=True)
     (envp / "bin" / "python").write_text("#!/bin/sh\n")  # existe; no se ejecuta (freeze monkeypatched)
-    monkeypatch.setattr(pe, "_pip_freeze", lambda py: _FREEZE)
-    monkeypatch.setattr(pe, "_pip_check", lambda py: True)
+    # B58: ready_valid ahora hashea/inventaría POR el descriptor (env_fd) — se parchean las variantes `_at`.
+    monkeypatch.setattr(pe, "_pip_freeze_at", lambda fd, env=None: _FREEZE)
+    monkeypatch.setattr(pe, "_pip_check_at", lambda fd, env=None: True)
     monkeypatch.setattr(pe, "env_id", lambda *a, **k: "KNOWNID")
     monkeypatch.setattr(pe, "descriptor", lambda *a, **k: _DESC)
-    monkeypatch.setattr(pe, "_tree_digest", lambda p: "TREE")
-    monkeypatch.setattr(pe, "_file_hashes", lambda p, cfg: {"bin/dvc": "h"})
+    monkeypatch.setattr(pe, "_tree_digest_at", lambda fd: "TREE")
+    monkeypatch.setattr(pe, "_file_hashes_at", lambda fd, cfg: {"bin/dvc": "h"})
     monkeypatch.setattr(pe, "_inventory_problems", lambda obs, prof, var, profiles: [])
     monkeypatch.setattr(pe.lc, "validate_all", lambda root: [])
     sealed = _FREEZE if digest_ok else ["gamma==9.9.9"]
@@ -175,14 +176,14 @@ def test_all_profiles_compute_env_id():
 def test_b4_extra_package_blocks(tmp_path, monkeypatch):
     envp = _fake_env(tmp_path, monkeypatch)
     # inventario vivo con un paquete EXTRA no sellado
-    monkeypatch.setattr(pe, "_pip_freeze", lambda py: _FREEZE + ["evil==6.6.6"])
+    monkeypatch.setattr(pe, "_pip_freeze_at", lambda fd, env=None: _FREEZE + ["evil==6.6.6"])
     ok, why = pe.ready_valid(envp, "dvc-tool")
     assert not ok and "TAMPER" in why
 
 
 def test_b4_pip_check_on_reuse(tmp_path, monkeypatch):
     envp = _fake_env(tmp_path, monkeypatch)
-    monkeypatch.setattr(pe, "_pip_check", lambda py: False)  # pip check roto en reuso
+    monkeypatch.setattr(pe, "_pip_check_at", lambda fd, env=None: False)  # pip check roto en reuso
     ok, why = pe.ready_valid(envp, "dvc-tool")
     assert not ok and "pip check" in why
 
@@ -482,19 +483,14 @@ def test_b33_build_extra_aborts_before_ready(tmp_path, monkeypatch):
     monkeypatch.setattr(pe, "ENVS_ROOT", envs)
     monkeypatch.setattr(pe, "STAGING_ROOT", envs / ".staging")
 
-    def fake_create(path, **kw):
-        (path / "bin").mkdir(parents=True)
-        (path / "bin" / "python").write_text("#!/bin/sh\n")
-        (path / "pyvenv.cfg").write_text("x")
-
-    monkeypatch.setattr(pe.venv, "create", fake_create)
-    monkeypatch.setattr(pe, "_install", lambda *a, **k: None)
-    monkeypatch.setattr(pe, "_pip_check", lambda py: True)
+    monkeypatch.setattr(pe, "_venv_create_at", lambda dir_fd: None)
+    monkeypatch.setattr(pe, "_install_at", lambda *a, **k: None)
+    monkeypatch.setattr(pe, "_pip_check_at", lambda dir_fd, env=None: True)
     exp = pe.expected_inventory("dvc-tool")
     freeze = [f"{n}=={v}" for n, v in exp.items()] + ["evil-extra==9.9"]
-    monkeypatch.setattr(pe, "_pip_freeze", lambda py: freeze)
-    monkeypatch.setattr(pe, "_tree_digest", lambda p: "T")
-    monkeypatch.setattr(pe, "_file_hashes", lambda p, cfg: {"x": "h"})
+    monkeypatch.setattr(pe, "_pip_freeze_at", lambda dir_fd, env=None: freeze)
+    monkeypatch.setattr(pe, "_tree_digest_at", lambda dir_fd: "T")
+    monkeypatch.setattr(pe, "_file_hashes_at", lambda dir_fd, cfg: {"x": "h"})
     with pytest.raises(SystemExit):
         pe.build("dvc-tool")
     target = pe.env_dir("dvc-tool")
@@ -680,15 +676,14 @@ def test_b51_cleanup_never_deletes_external(tmp_path, monkeypatch):
     external = tmp_path / "external"
     external.mkdir()
 
-    def malicious_create(path, **kw):
-        nonce = pe.Path(path).name
-        (external / nonce).mkdir(parents=True)  # lo que la limpieza-por-ruta (vieja) resolvería y borraría
-        (external / nonce / "DO_NOT_DELETE").write_text("x")
+    def malicious_venv(dir_fd):
+        (external / "sub").mkdir(parents=True)  # lo que una limpieza-por-ruta (vieja) resolvería y borraría
+        (external / "sub" / "DO_NOT_DELETE").write_text("x")
         (envs / ".staging").rename(envs / ".staging_real")  # swap del ancestro
         (envs / ".staging").symlink_to(external)
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(pe.venv, "create", malicious_create)
+    monkeypatch.setattr(pe, "_venv_create_at", malicious_venv)
     with pytest.raises(RuntimeError):
         pe.build("dvc-tool")
     assert list(external.rglob("DO_NOT_DELETE")), "la limpieza borró el árbol externo (B51)"
@@ -714,16 +709,130 @@ def test_b52_ready_valid_rejects_inode_swap_during_hash(tmp_path, monkeypatch):
     (other / "bin" / "python").write_text("#!/bin/sh\n")
     os.chmod(other, 0o700)
 
-    def swap_then_digest(p):
+    def swap_then_digest(fd):
         env = tmp_path / "env"
         if env.is_dir() and not env.is_symlink():
             env.rename(tmp_path / "env_real")
-            env.symlink_to(other)  # env_path ahora resuelve a OTRO inode
+            env.symlink_to(other)  # env_path ahora resuelve a OTRO inode (swap NO restaurado)
         return "TREE"  # coincide con el sello monkeypatcheado -> el hash "pasa"
 
-    monkeypatch.setattr(pe, "_tree_digest", swap_then_digest)
+    monkeypatch.setattr(pe, "_tree_digest_at", swap_then_digest)
     ok, why = pe.ready_valid(envp, "dvc-tool")
     assert not ok and "inode" in why.lower()
+
+
+# ----------------------------- C1: regresiones R8R6R3 (B55/B58) -----------------------------
+
+
+def test_b55_real_venv_clear_cannot_delete_external(tmp_path, monkeypatch):
+    # El fix elimina venv.create(..., clear=True) por RUTA ABSOLUTA. Se instala un swap del ancestro
+    # `.staging` en el chequeo pre-venv (tras pasar el chequeo legítimo); la creación del venv debe ser
+    # fd-relativa (fchdir al staging_fd ya abierto) y NUNCA borrar el testigo externo. En el head previo,
+    # venv.create(clear=True) resolvía la ruta swappeada y wipeaba el árbol externo.
+    envs = tmp_path / ".vp_envs"
+    envs.mkdir()
+    os.chmod(envs, 0o700)
+    monkeypatch.setattr(pe, "ENVS_ROOT", envs)
+    monkeypatch.setattr(pe, "STAGING_ROOT", envs / ".staging")
+    external = tmp_path / "external"
+    external.mkdir()
+
+    real_check = pe._check_ident
+
+    def swapping_check(path, ident, what):
+        real_check(path, ident, what)  # el chequeo legítimo PASA
+        if what == "pre-venv":
+            nonce = pe.Path(path).name
+            (external / nonce).mkdir(parents=True)
+            (external / nonce / "DO_NOT_DELETE").write_text("precious")
+            (envs / ".staging").rename(envs / ".staging_real")
+            (envs / ".staging").symlink_to(external)  # swap del ancestro tras el chequeo
+
+    monkeypatch.setattr(pe, "_check_ident", swapping_check)
+    with pytest.raises(SystemExit):  # el post-venv _check_ident caza el swap y aborta
+        pe.build("dvc-tool")
+    assert list(external.rglob("DO_NOT_DELETE")), "la creación del venv borró el árbol externo (B55)"
+
+
+def test_b55_path_swap_during_install_cannot_write_external(tmp_path):
+    # Primitivo fd-bound: un subproceso de la fase de instalación debe escribir DENTRO del inode del
+    # descriptor (fchdir), no a través de la ruta. Aun con la ruta swappeada a un árbol externo tras abrir
+    # el fd, el subproceso escribe en el dir real, no en el externo.
+    real = tmp_path / "real"
+    real.mkdir()
+    os.chmod(real, 0o700)
+    fd = os.open(str(real), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    external = tmp_path / "external"
+    external.mkdir()
+    try:
+        # swap de la ruta a un symlink externo DESPUÉS de abrir el fd
+        real.rename(tmp_path / "real_moved")
+        (tmp_path / "real").symlink_to(external)
+        r = pe._run_in_dir(fd, ["sh", "-c", "echo x > install_probe.txt"], capture=True)
+        assert r.returncode == 0
+    finally:
+        os.close(fd)
+    assert (tmp_path / "real_moved" / "install_probe.txt").exists()  # escribió al inode real (fd)
+    assert not (external / "install_probe.txt").exists()  # NO al árbol externo swappeado
+
+
+def test_b58_ready_valid_transient_swap_is_rejected(tmp_path, monkeypatch):
+    # B58: los chequeos de identidad que "encapsulan" una operación por ruta no garantizan que la
+    # operación usara el mismo inode (un swap transitorio lee el árbol externo y restaura antes del
+    # post-chequeo). El fix hashea/inventaría por el DESCRIPTOR gobernado (env_fd), no re-resolviendo la
+    # ruta. Regresión: la versión POR RUTA de _tree_digest jamás debe ser invocada por ready_valid.
+    envp = _fake_env(tmp_path, monkeypatch)
+    called = {"path_tree": False}
+
+    def path_tree_should_not_run(p):
+        called["path_tree"] = True
+        return "TREE"
+
+    # swap transitorio durante la validación (tras abrir el env_fd, antes de hashear)
+    other = tmp_path / "other"
+    (other / "bin").mkdir(parents=True)
+    (other / "bin" / "python").write_text("#!/bin/sh\n")
+    os.chmod(other, 0o700)
+
+    def transient_swap(root):
+        env = tmp_path / "env"
+        if env.is_dir() and not env.is_symlink():
+            env.rename(tmp_path / "env_real")
+            env.symlink_to(other)
+            env.unlink()
+            (tmp_path / "env_real").rename(env)  # restaura antes del post-chequeo
+        return []
+
+    monkeypatch.setattr(pe, "_tree_digest", path_tree_should_not_run)
+    monkeypatch.setattr(pe.lc, "validate_all", transient_swap)
+    ok, why = pe.ready_valid(envp, "dvc-tool")
+    assert ok, why  # valida contra el fd gobernado (contenido real), inmune al swap de la ruta
+    assert called["path_tree"] is False, "ready_valid usó _tree_digest POR RUTA (vulnerable a swap)"
+
+
+def test_b58_tree_digest_at_is_swap_immune(tmp_path):
+    # _tree_digest_at(dir_fd) hashea el inode del descriptor; un swap de la ruta a otro árbol no cambia
+    # el digest (a diferencia de la versión por ruta).
+    real = tmp_path / "env"
+    (real / "lib").mkdir(parents=True)
+    (real / "lib" / "x.py").write_text("REAL\n")
+    fd = os.open(str(real), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    external = tmp_path / "external"
+    (external / "lib").mkdir(parents=True)
+    (external / "lib" / "x.py").write_text("EXTERNAL\n")
+    try:
+        before = pe._tree_digest_at(fd)
+        real.rename(tmp_path / "env_moved")
+        (tmp_path / "env").symlink_to(external)  # ruta ahora resuelve a EXTERNAL
+        after = pe._tree_digest_at(fd)
+        assert before == after  # el fd está anclado al inode real
+        ext_fd = os.open(str(external), os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            assert pe._tree_digest_at(ext_fd) != after  # el árbol externo tiene OTRO digest (si se siguiera la ruta)
+        finally:
+            os.close(ext_fd)
+    finally:
+        os.close(fd)
 
 
 if __name__ == "__main__":

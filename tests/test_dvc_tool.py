@@ -899,5 +899,116 @@ def test_b54_receipt_platform_identity_matches_descriptor(tmp_path, monkeypatch)
     assert any("platform != descriptor" in p for p in probs)
 
 
+# ----------------------------- C1: regresiones R8R6R3 (B56/B57/B59) -----------------------------
+
+
+def test_b56_yaml_spaced_uses_is_detected(tmp_path):
+    # `uses :` (espacio antes del `:`) es YAML válido pero el gate por texto no lo veía. El parseo
+    # estructural DEBE ver la acción no autorizada.
+    sha = "a" * 40
+    root = _wf(tmp_path, "x.yml", f"jobs:\n  a:\n    steps:\n      - uses : evil/backdoor@{sha}\n")
+    probs = pins.check(root)
+    assert any("evil/backdoor" in p and "NO autorizada" in p for p in probs)
+
+
+def test_b56_yaml_duplicate_uses_key_is_rejected(tmp_path):
+    # dos claves `uses:` en un mismo step son ambiguas (una podría enmascarar a la otra). El loader YAML
+    # con rechazo de claves duplicadas debe marcarlo como problema (fail-closed).
+    reg = pins.load_registry()
+    a = reg["actions/checkout"]
+    b = reg["actions/setup-python"]
+    body = (
+        "jobs:\n  a:\n    steps:\n      - name: s\n"
+        f"        uses: actions/checkout@{a['sha']}  # {a['version']}\n"
+        f"        uses: actions/setup-python@{b['sha']}  # {b['version']}\n"
+    )
+    root = _wf(tmp_path, "x.yml", body)
+    probs = pins.check(root)
+    assert any("duplicad" in p.lower() for p in probs)
+
+
+def test_b57_runtime_must_come_from_runs_using(tmp_path, monkeypatch):
+    # verify_remote debe derivar node24 de la estructura runs.using, no de una búsqueda textual. Un
+    # action.yml Node 20 con "using: node24" en la descripción NO debe pasar.
+    p = _reg(
+        tmp_path,
+        '{"schema_version": 1, "note": "x", "actions": {"actions/checkout": '
+        '{"sha": "' + ("a" * 40) + '", "version": "v5", "runtime": "node24"}}}',
+    )
+
+    def fake_gh(*args):
+        q = args[0]
+        if "commits/" in q:
+            return '"' + "a" * 40 + '"'
+        if "git/ref/tags/" in q:
+            return "a" * 40  # el tag apunta al sha registrado (esa parte OK)
+        if "contents/action" in q:
+            import base64
+
+            manifest = 'name: x\ndescription: "using: node24"\nruns:\n  using: node20\n  main: index.js\n'
+            return '"' + base64.b64encode(manifest.encode()).decode() + '"'
+        return None
+
+    monkeypatch.setattr(pins, "_gh", fake_gh)
+    probs = pins.verify_remote(p)
+    assert any("node24" in x for x in probs)
+
+
+def test_b57_node24_in_comment_or_description_does_not_count(tmp_path, monkeypatch):
+    # node24 solo dentro de un comentario del manifiesto no cuenta: runs.using es node20.
+    p = _reg(
+        tmp_path,
+        '{"schema_version": 1, "note": "x", "actions": {"actions/checkout": '
+        '{"sha": "' + ("b" * 40) + '", "version": "v5", "runtime": "node24"}}}',
+    )
+
+    def fake_gh(*args):
+        q = args[0]
+        if "commits/" in q:
+            return '"' + "b" * 40 + '"'
+        if "git/ref/tags/" in q:
+            return "b" * 40
+        if "contents/action" in q:
+            import base64
+
+            manifest = "runs:\n  using: node20  # using: node24 (lie)\n  main: index.js\n"
+            return '"' + base64.b64encode(manifest.encode()).decode() + '"'
+        return None
+
+    monkeypatch.setattr(pins, "_gh", fake_gh)
+    probs = pins.verify_remote(p)
+    assert any("node24" in x for x in probs)
+
+
+def test_b59_receipt_cannot_choose_its_expected_platform(tmp_path, monkeypatch):
+    # Un recibo que declara la plataforma CONTRARIA a la esperada (por la matriz) debe rechazarse; no puede
+    # elegir su propia plataforma para saltarse la comparación de identidad ligada al runner.
+    import tools.python_env as pe
+
+    _receipt_workspace(tmp_path, monkeypatch)
+    (tmp_path / ("locks/" + pe.lock_rel_for("dvc-tool").split("/")[-1])).write_text("x")
+    cur = pe.platform_key()
+    opposite = "Linux-x86_64" if cur == "Darwin-arm64" else "Darwin-arm64"
+    sysd, machd = opposite.split("-")
+    r = _valid_receipt({"system": sysd, "machine": machd, "libc_or_macos": "fake"})
+    r.update({"python": _good_python(), "env_id": "e" * 64, "github_run_id": "1", "github_run_attempt": "1"})
+    (tmp_path / "r.json").write_text(json.dumps(r))
+    probs = vr.validate(tmp_path / "r.json", tmp_path / "s.json", expected_platform=cur)
+    assert any("esperada" in p or "runner" in p for p in probs)
+
+
+def test_b59_cross_requires_linux_and_macos_exactly_once():
+    # el conjunto de plataformas de un par --cross debe ser EXACTAMENTE {Linux-x86_64, Darwin-arm64}
+    lnx = {"system": "Linux", "machine": "x86_64", "libc_or_macos": "glibc-2.39"}
+    mac = {"system": "Darwin", "machine": "arm64", "libc_or_macos": "macos-15"}
+    assert vr._cross_set_problems({"platform": lnx}, {"platform": mac}) == []
+
+
+def test_b59_two_linux_receipts_cannot_pass_as_cross_platform():
+    lnx = {"system": "Linux", "machine": "x86_64", "libc_or_macos": "glibc-2.39"}
+    probs = vr._cross_set_problems({"platform": lnx}, {"platform": dict(lnx)})
+    assert probs and any("plataforma" in p for p in probs)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

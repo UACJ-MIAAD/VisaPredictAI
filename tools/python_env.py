@@ -33,11 +33,10 @@ import json
 import os
 import platform
 import re
-import shutil
+import stat
 import subprocess
 import sys
 import sysconfig
-import venv
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -331,43 +330,135 @@ def _env_no_pyc(base: dict[str, str] | None = None) -> dict[str, str]:
     return {**(base if base is not None else os.environ), "PYTHONDONTWRITEBYTECODE": "1"}
 
 
-def _purge_bytecode(env_path: Path) -> None:
-    """Borra todo __pycache__/*.pyc/*.pyo del entorno antes de sellarlo y VERIFICA que no quede ninguno
-    (B43; sin `ignore_errors` — un fallo de borrado debe ser visible). Si algo sobrevive, aborta ANTES de
-    escribir READY.json (nunca se sella un árbol con bytecode)."""
-    for p in env_path.rglob("*"):
-        if p.is_dir() and p.name == "__pycache__" and not p.is_symlink():
-            shutil.rmtree(p)
-    for p in env_path.rglob("*"):
-        if p.is_file() and p.suffix in (".pyc", ".pyo") and not p.is_symlink():
-            p.unlink()
-    left = [
-        p.relative_to(env_path).as_posix()
-        for p in env_path.rglob("*")
-        if (p.is_file() and p.suffix in (".pyc", ".pyo")) or (p.is_dir() and p.name == "__pycache__")
-    ]
-    if left:
-        raise SystemExit(f"python_env: bytecode residual tras purgar, no se sella: {left[:5]}")
+# B55/B58: intérprete RELATIVO al cwd fd-anclado. Nunca se ejecuta por RUTA ABSOLUTA del staging/env
+# (una ruta absoluta reabre la ventana de swap de un ancestro por symlink).
+_REL_PY = "Scripts\\python.exe" if os.name == "nt" else "bin/python"
 
 
-def _pip_freeze(py: Path) -> list[str]:
-    out = subprocess.run(
-        [str(py), "-m", "pip", "freeze", "--all", "--disable-pip-version-check"],
-        check=True,
-        capture_output=True,
-        text=True,
-        env=_env_no_pyc(),
-    ).stdout
-    return sorted(line.strip() for line in out.splitlines() if line.strip() and not line.startswith("-e "))
+def _run_in_dir(
+    dir_fd: int, argv: list[str], *, extra_umask: bool = False, capture: bool = False, env: dict | None = None
+) -> subprocess.CompletedProcess:
+    """B55: ejecuta `argv` con el cwd del hijo FIJADO por `fchdir(dir_fd)` — inmune al swap de un ancestro por
+    symlink (el inode queda anclado, no la ruta). `argv[0]` puede ser relativo (`bin/python`) y se resuelve
+    DESPUÉS del fchdir; `dir_fd` se pasa con `pass_fds` para sobrevivir a `close_fds`. Las rutas de
+    lock/constraints/proyecto que se pasen en `argv` deben ser ABSOLUTAS (fuera del env, de confianza)."""
 
+    def _pre() -> None:
+        os.fchdir(dir_fd)
+        if extra_umask:
+            os.umask(0o077)
 
-def _pip_check(py: Path) -> bool:
-    return (
-        subprocess.run(
-            [str(py), "-m", "pip", "check"], cwd=str(ROOT), capture_output=True, env=_env_no_pyc()
-        ).returncode
-        == 0
+    return subprocess.run(
+        argv, check=False, capture_output=capture, text=capture, env=env, preexec_fn=_pre, pass_fds=(dir_fd,)
     )
+
+
+# ---- lectura/hasheo/borrado RELATIVOS a un descriptor de directorio (B58) ----
+
+
+def _open_dir_at(parent_fd: int, name: str) -> int:
+    """openat de un subdirectorio con `O_DIRECTORY|O_NOFOLLOW` (un symlink ⇒ OSError). `name` sin `/`."""
+    if "/" in name:
+        raise SystemExit(f"python_env: componente inválido {name!r}")
+    return os.open(name, _ODIR, dir_fd=parent_fd)
+
+
+def _open_optional_dir_at(parent_fd: int, name: str) -> int | None:
+    try:
+        return _open_dir_at(parent_fd, name)
+    except FileNotFoundError:
+        return None
+
+
+def _sha256_fd_at(dir_fd: int, name: str, *, follow: bool = False) -> str:
+    """sha256 del contenido de `name` RELATIVO a `dir_fd`. Por defecto `O_NOFOLLOW` (no sigue symlink);
+    con `follow=True` resuelve el symlink (para el intérprete real). Lectura incremental (ficheros grandes)."""
+    flags = os.O_RDONLY | (0 if follow else os.O_NOFOLLOW)
+    ffd = os.open(name, flags, dir_fd=dir_fd)
+    try:
+        h = hashlib.sha256()
+        while chunk := os.read(ffd, 1 << 20):
+            h.update(chunk)
+    finally:
+        os.close(ffd)
+    return "sha256:" + h.hexdigest()
+
+
+def _pip_freeze_at(dir_fd: int, env: dict | None = None) -> list[str]:
+    r = _run_in_dir(
+        dir_fd,
+        [_REL_PY, "-m", "pip", "freeze", "--all", "--disable-pip-version-check"],
+        capture=True,
+        env=env if env is not None else _env_no_pyc(),
+    )
+    if r.returncode != 0:
+        raise subprocess.CalledProcessError(r.returncode, "pip freeze", output=r.stdout, stderr=r.stderr)
+    return sorted(line.strip() for line in r.stdout.splitlines() if line.strip() and not line.startswith("-e "))
+
+
+def _pip_check_at(dir_fd: int, env: dict | None = None) -> bool:
+    return (
+        _run_in_dir(
+            dir_fd, [_REL_PY, "-m", "pip", "check"], capture=True, env=env if env is not None else _env_no_pyc()
+        )
+    ).returncode == 0
+
+
+def _purge_bytecode_at(dir_fd: int) -> None:
+    """B43: borra todo `__pycache__`/`*.pyc`/`*.pyo` bajo `dir_fd`, fd-relativo y sin seguir symlinks, y
+    VERIFICA que no quede ninguno (sin `ignore_errors`). Si algo sobrevive, aborta ANTES de sellar READY.json."""
+
+    def walk(fd: int) -> None:
+        for entry in list(os.scandir(fd)):
+            est = os.lstat(entry.name, dir_fd=fd)
+            if stat.S_ISLNK(est.st_mode):
+                continue
+            if stat.S_ISDIR(est.st_mode):
+                if entry.name == "__pycache__":
+                    _rmtree_at(fd, entry.name)
+                else:
+                    child = os.open(entry.name, _ODIR, dir_fd=fd)
+                    try:
+                        walk(child)
+                    finally:
+                        os.close(child)
+            elif stat.S_ISREG(est.st_mode) and entry.name.endswith((".pyc", ".pyo")):
+                os.unlink(entry.name, dir_fd=fd)
+
+    walk(dir_fd)
+    residual = _bytecode_residual_at(dir_fd, "")
+    if residual:
+        raise SystemExit(f"python_env: bytecode residual tras purgar, no se sella: {residual[:5]}")
+
+
+def _bytecode_residual_at(dir_fd: int, prefix: str) -> list[str]:
+    left: list[str] = []
+    for entry in os.scandir(dir_fd):
+        est = os.lstat(entry.name, dir_fd=dir_fd)
+        rel = prefix + entry.name
+        if stat.S_ISLNK(est.st_mode):
+            continue
+        if stat.S_ISDIR(est.st_mode):
+            if entry.name == "__pycache__":
+                left.append(rel)
+            else:
+                child = os.open(entry.name, _ODIR, dir_fd=dir_fd)
+                try:
+                    left.extend(_bytecode_residual_at(child, rel + "/"))
+                finally:
+                    os.close(child)
+        elif stat.S_ISREG(est.st_mode) and entry.name.endswith((".pyc", ".pyo")):
+            left.append(rel)
+    return left
+
+
+def _purge_bytecode(env_path: Path) -> None:
+    """Envoltorio POR RUTA de `_purge_bytecode_at` (solo para pruebas unitarias standalone)."""
+    fd = os.open(str(env_path), _ODIR)
+    try:
+        _purge_bytecode_at(fd)
+    finally:
+        os.close(fd)
 
 
 def _inventory_digest(freeze: list[str]) -> str:
@@ -393,46 +484,118 @@ _READY_KEYS = {
 }
 
 
-def _tree_digest(env_path: Path) -> str:
-    """B13/B43: sello MERKLE de TODOS los ficheros inmutables del entorno (site-packages, extensiones
-    nativas, .dist-info/RECORD, console-scripts, pyvenv.cfg, intérprete). El ÚNICO excluido es READY.json
-    (`_TREE_EXCLUDE_NAMES`); el bytecode YA NO se excluye — se purga antes de sellar y se corre todo con
-    PYTHONDONTWRITEBYTECODE=1, de modo que un `.pyc` plantado altera el digest. Un symlink dentro del árbol
-    se sella por su destino textual (no se sigue). Detecta manipulación de una librería aunque la versión
-    no cambie."""
+def _tree_digest_at(dir_fd: int) -> str:
+    """B13/B43/B58: sello MERKLE de TODOS los ficheros inmutables del entorno, recorrido RELATIVO a `dir_fd`
+    con `openat`/`O_NOFOLLOW` por componente (ningún directorio intermedio se sigue si es symlink; un symlink
+    hoja se sella por su destino textual). El ÚNICO excluido es READY.json (`_TREE_EXCLUDE_NAMES`); el
+    bytecode YA NO se excluye. Al operar por el descriptor y NO re-resolver la ruta, un swap de un ancestro
+    por symlink durante la validación no puede introducir la lectura de un árbol externo. Detecta manipulación
+    de una librería aunque la versión no cambie."""
     entries: list[str] = []
-    for p in sorted(env_path.rglob("*")):
-        rel = p.relative_to(env_path).as_posix()
-        if (
-            any(part in _TREE_EXCLUDE_DIRS for part in p.parts)
-            or p.name.endswith(_TREE_EXCLUDE_SUFFIX)
-            or p.name in _TREE_EXCLUDE_NAMES
-        ):
+
+    def walk(fd: int, prefix: str) -> None:
+        for name in sorted(e.name for e in os.scandir(fd)):
+            rel = prefix + name
+            est = os.lstat(name, dir_fd=fd)
+            mode = est.st_mode
+            if stat.S_ISLNK(mode):
+                entries.append(f"{rel}\tL\t{os.readlink(name, dir_fd=fd)}")
+            elif stat.S_ISDIR(mode):
+                if name in _TREE_EXCLUDE_DIRS:
+                    continue
+                entries.append(f"{rel}\tD")
+                child = os.open(name, _ODIR, dir_fd=fd)
+                try:
+                    walk(child, rel + "/")
+                finally:
+                    os.close(child)
+            elif stat.S_ISREG(mode):
+                if name in _TREE_EXCLUDE_NAMES or name.endswith(_TREE_EXCLUDE_SUFFIX):
+                    continue
+                entries.append(f"{rel}\tF\t{_sha256_fd_at(fd, name)}")
+            else:
+                entries.append(f"{rel}\t?")  # fifo/socket/dispositivo: se sella el tipo (defensa)
+
+    walk(dir_fd, "")
+    return _sha256_bytes("\n".join(sorted(entries)).encode())
+
+
+def _tree_digest(env_path: Path) -> str:
+    """Envoltorio POR RUTA de `_tree_digest_at` (para pruebas unitarias standalone)."""
+    fd = os.open(str(env_path), _ODIR)
+    try:
+        return _tree_digest_at(fd)
+    finally:
+        os.close(fd)
+
+
+def _file_hashes_at(dir_fd: int, cfg: dict) -> dict[str, str]:
+    """B58: hashes explícitos de los ficheros ejecutables clave, RELATIVOS a `dir_fd` (pyvenv.cfg, el
+    intérprete RESUELTO y cada console-script declarado). Los console-scripts se abren bajo `bin/` con
+    `openat`/`O_NOFOLLOW`; el intérprete se sigue (`follow=True`) para hashear su contenido real. Conjunto
+    EXACTO — ready_valid exige que coincida (no un dict arbitrario/vacío)."""
+    sub = "Scripts" if os.name == "nt" else "bin"
+    out: dict[str, str] = {}
+    for name in ("pyvenv.cfg",):
+        try:
+            fst = os.lstat(name, dir_fd=dir_fd)
+        except FileNotFoundError:
             continue
-        if p.is_symlink():
-            entries.append(f"{rel}\tL\t{os.readlink(p)}")
-        elif p.is_file():
-            entries.append(f"{rel}\tF\t{_sha256_path(p)}")
-        elif p.is_dir():
-            entries.append(f"{rel}\tD")
-    return _sha256_bytes("\n".join(entries).encode())
+        if stat.S_ISREG(fst.st_mode):  # lstat: un symlink NO es S_ISREG ⇒ se excluye
+            out[name] = _sha256_fd_at(dir_fd, name)
+    bin_fd = _open_optional_dir_at(dir_fd, sub)
+    if bin_fd is not None:
+        try:
+            for cs in cfg.get("console_scripts", []):
+                try:
+                    cst = os.lstat(cs, dir_fd=bin_fd)
+                except FileNotFoundError:
+                    continue
+                if stat.S_ISREG(cst.st_mode):
+                    out[f"{sub}/{cs}"] = _sha256_fd_at(bin_fd, cs)
+            py = "python.exe" if os.name == "nt" else "python"
+            try:
+                out[f"{sub}/python#resolved"] = _sha256_fd_at(bin_fd, py, follow=True)
+            except FileNotFoundError:
+                pass
+        finally:
+            os.close(bin_fd)
+    return out
 
 
 def _file_hashes(env_path: Path, cfg: dict) -> dict[str, str]:
-    """Hashes explícitos de los ficheros ejecutables clave (además del árbol completo): pyvenv.cfg,
-    el intérprete RESUELTO (aunque bin/python sea symlink al python del sistema) y cada console-script
-    declarado. Conjunto EXACTO — ready_valid exige que coincida (no un dict arbitrario/vacío)."""
-    sub = "Scripts" if os.name == "nt" else "bin"
-    out: dict[str, str] = {}
-    for rel in ["pyvenv.cfg", *[f"{sub}/{cs}" for cs in cfg.get("console_scripts", [])]]:
-        p = env_path / rel
-        if p.exists() and not p.is_symlink():
-            out[rel] = _sha256_path(p)
-    # intérprete: hashea el CONTENIDO real (sigue el symlink); clave estable `bin/python#resolved`.
-    py = env_path / sub / ("python.exe" if os.name == "nt" else "python")
-    if py.exists():
-        out[f"{sub}/python#resolved"] = _sha256_path(py.resolve())
-    return out
+    """Envoltorio POR RUTA de `_file_hashes_at` (para pruebas unitarias standalone)."""
+    fd = os.open(str(env_path), _ODIR)
+    try:
+        return _file_hashes_at(fd, cfg)
+    finally:
+        os.close(fd)
+
+
+def _read_ready_at(env_fd: int) -> tuple[str | None, str | None]:
+    """B47/B58: abre READY.json RELATIVO a `env_fd` con O_NOFOLLOW, valida por fstat (regular, del UID, modo
+    0600 EXACTO, nlink==1) y lee DEL MISMO descriptor (sin ventana lstat-luego-read). (raw, None) o
+    (None, motivo). Fuente única — usada por `ready_valid` y por `read_ready`."""
+    try:
+        rfd = os.open("READY.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=env_fd)
+    except FileNotFoundError:
+        return None, "READY.json ausente"
+    except OSError as exc:
+        return None, f"READY.json no abrible sin seguir symlink ({exc})"
+    try:
+        rst = os.fstat(rfd)
+        if not stat.S_ISREG(rst.st_mode):
+            return None, "READY.json no es fichero regular"
+        if rst.st_uid != os.getuid():
+            return None, "READY.json de otro dueño"
+        if stat.S_IMODE(rst.st_mode) != 0o600:
+            return None, f"READY.json modo {oct(stat.S_IMODE(rst.st_mode))} != 0600"
+        if rst.st_nlink != 1:
+            return None, "READY.json con hardlink (nlink>1)"
+        with os.fdopen(os.dup(rfd), "r") as fh:
+            return fh.read(), None
+    finally:
+        os.close(rfd)
 
 
 def ready_valid(
@@ -441,9 +604,9 @@ def ready_valid(
     """(válido, motivo). Reusa SOLO si: el lockset/contrato es válido AHORA (B14), READY.json existe con
     esquema exacto, casa el env_id, el DIGEST DE ÁRBOL completo coincide (B13: tamper de cualquier fichero
     de site-packages), los hashes de ficheros clave coinciden, `pip check` en vivo pasa y el inventario
-    vivo es EXACTAMENTE el sellado."""
-    import stat as _stat
-
+    vivo es EXACTAMENTE el sellado. B58: TODA operación de hasheo/inventario es RELATIVA a `env_fd` (openat/
+    fchdir) y NUNCA re-resuelve la ruta — un swap transitorio de un ancestro por symlink no puede introducir
+    la lectura de un árbol externo; los `_ident_ok` siguen como tripwire de defensa (B52)."""
     profiles = profiles or load_profiles()
     cfg = _profile_config(profiles, profile)
     # B40/B41/B46: valida la CADENA de directorios (ROOT→.vp_envs→perfil→env_id) por openat O_NOFOLLOW —
@@ -454,33 +617,14 @@ def ready_valid(
         env_fd = _open_governed_chain(anchor, comps, create=False, require_mode=0o700)
     except SystemExit as exc:
         return False, f"cadena del entorno insegura: {exc}"
-    # B52: MANTIENE env_fd abierto TODA la validación; los hashes/inventario/sello por ruta se hacen entre
-    # dos chequeos de identidad (dev, ino) — si un ancestro se intercambia por symlink a mitad, se rechaza.
+    # B52/B58: MANTIENE env_fd abierto TODA la validación; hashes/inventario se calculan POR el descriptor
+    # (no por la ruta). Los `_ident_ok` (dev, ino) bracketan como defensa en profundidad.
     try:
         est = os.fstat(env_fd)
         ident = (est.st_dev, est.st_ino)  # inode gobernado del entorno
-        # B47/paso 3: abre READY.json RELATIVO al fd del entorno con O_NOFOLLOW y valida por fstat (regular,
-        # UID, modo 0600 EXACTO, nlink==1); lee DEL MISMO descriptor — sin lstat-luego-read.
-        try:
-            rfd = os.open("READY.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=env_fd)
-        except FileNotFoundError:
-            return False, "READY.json ausente"
-        except OSError as exc:
-            return False, f"READY.json no abrible sin seguir symlink ({exc})"
-        try:
-            rst = os.fstat(rfd)
-            if not _stat.S_ISREG(rst.st_mode):
-                return False, "READY.json no es fichero regular"
-            if rst.st_uid != os.getuid():
-                return False, "READY.json de otro dueño"
-            if _stat.S_IMODE(rst.st_mode) != 0o600:
-                return False, f"READY.json modo {oct(_stat.S_IMODE(rst.st_mode))} != 0600"
-            if rst.st_nlink != 1:
-                return False, "READY.json con hardlink (nlink>1)"
-            with os.fdopen(os.dup(rfd), "r") as fh:
-                raw = fh.read()
-        finally:
-            os.close(rfd)
+        raw, err = _read_ready_at(env_fd)
+        if err or raw is None:
+            return False, err or "READY.json ilegible"
         # B14: no reusar bajo un lockset/contrato inválido.
         contract = lc.validate_all(ROOT)
         if contract:
@@ -513,20 +657,23 @@ def ready_valid(
             return False, f"env_id sellado {meta.get('env_id')!r} != esperado"
         if meta.get("descriptor") != descriptor(profile, variant, profiles):
             return False, "descriptor sellado != actual"
-        # B52: la ruta debe seguir apuntando al inode gobernado ANTES de hashear/inventariar por ruta.
+        # B52: tripwire — la ruta debe seguir apuntando al inode gobernado ANTES de hashear/inventariar.
         if not _ident_ok(env_path, ident):
             return False, "env_path ya no apunta al inode gobernado (swap de ancestro)"
-        py = _venv_python(env_path)
-        if not py.exists():
+        # B58: el intérprete se comprueba y ejecuta RELATIVO a env_fd (nunca por ruta absoluta re-resuelta).
+        try:
+            os.stat("bin/python", dir_fd=env_fd)
+        except FileNotFoundError:
             return False, "falta el intérprete del venv"
-        # B20/B13: file_hashes DEBE casar EXACTAMENTE el recomputado (conjunto de claves Y hashes:
-        # pyvenv.cfg, console-scripts y el intérprete resuelto). Un dict arbitrario/vacío/alterado falla.
-        if meta["file_hashes"] != _file_hashes(env_path, cfg):
+        except OSError as exc:
+            return False, f"intérprete del venv inaccesible ({exc})"
+        # B20/B13/B58: file_hashes y tree_digest recomputados POR EL DESCRIPTOR (openat/O_NOFOLLOW).
+        if meta["file_hashes"] != _file_hashes_at(env_fd, cfg):
             return False, "TAMPER: file_hashes sellado != recomputado (script/pyvenv/intérprete alterado)"
-        if _tree_digest(env_path) != meta.get("tree_digest"):
+        if _tree_digest_at(env_fd) != meta.get("tree_digest"):
             return False, "TAMPER: el árbol del entorno difiere del sello (fichero de site-packages alterado)"
         try:
-            freeze = _pip_freeze(py)
+            freeze = _pip_freeze_at(env_fd)  # bin/python vía fchdir(env_fd)
         except (subprocess.CalledProcessError, OSError) as exc:
             return False, f"no se pudo inventariar: {exc}"
         if sorted(x.lower() for x in freeze) != sorted(x.lower() for x in inv):
@@ -536,13 +683,33 @@ def ready_valid(
         iprobs = _inventory_problems(sealed_obs, profile, variant, profiles)
         if iprobs:
             return False, "inventario sellado != cierre esperado: " + "; ".join(iprobs)
-        if not _pip_check(py):
+        if not _pip_check_at(env_fd):
             return False, "TAMPER: pip check falla en el entorno sellado"
-        # B52: reverifica el inode TRAS todas las operaciones por ruta — un swap a mitad de camino
-        # (entre la lectura del sello y el hashing/inventario) invalida el resultado.
+        # B52: reverifica el inode TRAS todas las operaciones (tripwire de defensa; el hasheo ya fue fd-relativo).
         if not _ident_ok(env_path, ident):
             return False, "env_path cambió de inode durante la validación (swap de ancestro)"
         return True, "ok"
+    finally:
+        os.close(env_fd)
+
+
+def read_ready(profile: str, variant: str | None = None, profiles: dict | None = None) -> dict:
+    """B58/§3.7: lee el READY.json sellado de un entorno de forma SEGURA (valida por `ready_valid`, luego lo
+    lee por la cadena openat + fstat + O_NOFOLLOW). Fuente única para consumidores que necesitan el
+    inventario/env_id/descriptor SIN re-resolver rutas (p. ej. `dvc_tool_smoke`). Aborta si el entorno no es
+    válido."""
+    profiles = profiles or load_profiles()
+    target = env_dir(profile, variant, profiles)
+    ok, why = ready_valid(target, profile, variant, profiles)
+    if not ok:
+        raise SystemExit(f"python_env: entorno {profile!r} no válido para leer READY.json ({why})")
+    anchor, comps = _governed_chain(target)
+    env_fd = _open_governed_chain(anchor, comps, create=False, require_mode=0o700)
+    try:
+        raw, err = _read_ready_at(env_fd)
+        if err or raw is None:
+            raise SystemExit(f"python_env: READY.json ilegible ({err})")
+        return json.loads(raw, object_pairs_hook=_no_dup_keys)
     finally:
         os.close(env_fd)
 
@@ -585,33 +752,57 @@ def _inventory_problems(observed: dict[str, str], profile: str, variant: str | N
     return probs
 
 
-def _pip(py: Path, *args: str) -> None:
-    subprocess.run([str(py), "-m", "pip", *args], check=True, cwd=str(ROOT), env=_env_no_pyc())
+def _pip_at(dir_fd: int, *args: str, env: dict) -> None:
+    """B55: `bin/python -m pip …` con el cwd del hijo FIJADO por fchdir(dir_fd) — nunca por ruta absoluta del
+    staging (una ruta reabre la ventana de swap de ancestro)."""
+    r = _run_in_dir(dir_fd, [_REL_PY, "-m", "pip", *args], capture=True, env=env)
+    if r.returncode != 0:
+        raise SystemExit(f"python_env: pip {' '.join(args[:2])} falló (rc {r.returncode}): {(r.stderr or '')[-800:]}")
 
 
-def _install(py: Path, profile: str, cfg: dict, profiles: dict, lock_rel: str) -> None:
+def _venv_create_at(dir_fd: int) -> None:
+    """B55: crea el venv DENTRO del inode del staging con el cwd fijado por fchdir — SIN `clear=True` ni ruta
+    absoluta (el dir se creó vacío por `mkdirat`). `--without-pip` + `ensurepip` para que TODA la creación
+    pase por el descriptor. La fijación es por fchdir (portable Linux+macOS); `/dev/fd/N/…` NO resuelve a
+    través de directorios en macOS."""
+    env = _env_no_pyc()
+    r = _run_in_dir(dir_fd, [sys.executable, "-m", "venv", "--without-pip", "."], capture=True, env=env)
+    if r.returncode != 0:
+        raise SystemExit(f"python_env: creación del venv falló (rc {r.returncode}): {(r.stderr or '')[-800:]}")
+    r2 = _run_in_dir(dir_fd, [_REL_PY, "-m", "ensurepip", "--upgrade"], capture=True, env=env)
+    if r2.returncode != 0:
+        raise SystemExit(f"python_env: ensurepip falló (rc {r2.returncode}): {(r2.stderr or '')[-800:]}")
+
+
+def _install_at(dir_fd: int, profile: str, cfg: dict, profiles: dict, lock_rel: str) -> None:
+    """Instala el cierre del perfil RELATIVO al descriptor del staging (fchdir). Las rutas de lock/proyecto
+    van ABSOLUTAS (fuera del env, de confianza); `-e .` se sustituye por `-e <ROOT ABS>` para instalar el
+    PROYECTO, no el cwd fijado por fchdir."""
+    env = _env_no_pyc()
     tc = profiles["toolchain"]
-    _pip(
-        py,
+    _pip_at(
+        dir_fd,
         "install",
         "--disable-pip-version-check",
         f"pip=={tc['pip']}",
         f"setuptools=={tc['setuptools']}",
         f"wheel=={tc['wheel']}",
+        env=env,
     )
     recipe = _resolved_recipe(cfg, lock_rel)
     lock = str(ROOT / lock_rel)
+    root = str(ROOT)
     if recipe == "hash-verified":
-        _pip(py, "install", "--require-hashes", "-r", lock)
+        _pip_at(dir_fd, "install", "--require-hashes", "-r", lock, env=env)
     elif recipe == "version-locked":
-        _pip(py, "install", "-r", lock)
+        _pip_at(dir_fd, "install", "-r", lock, env=env)
     elif recipe == "constraint-model":
-        _pip(py, "install", "-e", ".[dev,model]", "-c", lock)
+        _pip_at(dir_fd, "install", "-e", f"{root}[dev,model]", "-c", lock, env=env)
     elif recipe == "constraint-model-cpu-index":
-        _pip(py, "install", f"torch=={cfg['cpu_torch']}", "--index-url", cfg["cpu_index"])
-        _pip(py, "install", "-e", ".[dev,model]", "-c", lock)
+        _pip_at(dir_fd, "install", f"torch=={cfg['cpu_torch']}", "--index-url", cfg["cpu_index"], env=env)
+        _pip_at(dir_fd, "install", "-e", f"{root}[dev,model]", "-c", lock, env=env)
     if cfg.get("project_source") == "editable" and recipe in ("hash-verified", "version-locked"):
-        _pip(py, "install", "-e", ".", "--no-deps")
+        _pip_at(dir_fd, "install", "-e", root, "--no-deps", env=env)
 
 
 # --------------------------------------------------------------------------- apertura segura de cadenas
@@ -760,16 +951,23 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
                     os.fchmod(staging_fd, 0o700)
                     sst = os.fstat(staging_fd)
                     ident = (sst.st_dev, sst.st_ino)  # inode gobernado del staging
-                    staging = STAGING_ROOT / nonce  # ruta abs SOLO para venv/pip/hashes, bracketed por _check_ident
+                    # B55: el staging se creó VACÍO por `mkdirat`; se comprueba por el DESCRIPTOR (no por ruta).
+                    if next(os.scandir(staging_fd), None) is not None:
+                        raise SystemExit("python_env: staging no está vacío tras crearlo — abortado")
+                    staging = (
+                        STAGING_ROOT / nonce
+                    )  # ruta abs SOLO como tripwire _check_ident (las ops son fd-relativas)
+                    # B55: creación/instalación/freeze/check/purge/hash RELATIVOS a `staging_fd` (fchdir/openat) —
+                    # sin `venv.create(clear=True)` por ruta absoluta (que borraba el árbol externo tras un swap).
+                    # Los `_check_ident` bracketan como defensa en profundidad; la seguridad la da la fd-relatividad.
                     _check_ident(staging, ident, "pre-venv")
-                    venv.create(staging, with_pip=True, clear=True)
+                    _venv_create_at(staging_fd)
                     _check_ident(staging, ident, "post-venv")
-                    py = _venv_python(staging)
-                    _install(py, profile, cfg, profiles, lock_rel)
+                    _install_at(staging_fd, profile, cfg, profiles, lock_rel)
                     _check_ident(staging, ident, "post-install")
-                    if not _pip_check(py):
+                    if not _pip_check_at(staging_fd):
                         raise SystemExit("python_env: pip check falla tras instalar")
-                    freeze = _pip_freeze(py)
+                    freeze = _pip_freeze_at(staging_fd)
                     _check_ident(staging, ident, "post-freeze")
                     observed = {_canon(ln.split("==")[0]): ln.split("==")[1] for ln in freeze if "==" in ln}
                     # B24/B34: el inventario observado debe ser EXACTAMENTE el cierre esperado (pins+toolchain);
@@ -778,7 +976,7 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
                     if iprobs:
                         raise SystemExit("python_env: inventario observado != cierre esperado -> " + "; ".join(iprobs))
                     _check_ident(staging, ident, "pre-purge")
-                    _purge_bytecode(staging)  # B43: sin .pyc en el árbol sellado
+                    _purge_bytecode_at(staging_fd)  # B43: sin .pyc en el árbol sellado
                     _check_ident(staging, ident, "pre-hash")
                     meta = {
                         "schema_version": 1,
@@ -786,8 +984,8 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
                         "descriptor": descriptor(profile, variant, profiles),
                         "inventory": freeze,
                         "inventory_digest": _inventory_digest(freeze),
-                        "file_hashes": _file_hashes(staging, cfg),
-                        "tree_digest": _tree_digest(staging),
+                        "file_hashes": _file_hashes_at(staging_fd, cfg),
+                        "tree_digest": _tree_digest_at(staging_fd),
                         "pip_check": "ok",
                         "n_packages": len(freeze),
                     }
@@ -1008,7 +1206,10 @@ def run(
     if not env_owns(profile, binp, variant, profiles):
         raise SystemExit(f"python_env: {binp} fuera del entorno certificado de {profile!r}")
     env, preexec = _guard_env(cfg)
-    py = _venv_python(env_dir(profile, variant, profiles)).resolve()
+    # NO se resuelve el symlink `<env>/bin/python`: el redirector de venv necesita la RUTA sin resolver para
+    # fijar `sys.prefix=<env>` (resolverla al intérprete base pierde el site-packages del entorno, y `dvc`
+    # deja de ser importable). La ruta se construye del env_dir content-addressed ya validado por `build`.
+    py = _venv_python(env_dir(profile, variant, profiles))
     # NO se prepende el bin del env al PATH ⇒ los subprocesos de stage (`python -m ...` de dvc repro)
     # heredan el PATH ambiente = intérprete del PRODUCTO, jamás el del CLI DVC (R3.7).
     return subprocess.run(
@@ -1030,7 +1231,8 @@ def run_python(
     cfg = _profile_config(profiles, profile)
     target = build(profile, variant, profiles)
     env, preexec = _guard_env(cfg)
-    py = _venv_python(target).resolve()
+    # sin `.resolve()`: preserva la detección de venv (sys.prefix=<env>); ver `run` para el racional.
+    py = _venv_python(target)
     return subprocess.run(
         [str(py), *argv], check=False, cwd=str(ROOT), capture_output=capture, text=capture, env=env, preexec_fn=preexec
     )

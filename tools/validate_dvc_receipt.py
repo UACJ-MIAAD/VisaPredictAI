@@ -128,7 +128,24 @@ def _load(path: Path) -> tuple[dict | None, str | None]:
         return None, f"{path.name}: ilegible/duplicado ({exc})"
 
 
-def validate(receipt_path: Path, sbom_path: Path) -> list[str]:
+_CROSS_REQUIRED = {"Linux-x86_64", "Darwin-arm64"}
+
+
+def _receipt_platform(r: dict) -> str | None:
+    pl = r.get("platform")
+    return f"{pl.get('system')}-{pl.get('machine')}" if isinstance(pl, dict) else None
+
+
+def _cross_set_problems(a: dict, b: dict) -> list[str]:
+    """B59: el par --cross debe cubrir EXACTAMENTE {Linux-x86_64, Darwin-arm64} (una de cada, sin duplicar ni
+    intercambiar). Dos recibos de la misma plataforma NO pueden pasar como cross-plataforma."""
+    got = {_receipt_platform(a), _receipt_platform(b)}
+    if got != _CROSS_REQUIRED:
+        return [f"cross: plataformas del par {sorted(str(x) for x in got)} != {sorted(_CROSS_REQUIRED)}"]
+    return []
+
+
+def validate(receipt_path: Path, sbom_path: Path, expected_platform: str | None = None) -> list[str]:
     probs: list[str] = []
     r, err = _load(receipt_path)
     if err or r is None:
@@ -261,6 +278,15 @@ def validate(receipt_path: Path, sbom_path: Path) -> list[str]:
         if r["platform"] != desc["platform"]:
             probs.append(f"{n}: platform != descriptor gobernado de este runner ({desc['platform']})")
 
+    # B59: la plataforma NO puede elegirse desde el propio recibo para saltarse la comparación de identidad
+    # ligada al runner. El job la fija desde `matrix` y el validador corre EN esa plataforma; se exige
+    # declarada == esperada == runner real (así el bloque de recompute de identidad de arriba SÍ se ejecuta).
+    if expected_platform is not None:
+        if plat != expected_platform:
+            probs.append(f"{n}: platform declarada {plat!r} != esperada {expected_platform!r} (por matriz)")
+        if expected_platform != pe.platform_key():
+            probs.append(f"{n}: --expected-platform {expected_platform!r} != runner real {pe.platform_key()!r}")
+
     # SBOM: fichero, CycloneDX, componentes únicos, conteo, sha, y reconstrucción del inventario
     sbom, serr = _load(sbom_path)
     if serr or sbom is None:
@@ -298,23 +324,31 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--receipt")
     ap.add_argument("--sbom")
+    # B59: la plataforma esperada la FIJA el job desde `matrix.variant` (no se deriva del recibo). Requerida
+    # en modo single (un recibo se valida EN su plataforma nativa, con recompute de identidad).
+    ap.add_argument("--expected-platform", choices=sorted(_CROSS_REQUIRED))
     ap.add_argument("--cross", nargs=4, metavar=("R1", "SBOM1", "R2", "SBOM2"))
     ns = ap.parse_args(argv[1:])
     probs: list[str] = []
-    pairs: list[tuple[Path, Path]] = []
     if ns.receipt and ns.sbom:
-        pairs.append((Path(ns.receipt), Path(ns.sbom)))
+        if not ns.expected_platform:
+            ap.error("--receipt exige --expected-platform (fijada por matrix.variant)")
+        probs += validate(Path(ns.receipt), Path(ns.sbom), expected_platform=ns.expected_platform)
     elif ns.receipt or ns.sbom:
         ap.error("--receipt exige --sbom")
+    n_pairs = 1 if (ns.receipt and ns.sbom) else 0
     if ns.cross:
-        pairs += [(Path(ns.cross[0]), Path(ns.cross[1])), (Path(ns.cross[2]), Path(ns.cross[3]))]
-    if not pairs:
+        n_pairs += 2
+        # cada recibo del par se valida estructuralmente (sin expected: la identidad nativa ya se ligó en el
+        # job productor); el par debe cubrir EXACTAMENTE {Linux, macOS} + tener procedencia/DAG idénticos.
+        probs += validate(Path(ns.cross[0]), Path(ns.cross[1]))
+        probs += validate(Path(ns.cross[2]), Path(ns.cross[3]))
+    if not n_pairs:
         ap.error("da --receipt+--sbom o --cross")
-    for rp, sp in pairs:
-        probs += validate(rp, sp)
     if ns.cross and not probs:
         a = json.loads(Path(ns.cross[0]).read_text())
         b = json.loads(Path(ns.cross[2]).read_text())
+        probs += _cross_set_problems(a, b)  # B59: exactamente {Linux-x86_64, Darwin-arm64}
         for field in (
             "source_head_sha",
             "base_sha",
@@ -332,7 +366,7 @@ def main(argv: list[str]) -> int:
         for p in probs:
             print(f"  - {p}")
         return 1
-    print(f"✓ recibo(s) dvc-tool válido(s) [{len(pairs)} par(es)]")
+    print(f"✓ recibo(s) dvc-tool válido(s) [{n_pairs} recibo(s)]")
     return 0
 
 

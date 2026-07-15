@@ -345,8 +345,10 @@ jobs:
         include:
           - variant: linux-x86_64
             os: ubuntu-24.04
+            plat: Linux-x86_64
           - variant: macos-arm64
             os: macos-15
+            plat: Darwin-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
@@ -374,9 +376,11 @@ jobs:
           # el env aislado NO debe tener dvc en el python del JOB (prueba de que no se derramó).
           python -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('dvc') is None else 1)" \
             || { echo "::error::dvc quedó importable en el python del job"; exit 1; }
-          # B17: validador ESTRICTO del recibo contra el repo (esquema exacto, smoke_ok, git limpio,
-          # source_head, dvc_status=0, site_cache_confined, hashes de lock/lockset/dvc.in actuales).
-          python -m tools.validate_dvc_receipt --receipt dvc-tool-receipt-${{ matrix.variant }}.json --sbom sbom-dvc-tool-env-${{ matrix.variant }}.json
+          # B17/B59: validador ESTRICTO del recibo contra el repo (esquema exacto, smoke_ok, git limpio,
+          # source_head, dvc_status=0, site_cache_confined, hashes de lock/lockset/dvc.in actuales). La
+          # plataforma esperada la fija la MATRIZ (--expected-platform), no el recibo: se exige declarada ==
+          # esperada == runner real, forzando el recompute de identidad (env_id/python/platform).
+          python -m tools.validate_dvc_receipt --receipt dvc-tool-receipt-${{ matrix.variant }}.json --sbom sbom-dvc-tool-env-${{ matrix.variant }}.json --expected-platform ${{ matrix.plat }}
           # gates R4 + C4.
           python tools/check_no_stray_dvc.py
           python tools/check_no_legacy_envs.py

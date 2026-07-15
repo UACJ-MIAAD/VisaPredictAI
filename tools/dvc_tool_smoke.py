@@ -76,8 +76,10 @@ def build_receipt(sbom_path: Path | None) -> dict:
     # Procedencia PRIMERO: el `git_dirty` debe reflejar el árbol FUENTE, no los artefactos que este
     # propio smoke emite después (SBOM/recibo). `.vp_envs/` es gitignored y no ensucia.
     prov = pe.provenance()
-    env_path = pe.build(profile)  # transaccional; valida contrato + pip check + inventario + file hashes
-    ready = json.loads((env_path / "READY.json").read_text())
+    pe.build(profile)  # transaccional; valida contrato + pip check + inventario + file hashes
+    # §3.7/B58: lectura SEGURA del sello por la API (cadena openat + fstat + O_NOFOLLOW), NO por
+    # `(env_path / "READY.json").read_text()` (que re-resolvería la ruta, reabriendo la ventana de swap).
+    ready = pe.read_ready(profile)
     lock_rel = pe.lock_rel_for(profile)
 
     expected = {**lc.DVC_TOOL_DIRECT, "diskcache": lc.DVC_TOOL_DISKCACHE}

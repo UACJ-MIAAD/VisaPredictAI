@@ -1,15 +1,19 @@
 #!/usr/bin/env python
-"""Gate de pins de GitHub Actions (P0R.5, R8R6R/B49 + R8R6R2/B53). Registro POSITIVO
+"""Gate de pins de GitHub Actions (P0R.5, R8R6R/B49 + R8R6R2/B53 + R8R6R3/B56/B57). Registro POSITIVO
 `security/github_actions.json`: toda acción de terceros DEBE estar declarada con su SHA EXACTO de 40 hex,
 su comentario de versión y runtime `node24`. El gate:
 - carga el registro con RECHAZO DE CLAVES DUPLICADAS, `type(schema_version) is int`, y claves superiores
   EXACTAS (`schema_version`/`note`/`actions`);
-- escanea `*.yml` Y `*.yaml`, salta solo acciones locales (`./…`), y FALLA ante cualquier línea `uses:` que
-  no parsee como `acción@<sha40>` o local (nada de tags flotantes ni SHA cortos silenciosos);
-- exige BIYECCIÓN acción-usada ⇔ acción-registrada (sin huérfanas ni no autorizadas);
-- verifica SHA exacto + comentario de versión + runtime node24 por entrada.
-Con `--online` verifica además, vía GitHub API, que cada SHA existe, corresponde a la versión documentada y
-su `action.yml` declara `runs.using: node24` (job requerido de CI, fail-closed).
+- **parsea cada workflow como YAML ESTRUCTURAL** (loader que rechaza claves duplicadas) y recorre TODOS los
+  mappings buscando la clave EXACTA `uses` — pasos normales y reusable-workflows a nivel de job, `.yml` y
+  `.yaml`, con o sin espacio antes del `:` (B56: `uses :` es YAML válido y el escaneo por texto no lo veía),
+  valores no-string, expresiones dinámicas `${{ }}` y YAML inválido (todo fail-closed);
+- exige SHA de 40 hex + registro positivo (biyección acción-usada ⇔ acción-registrada) + comentario de
+  versión (extraído del texto crudo, tolerante a espacios) + runtime node24.
+Con `--online` verifica además, vía GitHub API, que cada SHA existe y el endpoint de commit lo confirma, que
+la versión documentada apunta a ese SHA, y que su `action.yml`/`action.yaml` declara `runs.using: node24`
+PARSEADO como YAML (B57: un `using: node24` en un comentario/descripción NO cuenta) — job requerido de CI,
+fail-closed.
 
     python -m tools.check_action_pins            # gate offline
     python -m tools.check_action_pins --online   # + verificación remota de SHA/versión/runtime
@@ -23,12 +27,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRY = ROOT / "security" / "github_actions.json"
-# acción@ref con comentario opcional; y detector de CUALQUIER línea `uses:` (para rechazar las no parseables)
-_USES = re.compile(r"uses:\s*([^\s@#]+)@([^\s#]+)(?:\s*#\s*(\S+))?")
-_USES_LINE = re.compile(r"(?:^|\s|-)uses:\s*(\S.*)$")
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+# acción@ref ESTRUCTURAL (el valor ya viene del YAML parseado, sin comentario).
+_USES_VALUE = re.compile(r"^([^@\s]+)@([^\s#]+)$")
+# comentario de versión desde el TEXTO crudo, tolerante a espacios alrededor del `:` (defensa/legibilidad).
+_USES_COMMENT = re.compile(r"uses\s*:\s*([^\s@#]+)@([0-9a-f]{40})\s*(?:#\s*(\S+))?")
 # Tripwire de defensa en profundidad: SHA Node 20 deprecados (el registro positivo YA los rechazaría).
 _NODE20_SHAS = {
     "ea165f8d65b6e75b540449e92b4886f43607fa02",
@@ -37,6 +44,24 @@ _NODE20_SHAS = {
 }
 _REG_TOP = {"schema_version", "note", "actions"}
 _ENTRY_KEYS = {"sha", "version", "runtime"}
+
+
+class _StrictLoader(yaml.SafeLoader):
+    """SafeLoader que RECHAZA claves de mapping duplicadas (B56: dos `uses:` en un step, una podría
+    enmascarar a la otra)."""
+
+
+def _no_dup_mapping(loader: _StrictLoader, node: yaml.MappingNode, deep: bool = False) -> dict:
+    mapping: dict = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise yaml.constructor.ConstructorError(None, None, f"clave YAML duplicada: {key!r}", key_node.start_mark)
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_dup_mapping)
 
 
 def _no_dup(pairs):
@@ -73,26 +98,58 @@ def _workflows(root: Path) -> list[Path]:
     return sorted([*wf.glob("*.yml"), *wf.glob("*.yaml")])
 
 
+def _iter_uses(obj) -> list:
+    """Todos los valores bajo una clave EXACTA `uses` en cualquier mapping (recursivo): pasos y
+    reusable-workflows a nivel de job. No recurre dentro del valor de `uses`."""
+    found: list = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == "uses":
+                found.append(v)
+            else:
+                found.extend(_iter_uses(v))
+    elif isinstance(obj, list):
+        for item in obj:
+            found.extend(_iter_uses(item))
+    return found
+
+
+def _uses_comments(text: str) -> dict[str, str | None]:
+    """action@sha → comentario de versión, desde el TEXTO crudo (tolerante a espacios alrededor del `:`)."""
+    out: dict[str, str | None] = {}
+    for m in _USES_COMMENT.finditer(text):
+        out[f"{m.group(1)}@{m.group(2)}"] = m.group(3)
+    return out
+
+
 def check(root: Path = ROOT) -> list[str]:
     reg = load_registry()  # el registro autoritativo vive SIEMPRE en el repo real
     probs: list[str] = []
     used: set[str] = set()
     for f in _workflows(root):
-        for i, line in enumerate(f.read_text().splitlines(), 1):
-            lm = _USES_LINE.search(line)
-            if not lm:
+        text = f.read_text()
+        try:
+            doc = yaml.load(text, Loader=_StrictLoader)  # B56: fail-closed en YAML inválido / clave dup
+        except yaml.YAMLError as exc:
+            probs.append(f"{f.name}: YAML inválido o con clave duplicada ({exc})")
+            continue
+        comments = _uses_comments(text)
+        for value in _iter_uses(doc):
+            where = f.name
+            if not isinstance(value, str):
+                probs.append(f"{where}: `uses` con valor no-string ({value!r})")
                 continue
-            where = f"{f.name}:{i}"
-            value = lm.group(1).strip()
-            if value.startswith("./") or value.startswith("."):
+            v = value.strip()
+            if v.startswith("./") or v.startswith("."):
                 continue  # acción local del repo
-            m = _USES.search(line)
+            if "${{" in v:
+                probs.append(f"{where}: `uses` con expresión dinámica no permitida ({v!r})")
+                continue
+            m = _USES_VALUE.fullmatch(v)
             if not m:
-                probs.append(f"{where} línea `uses:` no parseable como acción@<sha40> ({value!r})")
+                probs.append(f"{where}: `uses` no parseable como acción@ref ({v!r})")
                 continue
-            action, ref, comment = m.group(1), m.group(2), m.group(3)
-            if action.startswith("./") or action.startswith("."):
-                continue
+            action, ref = m.group(1), m.group(2)
             used.add(action)
             if not _SHA_RE.fullmatch(ref):
                 probs.append(f"{where} {action} no fijado a SHA de 40 hex (ref {ref!r} — tag flotante)")
@@ -109,6 +166,7 @@ def check(root: Path = ROOT) -> list[str]:
                 continue
             if entry["runtime"] != "node24":
                 probs.append(f"{where} {action} runtime {entry['runtime']!r} != node24")
+            comment = comments.get(f"{action}@{ref}")
             if comment != entry["version"]:
                 probs.append(f"{where} {action} comentario {comment!r} != versión esperada {entry['version']!r}")
     # B53: BIYECCIÓN — ninguna entrada del registro puede quedar huérfana (registrada pero sin usar).
@@ -125,38 +183,61 @@ def _gh(*args: str) -> str | None:
     return r.stdout if r.returncode == 0 else None
 
 
+def _runs_using(action_yml_text: str) -> str | None:
+    """B57: `runs.using` PARSEADO estructuralmente (no una búsqueda textual: un `using: node24` en un
+    comentario o en la descripción no cuenta). Devuelve el string o None si no es derivable."""
+    try:
+        doc = yaml.load(action_yml_text, Loader=_StrictLoader)
+    except yaml.YAMLError:
+        return None
+    runs = doc.get("runs") if isinstance(doc, dict) else None
+    using = runs.get("using") if isinstance(runs, dict) else None
+    return using if isinstance(using, str) else None
+
+
 def verify_remote(registry: Path = REGISTRY) -> list[str]:
-    """B53: contra la GitHub API — cada SHA existe, la versión documentada apunta a ese SHA y su action.yml
-    declara `runs.using: node24`. Fail-closed (un fallo de red o de verificación es un problema)."""
+    """B53/B57: contra la GitHub API — cada SHA existe y el endpoint de commit lo confirma, la versión
+    documentada apunta a ese SHA (resolviendo tags anotados), y su `action.yml`/`action.yaml` declara
+    `runs.using == "node24"` PARSEADO como YAML. Fail-closed (un fallo de red o de verificación es un
+    problema)."""
     import base64
 
     reg = load_registry(registry)
     probs: list[str] = []
     for action, e in reg.items():
         sha, ver = e["sha"], e["version"]
-        if _gh(f"repos/{action}/commits/{sha}", "--jq", ".sha") is None:
+        commit = _gh(f"repos/{action}/commits/{sha}", "--jq", ".sha")
+        if commit is None:
             probs.append(f"{action}@{sha}: el commit no existe o es inaccesible (remoto)")
             continue
+        if commit.strip().strip('"') != sha:  # B57: el endpoint de commit debe devolver el MISMO sha
+            probs.append(f"{action}@{sha}: el endpoint de commit devolvió {commit.strip()!r} != {sha}")
+            continue
         ref = _gh(f"repos/{action}/git/ref/tags/{ver}", "--jq", ".object.sha")
-        resolved = (ref or "").strip()
-        # el tag puede ser anotado (apunta a un objeto tag); resuélvelo al commit
+        resolved = (ref or "").strip().strip('"')
+        # el tag puede ser anotado (apunta a un objeto tag); resuélvelo al commit (una vez, acotado)
         if resolved and resolved != sha:
-            commit = _gh(f"repos/{action}/git/tags/{resolved}", "--jq", ".object.sha")
-            if commit:
-                resolved = commit.strip()
+            commit2 = _gh(f"repos/{action}/git/tags/{resolved}", "--jq", ".object.sha")
+            if commit2:
+                resolved = commit2.strip().strip('"')
         if resolved != sha:
             probs.append(f"{action}: la versión {ver} apunta a {resolved!r} != SHA registrado {sha}")
         content = _gh(f"repos/{action}/contents/action.yml?ref={sha}", "--jq", ".content")
         if content is None:
-            probs.append(f"{action}@{sha}: sin action.yml legible (remoto)")
+            content = _gh(f"repos/{action}/contents/action.yaml?ref={sha}", "--jq", ".content")
+        if content is None:
+            probs.append(f"{action}@{sha}: sin action.yml/action.yaml legible (remoto)")
             continue
         try:
-            text = base64.b64decode(content).decode("utf-8", "replace")
+            # base64 estricto tras quitar el formateo de líneas que inserta la API de GitHub
+            decoded = base64.b64decode("".join(content.strip().strip('"').split()), validate=True)
+            text = decoded.decode("utf-8")
         except ValueError, UnicodeDecodeError:
-            probs.append(f"{action}@{sha}: action.yml no decodificable")
+            probs.append(f"{action}@{sha}: action.yml no decodificable (base64 estricto)")
             continue
-        if not re.search(r"using:\s*['\"]?node24['\"]?", text):
-            probs.append(f"{action}@{sha}: action.yml no declara runs.using: node24")
+        using = _runs_using(text)
+        if using != "node24":
+            probs.append(f"{action}@{sha}: runs.using={using!r} != 'node24' (estructural)")
     return probs
 
 
@@ -171,7 +252,7 @@ def main() -> int:
             print(f"  - {p}")
         return 1
     reg = load_registry()
-    n = sum(1 for f in _workflows(ROOT) for line in f.read_text().splitlines() if _USES.search(line))
+    n = sum(len(_iter_uses(yaml.load(f.read_text(), Loader=_StrictLoader))) for f in _workflows(ROOT))
     tail = " + SHA/versión/runtime remoto verificados" if online else ""
     print(f"✓ {n} usos de Actions, biyección con {len(reg)} acciones registradas (node24, SHA+versión){tail}")
     return 0
