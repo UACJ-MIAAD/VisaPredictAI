@@ -6,6 +6,7 @@ ready_valid (reuso/tamper) con _pip_freeze monkeypatcheado. El BUILD real + smok
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -82,6 +83,7 @@ def _fake_env(tmp_path, monkeypatch, *, digest_ok=True, env_id_ok=True):
     monkeypatch.setattr(pe, "descriptor", lambda *a, **k: _DESC)
     monkeypatch.setattr(pe, "_tree_digest", lambda p: "TREE")
     monkeypatch.setattr(pe, "_file_hashes", lambda p, cfg: {"bin/dvc": "h"})
+    monkeypatch.setattr(pe, "_inventory_problems", lambda obs, prof, var, profiles: [])
     monkeypatch.setattr(pe.lc, "validate_all", lambda root: [])
     sealed = _FREEZE if digest_ok else ["gamma==9.9.9"]
     meta = {
@@ -368,6 +370,94 @@ def test_b32_rename_noreplace_creates_new(tmp_path):
     dst = tmp_path / "dst"
     pe._rename_noreplace(src, dst)
     assert (dst / "f").exists() and not src.exists()
+
+
+# ----------------------------- C1: regresiones R8R5 (B33-B39) -----------------------------
+
+
+def test_b34_inventory_rejects_extra_and_wrong_toolchain():
+    exp = pe.expected_inventory("dvc-tool")
+    obs = dict(exp)
+    obs["evil-extra"] = "9.9"
+    obs["pip"] = "0.0.0"
+    probs = pe._inventory_problems(obs, "dvc-tool", None, pe.load_profiles())
+    assert any("EXTRA" in p for p in probs) and any("incorrectos" in p for p in probs)
+
+
+def test_b34_inventory_exact_closure_passes():
+    # el cierre esperado exacto NO da problemas
+    exp = pe.expected_inventory("dvc-tool")
+    assert pe._inventory_problems(dict(exp), "dvc-tool", None, pe.load_profiles()) == []
+
+
+def test_b35_pin_fullmatch_rejects_trailing():
+    assert pe._PIN.match("alpha==1 TRAILING")  # match parcial (el bug)
+    assert not pe._PIN.fullmatch("alpha==1 TRAILING")  # fullmatch lo rechaza (el fix)
+
+
+def test_b36_schema_version_bool_rejected(tmp_path, monkeypatch):
+    _write_profiles(tmp_path, monkeypatch, lambda p: p.__setitem__("schema_version", True))
+    with pytest.raises(SystemExit):
+        pe.load_profiles()
+
+
+def test_b38_ensure_governed_dir_rejects_symlink(tmp_path):
+    outside = tmp_path / "out"
+    outside.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(outside)
+    with pytest.raises(SystemExit):
+        pe._ensure_governed_dir(link, create=True, require_mode=0o700)
+
+
+def test_b38_ensure_governed_dir_rejects_wrong_mode(tmp_path):
+    d = tmp_path / "d"
+    d.mkdir(mode=0o755)
+    os.chmod(d, 0o755)
+    with pytest.raises(SystemExit):
+        pe._ensure_governed_dir(d, create=False, require_mode=0o700)
+
+
+def test_b39_open_lock_rejects_wrong_mode(tmp_path):
+    lock = tmp_path / ".lock-x"
+    lock.write_text("")
+    os.chmod(lock, 0o666)
+    with pytest.raises(SystemExit):
+        pe._open_lock(lock)
+
+
+def test_b39_open_lock_rejects_symlink(tmp_path):
+    target = tmp_path / "real"
+    target.write_text("")
+    lock = tmp_path / ".lock-x"
+    lock.symlink_to(target)
+    with pytest.raises((SystemExit, OSError)):
+        pe._open_lock(lock)
+
+
+def test_b33_build_extra_aborts_before_ready(tmp_path, monkeypatch):
+    # recorre build() con instalación simulada que inyecta un paquete EXTRA -> aborta y NO sella READY
+    monkeypatch.setattr(pe, "ENVS_ROOT", tmp_path / ".vp_envs")
+    monkeypatch.setattr(pe, "STAGING_ROOT", tmp_path / ".vp_envs" / ".staging")
+
+    def fake_create(path, **kw):
+        (path / "bin").mkdir(parents=True)
+        (path / "bin" / "python").write_text("#!/bin/sh\n")
+        (path / "pyvenv.cfg").write_text("x")
+
+    monkeypatch.setattr(pe.venv, "create", fake_create)
+    monkeypatch.setattr(pe, "_install", lambda *a, **k: None)
+    monkeypatch.setattr(pe, "_pip_check", lambda py: True)
+    exp = pe.expected_inventory("dvc-tool")
+    freeze = [f"{n}=={v}" for n, v in exp.items()] + ["evil-extra==9.9"]
+    monkeypatch.setattr(pe, "_pip_freeze", lambda py: freeze)
+    monkeypatch.setattr(pe, "_tree_digest", lambda p: "T")
+    monkeypatch.setattr(pe, "_file_hashes", lambda p, cfg: {"x": "h"})
+    with pytest.raises(SystemExit):
+        pe.build("dvc-tool")
+    target = pe.env_dir("dvc-tool")
+    assert not target.exists()  # nada sellado
+    assert not list((tmp_path / ".vp_envs" / ".staging").glob("*"))  # staging limpiado
 
 
 if __name__ == "__main__":

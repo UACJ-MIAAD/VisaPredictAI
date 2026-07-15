@@ -529,7 +529,7 @@ def test_b27_forged_provenance_and_empty_sbom_rejected(tmp_path, monkeypatch):
     # procedencia: tmp NO es un repo git ⇒ fail-closed ("no se pudo resolver el checkout")
     assert any("checkout" in p for p in probs)
     assert any("site_cache_dir" in p for p in probs)  # cache fuera
-    assert any("cierre del lock" in p for p in probs)  # SBOM vacío
+    assert any("SBOM" in p for p in probs)  # SBOM vacío != cierre esperado
 
 
 def test_b27_site_cache_pattern_enforced(tmp_path, monkeypatch):
@@ -565,6 +565,56 @@ def test_b31_legacy_from_os_alias(tmp_path):
 def test_b31_legacy_string_var_in_list(tmp_path):
     root = _git_repo(tmp_path, {"m.py": 'import subprocess\nPY = "ante_nf/bin/python"\nsubprocess.run([PY, "x"])\n'})
     assert legacy.current_counts(root).get("m.py") == 1
+
+
+# ----------------------------- C1: regresiones R8R5 (B37/B34-SBOM) -----------------------------
+
+
+def test_b37_legacy_constant_concat(tmp_path):
+    root = _git_repo(tmp_path, {"m.py": 'import subprocess\nsubprocess.run(["ante" + "/bin/python"])\n'})
+    assert legacy.current_counts(root).get("m.py") == 1
+
+
+def test_b37_legacy_os_exec_family(tmp_path):
+    root = _git_repo(tmp_path, {"m.py": 'import os\nos.execv("ante_nf/bin/python", ["x"])\n'})
+    assert legacy.current_counts(root).get("m.py") == 1
+
+
+def test_b37_legacy_executable_kwarg(tmp_path):
+    root = _git_repo(tmp_path, {"m.py": 'import subprocess\nsubprocess.run(["x"], executable="ante/bin/python")\n'})
+    assert legacy.current_counts(root).get("m.py") == 1
+
+
+def _sbom(components):
+    return {"bomFormat": "CycloneDX", "specVersion": "1.5", "components": components}
+
+
+def _comp(name, ver):
+    return {"type": "library", "name": name, "version": ver, "purl": f"pkg:pypi/{name.lower()}@{ver}"}
+
+
+def test_b34_receipt_sbom_rejects_extra_component(tmp_path, monkeypatch):
+    monkeypatch.setattr(vr, "ROOT", tmp_path)
+    (tmp_path / "locks").mkdir()
+    (tmp_path / "requirements").mkdir()
+    lockp = tmp_path / "locks/dvc-tool-linux-x86_64.txt"
+    # lock con los pins reales del repo (para que expected_inventory case)
+    import shutil
+
+    shutil.copy(lc.ROOT / "locks/dvc-tool-linux-x86_64.txt", lockp)
+    (tmp_path / lc.MANIFEST_REL).write_text("y")
+    (tmp_path / "requirements/dvc.in").write_text("z")
+    # SBOM = cierre esperado + un componente EXTRA
+    import tools.python_env as pe
+
+    exp = pe.expected_inventory("dvc-tool")
+    comps = [_comp(n, v) for n, v in exp.items()] + [_comp("evil-extra", "9.9")]
+    r = _valid_receipt({"system": "Linux", "machine": "x86_64"})
+    (tmp_path / "s.json").write_text(json.dumps(_sbom(comps)))
+    r.update({"sbom_component_count": len(comps), "n_packages": len(comps)})
+    (tmp_path / "r.json").write_text(json.dumps(r))
+    probs = vr.validate(tmp_path / "r.json", tmp_path / "s.json")
+    assert any("SBOM" in p and ("EXTRA" in p or "evil" in p) for p in probs)
 
 
 if __name__ == "__main__":

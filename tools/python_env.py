@@ -51,9 +51,6 @@ GUARD_PY = ROOT / "tools" / "dvc_cache_guard.py"
 SELF_PY = ROOT / "tools" / "python_env.py"
 _PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s\\;]+)", re.MULTILINE)
 _VALID_RECIPES = {"hash-verified", "version-locked", "constraint-model", "constraint-model-cpu-index"}
-# Toolchain de bootstrap que NO viene del lock (pip/setuptools/wheel + su dep packaging): único extra
-# permitido sobre el cierre del lock al sellar un entorno (B24).
-_TOOLCHAIN_EXTRAS = {"pip", "setuptools", "wheel", "packaging"}
 
 
 def _recipe_values(install_mode) -> list[str]:
@@ -161,17 +158,22 @@ def _validate_lock_table(name: str, table: dict, platforms: set[str], known: set
 
 _CPU_INDEX = "https://download.pytorch.org/whl/cpu"
 _CPU_TORCH_RE = re.compile(r"^\d+\.\d+\.\d+\+cpu$")
+_VER_RE = re.compile(r"^\d+(\.\d+)+$")  # versión de toolchain: 26.1.2, 0.47.0, …
 
 
 def load_profiles() -> dict:
     prof = json.loads(PROFILES_JSON.read_text(), object_pairs_hook=_no_dup_keys)
     if set(prof) != {"schema_version", "toolchain", "profiles"}:
         raise SystemExit(f"python_env: claves superiores {sorted(prof)} != schema_version/toolchain/profiles")
-    if prof["schema_version"] != 1:
-        raise SystemExit("python_env: schema_version de python_profiles.json != 1")
+    if type(prof["schema_version"]) is not int or prof["schema_version"] != 1:  # B36: True no es 1
+        raise SystemExit("python_env: schema_version no es int == 1")
     tc = prof["toolchain"]
-    if set(tc) != {"pip", "setuptools", "wheel", "uv"} or not all(isinstance(v, str) and v for v in tc.values()):
-        raise SystemExit("python_env: toolchain incompleto o con valores no-string en python_profiles.json")
+    if not isinstance(tc, dict) or not isinstance(prof["profiles"], dict):
+        raise SystemExit("python_env: toolchain/profiles no son objetos")
+    if set(tc) != {"pip", "setuptools", "wheel", "uv"} or not all(
+        isinstance(v, str) and _VER_RE.match(v) for v in tc.values()
+    ):
+        raise SystemExit("python_env: toolchain incompleto o con versión inválida en python_profiles.json")
     profiles = prof["profiles"]
     if set(profiles) != set(_SCHEMA):
         raise SystemExit(f"python_env: perfiles {sorted(profiles)} != exactamente {sorted(_SCHEMA)}")
@@ -425,8 +427,8 @@ def ready_valid(
     inv = meta["inventory"]
     if not isinstance(inv, list) or not all(isinstance(x, str) for x in inv):
         return False, "inventory no es lista de strings"
-    if not all(_PIN.match(x) for x in inv):
-        return False, "inventory con entrada sin sintaxis nombre==versión"
+    if not all(_PIN.fullmatch(x) for x in inv):  # B35: fullmatch, no trailing basura ("alpha==1 X")
+        return False, "inventory con entrada sin sintaxis exacta nombre==versión"
     if len({_canon(x.split("==")[0]) for x in inv}) != len(inv):
         return False, "inventory con nombre canónico duplicado"
     if type(meta["n_packages"]) is not int or meta["n_packages"] != len(inv):
@@ -456,6 +458,11 @@ def ready_valid(
         return False, f"no se pudo inventariar: {exc}"
     if sorted(x.lower() for x in freeze) != sorted(x.lower() for x in inv):
         return False, "TAMPER: inventario vivo != sellado (versión o paquete extra)"
+    # B34: el inventario sellado debe ser EXACTAMENTE el cierre esperado (no basta con contener el lock).
+    sealed_obs = {_canon(x.split("==")[0]): x.split("==")[1] for x in inv if "==" in x}
+    iprobs = _inventory_problems(sealed_obs, profile, variant, profiles)
+    if iprobs:
+        return False, "inventario sellado != cierre esperado: " + "; ".join(iprobs)
     if not _pip_check(py):
         return False, "TAMPER: pip check falla en el entorno sellado"
     return True, "ok"
@@ -466,6 +473,37 @@ def ready_valid(
 
 def _expected_pins(lock_rel: str) -> dict[str, str]:
     return {_canon(m.group(1)): m.group(2) for m in _PIN.finditer((ROOT / lock_rel).read_text())}
+
+
+# B34: `packaging` es dep TRANSITIVA del toolchain de bootstrap; su versión no la controlamos ⇒ se
+# permite por NOMBRE (única excepción sin versión). Todo lo demás debe casar exactamente.
+_NAME_ONLY_TOOLCHAIN = {"packaging"}
+
+
+def expected_inventory(profile: str, variant: str | None = None, profiles: dict | None = None) -> dict[str, str]:
+    """Cierre EXACTO nombre_canónico→versión de un entorno: los pins del lock MÁS el toolchain de
+    bootstrap ausente del lock (pip/setuptools/wheel con la versión EXACTA de python_profiles.json; si un
+    toolchain YA está en el lock, manda el lock). Fuente ÚNICA para build/ready_valid/validate_receipt."""
+    profiles = profiles or load_profiles()
+    lock_rel = lock_rel_for(profile, variant, profiles)
+    pins = _expected_pins(lock_rel)
+    tc = profiles["toolchain"]
+    for pkg in ("pip", "setuptools", "wheel"):
+        pins.setdefault(_canon(pkg), tc[pkg])  # lock gana si presente; si no, versión del toolchain
+    return pins
+
+
+def _inventory_problems(observed: dict[str, str], profile: str, variant: str | None, profiles: dict) -> list[str]:
+    """observed (canon→versión) debe ser EXACTAMENTE expected_inventory, salvo `packaging` (name-only)."""
+    expected = expected_inventory(profile, variant, profiles)
+    probs = []
+    wrong = {n: (expected[n], observed.get(n)) for n in expected if observed.get(n) != expected[n]}
+    if wrong:
+        probs.append(f"pins faltantes/incorrectos: {sorted(wrong)[:5]}")
+    extras = set(observed) - set(expected) - _NAME_ONLY_TOOLCHAIN
+    if extras:
+        probs.append(f"paquetes EXTRA no permitidos: {sorted(extras)[:5]}")
+    return probs
 
 
 def _pip(py: Path, *args: str) -> None:
@@ -497,6 +535,52 @@ def _install(py: Path, profile: str, cfg: dict, profiles: dict, lock_rel: str) -
         _pip(py, "install", "-e", ".", "--no-deps")
 
 
+def _ensure_governed_dir(path: Path, *, create: bool, require_mode: int | None) -> None:
+    """B38: valida un directorio gobernado por lstat SIN seguir symlinks ni reparar con chmod. Si existe:
+    debe ser directorio real (no symlink), del UID actual y, si `require_mode`, con ese modo EXACTO. Si no
+    existe y `create`, lo crea con `os.mkdir(path, mode)` (SIN parents) y lo re-valida por lstat."""
+    import stat as _stat
+
+    if path.is_symlink():
+        raise SystemExit(f"python_env: {path} es symlink — prohibido (posible escritura fuera del repo)")
+    if path.exists():
+        st = path.lstat()
+        if not _stat.S_ISDIR(st.st_mode):
+            raise SystemExit(f"python_env: {path} existe y no es directorio")
+        if st.st_uid != os.getuid():
+            raise SystemExit(f"python_env: {path} es de otro dueño ({st.st_uid})")
+        if require_mode is not None and _stat.S_IMODE(st.st_mode) != require_mode:
+            raise SystemExit(f"python_env: {path} modo {oct(_stat.S_IMODE(st.st_mode))} != {oct(require_mode)}")
+    elif create:
+        os.mkdir(path, require_mode if require_mode is not None else 0o700)  # SIN parents
+        st = path.lstat()
+        if _stat.S_ISLNK(st.st_mode) or st.st_uid != os.getuid():
+            raise SystemExit(f"python_env: {path} creado inseguro (symlink/dueño)")
+    else:
+        raise SystemExit(f"python_env: {path} no existe")
+
+
+def _open_lock(lock_file: Path) -> int:
+    """B25/B39: abre el lock-file con O_NOFOLLOW y exige regular, del UID actual, modo 0600 y st_nlink==1
+    (sin hardlink). Nuevo ⇒ O_EXCL 0600; existente ⇒ O_RDWR. Nunca trunca."""
+    import stat as _stat
+
+    try:
+        fd = os.open(str(lock_file), os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    except FileExistsError:
+        fd = os.open(str(lock_file), os.O_RDWR | os.O_NOFOLLOW)
+    st = os.fstat(fd)
+    if (
+        not _stat.S_ISREG(st.st_mode)
+        or st.st_uid != os.getuid()
+        or _stat.S_IMODE(st.st_mode) != 0o600
+        or st.st_nlink != 1
+    ):
+        os.close(fd)
+        raise SystemExit(f"python_env: lock-file {lock_file} inseguro (no regular / dueño / modo!=0600 / hardlink)")
+    return fd
+
+
 def build(profile: str, variant: str | None = None, profiles: dict | None = None) -> Path:
     profiles = profiles or load_profiles()
     cfg = _profile_config(profiles, profile)
@@ -508,28 +592,14 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
         raise SystemExit(
             f"python_env: entorno sellado inválido en {target} ({why}) — NO se repara; usa `prune`/borra manualmente"
         )
-    ENVS_ROOT.mkdir(parents=True, exist_ok=True)
-    STAGING_ROOT.mkdir(parents=True, exist_ok=True)
-    os.chmod(ENVS_ROOT, 0o700)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(target.parent, 0o700)
-    # B25/B31: los directorios gobernados NO pueden ser symlink ni de otro dueño (lstat antes de crear).
-    for d in (ENVS_ROOT, STAGING_ROOT, target.parent):
-        st = d.lstat()
-        import stat as _stat
-
-        if _stat.S_ISLNK(st.st_mode) or st.st_uid != os.getuid():
-            raise SystemExit(f"python_env: {d} es symlink o de otro dueño — prohibido")
+    # B38: valida el PADRE por lstat ANTES de crear cualquier descendiente (un `.vp_envs` symlink NO
+    # debe hacer que mkdir/chmod escriban fuera del repo). Orden ROOT → .vp_envs → .staging → perfil.
+    _ensure_governed_dir(ROOT, create=False, require_mode=None)
+    _ensure_governed_dir(ENVS_ROOT, create=True, require_mode=0o700)
+    _ensure_governed_dir(STAGING_ROOT, create=True, require_mode=0o700)
+    _ensure_governed_dir(target.parent, create=True, require_mode=0o700)
     lock_file = target.parent / f".lock-{env_id(profile, variant, profiles)}"
-    # B25: el lock se abre con O_NOFOLLOW (un symlink como lock-file no debe seguirse/truncar otro fichero)
-    # y debe ser regular, del UID actual, 0600. Sin O_TRUNC.
-    lock_fd = os.open(str(lock_file), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    lst = os.fstat(lock_fd)
-    import stat as _stat
-
-    if not _stat.S_ISREG(lst.st_mode) or lst.st_uid != os.getuid():
-        os.close(lock_fd)
-        raise SystemExit(f"python_env: lock-file {lock_file} no es regular o de otro dueño — prohibido")
+    lock_fd = _open_lock(lock_file)  # B25/B39: O_NOFOLLOW + regular + UID + 0600 + nlink==1
     with os.fdopen(lock_fd, "r+") as lk:
         fcntl.flock(lk, fcntl.LOCK_EX)
         ok, why = ready_valid(target, profile, variant, profiles)  # re-check bajo el lock
@@ -552,14 +622,11 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
                 raise SystemExit("python_env: pip check falla tras instalar")
             freeze = _pip_freeze(py)
             observed = {_canon(ln.split("==")[0]): ln.split("==")[1] for ln in freeze if "==" in ln}
-            expected = _expected_pins(lock_rel)
-            missing = {n: v for n, v in expected.items() if observed.get(n) != v}
-            if missing:
-                raise SystemExit(f"python_env: inventario observado != lock para {sorted(missing)}")
-            # B24: RECHAZAR paquetes EXTRA no sellables (fuera del lock salvo el toolchain de bootstrap).
-            extras = set(observed) - set(expected) - _TOOLCHAIN_EXTRAS
-            if extras:
-                raise SystemExit(f"python_env: paquetes EXTRA no en el lock {sorted(extras)}")
+            # B24/B34: el inventario observado debe ser EXACTAMENTE el cierre esperado (pins + toolchain);
+            # faltantes, versiones distintas y extras (salvo `packaging`) abortan ANTES de sellar READY.
+            iprobs = _inventory_problems(observed, profile, variant, profiles)
+            if iprobs:
+                raise SystemExit("python_env: inventario observado != cierre esperado -> " + "; ".join(iprobs))
             meta = {
                 "schema_version": 1,
                 "env_id": env_id(profile, variant, profiles),

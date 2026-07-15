@@ -19,15 +19,46 @@ import sys
 from pathlib import Path
 
 _SUBPROC_ATTRS = {"run", "Popen", "check_output", "check_call", "call"}
-_OS_ATTRS = {"system", "popen"}
+# B37: os.system/popen + toda la familia exec*/spawn* (que reciben la ruta como primer arg).
+_OS_ATTRS = {
+    "system",
+    "popen",
+    "execv",
+    "execve",
+    "execvp",
+    "execvpe",
+    "execl",
+    "execle",
+    "execlp",
+    "execlpe",
+    "spawnl",
+    "spawnle",
+    "spawnlp",
+    "spawnlpe",
+    "spawnv",
+    "spawnve",
+    "spawnvp",
+    "spawnvpe",
+}
 
 
 class _LegacyScanError(Exception):
     """Fail-closed: un .py del call graph que no parsea NO puede certificarse honestamente (B23)."""
 
 
+def _fold_str(node: ast.AST) -> str | None:
+    """Evalúa una expresión string CONSTANTE: literal o concatenación `+` de constantes (B37)."""
+    if isinstance(node, ast.Constant):
+        return node.value if isinstance(node.value, str) else None
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _fold_str(node.left), _fold_str(node.right)
+        return None if left is None or right is None else left + right
+    return None
+
+
 def _const_ante(node: ast.AST) -> bool:
-    return isinstance(node, ast.Constant) and isinstance(node.value, str) and bool(_LEGACY.search(node.value))
+    s = _fold_str(node)
+    return s is not None and bool(_LEGACY.search(s))
 
 
 def _argv_ante(node: ast.AST, ante_vars: set[str], ante_strs: set[str]) -> bool:
@@ -93,7 +124,11 @@ def _py_legacy_count(text: str) -> int:
         is_os = (
             isinstance(f, ast.Attribute) and f.attr in _OS_ATTRS and isinstance(f.value, ast.Name) and f.value.id in osm
         ) or (isinstance(f, ast.Name) and f.id in os_funcs)
-        if (is_sub or is_os) and _argv_ante(node.args[0], ante_vars, ante_strs):
+        if not (is_sub or is_os):
+            continue
+        # argv (posicional) o el kwarg `executable=` de subprocess referencia una ruta ante.
+        exec_kw = next((k.value for k in node.keywords if k.arg == "executable"), None)
+        if _argv_ante(node.args[0], ante_vars, ante_strs) or (exec_kw is not None and _const_ante(exec_kw)):
             n += 1
     return n
 

@@ -217,25 +217,29 @@ def validate(receipt_path: Path, sbom_path: Path) -> list[str]:
     else:
         if _sha(sbom_path) != r["sbom_sha256"]:
             probs.append(f"{n}: sbom_sha256 != sha real del fichero SBOM")
+        if sbom.get("bomFormat") != "CycloneDX" or sbom.get("specVersion") != "1.5":
+            probs.append(f"{sbom_path.name}: bomFormat/specVersion != CycloneDX/1.5")
         comps = sbom.get("components", []) if isinstance(sbom, dict) else []
+        # B34: estructura EXACTA por componente (type/name/version/purl canónico)
+        for c in comps:
+            nm, ver = c.get("name"), c.get("version")
+            if c.get("type") != "library" or not isinstance(nm, str) or not nm or not isinstance(ver, str) or not ver:
+                probs.append(f"{sbom_path.name}: componente con type/name/version inválido ({nm!r})")
+            elif c.get("purl") != f"pkg:pypi/{nm.lower()}@{ver}":
+                probs.append(f"{sbom_path.name}: purl inválido para {nm} ({c.get('purl')!r})")
         names = [(c.get("name"), c.get("version")) for c in comps]
-        if sbom.get("bomFormat") != "CycloneDX":
-            probs.append(f"{sbom_path.name}: no es CycloneDX")
-        if len(set(names)) != len(names):
-            probs.append(f"{sbom_path.name}: componentes duplicados")
+        by_canon = {pe._canon(nm): ver for nm, ver in names if nm}
+        if len(by_canon) != len(names):  # duplicados por nombre canónico (grafías distintas incluidas)
+            probs.append(f"{sbom_path.name}: componentes con nombre canónico duplicado")
         if len(names) != r["sbom_component_count"] or len(names) != r["n_packages"]:
             probs.append(f"{n}: sbom_component_count/n_packages != componentes del SBOM ({len(names)})")
         inv = sorted(f"{nm}=={ver}" for nm, ver in names if nm and ver)
         if pe._inventory_digest(inv) != r["inventory_digest"]:
             probs.append(f"{n}: inventory_digest != reconstruido del SBOM")
-        # B27: el SBOM debe CONTENER todo el cierre del lock (rechaza un SBOM vacío/truncado que
-        # forma una mentira internamente consistente con n_packages=0).
-        if lock_rel and (ROOT / lock_rel).exists():
-            lock_pins = pe._expected_pins(lock_rel)
-            sbom_by_canon = {pe._canon(nm): ver for nm, ver in names if nm}
-            missing = {k: v for k, v in lock_pins.items() if sbom_by_canon.get(k) != v}
-            if missing:
-                probs.append(f"{n}: SBOM no contiene el cierre del lock (faltan {len(missing)}: {sorted(missing)[:3]})")
+        # B34: el SBOM debe ser EXACTAMENTE el cierre esperado (pins + toolchain), no un superset — un
+        # componente extra (evil-extra) o una versión falsa de pip/wheel se rechazan.
+        if plat:
+            probs += [f"{n}: SBOM {p}" for p in pe._inventory_problems(by_canon, "dvc-tool", None, pe.load_profiles())]
     return probs
 
 
