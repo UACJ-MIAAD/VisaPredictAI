@@ -3,7 +3,7 @@
 PY ?= ante/bin/python
 # R9.4: bootstrap orquestador (stdlib-only tools.python_env). Los targets migrados corren la lógica en
 # los entornos content-addressed vía run-command; PY sigue como interfaz de override durante la migración.
-PYBOOT ?= python3
+PYBOOT ?= python3.14
 # P0R.5 R3: DVC corre EXCLUSIVAMENTE desde su entorno content-addressed aislado
 # (.vp_envs/dvc-tool), invocado por la interfaz única `python_env exec` (que aplica el cache
 # guard y prohíbe el binario legacy). NUNCA un `dvc` suelto ni `DVC_BIN` (deps de dvc degradarían

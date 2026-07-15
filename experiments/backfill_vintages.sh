@@ -16,7 +16,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # R9.4: el bootstrap SOLO orquesta (tools.python_env es stdlib-only). La LÓGICA DE PRODUCTO corre en el
 # entorno `model` content-addressed que abre `run-command`, jamás en el python ambiental.
-PYBOOT=${PYBOOT:-python3}
+PYBOOT=${PYBOOT:-python3.14}
 command -v "$PYBOOT" >/dev/null 2>&1 || { echo "ERROR: falta $PYBOOT (bootstrap del orquestador)" >&2; exit 1; }
 runc() { "$PYBOOT" -m tools.python_env run-command --id "$1" -- "${@:2}"; }
 

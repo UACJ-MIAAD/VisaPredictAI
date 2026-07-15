@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import pathlib
 from contextlib import contextmanager
 
 import pytest
@@ -125,7 +126,7 @@ def _mock_launch(monkeypatch):
         return subprocess.CompletedProcess([], 0)
 
     monkeypatch.setattr(pe, "build", lambda *a, **k: pe.ROOT)
-    monkeypatch.setattr(pe, "open_valid_environment", fake_open)
+    monkeypatch.setattr(pe, "open_or_build_valid_environment", fake_open)
     monkeypatch.setattr(pe, "_launch_fd_bound", fake_launch)
     monkeypatch.setattr(pe, "_governed_script", lambda name: name)
     return captured
@@ -168,6 +169,56 @@ def test_contract_sha_in_descriptor_and_env_id(monkeypatch):
 
     monkeypatch.setattr(pe, "_sha256_path", fake)
     assert pe.env_id("dvc-tool") != base  # el contrato gobierna el env_id
+
+
+# ----------------------------- R9.2R: B71 (módulo gobernado) -----------------------------
+
+
+def test_b71_module_via_symlink_rejected(tmp_path):
+    import tempfile
+
+    outside = pathlib.Path(tempfile.mkdtemp()) / "evil_mod.py"
+    outside.write_text("x = 1\n")
+    link = ec.ROOT / "tools" / "_b71_evil_link.py"
+    if link.exists() or link.is_symlink():
+        link.unlink()
+    link.symlink_to(outside)
+    try:
+        with pytest.raises(SystemExit):
+            ec._governed_module("tools._b71_evil_link")
+    finally:
+        link.unlink()
+
+
+def test_b71_module_untracked_rejected():
+    # un módulo cuyo fichero existe pero NO está versionado se rechaza
+    p = ec.ROOT / "tools" / "_b71_untracked_mod.py"
+    p.write_text("x = 1\n")
+    try:
+        with pytest.raises(SystemExit):
+            ec._governed_module("tools._b71_untracked_mod")
+    finally:
+        p.unlink()
+
+
+def test_b71_ambiguous_module_rejected(tmp_path, monkeypatch):
+    # x.py Y x/__init__.py a la vez ⇒ resolución ambigua ⇒ rechazo
+    monkeypatch.setattr(ec, "ROOT", tmp_path)
+    (tmp_path / "pkg.py").write_text("x = 1\n")
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("x = 1\n")
+    with pytest.raises(SystemExit):
+        ec._governed_module("pkg")
+
+
+def test_b71_nonexistent_module_rejected():
+    with pytest.raises(SystemExit):
+        ec._governed_module("tools.does_not_exist_b71")
+
+
+def test_b71_governed_module_accepts_real():
+    # un módulo real, versionado, regular, sin symlink → devuelve su ruta relativa
+    assert ec._governed_module("tools.python_env") == "tools/python_env.py"
 
 
 if __name__ == "__main__":

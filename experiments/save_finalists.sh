@@ -10,7 +10,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 # R9.4: bootstrap orquestador; la lógica corre en los entornos `deep-cpu`/`model` content-addressed.
-PYBOOT=${PYBOOT:-python3}
+PYBOOT=${PYBOOT:-python3.14}
 command -v "$PYBOOT" >/dev/null 2>&1 || { echo "ERROR: falta $PYBOOT (bootstrap del orquestador)" >&2; exit 1; }
 runc() { "$PYBOOT" -m tools.python_env run-command --id "$1" -- "${@:2}"; }
 FIN_FAILS=0

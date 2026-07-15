@@ -165,10 +165,14 @@ _VER_RE = re.compile(r"^\d+(\.\d+)+$")  # versión de toolchain: 26.1.2, 0.47.0,
 
 def load_profiles() -> dict:
     prof = json.loads(PROFILES_JSON.read_text(), object_pairs_hook=_no_dup_keys)
-    if set(prof) != {"schema_version", "toolchain", "profiles"}:
-        raise SystemExit(f"python_env: claves superiores {sorted(prof)} != schema_version/toolchain/profiles")
+    if set(prof) != {"schema_version", "python_minor", "toolchain", "profiles"}:
+        raise SystemExit(
+            f"python_env: claves superiores {sorted(prof)} != schema_version/python_minor/toolchain/profiles"
+        )
     if type(prof["schema_version"]) is not int or prof["schema_version"] != 1:  # B36: True no es 1
         raise SystemExit("python_env: schema_version no es int == 1")
+    if not (isinstance(prof["python_minor"], str) and re.fullmatch(r"3\.\d+", prof["python_minor"])):  # B76
+        raise SystemExit("python_env: python_minor inválido (esperado 'X.Y')")
     tc = prof["toolchain"]
     if not isinstance(tc, dict) or not isinstance(prof["profiles"], dict):
         raise SystemExit("python_env: toolchain/profiles no son objetos")
@@ -765,6 +769,43 @@ def open_valid_environment(
         os.close(env_fd)
 
 
+@contextmanager
+def open_or_build_valid_environment(
+    profile: str, variant: str | None = None, profiles: dict | None = None
+) -> Iterator[_ValidEnv]:
+    """B75: interfaz ÚNICA para `run`/`run_python`/`run_command`. En el camino de REUSO valida UNA sola vez
+    (antes: `build()`→`ready_valid` y de nuevo `open_valid_environment` = doble digest + doble pip check).
+    Si el entorno sellado abre y valida, lo entrega directamente; si NO existe, construye+sella y lo abre; si
+    existe pero es inválido, `build()` aborta (B25, NUNCA repara). Aplica el guard de minor de Python (B76)."""
+    profiles = profiles or load_profiles()
+    _require_python_minor(profiles)
+    cfg = _profile_config(profiles, profile)
+    target = env_dir(profile, variant, profiles)
+    anchor, comps = _governed_chain(target)
+    # camino de REUSO: intenta abrir+validar el sellado UNA vez (sin build()).
+    try:
+        env_fd = _open_governed_chain(anchor, comps, create=False, require_mode=0o700)
+    except SystemExit:
+        env_fd = None
+    if env_fd is not None:
+        try:
+            ok, _why, meta = _validate_open_env(env_fd, target, profile, variant, profiles, cfg)
+        except BaseException:
+            os.close(env_fd)
+            raise
+        if ok and meta is not None:
+            try:
+                yield _ValidEnv(env_fd, meta, meta["env_id"], target, cfg)
+            finally:
+                os.close(env_fd)
+            return
+        os.close(env_fd)  # existe pero inválido → build() abortará (no repara)
+    # camino de CONSTRUCCIÓN: build() sella; open_valid_environment valida el fresco (una validación).
+    build(profile, variant, profiles)
+    with open_valid_environment(profile, variant, profiles) as env:
+        yield env
+
+
 def read_ready(profile: str, variant: str | None = None, profiles: dict | None = None) -> dict:
     """B61/§3.7: devuelve el sello VALIDADO del entorno usando la MISMA validación que lo abrió (sin cerrar y
     reabrir la ruta, que permitía leer un sello reemplazado). Fuente única para consumidores que necesitan el
@@ -967,8 +1008,19 @@ def _open_lock(dir_fd: int, name: str) -> int:
     return fd
 
 
+def _require_python_minor(profiles: dict) -> None:
+    """B76: el intérprete BOOTSTRAP (que construye el venv con `sys.executable`) DEBE ser el minor declarado
+    en el contrato de perfiles — un 3.13/3.15 construiría el entorno con el minor equivocado. Aborta ANTES de
+    crear `.vp_envs`."""
+    want = profiles["python_minor"]
+    got = f"{sys.version_info[0]}.{sys.version_info[1]}"
+    if got != want:
+        raise SystemExit(f"python_env: bootstrap Python {got} != {want} requerido (usa python{want})")
+
+
 def build(profile: str, variant: str | None = None, profiles: dict | None = None) -> Path:
     profiles = profiles or load_profiles()
+    _require_python_minor(profiles)  # B76: aborta ANTES de tocar .vp_envs si el minor no coincide
     cfg = _profile_config(profiles, profile)
     target = env_dir(profile, variant, profiles)
     ok, why = ready_valid(target, profile, variant, profiles)
@@ -1343,8 +1395,7 @@ def run(
     name, rest = argv[0], list(argv[1:])
     if name not in cfg.get("console_scripts", []):
         raise SystemExit(f"python_env: {name!r} no es console-script declarado del perfil {profile!r}")
-    build(profile, variant, profiles)  # asegura el entorno construido/sellado
-    with open_valid_environment(profile, variant, profiles) as env:
+    with open_or_build_valid_environment(profile, variant, profiles) as env:  # B75: una validación
         # el console-script se ejecuta como módulo homónimo (dvc → `python -m dvc`, con __main__).
         return _launch_fd_bound(env, {"mode": "module", "name": name, "rest": rest}, capture)
 
@@ -1356,8 +1407,7 @@ def run_python(
     (B60). `argv` se traduce a un modo explícito (`-m`/`-c`/script); no se reabre el intérprete por ruta."""
     profiles = profiles or load_profiles()
     spec = _parse_python_argv(argv)
-    build(profile, variant, profiles)  # asegura el entorno construido/sellado
-    with open_valid_environment(profile, variant, profiles) as env:
+    with open_or_build_valid_environment(profile, variant, profiles) as env:  # B75: una validación
         return _launch_fd_bound(env, spec, capture)
 
 
@@ -1373,9 +1423,9 @@ def run_command(cid: str, args: list[str], *, capture: bool = False) -> subproce
     if c["args_policy"] == "none" and args:
         raise SystemExit(f"python_env: el comando {cid!r} no admite argumentos (args_policy=none)")
     profiles = load_profiles()
-    build(profile, variant, profiles)
-    with open_valid_environment(profile, variant, profiles) as env:
+    with open_or_build_valid_environment(profile, variant, profiles) as env:  # B75: una validación
         if mode == "module":
+            ec._governed_module(target)  # B71: re-valida el módulo gobernado (sin symlink/tracked) antes de lanzar
             spec = {"mode": "module", "name": target, "rest": list(args)}
         else:
             spec = {"mode": "script", "name": _governed_script(target), "rest": list(args)}

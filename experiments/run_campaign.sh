@@ -16,7 +16,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."   # los intérpretes y las rutas de salida viven en la RAÍZ del repo
 # R9.4: bootstrap orquestador (tools.python_env es stdlib-only). La LÓGICA DE PRODUCTO corre en los
 # entornos `model`/`deep-cpu` content-addressed que abre `run-command`, jamás en el python ambiental.
-PYBOOT=${PYBOOT:-python3}
+PYBOOT=${PYBOOT:-python3.14}
 command -v "$PYBOOT" >/dev/null 2>&1 || { echo "ERROR: falta $PYBOOT (bootstrap del orquestador)" >&2; exit 1; }
 runc() { "$PYBOOT" -m tools.python_env run-command --id "$1" -- "${@:2}"; }
 SEEDS="1 2 3 4 5"

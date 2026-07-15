@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "python_minor": "3.14",
   "toolchain": {
     "pip": "26.1.2",
     "setuptools": "83.0.0",

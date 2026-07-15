@@ -870,7 +870,7 @@ def test_b60_run_python_ancestor_swap_never_executes_external(tmp_path, monkeypa
             os.close(fd)
 
     monkeypatch.setattr(pe, "build", lambda *a, **k: target)
-    monkeypatch.setattr(pe, "open_valid_environment", fake_open)
+    monkeypatch.setattr(pe, "open_or_build_valid_environment", fake_open)
     pe.run_python("dvc-tool", ["-c", "pass"], capture=True)
     assert legit.exists(), "no corrió el intérprete del fd gobernado"
     assert not ext.exists(), "run_python ejecutó el intérprete EXTERNO tras el swap (B60)"
@@ -892,7 +892,7 @@ def test_b60_console_run_ancestor_swap_never_executes_external(tmp_path, monkeyp
             os.close(fd)
 
     monkeypatch.setattr(pe, "build", lambda *a, **k: target)
-    monkeypatch.setattr(pe, "open_valid_environment", fake_open)
+    monkeypatch.setattr(pe, "open_or_build_valid_environment", fake_open)
     pe.run("dvc-tool", ["dvc", "--version"], capture=True)
     assert legit.exists() and not ext.exists(), "run ejecutó el intérprete EXTERNO tras el swap (B60)"
 
@@ -919,7 +919,7 @@ def test_b60_runtime_uses_same_validated_env_fd(tmp_path, monkeypatch):
         return subprocess.CompletedProcess(argv, 0, "", "")
 
     monkeypatch.setattr(pe, "build", lambda *a, **k: target)
-    monkeypatch.setattr(pe, "open_valid_environment", fake_open)
+    monkeypatch.setattr(pe, "open_or_build_valid_environment", fake_open)
     monkeypatch.setattr(pe, "_run_in_dir", fake_run_in_dir)
     pe.run_python("dvc-tool", ["-c", "pass"])
     assert captured.get("argv", [None])[0] == "bin/python"  # intérprete relativo, no ruta absoluta
@@ -934,7 +934,7 @@ def test_b61_read_ready_uses_same_validated_fd(tmp_path, monkeypatch):
     def fake_open(profile, variant=None, profiles=None):
         yield pe._ValidEnv(-1, sentinel, "abc", tmp_path / "env", {})
 
-    monkeypatch.setattr(pe, "open_valid_environment", fake_open)
+    monkeypatch.setattr(pe, "open_valid_environment", fake_open)  # read_ready usa open_valid_environment
     assert pe.read_ready("dvc-tool") == sentinel
 
 
@@ -1021,6 +1021,55 @@ def test_b62_special_type_replacement_changes_or_blocks_digest(tmp_path):
     r1, r2 = outcome(d1), outcome(d2)
     s.close()
     assert r1[0] == "blocked" and r2[0] == "blocked", f"tipo especial no rechazado: {r1}, {r2}"
+
+
+# ----------------------------- R9.2R: B75 (una validación por run caliente) -----------------------------
+
+
+def test_b75_hot_run_validates_once(tmp_path, monkeypatch):
+    target = tmp_path / "env"
+    (target / "bin").mkdir(parents=True)
+    os.chmod(target, 0o700)
+    calls = {"validate": 0, "build": 0}
+
+    def counting_validate(env_fd, env_path, profile, variant, profiles, cfg):
+        calls["validate"] += 1
+        return True, "ok", {"env_id": "x"}
+
+    monkeypatch.setattr(pe, "env_dir", lambda *a, **k: target)
+    monkeypatch.setattr(
+        pe, "_open_governed_chain", lambda *a, **k: os.open(str(target), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    )
+    monkeypatch.setattr(pe, "_validate_open_env", counting_validate)
+    monkeypatch.setattr(pe, "build", lambda *a, **k: (calls.__setitem__("build", calls["build"] + 1), target)[1])
+    monkeypatch.setattr(pe, "_governed_script", lambda name: name)
+    monkeypatch.setattr(
+        pe, "_launch_fd_bound", lambda env, spec, capture: __import__("subprocess").CompletedProcess([], 0)
+    )
+    pe.run_command("aggregate_seeds", [])
+    assert calls["validate"] == 1, f"un run CALIENTE validó {calls['validate']} veces (esperado 1)"
+    assert calls["build"] == 0, "build() se llamó en el camino de REUSO (doble validación, B75)"
+
+
+# ----------------------------- R9.2R: B76 (bootstrap Python 3.14) -----------------------------
+
+
+def test_b76_profiles_declare_python_minor():
+    prof = pe.load_profiles()
+    assert prof["python_minor"] == "3.14"
+
+
+def test_b76_wrong_python_minor_aborts_before_build(tmp_path, monkeypatch):
+    prof = pe.load_profiles()
+    p2 = json.loads(json.dumps(prof))
+    p2["python_minor"] = "3.99"  # el intérprete actual (3.14) NO coincide
+    with pytest.raises(SystemExit) as exc:
+        pe._require_python_minor(p2)
+    assert "3.99" in str(exc.value) or "minor" in str(exc.value).lower()
+
+
+def test_b76_current_minor_ok():
+    pe._require_python_minor(pe.load_profiles())  # 3.14 == 3.14, no lanza
 
 
 # ----------------------------- R9-a: regresiones B64 (script gobernado) / B67 (helpers retirados) -----------------------------

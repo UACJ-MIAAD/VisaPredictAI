@@ -47,10 +47,23 @@ def _no_dup(pairs):
     return d
 
 
-def _module_resolves(mod: str) -> bool:
-    """Un nombre de módulo canónico debe resolver a `<rel>.py` o `<rel>/__init__.py` en el repo."""
+def _governed_module(mod: str) -> str:
+    """B71: valida un MÓDULO con el mismo rigor que un script — nombre Python canónico, EXACTAMENTE una
+    resolución (`x.py` XOR `x/__init__.py`; ambos = AMBIGUO), fichero regular, sin symlink en NINGÚN
+    componente, dentro de ROOT y VERSIONADO en git. Devuelve la ruta relativa del fichero validado (rechaza
+    namespace/ambiguos/symlink/no-versionados). `Path.is_file()` SIGUE symlinks, por eso la validación real la
+    hace `python_env._governed_script` sobre la ruta resuelta (que comprueba cada componente por symlink)."""
+    if not _MODULE_RE.fullmatch(mod):
+        raise SystemExit(f"execution_contract: módulo no canónico {mod!r}")
     rel = mod.replace(".", "/")
-    return (ROOT / f"{rel}.py").is_file() or (ROOT / rel / "__init__.py").is_file()
+    py_present = (ROOT / f"{rel}.py").is_file()
+    init_present = (ROOT / rel / "__init__.py").is_file()
+    if py_present and init_present:
+        raise SystemExit(f"execution_contract: módulo AMBIGUO (existe {rel}.py Y {rel}/__init__.py) {mod!r}")
+    if not py_present and not init_present:
+        raise SystemExit(f"execution_contract: módulo inexistente {mod!r}")
+    target = f"{rel}.py" if py_present else f"{rel}/__init__.py"
+    return pe._governed_script(target)  # relativo a ROOT, versionado, regular, sin symlink en ningún componente
 
 
 def load_contract(path: Path = CONTRACT) -> dict:
@@ -88,8 +101,9 @@ def load_contract(path: Path = CONTRACT) -> dict:
             raise SystemExit(f"execution_contract: {cid!r} args_policy {c['args_policy']!r} inválido")
         tgt = c["target"]
         if c["mode"] == "module":
-            if not (isinstance(tgt, str) and _MODULE_RE.fullmatch(tgt) and _module_resolves(tgt)):
-                raise SystemExit(f"execution_contract: {cid!r} módulo {tgt!r} no canónico o inexistente")
+            if not isinstance(tgt, str):
+                raise SystemExit(f"execution_contract: {cid!r} target de módulo no-string")
+            _governed_module(tgt)  # B71: canónico + una resolución + regular + sin symlink + tracked + en ROOT
         else:
             pe._governed_script(tgt)  # relativo a ROOT, versionado, regular, sin symlink (fail-closed)
     return doc

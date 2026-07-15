@@ -83,19 +83,36 @@ def test_to_timeseries_regular_no_gaps() -> None:
 
 @pytest.mark.parametrize("name", FAST)
 def test_fast_model_fits_and_forecasts(name: str) -> None:
+    import warnings
+
     from vp_model.feature_builder import FeatureBuilder
 
     raw = dataset.load_series("mexico", "F3", "FAD")
     ts = models.to_timeseries(raw)
     model = models.build_model(name)
-    if name == "xgboost":
-        # F1: calendario (retardo 0) + máscaras MNAR (retardo −1) vía FeatureBuilder.
-        cov = FeatureBuilder(name).covariates(ts, raw)
-        model.fit(ts[:-12], future_covariates=cov)
-        fc = model.predict(12, future_covariates=cov)
-    else:
-        model.fit(ts[:-12])
-        fc = model.predict(12)
+    # B73: SARIMA sobre esta serie emite warnings de Statsmodels (AR inicial no-estacionario / MA inicial
+    # no-invertible). Se CAPTURAN aquí (sin filtro global de ignore) y se EXIGE que cualquier warning sea uno
+    # de esa familia esperada — un warning distinto (o de otra librería) rompe la prueba. Los modelos que no
+    # avisan (naive/ets/…) dejan la lista vacía y pasan igual.
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        if name == "xgboost":
+            # F1: calendario (retardo 0) + máscaras MNAR (retardo −1) vía FeatureBuilder.
+            cov = FeatureBuilder(name).covariates(ts, raw)
+            model.fit(ts[:-12], future_covariates=cov)
+            fc = model.predict(12, future_covariates=cov)
+        else:
+            model.fit(ts[:-12])
+            fc = model.predict(12)
+    unexpected = [
+        f"{w.category.__name__}: {w.message}"
+        for w in rec
+        if not (
+            issubclass(w.category, Warning)
+            and any(k in str(w.message) for k in ("stationary", "invertible", "converge"))
+        )
+    ]
+    assert not unexpected, f"warning inesperado en {name}: {unexpected}"
     assert len(fc) == 12
     import numpy as np
 
