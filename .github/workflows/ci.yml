@@ -264,9 +264,13 @@ jobs:
       # P0R.5 (C4/B2): trinquete de migración del call graph fuera de ante/ante_nf.
       - name: Sin uso legacy nuevo de ante/ante_nf (trinquete)
         run: python tools/check_no_legacy_envs.py
-      # P0R.5 (Node 24): toda Action fijada por SHA de 40 hex, ninguna Node 20 deprecada.
-      - name: Action pins (SHA de 40 hex, sin Node 20)
-        run: python tools/check_action_pins.py
+      # P0R.5 (Node 24, B49/B53): registro POSITIVO de Actions — biyección acción⇔registro, SHA exacto,
+      # comentario de versión, node24. Offline primero, luego verificación REMOTA (SHA existe, la versión
+      # apunta a ese SHA, action.yml declara node24) contra la GitHub API. Fail-closed, con timeout.
+      - name: Action pins (registro positivo + verificación remota Node 24)
+        run: timeout 300 python tools/check_action_pins.py --online
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   # P0R.3: gate de supply chain como CHECK DE CAMBIO (PR/push), no solo cron. Autoridad única
   # = tools/audit_python_supply_chain.py reconciliando los locks contra el JSON. Sin path

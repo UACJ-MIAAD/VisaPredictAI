@@ -791,5 +791,113 @@ def test_b50_receipt_schema_exact(tmp_path, monkeypatch, mutate, frag):
     assert any(frag in p for p in probs)
 
 
+# ----------------------------- C1: regresiones R8R6R2 (B53 registro / B54 recibo) -----------------------------
+
+import tools.check_action_pins as pins  # noqa: E402
+
+
+def _reg(tmp_path, text):
+    p = tmp_path / "reg.json"
+    p.write_text(text)
+    return p
+
+
+def test_b53_registry_rejects_bool_schema_version(tmp_path):
+    p = _reg(tmp_path, '{"schema_version": true, "note": "x", "actions": {}}')
+    with pytest.raises(SystemExit):
+        pins.load_registry(p)
+
+
+def test_b53_registry_rejects_duplicate_keys(tmp_path):
+    p = _reg(tmp_path, '{"schema_version": 1, "schema_version": 1, "note": "x", "actions": {}}')
+    with pytest.raises(SystemExit):
+        pins.load_registry(p)
+
+
+def test_b53_registry_rejects_extra_top_level_key(tmp_path):
+    p = _reg(tmp_path, '{"schema_version": 1, "note": "x", "actions": {}, "evil": 1}')
+    with pytest.raises(SystemExit):
+        pins.load_registry(p)
+
+
+def test_b53_check_flags_orphan_registered_action(tmp_path):
+    # un root cuyos workflows usan SOLO checkout deja las otras 5 acciones registradas como huérfanas
+    sha = pins.load_registry()["actions/checkout"]["sha"]
+    root = _wf(tmp_path, "x.yml", f"jobs:\n  a:\n    steps:\n      - uses: actions/checkout@{sha}  # v5\n")
+    probs = pins.check(root)
+    assert any("huérfano" in p for p in probs)
+
+
+def test_b53_check_flags_unparseable_uses(tmp_path):
+    root = _wf(tmp_path, "x.yml", "jobs:\n  a:\n    steps:\n      - uses: docker://evil/image:latest\n")
+    probs = pins.check(root)
+    assert any("no parseable" in p for p in probs)
+
+
+def test_b53_verify_remote_catches_bad_sha(tmp_path, monkeypatch):
+    # sin red real: _gh mockeado devuelve un SHA de tag que NO coincide con el registrado
+    p = _reg(
+        tmp_path,
+        '{"schema_version": 1, "note": "x", "actions": {"actions/checkout": '
+        '{"sha": "' + ("a" * 40) + '", "version": "v5", "runtime": "node24"}}}',
+    )
+
+    def fake_gh(*args):
+        q = args[0]
+        if "commits/" in q:
+            return '"' + "a" * 40 + '"'
+        if "git/ref/tags/" in q:
+            return "b" * 40  # el tag apunta a OTRO sha
+        if "contents/action.yml" in q:
+            import base64
+
+            return base64.b64encode(b"runs:\n  using: node24\n").decode()
+        return None
+
+    monkeypatch.setattr(pins, "_gh", fake_gh)
+    probs = pins.verify_remote(p)
+    assert any("apunta a" in x for x in probs)
+
+
+def test_b54_receipt_rejects_python_version_suffix(tmp_path, monkeypatch):
+    _receipt_workspace(tmp_path, monkeypatch)
+    r = _valid_receipt(_good_platform())
+    bad_py = {**_good_python(), "version": "3.14.6evil"}  # sufijo basura tras la versión
+    r.update({"python": bad_py, "env_id": "e" * 64, "github_run_id": "1", "github_run_attempt": "1"})
+    (tmp_path / "r.json").write_text(json.dumps(r))
+    probs = vr.validate(tmp_path / "r.json", tmp_path / "s.json")
+    assert any("python.version no casa" in p for p in probs)
+
+
+def test_b54_receipt_python_identity_matches_descriptor(tmp_path, monkeypatch):
+    # recibo de ESTA plataforma (plat==actual) con python cache_tag falso -> debe diferir del descriptor real
+    import tools.python_env as pe
+
+    _receipt_workspace(tmp_path, monkeypatch)
+    (tmp_path / ("locks/" + pe.lock_rel_for("dvc-tool").split("/")[-1])).write_text("x")
+    desc = pe.descriptor("dvc-tool")
+    plat = desc["platform"]
+    r = _valid_receipt(plat)  # plat == actual (Darwin-arm64/Linux-x86_64)
+    bad_py = {**desc["python"], "cache_tag": "cpython-999-fake"}  # no-vacío pero != descriptor
+    r.update({"python": bad_py, "env_id": "e" * 64, "github_run_id": "1", "github_run_attempt": "1"})
+    (tmp_path / "r.json").write_text(json.dumps(r))
+    probs = vr.validate(tmp_path / "r.json", tmp_path / "s.json")
+    assert any("python != descriptor" in p for p in probs)
+
+
+def test_b54_receipt_platform_identity_matches_descriptor(tmp_path, monkeypatch):
+    import tools.python_env as pe
+
+    _receipt_workspace(tmp_path, monkeypatch)
+    (tmp_path / ("locks/" + pe.lock_rel_for("dvc-tool").split("/")[-1])).write_text("x")
+    desc = pe.descriptor("dvc-tool")
+    bad_plat = {**desc["platform"], "libc_or_macos": "totally-wrong"}
+    r = _valid_receipt(bad_plat)
+    r.update({"python": desc["python"], "env_id": "e" * 64, "github_run_id": "1", "github_run_attempt": "1"})
+    (tmp_path / "r.json").write_text(json.dumps(r))
+    probs = vr.validate(tmp_path / "r.json", tmp_path / "s.json")
+    assert any("platform != descriptor" in p for p in probs)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

@@ -454,9 +454,13 @@ def ready_valid(
         env_fd = _open_governed_chain(anchor, comps, create=False, require_mode=0o700)
     except SystemExit as exc:
         return False, f"cadena del entorno insegura: {exc}"
-    # B47/paso 3: abre READY.json RELATIVO al fd del entorno con O_NOFOLLOW y valida por fstat (regular, UID,
-    # modo 0600 EXACTO, nlink==1); lee DEL MISMO descriptor — sin lstat-luego-read (ventana de sustitución).
+    # B52: MANTIENE env_fd abierto TODA la validación; los hashes/inventario/sello por ruta se hacen entre
+    # dos chequeos de identidad (dev, ino) — si un ancestro se intercambia por symlink a mitad, se rechaza.
     try:
+        est = os.fstat(env_fd)
+        ident = (est.st_dev, est.st_ino)  # inode gobernado del entorno
+        # B47/paso 3: abre READY.json RELATIVO al fd del entorno con O_NOFOLLOW y valida por fstat (regular,
+        # UID, modo 0600 EXACTO, nlink==1); lee DEL MISMO descriptor — sin lstat-luego-read.
         try:
             rfd = os.open("READY.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=env_fd)
         except FileNotFoundError:
@@ -477,63 +481,70 @@ def ready_valid(
                 raw = fh.read()
         finally:
             os.close(rfd)
+        # B14: no reusar bajo un lockset/contrato inválido.
+        contract = lc.validate_all(ROOT)
+        if contract:
+            return False, "lockset/contrato inválido: " + "; ".join(contract)
+        try:
+            meta = json.loads(raw, object_pairs_hook=_no_dup_keys)
+        except (ValueError, OSError, SystemExit) as exc:
+            return False, f"READY.json ilegible/duplicado: {exc}"
+        if set(meta) != _READY_KEYS:
+            return False, f"READY.json con esquema inexacto (claves {sorted(meta)})"
+        # B20/B28: validación SEMÁNTICA con IDENTIDAD DE TIPO (True != 1: un bool NO cuenta como int).
+        if type(meta["schema_version"]) is not int or meta["schema_version"] != 1:
+            return False, "schema_version no es int == 1"
+        inv = meta["inventory"]
+        if not isinstance(inv, list) or not all(isinstance(x, str) for x in inv):
+            return False, "inventory no es lista de strings"
+        if not all(_PIN.fullmatch(x) for x in inv):  # B35: fullmatch, no trailing basura ("alpha==1 X")
+            return False, "inventory con entrada sin sintaxis exacta nombre==versión"
+        if len({_canon(x.split("==")[0]) for x in inv}) != len(inv):
+            return False, "inventory con nombre canónico duplicado"
+        if type(meta["n_packages"]) is not int or meta["n_packages"] != len(inv):
+            return False, f"n_packages no es int == len(inventory) {len(inv)}"
+        if meta["inventory_digest"] != _inventory_digest(inv):
+            return False, "inventory_digest sellado != recomputado del inventario"
+        if meta["pip_check"] != "ok":
+            return False, "pip_check sellado != 'ok'"
+        if not isinstance(meta["file_hashes"], dict) or not meta["file_hashes"]:
+            return False, "file_hashes vacío o no-dict"
+        if meta.get("env_id") != env_id(profile, variant, profiles):
+            return False, f"env_id sellado {meta.get('env_id')!r} != esperado"
+        if meta.get("descriptor") != descriptor(profile, variant, profiles):
+            return False, "descriptor sellado != actual"
+        # B52: la ruta debe seguir apuntando al inode gobernado ANTES de hashear/inventariar por ruta.
+        if not _ident_ok(env_path, ident):
+            return False, "env_path ya no apunta al inode gobernado (swap de ancestro)"
+        py = _venv_python(env_path)
+        if not py.exists():
+            return False, "falta el intérprete del venv"
+        # B20/B13: file_hashes DEBE casar EXACTAMENTE el recomputado (conjunto de claves Y hashes:
+        # pyvenv.cfg, console-scripts y el intérprete resuelto). Un dict arbitrario/vacío/alterado falla.
+        if meta["file_hashes"] != _file_hashes(env_path, cfg):
+            return False, "TAMPER: file_hashes sellado != recomputado (script/pyvenv/intérprete alterado)"
+        if _tree_digest(env_path) != meta.get("tree_digest"):
+            return False, "TAMPER: el árbol del entorno difiere del sello (fichero de site-packages alterado)"
+        try:
+            freeze = _pip_freeze(py)
+        except (subprocess.CalledProcessError, OSError) as exc:
+            return False, f"no se pudo inventariar: {exc}"
+        if sorted(x.lower() for x in freeze) != sorted(x.lower() for x in inv):
+            return False, "TAMPER: inventario vivo != sellado (versión o paquete extra)"
+        # B34: el inventario sellado debe ser EXACTAMENTE el cierre esperado (no basta con contener el lock).
+        sealed_obs = {_canon(x.split("==")[0]): x.split("==")[1] for x in inv if "==" in x}
+        iprobs = _inventory_problems(sealed_obs, profile, variant, profiles)
+        if iprobs:
+            return False, "inventario sellado != cierre esperado: " + "; ".join(iprobs)
+        if not _pip_check(py):
+            return False, "TAMPER: pip check falla en el entorno sellado"
+        # B52: reverifica el inode TRAS todas las operaciones por ruta — un swap a mitad de camino
+        # (entre la lectura del sello y el hashing/inventario) invalida el resultado.
+        if not _ident_ok(env_path, ident):
+            return False, "env_path cambió de inode durante la validación (swap de ancestro)"
+        return True, "ok"
     finally:
         os.close(env_fd)
-    # B14: no reusar bajo un lockset/contrato inválido.
-    contract = lc.validate_all(ROOT)
-    if contract:
-        return False, "lockset/contrato inválido: " + "; ".join(contract)
-    try:
-        meta = json.loads(raw, object_pairs_hook=_no_dup_keys)
-    except (ValueError, OSError, SystemExit) as exc:
-        return False, f"READY.json ilegible/duplicado: {exc}"
-    if set(meta) != _READY_KEYS:
-        return False, f"READY.json con esquema inexacto (claves {sorted(meta)})"
-    # B20/B28: validación SEMÁNTICA con IDENTIDAD DE TIPO (True != 1: un bool NO cuenta como int).
-    if type(meta["schema_version"]) is not int or meta["schema_version"] != 1:
-        return False, "schema_version no es int == 1"
-    inv = meta["inventory"]
-    if not isinstance(inv, list) or not all(isinstance(x, str) for x in inv):
-        return False, "inventory no es lista de strings"
-    if not all(_PIN.fullmatch(x) for x in inv):  # B35: fullmatch, no trailing basura ("alpha==1 X")
-        return False, "inventory con entrada sin sintaxis exacta nombre==versión"
-    if len({_canon(x.split("==")[0]) for x in inv}) != len(inv):
-        return False, "inventory con nombre canónico duplicado"
-    if type(meta["n_packages"]) is not int or meta["n_packages"] != len(inv):
-        return False, f"n_packages no es int == len(inventory) {len(inv)}"
-    if meta["inventory_digest"] != _inventory_digest(inv):
-        return False, "inventory_digest sellado != recomputado del inventario"
-    if meta["pip_check"] != "ok":
-        return False, "pip_check sellado != 'ok'"
-    if not isinstance(meta["file_hashes"], dict) or not meta["file_hashes"]:
-        return False, "file_hashes vacío o no-dict"
-    if meta.get("env_id") != env_id(profile, variant, profiles):
-        return False, f"env_id sellado {meta.get('env_id')!r} != esperado"
-    if meta.get("descriptor") != descriptor(profile, variant, profiles):
-        return False, "descriptor sellado != actual"
-    py = _venv_python(env_path)
-    if not py.exists():
-        return False, "falta el intérprete del venv"
-    # B20/B13: file_hashes DEBE casar EXACTAMENTE el recomputado (conjunto de claves Y hashes:
-    # pyvenv.cfg, console-scripts y el intérprete resuelto). Un dict arbitrario/vacío/alterado falla.
-    if meta["file_hashes"] != _file_hashes(env_path, cfg):
-        return False, "TAMPER: file_hashes sellado != recomputado (script/pyvenv/intérprete alterado)"
-    if _tree_digest(env_path) != meta.get("tree_digest"):
-        return False, "TAMPER: el árbol del entorno difiere del sello (fichero de site-packages alterado)"
-    try:
-        freeze = _pip_freeze(py)
-    except (subprocess.CalledProcessError, OSError) as exc:
-        return False, f"no se pudo inventariar: {exc}"
-    if sorted(x.lower() for x in freeze) != sorted(x.lower() for x in inv):
-        return False, "TAMPER: inventario vivo != sellado (versión o paquete extra)"
-    # B34: el inventario sellado debe ser EXACTAMENTE el cierre esperado (no basta con contener el lock).
-    sealed_obs = {_canon(x.split("==")[0]): x.split("==")[1] for x in inv if "==" in x}
-    iprobs = _inventory_problems(sealed_obs, profile, variant, profiles)
-    if iprobs:
-        return False, "inventario sellado != cierre esperado: " + "; ".join(iprobs)
-    if not _pip_check(py):
-        return False, "TAMPER: pip check falla en el entorno sellado"
-    return True, "ok"
 
 
 # --------------------------------------------------------------------------- build (transaccional)
@@ -717,13 +728,14 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
         raise SystemExit(
             f"python_env: entorno sellado inválido en {target} ({why}) — NO se repara; usa `prune`/borra manualmente"
         )
-    # B46: crea/valida la cadena ROOT→.vp_envs→<perfil> con openat O_NOFOLLOW (ningún nivel puede ser
-    # symlink) y abre el lock RELATIVO al fd del dir de perfil ya validado.
+    # B46: crea/valida la cadena ROOT→.vp_envs→<perfil> con openat O_NOFOLLOW y MANTIENE abierto el fd del
+    # dir de perfil TODA la transacción (B51: la promoción/limpieza serán RELATIVAS a él, inmunes a swaps).
+    eid = env_id(profile, variant, profiles)
     p_anchor, p_comps = _governed_chain(target.parent)
-    leaf_fd = _open_governed_chain(p_anchor, p_comps, create=True, require_mode=0o700)
-    lock_fd = _open_lock(leaf_fd, f".lock-{env_id(profile, variant, profiles)}")  # openat relativo al perfil
-    with os.fdopen(lock_fd, "r+") as lk:
-        try:
+    profile_fd = _open_governed_chain(p_anchor, p_comps, create=True, require_mode=0o700)
+    try:
+        lock_fd = _open_lock(profile_fd, f".lock-{eid}")  # openat relativo al perfil
+        with os.fdopen(lock_fd, "r+") as lk:
             fcntl.flock(lk, fcntl.LOCK_EX)
             ok, why = ready_valid(target, profile, variant, profiles)  # re-check bajo el lock
             if ok:
@@ -735,90 +747,146 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
             if probs:
                 raise SystemExit("python_env: lockset/contrato inválido -> " + "; ".join(probs))
             lock_rel = lock_rel_for(profile, variant, profiles)
-            # staging: subdir con nonce creado RELATIVO al fd de `.vp_envs/.staging` validado (no mkdtemp
-            # por ruta, que seguiría un `.vp_envs` symlink).
+            # staging: subdir con nonce creado RELATIVO al fd de `.vp_envs/.staging`; MANTIENE abiertos el fd
+            # del padre `.staging` y el del nonce toda la transacción (B51).
             s_anchor, s_comps = _governed_chain(STAGING_ROOT)
-            staging_fd = _open_governed_chain(s_anchor, s_comps, create=True, require_mode=0o700)
+            staging_parent_fd = _open_governed_chain(s_anchor, s_comps, create=True, require_mode=0o700)
             try:
-                nonce = f"{env_id(profile, variant, profiles)}.{os.urandom(8).hex()}"
-                os.mkdir(nonce, 0o700, dir_fd=staging_fd)
-                os.chmod(nonce, 0o700, dir_fd=staging_fd)
+                nonce = f"{eid}.{os.urandom(8).hex()}"
+                os.mkdir(nonce, 0o700, dir_fd=staging_parent_fd)
+                staging_fd = os.open(nonce, _ODIR, dir_fd=staging_parent_fd)
+                sealed = False
+                try:
+                    os.fchmod(staging_fd, 0o700)
+                    sst = os.fstat(staging_fd)
+                    ident = (sst.st_dev, sst.st_ino)  # inode gobernado del staging
+                    staging = STAGING_ROOT / nonce  # ruta abs SOLO para venv/pip/hashes, bracketed por _check_ident
+                    _check_ident(staging, ident, "pre-venv")
+                    venv.create(staging, with_pip=True, clear=True)
+                    _check_ident(staging, ident, "post-venv")
+                    py = _venv_python(staging)
+                    _install(py, profile, cfg, profiles, lock_rel)
+                    _check_ident(staging, ident, "post-install")
+                    if not _pip_check(py):
+                        raise SystemExit("python_env: pip check falla tras instalar")
+                    freeze = _pip_freeze(py)
+                    _check_ident(staging, ident, "post-freeze")
+                    observed = {_canon(ln.split("==")[0]): ln.split("==")[1] for ln in freeze if "==" in ln}
+                    # B24/B34: el inventario observado debe ser EXACTAMENTE el cierre esperado (pins+toolchain);
+                    # faltantes, versiones distintas y extras (salvo `packaging`) abortan ANTES de sellar.
+                    iprobs = _inventory_problems(observed, profile, variant, profiles)
+                    if iprobs:
+                        raise SystemExit("python_env: inventario observado != cierre esperado -> " + "; ".join(iprobs))
+                    _check_ident(staging, ident, "pre-purge")
+                    _purge_bytecode(staging)  # B43: sin .pyc en el árbol sellado
+                    _check_ident(staging, ident, "pre-hash")
+                    meta = {
+                        "schema_version": 1,
+                        "env_id": eid,
+                        "descriptor": descriptor(profile, variant, profiles),
+                        "inventory": freeze,
+                        "inventory_digest": _inventory_digest(freeze),
+                        "file_hashes": _file_hashes(staging, cfg),
+                        "tree_digest": _tree_digest(staging),
+                        "pip_check": "ok",
+                        "n_packages": len(freeze),
+                    }
+                    assert set(meta) == _READY_KEYS  # esquema exacto (B4/B13)
+                    _check_ident(staging, ident, "pre-seal")
+                    # B51: sella READY.json RELATIVO a staging_fd (openat O_EXCL 0600), fsync por fd
+                    data = (json.dumps(meta, indent=2, sort_keys=True) + "\n").encode()
+                    rfd = os.open(
+                        "READY.json", os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=staging_fd
+                    )
+                    try:
+                        os.write(rfd, data)
+                        os.fchmod(rfd, 0o600)  # B40: el sello es solo-usuario
+                        os.fsync(rfd)
+                    finally:
+                        os.close(rfd)
+                    _fsync_fd(staging_fd)
+                    # B32/B51: promoción CREATE-ONLY ATÓMICA y RELATIVA a fds (staging_parent_fd → profile_fd);
+                    # inmune a swap de ancestro (opera sobre los inodes ya validados, no rutas absolutas).
+                    _rename_noreplace(staging_parent_fd, nonce, profile_fd, target.name)
+                    _fsync_fd(profile_fd)  # el rename se persiste con fsync del PADRE
+                    sealed = True
+                    return target
+                finally:
+                    os.close(staging_fd)
+                    if not sealed:
+                        _safe_cleanup(staging_parent_fd, nonce)  # SOLO por fd; nunca por ruta absoluta
             finally:
-                os.close(staging_fd)
-            staging = STAGING_ROOT / nonce
-        finally:
-            os.close(leaf_fd)
-        try:
-            venv.create(staging, with_pip=True, clear=True)
-            py = _venv_python(staging)
-            _install(py, profile, cfg, profiles, lock_rel)
-            if not _pip_check(py):
-                raise SystemExit("python_env: pip check falla tras instalar")
-            freeze = _pip_freeze(py)
-            observed = {_canon(ln.split("==")[0]): ln.split("==")[1] for ln in freeze if "==" in ln}
-            # B24/B34: el inventario observado debe ser EXACTAMENTE el cierre esperado (pins + toolchain);
-            # faltantes, versiones distintas y extras (salvo `packaging`) abortan ANTES de sellar READY.
-            iprobs = _inventory_problems(observed, profile, variant, profiles)
-            if iprobs:
-                raise SystemExit("python_env: inventario observado != cierre esperado -> " + "; ".join(iprobs))
-            _purge_bytecode(staging)  # B43: sin .pyc en el árbol sellado
-            meta = {
-                "schema_version": 1,
-                "env_id": env_id(profile, variant, profiles),
-                "descriptor": descriptor(profile, variant, profiles),
-                "inventory": freeze,
-                "inventory_digest": _inventory_digest(freeze),
-                "file_hashes": _file_hashes(staging, cfg),
-                "tree_digest": _tree_digest(staging),
-                "pip_check": "ok",
-                "n_packages": len(freeze),
-            }
-            assert set(meta) == _READY_KEYS  # esquema exacto (B4/B13)
-            (staging / "READY.json").write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
-            os.chmod(staging / "READY.json", 0o600)  # B40: el sello es solo-usuario
-            with open(staging / "READY.json", "rb") as fh:
-                os.fsync(fh.fileno())
-            _fsync_dir(staging)
-            # B32: promoción CREATE-ONLY ATÓMICA — renameat2(RENAME_NOREPLACE)/renamex_np(RENAME_EXCL);
-            # el pre-check exists() es TOCTOU, así que el propio syscall rechaza un target ya existente.
-            _rename_noreplace(staging, target)
-            _fsync_dir(target.parent)  # el rename se persiste con fsync del PADRE
-            return target
-        except BaseException:
-            shutil.rmtree(staging, ignore_errors=True)
-            raise
+                os.close(staging_parent_fd)
+    finally:
+        os.close(profile_fd)
 
 
-def _rename_noreplace(src: Path, dst: Path) -> None:
-    """Rename que FALLA si `dst` ya existe (create-only atómico, sin TOCTOU). renameat2(RENAME_NOREPLACE)
-    en Linux, renamex_np(RENAME_EXCL) en macOS. Fail-closed si la primitiva no está disponible."""
+def _rename_noreplace(src_dir_fd: int, src_name: str, dst_dir_fd: int, dst_name: str) -> None:
+    """B51: promoción create-only RELATIVA a descriptores de directorio — renameat2(RENAME_NOREPLACE) en
+    Linux, renameatx_np(RENAME_EXCL) en macOS, ambos con `olddirfd`/`newdirfd`. Al operar sobre los fds ya
+    validados (no rutas absolutas), un swap de un ancestro por symlink NO puede redirigir la promoción a un
+    árbol externo. Falla si el destino ya existe (EEXIST). Fail-closed si la primitiva no está disponible."""
     import ctypes
     import ctypes.util
 
+    if "/" in src_name or "/" in dst_name:
+        raise SystemExit("python_env: nombre con '/' en promoción — prohibido")
     libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
-    s, d = os.fsencode(str(src)), os.fsencode(str(dst))
+    s, d = os.fsencode(src_name), os.fsencode(dst_name)
     system = platform.system()
+    ctypes.set_errno(0)
     if system == "Darwin":
-        if not hasattr(libc, "renamex_np"):
-            raise SystemExit("python_env: renamex_np no disponible — fail-closed")
-        rc = libc.renamex_np(s, d, ctypes.c_uint(0x00000004))  # RENAME_EXCL
+        if not hasattr(libc, "renameatx_np"):
+            raise SystemExit("python_env: renameatx_np no disponible — fail-closed")
+        rc = libc.renameatx_np(ctypes.c_int(src_dir_fd), s, ctypes.c_int(dst_dir_fd), d, ctypes.c_uint(0x00000004))
     elif system == "Linux":
         if not hasattr(libc, "renameat2"):
             raise SystemExit("python_env: renameat2 no disponible — fail-closed")
-        rc = libc.renameat2(-100, s, -100, d, ctypes.c_uint(1))  # AT_FDCWD, RENAME_NOREPLACE
+        rc = libc.renameat2(
+            ctypes.c_int(src_dir_fd), s, ctypes.c_int(dst_dir_fd), d, ctypes.c_uint(1)
+        )  # RENAME_NOREPLACE
     else:
         raise SystemExit(f"python_env: promoción create-only no soportada en {system}")
     if rc != 0:
         err = ctypes.get_errno()
-        raise SystemExit(f"python_env: promoción create-only falló ({dst} ya existe?) errno {err} {os.strerror(err)}")
+        raise SystemExit(
+            f"python_env: promoción create-only falló ({dst_name} ya existe?) errno {err} {os.strerror(err)}"
+        )
 
 
-def _fsync_dir(path: Path) -> None:
-    fd = os.open(str(path), os.O_RDONLY)
+def _check_ident(path: Path, ident: tuple[int, int], what: str) -> None:
+    """B51/B52: verifica que la RUTA ABSOLUTA `path` siga resolviendo al inode gobernado `ident`
+    (st_dev, st_ino). `os.stat` SIGUE la ruta, así que un swap de un ancestro por symlink a otro árbol
+    cambia (dev, ino) y aborta ANTES de que venv/pip/hash/borrado toquen algo externo."""
     try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+        st = os.stat(str(path))
+    except OSError as exc:
+        raise SystemExit(f"python_env: {what}: {path} no accesible ({exc}) — abortado") from exc
+    if (st.st_dev, st.st_ino) != ident:
+        raise SystemExit(f"python_env: {what}: {path} ya no apunta al inode gobernado — abortado (swap de ancestro)")
+
+
+def _ident_ok(path: Path, ident: tuple[int, int]) -> bool:
+    """B52: True si la RUTA ABSOLUTA `path` sigue resolviendo al inode gobernado `ident`. Versión que NO
+    lanza (para `ready_valid`, que devuelve (bool, motivo))."""
+    try:
+        st = os.stat(str(path))
+    except OSError:
+        return False
+    return (st.st_dev, st.st_ino) == ident
+
+
+def _safe_cleanup(parent_fd: int, name: str) -> None:
+    """B51: borra el staging SOLO relativo al fd del padre ya validado (nunca por ruta absoluta, que
+    seguiría un ancestro symlink). Sin `ignore_errors`; tolera solo que ya no exista."""
+    try:
+        _rmtree_at(parent_fd, name)
+    except FileNotFoundError:
+        pass
+
+
+def _fsync_fd(fd: int) -> None:
+    os.fsync(fd)
 
 
 _STAGING_NAME = re.compile(r"^[0-9a-f]{64}\.[A-Za-z0-9_]+$")  # <env_id>.<sufijo nonce>

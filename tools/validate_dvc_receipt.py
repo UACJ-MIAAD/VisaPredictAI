@@ -161,8 +161,8 @@ def validate(receipt_path: Path, sbom_path: Path) -> list[str]:
     else:
         if py["implementation"] != "cpython":
             probs.append(f"{n}: python.implementation != cpython")
-        if not (isinstance(py["version"], str) and _PYVER.match(py["version"])):
-            probs.append(f"{n}: python.version no casa 3.14.x")
+        if not (isinstance(py["version"], str) and _PYVER.fullmatch(py["version"])):  # B54: fullmatch, no sufijo
+            probs.append(f"{n}: python.version no casa exactamente 3.14.x")
         for k in ("cache_tag", "abi"):
             if not (isinstance(py[k], str) and py[k]):
                 probs.append(f"{n}: python.{k} vacío o no-str")
@@ -249,10 +249,17 @@ def validate(receipt_path: Path, sbom_path: Path) -> list[str]:
     if r["expected"] != contract or r["observed"] != contract:
         probs.append(f"{n}: expected/observed != contrato DVC {contract}")
 
-    # env_id RECOMPUTADO si la plataforma del recibo == la actual
+    # env_id + python/platform RECOMPUTADOS/DERIVADOS del descriptor gobernado si la plataforma == la actual.
+    # B54: en el runner que generó el recibo, python y platform deben ser EXACTAMENTE los del descriptor real
+    # (no basta con que cache_tag/abi/libc sean strings no vacíos — deben coincidir con este intérprete).
     if plat == pe.platform_key():
         if r["env_id"] != pe.env_id("dvc-tool"):
             probs.append(f"{n}: env_id sellado != recomputado en esta plataforma")
+        desc = pe.descriptor("dvc-tool")
+        if r["python"] != desc["python"]:
+            probs.append(f"{n}: python != descriptor gobernado de este runner ({desc['python']})")
+        if r["platform"] != desc["platform"]:
+            probs.append(f"{n}: platform != descriptor gobernado de este runner ({desc['platform']})")
 
     # SBOM: fichero, CycloneDX, componentes únicos, conteo, sha, y reconstrucción del inventario
     sbom, serr = _load(sbom_path)

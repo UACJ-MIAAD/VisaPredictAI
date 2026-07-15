@@ -364,23 +364,39 @@ def test_b29_exact_install_mode_and_project_source(tmp_path, monkeypatch, mutate
 
 
 def test_b32_rename_noreplace_rejects_existing(tmp_path):
-    src = tmp_path / "src"
-    src.mkdir()
-    (src / "f").write_text("x")
-    tgt = tmp_path / "tgt"
-    tgt.mkdir()  # target VACÍO existente
-    with pytest.raises(SystemExit):
-        pe._rename_noreplace(src, tgt)
-    assert src.exists() and not (tgt / "f").exists()  # nada se movió
+    sp = tmp_path / "sp"
+    sp.mkdir()
+    (sp / "nonce").mkdir()
+    (sp / "nonce" / "f").write_text("x")
+    dp = tmp_path / "dp"
+    dp.mkdir()
+    (dp / "env").mkdir()  # target VACÍO existente
+    sfd = _dir_fd(sp)
+    dfd = _dir_fd(dp)
+    try:
+        with pytest.raises(SystemExit):
+            pe._rename_noreplace(sfd, "nonce", dfd, "env")
+        assert (sp / "nonce").exists() and not (dp / "env" / "f").exists()  # nada se movió
+    finally:
+        os.close(sfd)
+        os.close(dfd)
 
 
 def test_b32_rename_noreplace_creates_new(tmp_path):
-    src = tmp_path / "src"
-    src.mkdir()
-    (src / "f").write_text("x")
-    dst = tmp_path / "dst"
-    pe._rename_noreplace(src, dst)
-    assert (dst / "f").exists() and not src.exists()
+    sp = tmp_path / "sp"
+    sp.mkdir()
+    (sp / "nonce").mkdir()
+    (sp / "nonce" / "f").write_text("x")
+    dp = tmp_path / "dp"
+    dp.mkdir()
+    sfd = _dir_fd(sp)
+    dfd = _dir_fd(dp)
+    try:
+        pe._rename_noreplace(sfd, "nonce", dfd, "env")
+        assert (dp / "env" / "f").exists() and not (sp / "nonce").exists()
+    finally:
+        os.close(sfd)
+        os.close(dfd)
 
 
 # ----------------------------- C1: regresiones R8R5 (B33-B39) -----------------------------
@@ -648,6 +664,66 @@ def test_b43_purge_bytecode_aborts_if_residual(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "unlink", stubborn)
     with pytest.raises(SystemExit):
         pe._purge_bytecode(tmp_path)
+
+
+# ----------------------------- C1: regresiones R8R6R2 (B51/B52) -----------------------------
+
+
+def test_b51_cleanup_never_deletes_external(tmp_path, monkeypatch):
+    # tras crear el staging legítimo, un atacante intercambia `.staging` por un symlink a un árbol externo
+    # y fuerza un error; la limpieza (fd-relativa) NUNCA debe borrar el árbol externo.
+    envs = tmp_path / ".vp_envs"
+    envs.mkdir()
+    os.chmod(envs, 0o700)
+    monkeypatch.setattr(pe, "ENVS_ROOT", envs)
+    monkeypatch.setattr(pe, "STAGING_ROOT", envs / ".staging")
+    external = tmp_path / "external"
+    external.mkdir()
+
+    def malicious_create(path, **kw):
+        nonce = pe.Path(path).name
+        (external / nonce).mkdir(parents=True)  # lo que la limpieza-por-ruta (vieja) resolvería y borraría
+        (external / nonce / "DO_NOT_DELETE").write_text("x")
+        (envs / ".staging").rename(envs / ".staging_real")  # swap del ancestro
+        (envs / ".staging").symlink_to(external)
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(pe.venv, "create", malicious_create)
+    with pytest.raises(RuntimeError):
+        pe.build("dvc-tool")
+    assert list(external.rglob("DO_NOT_DELETE")), "la limpieza borró el árbol externo (B51)"
+
+
+def test_b51_check_ident_detects_swap(tmp_path):
+    d = tmp_path / "d"
+    d.mkdir()
+    st = os.stat(d)
+    pe._check_ident(d, (st.st_dev, st.st_ino), "x")  # ok
+    other = tmp_path / "other"
+    other.mkdir()
+    ost = os.stat(other)
+    with pytest.raises(SystemExit):
+        pe._check_ident(d, (ost.st_dev, ost.st_ino), "x")  # inode distinto -> aborta
+
+
+def test_b52_ready_valid_rejects_inode_swap_during_hash(tmp_path, monkeypatch):
+    # un swap del ancestro ENTRE leer READY.json y hashear por ruta debe rechazarse (env_fd/ident vivos)
+    envp = _fake_env(tmp_path, monkeypatch)
+    other = tmp_path / "other"
+    (other / "bin").mkdir(parents=True)
+    (other / "bin" / "python").write_text("#!/bin/sh\n")
+    os.chmod(other, 0o700)
+
+    def swap_then_digest(p):
+        env = tmp_path / "env"
+        if env.is_dir() and not env.is_symlink():
+            env.rename(tmp_path / "env_real")
+            env.symlink_to(other)  # env_path ahora resuelve a OTRO inode
+        return "TREE"  # coincide con el sello monkeypatcheado -> el hash "pasa"
+
+    monkeypatch.setattr(pe, "_tree_digest", swap_then_digest)
+    ok, why = pe.ready_valid(envp, "dvc-tool")
+    assert not ok and "inode" in why.lower()
 
 
 if __name__ == "__main__":
