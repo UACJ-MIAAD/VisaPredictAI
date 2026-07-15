@@ -69,6 +69,9 @@ def test_unknown_profile_and_bad_console_script():
 _FREEZE = ["alpha==1.0.0", "beta==2.0.0"]
 
 
+_DESC = {"fake": "descriptor"}
+
+
 def _fake_env(tmp_path, monkeypatch, *, digest_ok=True, env_id_ok=True):
     envp = tmp_path / "env"
     (envp / "bin").mkdir(parents=True)
@@ -76,16 +79,22 @@ def _fake_env(tmp_path, monkeypatch, *, digest_ok=True, env_id_ok=True):
     monkeypatch.setattr(pe, "_pip_freeze", lambda py: _FREEZE)
     monkeypatch.setattr(pe, "_pip_check", lambda py: True)
     monkeypatch.setattr(pe, "env_id", lambda *a, **k: "KNOWNID")
-    (envp / "READY.json").write_text(
-        json.dumps(
-            {
-                "env_id": "KNOWNID" if env_id_ok else "OTHER",
-                "inventory": _FREEZE if digest_ok else ["gamma==9.9.9"],
-                "inventory_digest": pe._inventory_digest(_FREEZE if digest_ok else ["gamma==9.9.9"]),
-                "file_hashes": {},
-            }
-        )
-    )
+    monkeypatch.setattr(pe, "descriptor", lambda *a, **k: _DESC)
+    monkeypatch.setattr(pe, "_tree_digest", lambda p: "TREE")
+    monkeypatch.setattr(pe.lc, "validate_all", lambda root: [])
+    sealed = _FREEZE if digest_ok else ["gamma==9.9.9"]
+    meta = {
+        "schema_version": 1,
+        "env_id": "KNOWNID" if env_id_ok else "OTHER",
+        "descriptor": _DESC,
+        "inventory": sealed,
+        "inventory_digest": pe._inventory_digest(sealed),
+        "file_hashes": {},
+        "tree_digest": "TREE",
+        "pip_check": "ok",
+        "n_packages": len(sealed),
+    }
+    (envp / "READY.json").write_text(json.dumps(meta))
     return envp
 
 
@@ -187,6 +196,90 @@ def test_provenance_distinguishes_head_checkout(monkeypatch):
     prov = pe.provenance()
     assert prov["source_head_sha"] == "aaaa" and prov["base_sha"] == "bbbb"
     assert "checkout_sha" in prov and "git_dirty" in prov
+
+
+# ----------------------------- C1: regresiones R8R2 (B12-B16) -----------------------------
+
+
+def test_b12_cpu_torch_and_index_change_env_id():
+    import hashlib
+
+    prof = pe.load_profiles()
+    base = pe.env_id("model", None, prof)
+    for field in ("cpu_torch", "cpu_index"):
+        p2 = json.loads(json.dumps(prof))
+        p2["profiles"]["model"][field] = "sentinel"
+        alt = hashlib.sha256(json.dumps(pe.descriptor("model", None, p2), sort_keys=True).encode()).hexdigest()
+        assert base != alt, field
+
+
+def test_b13_tree_digest_detects_file_change(tmp_path):
+    d = tmp_path / "env"
+    (d / "lib").mkdir(parents=True)
+    (d / "lib" / "x.py").write_text("a = 1\n")
+    h1 = pe._tree_digest(d)
+    (d / "lib" / "x.py").write_text("a = 2\n")  # misma "versión", distinto contenido
+    assert pe._tree_digest(d) != h1
+    # bytecode NO cuenta (mutable)
+    h2 = pe._tree_digest(d)
+    (d / "lib" / "__pycache__").mkdir()
+    (d / "lib" / "__pycache__" / "x.pyc").write_text("junk")
+    assert pe._tree_digest(d) == h2
+
+
+def test_b14_invalid_lockset_blocks_reuse(tmp_path, monkeypatch):
+    envp = _fake_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(pe.lc, "validate_all", lambda root: ["lockset roto"])
+    ok, why = pe.ready_valid(envp, "dvc-tool")
+    assert not ok and "lockset/contrato inválido" in why
+
+
+def test_b13_ready_schema_exact(tmp_path, monkeypatch):
+    envp = _fake_env(tmp_path, monkeypatch)
+    meta = json.loads((envp / "READY.json").read_text())
+    meta["extra_key"] = 1  # clave de más
+    (envp / "READY.json").write_text(json.dumps(meta))
+    ok, why = pe.ready_valid(envp, "dvc-tool")
+    assert not ok and "esquema inexacto" in why
+
+
+def _write_profiles(tmp_path, monkeypatch, mutate):
+    prof = json.loads((pe.ROOT / "environments" / "python_profiles.json").read_text())
+    mutate(prof)
+    p = tmp_path / "pp.json"
+    p.write_text(json.dumps(prof))
+    monkeypatch.setattr(pe, "PROFILES_JSON", p)
+
+
+def test_b15_unknown_profile_key_rejected(tmp_path, monkeypatch):
+    _write_profiles(tmp_path, monkeypatch, lambda prof: prof["profiles"]["dvc-tool"].update(evil=1))
+    with pytest.raises(SystemExit):
+        pe.load_profiles()
+
+
+def test_b15_missing_profile_rejected(tmp_path, monkeypatch):
+    _write_profiles(tmp_path, monkeypatch, lambda prof: prof["profiles"].pop("model"))
+    with pytest.raises(SystemExit):
+        pe.load_profiles()
+
+
+def test_b15_deep_variant_matrix_enforced(tmp_path, monkeypatch):
+    # cu126 en macOS NO debe declararse (solo Linux)
+    _write_profiles(
+        tmp_path,
+        monkeypatch,
+        lambda prof: prof["profiles"]["deep"]["variants"]["cu126"].update(
+            {"Darwin-arm64": "locks/deep-macos-arm64.txt"}
+        ),
+    )
+    with pytest.raises(SystemExit):
+        pe.load_profiles()
+
+
+def test_b15_model_requires_cpu_torch(tmp_path, monkeypatch):
+    _write_profiles(tmp_path, monkeypatch, lambda prof: prof["profiles"]["model"].pop("cpu_torch"))
+    with pytest.raises(SystemExit):
+        pe.load_profiles()
 
 
 if __name__ == "__main__":

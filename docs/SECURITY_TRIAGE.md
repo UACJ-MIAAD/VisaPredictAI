@@ -75,36 +75,42 @@ el siguiente upgrade. **Prohibido el auto-fix**: todo bump va por PR con suite v
   (pyproject build-system + model extra + toolchain de generación/workflows + `deep.in` +
   `TORCH_PUBLIC`/`TOOLCHAIN`/`DEEP_DIRECT` del contrato) + `make lock`. Certificado: resolución +
   install real + smoke en macOS ARM64 y Linux CPU; CUDA cu126 resuelto+hasheado+auditado (ejecución
-  A10G en P0R.5). **Sin fila nueva en la tabla activa; sin incrementar `n_accepted`** — la allowlist
-  sigue con exactamente un aviso (pytorch-lightning). Decisión: **fix, no accept.**
+  A10G en P0R.5). **Sin fila nueva en la tabla activa; sin incrementar `n_accepted`** por ESTE cambio
+  (setuptools se arregló, no se aceptó) — la allowlist quedó con un aviso AL CIERRE DE P0R.4R3
+  (pytorch-lightning); P0R.5 después añadió diskcache ⇒ **2 avisos vigentes** (ver estado vigente abajo).
+  Decisión de setuptools: **fix, no accept.**
 
 ## Triage vigente — model/deep + dvc-tool (2 avisos en 2 paquetes, allowlist del gate)
 
-Auditado el 2026-07-13 (ronda 10, P0R.4) con `pip-audit --disable-pip` sobre los **11 locks**
-(runtime/dev/model-cpu × macOS+Linux + los 3 deep hasheados), reconciliado por
-`tools/audit_python_supply_chain.py` contra `security/python_advisories.json` con biyección
-exacta por perfil/lock. El único aviso restante (pytorch-lightning) aparece en los 2 locks
-model **y** los 3 deep. El upgrade DELIBERADO `torch 2.12.0 → 2.12.1` (P0R.4) **cerró
-`CVE-2025-3000`** — ya no se observa en ningún lock (torch limpio en model y deep, `+cpu`/`+cu126`
-incluidos, verificado además con la consulta de versión pública normalizada). Contexto común de
+**⚠️ ESTADO VIGENTE (P0R.5):** la allowlist tiene **exactamente 2 avisos aceptados** —
+`pytorch-lightning 2.5.6` (PYSEC-2026-3043, perfiles model+deep) y `diskcache 5.6.3`
+(PYSEC-2026-2447, perfil dvc-tool). El toolchain de torch está en **2.13.0** (2.12.1 es HISTÓRICO,
+ver cronología). El número de avisos vigentes es EXACTAMENTE el número de filas de la tabla de
+abajo (lo verifica `tools/check_supply_chain_triage.py`).
+
+Auditado con `pip-audit --disable-pip` sobre los **11 locks** (runtime/dev/model-cpu × macOS+Linux
++ 3 deep + 2 dvc-tool hasheados), reconciliado por `tools/audit_python_supply_chain.py` contra
+`security/python_advisories.json` con biyección exacta por perfil/lock. Contexto común de
 superficie: **nada de model/deep sirve tráfico** — torch/transformers/lightning corren OFFLINE
 en el modelado local, el bloque de modelado del cron y el bundle EC2 efímero (entrada: el panel
-propio, no datos de terceros); no hay endpoint que los exponga.
+propio, no datos de terceros); no hay endpoint que los exponga. El aviso de diskcache es local: la
+mitigación CONFINA el `site_cache_dir` de DVC dentro de `<repo>/.dvc/site-cache` (P0R.5 B11).
 
 | Paquete | Aviso | ¿Nos afecta? | Decisión | Owner | Revisión |
 |---|---|---|---|---|---|
 | pytorch-lightning 2.5.6 (perfiles model y deep) | PYSEC-2026-3043 (alias CVE-2026-31221 / GHSA-75m9-98v2-hjpm; sin fix) | BAJA: `load_from_checkpoint` llama `torch.load` sin `weights_only=True`; F2 carga SOLO checkpoints PROPIOS (entrenamiento local/campañas), nunca de terceros; sin superficie remota | **Accept** (allowlist); vigilar release del upstream | Javier | 2026-08-12 |
-| diskcache 5.6.3 (perfil **dvc-tool**) | PYSEC-2026-2447 (alias CVE-2025-69872 / GHSA-w8v5-vhqr-4h9v; **sin fix**) | MODERATE (CVSS 5.2): DiskCache usa `pickle`; RCE si un atacante ESCRIBE en el dir de caché y la víctima lo LEE después. Transitiva de `dvc-data` usada SOLO por el CLI DVC, que corre RUNTIME-AISLADO en un entorno content-addressed (`tools/python_env.py`, `.vp_envs/dvc-tool/`), JAMÁS en el intérprete del producto (P0R.5 R3; sin imports desde producto). Exposición local: `tools/dvc_cache_guard.py` (invocado por el wrapper antes de cada dvc) inspecciona `config`+`config.local`, exige caché solo-usuario dentro del repo, sin symlink/override, `mode & 0o022 == 0` en `.dvc`/cache/tmp, umask 077 | **Accept** (allowlist, ACOTADO a los 2 locks dvc-tool); vigilar fix upstream | Javier | 2026-08-12 |
+| diskcache 5.6.3 (perfil **dvc-tool**) | PYSEC-2026-2447 (alias CVE-2025-69872 / GHSA-w8v5-vhqr-4h9v; **sin fix**) | MODERATE (CVSS 5.2): DiskCache usa `pickle`; RCE si un atacante ESCRIBE en el dir de caché y la víctima lo LEE después. Transitiva de `dvc-data` usada SOLO por el CLI DVC, que corre RUNTIME-AISLADO en un entorno content-addressed (`tools/python_env.py`, `.vp_envs/dvc-tool/`), JAMÁS en el intérprete del producto (P0R.5 R3; sin imports desde producto). Exposición local: `tools/dvc_cache_guard.py` (invocado por el wrapper antes de cada dvc) **CONFINA el `site_cache_dir` de DiskCache** en `<repo>/.dvc/site-cache` vía `DVC_SITE_CACHE_DIR` (B11: la superficie real, no el `/Library/Caches/dvc` 0777 por defecto), inspecciona `config`+`config.local`+capas global/system, exige solo-usuario dentro del repo, sin symlink/override, `mode & 0o022 == 0` en `.dvc`/cache/tmp/site-cache, umask 077 | **Accept** (allowlist, ACOTADO a los 2 locks dvc-tool); vigilar fix upstream | Javier | 2026-08-12 |
 
-**Reconciliación P0R.4 (13-jul-2026):** el upgrade DELIBERADO `torch 2.12.0 → 2.12.1` **cerró
-`CVE-2025-3000`** y retiró su excepción (torch queda limpio en los 5 locks que lo pinan). Se
-añadió el **perfil deep aislado** (`requirements/deep.in`, pandas 2.x) con 3 locks HASHEADOS
-que sustituyen al viejo `aws_gpu/ante_nf-requirements.lock` (freeze mutable de 12 pins con
-`torch==2.12.0` vulnerable, ahora borrado); `pytorch-lightning` extendió su allowlist a
-`["model","deep"]` porque neuralforecast 3.1.9 exige `<2.6.0`. La ronda 10 previa ya había
-cerrado `PYSEC-2026-2290` (RCE crítico de transformers, CVSS 9.6) vía `transformers 5.13.1`.
-**No se añadió ninguna excepción nueva.** Verificado: el runner reporta EXACTAMENTE este 1
-aviso (pytorch-lightning en model+deep); runtime/dev sin avisos, torch sin avisos.
+**Cronología HISTÓRICA (no es el estado vigente):**
+- **P0R.4 (13-jul-2026):** el upgrade DELIBERADO `torch 2.12.0 → 2.12.1` cerró `CVE-2025-3000` y
+  retiró su excepción. Se añadió el **perfil deep aislado** (`requirements/deep.in`, pandas 2.x) con
+  3 locks HASHEADOS que sustituyen al viejo `aws_gpu/ante_nf-requirements.lock`; `pytorch-lightning`
+  extendió su allowlist a `["model","deep"]` (neuralforecast 3.1.9 exige `<2.6.0`). La ronda 10 previa
+  había cerrado `PYSEC-2026-2290` (transformers 5.13.1). En ese momento la allowlist tenía **1 aviso**.
+- **P0R.4R3:** `torch 2.12.1 → 2.13.0` (para permitir `setuptools 83`, PYSEC-2026-3447) — **el pin
+  vigente de torch es 2.13.0**, NO 2.12.1.
+- **P0R.5:** se añadió el perfil `dvc-tool` con `diskcache 5.6.3` (PYSEC-2026-2447) aceptado ACOTADO
+  ⇒ la allowlist pasó a **2 avisos**. Esta es la ÚNICA excepción nueva desde P0R.4.
 
 **Regla de cierre:** al aplicar un upgrade (o cuando salga fix de un "Accept"), el PR
 retira la entrada del `security/python_advisories.json` **y** la fila de esta tabla en

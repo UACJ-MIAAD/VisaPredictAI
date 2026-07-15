@@ -367,8 +367,9 @@ jobs:
           # el env aislado NO debe tener dvc en el python del JOB (prueba de que no se derramó).
           python -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('dvc') is None else 1)" \
             || { echo "::error::dvc quedó importable en el python del job"; exit 1; }
-          # el recibo debe declarar smoke_ok, ligar el env_id y traer sbom_sha256 != null.
-          python -c "import json; r=json.load(open('dvc-tool-receipt-${{ matrix.variant }}.json')); assert r['smoke_ok'], r; assert r['sbom_sha256'], 'sbom_sha256 null'; assert r['sbom_component_count']==r['n_packages']; print('recibo OK', r['env_id'][:12], r['sbom_component_count'],'comp')"
+          # B17: validador ESTRICTO del recibo contra el repo (esquema exacto, smoke_ok, git limpio,
+          # source_head, dvc_status=0, site_cache_confined, hashes de lock/lockset/dvc.in actuales).
+          python -m tools.validate_dvc_receipt --receipt dvc-tool-receipt-${{ matrix.variant }}.json
           # gates R4 + C4.
           python tools/check_no_stray_dvc.py
           python tools/check_no_legacy_envs.py
@@ -408,13 +409,43 @@ jobs:
           python -c "import tools.python_env as pe; combos=[('runtime',None),('dev',None),('model',None),('deep','cpu'),('deep','cu126'),('dvc-tool',None)]; ids={pe.env_id(p,v) for p,v in combos}; assert len(ids)==len(combos), 'env_id colisiona o falta'; print('env_id OK:', {f'{p}/{v}' if v else p: pe.env_id(p,v)[:12] for p,v in combos})"
           python -m pytest tests/test_python_env.py tests/test_dvc_tool.py -q -p no:cacheprovider --no-cov
 
+  # P0R.5 R8R2 (B17): descarga los recibos dvc-tool de AMBAS plataformas y los cruza — valida cada uno
+  # contra el repo (git limpio, source_head, dvc_status=0, site_cache_confined, hashes) y exige que el
+  # DAG canónico sea IDÉNTICO Linux↔macOS. Nombre ESTABLE (check requerible).
+  environment-receipts:
+    name: environment-receipts
+    timeout-minutes: 10
+    needs: [dvc-tool-install]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.14'
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: dvc-tool-receipt-linux-x86_64
+          path: rc-linux
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: dvc-tool-receipt-macos-arm64
+          path: rc-macos
+      - name: Cross-validate receipts (schema + repo + dag_hash equality)
+        env:
+          GITHUB_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python -m tools.validate_dvc_receipt --cross \
+            rc-linux/dvc-tool-receipt-linux-x86_64.json rc-macos/dvc-tool-receipt-macos-arm64.json
+
   # P0R.4R2: check ESTABLE y único a exigir en branch protection. Depende de todos los jobs y falla
   # si CUALQUIERA no terminó en success (failure/cancelled/skipped incluidos). Los nombres largos del
   # matrix deep NO deben registrarse como checks requeridos (cambian al bumpear torch).
   ci-gate:
     name: ci-gate
     if: always()
-    needs: [commit-policy, lint-and-test, model-tests, consistency, supply-chain, deep-lock-install, dvc-tool-install, environment-contract]
+    needs: [commit-policy, lint-and-test, model-tests, consistency, supply-chain, deep-lock-install, dvc-tool-install, environment-contract, environment-receipts]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any required job was not success

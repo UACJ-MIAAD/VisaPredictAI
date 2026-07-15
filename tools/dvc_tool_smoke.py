@@ -93,6 +93,17 @@ def build_receipt(sbom_path: Path | None) -> dict:
     dag = pe.run(profile, ["dvc", "dag", "--dot"], capture=True)
     status = pe.run(profile, ["dvc", "status", "--json"], capture=True)
 
+    # B11: el site_cache_dir OBSERVADO de DVC debe caer dentro de <repo>/.dvc/site-cache (superficie
+    # real de DiskCache). Se consulta con el mismo env (run_python fija DVC_SITE_CACHE_DIR vía el guard).
+    scd = pe.run_python(profile, ["-c", "from dvc.repo import Repo; print(Repo('.').site_cache_dir)"], capture=True)
+    observed_scd = (scd.stdout or "").strip()
+    try:
+        rel_scd = str(Path(observed_scd).resolve().relative_to(dvc_cache_guard.site_cache_dir(ROOT).resolve()))
+        site_cache_confined = True
+    except ValueError, OSError:
+        rel_scd = observed_scd
+        site_cache_confined = False
+
     # SBOM a nivel de entorno (inventario real) + sha anclado
     sbom = _env_sbom(ready["inventory"])
     sbom_json = json.dumps(sbom, indent=2, sort_keys=True) + "\n"
@@ -101,7 +112,12 @@ def build_receipt(sbom_path: Path | None) -> dict:
         _atomic_write(sbom_path, sbom_json)
 
     smoke_ok = bool(
-        version_ok and ready["pip_check"] == "ok" and not guard_probs and dag.returncode == 0 and status.returncode == 0
+        version_ok
+        and ready["pip_check"] == "ok"
+        and not guard_probs
+        and dag.returncode == 0
+        and status.returncode == 0
+        and site_cache_confined
     )
     return {
         "schema_version": 2,
@@ -119,6 +135,8 @@ def build_receipt(sbom_path: Path | None) -> dict:
         "version_ok": version_ok,
         "pip_check": ready["pip_check"],
         "cache_guard": "ok" if not guard_probs else guard_probs,
+        "site_cache_dir": rel_scd,
+        "site_cache_confined": site_cache_confined,
         "dag_returncode": dag.returncode,
         "dag_hash": _canonical_dag_hash(dag.stdout or ""),
         "dvc_status_returncode": status.returncode,

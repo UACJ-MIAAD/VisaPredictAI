@@ -1,18 +1,20 @@
 #!/usr/bin/env python
-"""Guard de la caché DVC (P0R.5, R4). MITIGA la superficie de PYSEC-2026-2447 (diskcache usa pickle;
-RCE si un atacante ESCRIBE en el dir de caché y la víctima lo LEE después). NO corrige el aviso —
-reduce la superficie:
+"""Guard de la caché DVC (P0R.5, R4/B11). MITIGA la superficie de PYSEC-2026-2447 (diskcache usa
+pickle; RCE si un atacante ESCRIBE en el dir de caché y la víctima lo LEE después). NO corrige el
+aviso — reduce la superficie CONFINANDO la caché DENTRO del repo:
 
-  - inspecciona `.dvc/config` **y** `.dvc/config.local` en busca de overrides que re-apunten la caché
-    fuera de `<repo>/.dvc/cache`;
-  - `lstat` de CADA componente de `.dvc`, `.dvc/cache` y `.dvc/tmp` (incluido el padre `.dvc`): rechaza
-    symlink, propietario distinto al UID actual y `mode & 0o022 != 0` (escribible por grupo/otros);
-  - si `cache/` o `tmp/` no existen, valida igualmente que el padre `.dvc` sea seguro;
-  - `prepare()` crea los directorios ausentes con modo 0700 (no side-effect de `check`).
+  - ⚠️ B11: DiskCache vive sobre todo en `Repo.site_cache_dir` (por defecto `/Library/Caches/dvc/repo`
+    en macOS o `/var/tmp/dvc/...` en Linux, con padres 0777). `enforce()` fija
+    `DVC_SITE_CACHE_DIR=<repo>/.dvc/site-cache` (NO confía en el heredado) y lo crea 0700;
+  - inspecciona `.dvc/config`/`.dvc/config.local` + capas GLOBAL/SYSTEM (y las apuntadas por
+    `DVC_GLOBAL_CONFIG_DIR`/`DVC_SYSTEM_CONFIG_DIR`) por overrides de caché;
+  - `lstat` de CADA componente de `.dvc`, `.dvc/cache`, `.dvc/tmp`, `.dvc/site-cache` y su `repo/`
+    (incluido el padre `.dvc`): rechaza symlink, dueño ajeno y `mode & 0o022 != 0`;
+  - `prepare()` crea los directorios ausentes 0700; `enforce()` verifica ANTES y el smoke verifica el
+    `site_cache_dir` OBSERVADO DESPUÉS.
 
-Es una BIBLIOTECA que invoca `tools.python_env exec` antes de correr DVC (umask 077 + revalidación
-inmediata pre-exec). Ya NO expone `--run <cualquier comando>` (evita ejecutar binarios arbitrarios ni
-un dvc fuera del entorno gobernado). El TOCTOU queda REDUCIDO, no eliminado.
+Es una BIBLIOTECA que `tools.python_env` invoca antes de correr DVC (fija DVC_SITE_CACHE_DIR + umask
+077 + revalidación pre-exec). El TOCTOU queda REDUCIDO, no eliminado.
 
   python -m tools.dvc_cache_guard            # solo verifica la caché del repo (exit 1 si insegura)
 """
@@ -24,15 +26,21 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-# Claves que RE-apuntarían la caché fuera de <repo>/.dvc/cache (override prohibido), en cualquiera de
-# las capas de config (repo, global de usuario, system).
+SITE_CACHE_REL = ".dvc/site-cache"  # B11: raíz ÚNICA y confinada del site_cache_dir de DVC
+# Claves que RE-apuntarían la caché fuera del repo (override prohibido), en cualquier capa de config.
 _CACHE_OVERRIDE_KEYS = ("[cache]", "dir =", "dir=", "site_cache_dir", "cache =", "cache=", "remote_config")
 _CONFIG_FILES = ("config", "config.local")
 
 
+def site_cache_dir(root: Path = ROOT) -> Path:
+    """La raíz confinada del site_cache_dir de DVC (dentro del repo)."""
+    return root / SITE_CACHE_REL
+
+
 def _external_config_layers() -> list[Path]:
-    """Ficheros de config GLOBAL (usuario) y SYSTEM que DVC honra además de los del repo. Un
-    `cache.dir` externo en cualquiera de ellos alcanzaría la ejecución (Linux/macOS + XDG)."""
+    """Ficheros de config GLOBAL (usuario)/SYSTEM que DVC honra además de los del repo, incluidas las
+    apuntadas por DVC_GLOBAL_CONFIG_DIR/DVC_SYSTEM_CONFIG_DIR. Un `cache.dir`/`site_cache_dir` externo
+    en cualquiera alcanzaría la ejecución (Linux/macOS + XDG)."""
     home = Path.home()
     xdg = os.environ.get("XDG_CONFIG_HOME")
     layers = [
@@ -44,6 +52,10 @@ def _external_config_layers() -> list[Path]:
     ]
     if xdg:
         layers.append(Path(xdg) / "dvc" / "config")
+    for env_var in ("DVC_GLOBAL_CONFIG_DIR", "DVC_SYSTEM_CONFIG_DIR"):
+        d = os.environ.get(env_var)
+        if d:
+            layers.append(Path(d) / "config")
     return layers
 
 
@@ -100,36 +112,46 @@ def check(root: Path = ROOT) -> list[str]:
             dvc_dir.resolve().relative_to(root.resolve())
         except ValueError, OSError:
             probs.append(".dvc resuelve fuera del repo")
-    # 3) cada componente de cache/ y tmp/
-    for name in ("cache", "tmp"):
-        p = dvc_dir / name
+    # 3) cada componente de cache/, tmp/, site-cache/ y site-cache/repo (B11: el site_cache_dir de
+    #    DiskCache es la superficie REAL del aviso).
+    for rel in ("cache", "tmp", "site-cache", "site-cache/repo"):
+        p = dvc_dir / rel
         if not p.exists() and not p.is_symlink():
             continue  # prepare() lo creará con 0700; ausencia no es violación
-        probs += _unsafe_stat(p, f".dvc/{name}")
+        probs += _unsafe_stat(p, f".dvc/{rel}")
         if p.exists() and not p.is_symlink():
             if not p.is_dir():
-                probs.append(f".dvc/{name} existe pero no es un directorio — prohibido")
+                probs.append(f".dvc/{rel} existe pero no es un directorio — prohibido")
             try:
                 p.resolve().relative_to(root.resolve())
             except ValueError, OSError:
-                probs.append(f".dvc/{name} resuelve fuera del repo")
+                probs.append(f".dvc/{rel} resuelve fuera del repo")
+    # 4) B11: si DVC_SITE_CACHE_DIR está fijado, DEBE resolver dentro de <repo>/.dvc/site-cache
+    env_scd = os.environ.get("DVC_SITE_CACHE_DIR")
+    if env_scd:
+        try:
+            Path(env_scd).resolve().relative_to(site_cache_dir(root).resolve())
+        except ValueError, OSError:
+            probs.append(f"DVC_SITE_CACHE_DIR={env_scd} fuera de {SITE_CACHE_REL} — no permitido")
     return probs
 
 
 def prepare(root: Path = ROOT) -> None:
-    """Crea `.dvc/cache` y `.dvc/tmp` ausentes con modo 0700 (solo-usuario)."""
+    """Crea `.dvc/cache`, `.dvc/tmp`, `.dvc/site-cache` y `.dvc/site-cache/repo` ausentes, modo 0700."""
     dvc_dir = root / ".dvc"
     if not dvc_dir.exists():
         return
-    for name in ("cache", "tmp"):
-        p = dvc_dir / name
+    for rel in ("cache", "tmp", "site-cache", "site-cache/repo"):
+        p = dvc_dir / rel
         if not p.exists() and not p.is_symlink():
             p.mkdir(mode=0o700, parents=True, exist_ok=True)
 
 
 def enforce(root: Path = ROOT) -> None:
-    """prepare + check + umask 077, o SystemExit si la caché es insegura. Lo llama python_env antes
-    de ejecutar DVC (revalidación inmediata pre-exec: reduce el TOCTOU)."""
+    """B11: CONFINA el site_cache_dir de DVC dentro del repo (DVC_SITE_CACHE_DIR=<repo>/.dvc/site-cache,
+    sin confiar en el heredado), prepara los dirs 0700, valida y fija umask 077. SystemExit si insegura.
+    Lo llama python_env antes de ejecutar DVC (revalidación pre-exec: reduce el TOCTOU)."""
+    os.environ["DVC_SITE_CACHE_DIR"] = str(site_cache_dir(root))
     prepare(root)
     probs = check(root)
     if probs:

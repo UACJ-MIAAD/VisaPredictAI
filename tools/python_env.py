@@ -38,6 +38,7 @@ import sysconfig
 import tempfile
 import venv
 from pathlib import Path
+from typing import Any
 
 from tools import lock_contracts as lc
 
@@ -96,20 +97,76 @@ def _no_dup_keys(pairs):
     return d
 
 
+_PLATFORMS = {"Darwin-arm64", "Linux-x86_64"}
+_PROJECT_SOURCE = {"editable", "extra-model", "none"}
+# B15: esquema EXACTO por perfil (claves requeridas / opcionales / plataformas de cada lock-table).
+_SCHEMA: dict[str, dict[str, Any]] = {
+    "runtime": {"req": {"install_mode", "locks", "project_source"}, "opt": {"note"}, "platforms": _PLATFORMS},
+    "dev": {"req": {"install_mode", "locks", "project_source"}, "opt": {"note"}, "platforms": _PLATFORMS},
+    "model": {
+        "req": {"install_mode", "locks", "project_source", "cpu_torch", "cpu_index"},
+        "opt": {"note"},
+        "platforms": _PLATFORMS,
+    },
+    "deep": {
+        "req": {"install_mode", "variants", "project_source"},
+        "opt": {"note"},
+        "variants": {"cpu": _PLATFORMS, "cu126": {"Linux-x86_64"}},
+    },
+    "dvc-tool": {
+        "req": {"install_mode", "locks", "console_scripts", "cache_guarded", "project_source"},
+        "opt": {"note"},
+        "platforms": _PLATFORMS,
+    },
+}
+
+
+def _all_lock_names() -> set[str]:
+    return {f"locks/{n}" for n in lc.LOCK_NAMES}
+
+
+def _validate_lock_table(name: str, table: dict, platforms: set[str], known: set[str]) -> None:
+    if set(table) != platforms:
+        raise SystemExit(f"python_env: perfil {name!r} con plataformas {sorted(table)} != {sorted(platforms)}")
+    for plat, lock in table.items():
+        if not isinstance(lock, str) or lock not in known:
+            raise SystemExit(
+                f"python_env: perfil {name!r} plataforma {plat} lock {lock!r} no registrado en el manifiesto"
+            )
+
+
 def load_profiles() -> dict:
     prof = json.loads(PROFILES_JSON.read_text(), object_pairs_hook=_no_dup_keys)
     if prof.get("schema_version") != 1:
         raise SystemExit("python_env: schema_version de python_profiles.json != 1")
-    tc = prof.get("toolchain", {})
-    if set(tc) != {"pip", "setuptools", "wheel", "uv"}:
+    if set(prof.get("toolchain", {})) != {"pip", "setuptools", "wheel", "uv"}:
         raise SystemExit("python_env: toolchain incompleto en python_profiles.json")
-    allowed = _VALID_RECIPES | {"auto"}
-    for name, cfg in prof.get("profiles", {}).items():
-        for r in _recipe_values(cfg.get("install_mode")):
-            if r not in allowed:
-                raise SystemExit(f"python_env: perfil {name!r} con install_mode inválido {r!r}")
-        if "locks" not in cfg and "variants" not in cfg:
-            raise SystemExit(f"python_env: perfil {name!r} sin `locks` ni `variants`")
+    profiles = prof.get("profiles", {})
+    if set(profiles) != set(_SCHEMA):
+        raise SystemExit(f"python_env: perfiles {sorted(profiles)} != exactamente {sorted(_SCHEMA)}")
+    known = _all_lock_names()
+    allowed_recipes = _VALID_RECIPES | {"auto"}
+    for name, cfg in profiles.items():
+        sch = _SCHEMA[name]
+        keys = set(cfg)
+        if not (sch["req"] <= keys <= sch["req"] | sch["opt"]):
+            raise SystemExit(
+                f"python_env: perfil {name!r} con claves {sorted(keys)} != req {sorted(sch['req'])} (+opt {sorted(sch['opt'])})"
+            )
+        for r in _recipe_values(cfg["install_mode"]):
+            if r not in allowed_recipes:
+                raise SystemExit(f"python_env: perfil {name!r} install_mode inválido {r!r}")
+        if cfg["project_source"] not in _PROJECT_SOURCE:
+            raise SystemExit(f"python_env: perfil {name!r} project_source inválido {cfg['project_source']!r}")
+        if "variants" in sch:
+            if set(cfg["variants"]) != set(sch["variants"]):
+                raise SystemExit(
+                    f"python_env: perfil {name!r} variantes {sorted(cfg['variants'])} != {sorted(sch['variants'])}"
+                )
+            for var, plats in sch["variants"].items():
+                _validate_lock_table(f"{name}/{var}", cfg["variants"][var], plats, known)
+        else:
+            _validate_lock_table(name, cfg["locks"], sch["platforms"], known)
     return prof
 
 
@@ -162,12 +219,9 @@ def descriptor(profile: str, variant: str | None = None, profiles: dict | None =
     profiles = profiles or load_profiles()
     cfg = _profile_config(profiles, profile)
     lock_rel = lock_rel_for(profile, variant, profiles)
-    # fragmento del perfil que afecta la resolución/ejecución (sin campos informativos como `note`).
-    pcfg = {
-        k: cfg[k]
-        for k in ("install_mode", "locks", "variants", "console_scripts", "cache_guarded", "project_source")
-        if k in cfg
-    }
+    # B12: TODA la config operativa del perfil entra al env_id (incl. cpu_torch/cpu_index/receta),
+    # excluyendo solo el campo informativo `note`.
+    pcfg = {k: v for k, v in cfg.items() if k != "note"}
     return {
         "schema_version": 1,
         "profile": profile,
@@ -234,18 +288,53 @@ def _inventory_digest(freeze: list[str]) -> str:
     return _sha256_bytes("\n".join(sorted(x.lower() for x in freeze)).encode())
 
 
-def _tracked_bin_files(env_path: Path, cfg: dict) -> list[str]:
-    """Ficheros ejecutables sellados: pyvenv.cfg + cada console-script declarado del perfil."""
-    names = ["pyvenv.cfg"]
-    sub = "Scripts" if os.name == "nt" else "bin"
-    for cs in cfg.get("console_scripts", []):
-        names.append(f"{sub}/{cs}")
-    return names
+# Sufijos/dirs MUTABLES por diseño (bytecode, cachés) + el propio sello: se excluyen del árbol.
+_TREE_EXCLUDE_DIRS = {"__pycache__"}
+_TREE_EXCLUDE_SUFFIX = (".pyc", ".pyo")
+_TREE_EXCLUDE_NAMES = {"READY.json"}
+_READY_KEYS = {
+    "schema_version",
+    "env_id",
+    "descriptor",
+    "inventory",
+    "inventory_digest",
+    "file_hashes",
+    "tree_digest",
+    "pip_check",
+    "n_packages",
+}
+
+
+def _tree_digest(env_path: Path) -> str:
+    """B13: sello MERKLE de TODOS los ficheros inmutables del entorno (site-packages, extensiones
+    nativas, .dist-info/RECORD, console-scripts, pyvenv.cfg, intérprete), excluyendo solo bytecode
+    (__pycache__/*.pyc). Un symlink dentro del árbol se sella por su destino textual (no se sigue).
+    Detecta manipulación de una librería instalada aunque la versión no cambie."""
+    entries: list[str] = []
+    for p in sorted(env_path.rglob("*")):
+        rel = p.relative_to(env_path).as_posix()
+        if (
+            any(part in _TREE_EXCLUDE_DIRS for part in p.parts)
+            or p.name.endswith(_TREE_EXCLUDE_SUFFIX)
+            or p.name in _TREE_EXCLUDE_NAMES
+        ):
+            continue
+        if p.is_symlink():
+            entries.append(f"{rel}\tL\t{os.readlink(p)}")
+        elif p.is_file():
+            entries.append(f"{rel}\tF\t{_sha256_path(p)}")
+        elif p.is_dir():
+            entries.append(f"{rel}\tD")
+    return _sha256_bytes("\n".join(entries).encode())
 
 
 def _file_hashes(env_path: Path, cfg: dict) -> dict[str, str]:
+    """Hashes explícitos de los ficheros ejecutables clave (además del árbol completo): pyvenv.cfg,
+    el intérprete real y cada console-script declarado."""
+    sub = "Scripts" if os.name == "nt" else "bin"
+    names = ["pyvenv.cfg", f"{sub}/python", *[f"{sub}/{cs}" for cs in cfg.get("console_scripts", [])]]
     out = {}
-    for rel in _tracked_bin_files(env_path, cfg):
+    for rel in names:
         p = env_path / rel
         if p.exists() and not p.is_symlink():
             out[rel] = _sha256_path(p)
@@ -255,18 +344,28 @@ def _file_hashes(env_path: Path, cfg: dict) -> dict[str, str]:
 def ready_valid(
     env_path: Path, profile: str, variant: str | None = None, profiles: dict | None = None
 ) -> tuple[bool, str]:
-    """(válido, motivo). Reusa SOLO si READY.json existe, casa el env_id, TODOS los hashes de ficheros
-    sellados coinciden, `pip check` en vivo pasa y el inventario vivo es EXACTAMENTE el sellado."""
+    """(válido, motivo). Reusa SOLO si: el lockset/contrato es válido AHORA (B14), READY.json existe con
+    esquema exacto, casa el env_id, el DIGEST DE ÁRBOL completo coincide (B13: tamper de cualquier fichero
+    de site-packages), los hashes de ficheros clave coinciden, `pip check` en vivo pasa y el inventario
+    vivo es EXACTAMENTE el sellado."""
     profiles = profiles or load_profiles()
     ready = env_path / "READY.json"
     if not ready.exists():
         return False, "sin READY.json"
+    # B14: no reusar bajo un lockset/contrato inválido.
+    contract = lc.validate_all(ROOT)
+    if contract:
+        return False, "lockset/contrato inválido: " + "; ".join(contract)
     try:
-        meta = json.loads(ready.read_text())
-    except (ValueError, OSError) as exc:
-        return False, f"READY.json ilegible: {exc}"
+        meta = json.loads(ready.read_text(), object_pairs_hook=_no_dup_keys)
+    except (ValueError, OSError, SystemExit) as exc:
+        return False, f"READY.json ilegible/duplicado: {exc}"
+    if set(meta) != _READY_KEYS:
+        return False, f"READY.json con esquema inexacto (claves {sorted(meta)})"
     if meta.get("env_id") != env_id(profile, variant, profiles):
         return False, f"env_id sellado {meta.get('env_id')!r} != esperado"
+    if meta.get("descriptor") != descriptor(profile, variant, profiles):
+        return False, "descriptor sellado != actual"
     py = _venv_python(env_path)
     if not py.exists():
         return False, "falta el intérprete del venv"
@@ -274,6 +373,8 @@ def ready_valid(
         p = env_path / rel
         if not p.exists() or p.is_symlink() or _sha256_path(p) != h:
             return False, f"TAMPER: {rel} alterado o ausente"
+    if _tree_digest(env_path) != meta.get("tree_digest"):
+        return False, "TAMPER: el árbol del entorno difiere del sello (fichero de site-packages alterado)"
     try:
         freeze = _pip_freeze(py)
     except (subprocess.CalledProcessError, OSError) as exc:
@@ -368,9 +469,11 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
                 "inventory": freeze,
                 "inventory_digest": _inventory_digest(freeze),
                 "file_hashes": _file_hashes(staging, cfg),
+                "tree_digest": _tree_digest(staging),
                 "pip_check": "ok",
                 "n_packages": len(freeze),
             }
+            assert set(meta) == _READY_KEYS  # esquema exacto (B4/B13)
             (staging / "READY.json").write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
             with open(staging / "READY.json", "rb") as fh:
                 os.fsync(fh.fileno())

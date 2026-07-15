@@ -15,6 +15,7 @@ _JSON = (
 )
 _TR = (
     "## Triage vigente — perfil model (2 avisos en 2 paquetes)\n"
+    "⚠️ ESTADO VIGENTE: la allowlist tiene exactamente 2 avisos aceptados.\n"
     "| Paquete | Aviso | Decisión |\n|---|---|---|\n"
     "| torch 2.12.0 | CVE-2025-3000 (x) | Accept |\n"
     "| pytorch-lightning 2.5.6 | PYSEC-2026-3043 (alias CVE-2026-31221) | Accept |\n"

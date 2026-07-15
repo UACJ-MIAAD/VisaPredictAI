@@ -11,16 +11,65 @@ hasta la autorización de cutover; aquí solo se retira su AUTORIDAD en el códi
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 
+_SUBPROC_ATTRS = {"run", "Popen", "check_output", "check_call", "call"}
+_OS_ATTRS = {"system", "popen"}
+
+
+def _py_legacy_count(text: str) -> int:
+    """Cuenta usos EJECUTABLES de ante/ante_nf en Python (subprocess/os.system/os.popen con una ruta
+    `ante*/bin/` en argv), vía AST — NO comentarios, docstrings ni menciones sueltas."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return 0
+    subp = {"subprocess"}
+    osm = {"os"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name == "subprocess":
+                    subp.add(a.asname or a.name)
+                elif a.name == "os":
+                    osm.add(a.asname or a.name)
+    n = 0
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        f = node.func
+        is_sub = (
+            isinstance(f, ast.Attribute)
+            and f.attr in _SUBPROC_ATTRS
+            and isinstance(f.value, ast.Name)
+            and f.value.id in subp
+        ) or (isinstance(f, ast.Name) and f.id == "Popen")
+        is_os = (
+            isinstance(f, ast.Attribute) and f.attr in _OS_ATTRS and isinstance(f.value, ast.Name) and f.value.id in osm
+        )
+        if not (is_sub or is_os):
+            continue
+        strs = []
+        a0 = node.args[0]
+        if isinstance(a0, (ast.List, ast.Tuple)):
+            strs = [e.value for e in a0.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+        elif isinstance(a0, ast.Constant) and isinstance(a0.value, str):
+            strs = [a0.value]
+        if any(_LEGACY.search(s) for s in strs):
+            n += 1
+    return n
+
+
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "docs" / "legacy_env_baseline.json"
 _LEGACY = re.compile(r"\bante(_nf)?/bin/")
-_SCAN_EXT = (".sh", ".yml", ".yaml")
+# B16: incluye .py (una `subprocess.run(["ante_nf/bin/python", …])` versionada también cuenta).
+_SCAN_EXT = (".sh", ".yml", ".yaml", ".py")
 _SCAN_BASE = ("Makefile", "dvc.yaml")
 
 
@@ -38,18 +87,24 @@ def current_counts(root: Path = ROOT) -> dict[str, int]:
     counts: dict[str, int] = {}
     for rel in _tracked(root):
         try:
-            n = len(_LEGACY.findall((root / rel).read_text()))
+            text = (root / rel).read_text()
         except OSError, UnicodeDecodeError:
             continue
+        # .py: solo usos EJECUTABLES (AST); shell/yaml/make: refs de línea de comando (regex).
+        n = _py_legacy_count(text) if rel.endswith(".py") else len(_LEGACY.findall(text))
         if n:
             counts[rel] = n
     return counts
 
 
 def check(root: Path = ROOT) -> list[str]:
-    baseline = json.loads(BASELINE.read_text()).get("max_per_file", {})
+    doc = json.loads(BASELINE.read_text())
+    baseline = doc.get("max_per_file", {})
     counts = current_counts(root)
     probs: list[str] = []
+    # B16: el campo `total` DEBE ser exactamente la suma del baseline (sin holgura oculta).
+    if doc.get("total") != sum(baseline.values()):
+        probs.append(f"baseline.total={doc.get('total')} != sum(max_per_file)={sum(baseline.values())}")
     for rel, n in counts.items():
         allowed = baseline.get(rel, 0)
         if n > allowed:

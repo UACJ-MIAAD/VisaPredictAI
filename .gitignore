@@ -103,3 +103,4 @@ reports/campaign_aq_logs/
 # P0R.3: receipt de supply chain (artefacto runtime del cron/audit, regenerable)
 reports/governance/supply_chain_receipt.json
 .vp_envs/
+.dvc/site-cache/

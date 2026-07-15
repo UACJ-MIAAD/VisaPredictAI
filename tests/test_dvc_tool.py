@@ -11,6 +11,7 @@ import subprocess
 import pytest
 
 import tools.audit_python_supply_chain as m
+import tools.check_no_legacy_envs as legacy
 import tools.check_no_stray_dvc as stray
 import tools.dvc_cache_guard as guard
 import tools.lock_contracts as lc
@@ -345,6 +346,56 @@ def test_b8_gate_pipx_uv_install_dvc_block(tmp_path):
     root = _git_repo(tmp_path, {"x.sh": "pipx install dvc\nuv tool install dvc\n"})
     probs = stray.check(root)
     assert sum("fuera de tools/python_env.py" in p for p in probs) >= 2
+
+
+# ----------------------------- C1: regresiones R8R2 (B11/B16) -----------------------------
+
+
+def test_b11_prepare_creates_site_cache_0700(tmp_path):
+    root = tmp_path / "repo"
+    (root / ".dvc").mkdir(parents=True)
+    os.chmod(root / ".dvc", 0o700)
+    guard.prepare(root)
+    for rel in ("site-cache", "site-cache/repo"):
+        assert (os.stat(root / ".dvc" / rel).st_mode & 0o777) == 0o700, rel
+
+
+def test_b11_external_site_cache_dir_blocks(tmp_path, monkeypatch):
+    root = _cache_root(tmp_path)
+    monkeypatch.setenv("DVC_SITE_CACHE_DIR", "/var/evil")
+    assert any("DVC_SITE_CACHE_DIR" in x for x in guard.check(root))
+
+
+def test_b11_confined_site_cache_dir_ok(tmp_path, monkeypatch):
+    root = _cache_root(tmp_path)
+    guard.prepare(root)
+    monkeypatch.setenv("DVC_SITE_CACHE_DIR", str(guard.site_cache_dir(root)))
+    assert guard.check(root) == []
+
+
+def test_b11_site_cache_group_writable_blocks(tmp_path):
+    root = _cache_root(tmp_path)
+    guard.prepare(root)
+    os.chmod(root / ".dvc/site-cache/repo", 0o770)
+    assert any("site-cache/repo" in x and "escribible" in x for x in guard.check(root))
+
+
+def test_b16_legacy_gate_detects_py_subprocess(tmp_path):
+    root = _git_repo(tmp_path, {"m.py": 'import subprocess\nsubprocess.run(["ante_nf/bin/python", "x.py"])\n'})
+    # sin baseline en el repo temporal -> current_counts lo cuenta
+    assert legacy.current_counts(root).get("m.py") == 1
+
+
+def test_b16_legacy_gate_ignores_py_comment(tmp_path):
+    root = _git_repo(tmp_path, {"m.py": "# ante/bin/python es legacy, migrar\nx = 1\n"})
+    assert "m.py" not in legacy.current_counts(root)
+
+
+def test_b16_baseline_total_must_match():
+    import json as _json
+
+    doc = _json.loads((legacy.BASELINE).read_text())
+    assert doc["total"] == sum(doc["max_per_file"].values())
 
 
 if __name__ == "__main__":
