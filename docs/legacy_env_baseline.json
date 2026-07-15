@@ -3,16 +3,13 @@
     ".pre-commit-config.yaml": 3,
     "Makefile": 3,
     "dvc.yaml": 1,
-    "experiments/backfill_vintages.sh": 1,
     "experiments/run_campaign.sh": 2,
     "experiments/run_campaign_aq.sh": 2,
     "experiments/run_campaign_aq_tail.sh": 2,
-    "experiments/run_experiments.sh": 1,
-    "experiments/run_overnight_global.sh": 1,
     "experiments/run_rederivation.sh": 2,
     "experiments/save_finalists.sh": 5,
     "experiments/sync_all.sh": 6
   },
-  "note": "C4/B2/B16: refs EJECUTABLES a ante/bin y ante_nf/bin en el call graph (.sh/.yml/.yaml/Makefile/dvc.yaml por regex de linea; .py por AST subprocess/os). Trinquete: solo puede BAJAR (migracion a `python_env run-python`). total == sum(max_per_file). NO borrar los venvs fisicos hasta autorizacion de cutover.",
-  "total": 29
+  "note": "C4/B2/B16/R9.4: refs EJECUTABLES+DOCUMENTALES a ante/bin y ante_nf/bin en el call graph (.sh/.yml/.yaml/Makefile/dvc.yaml por regex de linea; .py por AST). Trinquete: solo puede BAJAR (migracion a `python_env run-command`/`run-python --profile`). total == sum(max_per_file). Desglose ejecutable/documental via check_no_legacy_envs.current_breakdown (R9.4). Migrados (0 refs): backfill_vintages/run_experiments/run_overnight_global. Objetivo R9.5: total 0. NO borrar los venvs fisicos hasta autorizacion de cutover.",
+  "total": 26
 }
