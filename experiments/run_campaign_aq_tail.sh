@@ -11,9 +11,10 @@
 #   caffeinate -is bash experiments/run_campaign_aq_tail.sh > reports/campaign_aq_tail.log 2>&1
 set -uo pipefail
 cd "$(dirname "$0")/.."
-ANTE=ante/bin/python
-NF=ante_nf/bin/python
-[ -x "$ANTE" ] && [ -x "$NF" ] || { echo "ERROR: missing venvs" >&2; exit 1; }
+# R9.4: bootstrap orquestador; la lógica corre en los entornos content-addressed (runtime/model/deep-cpu).
+PYBOOT=${PYBOOT:-python3}
+command -v "$PYBOOT" >/dev/null 2>&1 || { echo "ERROR: falta $PYBOOT (bootstrap del orquestador)" >&2; exit 1; }
+runc() { "$PYBOOT" -m tools.python_env run-command --id "$1" -- "${@:2}"; }
 FAILS=0
 stage() { echo ""; echo "##### [$1] $2 — $(date '+%F %T')"; }
 run()   { "$@" || { echo "##### STAGE FAILED (exit $?): $*"; FAILS=$((FAILS+1)); }; }
@@ -23,20 +24,15 @@ echo "=== AQ TAIL starts $(date) ==="
 
 stage T1 "FAD deep auto refits if the BiTCN winner config was late"
 if [ -f reports/campaign/hpo_deep_best_FAD_AutoBiTCN.json ]; then
-  if ! $ANTE - <<'PY'
-import pandas as pd, pathlib, sys
-f = pathlib.Path("reports/campaign/global_FAD_camp_auto_s1.csv")
-ok = f.exists() and "BiTCN" in set(pd.read_csv(f)["model"].unique())
-sys.exit(0 if ok else 1)
-PY
+  if ! runc check_deep_refit   # R9.4/B66: extraído del heredoc (tools/check_deep_refit.py)
   then
     echo "FAD camp_auto is missing BiTCN rows -> re-running the 5 refit seeds"
     for seed in 1 2 3 4 5; do
-      run $NF experiments/run_global_deep.py --table FAD --block family --diff \
+      run runc run_global_deep --table FAD --block family --diff \
         --models BiTCN --config "reports/campaign/hpo_deep_best_FAD_Auto{model}.json" \
         --seed "$seed" --suffix "camp_auto_s${seed}"
     done
-    run $ANTE experiments/aggregate_seeds.py --table FAD --prefix camp_auto_s --model AutoBiTCN --mlflow
+    run runc aggregate_seeds --table FAD --prefix camp_auto_s --model AutoBiTCN --mlflow
   else
     echo "FAD camp_auto already has BiTCN rows — no repair needed"
   fi
@@ -48,7 +44,7 @@ stage T2 "GBM catalog rows with CONFIRMED winners (tuning re-ran after stage B) 
 PIDS=()
 for table in FAD DFF; do
   for block in family employment; do
-    $ANTE -m vp_model.run_comparison --country all --table "$table" --block "$block" --mlflow \
+    runc run_comparison --country all --table "$table" --block "$block" --mlflow \
       --models $GBM --out "reports/campaign/aq_pool_gbm_${table}_${block}.csv" \
       > "reports/campaign_aq_logs/tail_gbm_${table}_${block}.log" 2>&1 &
     PIDS+=($!)
@@ -59,70 +55,45 @@ for pid in "${PIDS[@]}"; do
 done
 
 stage T3 "re-merge pool halves -> campaign_pool + model_comparison projections"
-run $ANTE - <<'PY'
-import pandas as pd, pathlib
-camp = pathlib.Path("reports/campaign"); ev = pathlib.Path("reports/eval")
-for table in ("FAD", "DFF"):
-    for block in ("family", "employment"):
-        parts = []
-        for kind in ("nongbm", "gbm"):
-            f = camp / f"aq_pool_{kind}_{table}_{block}.csv"
-            if f.exists():
-                parts.append(pd.read_csv(f))
-            else:
-                print(f"MISSING pool half: {f}")
-        if not parts:
-            continue
-        full = pd.concat(parts, ignore_index=True)
-        # ONE campaign = ONE run_id: 9 downstream consumers filter run_id==max()
-        # and a two-half merge (nongbm+gbm run_ids) left them staring at the GBM
-        # half only (caught live: ets_fad_mean=NaN in key_facts). The original
-        # per-half id survives in source_run_id for provenance.
-        full["source_run_id"] = full["run_id"]
-        full["run_id"] = full["run_id"].max()
-        full.to_csv(camp / f"campaign_pool_{table}_{block}.csv", index=False)
-        tgt = f"model_comparison_{table}21.csv" if block == "family" else f"model_comparison_EB_{table}21.csv"
-        full.to_csv(ev / tgt, index=False)
-        print(f"{table}/{block}: {len(full)} rows -> {tgt}")
-PY
+run runc merge_campaign_pools   # R9.4/B66: extraído del heredoc (tools/merge_campaign_pools.py)
 
 stage T4 "finalists + fresh holdout/selection forecasts"
 run bash experiments/save_finalists.sh
 
 stage T5 "combiners on fresh holdouts"
-run $ANTE experiments/run_ensembles.py --mlflow
-run $ANTE experiments/improve_stacking.py --mlflow
-run $ANTE experiments/improve_fforma.py --mlflow
-run $ANTE experiments/improve_conformal.py --mlflow
+run runc run_ensembles --mlflow
+run runc improve_stacking --mlflow
+run runc improve_fforma --mlflow
+run runc improve_conformal --mlflow
 
 stage T6 "champion CRPS + significance + champion-challenger"
-run $ANTE experiments/run_champion_crps.py
-run $ANTE experiments/significance_tables.py
-run $ANTE experiments/run_champion_challenger.py --mlflow
+run runc run_champion_crps
+run runc significance_tables
+run runc run_champion_challenger --mlflow
 
 stage T7 "deploy tail: per-horizon PI + web vintage + cone + shadow + scoring"
-run $ANTE experiments/derive_band80_ratio.py
-run $ANTE experiments/generate_web_forecasts.py
-run $ANTE experiments/apply_cone_constraints.py
-run $ANTE experiments/score_forecasts.py
-run $ANTE experiments/freeze_shadow.py
+run runc derive_band80_ratio
+run runc generate_web_forecasts
+run runc apply_cone_constraints
+run runc score_forecasts
+run runc freeze_shadow
 
 stage T8 "single source of truth: key_facts + fe_facts + model card + drift"
-run $ANTE experiments/build_key_facts.py
-run $ANTE experiments/build_fe_facts.py
-run $ANTE experiments/build_model_card.py
-run $ANTE experiments/check_drift.py
+run runc build_key_facts
+run runc build_fe_facts
+run runc build_model_card
+run runc check_drift
 
 stage T9 "result figures + tex tables"
-run $ANTE experiments/make_result_figures.py
-run $ANTE experiments/make_hero_figures.py
-run $ANTE experiments/make_tex_tables.py
+run runc make_result_figures
+run runc make_hero_figures
+run runc make_tex_tables
 
 stage T10 "MLflow sync"
-run $NF experiments/sync_mlflow.py
+run runc sync_mlflow
 
 stage T11 "consistency guard (FAIL = new figures to propagate, regla #0)"
-$ANTE tools/check_consistency.py || echo "##### CONSISTENCY BROKEN (expected): propagate to .tex/paper/web"
+runc check_consistency || echo "##### CONSISTENCY BROKEN (expected): propagate to .tex/paper/web"
 
 echo ""
 echo "=== AQ TAIL ends $(date) ==="

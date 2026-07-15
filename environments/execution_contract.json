@@ -8,6 +8,10 @@
     "build_database":        {"profile": "runtime", "variant": null, "mode": "module", "target": "pipeline.build_database",        "working_directory": "root", "args_policy": "passthrough"},
     "freeze_snapshots":      {"profile": "runtime", "variant": null, "mode": "module", "target": "pipeline.freeze_snapshots",      "working_directory": "root", "args_policy": "passthrough"},
     "mega_audit":            {"profile": "runtime", "variant": null, "mode": "module", "target": "pipeline.mega_audit",            "working_directory": "root", "args_policy": "passthrough"},
+    "print_panel_summary":   {"profile": "runtime", "variant": null, "mode": "module", "target": "tools.print_panel_summary",      "working_directory": "root", "args_policy": "none"},
+    "merge_campaign_pools":  {"profile": "runtime", "variant": null, "mode": "module", "target": "tools.merge_campaign_pools",     "working_directory": "root", "args_policy": "none"},
+    "check_deep_refit":      {"profile": "runtime", "variant": null, "mode": "module", "target": "tools.check_deep_refit",         "working_directory": "root", "args_policy": "none"},
+    "hash_file":             {"profile": "runtime", "variant": null, "mode": "module", "target": "tools.hash_file",               "working_directory": "root", "args_policy": "passthrough"},
 
     "run_comparison":        {"profile": "model", "variant": null, "mode": "module", "target": "vp_model.run_comparison",       "working_directory": "root", "args_policy": "passthrough"},
     "run_tuning":            {"profile": "model", "variant": null, "mode": "module", "target": "vp_model.run_tuning",           "working_directory": "root", "args_policy": "passthrough"},
@@ -43,9 +47,12 @@
     "check_campaign_completeness": {"profile": "model", "variant": null, "mode": "module", "target": "tools.check_campaign_completeness", "working_directory": "root", "args_policy": "passthrough"},
     "campaign_manifest":     {"profile": "model", "variant": null, "mode": "module", "target": "tools.campaign_manifest",              "working_directory": "root", "args_policy": "passthrough"},
     "check_consistency":     {"profile": "model", "variant": null, "mode": "script", "target": "tools/check_consistency.py",            "working_directory": "root", "args_policy": "passthrough"},
+    "run_global_gbm":        {"profile": "model", "variant": null, "mode": "script", "target": "experiments/run_global_gbm.py",         "working_directory": "root", "args_policy": "passthrough"},
+    "run_hurdle":            {"profile": "model", "variant": null, "mode": "script", "target": "experiments/run_hurdle.py",             "working_directory": "root", "args_policy": "passthrough"},
 
     "run_global_deep":       {"profile": "deep", "variant": "cpu", "mode": "script", "target": "experiments/run_global_deep.py",   "working_directory": "root", "args_policy": "passthrough"},
     "run_deep_pi":           {"profile": "deep", "variant": "cpu", "mode": "script", "target": "experiments/run_deep_pi.py",       "working_directory": "root", "args_policy": "passthrough"},
+    "run_statsforecast":     {"profile": "deep", "variant": "cpu", "mode": "script", "target": "experiments/run_statsforecast.py", "working_directory": "root", "args_policy": "passthrough"},
     "save_finalists_deep":   {"profile": "deep", "variant": "cpu", "mode": "script", "target": "experiments/save_finalists_deep.py", "working_directory": "root", "args_policy": "passthrough"},
     "sync_mlflow":           {"profile": "deep", "variant": "cpu", "mode": "script", "target": "experiments/sync_mlflow.py",       "working_directory": "root", "args_policy": "passthrough"}
   }
