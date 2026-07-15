@@ -98,28 +98,28 @@ def _workflows(root: Path) -> list[Path]:
     return sorted([*wf.glob("*.yml"), *wf.glob("*.yaml")])
 
 
-def _iter_uses(obj) -> list:
-    """Todos los valores bajo una clave EXACTA `uses` en cualquier mapping (recursivo): pasos y
-    reusable-workflows a nivel de job. No recurre dentro del valor de `uses`."""
-    found: list = []
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if k == "uses":
-                found.append(v)
+def _iter_uses_nodes(node) -> list[tuple[str | None, int]]:
+    """B63: (valor_str_o_None, línea 0-index del NODO valor) por cada clave EXACTA `uses` en el árbol de
+    nodos YAML — así el comentario de versión se lee de la LÍNEA EXACTA de esa ocurrencia (no de un dict
+    global action@sha que enmascara la primera aparición). Recorre pasos y reusable-workflows."""
+    found: list[tuple[str | None, int]] = []
+    if isinstance(node, yaml.MappingNode):
+        for k_node, v_node in node.value:
+            if isinstance(k_node, yaml.ScalarNode) and k_node.value == "uses":
+                val = v_node.value if isinstance(v_node, yaml.ScalarNode) else None
+                found.append((val, v_node.start_mark.line))
             else:
-                found.extend(_iter_uses(v))
-    elif isinstance(obj, list):
-        for item in obj:
-            found.extend(_iter_uses(item))
+                found.extend(_iter_uses_nodes(v_node))
+    elif isinstance(node, yaml.SequenceNode):
+        for item in node.value:
+            found.extend(_iter_uses_nodes(item))
     return found
 
 
-def _uses_comments(text: str) -> dict[str, str | None]:
-    """action@sha → comentario de versión, desde el TEXTO crudo (tolerante a espacios alrededor del `:`)."""
-    out: dict[str, str | None] = {}
-    for m in _USES_COMMENT.finditer(text):
-        out[f"{m.group(1)}@{m.group(2)}"] = m.group(3)
-    return out
+def _comment_on_line(line: str) -> str | None:
+    """Comentario de versión de UNA línea `uses: …@<sha> # <ver>` (tolerante a espacios)."""
+    m = _USES_COMMENT.search(line)
+    return m.group(3) if m else None
 
 
 def check(root: Path = ROOT) -> list[str]:
@@ -129,15 +129,16 @@ def check(root: Path = ROOT) -> list[str]:
     for f in _workflows(root):
         text = f.read_text()
         try:
-            doc = yaml.load(text, Loader=_StrictLoader)  # B56: fail-closed en YAML inválido / clave dup
+            yaml.load(text, Loader=_StrictLoader)  # B56: fail-closed en YAML inválido / clave dup
+            node = yaml.compose(text, Loader=yaml.SafeLoader)  # B63: árbol de nodos con nº de línea
         except yaml.YAMLError as exc:
             probs.append(f"{f.name}: YAML inválido o con clave duplicada ({exc})")
             continue
-        comments = _uses_comments(text)
-        for value in _iter_uses(doc):
-            where = f.name
-            if not isinstance(value, str):
-                probs.append(f"{where}: `uses` con valor no-string ({value!r})")
+        lines = text.splitlines()
+        for value, lineno in _iter_uses_nodes(node) if node is not None else []:
+            where = f"{f.name}:{lineno + 1}"
+            if value is None:
+                probs.append(f"{where}: `uses` con valor no-string")
                 continue
             v = value.strip()
             if v.startswith("./") or v.startswith("."):
@@ -166,7 +167,8 @@ def check(root: Path = ROOT) -> list[str]:
                 continue
             if entry["runtime"] != "node24":
                 probs.append(f"{where} {action} runtime {entry['runtime']!r} != node24")
-            comment = comments.get(f"{action}@{ref}")
+            # B63: comentario de version leído de la LÍNEA de ESTA ocurrencia (no un dict global).
+            comment = _comment_on_line(lines[lineno]) if lineno < len(lines) else None
             if comment != entry["version"]:
                 probs.append(f"{where} {action} comentario {comment!r} != versión esperada {entry['version']!r}")
     # B53: BIYECCIÓN — ninguna entrada del registro puede quedar huérfana (registrada pero sin usar).
@@ -252,7 +254,7 @@ def main() -> int:
             print(f"  - {p}")
         return 1
     reg = load_registry()
-    n = sum(len(_iter_uses(yaml.load(f.read_text(), Loader=_StrictLoader))) for f in _workflows(ROOT))
+    n = sum(len(_iter_uses_nodes(yaml.compose(f.read_text(), Loader=yaml.SafeLoader))) for f in _workflows(ROOT))
     tail = " + SHA/versión/runtime remoto verificados" if online else ""
     print(f"✓ {n} usos de Actions, biyección con {len(reg)} acciones registradas (node24, SHA+versión){tail}")
     return 0

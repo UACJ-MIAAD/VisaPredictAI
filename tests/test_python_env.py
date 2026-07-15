@@ -835,5 +835,193 @@ def test_b58_tree_digest_at_is_swap_immune(tmp_path):
         os.close(fd)
 
 
+# ----------------------------- C1: regresiones R8R6R4 (B60/B61/B62) -----------------------------
+
+import socket as _socket  # noqa: E402
+from contextlib import contextmanager  # noqa: E402
+
+
+def _script_env(tmp_path, name, marker):
+    """Crea <dir>/bin/python como un script sh que escribe `marker` (para detectar QUÉ intérprete corrió)."""
+    d = tmp_path / name
+    (d / "bin").mkdir(parents=True)
+    (d / "bin" / "python").write_text(f"#!/bin/sh\necho ran > {marker}\n")
+    os.chmod(d / "bin" / "python", 0o755)
+    os.chmod(d, 0o700)
+    return d
+
+
+def test_b60_run_python_ancestor_swap_never_executes_external(tmp_path, monkeypatch):
+    # run_python NO puede re-ejecutar <env>/bin/python por RUTA absoluta tras la validación: un swap del
+    # ancestro por symlink haría correr el intérprete EXTERNO. El fix ejecuta fd-bound (fchdir al env_fd
+    # gobernado ya validado), inmune al swap.
+    legit, ext = tmp_path / "LEGIT", tmp_path / "EXTERNAL"
+    target = _script_env(tmp_path, "env", legit)
+    external = _script_env(tmp_path, "ext", ext)
+
+    @contextmanager
+    def fake_open(profile, variant=None, profiles=None):
+        fd = os.open(str(target), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        target.rename(tmp_path / "env_real")  # swap del ancestro DESPUÉS de tomar el fd
+        (tmp_path / "env").symlink_to(external)
+        try:
+            yield pe._ValidEnv(fd, {"env_id": "x"}, "x", tmp_path / "env", {"console_scripts": ["dvc"]})
+        finally:
+            os.close(fd)
+
+    monkeypatch.setattr(pe, "build", lambda *a, **k: target)
+    monkeypatch.setattr(pe, "open_valid_environment", fake_open)
+    pe.run_python("dvc-tool", ["-c", "pass"], capture=True)
+    assert legit.exists(), "no corrió el intérprete del fd gobernado"
+    assert not ext.exists(), "run_python ejecutó el intérprete EXTERNO tras el swap (B60)"
+
+
+def test_b60_console_run_ancestor_swap_never_executes_external(tmp_path, monkeypatch):
+    legit, ext = tmp_path / "LEGIT", tmp_path / "EXTERNAL"
+    target = _script_env(tmp_path, "env", legit)
+    external = _script_env(tmp_path, "ext", ext)
+
+    @contextmanager
+    def fake_open(profile, variant=None, profiles=None):
+        fd = os.open(str(target), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        target.rename(tmp_path / "env_real")
+        (tmp_path / "env").symlink_to(external)
+        try:
+            yield pe._ValidEnv(fd, {"env_id": "x"}, "x", tmp_path / "env", {"console_scripts": ["dvc"]})
+        finally:
+            os.close(fd)
+
+    monkeypatch.setattr(pe, "build", lambda *a, **k: target)
+    monkeypatch.setattr(pe, "open_valid_environment", fake_open)
+    pe.run("dvc-tool", ["dvc", "--version"], capture=True)
+    assert legit.exists() and not ext.exists(), "run ejecutó el intérprete EXTERNO tras el swap (B60)"
+
+
+def test_b60_runtime_uses_same_validated_env_fd(tmp_path, monkeypatch):
+    # el lanzamiento es RELATIVO al descriptor: _run_in_dir recibe el fd del handle validado y `bin/python`.
+    target = tmp_path / "env"
+    (target / "bin").mkdir(parents=True)
+    os.chmod(target, 0o700)
+    captured: dict = {}
+
+    @contextmanager
+    def fake_open(profile, variant=None, profiles=None):
+        fd = os.open(str(target), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            yield pe._ValidEnv(fd, {}, "x", target, {})
+        finally:
+            os.close(fd)
+
+    def fake_run_in_dir(dir_fd, argv, **kw):
+        import subprocess
+
+        captured["fd"], captured["argv"] = dir_fd, argv
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(pe, "build", lambda *a, **k: target)
+    monkeypatch.setattr(pe, "open_valid_environment", fake_open)
+    monkeypatch.setattr(pe, "_run_in_dir", fake_run_in_dir)
+    pe.run_python("dvc-tool", ["-c", "pass"])
+    assert captured.get("argv", [None])[0] == "bin/python"  # intérprete relativo, no ruta absoluta
+    assert isinstance(captured.get("fd"), int)  # el fd del handle validado
+
+
+def test_b61_read_ready_uses_same_validated_fd(tmp_path, monkeypatch):
+    # read_ready devuelve el sello de la MISMA validación (open_valid_environment), sin cerrar/reabrir.
+    sentinel = {"env_id": "abc", "validated": True}
+
+    @contextmanager
+    def fake_open(profile, variant=None, profiles=None):
+        yield pe._ValidEnv(-1, sentinel, "abc", tmp_path / "env", {})
+
+    monkeypatch.setattr(pe, "open_valid_environment", fake_open)
+    assert pe.read_ready("dvc-tool") == sentinel
+
+
+def test_b61_read_ready_replacement_after_validation_rejected(tmp_path, monkeypatch):
+    # el ENTORNO se REEMPLAZA (rename de otro dir real 0700) entre validación y lectura; read_ready no debe
+    # devolver el sello no validado.
+    real = tmp_path / "env"
+    real.mkdir()
+    os.chmod(real, 0o700)
+    (real / "READY.json").write_text(json.dumps({"legit": True}))
+    os.chmod(real / "READY.json", 0o600)
+    external = tmp_path / "ext"
+    external.mkdir()
+    os.chmod(external, 0o700)
+    (external / "READY.json").write_text(json.dumps({"evil": True}))
+    os.chmod(external / "READY.json", 0o600)
+
+    validated = {"env_id": "legit", "marker": "validated"}
+
+    def fake_validate(env_fd, env_path, profile, variant, profiles, cfg):
+        # "validación" pasa sobre el fd real; luego el dir se REEMPLAZA por otro dir real
+        real.rename(tmp_path / "env_old")
+        external.rename(tmp_path / "env")
+        return True, "ok", validated
+
+    monkeypatch.setattr(pe, "env_dir", lambda *a, **k: tmp_path / "env")
+    monkeypatch.setattr(pe, "_validate_open_env", fake_validate)
+    got = pe.read_ready("dvc-tool")
+    assert got == validated and "evil" not in got, f"read_ready devolvió el sello REEMPLAZADO no validado: {got}"
+
+
+def test_b62_fifo_is_rejected_from_environment_tree(tmp_path):
+    os.mkfifo(tmp_path / "x")
+    fd = os.open(str(tmp_path), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        with pytest.raises(SystemExit):
+            pe._tree_digest_at(fd)
+    finally:
+        os.close(fd)
+
+
+def _bind_short(sock, directory):
+    """Bind un AF_UNIX socket con nombre corto `x` dentro de `directory` (el límite de ruta AF_UNIX es ~104
+    bytes; el tmp_path de pytest lo excede) — chdir + bind relativo, restaurando el cwd."""
+    old = os.getcwd()
+    os.chdir(str(directory))
+    try:
+        sock.bind("x")
+    finally:
+        os.chdir(old)
+
+
+def test_b62_socket_is_rejected_from_environment_tree(tmp_path):
+    s = _socket.socket(_socket.AF_UNIX)
+    _bind_short(s, tmp_path)
+    fd = os.open(str(tmp_path), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        with pytest.raises(SystemExit):
+            pe._tree_digest_at(fd)
+    finally:
+        os.close(fd)
+        s.close()
+
+
+def test_b62_special_type_replacement_changes_or_blocks_digest(tmp_path):
+    # una FIFO y un socket con el MISMO nombre NO pueden colisionar en el digest — el fix los RECHAZA a ambos.
+    d1 = tmp_path / "a"
+    d1.mkdir()
+    os.mkfifo(d1 / "x")
+    d2 = tmp_path / "b"
+    d2.mkdir()
+    s = _socket.socket(_socket.AF_UNIX)
+    _bind_short(s, d2)
+
+    def outcome(d):
+        fd = os.open(str(d), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            return ("digest", pe._tree_digest_at(fd))
+        except SystemExit:
+            return ("blocked", None)
+        finally:
+            os.close(fd)
+
+    r1, r2 = outcome(d1), outcome(d2)
+    s.close()
+    assert r1[0] == "blocked" and r2[0] == "blocked", f"tipo especial no rechazado: {r1}, {r2}"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

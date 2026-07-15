@@ -1010,5 +1010,44 @@ def test_b59_two_linux_receipts_cannot_pass_as_cross_platform():
     assert probs and any("plataforma" in p for p in probs)
 
 
+# ----------------------------- C1: regresiones R8R6R4 (B63) -----------------------------
+
+
+def _all_actions_correct_lines():
+    """Una línea `uses:` por cada acción registrada con su comentario correcto (para cerrar la biyección)."""
+    reg = pins.load_registry()
+    return [f"      - uses: {name}@{e['sha']}  # {e['version']}" for name, e in reg.items()]
+
+
+def test_b63_wrong_first_comment_cannot_be_masked_by_later_use(tmp_path):
+    # dos ocurrencias del MISMO action@sha: la 1ª con comentario FALSO, la 2ª correcta. El comentario por
+    # ocurrencia (por línea) debe marcar la 1ª; el dict global `action@sha` last-wins la enmascaraba.
+    reg = pins.load_registry()
+    sha = reg["actions/checkout"]["sha"]
+    body = "jobs:\n  a:\n    steps:\n"
+    body += f"      - uses: actions/checkout@{sha}  # vFAKE\n"  # 1ª ocurrencia, comentario FALSO
+    body += "\n".join(_all_actions_correct_lines()) + "\n"  # 2ª (checkout # v5) + resto correctas
+    root = _wf(tmp_path, "x.yml", body)
+    probs = pins.check(root)
+    comment_probs = [p for p in probs if "comentario" in p]
+    assert len(comment_probs) == 1, f"esperaba 1 comentario falso marcado, hubo {comment_probs}"
+
+
+def test_b63_each_action_occurrence_checks_its_own_comment(tmp_path):
+    # 1ª ocurrencia CORRECTA, 2ª FALSA: solo la 2ª debe marcarse (el dict global last-wins marcaba AMBAS).
+    reg = pins.load_registry()
+    sha = reg["actions/checkout"]["sha"]
+    ver = reg["actions/checkout"]["version"]
+    body = "jobs:\n  a:\n    steps:\n"
+    body += f"      - uses: actions/checkout@{sha}  # {ver}\n"  # correcta
+    body += f"      - uses: actions/checkout@{sha}  # vFAKE\n"  # FALSA
+    # resto de acciones registradas una vez (biyección)
+    body += "\n".join(line for line in _all_actions_correct_lines() if "actions/checkout@" not in line) + "\n"
+    root = _wf(tmp_path, "x.yml", body)
+    probs = pins.check(root)
+    comment_probs = [p for p in probs if "comentario" in p]
+    assert len(comment_probs) == 1, f"esperaba solo la 2ª (falsa) marcada, hubo {comment_probs}"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
