@@ -1,9 +1,12 @@
 # One-command operations for the VisaPredictAI pipeline.
 # Override the interpreter with: make test PY=python
 PY ?= ante/bin/python
+# R9.4: bootstrap orquestador (stdlib-only tools.python_env). Los targets migrados corren la lógica en
+# los entornos content-addressed vía run-command; PY sigue como interfaz de override durante la migración.
+PYBOOT ?= python3
 # P0R.5 R3: DVC corre EXCLUSIVAMENTE desde su entorno content-addressed aislado
 # (.vp_envs/dvc-tool), invocado por la interfaz única `python_env exec` (que aplica el cache
-# guard y prohíbe el binario legacy). NUNCA `ante/bin/dvc` ni `DVC_BIN` (deps de dvc degradarían
+# guard y prohíbe el binario legacy). NUNCA un `dvc` suelto ni `DVC_BIN` (deps de dvc degradarían
 # el producto). El entorno se construye/reusa on-demand.
 DVC ?= $(PY) -m tools.python_env exec --profile dvc-tool -- dvc
 
@@ -214,5 +217,5 @@ sync:  ## todo machin: MLflow + DVC->S3 + git (tras una corrida)
 
 # AO9 (decision): MLflow is a manually-synced HISTORICAL ARCHIVE, not a live dashboard.
 # The durable/canonical record is the CSV/JSON committed in git; sync when you want the UI.
-mlflow-sync:  ## staging JSONL -> mlflow.db (archivo histórico; corre en ante_nf)
-	ante_nf/bin/python experiments/sync_mlflow.py
+mlflow-sync:  ## staging JSONL -> mlflow.db (archivo histórico; corre en el entorno deep-cpu)
+	$(PYBOOT) -m tools.python_env run-command --id sync_mlflow

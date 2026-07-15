@@ -18,7 +18,11 @@
 #       bash experiments/sync_all.sh --publish ["mensaje"]  # commit + git push + dvc push
 set -euo pipefail
 cd "$(dirname "$0")/.."
-[ -x ante_nf/bin/python ] || { echo "ERROR: falta el venv ante_nf/ en la raíz del repo" >&2; exit 1; }
+# R9.4: bootstrap orquestador (stdlib-only tools.python_env). La LÓGICA DE PRODUCTO corre en los entornos
+# content-addressed que abre `run-command`; el CLI DVC sigue AISLADO en dvc-tool vía `python_env exec`.
+PYBOOT=${PYBOOT:-python3}
+command -v "$PYBOOT" >/dev/null 2>&1 || { echo "ERROR: falta $PYBOOT (bootstrap del orquestador)" >&2; exit 1; }
+runc() { "$PYBOOT" -m tools.python_env run-command --id "$1" -- "${@:2}"; }
 
 PUBLISH="${SYNC_PUBLISH:-0}"
 if [ "${1:-}" = "--publish" ]; then PUBLISH=1; shift; fi
@@ -27,23 +31,23 @@ MANIFEST=reports/campaign/campaign_manifest.json
 
 # P0R.5 R3: DVC corre EXCLUSIVAMENTE desde su entorno content-addressed aislado (.vp_envs/dvc-tool),
 # vía la interfaz única `python_env exec` (aplica el cache guard, prohíbe el binario legacy y evita
-# que las deps de dvc degraden el producto). NUNCA `ante/bin/dvc` ni un dvc de PATH.
-DVC="ante/bin/python -m tools.python_env exec --profile dvc-tool -- dvc"
+# que las deps de dvc degraden el producto). NUNCA un `dvc` suelto ni de PATH.
+DVC="$PYBOOT -m tools.python_env exec --profile dvc-tool -- dvc"
 
 # ⚠️ Publicar exige un manifiesto de campaña que EXISTA, sea JSON válido y selle dirty=false
 # BOOLEANO explícito (contrato único fail-closed: tools/campaign_manifest.py). Fail-closed ante
 # manifiesto ausente/ilegible/malformado, sin la clave `dirty`, o dirty!=false (auditoría
 # 13-jul-2026 ronda 8: el grep '"dirty": *true' era FAIL-OPEN — no cubría ausencia/malformado/
 # `{"dirty" : true}` con espacios ni cambios TOCTOU). CAMPAIGN_DIAGNOSTIC NO llega a producción.
-publishable() { ante_nf/bin/python -m tools.campaign_manifest --assert-publishable "$MANIFEST"; }
-manifest_sha() { ante_nf/bin/python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$MANIFEST"; }
+publishable() { runc campaign_manifest --assert-publishable "$MANIFEST"; }
+manifest_sha() { runc hash_file "$MANIFEST"; }   # R9.4/B66: extraído del `-c` hashlib (tools/hash_file.py)
 if [ "$PUBLISH" = 1 ]; then
   publishable || exit 7
   PUB_SHA0="$(manifest_sha)"
 fi
 
 echo ">>> [1/3] MLflow: staging -> mlflow.db"
-ante_nf/bin/python experiments/sync_mlflow.py
+runc sync_mlflow
 
 echo ">>> [2/3] DVC: re-hash local (modelos + tracking)"
 $DVC add models mlflow.db

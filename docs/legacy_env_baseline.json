@@ -1,10 +1,7 @@
 {
   "max_per_file": {
-    ".pre-commit-config.yaml": 3,
-    "Makefile": 3,
-    "dvc.yaml": 1,
-    "experiments/sync_all.sh": 6
+    "Makefile": 1
   },
-  "note": "C4/B2/B16/R9.4: refs EJECUTABLES+DOCUMENTALES a ante/bin y ante_nf/bin en el call graph (.sh/.yml/.yaml/Makefile/dvc.yaml por regex de linea; .py por AST). Trinquete: solo puede BAJAR (migracion a `python_env run-command`/`run-python --profile`). total == sum(max_per_file). Desglose ejecutable/documental via check_no_legacy_envs.current_breakdown (R9.4). Migrados (0 refs): backfill_vintages/run_experiments/run_overnight_global/run_campaign/save_finalists/run_campaign_aq/run_campaign_aq_tail/run_rederivation (heredocs y -c extraidos a tools/{merge_campaign_pools,check_deep_refit,print_panel_summary,hash_file}.py, B66). Restan: pre-commit/Makefile/dvc.yaml (mayormente documental) + sync_all.sh (DVC). Objetivo R9.5: total 0. NO borrar los venvs fisicos hasta autorizacion de cutover.",
-  "total": 13
+  "note": "C4/B2/B16/R9.4/R9.5: refs EJECUTABLES+DOCUMENTALES a ante/bin y ante_nf/bin en el call graph. Trinquete: solo puede BAJAR. total == sum(max_per_file). Desglose via check_no_legacy_envs.current_breakdown. MIGRADO 29->1: los 8 runbooks + sync_all -> run-command (heredocs/-c a tools/{merge_campaign_pools,check_deep_refit,print_panel_summary,hash_file}.py, B66); comentarios documentales de pre-commit/dvc.yaml/Makefile depurados; mlflow-sync -> run-command. RESTA (1): `PY ?= ante/bin/python` en Makefile -- default de las ~40 recetas; su retiro exige migrar cada target a su wrapper de perfil (R9.4.1, acoplado con R9.3/dvc.yaml). Objetivo R9.5: total 0. NO borrar los venvs fisicos hasta autorizacion de cutover.",
+  "total": 1
 }
