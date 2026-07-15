@@ -265,6 +265,10 @@ jobs:
       # P0R.5 (C4/B2): trinquete de migración del call graph fuera de ante/ante_nf.
       - name: Sin uso legacy nuevo de ante/ante_nf (trinquete)
         run: python tools/check_no_legacy_envs.py
+      # P0R.5 (R9.1): contrato gobernado de comandos — perfiles válidos, scripts versionados, módulos que
+      # resuelven, variante explícita en deep, sin modo code/stdin.
+      - name: Execution contract gobernado (R9.1)
+        run: python -m tools.execution_contract
       # P0R.5 (Node 24, B49/B53): registro POSITIVO de Actions — biyección acción⇔registro, SHA exacto,
       # comentario de versión, node24. Offline primero, luego verificación REMOTA (SHA existe, la versión
       # apunta a ese SHA, action.yml declara node24) contra la GitHub API. Fail-closed, con timeout.

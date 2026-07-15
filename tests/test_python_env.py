@@ -143,7 +143,12 @@ def test_b3_cache_guarded_changes_env_id():
 
 def test_b3_governance_hashes_in_descriptor():
     gov = pe.descriptor("dvc-tool")["governance"]
-    assert set(gov) == {"python_env_sha256", "dvc_cache_guard_sha256", "profiles_json_sha256"}
+    assert set(gov) == {
+        "python_env_sha256",
+        "dvc_cache_guard_sha256",
+        "profiles_json_sha256",
+        "execution_contract_sha256",  # R9.1
+    }
     assert all(v.startswith("sha256:") for v in gov.values())
 
 

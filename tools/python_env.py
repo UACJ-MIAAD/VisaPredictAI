@@ -48,6 +48,7 @@ ROOT = lc.ROOT
 ENVS_ROOT = ROOT / ".vp_envs"
 STAGING_ROOT = ENVS_ROOT / ".staging"
 PROFILES_JSON = ROOT / "environments" / "python_profiles.json"
+EXECUTION_CONTRACT = ROOT / "environments" / "execution_contract.json"  # R9.1: contrato de comandos gobernados
 GUARD_PY = ROOT / "tools" / "dvc_cache_guard.py"
 SELF_PY = ROOT / "tools" / "python_env.py"
 _PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s\\;]+)", re.MULTILINE)
@@ -291,6 +292,8 @@ def descriptor(profile: str, variant: str | None = None, profiles: dict | None =
             "python_env_sha256": _sha256_path(SELF_PY),
             "dvc_cache_guard_sha256": _sha256_path(GUARD_PY),
             "profiles_json_sha256": _sha256_path(PROFILES_JSON),
+            # R9.1: el contrato de comandos gobierna QUÉ puede ejecutar el entorno ⇒ entra en el env_id.
+            "execution_contract_sha256": _sha256_path(EXECUTION_CONTRACT),
         },
         "python": {
             "implementation": platform.python_implementation().lower(),
@@ -1358,6 +1361,27 @@ def run_python(
         return _launch_fd_bound(env, spec, capture)
 
 
+def run_command(cid: str, args: list[str], *, capture: bool = False) -> subprocess.CompletedProcess:
+    """R9.1: interfaz OFICIAL del call graph. Resuelve `cid` en `environments/execution_contract.json`
+    (perfil/variante/modo/target gobernados), construye el entorno del perfil y ejecuta fd-bound. Un módulo
+    corre por `runpy.run_module`; un script por su ruta GOBERNADA (`_governed_script`); nunca `-c`/stdin. La
+    `args_policy` `none` rechaza argumentos."""
+    from tools import execution_contract as ec
+
+    c = ec.command(cid)
+    profile, variant, mode, target = c["profile"], c["variant"], c["mode"], c["target"]
+    if c["args_policy"] == "none" and args:
+        raise SystemExit(f"python_env: el comando {cid!r} no admite argumentos (args_policy=none)")
+    profiles = load_profiles()
+    build(profile, variant, profiles)
+    with open_valid_environment(profile, variant, profiles) as env:
+        if mode == "module":
+            spec = {"mode": "module", "name": target, "rest": list(args)}
+        else:
+            spec = {"mode": "script", "name": _governed_script(target), "rest": list(args)}
+        return _launch_fd_bound(env, spec, capture)
+
+
 # --------------------------------------------------------------------------- provenance (recibos)
 
 
@@ -1401,6 +1425,9 @@ def main(argv: list[str]) -> int:
         p.add_argument("--profile", required=True)
         p.add_argument("--variant", default=None)
         p.add_argument("rest", nargs=argparse.REMAINDER)
+    rc = sub.add_parser("run-command")  # R9.1: interfaz oficial del call graph (comando gobernado por id)
+    rc.add_argument("--id", required=True, dest="command_id")
+    rc.add_argument("rest", nargs=argparse.REMAINDER)
     sub.add_parser("prune")
     ns = ap.parse_args(argv[1:])
 
@@ -1421,6 +1448,8 @@ def main(argv: list[str]) -> int:
         return run(ns.profile, rest, variant=ns.variant).returncode
     if ns.cmd == "run-python":
         return run_python(ns.profile, rest, variant=ns.variant).returncode
+    if ns.cmd == "run-command":
+        return run_command(ns.command_id, rest).returncode
     return 2
 
 
