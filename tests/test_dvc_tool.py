@@ -1049,5 +1049,25 @@ def test_b63_each_action_occurrence_checks_its_own_comment(tmp_path):
     assert len(comment_probs) == 1, f"esperaba solo la 2ª (falsa) marcada, hubo {comment_probs}"
 
 
+# ----------------------------- R9-a: regresiones B68 (desglose trinquete) / B70 (cobertura fail-closed) -----------------------------
+
+
+def test_b68_ratchet_reports_executable_vs_documentary(tmp_path):
+    # el trinquete debe SEPARAR refs ejecutables de documentales (comentarios) por fichero
+    sh = "PY=ante/bin/python\n# comentario: no usar ante_nf/bin/python nunca\n$PY -m pipeline.x\n"
+    root = _git_repo(tmp_path, {"run.sh": sh})
+    bd = legacy.current_breakdown(root)
+    assert bd["run.sh"]["executable"] == 1, bd  # solo la asignación PY=ante/bin/python
+    assert bd["run.sh"]["documentary"] == 1, bd  # el ref en el comentario
+
+
+def test_b70_ci_coverage_artifact_fails_closed():
+    ci = (lc.ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    # el bloque de subida de coverage-by-layer no puede terminar verde sin conservar el recibo
+    assert "coverage-by-layer" in ci
+    block = ci.split("coverage-by-layer", 1)[1].split("retention-days", 1)[0]
+    assert "if-no-files-found: error" in block, "coverage-by-layer sigue en if-no-files-found: ignore (B70)"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

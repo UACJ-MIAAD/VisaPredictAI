@@ -170,6 +170,50 @@ def current_counts(root: Path = ROOT) -> dict[str, int]:
     return counts
 
 
+def _comment_index(line: str) -> int | None:
+    """Índice del primer `#` que INICIA comentario (inicio de línea o precedido por espacio) — aproximación
+    válida para .sh/.yaml/Makefile."""
+    for i, ch in enumerate(line):
+        if ch == "#" and (i == 0 or line[i - 1] in " \t"):
+            return i
+    return None
+
+
+def _shell_breakdown(text: str) -> tuple[int, int]:
+    """(ejecutables, documentales) para .sh/.yaml/Makefile: un match tras el `#` de comentario de su línea es
+    documental; el resto, ejecutable."""
+    execu = docu = 0
+    for line in text.splitlines():
+        hidx = _comment_index(line)
+        for m in _LEGACY.finditer(line):
+            if hidx is not None and m.start() >= hidx:
+                docu += 1
+            else:
+                execu += 1
+    return execu, docu
+
+
+def current_breakdown(root: Path = ROOT) -> dict[str, dict[str, int]]:
+    """B68: por fichero {'executable': N, 'documentary': M}, en el MISMO alcance que el trinquete
+    (`current_counts`): para .py solo usos EJECUTABLES por AST (los comentarios/docstrings NO cuentan, así
+    que documentary=0); para shell/yaml/make se separa `_LEGACY.findall` en fuera-de-comentario (ejecutable)
+    y en-comentario (documental). Por construcción `sum(exec+docu) == sum(current_counts)`. El objetivo 29→0
+    es del TOTAL; el reporte separa las categorías (no son 29 ejecuciones reales)."""
+    out: dict[str, dict[str, int]] = {}
+    for rel in _tracked(root):
+        text = (root / rel).read_text()
+        if rel.endswith(".py"):
+            try:
+                execu, docu = _py_legacy_count(text), 0  # el trinquete NO cuenta comentarios/docstrings .py
+            except _LegacyScanError as exc:
+                raise SystemExit(f"check_no_legacy_envs: {rel} {exc} — fail-closed") from exc
+        else:
+            execu, docu = _shell_breakdown(text)
+        if execu or docu:
+            out[rel] = {"executable": execu, "documentary": docu}
+    return out
+
+
 def check(root: Path = ROOT) -> list[str]:
     doc = json.loads(BASELINE.read_text())
     baseline = doc.get("max_per_file", {})
@@ -198,9 +242,12 @@ def main() -> int:
         for p in probs:
             print(f"  - {p}")
         return 1
-    total = sum(current_counts().values())
+    bd = current_breakdown()
+    execu = sum(v["executable"] for v in bd.values())
+    docu = sum(v["documentary"] for v in bd.values())
     print(
-        f"✓ Sin uso legacy nuevo: {total} refs a ante/ante_nf en el call graph (trinquete; migración en curso a run-python)"
+        f"✓ Sin uso legacy nuevo: {execu + docu} refs rastreadas a ante/ante_nf "
+        f"({execu} ejecutables, {docu} documentales) en el call graph (trinquete; migración en curso)"
     )
     return 0
 

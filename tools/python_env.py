@@ -1216,26 +1216,39 @@ def prune_staging() -> int:
 
 
 # --------------------------------------------------------------------------- exec / run-python
+# B67: `env_owns`/`resolve_console_script` (resolvían por `.resolve()`/ruta absoluta el console-script y su
+# contención) fueron RETIRADOS — reintroducían el patrón de resolución por ruta que B60 eliminó. `run`
+# valida el console-script contra `console_scripts` del perfil y ejecuta por módulo fd-bound; los scripts se
+# gobiernan con `_governed_script`.
 
 
-def env_owns(profile: str, executable: Path, variant: str | None = None, profiles: dict | None = None) -> bool:
+def _governed_script(name: str) -> str:
+    """B64: valida que `name` sea un script GOBERNADO — relativo a ROOT, sin `..`, dentro de ROOT, fichero
+    regular, sin symlink en ningún componente y VERSIONADO en git — y devuelve su ruta relativa. Rechaza
+    rutas absolutas / `../` / fuera de ROOT / no versionadas / con symlink (código no gobernado no entra al
+    camino oficial)."""
+    p = Path(name)
+    if p.is_absolute():
+        raise SystemExit(f"python_env: script con ruta absoluta no permitido: {name!r}")
+    if ".." in p.parts or "" in p.parts:
+        raise SystemExit(f"python_env: script con componente '..' no permitido: {name!r}")
+    # sin symlink en NINGÚN componente bajo ROOT (un symlink intermedio resolvería fuera)
+    cur = ROOT
+    for part in p.parts:
+        cur = cur / part
+        if cur.is_symlink():
+            raise SystemExit(f"python_env: componente symlink en el script no permitido: {name!r}")
+    full = ROOT / p
     try:
-        executable.resolve().relative_to(env_dir(profile, variant, profiles).resolve())
-        return True
-    except ValueError, OSError:
-        return False
-
-
-def resolve_console_script(profile: str, name: str, variant: str | None = None, profiles: dict | None = None) -> Path:
-    profiles = profiles or load_profiles()
-    cfg = _profile_config(profiles, profile)
-    if name not in cfg.get("console_scripts", []):
-        raise SystemExit(f"python_env: {name!r} no es console-script declarado del perfil {profile!r}")
-    target = build(profile, variant, profiles)
-    binp = target / ("Scripts" if os.name == "nt" else "bin") / name
-    if not binp.exists():
-        raise SystemExit(f"python_env: {name} ausente en {binp}")
-    return binp.resolve()
+        full.resolve(strict=True).relative_to(ROOT.resolve())
+    except (ValueError, OSError) as exc:
+        raise SystemExit(f"python_env: script fuera de ROOT o inexistente: {name!r} ({exc})") from exc
+    if not full.is_file():
+        raise SystemExit(f"python_env: el script no es un fichero regular: {name!r}")
+    r = subprocess.run(["git", "ls-files", "--error-unmatch", "--", str(p)], cwd=str(ROOT), capture_output=True)
+    if r.returncode != 0:
+        raise SystemExit(f"python_env: el script no está versionado en git: {name!r}")
+    return str(p)
 
 
 def _guard_env(cfg: dict) -> tuple[dict[str, str] | None, Callable[[], object] | None]:
@@ -1289,8 +1302,10 @@ def _parse_python_argv(argv: list[str]) -> dict:
             raise SystemExit("python_env: -c requiere código")
         return {"mode": "code", "code": argv[1], "rest": list(argv[2:])}
     if argv[0].startswith("-"):
+        # B64: rechaza `python -` (stdin) y cualquier flag de intérprete arbitrario.
         raise SystemExit(f"python_env: flag de intérprete no soportado {argv[0]!r}")
-    return {"mode": "script", "name": argv[0], "rest": list(argv[1:])}
+    # B64: un script debe ser GOBERNADO (relativo a ROOT, versionado, sin symlink/`..`/absoluto).
+    return {"mode": "script", "name": _governed_script(argv[0]), "rest": list(argv[1:])}
 
 
 def _launch_fd_bound(env: _ValidEnv, spec: dict, capture: bool) -> subprocess.CompletedProcess:

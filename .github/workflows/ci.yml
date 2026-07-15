@@ -208,7 +208,8 @@ jobs:
         with:
           name: coverage-by-layer
           path: /tmp/coverage_by_layer.json
-          if-no-files-found: ignore
+          # B70: fail-closed — el recibo de cobertura DEBE conservarse (el gate ya corrió antes; ausencia = fallo).
+          if-no-files-found: error
           retention-days: 90
 
   # Guardián de consistencia (la máxima del proyecto): web/LaTeX/paper/README/docs deben

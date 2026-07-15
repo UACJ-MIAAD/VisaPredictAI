@@ -52,17 +52,12 @@ def test_canon_pep503():
     assert pe._canon("DVC_S3") == "dvc-s3"
 
 
-def test_env_owns_inside_and_outside():
-    d = pe.env_dir("dvc-tool")
-    assert pe.env_owns("dvc-tool", d / "bin" / "dvc")
-    assert not pe.env_owns("dvc-tool", pe.ROOT / "ante" / "bin" / "dvc")
-
-
 def test_unknown_profile_and_bad_console_script():
     with pytest.raises(SystemExit):
         pe.descriptor("nope")
+    # B67: `run` valida el console-script contra `console_scripts` del perfil (sin resolver por ruta).
     with pytest.raises(SystemExit):
-        pe.resolve_console_script("dvc-tool", "python")  # no declarado como console-script
+        pe.run("dvc-tool", ["python"])  # `python` no es console-script declarado
 
 
 # ----------------------------- ready_valid: reuso vs tamper -----------------------------
@@ -1021,6 +1016,69 @@ def test_b62_special_type_replacement_changes_or_blocks_digest(tmp_path):
     r1, r2 = outcome(d1), outcome(d2)
     s.close()
     assert r1[0] == "blocked" and r2[0] == "blocked", f"tipo especial no rechazado: {r1}, {r2}"
+
+
+# ----------------------------- R9-a: regresiones B64 (script gobernado) / B67 (helpers retirados) -----------------------------
+
+
+def test_b64_governed_script_rejects_absolute(tmp_path):
+    with pytest.raises(SystemExit):
+        pe._parse_python_argv(["/tmp/outside.py"])
+
+
+def test_b64_governed_script_rejects_parent_traversal():
+    with pytest.raises(SystemExit):
+        pe._parse_python_argv(["../outside.py"])
+    with pytest.raises(SystemExit):
+        pe._parse_python_argv(["experiments/../../outside.py"])
+
+
+def test_b64_governed_script_rejects_untracked():
+    with pytest.raises(SystemExit):
+        pe._parse_python_argv(["experiments/_nonexistent_r9_xyz.py"])
+
+
+def test_b64_governed_script_rejects_symlink():
+    # un symlink DENTRO de ROOT (aunque apunte a un fichero tracked) se rechaza por componente symlink
+    link = pe.ROOT / "experiments" / "_r9_evil_link.py"
+    target = pe.ROOT / "experiments" / "build_key_facts.py"
+    if link.exists() or link.is_symlink():
+        link.unlink()
+    link.symlink_to(target)
+    try:
+        with pytest.raises(SystemExit):
+            pe._parse_python_argv(["experiments/_r9_evil_link.py"])
+    finally:
+        link.unlink()
+
+
+def test_b64_governed_script_accepts_tracked_regular():
+    spec = pe._parse_python_argv(["experiments/build_key_facts.py", "--flag"])
+    assert spec["mode"] == "script"
+    assert spec["name"] == "experiments/build_key_facts.py"
+    assert spec["rest"] == ["--flag"]
+
+
+def test_b67_path_resolving_helpers_removed():
+    # env_owns / resolve_console_script (resolvían por .resolve()/ruta absoluta) ya no existen como API
+    assert not hasattr(pe, "env_owns"), "env_owns sigue expuesto (vector de resolución por ruta, B67)"
+    assert not hasattr(pe, "resolve_console_script"), "resolve_console_script sigue expuesto (B67)"
+
+
+def test_b67_no_production_callers_of_path_resolvers():
+    import re as _re
+
+    root = pe.ROOT
+    offenders = []
+    for sub in ("tools", "pipeline", "vp_model", "vp_data", "experiments"):
+        d = root / sub
+        if not d.exists():
+            continue
+        for p in d.rglob("*.py"):
+            txt = p.read_text()
+            if _re.search(r"\b(env_owns|resolve_console_script)\s*\(", txt):
+                offenders.append(str(p.relative_to(root)))
+    assert offenders == [], f"callers de producción de los resolvers por ruta: {offenders}"
 
 
 if __name__ == "__main__":
