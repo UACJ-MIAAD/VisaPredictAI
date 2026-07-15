@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "note": "R9.1: contrato gobernado de comandos del call graph. Cada command_id fija su perfil minimo, modo (module|script) y target; `python -m tools.python_env run-command --id <id> -- <args>` es la interfaz oficial. Un script debe ser relativo a ROOT, versionado, regular, sin symlink. -c/stdin estan prohibidos en el camino oficial. El sha256 de este fichero entra en env_id/READY.json/recibos. Perfiles: runtime=datos, dev=pytest/ruff/mypy, model=vp_model/forecasting/GBM/figures-facts, deep(cpu)=NeuralForecast/Ray/Lightning/MLflow, dvc-tool=CLI DVC.",
+  "note": "R9.1/B78: contrato gobernado de comandos del call graph. Cada command_id fija su perfil minimo, modo (module|script|installed_module) y target; `python -m tools.python_env run-command --id <id> -- <args>` es la interfaz oficial. Un script debe ser relativo a ROOT, versionado, regular, sin symlink; un module debe resolver a un fichero de ROOT; un installed_module (pytest/ruff/mypy) es una herramienta dev instalada en el env del perfil (allowlist cerrada, NO fichero de ROOT). -c/stdin estan prohibidos en el camino oficial. El sha256 de este fichero entra en env_id/READY.json/recibos. Perfiles: runtime=datos, dev=pytest/ruff/mypy+gates, model=vp_model/forecasting/GBM/figuras/facts, deep(cpu)=NeuralForecast/Ray/Lightning/MLflow, dvc-tool=CLI DVC.",
   "commands": {
     "scrape_all":            {"profile": "runtime", "variant": null, "mode": "module", "target": "pipeline.scrape_all",           "working_directory": "root", "args_policy": "passthrough"},
     "build_panel":           {"profile": "runtime", "variant": null, "mode": "module", "target": "pipeline.build_panel",           "working_directory": "root", "args_policy": "passthrough"},
@@ -49,6 +49,30 @@
     "check_consistency":     {"profile": "model", "variant": null, "mode": "script", "target": "tools/check_consistency.py",            "working_directory": "root", "args_policy": "passthrough"},
     "run_global_gbm":        {"profile": "model", "variant": null, "mode": "script", "target": "experiments/run_global_gbm.py",         "working_directory": "root", "args_policy": "passthrough"},
     "run_hurdle":            {"profile": "model", "variant": null, "mode": "script", "target": "experiments/run_hurdle.py",             "working_directory": "root", "args_policy": "passthrough"},
+
+    "visualize_wait_times":  {"profile": "model", "variant": null, "mode": "script", "target": "experiments/visualize_wait_times.py",   "working_directory": "root", "args_policy": "passthrough"},
+    "eda_plots":             {"profile": "model", "variant": null, "mode": "module", "target": "vp_model.plots",                        "working_directory": "root", "args_policy": "passthrough"},
+    "make_eda_figures":      {"profile": "model", "variant": null, "mode": "script", "target": "experiments/make_eda_figures.py",       "working_directory": "root", "args_policy": "passthrough"},
+    "make_gallery_figures":  {"profile": "model", "variant": null, "mode": "script", "target": "experiments/make_gallery_figures.py",   "working_directory": "root", "args_policy": "passthrough"},
+    "build_eda_report":      {"profile": "model", "variant": null, "mode": "script", "target": "experiments/build_eda_report.py",       "working_directory": "root", "args_policy": "passthrough"},
+    "make_fe_figures":       {"profile": "model", "variant": null, "mode": "script", "target": "experiments/make_fe_figures.py",        "working_directory": "root", "args_policy": "passthrough"},
+    "build_fe_report":       {"profile": "model", "variant": null, "mode": "script", "target": "experiments/build_fe_report.py",        "working_directory": "root", "args_policy": "passthrough"},
+    "test_fe_report":        {"profile": "model", "variant": null, "mode": "script", "target": "tests/test_fe_report.py",               "working_directory": "root", "args_policy": "none"},
+    "vp_model_report":       {"profile": "model", "variant": null, "mode": "module", "target": "vp_model.report",                       "working_directory": "root", "args_policy": "passthrough"},
+    "build_release_manifest": {"profile": "model", "variant": null, "mode": "script", "target": "experiments/build_release_manifest.py", "working_directory": "root", "args_policy": "passthrough"},
+    "build_horizon_facts":   {"profile": "model", "variant": null, "mode": "script", "target": "experiments/build_horizon_facts.py",    "working_directory": "root", "args_policy": "passthrough"},
+    "make_horizon_figure":   {"profile": "model", "variant": null, "mode": "script", "target": "experiments/make_horizon_figure.py",    "working_directory": "root", "args_policy": "passthrough"},
+    "make_paper_figures":    {"profile": "model", "variant": null, "mode": "script", "target": "reports/paper_micai/make_paper_figures.py", "working_directory": "root", "args_policy": "passthrough"},
+
+    "check_supply_chain_triage": {"profile": "dev", "variant": null, "mode": "script", "target": "tools/check_supply_chain_triage.py",  "working_directory": "root", "args_policy": "passthrough"},
+    "check_debt":            {"profile": "dev", "variant": null, "mode": "script", "target": "tools/check_debt.py",                     "working_directory": "root", "args_policy": "passthrough"},
+    "check_experiments_inventory": {"profile": "dev", "variant": null, "mode": "script", "target": "tools/check_experiments_inventory.py", "working_directory": "root", "args_policy": "passthrough"},
+    "check_model_catalog":   {"profile": "dev", "variant": null, "mode": "script", "target": "tools/check_model_catalog.py",            "working_directory": "root", "args_policy": "passthrough"},
+
+    "test":                  {"profile": "dev",   "variant": null, "mode": "installed_module", "target": "pytest", "working_directory": "root", "args_policy": "passthrough"},
+    "test_model":            {"profile": "model", "variant": null, "mode": "installed_module", "target": "pytest", "working_directory": "root", "args_policy": "passthrough"},
+    "lint":                  {"profile": "dev",   "variant": null, "mode": "installed_module", "target": "ruff",   "working_directory": "root", "args_policy": "passthrough"},
+    "typecheck":             {"profile": "dev",   "variant": null, "mode": "installed_module", "target": "mypy",   "working_directory": "root", "args_policy": "passthrough"},
 
     "run_global_deep":       {"profile": "deep", "variant": "cpu", "mode": "script", "target": "experiments/run_global_deep.py",   "working_directory": "root", "args_policy": "passthrough"},
     "run_deep_pi":           {"profile": "deep", "variant": "cpu", "mode": "script", "target": "experiments/run_deep_pi.py",       "working_directory": "root", "args_policy": "passthrough"},

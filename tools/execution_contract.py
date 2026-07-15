@@ -1,15 +1,17 @@
 #!/usr/bin/env python
-"""Contrato gobernado de comandos del call graph (P0R.5, R9.1). `environments/execution_contract.json`
-fija, por `command_id`, el perfil MÍNIMO, el modo (`module`|`script`), el target, el working_directory y la
-política de argumentos. La interfaz oficial es
+"""Contrato gobernado de comandos del call graph (P0R.5, R9.1/B78). `environments/execution_contract.json`
+fija, por `command_id`, el perfil MÍNIMO, el modo (`module`|`script`|`installed_module`), el target, el
+working_directory y la política de argumentos. La interfaz oficial es
 `python -m tools.python_env run-command --id <id> -- <args>`.
 
 Validación ESTRICTA (fail-closed): claves superiores exactas, `schema_version` int==1, rechazo de claves
 duplicadas; por comando las claves exactas; el perfil DEBE existir en `python_profiles.json`; un perfil con
 variantes (deep) EXIGE variante explícita válida y uno sin variantes EXIGE `variant==null`; `mode` ∈
-{module, script}; un `module` debe tener nombre Python canónico Y resolver a un fichero del repo; un `script`
-debe ser GOBERNADO (relativo a ROOT, versionado, regular, sin symlink) vía `python_env._governed_script`;
-`working_directory` ∈ {root}; `args_policy` ∈ {none, passthrough}. No hay modo `code`/stdin en el contrato.
+{module, script, installed_module}; un `module` debe tener nombre Python canónico Y resolver a un fichero del
+repo; un `script` debe ser GOBERNADO (relativo a ROOT, versionado, regular, sin symlink) vía
+`python_env._governed_script`; un `installed_module` (B78: pytest/ruff/mypy) es una herramienta dev INSTALADA
+en el env del perfil (dev/model) — allowlist CERRADA, NO fichero de ROOT; `working_directory` ∈ {root};
+`args_policy` ∈ {none, passthrough}. No hay modo `code`/stdin en el contrato.
 
 El sha256 de este fichero entra en `env_id`/READY.json/recibos (gobernanza en el descriptor).
 
@@ -31,7 +33,11 @@ ROOT = lc.ROOT
 CONTRACT = ROOT / "environments" / "execution_contract.json"
 _TOP_KEYS = {"schema_version", "note", "commands"}
 _CMD_KEYS = {"profile", "variant", "mode", "target", "working_directory", "args_policy"}
-_MODES = {"module", "script"}
+_MODES = {"module", "script", "installed_module"}
+# B78/R9.5: herramientas de desarrollo INSTALADAS en el entorno (no código de producto versionado bajo ROOT).
+# Se corren como `python -m <tool>` DENTRO del env content-addressed del perfil; su cierre lo fija el lock del
+# perfil (dev/model traen pytest/ruff/mypy). Allowlist CERRADA: nada de módulos arbitrarios de site-packages.
+_INSTALLED_MODULES = {"pytest", "ruff", "mypy"}
 _WORKING_DIRS = {"root"}
 _ARGS_POLICIES = {"none", "passthrough"}
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -104,6 +110,17 @@ def load_contract(path: Path = CONTRACT) -> dict:
             if not isinstance(tgt, str):
                 raise SystemExit(f"execution_contract: {cid!r} target de módulo no-string")
             _governed_module(tgt)  # B71: canónico + una resolución + regular + sin symlink + tracked + en ROOT
+        elif c["mode"] == "installed_module":
+            # B78: herramienta dev INSTALADA (pytest/ruff/mypy). NO se gobierna como fichero de ROOT — vive en
+            # site-packages del env; el allowlist CERRADO impide correr un módulo arbitrario del entorno.
+            if not isinstance(tgt, str) or not _MODULE_RE.fullmatch(tgt):
+                raise SystemExit(f"execution_contract: {cid!r} target de installed_module no canónico {tgt!r}")
+            if tgt not in _INSTALLED_MODULES:
+                raise SystemExit(
+                    f"execution_contract: {cid!r} installed_module {tgt!r} ∉ allowlist {sorted(_INSTALLED_MODULES)}"
+                )
+            if prof not in ("dev", "model"):
+                raise SystemExit(f"execution_contract: {cid!r} installed_module exige perfil dev/model (dado {prof!r})")
         else:
             pe._governed_script(tgt)  # relativo a ROOT, versionado, regular, sin symlink (fail-closed)
     return doc

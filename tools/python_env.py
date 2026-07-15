@@ -1327,7 +1327,7 @@ _RUNTIME_BOOTSTRAP = (
     "s = json.loads(sys.argv[1])\n"
     "os.chdir(s['root'])\n"
     "mode, rest = s['mode'], s['rest']\n"
-    "if mode == 'module':\n"
+    "if mode in ('module', 'installed_module'):\n"
     "    sys.argv = [s['name'], *rest]\n"
     "    runpy.run_module(s['name'], run_name='__main__', alter_sys=True)\n"
     "elif mode == 'code':\n"
@@ -1339,7 +1339,9 @@ _RUNTIME_BOOTSTRAP = (
     "else:\n"
     "    raise SystemExit('python_env bootstrap: modo no soportado ' + repr(mode))\n"
 )
-_ALLOWED_MODES = {"module", "code", "script"}
+# installed_module despacha por runpy.run_module IGUAL que module (`python -m pytest`); la distinción es de
+# VALIDACIÓN (allowlist dev vs fichero gobernado bajo ROOT), no de ejecución.
+_ALLOWED_MODES = {"module", "code", "script", "installed_module"}
 
 
 def _parse_python_argv(argv: list[str]) -> dict:
@@ -1427,6 +1429,12 @@ def run_command(cid: str, args: list[str], *, capture: bool = False) -> subproce
         if mode == "module":
             ec._governed_module(target)  # B71: re-valida el módulo gobernado (sin symlink/tracked) antes de lanzar
             spec = {"mode": "module", "name": target, "rest": list(args)}
+        elif mode == "installed_module":
+            # B78: herramienta dev instalada (pytest/ruff/mypy); el contrato ya validó el allowlist. Se corre
+            # como `python -m <tool>` DENTRO del env del perfil (no es un fichero gobernado de ROOT).
+            if target not in ec._INSTALLED_MODULES:
+                raise SystemExit(f"python_env: installed_module {target!r} fuera del allowlist del contrato")
+            spec = {"mode": "installed_module", "name": target, "rest": list(args)}
         else:
             spec = {"mode": "script", "name": _governed_script(target), "rest": list(args)}
         return _launch_fd_bound(env, spec, capture)

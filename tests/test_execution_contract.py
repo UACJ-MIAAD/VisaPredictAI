@@ -221,5 +221,58 @@ def test_b71_governed_module_accepts_real():
     assert ec._governed_module("tools.python_env") == "tools/python_env.py"
 
 
+# ----------------------------- B78: installed_module (pytest/ruff/mypy) -----------------------------
+
+
+def test_installed_module_present_in_real_contract():
+    doc = ec.load_contract()
+    inst = {cid: c for cid, c in doc["commands"].items() if c["mode"] == "installed_module"}
+    assert {"test", "test_model", "lint", "typecheck"} <= set(inst)
+    for cid, c in inst.items():
+        assert c["target"] in ec._INSTALLED_MODULES, cid
+        assert c["profile"] in ("dev", "model"), cid
+
+
+def test_installed_module_rejects_non_allowlisted_target(tmp_path):
+    doc = _real()
+    doc["commands"]["lint"]["target"] = "os"  # módulo arbitrario del entorno, NO herramienta dev declarada
+    with pytest.raises(SystemExit):
+        ec.load_contract(_write(tmp_path, doc))
+
+
+def test_installed_module_rejects_wrong_profile(tmp_path):
+    doc = _real()
+    doc["commands"]["lint"]["profile"] = "runtime"  # installed_module EXIGE dev/model
+    with pytest.raises(SystemExit):
+        ec.load_contract(_write(tmp_path, doc))
+
+
+def test_installed_module_rejects_noncanonical_target(tmp_path):
+    doc = _real()
+    doc["commands"]["lint"]["target"] = "Not-A-Module"
+    with pytest.raises(SystemExit):
+        ec.load_contract(_write(tmp_path, doc))
+
+
+def test_run_command_installed_module_dispatches(monkeypatch):
+    cap = _mock_launch(monkeypatch)
+    pe.run_command("test", ["-q", "-k", "smoke"])
+    assert cap["profile"] == "dev" and cap["variant"] is None
+    assert cap["spec"] == {"mode": "installed_module", "name": "pytest", "rest": ["-q", "-k", "smoke"]}
+
+
+def test_run_command_installed_module_test_model_uses_model_profile(monkeypatch):
+    cap = _mock_launch(monkeypatch)
+    pe.run_command("test_model", ["tests/test_models.py"])
+    assert cap["profile"] == "model"
+    assert cap["spec"]["mode"] == "installed_module" and cap["spec"]["name"] == "pytest"
+
+
+def test_installed_module_bootstrap_dispatches_like_module():
+    # el bootstrap trata installed_module IGUAL que module (runpy.run_module) — un solo despacho.
+    assert "installed_module" in pe._ALLOWED_MODES
+    assert "mode in ('module', 'installed_module')" in pe._RUNTIME_BOOTSTRAP
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
