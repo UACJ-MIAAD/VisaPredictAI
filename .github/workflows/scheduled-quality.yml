@@ -50,19 +50,19 @@ jobs:
           python -c "import json; c=json.load(open('sbom-dvc-tool.cdx.json')); comps={ (x['name'].lower(), x.get('version')) for x in c.get('components',[]) }; req={('dvc','3.67.1'),('dvc-s3','3.3.0'),('diskcache','5.6.3')}; missing=req-comps; assert not missing, f'SBOM dvc-tool sin: {missing}'; print('SBOM dvc-tool OK:', sorted(req))"
       # P0R.4R: sube el RECIBO del auditor (hashes de manifiesto/locks/fuentes + normalizaciones +
       # skips autorizados + Python/plataforma), no solo el SBOM — evidencia de la corrida.
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: supply-chain-receipt
           path: reports/governance/supply_chain_receipt.json
           if-no-files-found: error
           retention-days: 30
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: sbom-dev-cyclonedx
           path: sbom-dev.cdx.json
           if-no-files-found: error
           retention-days: 30
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: sbom-dvc-tool-cyclonedx
           path: sbom-dvc-tool.cdx.json

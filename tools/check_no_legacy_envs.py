@@ -39,6 +39,8 @@ _OS_ATTRS = {
     "spawnve",
     "spawnvp",
     "spawnvpe",
+    "posix_spawn",
+    "posix_spawnp",
 }
 
 
@@ -96,23 +98,22 @@ def _py_legacy_count(text: str) -> int:
             subp_funcs |= {a.asname or a.name for a in node.names if a.name in _SUBPROC_ATTRS}
         elif isinstance(node, ast.ImportFrom) and node.module == "os":
             os_funcs |= {a.asname or a.name for a in node.names if a.name in _OS_ATTRS}
-    # variables ligadas a una list/tuple con ruta ante, y variables STRING = ruta ante (argv en variable)
-    ante_vars: set[str] = set()
+    # PASO 1: variables STRING = ruta ante (para propagación PY -> [PY] -> subprocess).
     ante_strs: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, (ast.Assign, ast.AnnAssign)):
-            val = node.value
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            names = {t.id for t in targets if isinstance(t, ast.Name)}
-            if val is None:
-                continue
-            if isinstance(val, (ast.List, ast.Tuple)) and any(_const_ante(e) for e in val.elts):
-                ante_vars |= names
-            elif _const_ante(val):
-                ante_strs |= names
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None and _const_ante(node.value):
+            tgts = node.targets if isinstance(node, ast.Assign) else [node.target]
+            ante_strs |= {t.id for t in tgts if isinstance(t, ast.Name)}
+    # PASO 2: variables ligadas a list/tuple con const-ante O una var-string ante (2-var propagation).
+    ante_vars: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(node.value, (ast.List, ast.Tuple)):
+            if any(_const_ante(e) or (isinstance(e, ast.Name) and e.id in ante_strs) for e in node.value.elts):
+                tgts = node.targets if isinstance(node, ast.Assign) else [node.target]
+                ante_vars |= {t.id for t in tgts if isinstance(t, ast.Name)}
     n = 0
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not node.args:
+        if not isinstance(node, ast.Call):
             continue
         f = node.func
         is_sub = (
@@ -126,9 +127,10 @@ def _py_legacy_count(text: str) -> int:
         ) or (isinstance(f, ast.Name) and f.id in os_funcs)
         if not (is_sub or is_os):
             continue
-        # argv (posicional) o el kwarg `executable=` de subprocess referencia una ruta ante.
-        exec_kw = next((k.value for k in node.keywords if k.arg == "executable"), None)
-        if _argv_ante(node.args[0], ante_vars, ante_strs) or (exec_kw is not None and _const_ante(exec_kw)):
+        # argv posicional, el kwarg `args=` o el kwarg `executable=` referencia una ruta ante.
+        argv_nodes = list(node.args)
+        argv_nodes += [k.value for k in node.keywords if k.arg in ("args", "executable")]
+        if any(_argv_ante(a, ante_vars, ante_strs) for a in argv_nodes):
             n += 1
     return n
 

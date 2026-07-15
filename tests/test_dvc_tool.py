@@ -617,5 +617,95 @@ def test_b34_receipt_sbom_rejects_extra_component(tmp_path, monkeypatch):
     assert any("SBOM" in p and ("EXTRA" in p or "evil" in p) for p in probs)
 
 
+# ----------------------------- C1: regresiones R8R6 (B44/B45 + Node 20) -----------------------------
+
+
+def test_b44_legacy_two_var_propagation(tmp_path):
+    # PY(str ante) -> cmd(list con PY) -> subprocess.run(cmd): propagación de 2 variables
+    root = _git_repo(
+        tmp_path,
+        {"m.py": 'import subprocess\nPY = "ante/bin/python"\ncmd = [PY, "x.py"]\nsubprocess.run(cmd)\n'},
+    )
+    assert legacy.current_counts(root).get("m.py") == 1
+
+
+def test_b44_legacy_os_posix_spawn(tmp_path):
+    root = _git_repo(tmp_path, {"m.py": 'import os\nos.posix_spawn("ante_nf/bin/python", ["x"], {})\n'})
+    assert legacy.current_counts(root).get("m.py") == 1
+
+
+def test_b44_legacy_args_kwarg(tmp_path):
+    # el argv pasado por el kwarg `args=` (no posicional) también se detecta
+    root = _git_repo(tmp_path, {"m.py": 'import subprocess\nsubprocess.run(args=["ante/bin/python", "x"])\n'})
+    assert legacy.current_counts(root).get("m.py") == 1
+
+
+@pytest.mark.parametrize(
+    "field,val,frag",
+    [
+        ("schema_version", 2.0, "schema_version no es int"),
+        ("dag_returncode", 0.0, "dag_returncode no es int"),
+        ("dvc_status_returncode", 0.0, "dvc_status_returncode no es int"),
+        ("n_packages", True, "n_packages no es int"),
+        ("sbom_component_count", 1.0, "sbom_component_count no es int"),
+    ],
+)
+def test_b45_receipt_type_identity(tmp_path, monkeypatch, field, val, frag):
+    # un recibo con un campo numérico como float/bool (JSON no distingue 2 de 2.0) se rechaza por identidad
+    monkeypatch.setattr(vr, "ROOT", tmp_path)
+    (tmp_path / "locks").mkdir()
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "locks/dvc-tool-linux-x86_64.txt").write_text("x")
+    (tmp_path / lc.MANIFEST_REL).write_text("y")
+    (tmp_path / "requirements/dvc.in").write_text("z")
+    r = _valid_receipt({"system": "Linux", "machine": "x86_64"})
+    r[field] = val
+    (tmp_path / "r.json").write_text(json.dumps(r))
+    (tmp_path / "s.json").write_text('{"bomFormat":"CycloneDX","components":[]}')
+    probs = vr.validate(tmp_path / "r.json", tmp_path / "s.json")
+    assert any(frag in p for p in probs)
+
+
+def test_action_pins_repo_clean():
+    import tools.check_action_pins as pins
+
+    assert pins.check() == []  # el repo real: todo por SHA, ninguna Node 20
+
+
+def test_action_pins_catches_node20(tmp_path):
+    import tools.check_action_pins as pins
+
+    wf = tmp_path / ".github" / "workflows"
+    wf.mkdir(parents=True)
+    sha = next(iter(pins._NODE20_SHAS))
+    (wf / "x.yml").write_text(f"jobs:\n  a:\n    steps:\n      - uses: actions/upload-artifact@{sha}\n")
+    probs = pins.check(tmp_path)
+    assert any("Node 20" in p for p in probs)
+
+
+def test_action_pins_catches_floating_tag(tmp_path):
+    import tools.check_action_pins as pins
+
+    wf = tmp_path / ".github" / "workflows"
+    wf.mkdir(parents=True)
+    (wf / "x.yml").write_text("jobs:\n  a:\n    steps:\n      - uses: actions/checkout@v4\n")
+    probs = pins.check(tmp_path)
+    assert any("SHA" in p for p in probs)
+
+
+def test_no_node20_sha_anywhere_in_github():
+    import tools.check_action_pins as pins
+
+    gh = lc.ROOT / ".github"
+    hits = [
+        f"{p}:{sha}"
+        for p in gh.rglob("*")
+        if p.is_file()
+        for sha in pins._NODE20_SHAS
+        if sha in p.read_text(errors="ignore")
+    ]
+    assert hits == [], f"SHA Node 20 presente en .github: {hits}"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

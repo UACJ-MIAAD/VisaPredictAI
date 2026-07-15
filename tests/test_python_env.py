@@ -98,6 +98,7 @@ def _fake_env(tmp_path, monkeypatch, *, digest_ok=True, env_id_ok=True):
         "n_packages": len(sealed),
     }
     (envp / "READY.json").write_text(json.dumps(meta))
+    os.chmod(envp, 0o700)  # B40/B41: un entorno legítimo es 0700 del UID actual
     return envp
 
 
@@ -108,8 +109,12 @@ def test_ready_valid_ok(tmp_path, monkeypatch):
 
 
 def test_ready_valid_no_ready(tmp_path, monkeypatch):
+    # dir de entorno existente y 0700 pero SIN READY.json -> no se reusa
+    envp = tmp_path / "env"
+    envp.mkdir()
+    os.chmod(envp, 0o700)
     monkeypatch.setattr(pe, "env_id", lambda *a, **k: "KNOWNID")
-    ok, why = pe.ready_valid(tmp_path / "env", "dvc-tool")
+    ok, why = pe.ready_valid(envp, "dvc-tool")
     assert not ok and "READY" in why
 
 
@@ -187,10 +192,14 @@ def test_no_force_flag_in_cli():
 
 
 def test_prune_only_touches_staging(tmp_path, monkeypatch):
-    monkeypatch.setattr(pe, "STAGING_ROOT", tmp_path / ".staging")
-    (tmp_path / ".staging" / "x").mkdir(parents=True)
+    staging = tmp_path / ".staging"
+    staging.mkdir()
+    os.chmod(staging, 0o700)  # B42: el padre debe ser 0700 del UID actual
+    monkeypatch.setattr(pe, "STAGING_ROOT", staging)
+    victim = staging / (("a" * 64) + ".tmp7890")  # nombre válido <env_id>.<sufijo mkdtemp>
+    victim.mkdir()
     n = pe.prune_staging()
-    assert n == 1 and not (tmp_path / ".staging" / "x").exists()
+    assert n == 1 and not victim.exists()
 
 
 def test_provenance_distinguishes_head_checkout(monkeypatch):
@@ -223,11 +232,11 @@ def test_b13_tree_digest_detects_file_change(tmp_path):
     h1 = pe._tree_digest(d)
     (d / "lib" / "x.py").write_text("a = 2\n")  # misma "versión", distinto contenido
     assert pe._tree_digest(d) != h1
-    # bytecode NO cuenta (mutable)
+    # B43: el bytecode SÍ cuenta ahora — un .pyc plantado (código sin tocar la fuente) altera el árbol
     h2 = pe._tree_digest(d)
     (d / "lib" / "__pycache__").mkdir()
     (d / "lib" / "__pycache__" / "x.pyc").write_text("junk")
-    assert pe._tree_digest(d) == h2
+    assert pe._tree_digest(d) != h2
 
 
 def test_b14_invalid_lockset_blocks_reuse(tmp_path, monkeypatch):
@@ -458,6 +467,102 @@ def test_b33_build_extra_aborts_before_ready(tmp_path, monkeypatch):
     target = pe.env_dir("dvc-tool")
     assert not target.exists()  # nada sellado
     assert not list((tmp_path / ".vp_envs" / ".staging").glob("*"))  # staging limpiado
+
+
+# ----------------------------- C1: regresiones R8R6 (B40-B43) -----------------------------
+
+
+def test_b40_ready_valid_rejects_env_mode_0777(tmp_path, monkeypatch):
+    # un entorno por lo demás válido pero con el DIR en 0777 no se reusa (permisos de grupo/otros)
+    envp = _fake_env(tmp_path, monkeypatch)
+    os.chmod(envp, 0o777)
+    ok, why = pe.ready_valid(envp, "dvc-tool")
+    assert not ok and "modo" in why
+
+
+def test_b40_ready_valid_rejects_ready_hardlink(tmp_path, monkeypatch):
+    # READY.json con hardlink (nlink>1) — otro path podría reescribir el sello — se rechaza
+    envp = _fake_env(tmp_path, monkeypatch)
+    os.link(envp / "READY.json", envp / "READY.alias")  # nlink==2
+    ok, why = pe.ready_valid(envp, "dvc-tool")
+    assert not ok and "hardlink" in why
+
+
+def test_b41_ready_valid_rejects_env_symlink(tmp_path, monkeypatch):
+    # el DIR del entorno es un symlink a un entorno real 0700 -> prohibido (podría apuntar fuera del repo)
+    real = _fake_env(tmp_path, monkeypatch)
+    link = tmp_path / "link_env"
+    link.symlink_to(real)
+    ok, why = pe.ready_valid(link, "dvc-tool")
+    assert not ok and "symlink" in why
+
+
+def test_b41_ready_valid_rejects_ready_symlink(tmp_path, monkeypatch):
+    # READY.json es un symlink a un sello externo -> se rechaza antes de leerlo
+    envp = _fake_env(tmp_path, monkeypatch)
+    real_ready = tmp_path / "ready_real.json"
+    (envp / "READY.json").rename(real_ready)
+    (envp / "READY.json").symlink_to(real_ready)
+    ok, why = pe.ready_valid(envp, "dvc-tool")
+    assert not ok and "symlink" in why
+
+
+def _staging(tmp_path, monkeypatch):
+    s = tmp_path / ".staging"
+    s.mkdir()
+    os.chmod(s, 0o700)
+    monkeypatch.setattr(pe, "STAGING_ROOT", s)
+    return s
+
+
+def test_b42_prune_aborts_on_bad_name(tmp_path, monkeypatch):
+    # una entrada con nombre que NO casa <env_id>.<sufijo> aborta el prune con CERO borrados
+    s = _staging(tmp_path, monkeypatch)
+    good = s / (("b" * 64) + ".tmp0000")
+    good.mkdir()
+    (s / "unexpected").mkdir()
+    with pytest.raises(SystemExit):
+        pe.prune_staging()
+    assert good.exists() and (s / "unexpected").exists()  # nada se borró
+
+
+def test_b42_prune_aborts_on_symlink_child(tmp_path, monkeypatch):
+    s = _staging(tmp_path, monkeypatch)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (s / (("c" * 64) + ".tmp0000")).symlink_to(outside)  # nombre válido pero es symlink
+    with pytest.raises(SystemExit):
+        pe.prune_staging()
+    assert outside.exists()
+
+
+def test_b42_prune_aborts_on_wrong_mode_root(tmp_path, monkeypatch):
+    s = _staging(tmp_path, monkeypatch)
+    os.chmod(s, 0o755)  # padre no es 0700
+    with pytest.raises(SystemExit):
+        pe.prune_staging()
+
+
+def test_b43_env_no_pyc_sets_flag():
+    assert pe._env_no_pyc({"A": "1"})["PYTHONDONTWRITEBYTECODE"] == "1"
+    assert pe._env_no_pyc({"A": "1"})["A"] == "1"  # preserva el resto del env base
+
+
+def test_b43_purge_bytecode_removes_pyc(tmp_path):
+    (tmp_path / "lib" / "__pycache__").mkdir(parents=True)
+    (tmp_path / "lib" / "__pycache__" / "x.pyc").write_text("junk")
+    (tmp_path / "lib" / "y.pyo").write_text("junk")
+    (tmp_path / "lib" / "keep.py").write_text("a = 1\n")
+    pe._purge_bytecode(tmp_path)
+    assert not (tmp_path / "lib" / "__pycache__").exists()
+    assert not (tmp_path / "lib" / "y.pyo").exists()
+    assert (tmp_path / "lib" / "keep.py").exists()  # la fuente permanece
+
+
+def test_b43_tree_excludes_only_ready():
+    # el ÚNICO fichero excluido del sello es READY.json; el bytecode ya NO se excluye
+    assert pe._TREE_EXCLUDE_NAMES == {"READY.json"}
+    assert pe._TREE_EXCLUDE_SUFFIX == () and pe._TREE_EXCLUDE_DIRS == set()
 
 
 if __name__ == "__main__":

@@ -324,27 +324,51 @@ def _venv_python(env_path: Path) -> Path:
     return env_path / sub / exe
 
 
+def _env_no_pyc(base: dict[str, str] | None = None) -> dict[str, str]:
+    """B43: env con PYTHONDONTWRITEBYTECODE=1 — ningún proceso del entorno escribe .pyc, así el árbol
+    sellado permanece libre de bytecode y un .pyc plantado se detecta como tamper."""
+    return {**(base if base is not None else os.environ), "PYTHONDONTWRITEBYTECODE": "1"}
+
+
+def _purge_bytecode(env_path: Path) -> None:
+    """Borra todo __pycache__/*.pyc/*.pyo del entorno antes de sellarlo (B43)."""
+    for p in env_path.rglob("*"):
+        if p.is_dir() and p.name == "__pycache__" and not p.is_symlink():
+            shutil.rmtree(p, ignore_errors=True)
+    for p in env_path.rglob("*"):
+        if p.is_file() and p.suffix in (".pyc", ".pyo") and not p.is_symlink():
+            p.unlink(missing_ok=True)
+
+
 def _pip_freeze(py: Path) -> list[str]:
     out = subprocess.run(
         [str(py), "-m", "pip", "freeze", "--all", "--disable-pip-version-check"],
         check=True,
         capture_output=True,
         text=True,
+        env=_env_no_pyc(),
     ).stdout
     return sorted(line.strip() for line in out.splitlines() if line.strip() and not line.startswith("-e "))
 
 
 def _pip_check(py: Path) -> bool:
-    return subprocess.run([str(py), "-m", "pip", "check"], cwd=str(ROOT), capture_output=True).returncode == 0
+    return (
+        subprocess.run(
+            [str(py), "-m", "pip", "check"], cwd=str(ROOT), capture_output=True, env=_env_no_pyc()
+        ).returncode
+        == 0
+    )
 
 
 def _inventory_digest(freeze: list[str]) -> str:
     return _sha256_bytes("\n".join(sorted(x.lower() for x in freeze)).encode())
 
 
-# Sufijos/dirs MUTABLES por diseño (bytecode, cachés) + el propio sello: se excluyen del árbol.
-_TREE_EXCLUDE_DIRS = {"__pycache__"}
-_TREE_EXCLUDE_SUFFIX = (".pyc", ".pyo")
+# B43: el ÚNICO fichero excluido del sello es el propio READY.json. El BYTECODE (.pyc/__pycache__) ya
+# NO se excluye — se borra antes de sellar y se corre todo con PYTHONDONTWRITEBYTECODE=1, de modo que un
+# .pyc manipulado (código malicioso sin cambiar la fuente) altera el tree_digest y se detecta como tamper.
+_TREE_EXCLUDE_DIRS: set[str] = set()
+_TREE_EXCLUDE_SUFFIX: tuple[str, ...] = ()
 _TREE_EXCLUDE_NAMES = {"READY.json"}
 _READY_KEYS = {
     "schema_version",
@@ -406,11 +430,25 @@ def ready_valid(
     esquema exacto, casa el env_id, el DIGEST DE ÁRBOL completo coincide (B13: tamper de cualquier fichero
     de site-packages), los hashes de ficheros clave coinciden, `pip check` en vivo pasa y el inventario
     vivo es EXACTAMENTE el sellado."""
+    import stat as _stat
+
     profiles = profiles or load_profiles()
     cfg = _profile_config(profiles, profile)
+    # B40/B41: el DIR del entorno debe ser directorio real (no symlink), del UID actual y 0700 ANTES de
+    # leer contenido — un target symlink a un entorno externo o un 0777 no se aceptan.
+    if env_path.is_symlink():
+        return False, "el dir del entorno es symlink — prohibido"
+    if not env_path.is_dir():
+        return False, "el dir del entorno no existe o no es directorio"
+    est = env_path.lstat()
+    if est.st_uid != os.getuid() or _stat.S_IMODE(est.st_mode) != 0o700:
+        return False, f"el dir del entorno es de otro dueño o modo {oct(_stat.S_IMODE(est.st_mode))} != 0700"
     ready = env_path / "READY.json"
-    if not ready.exists():
-        return False, "sin READY.json"
+    if ready.is_symlink() or not ready.is_file():
+        return False, "READY.json ausente, symlink o no regular"
+    rst = ready.lstat()
+    if rst.st_uid != os.getuid() or rst.st_nlink != 1:
+        return False, "READY.json de otro dueño o con hardlink"
     # B14: no reusar bajo un lockset/contrato inválido.
     contract = lc.validate_all(ROOT)
     if contract:
@@ -507,7 +545,7 @@ def _inventory_problems(observed: dict[str, str], profile: str, variant: str | N
 
 
 def _pip(py: Path, *args: str) -> None:
-    subprocess.run([str(py), "-m", "pip", *args], check=True, cwd=str(ROOT))
+    subprocess.run([str(py), "-m", "pip", *args], check=True, cwd=str(ROOT), env=_env_no_pyc())
 
 
 def _install(py: Path, profile: str, cfg: dict, profiles: dict, lock_rel: str) -> None:
@@ -627,6 +665,7 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
             iprobs = _inventory_problems(observed, profile, variant, profiles)
             if iprobs:
                 raise SystemExit("python_env: inventario observado != cierre esperado -> " + "; ".join(iprobs))
+            _purge_bytecode(staging)  # B43: sin .pyc en el árbol sellado
             meta = {
                 "schema_version": 1,
                 "env_id": env_id(profile, variant, profiles),
@@ -640,6 +679,7 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
             }
             assert set(meta) == _READY_KEYS  # esquema exacto (B4/B13)
             (staging / "READY.json").write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
+            os.chmod(staging / "READY.json", 0o600)  # B40: el sello es solo-usuario
             with open(staging / "READY.json", "rb") as fh:
                 os.fsync(fh.fileno())
             _fsync_dir(staging)
@@ -685,14 +725,37 @@ def _fsync_dir(path: Path) -> None:
         os.close(fd)
 
 
+_STAGING_NAME = re.compile(r"^[0-9a-f]{64}\.[A-Za-z0-9_]+$")  # <env_id>.<sufijo mkdtemp>
+
+
 def prune_staging() -> int:
-    """Borra SOLO `.vp_envs/.staging/` (nunca un entorno sellado)."""
-    n = 0
-    if STAGING_ROOT.exists():
-        for child in STAGING_ROOT.iterdir():
-            shutil.rmtree(child, ignore_errors=True)
-            n += 1
-    return n
+    """B42: borra SOLO `.vp_envs/.staging/`, de forma NO destructiva y resistente a symlink. Valida el
+    padre por lstat (no symlink, del UID, 0700); PREVALIDA todos los hijos (solo directorios reales cuyo
+    nombre casa `<env_id>.<sufijo>`, sin symlink/hardlink/fichero inesperado) ANTES de borrar el primero;
+    ante cualquier anomalía borra CERO y falla. Sin `ignore_errors`."""
+    import stat as _stat
+
+    if not STAGING_ROOT.exists():
+        return 0
+    if STAGING_ROOT.is_symlink():
+        raise SystemExit(f"python_env: {STAGING_ROOT} es symlink — prune abortado")
+    st = STAGING_ROOT.lstat()
+    if st.st_uid != os.getuid() or _stat.S_IMODE(st.st_mode) != 0o700:
+        raise SystemExit(f"python_env: {STAGING_ROOT} de otro dueño o modo != 0700 — prune abortado")
+    victims = []
+    for child in sorted(STAGING_ROOT.iterdir()):
+        cst = child.lstat()
+        if (
+            _stat.S_ISLNK(cst.st_mode)
+            or not _stat.S_ISDIR(cst.st_mode)
+            or cst.st_uid != os.getuid()
+            or not _STAGING_NAME.match(child.name)
+        ):
+            raise SystemExit(f"python_env: entrada de staging inesperada {child.name!r} — prune abortado (0 borrados)")
+        victims.append(child)
+    for v in victims:
+        shutil.rmtree(v)  # sin ignore_errors: un fallo debe ser visible
+    return len(victims)
 
 
 # --------------------------------------------------------------------------- exec / run-python
@@ -724,8 +787,8 @@ def _guard_env(cfg: dict) -> tuple[dict[str, str] | None, Callable[[], object] |
     if cfg.get("cache_guarded"):
         from tools import dvc_cache_guard
 
-        return dvc_cache_guard.child_env(ROOT), (lambda: os.umask(0o077))
-    return None, None
+        return _env_no_pyc(dvc_cache_guard.child_env(ROOT)), (lambda: os.umask(0o077))
+    return _env_no_pyc(), None  # B43: PYTHONDONTWRITEBYTECODE incluso sin cache guard
 
 
 def run(

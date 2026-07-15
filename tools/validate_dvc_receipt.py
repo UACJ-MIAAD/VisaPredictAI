@@ -129,9 +129,9 @@ def validate(receipt_path: Path, sbom_path: Path) -> list[str]:
         return [f"{receipt_path.name}: esquema {sorted(set(r) ^ _KEYS)} distinto del exacto"]
     n = receipt_path.name
 
-    # tipos + banderas
-    if r["schema_version"] != 2:
-        probs.append(f"{n}: schema_version != 2")
+    # B45: IDENTIDAD DE TIPO — 2.0 no es 2, False no es 0 (bool ⊂ int en Python).
+    if type(r["schema_version"]) is not int or r["schema_version"] != 2:
+        probs.append(f"{n}: schema_version no es int == 2")
     if r["profile"] != "dvc-tool":
         probs.append(f"{n}: profile != dvc-tool")
     for flag in ("smoke_ok", "version_ok", "site_cache_confined"):
@@ -140,34 +140,42 @@ def validate(receipt_path: Path, sbom_path: Path) -> list[str]:
     if r["git_dirty"] is not False:
         probs.append(f"{n}: git_dirty != false")
     for rc in ("dag_returncode", "dvc_status_returncode"):
-        if r[rc] != 0:
-            probs.append(f"{n}: {rc} != 0")
+        if type(r[rc]) is not int or r[rc] != 0:
+            probs.append(f"{n}: {rc} no es int == 0")
+    for cnt in ("n_packages", "sbom_component_count"):
+        if type(r[cnt]) is not int or r[cnt] < 0:
+            probs.append(f"{n}: {cnt} no es int >= 0")
+    if not isinstance(r["python"], dict) or not isinstance(r["platform"], dict):
+        probs.append(f"{n}: python/platform no son objetos")
     if r["pip_check"] != "ok" or r["cache_guard"] != "ok":
         probs.append(f"{n}: pip_check/cache_guard != ok")
+    # B45: el lockset/contrato debe ser válido AHORA para aceptar un recibo.
+    if lc.validate_all(ROOT):
+        probs.append(f"{n}: lockset/contrato inválido en el repo")
     for f in ("lock_sha256", "lockset_sha256", "dvc_in_sha256", "dag_hash", "sbom_sha256", "inventory_digest"):
-        if not isinstance(r[f], str) or not _SHA.match(r[f]):
+        if not isinstance(r[f], str) or not _SHA.fullmatch(r[f]):
             probs.append(f"{n}: {f} no es sha256 válido")
     # B27: PROCEDENCIA git real — cada sha 40-hex, existe, y casa el checkout/variables reales.
     # base_sha es NULLABLE (fuera de un PR no hay base); si está, DEBE ser un sha git real.
     for f in ("source_head_sha", "checkout_sha", "checkout_tree_sha"):
-        if not isinstance(r[f], str) or not _GITSHA.match(r[f]):
+        if not isinstance(r[f], str) or not _GITSHA.fullmatch(r[f]):
             probs.append(f"{n}: {f} no es un sha git de 40 hex")
-    if r["base_sha"] is not None and (not isinstance(r["base_sha"], str) or not _GITSHA.match(r["base_sha"])):
+    if r["base_sha"] is not None and (not isinstance(r["base_sha"], str) or not _GITSHA.fullmatch(r["base_sha"])):
         probs.append(f"{n}: base_sha no es null ni un sha git de 40 hex")
     head, tree = _git("rev-parse", "HEAD"), _git("rev-parse", "HEAD^{tree}")
     if head is None or tree is None:
         probs.append(f"{n}: no se pudo resolver el checkout git — fail-closed")
     else:
-        if isinstance(r["checkout_sha"], str) and _GITSHA.match(r["checkout_sha"]) and r["checkout_sha"] != head:
+        if isinstance(r["checkout_sha"], str) and _GITSHA.fullmatch(r["checkout_sha"]) and r["checkout_sha"] != head:
             probs.append(f"{n}: checkout_sha != git HEAD real")
         if (
             isinstance(r["checkout_tree_sha"], str)
-            and _GITSHA.match(r["checkout_tree_sha"])
+            and _GITSHA.fullmatch(r["checkout_tree_sha"])
             and r["checkout_tree_sha"] != tree
         ):
             probs.append(f"{n}: checkout_tree_sha != árbol real de HEAD")
         for f in ("source_head_sha", "checkout_sha", "base_sha"):
-            if isinstance(r[f], str) and _GITSHA.match(r[f]) and not _git_has(r[f]):
+            if isinstance(r[f], str) and _GITSHA.fullmatch(r[f]) and not _git_has(r[f]):
                 probs.append(f"{n}: {f}={r[f]} no existe en el repo (git cat-file)")
     for field, envvar in (
         ("source_head_sha", "GITHUB_PR_HEAD_SHA"),
@@ -179,7 +187,7 @@ def validate(receipt_path: Path, sbom_path: Path) -> list[str]:
         if expected and str(r[field]) != expected:
             probs.append(f"{n}: {field} != {envvar} ({expected})")
     # site_cache_dir debe tener la forma segura repo/<token de 32 hex>, no `../../outside`
-    if not isinstance(r["site_cache_dir"], str) or not _SITE_CACHE.match(r["site_cache_dir"]):
+    if not isinstance(r["site_cache_dir"], str) or not _SITE_CACHE.fullmatch(r["site_cache_dir"]):
         probs.append(f"{n}: site_cache_dir {r['site_cache_dir']!r} != patrón repo/<token>")
 
     # lock DERIVADO de la plataforma del recibo (no confiar en receipt["lock"])
