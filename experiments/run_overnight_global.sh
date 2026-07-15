@@ -9,7 +9,6 @@ cd "$(dirname "$0")/.."
 PYBOOT=${PYBOOT:-python3.14}
 command -v "$PYBOOT" >/dev/null 2>&1 || { echo "ERROR: falta $PYBOOT (bootstrap del orquestador)" >&2; exit 1; }
 runc() { "$PYBOOT" -m tools.python_env run-command --id "$1" -- "${@:2}"; }
-export PYTHONWARNINGS=ignore
 MS=1000
 
 echo "=== [1/4] FAD diff (familiar+EB, max_steps=$MS) ==="

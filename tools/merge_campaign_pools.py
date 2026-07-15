@@ -1,30 +1,42 @@
 #!/usr/bin/env python
 """Fusiona las mitades del pool de campaña (nongbm + gbm) en `campaign_pool_*` y proyecta a
-`model_comparison_*` (P0R.5 · R9.4/B66/B74 — extraído del heredoc de run_campaign_aq{,_tail}.sh).
+`model_comparison_*` (P0R.5 · R9.4/B66/B74/B79/B80 — extraído del heredoc de run_campaign_aq{,_tail}.sh).
 
-FAIL-CLOSED (B74): exige las OCHO mitades exactas (2 tablas × 2 bloques × 2 mitades), cada una fichero regular
-no vacío, con las columnas requeridas y el MISMO esquema entre mitades, `run_id` no nulo y finito. Prepara y
-valida las ocho ANTES de escribir nada; escribe de forma ATÓMICA (temp 0600 + fsync + os.replace). Ante
-cualquier error: exit ≠ 0 y CERO outputs nuevos/parciales.
+FAIL-CLOSED sobre el esquema REAL de producción (B79/B80): exige las OCHO mitades exactas (2 tablas × 2
+bloques × 2 mitades), cada una fichero REGULAR (no symlink), con EXACTAMENTE las 19 columnas canónicas en
+orden, un ÚNICO `run_id` no vacío tratado como STRING (nunca numérico — los reales son `20260706T114535-<sha>`),
+`table` coincidente con el nombre del fichero, `model`/`country`/`category` strings no vacíos, métricas finitas
+(NaN permitido para modelos fallidos, infinito NO) y `secs` numérico ≥ 0. El `run_id` de salida es el MÁXIMO
+LEXICOGRÁFICO de las mitades; el original sobrevive en `source_run_id`.
 
-UNA campaña = UN run_id: 9 consumidores aguas abajo filtran por `run_id==max()`. El id por-mitad sobrevive en
-`source_run_id`.
+Garantía de escritura (honesta): **validación GLOBAL previa, promoción ATÓMICA por fichero y ROLLBACK
+transaccional ante errores recuperables** (respalda los outputs previos y los restaura byte-idénticos si una
+promoción falla). NO es atomicidad de bundle crash-safe (un kill a mitad puede dejar estado parcial); esa
+garantía, con manifiesto final, vive en P2b antes de F2.
 """
 
 from __future__ import annotations
 
+import math
 import os
 import pathlib
+import shutil
 import sys
 import tempfile
 
-import numpy as np
 import pandas as pd
 
 _TABLES = ("FAD", "DFF")
 _BLOCKS = ("family", "employment")
 _HALVES = ("nongbm", "gbm")
-_REQUIRED_COLS = {"run_id", "model"}
+_POOL_COLS = (
+    "run_id", "model", "country", "category", "table",
+    "sel_mase", "sel_smape", "sel_mae", "sel_rmse",
+    "hold_mase", "hold_smape", "hold_mae", "hold_rmse", "hold_msis", "hold_interval_score", "hold_coverage",
+    "sel_mase1", "hold_mase1", "secs",
+)  # fmt: skip
+_STR_COLS = ("model", "country", "category", "table")
+_METRIC_COLS = tuple(c for c in _POOL_COLS if c not in ("run_id", *_STR_COLS))
 
 
 def _fail(msg: str) -> None:
@@ -32,57 +44,106 @@ def _fail(msg: str) -> None:
     raise SystemExit(1)
 
 
-def _atomic_write_csv(path: pathlib.Path, df: pd.DataFrame) -> None:
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.")
+def _load_half(f: pathlib.Path, table: str, block: str, kind: str) -> pd.DataFrame:
+    if f.is_symlink() or not f.is_file():
+        _fail(f"mitad {kind} de {table}/{block} ausente o no-regular: {f}")
+    # run_id SIEMPRE como string (los reales son `20260706T114535-<sha>`, no numéricos).
+    df = pd.read_csv(f, dtype={"run_id": str})
+    if df.empty:
+        _fail(f"mitad vacía: {f}")
+    if tuple(df.columns) != _POOL_COLS:
+        _fail(f"{f} con columnas {list(df.columns)} != las 19 canónicas en orden")
+    rid = df["run_id"].astype(str)
+    if rid.isna().any() or (rid.str.strip() == "").any() or (rid == "nan").any():
+        _fail(f"run_id vacío en {f}")
+    if rid.nunique() != 1:
+        _fail(f"{f} con múltiples run_id ({rid.nunique()}) en una sola mitad")
+    if (df["table"].astype(str) != table).any():
+        _fail(f"{f} columna table != {table} del nombre de fichero")
+    for c in _STR_COLS:
+        s = df[c].astype(str)
+        if s.isna().any() or (s.str.strip() == "").any():
+            _fail(f"{f} columna {c} con valores vacíos")
+    for c in _METRIC_COLS:
+        v = pd.to_numeric(df[c], errors="coerce")
+        # NaN permitido (modelo fallido); infinito NO.
+        if (
+            v.apply(lambda x: not (math.isnan(x) or math.isfinite(x))).any()
+            or (v == math.inf).any()
+            or (v == -math.inf).any()
+        ):
+            _fail(f"{f} columna {c} con valor infinito")
+    secs = pd.to_numeric(df["secs"], errors="coerce")
+    if secs.isna().any() or (secs < 0).any() or not secs.apply(math.isfinite).all():
+        _fail(f"{f} columna secs no-finita o negativa")
+    return df
+
+
+def _promote_transactionally(writes: list[tuple[pathlib.Path, pd.DataFrame]]) -> None:
+    """Escribe 8 temporales (fsync), respalda los outputs existentes, promueve por `os.replace` y, si una
+    promoción falla, RESTAURA todos los outputs previos byte-idénticos. Fsync de los directorios al final."""
+    temps: list[tuple[pathlib.Path, pathlib.Path]] = []
+    backups: dict[pathlib.Path, pathlib.Path | None] = {}
+    promoted: list[pathlib.Path] = []
     try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w") as fh:
-            df.to_csv(fh, index=False)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        pathlib.Path(tmp).unlink(missing_ok=True)
+        for path, df in writes:  # 1. prepara + fsync TODOS los temporales antes de promover ninguno
+            fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.")
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w") as fh:
+                df.to_csv(fh, index=False)
+                fh.flush()
+                os.fsync(fh.fileno())
+            temps.append((path, pathlib.Path(tmp)))
+        for path, _ in writes:  # 2. respalda los outputs existentes
+            if path.exists():
+                bfd, bpath = tempfile.mkstemp(dir=str(path.parent), prefix=f".bak.{path.name}.")
+                os.close(bfd)
+                shutil.copy2(path, bpath)
+                backups[path] = pathlib.Path(bpath)
+            else:
+                backups[path] = None
+        for path, tpath in temps:  # 3. promueve (atómico por fichero)
+            os.replace(tpath, path)
+            promoted.append(path)
+    except BaseException:  # rollback transaccional: restaura los outputs previos
+        for path in promoted:
+            b = backups.get(path)
+            if b is not None:
+                os.replace(b, path)
+            else:
+                path.unlink(missing_ok=True)
+        for _p, tpath in temps:
+            tpath.unlink(missing_ok=True)
+        for b in backups.values():
+            if b is not None:
+                b.unlink(missing_ok=True)
         raise
+    for b in backups.values():  # éxito: limpia respaldos
+        if b is not None:
+            b.unlink(missing_ok=True)
+    for d in {path.parent for path, _ in writes}:  # fsync de los directorios
+        dfd = os.open(str(d), os.O_RDONLY | os.O_DIRECTORY)
+        os.fsync(dfd)
+        os.close(dfd)
 
 
 def merge() -> int:
     camp = pathlib.Path("reports/campaign")
     ev = pathlib.Path("reports/eval")
+    writes: list[tuple[pathlib.Path, pd.DataFrame]] = []
     # 1. Carga + valida las OCHO mitades ANTES de escribir nada (todo-o-nada).
-    prepared: dict[tuple[str, str], pd.DataFrame] = {}
     for table in _TABLES:
         for block in _BLOCKS:
-            parts: list[pd.DataFrame] = []
-            cols: list[str] | None = None
-            for kind in _HALVES:
-                f = camp / f"aq_pool_{kind}_{table}_{block}.csv"
-                if not f.is_file():
-                    _fail(f"falta la mitad {kind} de {table}/{block}: {f}")
-                df = pd.read_csv(f)
-                if df.empty:
-                    _fail(f"mitad vacía: {f}")
-                missing = _REQUIRED_COLS - set(df.columns)
-                if missing:
-                    _fail(f"{f} sin columnas requeridas {sorted(missing)}")
-                if cols is None:
-                    cols = list(df.columns)
-                elif list(df.columns) != cols:
-                    _fail(f"esquema distinto entre mitades de {table}/{block}")
-                rid = pd.to_numeric(df["run_id"], errors="coerce")
-                if rid.isna().any() or not np.isfinite(rid).all():
-                    _fail(f"run_id nulo/no-finito en {f}")
-                parts.append(df)
+            parts = [_load_half(camp / f"aq_pool_{kind}_{table}_{block}.csv", table, block, kind) for kind in _HALVES]
             full = pd.concat(parts, ignore_index=True)
             full["source_run_id"] = full["run_id"]
-            full["run_id"] = full["run_id"].max()
-            prepared[(table, block)] = full
-    # 2. Escritura ATÓMICA de las ocho, solo tras validar todas.
-    for (table, block), full in prepared.items():
-        _atomic_write_csv(camp / f"campaign_pool_{table}_{block}.csv", full)
-        tgt = f"model_comparison_{table}21.csv" if block == "family" else f"model_comparison_EB_{table}21.csv"
-        _atomic_write_csv(ev / tgt, full)
-        print(f"{table}/{block}: {len(full)} rows -> {tgt}")
+            full["run_id"] = str(full["run_id"].astype(str).max())  # máximo LEXICOGRÁFICO (string)
+            tgt = f"model_comparison_{table}21.csv" if block == "family" else f"model_comparison_EB_{table}21.csv"
+            writes.append((camp / f"campaign_pool_{table}_{block}.csv", full))
+            writes.append((ev / tgt, full))
+            print(f"{table}/{block}: {len(full)} rows -> {tgt}")
+    # 2. Promoción transaccional de los ocho outputs (validación global ya hecha).
+    _promote_transactionally(writes)
     return 0
 
 

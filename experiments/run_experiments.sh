@@ -8,7 +8,6 @@ cd "$(dirname "$0")/.."
 PYBOOT=${PYBOOT:-python3.14}
 command -v "$PYBOOT" >/dev/null 2>&1 || { echo "ERROR: falta $PYBOOT (bootstrap del orquestador)" >&2; exit 1; }
 runc() { "$PYBOOT" -m tools.python_env run-command --id "$1" -- "${@:2}"; }
-export PYTHONWARNINGS=ignore
 echo "=== A) DeepAR-fix: FAD family diff + local_scaler (8 modelos) ==="
 runc run_global_deep --table FAD --block family --diff --local-scaler --max-steps 800 --suffix diff_ls 2>&1 | { grep -E "panel:|✓|✗|guardado" || true; }
 echo "=== C) Pooling familiar+EB: FAD both diff + local_scaler ==="
