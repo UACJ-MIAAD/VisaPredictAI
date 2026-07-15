@@ -435,6 +435,7 @@ jobs:
       - name: Cross-validate receipts + SBOMs (schema + repo + dag_hash equality)
         env:
           GITHUB_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           python -m tools.validate_dvc_receipt --cross \
             rc-linux/dvc-tool-receipt-linux-x86_64.json rc-linux/sbom-dvc-tool-env-linux-x86_64.json \

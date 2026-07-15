@@ -26,21 +26,26 @@ class _LegacyScanError(Exception):
     """Fail-closed: un .py del call graph que no parsea NO puede certificarse honestamente (B23)."""
 
 
-def _seq_ante(node: ast.AST) -> bool:
-    """True si el nodo es una List/Tuple con un string constante que contiene una ruta ante*/bin/."""
+def _const_ante(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and isinstance(node.value, str) and bool(_LEGACY.search(node.value))
+
+
+def _argv_ante(node: ast.AST, ante_vars: set[str], ante_strs: set[str]) -> bool:
+    """El argv (str, list/tuple, o Name) referencia una ruta ante*/bin/ — const O variable resuelta."""
+    if _const_ante(node):
+        return True
+    if isinstance(node, ast.Name):
+        return node.id in ante_vars or node.id in ante_strs
     if isinstance(node, (ast.List, ast.Tuple)):
-        return any(
-            isinstance(e, ast.Constant) and isinstance(e.value, str) and _LEGACY.search(e.value) for e in node.elts
-        )
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return bool(_LEGACY.search(node.value))
+        return any(_const_ante(e) or (isinstance(e, ast.Name) and e.id in ante_strs) for e in node.elts)
     return False
 
 
 def _py_legacy_count(text: str) -> int:
-    """Cuenta usos EJECUTABLES de ante/ante_nf en Python (subprocess/os.system/os.popen con una ruta
-    `ante*/bin/` en argv — literal O en variable list/tuple asignada), vía AST. NO comentarios ni
-    docstrings. B23: un error de sintaxis es FAIL-CLOSED (no un 0 silencioso)."""
+    """Cuenta usos EJECUTABLES de ante/ante_nf en Python (subprocess/os.system/os.popen/os.exec*/spawn con
+    una ruta `ante*/bin/` en argv — literal, en variable string, o en list/tuple), vía AST. Resuelve
+    aliases de import (`from subprocess import run as r`, `from os import system as s`). NO comentarios ni
+    docstrings. B23/B31: un error de sintaxis es FAIL-CLOSED (no un 0 silencioso)."""
     try:
         tree = ast.parse(text)
     except SyntaxError as exc:
@@ -48,6 +53,7 @@ def _py_legacy_count(text: str) -> int:
     subp = {"subprocess"}
     osm = {"os"}
     subp_funcs: set[str] = set()  # `from subprocess import run as r`
+    os_funcs: set[str] = set()  # `from os import system as s`
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for a in node.names:
@@ -56,14 +62,23 @@ def _py_legacy_count(text: str) -> int:
                 elif a.name == "os":
                     osm.add(a.asname or a.name)
         elif isinstance(node, ast.ImportFrom) and node.module == "subprocess":
-            for a in node.names:
-                if a.name in _SUBPROC_ATTRS:
-                    subp_funcs.add(a.asname or a.name)
-    # variables ligadas a una list/tuple con una ruta ante (para argv almacenado en variable)
+            subp_funcs |= {a.asname or a.name for a in node.names if a.name in _SUBPROC_ATTRS}
+        elif isinstance(node, ast.ImportFrom) and node.module == "os":
+            os_funcs |= {a.asname or a.name for a in node.names if a.name in _OS_ATTRS}
+    # variables ligadas a una list/tuple con ruta ante, y variables STRING = ruta ante (argv en variable)
     ante_vars: set[str] = set()
+    ante_strs: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Assign) and _seq_ante(node.value):
-            ante_vars |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            val = node.value
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            names = {t.id for t in targets if isinstance(t, ast.Name)}
+            if val is None:
+                continue
+            if isinstance(val, (ast.List, ast.Tuple)) and any(_const_ante(e) for e in val.elts):
+                ante_vars |= names
+            elif _const_ante(val):
+                ante_strs |= names
     n = 0
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not node.args:
@@ -77,11 +92,8 @@ def _py_legacy_count(text: str) -> int:
         ) or (isinstance(f, ast.Name) and (f.id in subp_funcs or f.id == "Popen"))
         is_os = (
             isinstance(f, ast.Attribute) and f.attr in _OS_ATTRS and isinstance(f.value, ast.Name) and f.value.id in osm
-        )
-        if not (is_sub or is_os):
-            continue
-        a0 = node.args[0]
-        if _seq_ante(a0) or (isinstance(a0, ast.Name) and a0.id in ante_vars):
+        ) or (isinstance(f, ast.Name) and f.id in os_funcs)
+        if (is_sub or is_os) and _argv_ante(node.args[0], ante_vars, ante_strs):
             n += 1
     return n
 

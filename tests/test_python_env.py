@@ -322,5 +322,53 @@ def test_b21_strict_types_reject(tmp_path, monkeypatch, mutate):
         pe.load_profiles()
 
 
+# ----------------------------- C1: regresiones R8R4 (B28/B29/B32) -----------------------------
+
+
+@pytest.mark.parametrize("field", ["schema_version", "n_packages"])
+def test_b28_bool_not_accepted_as_int(tmp_path, monkeypatch, field):
+    envp = _fake_env(tmp_path, monkeypatch)
+    meta = json.loads((envp / "READY.json").read_text())
+    meta[field] = True  # True == 1 pero NO es int por identidad de tipo
+    (envp / "READY.json").write_text(json.dumps(meta))
+    ok, why = pe.ready_valid(envp, "dvc-tool")
+    assert not ok and "no es int" in why
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda p: p["profiles"]["model"]["install_mode"].update({"Windows-x86_64": "constraint-model"}),
+        lambda p: p["profiles"]["model"]["install_mode"].pop("Linux-x86_64"),
+        lambda p: p["profiles"]["runtime"].update(project_source="none"),
+        lambda p: p["profiles"]["dvc-tool"].update(install_mode="version-locked"),
+    ],
+)
+def test_b29_exact_install_mode_and_project_source(tmp_path, monkeypatch, mutate):
+    _write_profiles(tmp_path, monkeypatch, mutate)
+    with pytest.raises(SystemExit):
+        pe.load_profiles()
+
+
+def test_b32_rename_noreplace_rejects_existing(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "f").write_text("x")
+    tgt = tmp_path / "tgt"
+    tgt.mkdir()  # target VACÍO existente
+    with pytest.raises(SystemExit):
+        pe._rename_noreplace(src, tgt)
+    assert src.exists() and not (tgt / "f").exists()  # nada se movió
+
+
+def test_b32_rename_noreplace_creates_new(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "f").write_text("x")
+    dst = tmp_path / "dst"
+    pe._rename_noreplace(src, dst)
+    assert (dst / "f").exists() and not src.exists()
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

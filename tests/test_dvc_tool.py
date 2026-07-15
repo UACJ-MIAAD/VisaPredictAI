@@ -319,7 +319,7 @@ def test_b7_external_global_config_blocks(tmp_path, monkeypatch):
     root = _cache_root(tmp_path)
     ext = tmp_path / "gconf"
     ext.write_text("[cache]\n    dir = /var/evil\n")
-    monkeypatch.setattr(guard, "_external_config_layers", lambda: [ext])
+    monkeypatch.setattr(guard, "_external_config_layers", lambda env: [ext])
     assert any("config externa" in x for x in guard.check(root))
 
 
@@ -500,6 +500,71 @@ def test_b23_legacy_gate_from_import_alias(tmp_path):
 def test_b26_advisory_rationale_mentions_site_cache():
     e = next(x for x in m.load_advisories(m.ADVISORIES) if x["id"] == "PYSEC-2026-2447")
     assert "site_cache_dir" in e["rationale"] and "0700" in e["rationale"]
+
+
+# ----------------------------- C1: regresiones R8R4 (B27/B30/B31) -----------------------------
+
+
+def test_b27_forged_provenance_and_empty_sbom_rejected(tmp_path, monkeypatch):
+    monkeypatch.setattr(vr, "ROOT", tmp_path)
+    (tmp_path / "locks").mkdir()
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "locks/dvc-tool-linux-x86_64.txt").write_text("x")
+    (tmp_path / lc.MANIFEST_REL).write_text("y")
+    (tmp_path / "requirements/dvc.in").write_text("z")
+    r = _valid_receipt({"system": "Linux", "machine": "x86_64"})
+    g = "a" * 40
+    r.update(
+        {
+            "source_head_sha": g,
+            "checkout_sha": g,
+            "checkout_tree_sha": g,
+            "base_sha": g,
+            "site_cache_dir": "../../outside",
+        }
+    )
+    (tmp_path / "r.json").write_text(json.dumps(r))
+    (tmp_path / "s.json").write_text('{"bomFormat":"CycloneDX","components":[]}')
+    probs = vr.validate(tmp_path / "r.json", tmp_path / "s.json")
+    # procedencia: tmp NO es un repo git ⇒ fail-closed ("no se pudo resolver el checkout")
+    assert any("checkout" in p for p in probs)
+    assert any("site_cache_dir" in p for p in probs)  # cache fuera
+    assert any("cierre del lock" in p for p in probs)  # SBOM vacío
+
+
+def test_b27_site_cache_pattern_enforced(tmp_path, monkeypatch):
+    monkeypatch.setattr(vr, "ROOT", tmp_path)
+    (tmp_path / "r.json").write_text("{}")  # inválido pero dentro del workspace
+    probs = vr.validate(tmp_path / "r.json", tmp_path / "r.json")
+    assert probs  # esquema exacto ya lo rechaza; no revienta
+
+
+def test_b30_check_never_writes_os_environ(monkeypatch):
+    writes = []
+    real = os.environ
+
+    class Tripwire(dict):
+        def __setitem__(self, k, v):
+            writes.append(k)
+            super().__setitem__(k, v)
+
+        def pop(self, k, *a):
+            writes.append(("pop", k))
+            return super().pop(k, *a)
+
+    monkeypatch.setattr(os, "environ", Tripwire(real))
+    guard.check(guard.ROOT, env={"DVC_SITE_CACHE_DIR": str(guard.site_cache_dir(guard.ROOT))})
+    assert writes == []
+
+
+def test_b31_legacy_from_os_alias(tmp_path):
+    root = _git_repo(tmp_path, {"m.py": 'from os import system as s\ns("ante/bin/python x")\n'})
+    assert legacy.current_counts(root).get("m.py") == 1
+
+
+def test_b31_legacy_string_var_in_list(tmp_path):
+    root = _git_repo(tmp_path, {"m.py": 'import subprocess\nPY = "ante_nf/bin/python"\nsubprocess.run([PY, "x"])\n'})
+    assert legacy.current_counts(root).get("m.py") == 1
 
 
 if __name__ == "__main__":

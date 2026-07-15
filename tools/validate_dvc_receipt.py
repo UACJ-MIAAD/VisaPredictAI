@@ -22,6 +22,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -30,6 +31,21 @@ from tools import python_env as pe
 
 ROOT = lc.ROOT
 _SHA = re.compile(r"^sha256:[0-9a-f]{64}$")
+_GITSHA = re.compile(r"^[0-9a-f]{40}$")
+_SITE_CACHE = re.compile(r"^repo/[0-9a-f]{32}$")
+
+
+def _git(*args: str) -> str | None:
+    try:
+        return subprocess.run(["git", *args], cwd=str(ROOT), capture_output=True, text=True, check=True).stdout.strip()
+    except subprocess.CalledProcessError, OSError:
+        return None
+
+
+def _git_has(sha: str) -> bool:
+    return subprocess.run(["git", "cat-file", "-e", sha], cwd=str(ROOT), capture_output=True).returncode == 0
+
+
 _KEYS = {
     "schema_version",
     "profile",
@@ -131,11 +147,40 @@ def validate(receipt_path: Path, sbom_path: Path) -> list[str]:
     for f in ("lock_sha256", "lockset_sha256", "dvc_in_sha256", "dag_hash", "sbom_sha256", "inventory_digest"):
         if not isinstance(r[f], str) or not _SHA.match(r[f]):
             probs.append(f"{n}: {f} no es sha256 válido")
-    if not isinstance(r["source_head_sha"], str) or not r["source_head_sha"]:
-        probs.append(f"{n}: source_head_sha vacío")
-    env_head = os.environ.get("GITHUB_PR_HEAD_SHA")
-    if env_head and r["source_head_sha"] != env_head:
-        probs.append(f"{n}: source_head_sha != GITHUB_PR_HEAD_SHA")
+    # B27: PROCEDENCIA git real — cada sha 40-hex, existe, y casa el checkout/variables reales.
+    # base_sha es NULLABLE (fuera de un PR no hay base); si está, DEBE ser un sha git real.
+    for f in ("source_head_sha", "checkout_sha", "checkout_tree_sha"):
+        if not isinstance(r[f], str) or not _GITSHA.match(r[f]):
+            probs.append(f"{n}: {f} no es un sha git de 40 hex")
+    if r["base_sha"] is not None and (not isinstance(r["base_sha"], str) or not _GITSHA.match(r["base_sha"])):
+        probs.append(f"{n}: base_sha no es null ni un sha git de 40 hex")
+    head, tree = _git("rev-parse", "HEAD"), _git("rev-parse", "HEAD^{tree}")
+    if head is None or tree is None:
+        probs.append(f"{n}: no se pudo resolver el checkout git — fail-closed")
+    else:
+        if isinstance(r["checkout_sha"], str) and _GITSHA.match(r["checkout_sha"]) and r["checkout_sha"] != head:
+            probs.append(f"{n}: checkout_sha != git HEAD real")
+        if (
+            isinstance(r["checkout_tree_sha"], str)
+            and _GITSHA.match(r["checkout_tree_sha"])
+            and r["checkout_tree_sha"] != tree
+        ):
+            probs.append(f"{n}: checkout_tree_sha != árbol real de HEAD")
+        for f in ("source_head_sha", "checkout_sha", "base_sha"):
+            if isinstance(r[f], str) and _GITSHA.match(r[f]) and not _git_has(r[f]):
+                probs.append(f"{n}: {f}={r[f]} no existe en el repo (git cat-file)")
+    for field, envvar in (
+        ("source_head_sha", "GITHUB_PR_HEAD_SHA"),
+        ("base_sha", "GITHUB_BASE_SHA"),
+        ("github_run_id", "GITHUB_RUN_ID"),
+        ("github_run_attempt", "GITHUB_RUN_ATTEMPT"),
+    ):
+        expected = os.environ.get(envvar)
+        if expected and str(r[field]) != expected:
+            probs.append(f"{n}: {field} != {envvar} ({expected})")
+    # site_cache_dir debe tener la forma segura repo/<token de 32 hex>, no `../../outside`
+    if not isinstance(r["site_cache_dir"], str) or not _SITE_CACHE.match(r["site_cache_dir"]):
+        probs.append(f"{n}: site_cache_dir {r['site_cache_dir']!r} != patrón repo/<token>")
 
     # lock DERIVADO de la plataforma del recibo (no confiar en receipt["lock"])
     plat = f"{r['platform'].get('system')}-{r['platform'].get('machine')}" if isinstance(r["platform"], dict) else None
@@ -183,6 +228,14 @@ def validate(receipt_path: Path, sbom_path: Path) -> list[str]:
         inv = sorted(f"{nm}=={ver}" for nm, ver in names if nm and ver)
         if pe._inventory_digest(inv) != r["inventory_digest"]:
             probs.append(f"{n}: inventory_digest != reconstruido del SBOM")
+        # B27: el SBOM debe CONTENER todo el cierre del lock (rechaza un SBOM vacío/truncado que
+        # forma una mentira internamente consistente con n_packages=0).
+        if lock_rel and (ROOT / lock_rel).exists():
+            lock_pins = pe._expected_pins(lock_rel)
+            sbom_by_canon = {pe._canon(nm): ver for nm, ver in names if nm}
+            missing = {k: v for k, v in lock_pins.items() if sbom_by_canon.get(k) != v}
+            if missing:
+                probs.append(f"{n}: SBOM no contiene el cierre del lock (faltan {len(missing)}: {sorted(missing)[:3]})")
     return probs
 
 

@@ -104,23 +104,43 @@ def _no_dup_keys(pairs):
 _PLATFORMS = {"Darwin-arm64", "Linux-x86_64"}
 _PROJECT_SOURCE = {"editable", "extra-model", "none"}
 # B15: esquema EXACTO por perfil (claves requeridas / opcionales / plataformas de cada lock-table).
+# B29: `mode` es el install_mode EXACTO esperado (str o dict plataforma→receta) y `project_source` el
+# valor EXACTO por perfil (no solo pertenencia a un set global).
 _SCHEMA: dict[str, dict[str, Any]] = {
-    "runtime": {"req": {"install_mode", "locks", "project_source"}, "opt": {"note"}, "platforms": _PLATFORMS},
-    "dev": {"req": {"install_mode", "locks", "project_source"}, "opt": {"note"}, "platforms": _PLATFORMS},
+    "runtime": {
+        "req": {"install_mode", "locks", "project_source"},
+        "opt": {"note"},
+        "platforms": _PLATFORMS,
+        "mode": "auto",
+        "project_source": "editable",
+    },
+    "dev": {
+        "req": {"install_mode", "locks", "project_source"},
+        "opt": {"note"},
+        "platforms": _PLATFORMS,
+        "mode": "auto",
+        "project_source": "editable",
+    },
     "model": {
         "req": {"install_mode", "locks", "project_source", "cpu_torch", "cpu_index"},
         "opt": {"note"},
         "platforms": _PLATFORMS,
+        "mode": {"Darwin-arm64": "constraint-model", "Linux-x86_64": "constraint-model-cpu-index"},
+        "project_source": "extra-model",
     },
     "deep": {
         "req": {"install_mode", "variants", "project_source"},
         "opt": {"note"},
         "variants": {"cpu": _PLATFORMS, "cu126": {"Linux-x86_64"}},
+        "mode": "hash-verified",
+        "project_source": "none",
     },
     "dvc-tool": {
         "req": {"install_mode", "locks", "console_scripts", "cache_guarded", "project_source"},
         "opt": {"note"},
         "platforms": _PLATFORMS,
+        "mode": "hash-verified",
+        "project_source": "none",
     },
 }
 
@@ -178,11 +198,18 @@ def load_profiles() -> dict:
                 raise SystemExit(f"python_env: model cpu_torch inválido {cfg['cpu_torch']!r} (X.Y.Z+cpu)")
             if cfg["cpu_index"] != _CPU_INDEX:
                 raise SystemExit(f"python_env: model cpu_index no autorizado {cfg['cpu_index']!r}")
+        # B29: install_mode y project_source EXACTOS por perfil (matriz de plataformas incluida).
+        if cfg["install_mode"] != sch["mode"]:
+            raise SystemExit(
+                f"python_env: perfil {name!r} install_mode {cfg['install_mode']!r} != esperado {sch['mode']!r}"
+            )
         for r in _recipe_values(cfg["install_mode"]):
             if r not in allowed_recipes:
                 raise SystemExit(f"python_env: perfil {name!r} install_mode inválido {r!r}")
-        if cfg["project_source"] not in _PROJECT_SOURCE:
-            raise SystemExit(f"python_env: perfil {name!r} project_source inválido {cfg['project_source']!r}")
+        if cfg["project_source"] != sch["project_source"]:
+            raise SystemExit(
+                f"python_env: perfil {name!r} project_source {cfg['project_source']!r} != {sch['project_source']!r}"
+            )
         if "variants" in sch:
             if set(cfg["variants"]) != set(sch["variants"]):
                 raise SystemExit(
@@ -392,16 +419,18 @@ def ready_valid(
         return False, f"READY.json ilegible/duplicado: {exc}"
     if set(meta) != _READY_KEYS:
         return False, f"READY.json con esquema inexacto (claves {sorted(meta)})"
-    # B20: validación SEMÁNTICA de tipos/valores (no solo presencia de claves).
-    if meta["schema_version"] != 1:
-        return False, "schema_version != 1"
+    # B20/B28: validación SEMÁNTICA con IDENTIDAD DE TIPO (True != 1: un bool NO cuenta como int).
+    if type(meta["schema_version"]) is not int or meta["schema_version"] != 1:
+        return False, "schema_version no es int == 1"
     inv = meta["inventory"]
     if not isinstance(inv, list) or not all(isinstance(x, str) for x in inv):
         return False, "inventory no es lista de strings"
-    if len({_canon(x.split("==")[0]) for x in inv if "==" in x}) != len([x for x in inv if "==" in x]):
+    if not all(_PIN.match(x) for x in inv):
+        return False, "inventory con entrada sin sintaxis nombre==versión"
+    if len({_canon(x.split("==")[0]) for x in inv}) != len(inv):
         return False, "inventory con nombre canónico duplicado"
-    if meta["n_packages"] != len(inv):
-        return False, f"n_packages {meta['n_packages']} != len(inventory) {len(inv)}"
+    if type(meta["n_packages"]) is not int or meta["n_packages"] != len(inv):
+        return False, f"n_packages no es int == len(inventory) {len(inv)}"
     if meta["inventory_digest"] != _inventory_digest(inv):
         return False, "inventory_digest sellado != recomputado del inventario"
     if meta["pip_check"] != "ok":
@@ -484,12 +513,24 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
     os.chmod(ENVS_ROOT, 0o700)
     target.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(target.parent, 0o700)
-    # B25: los directorios gobernados NO pueden ser symlink ni de otro dueño.
+    # B25/B31: los directorios gobernados NO pueden ser symlink ni de otro dueño (lstat antes de crear).
     for d in (ENVS_ROOT, STAGING_ROOT, target.parent):
-        if d.is_symlink() or d.stat().st_uid != os.getuid():
+        st = d.lstat()
+        import stat as _stat
+
+        if _stat.S_ISLNK(st.st_mode) or st.st_uid != os.getuid():
             raise SystemExit(f"python_env: {d} es symlink o de otro dueño — prohibido")
     lock_file = target.parent / f".lock-{env_id(profile, variant, profiles)}"
-    with open(lock_file, "w") as lk:
+    # B25: el lock se abre con O_NOFOLLOW (un symlink como lock-file no debe seguirse/truncar otro fichero)
+    # y debe ser regular, del UID actual, 0600. Sin O_TRUNC.
+    lock_fd = os.open(str(lock_file), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    lst = os.fstat(lock_fd)
+    import stat as _stat
+
+    if not _stat.S_ISREG(lst.st_mode) or lst.st_uid != os.getuid():
+        os.close(lock_fd)
+        raise SystemExit(f"python_env: lock-file {lock_file} no es regular o de otro dueño — prohibido")
+    with os.fdopen(lock_fd, "r+") as lk:
         fcntl.flock(lk, fcntl.LOCK_EX)
         ok, why = ready_valid(target, profile, variant, profiles)  # re-check bajo el lock
         if ok:
@@ -535,15 +576,38 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
             with open(staging / "READY.json", "rb") as fh:
                 os.fsync(fh.fileno())
             _fsync_dir(staging)
-            # B25: promoción CREATE-ONLY — jamás reemplazar un target existente (ni vacío).
-            if target.exists() or target.is_symlink():
-                raise SystemExit(f"python_env: {target} ya existe al promover — abort (create-only)")
-            os.rename(staging, target)
+            # B32: promoción CREATE-ONLY ATÓMICA — renameat2(RENAME_NOREPLACE)/renamex_np(RENAME_EXCL);
+            # el pre-check exists() es TOCTOU, así que el propio syscall rechaza un target ya existente.
+            _rename_noreplace(staging, target)
             _fsync_dir(target.parent)  # el rename se persiste con fsync del PADRE
             return target
         except BaseException:
             shutil.rmtree(staging, ignore_errors=True)
             raise
+
+
+def _rename_noreplace(src: Path, dst: Path) -> None:
+    """Rename que FALLA si `dst` ya existe (create-only atómico, sin TOCTOU). renameat2(RENAME_NOREPLACE)
+    en Linux, renamex_np(RENAME_EXCL) en macOS. Fail-closed si la primitiva no está disponible."""
+    import ctypes
+    import ctypes.util
+
+    libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+    s, d = os.fsencode(str(src)), os.fsencode(str(dst))
+    system = platform.system()
+    if system == "Darwin":
+        if not hasattr(libc, "renamex_np"):
+            raise SystemExit("python_env: renamex_np no disponible — fail-closed")
+        rc = libc.renamex_np(s, d, ctypes.c_uint(0x00000004))  # RENAME_EXCL
+    elif system == "Linux":
+        if not hasattr(libc, "renameat2"):
+            raise SystemExit("python_env: renameat2 no disponible — fail-closed")
+        rc = libc.renameat2(-100, s, -100, d, ctypes.c_uint(1))  # AT_FDCWD, RENAME_NOREPLACE
+    else:
+        raise SystemExit(f"python_env: promoción create-only no soportada en {system}")
+    if rc != 0:
+        err = ctypes.get_errno()
+        raise SystemExit(f"python_env: promoción create-only falló ({dst} ya existe?) errno {err} {os.strerror(err)}")
 
 
 def _fsync_dir(path: Path) -> None:

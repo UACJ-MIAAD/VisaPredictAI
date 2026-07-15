@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -37,12 +38,11 @@ def site_cache_dir(root: Path = ROOT) -> Path:
     return root / SITE_CACHE_REL
 
 
-def _external_config_layers() -> list[Path]:
+def _external_config_layers(env: Mapping[str, str]) -> list[Path]:
     """Ficheros de config GLOBAL (usuario)/SYSTEM que DVC honra además de los del repo, incluidas las
-    apuntadas por DVC_GLOBAL_CONFIG_DIR/DVC_SYSTEM_CONFIG_DIR. Un `cache.dir`/`site_cache_dir` externo
-    en cualquiera alcanzaría la ejecución (Linux/macOS + XDG)."""
+    apuntadas por DVC_GLOBAL_CONFIG_DIR/DVC_SYSTEM_CONFIG_DIR (leídas del `env` dado, NO de os.environ —
+    B30). Un `cache.dir`/`site_cache_dir` externo en cualquiera alcanzaría la ejecución (Linux/macOS+XDG)."""
     home = Path.home()
-    xdg = os.environ.get("XDG_CONFIG_HOME")
     layers = [
         home / ".config" / "dvc" / "config",
         home / "Library" / "Application Support" / "dvc" / "config",
@@ -50,12 +50,11 @@ def _external_config_layers() -> list[Path]:
         Path("/etc/dvc/config"),
         Path("/Library/Application Support/dvc/config"),
     ]
-    if xdg:
-        layers.append(Path(xdg) / "dvc" / "config")
+    if env.get("XDG_CONFIG_HOME"):
+        layers.append(Path(env["XDG_CONFIG_HOME"]) / "dvc" / "config")
     for env_var in ("DVC_GLOBAL_CONFIG_DIR", "DVC_SYSTEM_CONFIG_DIR"):
-        d = os.environ.get(env_var)
-        if d:
-            layers.append(Path(d) / "config")
+        if env.get(env_var):
+            layers.append(Path(env[env_var]) / "config")
     return layers
 
 
@@ -86,9 +85,11 @@ def _scan_override(path: Path, label: str) -> list[str]:
     return []
 
 
-def check(root: Path = ROOT) -> list[str]:
+def check(root: Path = ROOT, env: Mapping[str, str] | None = None) -> list[str]:
     """Lista de problemas de seguridad de la caché DVC (vacía = segura). Cubre repo + config.local +
-    capas GLOBAL/SYSTEM, `.dvc` symlink/tipo, y permisos de cada componente."""
+    capas GLOBAL/SYSTEM, `.dvc` symlink/tipo, y permisos de cada componente. B30: lee las variables de
+    entorno del `env` dado (por defecto os.environ, SOLO lectura) — nunca ESCRIBE en os.environ."""
+    env = env if env is not None else os.environ
     probs: list[str] = []
     dvc_dir = root / ".dvc"
     # 0) `.dvc` NO puede ser symlink: exists() lo seguiría y evadiría todo lo demás (B7)
@@ -100,7 +101,7 @@ def check(root: Path = ROOT) -> list[str]:
         if cfg.exists():
             probs += _scan_override(cfg, f".dvc/{cfg_name}")
     # 1b) capas GLOBAL (usuario) y SYSTEM: un cache.dir externo ahí también alcanza la ejecución (B7)
-    for layer in _external_config_layers():
+    for layer in _external_config_layers(env):
         if layer.exists():
             probs += _scan_override(layer, f"config externa {layer}")
     # 2) el padre .dvc debe existir, ser directorio y seguro aunque cache/tmp no existan aún
@@ -132,7 +133,7 @@ def check(root: Path = ROOT) -> list[str]:
         for d in sorted(sc.rglob("*")):
             probs += _unsafe_stat(d, str(d.relative_to(root)))
     # 4) B11: si DVC_SITE_CACHE_DIR está fijado, DEBE resolver dentro de <repo>/.dvc/site-cache
-    env_scd = os.environ.get("DVC_SITE_CACHE_DIR")
+    env_scd = env.get("DVC_SITE_CACHE_DIR")
     if env_scd:
         try:
             Path(env_scd).resolve().relative_to(site_cache_dir(root).resolve())
@@ -153,28 +154,15 @@ def prepare(root: Path = ROOT) -> None:
 
 
 def child_env(root: Path = ROOT) -> dict[str, str]:
-    """B11/B22: prepara los dirs 0700, valida, y devuelve un ENV para el SUBPROCESO de DVC con
-    `DVC_SITE_CACHE_DIR` confinado — SIN mutar el os.environ ni el umask del proceso PADRE. El umask 077
-    se aplica solo en el hijo (preexec). SystemExit si la caché es insegura."""
+    """B11/B22/B30: prepara los dirs 0700, valida contra el ENV del hijo (sin tocar os.environ JAMÁS, ni
+    transitoriamente) y devuelve un ENV para el SUBPROCESO de DVC con `DVC_SITE_CACHE_DIR` confinado. El
+    umask 077 se aplica solo en el hijo (preexec). SystemExit si la caché es insegura."""
     prepare(root)
     env = {**os.environ, "DVC_SITE_CACHE_DIR": str(site_cache_dir(root))}
-    probs = check_with_env(root, env)
+    probs = check(root, env)
     if probs:
         raise SystemExit("✗ DVC CACHE GUARD bloqueó (superficie de PYSEC-2026-2447):\n  - " + "\n  - ".join(probs))
     return env
-
-
-def check_with_env(root: Path, env: dict[str, str]) -> list[str]:
-    """check() pero validando el `DVC_SITE_CACHE_DIR` del ENV dado (no del os.environ del padre)."""
-    saved = os.environ.get("DVC_SITE_CACHE_DIR")
-    os.environ["DVC_SITE_CACHE_DIR"] = env["DVC_SITE_CACHE_DIR"]
-    try:
-        return check(root)
-    finally:
-        if saved is None:
-            os.environ.pop("DVC_SITE_CACHE_DIR", None)
-        else:
-            os.environ["DVC_SITE_CACHE_DIR"] = saved
 
 
 def main() -> int:
