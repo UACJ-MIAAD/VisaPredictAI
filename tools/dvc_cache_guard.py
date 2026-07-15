@@ -126,7 +126,7 @@ def check(root: Path = ROOT) -> list[str]:
                 p.resolve().relative_to(root.resolve())
             except ValueError, OSError:
                 probs.append(f".dvc/{rel} resuelve fuera del repo")
-    # 3b) B22: TODO descendiente del site-cache (los `repo/<token>/…` que crea DVC) por lstat.
+    # 3b) B22: CADA descendiente del site-cache (los `repo/<token>/…` que crea DVC) por lstat.
     sc = dvc_dir / "site-cache"
     if sc.is_dir() and not sc.is_symlink():
         for d in sorted(sc.rglob("*")):
