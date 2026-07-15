@@ -33,6 +33,14 @@ ROOT = lc.ROOT
 _SHA = re.compile(r"^sha256:[0-9a-f]{64}$")
 _GITSHA = re.compile(r"^[0-9a-f]{40}$")
 _SITE_CACHE = re.compile(r"^repo/[0-9a-f]{32}$")
+# B50: esquema EXACTO de python/platform (no basta con que sean dicts).
+_PY_KEYS = {"implementation", "version", "cache_tag", "abi"}
+_PLAT_KEYS = {"system", "machine", "libc_or_macos"}
+_PYVER = re.compile(r"^3\.14\.\d+")
+_ENVID = re.compile(r"^[0-9a-f]{64}$")
+_DECIMAL = re.compile(r"^[0-9]+$")  # string decimal ASCII (no dígitos unicode)
+_SYSTEMS = {"Darwin", "Linux"}
+_MACHINES = {"arm64", "x86_64"}
 
 
 def _git(*args: str) -> str | None:
@@ -145,8 +153,36 @@ def validate(receipt_path: Path, sbom_path: Path) -> list[str]:
     for cnt in ("n_packages", "sbom_component_count"):
         if type(r[cnt]) is not int or r[cnt] < 0:
             probs.append(f"{n}: {cnt} no es int >= 0")
-    if not isinstance(r["python"], dict) or not isinstance(r["platform"], dict):
-        probs.append(f"{n}: python/platform no son objetos")
+    # B50: esquema EXACTO de python/platform + tipos de run-id/attempt/env_id — un recibo mutado con
+    # python={}, plataforma con claves de más/menos o run-id de tipo incorrecto NO se acepta.
+    py = r["python"]
+    if not isinstance(py, dict) or set(py) != _PY_KEYS:
+        probs.append(f"{n}: python con claves != {sorted(_PY_KEYS)}")
+    else:
+        if py["implementation"] != "cpython":
+            probs.append(f"{n}: python.implementation != cpython")
+        if not (isinstance(py["version"], str) and _PYVER.match(py["version"])):
+            probs.append(f"{n}: python.version no casa 3.14.x")
+        for k in ("cache_tag", "abi"):
+            if not (isinstance(py[k], str) and py[k]):
+                probs.append(f"{n}: python.{k} vacío o no-str")
+    pl = r["platform"]
+    if not isinstance(pl, dict) or set(pl) != _PLAT_KEYS:
+        probs.append(f"{n}: platform con claves != {sorted(_PLAT_KEYS)}")
+    else:
+        if pl["system"] not in _SYSTEMS:
+            probs.append(f"{n}: platform.system {pl['system']!r} inválido")
+        if pl["machine"] not in _MACHINES:
+            probs.append(f"{n}: platform.machine {pl['machine']!r} inválido")
+        if not (isinstance(pl["libc_or_macos"], str) and pl["libc_or_macos"]):
+            probs.append(f"{n}: platform.libc_or_macos vacío o no-str")
+    if not (isinstance(r["github_run_id"], str) and _DECIMAL.fullmatch(r["github_run_id"])):
+        probs.append(f"{n}: github_run_id no es string decimal")
+    ra = r["github_run_attempt"]
+    if not (isinstance(ra, str) and _DECIMAL.fullmatch(ra) and int(ra) >= 1):
+        probs.append(f"{n}: github_run_attempt no es string decimal >= 1")
+    if not (isinstance(r["env_id"], str) and _ENVID.fullmatch(r["env_id"])):
+        probs.append(f"{n}: env_id no es 64 hex")
     if r["pip_check"] != "ok" or r["cache_guard"] != "ok":
         probs.append(f"{n}: pip_check/cache_guard != ok")
     # B45: el lockset/contrato debe ser válido AHORA para aceptar un recibo.

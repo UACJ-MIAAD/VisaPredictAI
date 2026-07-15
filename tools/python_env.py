@@ -14,12 +14,14 @@ CLI:
   python -m tools.python_env run-python --profile P [--variant V] -- -m pytest    # el python del env
   python -m tools.python_env prune                                                 # borra SOLO staging
 
-`build` (transaccional, SIN `--force`): flock → valida lockset+perfil → staging `mkdtemp` 0700 → instala
-SOLO la receta del perfil → `pip check` → esperado==observado y **sin extras** → digest de inventario +
-**hashes de ficheros** (bin scripts, pyvenv.cfg) → READY.json AL FINAL → fsync fichero+staging+**padre**
-→ rename. Reusa SOLO si READY revalida: env_id, hashes de ficheros, `pip check` en vivo e inventario
-EXACTO. Un entorno sellado ALTERADO (versiones, contenido de un script, o paquete extra) ⇒ FALLA sin
-reparar; un target existente inválido NO se borra. `env_id` reproducible (sin fechas/PID/rutas/tmp).
+`build` (transaccional, SIN `--force`): abre la CADENA ROOT→.vp_envs→<perfil> con openat O_NOFOLLOW
+(ningún ancestro puede ser symlink) → flock (openat, 0600, sin hardlink) → valida lockset+perfil → staging
+= subdir con nonce creado RELATIVO al fd de `.staging` validado, 0700 → instala SOLO la receta del perfil →
+`pip check` → esperado==observado y **sin extras** → purga bytecode (sin `.pyc` en el sello) → digest de
+inventario + **hashes de ficheros** → READY.json 0600 AL FINAL → fsync → rename create-only. Reusa SOLO si
+READY revalida: cadena de dirs 0700 sin symlink, READY.json abierto por fd (regular, 0600, nlink==1), env_id,
+hashes de ficheros, `tree_digest`, `pip check` en vivo e inventario EXACTO. Un entorno sellado ALTERADO ⇒
+FALLA sin reparar; un target existente inválido NO se borra. `env_id` reproducible (sin fechas/PID/rutas/tmp).
 """
 
 from __future__ import annotations
@@ -35,7 +37,6 @@ import shutil
 import subprocess
 import sys
 import sysconfig
-import tempfile
 import venv
 from collections.abc import Callable
 from pathlib import Path
@@ -331,13 +332,22 @@ def _env_no_pyc(base: dict[str, str] | None = None) -> dict[str, str]:
 
 
 def _purge_bytecode(env_path: Path) -> None:
-    """Borra todo __pycache__/*.pyc/*.pyo del entorno antes de sellarlo (B43)."""
+    """Borra todo __pycache__/*.pyc/*.pyo del entorno antes de sellarlo y VERIFICA que no quede ninguno
+    (B43; sin `ignore_errors` — un fallo de borrado debe ser visible). Si algo sobrevive, aborta ANTES de
+    escribir READY.json (nunca se sella un árbol con bytecode)."""
     for p in env_path.rglob("*"):
         if p.is_dir() and p.name == "__pycache__" and not p.is_symlink():
-            shutil.rmtree(p, ignore_errors=True)
+            shutil.rmtree(p)
     for p in env_path.rglob("*"):
         if p.is_file() and p.suffix in (".pyc", ".pyo") and not p.is_symlink():
-            p.unlink(missing_ok=True)
+            p.unlink()
+    left = [
+        p.relative_to(env_path).as_posix()
+        for p in env_path.rglob("*")
+        if (p.is_file() and p.suffix in (".pyc", ".pyo")) or (p.is_dir() and p.name == "__pycache__")
+    ]
+    if left:
+        raise SystemExit(f"python_env: bytecode residual tras purgar, no se sella: {left[:5]}")
 
 
 def _pip_freeze(py: Path) -> list[str]:
@@ -384,10 +394,12 @@ _READY_KEYS = {
 
 
 def _tree_digest(env_path: Path) -> str:
-    """B13: sello MERKLE de TODOS los ficheros inmutables del entorno (site-packages, extensiones
-    nativas, .dist-info/RECORD, console-scripts, pyvenv.cfg, intérprete), excluyendo solo bytecode
-    (__pycache__/*.pyc). Un symlink dentro del árbol se sella por su destino textual (no se sigue).
-    Detecta manipulación de una librería instalada aunque la versión no cambie."""
+    """B13/B43: sello MERKLE de TODOS los ficheros inmutables del entorno (site-packages, extensiones
+    nativas, .dist-info/RECORD, console-scripts, pyvenv.cfg, intérprete). El ÚNICO excluido es READY.json
+    (`_TREE_EXCLUDE_NAMES`); el bytecode YA NO se excluye — se purga antes de sellar y se corre todo con
+    PYTHONDONTWRITEBYTECODE=1, de modo que un `.pyc` plantado altera el digest. Un symlink dentro del árbol
+    se sella por su destino textual (no se sigue). Detecta manipulación de una librería aunque la versión
+    no cambie."""
     entries: list[str] = []
     for p in sorted(env_path.rglob("*")):
         rel = p.relative_to(env_path).as_posix()
@@ -434,27 +446,45 @@ def ready_valid(
 
     profiles = profiles or load_profiles()
     cfg = _profile_config(profiles, profile)
-    # B40/B41: el DIR del entorno debe ser directorio real (no symlink), del UID actual y 0700 ANTES de
-    # leer contenido — un target symlink a un entorno externo o un 0777 no se aceptan.
-    if env_path.is_symlink():
-        return False, "el dir del entorno es symlink — prohibido"
-    if not env_path.is_dir():
-        return False, "el dir del entorno no existe o no es directorio"
-    est = env_path.lstat()
-    if est.st_uid != os.getuid() or _stat.S_IMODE(est.st_mode) != 0o700:
-        return False, f"el dir del entorno es de otro dueño o modo {oct(_stat.S_IMODE(est.st_mode))} != 0700"
-    ready = env_path / "READY.json"
-    if ready.is_symlink() or not ready.is_file():
-        return False, "READY.json ausente, symlink o no regular"
-    rst = ready.lstat()
-    if rst.st_uid != os.getuid() or rst.st_nlink != 1:
-        return False, "READY.json de otro dueño o con hardlink"
+    # B40/B41/B46: valida la CADENA de directorios (ROOT→.vp_envs→perfil→env_id) por openat O_NOFOLLOW —
+    # ningún ancestro gobernado puede ser symlink, todos 0700 del UID — ANTES de leer nada. Un `.vp_envs`
+    # symlink a un entorno externo, un dir 0777 o un ancestro de otro dueño abortan aquí.
+    anchor, comps = _governed_chain(env_path)
+    try:
+        env_fd = _open_governed_chain(anchor, comps, create=False, require_mode=0o700)
+    except SystemExit as exc:
+        return False, f"cadena del entorno insegura: {exc}"
+    # B47/paso 3: abre READY.json RELATIVO al fd del entorno con O_NOFOLLOW y valida por fstat (regular, UID,
+    # modo 0600 EXACTO, nlink==1); lee DEL MISMO descriptor — sin lstat-luego-read (ventana de sustitución).
+    try:
+        try:
+            rfd = os.open("READY.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=env_fd)
+        except FileNotFoundError:
+            return False, "READY.json ausente"
+        except OSError as exc:
+            return False, f"READY.json no abrible sin seguir symlink ({exc})"
+        try:
+            rst = os.fstat(rfd)
+            if not _stat.S_ISREG(rst.st_mode):
+                return False, "READY.json no es fichero regular"
+            if rst.st_uid != os.getuid():
+                return False, "READY.json de otro dueño"
+            if _stat.S_IMODE(rst.st_mode) != 0o600:
+                return False, f"READY.json modo {oct(_stat.S_IMODE(rst.st_mode))} != 0600"
+            if rst.st_nlink != 1:
+                return False, "READY.json con hardlink (nlink>1)"
+            with os.fdopen(os.dup(rfd), "r") as fh:
+                raw = fh.read()
+        finally:
+            os.close(rfd)
+    finally:
+        os.close(env_fd)
     # B14: no reusar bajo un lockset/contrato inválido.
     contract = lc.validate_all(ROOT)
     if contract:
         return False, "lockset/contrato inválido: " + "; ".join(contract)
     try:
-        meta = json.loads(ready.read_text(), object_pairs_hook=_no_dup_keys)
+        meta = json.loads(raw, object_pairs_hook=_no_dup_keys)
     except (ValueError, OSError, SystemExit) as exc:
         return False, f"READY.json ilegible/duplicado: {exc}"
     if set(meta) != _READY_KEYS:
@@ -573,40 +603,97 @@ def _install(py: Path, profile: str, cfg: dict, profiles: dict, lock_rel: str) -
         _pip(py, "install", "-e", ".", "--no-deps")
 
 
-def _ensure_governed_dir(path: Path, *, create: bool, require_mode: int | None) -> None:
-    """B38: valida un directorio gobernado por lstat SIN seguir symlinks ni reparar con chmod. Si existe:
-    debe ser directorio real (no symlink), del UID actual y, si `require_mode`, con ese modo EXACTO. Si no
-    existe y `create`, lo crea con `os.mkdir(path, mode)` (SIN parents) y lo re-valida por lstat."""
+# --------------------------------------------------------------------------- apertura segura de cadenas
+# B46/B48: validar SOLO el objeto final por lstat es INSEGURO. Si un ANCESTRO gobernado (`.vp_envs`, el dir
+# de perfil, `.staging`) es un symlink, la ruta resuelve a un árbol EXTERNO y el leaf real pasa el chequeo
+# (ready_valid reusa fuera del repo; prune borra fuera del repo). La defensa correcta es abrir la cadena
+# COMPONENTE A COMPONENTE con O_DIRECTORY|O_NOFOLLOW relativo al fd del padre (openat), de modo que NINGÚN
+# componente pueda ser symlink, validando cada dir por fstat (dir real, UID actual, modo 0700 EXACTO).
+_ODIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+
+
+def _fstat_dir_ok(fd: int, label: str, require_mode: int | None) -> None:
     import stat as _stat
 
-    if path.is_symlink():
-        raise SystemExit(f"python_env: {path} es symlink — prohibido (posible escritura fuera del repo)")
-    if path.exists():
-        st = path.lstat()
-        if not _stat.S_ISDIR(st.st_mode):
-            raise SystemExit(f"python_env: {path} existe y no es directorio")
-        if st.st_uid != os.getuid():
-            raise SystemExit(f"python_env: {path} es de otro dueño ({st.st_uid})")
-        if require_mode is not None and _stat.S_IMODE(st.st_mode) != require_mode:
-            raise SystemExit(f"python_env: {path} modo {oct(_stat.S_IMODE(st.st_mode))} != {oct(require_mode)}")
-    elif create:
-        os.mkdir(path, require_mode if require_mode is not None else 0o700)  # SIN parents
-        st = path.lstat()
-        if _stat.S_ISLNK(st.st_mode) or st.st_uid != os.getuid():
-            raise SystemExit(f"python_env: {path} creado inseguro (symlink/dueño)")
-    else:
-        raise SystemExit(f"python_env: {path} no existe")
+    st = os.fstat(fd)
+    if not _stat.S_ISDIR(st.st_mode):
+        raise SystemExit(f"python_env: {label} no es directorio")
+    if st.st_uid != os.getuid():
+        raise SystemExit(f"python_env: {label} es de otro dueño ({st.st_uid})")
+    if require_mode is not None and _stat.S_IMODE(st.st_mode) != require_mode:
+        raise SystemExit(f"python_env: {label} modo {oct(_stat.S_IMODE(st.st_mode))} != {oct(require_mode)}")
 
 
-def _open_lock(lock_file: Path) -> int:
-    """B25/B39: abre el lock-file con O_NOFOLLOW y exige regular, del UID actual, modo 0600 y st_nlink==1
-    (sin hardlink). Nuevo ⇒ O_EXCL 0600; existente ⇒ O_RDWR. Nunca trunca."""
-    import stat as _stat
-
+def _openat_dir(parent_fd: int, name: str, *, create: bool, require_mode: int) -> int:
+    """openat(parent_fd, name, O_DIRECTORY|O_NOFOLLOW). Si `create`, mkdirat 0700 (tolera EEXIST) y, SOLO si
+    lo creamos nosotros, fchmod al modo exacto (pese al umask). `name` es un componente simple. Un symlink
+    en `name` (incluido roto) ⇒ OSError ⇒ SystemExit (fail-closed, sin `exists()` previo)."""
+    if "/" in name or name in ("", ".", ".."):
+        raise SystemExit(f"python_env: componente de ruta inválido {name!r}")
+    created = False
+    if create:
+        try:
+            os.mkdir(name, 0o700, dir_fd=parent_fd)
+            created = True
+        except FileExistsError:
+            pass
     try:
-        fd = os.open(str(lock_file), os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        fd = os.open(name, _ODIR, dir_fd=parent_fd)
+    except OSError as exc:
+        raise SystemExit(f"python_env: {name!r} no abrible sin seguir symlink ({exc}) — prohibido") from exc
+    try:
+        if created:
+            os.fchmod(fd, require_mode)
+        _fstat_dir_ok(fd, name, require_mode)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _open_governed_chain(anchor: Path, components: list[str], *, create: bool, require_mode: int) -> int:
+    """Abre `anchor` (ancla de confianza; su modo NO se valida, solo que su ÚLTIMO componente no sea symlink)
+    y desciende por `components` con openat O_NOFOLLOW, creando+validando cada nivel a 0700. Devuelve el fd
+    del ÚLTIMO componente (el llamador lo cierra). Fail-closed: symlink (incl. roto), dueño o modo != 0700
+    en cualquier nivel aborta con SystemExit."""
+    try:
+        fd = os.open(str(anchor), _ODIR)
+    except OSError as exc:
+        raise SystemExit(f"python_env: ancla {anchor} inaccesible sin seguir symlink ({exc})") from exc
+    try:
+        for name in components:
+            child = _openat_dir(fd, name, create=create, require_mode=require_mode)
+            os.close(fd)
+            fd = child
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _governed_chain(path: Path) -> tuple[Path, list[str]]:
+    """(ancla, componentes) para validar `path` por cadena. Bajo ROOT ⇒ ancla=ROOT y TODA la cadena de
+    componentes; fuera de ROOT (tests) ⇒ ancla=padre y el último componente (su propio nombre y el padre
+    no pueden ser symlink)."""
+    try:
+        rel = path.relative_to(ROOT)
+        return ROOT, list(rel.parts)
+    except ValueError:
+        return path.parent, [path.name]
+
+
+def _open_lock(dir_fd: int, name: str) -> int:
+    """B25/B39: abre el lock-file `name` RELATIVO a `dir_fd` (openat) con O_NOFOLLOW y exige regular, del UID
+    actual, modo 0600 y st_nlink==1 (sin hardlink). Nuevo ⇒ O_EXCL 0600; existente ⇒ O_RDWR. Nunca trunca.
+    Abrir relativo al fd del dir de perfil YA validado evita que un `.vp_envs` symlink redirija el lock."""
+    import stat as _stat
+
+    if "/" in name:
+        raise SystemExit(f"python_env: nombre de lock inválido {name!r}")
+    try:
+        fd = os.open(name, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
     except FileExistsError:
-        fd = os.open(str(lock_file), os.O_RDWR | os.O_NOFOLLOW)
+        fd = os.open(name, os.O_RDWR | os.O_NOFOLLOW, dir_fd=dir_fd)
     st = os.fstat(fd)
     if (
         not _stat.S_ISREG(st.st_mode)
@@ -615,7 +702,7 @@ def _open_lock(lock_file: Path) -> int:
         or st.st_nlink != 1
     ):
         os.close(fd)
-        raise SystemExit(f"python_env: lock-file {lock_file} inseguro (no regular / dueño / modo!=0600 / hardlink)")
+        raise SystemExit(f"python_env: lock-file {name} inseguro (no regular / dueño / modo!=0600 / hardlink)")
     return fd
 
 
@@ -630,28 +717,37 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
         raise SystemExit(
             f"python_env: entorno sellado inválido en {target} ({why}) — NO se repara; usa `prune`/borra manualmente"
         )
-    # B38: valida el PADRE por lstat ANTES de crear cualquier descendiente (un `.vp_envs` symlink NO
-    # debe hacer que mkdir/chmod escriban fuera del repo). Orden ROOT → .vp_envs → .staging → perfil.
-    _ensure_governed_dir(ROOT, create=False, require_mode=None)
-    _ensure_governed_dir(ENVS_ROOT, create=True, require_mode=0o700)
-    _ensure_governed_dir(STAGING_ROOT, create=True, require_mode=0o700)
-    _ensure_governed_dir(target.parent, create=True, require_mode=0o700)
-    lock_file = target.parent / f".lock-{env_id(profile, variant, profiles)}"
-    lock_fd = _open_lock(lock_file)  # B25/B39: O_NOFOLLOW + regular + UID + 0600 + nlink==1
+    # B46: crea/valida la cadena ROOT→.vp_envs→<perfil> con openat O_NOFOLLOW (ningún nivel puede ser
+    # symlink) y abre el lock RELATIVO al fd del dir de perfil ya validado.
+    p_anchor, p_comps = _governed_chain(target.parent)
+    leaf_fd = _open_governed_chain(p_anchor, p_comps, create=True, require_mode=0o700)
+    lock_fd = _open_lock(leaf_fd, f".lock-{env_id(profile, variant, profiles)}")  # openat relativo al perfil
     with os.fdopen(lock_fd, "r+") as lk:
-        fcntl.flock(lk, fcntl.LOCK_EX)
-        ok, why = ready_valid(target, profile, variant, profiles)  # re-check bajo el lock
-        if ok:
-            return target
-        # B25: si el target EXISTE tras el lock y es inválido, abortar — NUNCA reparar/reemplazar.
-        if target.exists():
-            raise SystemExit(f"python_env: target inválido bajo el lock en {target} ({why}) — no se repara")
-        probs = lc.validate_all(ROOT)
-        if probs:
-            raise SystemExit("python_env: lockset/contrato inválido -> " + "; ".join(probs))
-        lock_rel = lock_rel_for(profile, variant, profiles)
-        staging = Path(tempfile.mkdtemp(dir=str(STAGING_ROOT), prefix=f"{env_id(profile, variant, profiles)}."))
-        os.chmod(staging, 0o700)
+        try:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            ok, why = ready_valid(target, profile, variant, profiles)  # re-check bajo el lock
+            if ok:
+                return target
+            # B25: si el target EXISTE tras el lock y es inválido, abortar — NUNCA reparar/reemplazar.
+            if target.exists():
+                raise SystemExit(f"python_env: target inválido bajo el lock en {target} ({why}) — no se repara")
+            probs = lc.validate_all(ROOT)
+            if probs:
+                raise SystemExit("python_env: lockset/contrato inválido -> " + "; ".join(probs))
+            lock_rel = lock_rel_for(profile, variant, profiles)
+            # staging: subdir con nonce creado RELATIVO al fd de `.vp_envs/.staging` validado (no mkdtemp
+            # por ruta, que seguiría un `.vp_envs` symlink).
+            s_anchor, s_comps = _governed_chain(STAGING_ROOT)
+            staging_fd = _open_governed_chain(s_anchor, s_comps, create=True, require_mode=0o700)
+            try:
+                nonce = f"{env_id(profile, variant, profiles)}.{os.urandom(8).hex()}"
+                os.mkdir(nonce, 0o700, dir_fd=staging_fd)
+                os.chmod(nonce, 0o700, dir_fd=staging_fd)
+            finally:
+                os.close(staging_fd)
+            staging = STAGING_ROOT / nonce
+        finally:
+            os.close(leaf_fd)
         try:
             venv.create(staging, with_pip=True, clear=True)
             py = _venv_python(staging)
@@ -725,37 +821,76 @@ def _fsync_dir(path: Path) -> None:
         os.close(fd)
 
 
-_STAGING_NAME = re.compile(r"^[0-9a-f]{64}\.[A-Za-z0-9_]+$")  # <env_id>.<sufijo mkdtemp>
+_STAGING_NAME = re.compile(r"^[0-9a-f]{64}\.[A-Za-z0-9_]+$")  # <env_id>.<sufijo nonce>
+
+
+def _rmtree_at(parent_fd: int, name: str) -> None:
+    """Borra recursivamente `name` (dir) RELATIVO a parent_fd con openat/unlinkat/rmdir + O_NOFOLLOW —
+    ningún symlink del árbol se sigue (un symlink hijo se `unlink`ea, no se desciende). `name` no puede
+    contener `/`."""
+    if "/" in name or name in ("", ".", ".."):
+        raise SystemExit(f"python_env: componente inválido en borrado {name!r}")
+    fd = os.open(name, _ODIR, dir_fd=parent_fd)  # `name` debe ser dir REAL (no symlink)
+    try:
+        for entry in os.scandir(fd):
+            if entry.is_dir(follow_symlinks=False):
+                _rmtree_at(fd, entry.name)
+            else:
+                os.unlink(entry.name, dir_fd=fd)  # fichero o symlink: unlink no sigue el destino
+    finally:
+        os.close(fd)
+    os.rmdir(name, dir_fd=parent_fd)
 
 
 def prune_staging() -> int:
-    """B42: borra SOLO `.vp_envs/.staging/`, de forma NO destructiva y resistente a symlink. Valida el
-    padre por lstat (no symlink, del UID, 0700); PREVALIDA todos los hijos (solo directorios reales cuyo
-    nombre casa `<env_id>.<sufijo>`, sin symlink/hardlink/fichero inesperado) ANTES de borrar el primero;
-    ante cualquier anomalía borra CERO y falla. Sin `ignore_errors`."""
+    """B42/B48: borra SOLO `.vp_envs/.staging/`, de forma NO destructiva y resistente a symlink EN CUALQUIER
+    ANCESTRO. Desciende la cadena de `STAGING_ROOT` por openat O_NOFOLLOW (un symlink —incluido roto— en
+    cualquier ancestro BLOQUEA, no devuelve 0; ausencia REAL de un nivel ⇒ 0). PREVALIDA todos los hijos por
+    fstat relativo al fd (dir real, del UID, sin symlink, nombre `<env_id>.<sufijo>` por fullmatch) ANTES de
+    borrar el primero; ante cualquier anomalía borra CERO y falla. Enumera y borra RELATIVO al descriptor
+    seguro (nunca por ruta, que seguiría un ancestro symlink). Sin `ignore_errors`."""
     import stat as _stat
 
-    if not STAGING_ROOT.exists():
+    anchor, comps = _governed_chain(STAGING_ROOT)
+    if not comps:
         return 0
-    if STAGING_ROOT.is_symlink():
-        raise SystemExit(f"python_env: {STAGING_ROOT} es symlink — prune abortado")
-    st = STAGING_ROOT.lstat()
-    if st.st_uid != os.getuid() or _stat.S_IMODE(st.st_mode) != 0o700:
-        raise SystemExit(f"python_env: {STAGING_ROOT} de otro dueño o modo != 0700 — prune abortado")
-    victims = []
-    for child in sorted(STAGING_ROOT.iterdir()):
-        cst = child.lstat()
-        if (
-            _stat.S_ISLNK(cst.st_mode)
-            or not _stat.S_ISDIR(cst.st_mode)
-            or cst.st_uid != os.getuid()
-            or not _STAGING_NAME.match(child.name)
-        ):
-            raise SystemExit(f"python_env: entrada de staging inesperada {child.name!r} — prune abortado (0 borrados)")
-        victims.append(child)
-    for v in victims:
-        shutil.rmtree(v)  # sin ignore_errors: un fallo debe ser visible
-    return len(victims)
+    try:
+        fd = os.open(str(anchor), _ODIR)
+    except OSError as exc:
+        raise SystemExit(f"python_env: ancla {anchor} inaccesible sin seguir symlink ({exc}) — prune abortado") from exc
+    try:
+        # desciende por la cadena; ENOENT en cualquier nivel ⇒ nada que podar; symlink/otro ⇒ BLOQUEA.
+        for name in comps:
+            try:
+                child = os.open(name, _ODIR, dir_fd=fd)
+            except FileNotFoundError:
+                return 0
+            except OSError as exc:  # symlink (incl. roto) u otro
+                raise SystemExit(
+                    f"python_env: {name!r} no abrible sin seguir symlink ({exc}) — prune abortado"
+                ) from exc
+            os.close(fd)
+            fd = child
+            _fstat_dir_ok(fd, name, 0o700)
+        staging_fd = fd  # fd apunta al `.staging` validado
+        victims: list[str] = []
+        for entry in sorted(os.scandir(staging_fd), key=lambda e: e.name):
+            est = entry.stat(follow_symlinks=False)  # lstat relativo al fd (no sigue symlink)
+            if (
+                _stat.S_ISLNK(est.st_mode)
+                or not _stat.S_ISDIR(est.st_mode)
+                or est.st_uid != os.getuid()
+                or not _STAGING_NAME.fullmatch(entry.name)
+            ):
+                raise SystemExit(
+                    f"python_env: entrada de staging inesperada {entry.name!r} — prune abortado (0 borrados)"
+                )
+            victims.append(entry.name)
+        for name in victims:
+            _rmtree_at(staging_fd, name)  # borrado relativo al fd, resistente a symlink
+        return len(victims)
+    finally:
+        os.close(fd)
 
 
 # --------------------------------------------------------------------------- exec / run-python

@@ -73,8 +73,9 @@ _FREEZE = ["alpha==1.0.0", "beta==2.0.0"]
 _DESC = {"fake": "descriptor"}
 
 
-def _fake_env(tmp_path, monkeypatch, *, digest_ok=True, env_id_ok=True):
-    envp = tmp_path / "env"
+def _fake_env(tmp_path, monkeypatch, *, digest_ok=True, env_id_ok=True, envp=None):
+    if envp is None:
+        envp = tmp_path / "env"
     (envp / "bin").mkdir(parents=True)
     (envp / "bin" / "python").write_text("#!/bin/sh\n")  # existe; no se ejecuta (freeze monkeypatched)
     monkeypatch.setattr(pe, "_pip_freeze", lambda py: _FREEZE)
@@ -98,6 +99,7 @@ def _fake_env(tmp_path, monkeypatch, *, digest_ok=True, env_id_ok=True):
         "n_packages": len(sealed),
     }
     (envp / "READY.json").write_text(json.dumps(meta))
+    os.chmod(envp / "READY.json", 0o600)  # B47: el sello legítimo es 0600
     os.chmod(envp, 0o700)  # B40/B41: un entorno legítimo es 0700 del UID actual
     return envp
 
@@ -410,29 +412,37 @@ def test_b36_schema_version_bool_rejected(tmp_path, monkeypatch):
         pe.load_profiles()
 
 
-def test_b38_ensure_governed_dir_rejects_symlink(tmp_path):
+def test_b38_openat_dir_rejects_symlink(tmp_path):
     outside = tmp_path / "out"
     outside.mkdir()
     link = tmp_path / "link"
     link.symlink_to(outside)
     with pytest.raises(SystemExit):
-        pe._ensure_governed_dir(link, create=True, require_mode=0o700)
+        pe._open_governed_chain(tmp_path, ["link"], create=False, require_mode=0o700)
 
 
-def test_b38_ensure_governed_dir_rejects_wrong_mode(tmp_path):
+def test_b38_openat_dir_rejects_wrong_mode(tmp_path):
     d = tmp_path / "d"
     d.mkdir(mode=0o755)
     os.chmod(d, 0o755)
     with pytest.raises(SystemExit):
-        pe._ensure_governed_dir(d, create=False, require_mode=0o700)
+        pe._open_governed_chain(tmp_path, ["d"], create=False, require_mode=0o700)
+
+
+def _dir_fd(path):
+    return os.open(str(path), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
 
 
 def test_b39_open_lock_rejects_wrong_mode(tmp_path):
     lock = tmp_path / ".lock-x"
     lock.write_text("")
     os.chmod(lock, 0o666)
-    with pytest.raises(SystemExit):
-        pe._open_lock(lock)
+    fd = _dir_fd(tmp_path)
+    try:
+        with pytest.raises(SystemExit):
+            pe._open_lock(fd, ".lock-x")
+    finally:
+        os.close(fd)
 
 
 def test_b39_open_lock_rejects_symlink(tmp_path):
@@ -440,14 +450,21 @@ def test_b39_open_lock_rejects_symlink(tmp_path):
     target.write_text("")
     lock = tmp_path / ".lock-x"
     lock.symlink_to(target)
-    with pytest.raises((SystemExit, OSError)):
-        pe._open_lock(lock)
+    fd = _dir_fd(tmp_path)
+    try:
+        with pytest.raises((SystemExit, OSError)):
+            pe._open_lock(fd, ".lock-x")
+    finally:
+        os.close(fd)
 
 
 def test_b33_build_extra_aborts_before_ready(tmp_path, monkeypatch):
     # recorre build() con instalación simulada que inyecta un paquete EXTRA -> aborta y NO sella READY
-    monkeypatch.setattr(pe, "ENVS_ROOT", tmp_path / ".vp_envs")
-    monkeypatch.setattr(pe, "STAGING_ROOT", tmp_path / ".vp_envs" / ".staging")
+    envs = tmp_path / ".vp_envs"
+    envs.mkdir()
+    os.chmod(envs, 0o700)  # ancla de la cadena openat (build valida ROOT→.vp_envs→perfil)
+    monkeypatch.setattr(pe, "ENVS_ROOT", envs)
+    monkeypatch.setattr(pe, "STAGING_ROOT", envs / ".staging")
 
     def fake_create(path, **kw):
         (path / "bin").mkdir(parents=True)
@@ -563,6 +580,74 @@ def test_b43_tree_excludes_only_ready():
     # el ÚNICO fichero excluido del sello es READY.json; el bytecode ya NO se excluye
     assert pe._TREE_EXCLUDE_NAMES == {"READY.json"}
     assert pe._TREE_EXCLUDE_SUFFIX == () and pe._TREE_EXCLUDE_DIRS == set()
+
+
+# ----------------------------- C1: regresiones R8R6R (B46/B47/B48) -----------------------------
+
+
+def test_b46_parent_symlink_rejected(tmp_path, monkeypatch):
+    # el mismo entorno VÁLIDO alcanzado vía un PADRE symlink NO se reusa (la cadena openat lo caza)
+    _fake_env(tmp_path / "realbase", monkeypatch)  # crea tmp/realbase/env válido 0700
+    (tmp_path / "linkbase").symlink_to(tmp_path / "realbase")
+    via = tmp_path / "linkbase" / "env"
+    ok, why = pe.ready_valid(via, "dvc-tool")
+    assert not ok and "insegura" in why
+
+
+def test_b46_vp_envs_symlink_under_root_rejected(tmp_path, monkeypatch):
+    # PRODUCCIÓN: env_path bajo ROOT y `.vp_envs` es symlink a un árbol externo con un env VÁLIDO ⇒ rechazo
+    monkeypatch.setattr(pe, "ROOT", tmp_path)
+    ext = tmp_path / "external"
+    _fake_env(tmp_path, monkeypatch, envp=ext / "dvc-tool" / "KNOWNID")  # env válido externo
+    (tmp_path / ".vp_envs").symlink_to(ext)
+    via = tmp_path / ".vp_envs" / "dvc-tool" / "KNOWNID"
+    ok, why = pe.ready_valid(via, "dvc-tool")
+    assert not ok and "insegura" in why
+
+
+def test_b47_ready_mode_0666_rejected(tmp_path, monkeypatch):
+    envp = _fake_env(tmp_path, monkeypatch)
+    os.chmod(envp / "READY.json", 0o666)  # el constructor lo sella 0600; 0666 no se acepta
+    ok, why = pe.ready_valid(envp, "dvc-tool")
+    assert not ok and "0600" in why
+
+
+def test_b48_prune_parent_symlink_blocks(tmp_path, monkeypatch):
+    # un PADRE de .staging es symlink -> prune BLOQUEA (no borra el árbol externo)
+    real = tmp_path / "real"
+    (real / ".staging").mkdir(parents=True)
+    os.chmod(real / ".staging", 0o700)
+    witness = real / ".staging" / (("a" * 64) + ".tmp0000")
+    witness.mkdir()  # dir por lo demás válido — NO debe borrarse
+    (tmp_path / "plink").symlink_to(real)
+    monkeypatch.setattr(pe, "STAGING_ROOT", tmp_path / "plink" / ".staging")
+    with pytest.raises(SystemExit):
+        pe.prune_staging()
+    assert witness.exists()  # el borrado externo se bloqueó
+
+
+def test_b48_prune_broken_symlink_blocks(tmp_path, monkeypatch):
+    # .staging es un symlink ROTO -> prune BLOQUEA, no devuelve 0 en silencio
+    (tmp_path / ".staging").symlink_to(tmp_path / "does_not_exist")
+    monkeypatch.setattr(pe, "STAGING_ROOT", tmp_path / ".staging")
+    with pytest.raises(SystemExit):
+        pe.prune_staging()
+
+
+def test_b43_purge_bytecode_aborts_if_residual(tmp_path, monkeypatch):
+    # si algo impide borrar el bytecode, _purge_bytecode falla (no sella con .pyc)
+    real_unlink = os.unlink
+
+    def stubborn(p, *a, **k):
+        if str(p).endswith(".pyc"):
+            return  # simula que el borrado no surtió efecto
+        return real_unlink(p, *a, **k)
+
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "x.pyc").write_text("junk")
+    monkeypatch.setattr(os, "unlink", stubborn)
+    with pytest.raises(SystemExit):
+        pe._purge_bytecode(tmp_path)
 
 
 if __name__ == "__main__":

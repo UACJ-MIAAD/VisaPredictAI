@@ -707,5 +707,89 @@ def test_no_node20_sha_anywhere_in_github():
     assert hits == [], f"SHA Node 20 presente en .github: {hits}"
 
 
+# ----------------------------- C1: regresiones R8R6R (B49 registro Actions / B50 esquema recibo) --------
+
+
+def _wf(tmp_path, name, body):
+    wf = tmp_path / ".github" / "workflows"
+    wf.mkdir(parents=True, exist_ok=True)
+    (wf / name).write_text(body)
+    return tmp_path
+
+
+def test_b49_unknown_action_valid_sha(tmp_path):
+    import tools.check_action_pins as pins
+
+    sha = "a" * 40  # SHA de 40 hex bien formado pero de una acción NO autorizada
+    root = _wf(tmp_path, "x.yml", f"jobs:\n  a:\n    steps:\n      - uses: evil/backdoor@{sha}\n")
+    probs = pins.check(root)
+    assert any("NO autorizada" in p for p in probs)
+
+
+def test_b49_false_version_comment(tmp_path):
+    import tools.check_action_pins as pins
+
+    reg = pins.load_registry()["actions/checkout"]
+    root = _wf(tmp_path, "x.yml", f"jobs:\n  a:\n    steps:\n      - uses: actions/checkout@{reg['sha']}  # v99\n")
+    probs = pins.check(root)
+    assert any("comentario" in p for p in probs)
+
+
+def test_b49_node20_sha_in_yaml_extension(tmp_path):
+    import tools.check_action_pins as pins
+
+    sha = next(iter(pins._NODE20_SHAS))  # en un fichero .yaml (no .yml) que el gate viejo no escaneaba
+    root = _wf(tmp_path, "x.yaml", f"jobs:\n  a:\n    steps:\n      - uses: actions/upload-artifact@{sha}\n")
+    probs = pins.check(root)
+    assert any("Node 20" in p for p in probs)
+
+
+def test_b49_floating_tag_rejected(tmp_path):
+    import tools.check_action_pins as pins
+
+    root = _wf(tmp_path, "x.yml", "jobs:\n  a:\n    steps:\n      - uses: actions/checkout@v5\n")
+    probs = pins.check(root)
+    assert any("40 hex" in p for p in probs)
+
+
+def _receipt_workspace(tmp_path, monkeypatch):
+    monkeypatch.setattr(vr, "ROOT", tmp_path)
+    (tmp_path / "locks").mkdir()
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "locks/dvc-tool-linux-x86_64.txt").write_text("x")
+    (tmp_path / lc.MANIFEST_REL).write_text("y")
+    (tmp_path / "requirements/dvc.in").write_text("z")
+    (tmp_path / "s.json").write_text('{"bomFormat":"CycloneDX","components":[]}')
+
+
+def _good_python():
+    return {"implementation": "cpython", "version": "3.14.0", "cache_tag": "cpython-314", "abi": "cpython-314-darwin"}
+
+
+def _good_platform():
+    return {"system": "Linux", "machine": "x86_64", "libc_or_macos": "glibc-2.39"}
+
+
+@pytest.mark.parametrize(
+    "mutate,frag",
+    [
+        (lambda r: r.__setitem__("python", {}), "python con claves"),
+        (lambda r: r.__setitem__("platform", {**_good_platform(), "evil": 1}), "platform con claves"),
+        (lambda r: r.__setitem__("github_run_id", 5), "github_run_id no es string decimal"),
+        (lambda r: r.__setitem__("github_run_attempt", "0"), "github_run_attempt no es string decimal >= 1"),
+        (lambda r: r.__setitem__("env_id", "deadbeef"), "env_id no es 64 hex"),
+    ],
+)
+def test_b50_receipt_schema_exact(tmp_path, monkeypatch, mutate, frag):
+    # recibo por lo demás bien formado (python/platform/env_id válidos) con UNA mutación de esquema
+    _receipt_workspace(tmp_path, monkeypatch)
+    r = _valid_receipt(_good_platform())
+    r.update({"python": _good_python(), "env_id": "e" * 64, "github_run_id": "1", "github_run_attempt": "1"})
+    mutate(r)
+    (tmp_path / "r.json").write_text(json.dumps(r))
+    probs = vr.validate(tmp_path / "r.json", tmp_path / "s.json")
+    assert any(frag in p for p in probs)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
