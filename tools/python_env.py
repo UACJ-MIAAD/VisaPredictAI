@@ -37,6 +37,7 @@ import sys
 import sysconfig
 import tempfile
 import venv
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,9 @@ GUARD_PY = ROOT / "tools" / "dvc_cache_guard.py"
 SELF_PY = ROOT / "tools" / "python_env.py"
 _PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s\\;]+)", re.MULTILINE)
 _VALID_RECIPES = {"hash-verified", "version-locked", "constraint-model", "constraint-model-cpu-index"}
+# Toolchain de bootstrap que NO viene del lock (pip/setuptools/wheel + su dep packaging): único extra
+# permitido sobre el cierre del lock al sellar un entorno (B24).
+_TOOLCHAIN_EXTRAS = {"pip", "setuptools", "wheel", "packaging"}
 
 
 def _recipe_values(install_mode) -> list[str]:
@@ -135,24 +139,45 @@ def _validate_lock_table(name: str, table: dict, platforms: set[str], known: set
             )
 
 
+_CPU_INDEX = "https://download.pytorch.org/whl/cpu"
+_CPU_TORCH_RE = re.compile(r"^\d+\.\d+\.\d+\+cpu$")
+
+
 def load_profiles() -> dict:
     prof = json.loads(PROFILES_JSON.read_text(), object_pairs_hook=_no_dup_keys)
-    if prof.get("schema_version") != 1:
+    if set(prof) != {"schema_version", "toolchain", "profiles"}:
+        raise SystemExit(f"python_env: claves superiores {sorted(prof)} != schema_version/toolchain/profiles")
+    if prof["schema_version"] != 1:
         raise SystemExit("python_env: schema_version de python_profiles.json != 1")
-    if set(prof.get("toolchain", {})) != {"pip", "setuptools", "wheel", "uv"}:
-        raise SystemExit("python_env: toolchain incompleto en python_profiles.json")
-    profiles = prof.get("profiles", {})
+    tc = prof["toolchain"]
+    if set(tc) != {"pip", "setuptools", "wheel", "uv"} or not all(isinstance(v, str) and v for v in tc.values()):
+        raise SystemExit("python_env: toolchain incompleto o con valores no-string en python_profiles.json")
+    profiles = prof["profiles"]
     if set(profiles) != set(_SCHEMA):
         raise SystemExit(f"python_env: perfiles {sorted(profiles)} != exactamente {sorted(_SCHEMA)}")
     known = _all_lock_names()
     allowed_recipes = _VALID_RECIPES | {"auto"}
     for name, cfg in profiles.items():
         sch = _SCHEMA[name]
+        if not isinstance(cfg, dict):
+            raise SystemExit(f"python_env: perfil {name!r} no es un objeto")
         keys = set(cfg)
         if not (sch["req"] <= keys <= sch["req"] | sch["opt"]):
             raise SystemExit(
                 f"python_env: perfil {name!r} con claves {sorted(keys)} != req {sorted(sch['req'])} (+opt {sorted(sch['opt'])})"
             )
+        # B21: TIPOS estrictos (un bool 1, un console_scripts string, o un cpu_index ajeno se rechazan)
+        if "note" in cfg and not isinstance(cfg["note"], str):
+            raise SystemExit(f"python_env: perfil {name!r} note no-string")
+        if not isinstance(cfg.get("cache_guarded", False), bool):
+            raise SystemExit(f"python_env: perfil {name!r} cache_guarded no-booleano ({cfg['cache_guarded']!r})")
+        if name == "dvc-tool" and cfg["console_scripts"] != ["dvc"]:
+            raise SystemExit(f"python_env: dvc-tool console_scripts != ['dvc'] ({cfg['console_scripts']!r})")
+        if name == "model":
+            if not isinstance(cfg["cpu_torch"], str) or not _CPU_TORCH_RE.match(cfg["cpu_torch"]):
+                raise SystemExit(f"python_env: model cpu_torch inválido {cfg['cpu_torch']!r} (X.Y.Z+cpu)")
+            if cfg["cpu_index"] != _CPU_INDEX:
+                raise SystemExit(f"python_env: model cpu_index no autorizado {cfg['cpu_index']!r}")
         for r in _recipe_values(cfg["install_mode"]):
             if r not in allowed_recipes:
                 raise SystemExit(f"python_env: perfil {name!r} install_mode inválido {r!r}")
@@ -330,14 +355,18 @@ def _tree_digest(env_path: Path) -> str:
 
 def _file_hashes(env_path: Path, cfg: dict) -> dict[str, str]:
     """Hashes explícitos de los ficheros ejecutables clave (además del árbol completo): pyvenv.cfg,
-    el intérprete real y cada console-script declarado."""
+    el intérprete RESUELTO (aunque bin/python sea symlink al python del sistema) y cada console-script
+    declarado. Conjunto EXACTO — ready_valid exige que coincida (no un dict arbitrario/vacío)."""
     sub = "Scripts" if os.name == "nt" else "bin"
-    names = ["pyvenv.cfg", f"{sub}/python", *[f"{sub}/{cs}" for cs in cfg.get("console_scripts", [])]]
-    out = {}
-    for rel in names:
+    out: dict[str, str] = {}
+    for rel in ["pyvenv.cfg", *[f"{sub}/{cs}" for cs in cfg.get("console_scripts", [])]]:
         p = env_path / rel
         if p.exists() and not p.is_symlink():
             out[rel] = _sha256_path(p)
+    # intérprete: hashea el CONTENIDO real (sigue el symlink); clave estable `bin/python#resolved`.
+    py = env_path / sub / ("python.exe" if os.name == "nt" else "python")
+    if py.exists():
+        out[f"{sub}/python#resolved"] = _sha256_path(py.resolve())
     return out
 
 
@@ -349,6 +378,7 @@ def ready_valid(
     de site-packages), los hashes de ficheros clave coinciden, `pip check` en vivo pasa y el inventario
     vivo es EXACTAMENTE el sellado."""
     profiles = profiles or load_profiles()
+    cfg = _profile_config(profiles, profile)
     ready = env_path / "READY.json"
     if not ready.exists():
         return False, "sin READY.json"
@@ -362,6 +392,22 @@ def ready_valid(
         return False, f"READY.json ilegible/duplicado: {exc}"
     if set(meta) != _READY_KEYS:
         return False, f"READY.json con esquema inexacto (claves {sorted(meta)})"
+    # B20: validación SEMÁNTICA de tipos/valores (no solo presencia de claves).
+    if meta["schema_version"] != 1:
+        return False, "schema_version != 1"
+    inv = meta["inventory"]
+    if not isinstance(inv, list) or not all(isinstance(x, str) for x in inv):
+        return False, "inventory no es lista de strings"
+    if len({_canon(x.split("==")[0]) for x in inv if "==" in x}) != len([x for x in inv if "==" in x]):
+        return False, "inventory con nombre canónico duplicado"
+    if meta["n_packages"] != len(inv):
+        return False, f"n_packages {meta['n_packages']} != len(inventory) {len(inv)}"
+    if meta["inventory_digest"] != _inventory_digest(inv):
+        return False, "inventory_digest sellado != recomputado del inventario"
+    if meta["pip_check"] != "ok":
+        return False, "pip_check sellado != 'ok'"
+    if not isinstance(meta["file_hashes"], dict) or not meta["file_hashes"]:
+        return False, "file_hashes vacío o no-dict"
     if meta.get("env_id") != env_id(profile, variant, profiles):
         return False, f"env_id sellado {meta.get('env_id')!r} != esperado"
     if meta.get("descriptor") != descriptor(profile, variant, profiles):
@@ -369,17 +415,17 @@ def ready_valid(
     py = _venv_python(env_path)
     if not py.exists():
         return False, "falta el intérprete del venv"
-    for rel, h in (meta.get("file_hashes") or {}).items():
-        p = env_path / rel
-        if not p.exists() or p.is_symlink() or _sha256_path(p) != h:
-            return False, f"TAMPER: {rel} alterado o ausente"
+    # B20/B13: file_hashes DEBE casar EXACTAMENTE el recomputado (conjunto de claves Y hashes:
+    # pyvenv.cfg, console-scripts y el intérprete resuelto). Un dict arbitrario/vacío/alterado falla.
+    if meta["file_hashes"] != _file_hashes(env_path, cfg):
+        return False, "TAMPER: file_hashes sellado != recomputado (script/pyvenv/intérprete alterado)"
     if _tree_digest(env_path) != meta.get("tree_digest"):
         return False, "TAMPER: el árbol del entorno difiere del sello (fichero de site-packages alterado)"
     try:
         freeze = _pip_freeze(py)
     except (subprocess.CalledProcessError, OSError) as exc:
         return False, f"no se pudo inventariar: {exc}"
-    if sorted(x.lower() for x in freeze) != sorted(x.lower() for x in (meta.get("inventory") or [])):
+    if sorted(x.lower() for x in freeze) != sorted(x.lower() for x in inv):
         return False, "TAMPER: inventario vivo != sellado (versión o paquete extra)"
     if not _pip_check(py):
         return False, "TAMPER: pip check falla en el entorno sellado"
@@ -438,12 +484,19 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
     os.chmod(ENVS_ROOT, 0o700)
     target.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(target.parent, 0o700)
+    # B25: los directorios gobernados NO pueden ser symlink ni de otro dueño.
+    for d in (ENVS_ROOT, STAGING_ROOT, target.parent):
+        if d.is_symlink() or d.stat().st_uid != os.getuid():
+            raise SystemExit(f"python_env: {d} es symlink o de otro dueño — prohibido")
     lock_file = target.parent / f".lock-{env_id(profile, variant, profiles)}"
     with open(lock_file, "w") as lk:
         fcntl.flock(lk, fcntl.LOCK_EX)
-        ok, _ = ready_valid(target, profile, variant, profiles)  # re-check bajo el lock
+        ok, why = ready_valid(target, profile, variant, profiles)  # re-check bajo el lock
         if ok:
             return target
+        # B25: si el target EXISTE tras el lock y es inválido, abortar — NUNCA reparar/reemplazar.
+        if target.exists():
+            raise SystemExit(f"python_env: target inválido bajo el lock en {target} ({why}) — no se repara")
         probs = lc.validate_all(ROOT)
         if probs:
             raise SystemExit("python_env: lockset/contrato inválido -> " + "; ".join(probs))
@@ -462,6 +515,10 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
             missing = {n: v for n, v in expected.items() if observed.get(n) != v}
             if missing:
                 raise SystemExit(f"python_env: inventario observado != lock para {sorted(missing)}")
+            # B24: RECHAZAR paquetes EXTRA no sellables (fuera del lock salvo el toolchain de bootstrap).
+            extras = set(observed) - set(expected) - _TOOLCHAIN_EXTRAS
+            if extras:
+                raise SystemExit(f"python_env: paquetes EXTRA no en el lock {sorted(extras)}")
             meta = {
                 "schema_version": 1,
                 "env_id": env_id(profile, variant, profiles),
@@ -478,7 +535,10 @@ def build(profile: str, variant: str | None = None, profiles: dict | None = None
             with open(staging / "READY.json", "rb") as fh:
                 os.fsync(fh.fileno())
             _fsync_dir(staging)
-            os.replace(staging, target)
+            # B25: promoción CREATE-ONLY — jamás reemplazar un target existente (ni vacío).
+            if target.exists() or target.is_symlink():
+                raise SystemExit(f"python_env: {target} ya existe al promover — abort (create-only)")
+            os.rename(staging, target)
             _fsync_dir(target.parent)  # el rename se persiste con fsync del PADRE
             return target
         except BaseException:
@@ -527,11 +587,14 @@ def resolve_console_script(profile: str, name: str, variant: str | None = None, 
     return binp.resolve()
 
 
-def _enforce_cache_guard(cfg: dict) -> None:
+def _guard_env(cfg: dict) -> tuple[dict[str, str] | None, Callable[[], object] | None]:
+    """B22: para un perfil cache-guarded devuelve (env sanitizado para el hijo, preexec umask 077). NO
+    muta el os.environ/umask del padre. Para el resto, (None, None)."""
     if cfg.get("cache_guarded"):
         from tools import dvc_cache_guard
 
-        dvc_cache_guard.enforce(ROOT)
+        return dvc_cache_guard.child_env(ROOT), (lambda: os.umask(0o077))
+    return None, None
 
 
 def run(
@@ -547,11 +610,19 @@ def run(
     binp = resolve_console_script(profile, name, variant, profiles)
     if not env_owns(profile, binp, variant, profiles):
         raise SystemExit(f"python_env: {binp} fuera del entorno certificado de {profile!r}")
-    _enforce_cache_guard(cfg)
+    env, preexec = _guard_env(cfg)
     py = _venv_python(env_dir(profile, variant, profiles)).resolve()
     # NO se prepende el bin del env al PATH ⇒ los subprocesos de stage (`python -m ...` de dvc repro)
     # heredan el PATH ambiente = intérprete del PRODUCTO, jamás el del CLI DVC (R3.7).
-    return subprocess.run([str(py), str(binp), *rest], check=False, cwd=str(ROOT), capture_output=capture, text=capture)
+    return subprocess.run(
+        [str(py), str(binp), *rest],
+        check=False,
+        cwd=str(ROOT),
+        capture_output=capture,
+        text=capture,
+        env=env,
+        preexec_fn=preexec,
+    )
 
 
 def run_python(
@@ -561,9 +632,11 @@ def run_python(
     profiles = profiles or load_profiles()
     cfg = _profile_config(profiles, profile)
     target = build(profile, variant, profiles)
-    _enforce_cache_guard(cfg)
+    env, preexec = _guard_env(cfg)
     py = _venv_python(target).resolve()
-    return subprocess.run([str(py), *argv], check=False, cwd=str(ROOT), capture_output=capture, text=capture)
+    return subprocess.run(
+        [str(py), *argv], check=False, cwd=str(ROOT), capture_output=capture, text=capture, env=env, preexec_fn=preexec
+    )
 
 
 # --------------------------------------------------------------------------- provenance (recibos)

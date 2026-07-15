@@ -22,15 +22,32 @@ _SUBPROC_ATTRS = {"run", "Popen", "check_output", "check_call", "call"}
 _OS_ATTRS = {"system", "popen"}
 
 
+class _LegacyScanError(Exception):
+    """Fail-closed: un .py del call graph que no parsea NO puede certificarse honestamente (B23)."""
+
+
+def _seq_ante(node: ast.AST) -> bool:
+    """True si el nodo es una List/Tuple con un string constante que contiene una ruta ante*/bin/."""
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return any(
+            isinstance(e, ast.Constant) and isinstance(e.value, str) and _LEGACY.search(e.value) for e in node.elts
+        )
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return bool(_LEGACY.search(node.value))
+    return False
+
+
 def _py_legacy_count(text: str) -> int:
     """Cuenta usos EJECUTABLES de ante/ante_nf en Python (subprocess/os.system/os.popen con una ruta
-    `ante*/bin/` en argv), vía AST — NO comentarios, docstrings ni menciones sueltas."""
+    `ante*/bin/` en argv — literal O en variable list/tuple asignada), vía AST. NO comentarios ni
+    docstrings. B23: un error de sintaxis es FAIL-CLOSED (no un 0 silencioso)."""
     try:
         tree = ast.parse(text)
-    except SyntaxError:
-        return 0
+    except SyntaxError as exc:
+        raise _LegacyScanError(f"no parsea: {exc}") from exc
     subp = {"subprocess"}
     osm = {"os"}
+    subp_funcs: set[str] = set()  # `from subprocess import run as r`
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for a in node.names:
@@ -38,6 +55,15 @@ def _py_legacy_count(text: str) -> int:
                     subp.add(a.asname or a.name)
                 elif a.name == "os":
                     osm.add(a.asname or a.name)
+        elif isinstance(node, ast.ImportFrom) and node.module == "subprocess":
+            for a in node.names:
+                if a.name in _SUBPROC_ATTRS:
+                    subp_funcs.add(a.asname or a.name)
+    # variables ligadas a una list/tuple con una ruta ante (para argv almacenado en variable)
+    ante_vars: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and _seq_ante(node.value):
+            ante_vars |= {t.id for t in node.targets if isinstance(t, ast.Name)}
     n = 0
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not node.args:
@@ -48,19 +74,14 @@ def _py_legacy_count(text: str) -> int:
             and f.attr in _SUBPROC_ATTRS
             and isinstance(f.value, ast.Name)
             and f.value.id in subp
-        ) or (isinstance(f, ast.Name) and f.id == "Popen")
+        ) or (isinstance(f, ast.Name) and (f.id in subp_funcs or f.id == "Popen"))
         is_os = (
             isinstance(f, ast.Attribute) and f.attr in _OS_ATTRS and isinstance(f.value, ast.Name) and f.value.id in osm
         )
         if not (is_sub or is_os):
             continue
-        strs = []
         a0 = node.args[0]
-        if isinstance(a0, (ast.List, ast.Tuple)):
-            strs = [e.value for e in a0.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
-        elif isinstance(a0, ast.Constant) and isinstance(a0.value, str):
-            strs = [a0.value]
-        if any(_LEGACY.search(s) for s in strs):
+        if _seq_ante(a0) or (isinstance(a0, ast.Name) and a0.id in ante_vars):
             n += 1
     return n
 
@@ -88,10 +109,13 @@ def current_counts(root: Path = ROOT) -> dict[str, int]:
     for rel in _tracked(root):
         try:
             text = (root / rel).read_text()
-        except OSError, UnicodeDecodeError:
-            continue
+        except (OSError, UnicodeDecodeError) as exc:
+            raise SystemExit(f"check_no_legacy_envs: {rel} ilegible ({exc}) — fail-closed") from exc
         # .py: solo usos EJECUTABLES (AST); shell/yaml/make: refs de línea de comando (regex).
-        n = _py_legacy_count(text) if rel.endswith(".py") else len(_LEGACY.findall(text))
+        try:
+            n = _py_legacy_count(text) if rel.endswith(".py") else len(_LEGACY.findall(text))
+        except _LegacyScanError as exc:
+            raise SystemExit(f"check_no_legacy_envs: {rel} {exc} — fail-closed") from exc
         if n:
             counts[rel] = n
     return counts

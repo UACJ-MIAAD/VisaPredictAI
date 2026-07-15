@@ -126,6 +126,11 @@ def check(root: Path = ROOT) -> list[str]:
                 p.resolve().relative_to(root.resolve())
             except ValueError, OSError:
                 probs.append(f".dvc/{rel} resuelve fuera del repo")
+    # 3b) B22: TODO descendiente del site-cache (los `repo/<token>/…` que crea DVC) por lstat.
+    sc = dvc_dir / "site-cache"
+    if sc.is_dir() and not sc.is_symlink():
+        for d in sorted(sc.rglob("*")):
+            probs += _unsafe_stat(d, str(d.relative_to(root)))
     # 4) B11: si DVC_SITE_CACHE_DIR está fijado, DEBE resolver dentro de <repo>/.dvc/site-cache
     env_scd = os.environ.get("DVC_SITE_CACHE_DIR")
     if env_scd:
@@ -147,16 +152,29 @@ def prepare(root: Path = ROOT) -> None:
             p.mkdir(mode=0o700, parents=True, exist_ok=True)
 
 
-def enforce(root: Path = ROOT) -> None:
-    """B11: CONFINA el site_cache_dir de DVC dentro del repo (DVC_SITE_CACHE_DIR=<repo>/.dvc/site-cache,
-    sin confiar en el heredado), prepara los dirs 0700, valida y fija umask 077. SystemExit si insegura.
-    Lo llama python_env antes de ejecutar DVC (revalidación pre-exec: reduce el TOCTOU)."""
-    os.environ["DVC_SITE_CACHE_DIR"] = str(site_cache_dir(root))
+def child_env(root: Path = ROOT) -> dict[str, str]:
+    """B11/B22: prepara los dirs 0700, valida, y devuelve un ENV para el SUBPROCESO de DVC con
+    `DVC_SITE_CACHE_DIR` confinado — SIN mutar el os.environ ni el umask del proceso PADRE. El umask 077
+    se aplica solo en el hijo (preexec). SystemExit si la caché es insegura."""
     prepare(root)
-    probs = check(root)
+    env = {**os.environ, "DVC_SITE_CACHE_DIR": str(site_cache_dir(root))}
+    probs = check_with_env(root, env)
     if probs:
         raise SystemExit("✗ DVC CACHE GUARD bloqueó (superficie de PYSEC-2026-2447):\n  - " + "\n  - ".join(probs))
-    os.umask(0o077)
+    return env
+
+
+def check_with_env(root: Path, env: dict[str, str]) -> list[str]:
+    """check() pero validando el `DVC_SITE_CACHE_DIR` del ENV dado (no del os.environ del padre)."""
+    saved = os.environ.get("DVC_SITE_CACHE_DIR")
+    os.environ["DVC_SITE_CACHE_DIR"] = env["DVC_SITE_CACHE_DIR"]
+    try:
+        return check(root)
+    finally:
+        if saved is None:
+            os.environ.pop("DVC_SITE_CACHE_DIR", None)
+        else:
+            os.environ["DVC_SITE_CACHE_DIR"] = saved
 
 
 def main() -> int:

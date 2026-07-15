@@ -89,7 +89,6 @@ def build_receipt(sbom_path: Path | None) -> dict:
                 observed[pe._canon(n)] = v
     version_ok = all(observed.get(k) == v for k, v in expected.items())
 
-    guard_probs = dvc_cache_guard.check(ROOT)
     dag = pe.run(profile, ["dvc", "dag", "--dot"], capture=True)
     status = pe.run(profile, ["dvc", "status", "--json"], capture=True)
 
@@ -103,6 +102,10 @@ def build_receipt(sbom_path: Path | None) -> dict:
     except ValueError, OSError:
         rel_scd = observed_scd
         site_cache_confined = False
+
+    # B22: el guard se valida DESPUÉS de correr DVC — así inspecciona el árbol `repo/<token>/…` que
+    # DiskCache creó (no un directorio vacío pre-ejecución).
+    guard_probs = dvc_cache_guard.check(ROOT)
 
     # SBOM a nivel de entorno (inventario real) + sha anclado
     sbom = _env_sbom(ready["inventory"])

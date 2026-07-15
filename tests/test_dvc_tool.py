@@ -5,6 +5,7 @@ PYSEC-2026-2447 (diskcache) y guard de caché DVC. La herramienta DVC está AISL
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import subprocess
 
@@ -15,6 +16,7 @@ import tools.check_no_legacy_envs as legacy
 import tools.check_no_stray_dvc as stray
 import tools.dvc_cache_guard as guard
 import tools.lock_contracts as lc
+import tools.validate_dvc_receipt as vr
 
 _H = "sha256:" + "a" * 64
 MAC = "locks/dvc-tool-macos-arm64.txt"
@@ -396,6 +398,108 @@ def test_b16_baseline_total_must_match():
 
     doc = _json.loads((legacy.BASELINE).read_text())
     assert doc["total"] == sum(doc["max_per_file"].values())
+
+
+# ----------------------------- C1: regresiones R8R3 (B19/B22/B23/B26) -----------------------------
+
+
+def _valid_receipt(plat):
+    contract = {**lc.DVC_TOOL_DIRECT, "diskcache": lc.DVC_TOOL_DISKCACHE}
+    z = "sha256:" + "0" * 64
+    return {
+        "schema_version": 2,
+        "profile": "dvc-tool",
+        "source_head_sha": "a",
+        "checkout_sha": "b",
+        "checkout_tree_sha": "c",
+        "base_sha": "d",
+        "git_dirty": False,
+        "github_run_id": "1",
+        "github_run_attempt": "1",
+        "env_id": "e",
+        "python": {},
+        "platform": plat,
+        "lock": vr._LOCKS_BY_PLATFORM[f"{plat['system']}-{plat['machine']}"],
+        "lock_sha256": z,
+        "lockset_sha256": z,
+        "dvc_in_sha256": z,
+        "expected": contract,
+        "observed": contract,
+        "version_ok": True,
+        "pip_check": "ok",
+        "cache_guard": "ok",
+        "site_cache_dir": "repo/x",
+        "site_cache_confined": True,
+        "dag_returncode": 0,
+        "dag_hash": z,
+        "dvc_status_returncode": 0,
+        "inventory_digest": z,
+        "n_packages": 0,
+        "sbom_component_count": 0,
+        "sbom_sha256": z,
+        "smoke_ok": True,
+    }
+
+
+def test_b19_forged_receipt_rejected(tmp_path, monkeypatch):
+    # workspace con los ficheros de referencia; el recibo forjado con pip_check/contract malos cae
+    monkeypatch.setattr(vr, "ROOT", tmp_path)
+    (tmp_path / "locks").mkdir()
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "locks/dvc-tool-linux-x86_64.txt").write_text("x")
+    (tmp_path / lc.MANIFEST_REL).write_text("y")
+    (tmp_path / "requirements/dvc.in").write_text("z")
+    r = _valid_receipt({"system": "Linux", "machine": "x86_64"})
+    r.update({"pip_check": "BROKEN", "expected": {"dvc": "9"}})
+    (tmp_path / "r.json").write_text(json.dumps(r))
+    (tmp_path / "s.json").write_text('{"bomFormat":"CycloneDX","components":[]}')
+    probs = vr.validate(tmp_path / "r.json", tmp_path / "s.json")
+    assert any("pip_check" in p for p in probs) and any("contrato" in p for p in probs)
+
+
+def test_b19_receipt_outside_workspace_rejected(tmp_path):
+    (tmp_path / "r.json").write_text("{}")
+    (tmp_path / "s.json").write_text("{}")
+    probs = vr.validate(tmp_path / "r.json", tmp_path / "s.json")
+    assert any("fuera del workspace" in p for p in probs)
+
+
+def test_b22_child_env_no_parent_mutation(tmp_path):
+    root = _cache_root(tmp_path)
+    before = os.environ.get("DVC_SITE_CACHE_DIR")
+    guard.child_env(root)
+    assert os.environ.get("DVC_SITE_CACHE_DIR") == before  # padre intacto
+
+
+def test_b22_site_cache_tree_group_writable_blocks(tmp_path):
+    root = _cache_root(tmp_path)
+    guard.prepare(root)
+    (root / ".dvc/site-cache/repo/token").mkdir(parents=True)
+    os.chmod(root / ".dvc/site-cache/repo/token", 0o777)
+    assert any("site-cache/repo/token" in x and "escribible" in x for x in guard.check(root))
+
+
+def test_b23_legacy_gate_syntax_error_fail_closed(tmp_path):
+    root = _git_repo(tmp_path, {"m.py": "def broken(:\n  pass\n"})
+    with pytest.raises(SystemExit):
+        legacy.current_counts(root)
+
+
+def test_b23_legacy_gate_variable_argv(tmp_path):
+    root = _git_repo(
+        tmp_path, {"m.py": 'import subprocess\ncmd = ["ante_nf/bin/python", "x.py"]\nsubprocess.run(cmd)\n'}
+    )
+    assert legacy.current_counts(root).get("m.py") == 1
+
+
+def test_b23_legacy_gate_from_import_alias(tmp_path):
+    root = _git_repo(tmp_path, {"m.py": 'from subprocess import run as r\nr(["ante/bin/python", "x"])\n'})
+    assert legacy.current_counts(root).get("m.py") == 1
+
+
+def test_b26_advisory_rationale_mentions_site_cache():
+    e = next(x for x in m.load_advisories(m.ADVISORIES) if x["id"] == "PYSEC-2026-2447")
+    assert "site_cache_dir" in e["rationale"] and "0700" in e["rationale"]
 
 
 if __name__ == "__main__":

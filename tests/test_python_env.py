@@ -81,6 +81,7 @@ def _fake_env(tmp_path, monkeypatch, *, digest_ok=True, env_id_ok=True):
     monkeypatch.setattr(pe, "env_id", lambda *a, **k: "KNOWNID")
     monkeypatch.setattr(pe, "descriptor", lambda *a, **k: _DESC)
     monkeypatch.setattr(pe, "_tree_digest", lambda p: "TREE")
+    monkeypatch.setattr(pe, "_file_hashes", lambda p, cfg: {"bin/dvc": "h"})
     monkeypatch.setattr(pe.lc, "validate_all", lambda root: [])
     sealed = _FREEZE if digest_ok else ["gamma==9.9.9"]
     meta = {
@@ -89,7 +90,7 @@ def _fake_env(tmp_path, monkeypatch, *, digest_ok=True, env_id_ok=True):
         "descriptor": _DESC,
         "inventory": sealed,
         "inventory_digest": pe._inventory_digest(sealed),
-        "file_hashes": {},
+        "file_hashes": {"bin/dvc": "h"},
         "tree_digest": "TREE",
         "pip_check": "ok",
         "n_packages": len(sealed),
@@ -278,6 +279,45 @@ def test_b15_deep_variant_matrix_enforced(tmp_path, monkeypatch):
 
 def test_b15_model_requires_cpu_torch(tmp_path, monkeypatch):
     _write_profiles(tmp_path, monkeypatch, lambda prof: prof["profiles"]["model"].pop("cpu_torch"))
+    with pytest.raises(SystemExit):
+        pe.load_profiles()
+
+
+# ----------------------------- C1: regresiones R8R3 (B20/B21) -----------------------------
+
+
+@pytest.mark.parametrize(
+    "mut,frag",
+    [
+        ({"schema_version": 999}, "schema_version"),
+        ({"pip_check": "BROKEN"}, "pip_check"),
+        ({"n_packages": 999}, "n_packages"),
+        ({"inventory_digest": "sha256:garbage"}, "inventory_digest"),
+        ({"file_hashes": {}}, "file_hashes"),
+    ],
+)
+def test_b20_ready_semantic_rejects(tmp_path, monkeypatch, mut, frag):
+    envp = _fake_env(tmp_path, monkeypatch)
+    meta = json.loads((envp / "READY.json").read_text())
+    meta.update(mut)
+    (envp / "READY.json").write_text(json.dumps(meta))
+    ok, why = pe.ready_valid(envp, "dvc-tool")
+    assert not ok and frag in why
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda p: p["profiles"]["dvc-tool"].update(cache_guarded=1),
+        lambda p: p["profiles"]["dvc-tool"].update(console_scripts="dvc"),
+        lambda p: p["toolchain"].update(pip=26),
+        lambda p: p["profiles"]["model"].update(cpu_index="https://evil/whl"),
+        lambda p: p["profiles"]["model"].update(cpu_torch="2.13.0"),
+        lambda p: p.update(evil=1),
+    ],
+)
+def test_b21_strict_types_reject(tmp_path, monkeypatch, mutate):
+    _write_profiles(tmp_path, monkeypatch, mutate)
     with pytest.raises(SystemExit):
         pe.load_profiles()
 

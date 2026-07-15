@@ -369,7 +369,7 @@ jobs:
             || { echo "::error::dvc quedó importable en el python del job"; exit 1; }
           # B17: validador ESTRICTO del recibo contra el repo (esquema exacto, smoke_ok, git limpio,
           # source_head, dvc_status=0, site_cache_confined, hashes de lock/lockset/dvc.in actuales).
-          python -m tools.validate_dvc_receipt --receipt dvc-tool-receipt-${{ matrix.variant }}.json
+          python -m tools.validate_dvc_receipt --receipt dvc-tool-receipt-${{ matrix.variant }}.json --sbom sbom-dvc-tool-env-${{ matrix.variant }}.json
           # gates R4 + C4.
           python tools/check_no_stray_dvc.py
           python tools/check_no_legacy_envs.py
@@ -432,12 +432,13 @@ jobs:
         with:
           name: dvc-tool-receipt-macos-arm64
           path: rc-macos
-      - name: Cross-validate receipts (schema + repo + dag_hash equality)
+      - name: Cross-validate receipts + SBOMs (schema + repo + dag_hash equality)
         env:
           GITHUB_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python -m tools.validate_dvc_receipt --cross \
-            rc-linux/dvc-tool-receipt-linux-x86_64.json rc-macos/dvc-tool-receipt-macos-arm64.json
+            rc-linux/dvc-tool-receipt-linux-x86_64.json rc-linux/sbom-dvc-tool-env-linux-x86_64.json \
+            rc-macos/dvc-tool-receipt-macos-arm64.json rc-macos/sbom-dvc-tool-env-macos-arm64.json
 
   # P0R.4R2: check ESTABLE y único a exigir en branch protection. Depende de todos los jobs y falla
   # si CUALQUIERA no terminó en success (failure/cancelled/skipped incluidos). Los nombres largos del
