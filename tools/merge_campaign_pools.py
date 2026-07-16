@@ -1226,17 +1226,22 @@ def _bundle_provenance(quar: _Quarantine) -> dict:
         ec: str | None = hashlib.sha256(open("environments/execution_contract.json", "rb").read()).hexdigest()
     except OSError:
         ec = None
-    heads = {st.source_label: (st.prev_sha or None) for st in quar._states.values()}
+    heads = {st.source_label: (st.prev_sha or None) for st in quar._states.values() if st.prev_sha}
+    head = _git("rev-parse", "HEAD")
     return {
-        "git_head": _git("rev-parse", "HEAD"),
         # `__file__` (no `_module_hash`) porque el productor corre como `__main__` (python -m): su nombre lógico
         # `tools.merge_campaign_pools` NO está en sys.modules y devolvería 'unknown'; el esquema exige hex64.
+        "git_head": head if (head and len(head) == 40) else None,  # B171: 40-hex o None (nunca comodín)
         "code_sha_merge_campaign_pools": _file_sha(__file__),
         "code_sha_campaign_bundle": _file_sha(_bundle.__file__),
         "code_sha_atomic_fs": _module_hash("tools.atomic_fs"),
         "code_sha_governed_read": _module_hash("tools.governed_read"),
         "code_sha_execution_contract": ec,
         "journal_heads": heads,
+        "python": sys.version.split()[0],
+        "platform": sys.platform,
+        "profile": os.environ.get("VP_ENV_PROFILE"),
+        "variant": os.environ.get("VP_ENV_VARIANT") or None,
     }
 
 

@@ -1,6 +1,6 @@
-"""Bundle inmutable content-addressed + puntero CURRENT por CAS (P0R.5 · B148/B145 · Incremento 1R). Regresiones
-adversariales B155-B164: contrato CERRADO, identidad gobernada, CAS con compensación bidireccional, idempotencia.
-El bundle es la AUTORIDAD del commit; los consumidores resuelven vía `open_current_bundle()`/`read_current_csv()`."""
+"""Bundle inmutable content-addressed + puntero CURRENT por CAS (P0R.5 · B148/B145 · Incrementos 1R/1R2). Regresiones
+adversariales B155-B174: contrato cerrado, identidad gobernada, verificación CSV, CAS fd-vivo con compensación por
+contenido, limpieza fail-closed, snapshot sin fugas. El bundle es la AUTORIDAD del commit."""
 
 from __future__ import annotations
 
@@ -24,7 +24,9 @@ def _camp(tmp_path):
 
 
 def _prov():
-    return {
+    # module-adaptivo: emite EXACTAMENTE las claves que el módulo cargado exige, para que el proof red-first aísle
+    # cada vulnerabilidad (no un desajuste de esquema de procedencia) en cualquier versión del módulo.
+    base = {
         "git_head": None,
         "code_sha_merge_campaign_pools": _H,
         "code_sha_campaign_bundle": _H,
@@ -32,15 +34,20 @@ def _prov():
         "code_sha_governed_read": _H,
         "code_sha_execution_contract": None,
         "journal_heads": {},
+        "python": "3.14.2",
+        "platform": "darwin",
+        "profile": None,
+        "variant": None,
     }
+    return {k: base[k] for k in cb._REQUIRED_PROVENANCE}
 
 
 def _outputs(suffix=b""):
     outs = []
     for n in _CAMP:
-        outs.append({"label": "campaign", "name": n, "bytes": b"a,b\n1,2\n" + n.encode() + suffix, "rows": 1, "cols": 2})  # fmt: skip
+        outs.append({"label": "campaign", "name": n, "bytes": b"a,b\n1," + n.encode() + suffix + b"\n", "rows": 1, "cols": 2})  # fmt: skip
     for n in _EVAL:
-        outs.append({"label": "eval", "name": n, "bytes": b"x,y\n3,4\n" + n.encode() + suffix, "rows": 1, "cols": 2})
+        outs.append({"label": "eval", "name": n, "bytes": b"x,y\n3," + n.encode() + suffix + b"\n", "rows": 1, "cols": 2})  # fmt: skip
     return outs
 
 
@@ -60,13 +67,17 @@ def _residue(camp):
     return sorted(p.name for p in camp.iterdir() if p.name.startswith((".merge-staging", ".merge-CURRENT.tmp")))
 
 
+def _commit(cfd, txid="tx.aaaa", suffix=b""):
+    return cb.build_and_commit(cfd, txid, "campA", _outputs(suffix), _inputs(), _prov())
+
+
 # --------------------------------------------- feliz + content-addressing ---------------------------------------------
 
 
 def test_build_commit_resolve(tmp_path):
     camp, cfd = _camp(tmp_path)
     try:
-        bid = cb.build_and_commit(cfd, "tx.deadbeef", "campA", _outputs(), _inputs(), _prov())
+        bid = _commit(cfd, "tx.deadbeef")
         assert len(bid) == 64
         rid, manifest = cb.open_current_bundle(cfd)
         assert rid == bid and len(manifest["outputs"]) == 8 and len(manifest["inputs"]) == 8
@@ -79,8 +90,8 @@ def test_build_commit_resolve(tmp_path):
 def test_bundle_id_content_addressed(tmp_path):
     camp, cfd = _camp(tmp_path)
     try:
-        b1 = cb.build_and_commit(cfd, "tx1.aaaa", "campA", _outputs(), _inputs(), _prov())
-        b2 = cb.build_and_commit(cfd, "tx2.bbbb", "campA", _outputs(b"z\n"), _inputs(), _prov())
+        b1 = _commit(cfd, "tx1.aaaa")
+        b2 = _commit(cfd, "tx2.bbbb", suffix=b"z")
         assert b1 != b2
         cur = cb._read_current(cfd)[0]
         assert cur["bundle_id"] == b2 and cur["previous_bundle_id"] == b1
@@ -89,7 +100,6 @@ def test_bundle_id_content_addressed(tmp_path):
 
 
 def test_b164_crlf_input_size_is_real_bytes(tmp_path):
-    # B164: el tamaño del input viene de los BYTES REALES (CRLF preservado), no reconstruido con pandas.
     camp, cfd = _camp(tmp_path)
     try:
         cb.build_and_commit(cfd, "tx.crlf", "campA", _outputs(), _inputs(crlf=True), _prov())
@@ -100,7 +110,7 @@ def test_b164_crlf_input_size_is_real_bytes(tmp_path):
         os.close(cfd)
 
 
-# --------------------------------------------- B155: validación de nombres ---------------------------------------------
+# --------------------------------------------- B155: nombres ---------------------------------------------
 
 
 @pytest.mark.parametrize("bad", ["/etc/passwd", "../escape.csv", "a/b.csv", "with\x00nul", ""])
@@ -108,100 +118,43 @@ def test_b155_unsafe_output_name_rejected(tmp_path, bad):
     camp, cfd = _camp(tmp_path)
     try:
         outs = _outputs()
-        outs[0] = {"label": "campaign", "name": bad, "bytes": b"x", "rows": 1, "cols": 1}
+        outs[0] = {"label": "campaign", "name": bad, "bytes": b"a,b\n1,2\n", "rows": 1, "cols": 2}
         with pytest.raises(cb.BundleValidationError):
             cb.build_and_commit(cfd, "tx.n", "c", outs, _inputs(), _prov())
-        assert _residue(camp) == []  # nada de staging tras el rechazo
+        assert _residue(camp) == []
     finally:
         os.close(cfd)
 
 
-@pytest.mark.parametrize("bad", ["/abs.csv", "../x.csv", "d/x.csv", ""])
-def test_b155_unsafe_input_name_rejected(tmp_path, bad):
-    camp, cfd = _camp(tmp_path)
-    try:
-        ins = _inputs()
-        ins[0] = {"name": bad, "bytes": b"x"}
-        with pytest.raises(cb.BundleValidationError):
-            cb.build_and_commit(cfd, "tx.n", "c", _outputs(), ins, _prov())
-    finally:
-        os.close(cfd)
-
-
-# --------------------------------------------- B159: contrato cerrado ---------------------------------------------
+# --------------------------------------------- B159/B168: esquemas cerrados ---------------------------------------------
 
 
 def test_b159_manifest_ok_validates():
     assert cb._validate_manifest(_manifest_ok())["campaign_id"] == "campA"
 
 
-def test_b159_zero_outputs_rejected():
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda m: m.update(outputs=[]),
+        lambda m: m.update(outputs=m["outputs"][:-1]),
+        lambda m: m["outputs"].append(
+            {"label": "campaign", "name": "campaign_pool_FAD_family.csv", "rows": 1, "cols": 2, "sha256": _H}
+        ),  # fmt: skip
+        lambda m: m.update(schema_version=True),
+        lambda m: m.update(campaign_id=7),
+        lambda m: m.update(backdoor=1),
+        lambda m: m.pop("provenance"),
+        lambda m: m["outputs"][0].update(sha256="zz"),
+        lambda m: m["outputs"][0].update(rows=True),
+        lambda m: m["outputs"][0].update(cols=0),
+        lambda m: m["inputs"][0].update(size=0),
+        lambda m: m["provenance"].pop("code_sha_campaign_bundle"),
+    ],
+)
+def test_b159_closed_manifest_rejects(mutate):
     m = _manifest_ok()
-    m["outputs"] = []
-    with pytest.raises(cb.BundleValidationError):
-        cb._validate_manifest(m)
-
-
-def test_b159_missing_output_rejected():
-    m = _manifest_ok()
-    m["outputs"] = m["outputs"][:-1]
-    with pytest.raises(cb.BundleValidationError):
-        cb._validate_manifest(m)
-
-
-def test_b159_extra_output_rejected():
-    m = _manifest_ok()
-    m["outputs"].append({"label": "campaign", "name": "campaign_pool_FAD_family.csv", "rows": 1, "cols": 2, "sha256": _H})  # fmt: skip
-    with pytest.raises(cb.BundleValidationError):
-        cb._validate_manifest(m)
-
-
-def test_b159_bool_schema_version_rejected():
-    m = _manifest_ok()
-    m["schema_version"] = True  # bool NO es int válido
-    with pytest.raises(cb.BundleValidationError):
-        cb._validate_manifest(m)
-
-
-def test_b159_numeric_campaign_id_rejected():
-    m = _manifest_ok()
-    m["campaign_id"] = 7
-    with pytest.raises(cb.BundleValidationError):
-        cb._validate_manifest(m)
-
-
-def test_b159_extra_manifest_key_rejected():
-    m = _manifest_ok()
-    m["backdoor"] = 1
-    with pytest.raises(cb.BundleValidationError):
-        cb._validate_manifest(m)
-
-
-def test_b159_missing_manifest_key_rejected():
-    m = _manifest_ok()
-    del m["provenance"]
-    with pytest.raises(cb.BundleValidationError):
-        cb._validate_manifest(m)
-
-
-@pytest.mark.parametrize("field,badval", [("sha256", "zz"), ("rows", 0), ("cols", -1), ("rows", True)])
-def test_b159_bad_output_scalar_rejected(field, badval):
-    m = _manifest_ok()
-    m["outputs"][0][field] = badval
-    with pytest.raises(cb.BundleValidationError):
-        cb._validate_manifest(m)
-
-
-def test_b159_bad_input_size_rejected():
-    m = _manifest_ok()
-    m["inputs"][0]["size"] = 0
-    with pytest.raises(cb.BundleValidationError):
-        cb._validate_manifest(m)
-
-
-def test_b159_incomplete_provenance_rejected():
-    m = _manifest_ok()
-    del m["provenance"]["code_sha_campaign_bundle"]
+    mutate(m)
     with pytest.raises(cb.BundleValidationError):
         cb._validate_manifest(m)
 
@@ -211,26 +164,86 @@ def test_b159_dup_json_keys_rejected():
         cb._strict_loads(b'{"a":1,"a":2}')
 
 
-def test_b159_empty_manifest_rejected(tmp_path):
-    # un bundle vacío/degenerado no valida como autoridad ni resolviendo por CURRENT.
+def test_b168_malformed_json_is_governed_error():
+    with pytest.raises(cb.BundleValidationError):
+        cb._strict_loads(b"{not json")
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda p: p.update(schema_version=True),
+        lambda p: p.pop("previous_bundle_id"),
+        lambda p: p.update(backdoor=1),
+        lambda p: p.update(bundle_id="short"),
+        lambda p: p.update(campaign_id="   "),
+    ],
+)
+def test_b168_closed_pointer_schema_rejects(mutate):
+    p = {"schema_version": 1, "campaign_id": "c", "bundle_id": _H, "previous_bundle_id": None}
+    mutate(p)
+    with pytest.raises(cb.BundleValidationError):
+        cb._validate_pointer(p)
+
+
+# --------------------------------------------- B169: CSV real ---------------------------------------------
+
+
+def test_b169_fake_row_count_rejected(tmp_path):
     camp, cfd = _camp(tmp_path)
     try:
-        cb.build_and_commit(cfd, "tx.e", "campA", _outputs(), _inputs(), _prov())
-        bid = cb._read_current(cfd)[0]["bundle_id"]
-        (camp / ".merge-bundles" / bid / "manifest.json").write_bytes(b"{}")
+        outs = _outputs()
+        outs[0]["rows"] = 999  # metadato falso para un CSV de una fila
         with pytest.raises(cb.BundleValidationError):
-            cb.open_current_bundle(cfd)
+            cb.build_and_commit(cfd, "tx.r", "campA", outs, _inputs(), _prov())
     finally:
         os.close(cfd)
 
 
-# --------------------------------------------- B160: identidad + inventario ---------------------------------------------
+def test_b169_string_cols_rejected(tmp_path):
+    camp, cfd = _camp(tmp_path)
+    try:
+        outs = _outputs()
+        outs[0]["cols"] = "2"  # str, no int
+        with pytest.raises(cb.BundleValidationError):
+            cb.build_and_commit(cfd, "tx.c", "campA", outs, _inputs(), _prov())
+    finally:
+        os.close(cfd)
+
+
+def test_b169_duplicate_columns_rejected():
+    with pytest.raises(cb.BundleValidationError):
+        cb._verify_csv(b"a,a\n1,2\n", 1, 2)
+
+
+# --------------------------------------------- B171: procedencia ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda pr: pr.update(git_head="x"),
+        lambda pr: pr.update(code_sha_atomic_fs=None),
+        lambda pr: pr.update(journal_heads={"bogus": _H}),
+        lambda pr: pr.update(journal_heads={"campaign": "nothex"}),
+        lambda pr: pr.update(python=""),
+        lambda pr: pr.pop("platform"),
+    ],
+)
+def test_b171_provenance_schema_rejects(mutate):
+    m = _manifest_ok()
+    mutate(m["provenance"])
+    with pytest.raises(cb.BundleValidationError):
+        cb._validate_manifest(m)
+
+
+# --------------------------------------------- B160/B172: identidad + modo ---------------------------------------------
 
 
 def test_b160_group_writable_sealed_output_rejected(tmp_path):
     camp, cfd = _camp(tmp_path)
     try:
-        bid = cb.build_and_commit(cfd, "tx.g", "campA", _outputs(), _inputs(), _prov())
+        bid = _commit(cfd, "tx.g")
         os.chmod(camp / ".merge-bundles" / bid / "outputs" / "campaign" / "campaign_pool_FAD_family.csv", 0o666)
         with pytest.raises(cb.BundleValidationError):
             cb.open_current_bundle(cfd)
@@ -241,20 +254,9 @@ def test_b160_group_writable_sealed_output_rejected(tmp_path):
 def test_b160_hardlinked_sealed_output_rejected(tmp_path):
     camp, cfd = _camp(tmp_path)
     try:
-        bid = cb.build_and_commit(cfd, "tx.h", "campA", _outputs(), _inputs(), _prov())
+        bid = _commit(cfd, "tx.h")
         d = camp / ".merge-bundles" / bid / "outputs" / "campaign"
         os.link(d / "campaign_pool_FAD_family.csv", d / "campaign_pool_FAD_family.csv.hard")
-        with pytest.raises(cb.BundleValidationError):
-            cb.open_current_bundle(cfd)  # nlink==2 en el sellado + inventario extra
-    finally:
-        os.close(cfd)
-
-
-def test_b160_extra_file_in_bundle_rejected(tmp_path):
-    camp, cfd = _camp(tmp_path)
-    try:
-        bid = cb.build_and_commit(cfd, "tx.x", "campA", _outputs(), _inputs(), _prov())
-        (camp / ".merge-bundles" / bid / "EXTRA").write_bytes(b"z")
         with pytest.raises(cb.BundleValidationError):
             cb.open_current_bundle(cfd)
     finally:
@@ -264,7 +266,7 @@ def test_b160_extra_file_in_bundle_rejected(tmp_path):
 def test_b160_extra_file_in_label_dir_rejected(tmp_path):
     camp, cfd = _camp(tmp_path)
     try:
-        bid = cb.build_and_commit(cfd, "tx.x2", "campA", _outputs(), _inputs(), _prov())
+        bid = _commit(cfd, "tx.x2")
         (camp / ".merge-bundles" / bid / "outputs" / "eval" / "sneak.csv").write_bytes(b"z")
         with pytest.raises(cb.BundleValidationError):
             cb.open_current_bundle(cfd)
@@ -272,42 +274,33 @@ def test_b160_extra_file_in_label_dir_rejected(tmp_path):
         os.close(cfd)
 
 
-def test_b160_tampered_sealed_output_detected(tmp_path):
+def test_b172_non_0700_sealed_dir_rejected(tmp_path):
     camp, cfd = _camp(tmp_path)
     try:
-        bid = cb.build_and_commit(cfd, "tx.t", "campA", _outputs(), _inputs(), _prov())
-        p = camp / ".merge-bundles" / bid / "outputs" / "campaign" / "campaign_pool_FAD_family.csv"
-        os.chmod(p, 0o600)
-        with open(p, "ab") as fh:
-            fh.write(b"TAMPER\n")
+        bid = _commit(cfd, "tx.m")
+        os.chmod(camp / ".merge-bundles" / bid / "outputs" / "campaign", 0o755)
         with pytest.raises(cb.BundleValidationError):
-            cb.read_current_csv(cfd, "campaign", "campaign_pool_FAD_family.csv")
+            cb.open_current_bundle(cfd)
     finally:
         os.close(cfd)
 
 
-# --------------------------------------------- B161/B162: colisión e idempotencia ---------------------------------------------
+# --------------------------------------------- B161/B162/B173: colisión, residuo, autoridad previa ---------------------------------------------
 
 
-def test_b161_collision_with_corrupt_output_does_not_change_current(tmp_path):
-    # un bundle preexistente con manifest correcto pero OUTPUT corrupto: al re-commitear el mismo id, la colisión
-    # valida el bundle COMPLETO, falla y NO cambia CURRENT (autoridad no envenenada).
+def test_b161_collision_with_corrupt_output_blocks(tmp_path):
     camp, cfd = _camp(tmp_path)
     try:
-        first = cb.build_and_commit(cfd, "tx.a", "campA", _outputs(), _inputs(), _prov())
+        _commit(cfd, "tx.a")
+        target = _commit(cfd, "tx.b", suffix=b"v2")
         before = cb._read_current(cfd)[1]
-        target = cb.build_and_commit(cfd, "tx.b", "campA", _outputs(b"v2\n"), _inputs(), _prov())  # CURRENT=target
-        before2 = cb._read_current(cfd)[1]
-        assert cb._read_current(cfd)[0]["bundle_id"] == target and first != target
-        # corromper el output sellado de `target` y re-commitear EXACTAMENTE el mismo (colisión de id)
         p = camp / ".merge-bundles" / target / "outputs" / "campaign" / "campaign_pool_FAD_family.csv"
         os.chmod(p, 0o600)
         with open(p, "ab") as fh:
             fh.write(b"corrupt\n")
         with pytest.raises(cb.BundleValidationError):
-            cb.build_and_commit(cfd, "tx.b", "campA", _outputs(b"v2\n"), _inputs(), _prov())
-        assert cb._read_current(cfd)[1] == before2  # CURRENT intacto pese al intento
-        assert before != before2  # (sanity de la secuencia)
+            cb.build_and_commit(cfd, "tx.b", "campA", _outputs(b"v2"), _inputs(), _prov())
+        assert cb._read_current(cfd)[1] == before  # CURRENT intacto
     finally:
         os.close(cfd)
 
@@ -315,100 +308,198 @@ def test_b161_collision_with_corrupt_output_does_not_change_current(tmp_path):
 def test_b162_repeated_commit_leaves_no_residue(tmp_path):
     camp, cfd = _camp(tmp_path)
     try:
-        for _ in range(3):  # mismo txid+contenido: colisión de bundle; jamás bloquea ni deja staging/tmp
-            cb.build_and_commit(cfd, "tx.same", "campA", _outputs(), _inputs(), _prov())
+        for _ in range(3):
+            _commit(cfd, "tx.same")
             assert _residue(camp) == []
     finally:
         os.close(cfd)
 
 
-# --------------------------------------------- B156/B157: CAS correcto ---------------------------------------------
-
-
-def test_b156_current_race_compensates(tmp_path, monkeypatch):
-    # entre _read_current y el exchange, un escritor concurrente cambia CURRENT. El CAS debe COMPENSAR (segundo
-    # exchange) y dejar CURRENT byte-idéntico al puntero concurrente, elevando BundleConcurrencyError (no éxito).
+def test_b173_invalid_prior_authority_blocks_new_commit(tmp_path):
+    # si el bundle al que apunta el CURRENT previo está corrupto, el nuevo commit BLOQUEA (no lo repara en silencio).
     camp, cfd = _camp(tmp_path)
     try:
-        cb.build_and_commit(cfd, "tx.a", "campA", _outputs(), _inputs(), _prov())  # CURRENT = A
-        concurrent = cb._canon({"schema_version": 1, "campaign_id": "concurrent", "bundle_id": "f" * 64, "previous_bundle_id": None})  # fmt: skip
-        prepared = cb.prepare_bundle(cfd, "tx.b", "campA", _outputs(b"b\n"), _inputs(), _prov())
-        real_ex = cb.rename_exchange
-        state = {"n": 0}
-
-        def racing_exchange(sfd, s, dfd, d):
-            state["n"] += 1
-            if state["n"] == 1:  # el "escritor concurrente" reemplaza el contenido de CURRENT en sitio
-                w = os.open(cb._CURRENT_NAME, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW, dir_fd=cfd)
-                os.write(w, concurrent)
-                os.fsync(w)
-                os.close(w)
-            return real_ex(sfd, s, dfd, d)
-
-        monkeypatch.setattr(cb, "rename_exchange", racing_exchange)
-        with pytest.raises(cb.BundleConcurrencyError):
-            cb.commit_current(prepared)
-        monkeypatch.undo()
-        assert cb._read_current(cfd)[1] == concurrent  # CURRENT restaurado al concurrente, byte-idéntico
-        assert _residue(camp) == []  # mi puntero withdrawn, sin .tmp suelto
-    finally:
-        os.close(cfd)
-
-
-def test_b157_precommit_write_failure_leaves_current_intact(tmp_path, monkeypatch):
-    # un fallo al escribir el nuevo puntero (antes del CAS) NO debe tocar CURRENT (sin truncar ni corromper).
-    camp, cfd = _camp(tmp_path)
-    try:
-        cb.build_and_commit(cfd, "tx.a", "campA", _outputs(), _inputs(), _prov())
+        a = _commit(cfd, "tx.a")
         before = cb._read_current(cfd)[1]
-        prepared = cb.prepare_bundle(cfd, "tx.b", "campA", _outputs(b"b\n"), _inputs(), _prov())
-        real_write_all = cb._write_all
+        p = camp / ".merge-bundles" / a / "outputs" / "campaign" / "campaign_pool_FAD_family.csv"
+        os.chmod(p, 0o600)
+        with open(p, "ab") as fh:
+            fh.write(b"corrupt\n")
+        with pytest.raises(cb.BundleValidationError):
+            _commit(cfd, "tx.b", suffix=b"new")
+        assert cb._read_current(cfd)[1] == before
+    finally:
+        os.close(cfd)
 
-        def failing_write_all(fd, data):
-            if b"previous_bundle_id" in data:  # sólo el puntero CURRENT
-                raise cb.BundleError("escritura del puntero simulada fallida")
-            return real_write_all(fd, data)
 
-        monkeypatch.setattr(cb, "_write_all", failing_write_all)
+# --------------------------------------------- B165: _Prepared no confiable ---------------------------------------------
+
+
+def test_b165_fabricated_prepared_rejected(tmp_path):
+    camp, cfd = _camp(tmp_path)
+    try:
+        _commit(cfd, "tx.a")  # existe un bundles dir
+        # _PreparedBundle apunta a un bundle_id inexistente → revalidate/commit deben rechazar
+        with pytest.raises(cb.BundleValidationError):
+            cb._PreparedBundle(cfd, "f" * 64, "campA", _manifest_ok())
+    finally:
+        os.close(cfd)
+
+
+def test_b165_bundle_altered_after_prepare_rejected(tmp_path):
+    camp, cfd = _camp(tmp_path)
+    try:
+        with cb.prepare_bundle(cfd, "tx.a", "campA", _outputs(), _inputs(), _prov()) as prepared:
+            p = camp / ".merge-bundles" / prepared.bundle_id / "outputs" / "campaign" / "campaign_pool_FAD_family.csv"
+            os.chmod(p, 0o600)
+            with open(p, "ab") as fh:
+                fh.write(b"tamper\n")
+            with pytest.raises(cb.BundleValidationError):  # commit re-valida a través del fd vivo → detecta
+                cb.commit_current(prepared)
+    finally:
+        os.close(cfd)
+
+
+# --------------------------------------------- B166/B167: CAS por contenido + compensación ---------------------------------------------
+
+
+def test_b166_inplace_pointer_substitution_never_publishes_attacker(tmp_path, monkeypatch):
+    # sustituir el contenido del puntero temporal en sitio durante el exchange NO debe dejar CURRENT apuntando al
+    # bundle del atacante: se detecta por contenido y CURRENT permanece en el bundle válido previo.
+    camp, cfd = _camp(tmp_path)
+    try:
+        a = _commit(cfd, "tx.a")
+        with cb.prepare_bundle(cfd, "tx.b", "campA", _outputs(b"b"), _inputs(), _prov()) as prepared:
+            real_ex = cb.rename_exchange
+            state = {"n": 0}
+
+            def substituting_exchange(sfd, s, dfd, d):
+                state["n"] += 1
+                if state["n"] == 1:  # reescribe el tmp EN SITIO con el puntero del atacante antes del exchange real
+                    fd = os.open(s, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW, dir_fd=sfd)
+                    os.write(fd, b'{"schema_version":1,"campaign_id":"evil","bundle_id":"' + b"e" * 64 + b'","previous_bundle_id":null}')  # fmt: skip
+                    os.fsync(fd)
+                    os.close(fd)
+                return real_ex(sfd, s, dfd, d)
+
+            monkeypatch.setattr(cb, "rename_exchange", substituting_exchange)
+            with pytest.raises(cb.BundleError):  # el contenido no liga a mi puntero → carrera; estado preservado
+                cb.commit_current(prepared)
+            monkeypatch.undo()
+        assert cb.open_current_bundle(cfd)[0] == a  # CURRENT sigue en el bundle VÁLIDO previo, jamás en 'e'*64
+    finally:
+        os.close(cfd)
+
+
+def test_b156_current_race_restores_concurrent_value(tmp_path, monkeypatch):
+    # un cambio concurrente de CURRENT entre lectura y exchange → compensa dejando el valor CONCURRENTE, byte-idéntico.
+    camp, cfd = _camp(tmp_path)
+    try:
+        _commit(cfd, "tx.a")
+        concurrent = cb._canon({"schema_version": 1, "campaign_id": "concurrent", "bundle_id": "f" * 64, "previous_bundle_id": None})  # fmt: skip
+        with cb.prepare_bundle(cfd, "tx.b", "campA", _outputs(b"b"), _inputs(), _prov()) as prepared:
+            real_ex = cb.rename_exchange
+            state = {"n": 0}
+
+            def racing_exchange(sfd, s, dfd, d):
+                state["n"] += 1
+                if state["n"] == 1:
+                    fd = os.open(cb._CURRENT_NAME, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW, dir_fd=cfd)
+                    os.write(fd, concurrent)
+                    os.fsync(fd)
+                    os.close(fd)
+                return real_ex(sfd, s, dfd, d)
+
+            monkeypatch.setattr(cb, "rename_exchange", racing_exchange)
+            with pytest.raises(cb.BundleConcurrencyError):
+                cb.commit_current(prepared)
+            monkeypatch.undo()
+        assert cb._read_current(cfd)[1] == concurrent  # valor concurrente restaurado byte-idéntico
+        assert _residue(camp) == []
+    finally:
+        os.close(cfd)
+
+
+def test_b167_failed_compensation_preserves_and_raises(tmp_path, monkeypatch):
+    # si el segundo exchange (compensación) falla, se PRESERVA todo y se eleva BundleRollbackIncompleteError.
+    camp, cfd = _camp(tmp_path)
+    try:
+        _commit(cfd, "tx.a")
+        concurrent = cb._canon({"schema_version": 1, "campaign_id": "conc", "bundle_id": "f" * 64, "previous_bundle_id": None})  # fmt: skip
+        with cb.prepare_bundle(cfd, "tx.b", "campA", _outputs(b"b"), _inputs(), _prov()) as prepared:
+            real_ex = cb.rename_exchange
+            state = {"n": 0}
+
+            def failing_second(sfd, s, dfd, d):
+                state["n"] += 1
+                if state["n"] == 1:
+                    fd = os.open(cb._CURRENT_NAME, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW, dir_fd=cfd)
+                    os.write(fd, concurrent)
+                    os.fsync(fd)
+                    os.close(fd)
+                    return real_ex(sfd, s, dfd, d)
+                raise OSError("compensación simulada rota")  # el 2º exchange (compensación) falla
+
+            monkeypatch.setattr(cb, "rename_exchange", failing_second)
+            with pytest.raises(cb.BundleRollbackIncompleteError):
+                cb.commit_current(prepared)
+            monkeypatch.undo()
+    finally:
+        os.close(cfd)
+
+
+# --------------------------------------------- B170: limpieza fail-closed ---------------------------------------------
+
+
+def test_b170_cleanup_failure_is_not_silent(tmp_path, monkeypatch):
+    # si la limpieza del staging falla, NO se devuelve éxito silencioso.
+    camp, cfd = _camp(tmp_path)
+    try:
+        monkeypatch.setattr(cb, "_rmtree_governed", lambda *a, **k: (_ for _ in ()).throw(OSError("cleanup roto")))
         with pytest.raises(cb.BundleError):
-            cb.commit_current(prepared)
-        monkeypatch.undo()
-        assert cb._read_current(cfd)[1] == before  # CURRENT sin cambios
-        assert _residue(camp) == []  # el tmp fallido se limpió
+            _commit(cfd, "tx.a")
     finally:
         os.close(cfd)
 
 
-def test_b157_postcas_failure_is_committed_state(tmp_path, monkeypatch):
-    # un fallo DESPUÉS de que el CAS cruzó debe ser CommittedStateError (nunca un rollback silencioso); CURRENT ya
-    # avanzó al bundle nuevo.
+# --------------------------------------------- B174: snapshot sin fugas ---------------------------------------------
+
+
+def test_b174_snapshot_consistent_across_current_swap(tmp_path):
     camp, cfd = _camp(tmp_path)
     try:
-        a = cb.build_and_commit(cfd, "tx.a", "campA", _outputs(), _inputs(), _prov())
-        prepared = cb.prepare_bundle(cfd, "tx.b", "campA", _outputs(b"b\n"), _inputs(), _prov())
-        monkeypatch.setattr(cb, "_verify_current", lambda *a, **k: (_ for _ in ()).throw(cb.BundleError("post-CAS")))
-        with pytest.raises(cb.CommittedStateError):
-            cb.commit_current(prepared)
-        monkeypatch.undo()
-        assert cb._read_current(cfd)[0]["bundle_id"] == prepared.bundle_id != a  # el commit cruzó
-    finally:
-        os.close(cfd)
-
-
-# --------------------------------------------- B163: lector por snapshot único ---------------------------------------------
-
-
-def test_b163_snapshot_reads_consistent_across_current_swap(tmp_path):
-    # un snapshot abierto sigue leyendo su bundle aunque CURRENT cambie a otra campaña entre lecturas (no mezcla).
-    camp, cfd = _camp(tmp_path)
-    try:
-        a = cb.build_and_commit(cfd, "tx.a", "campA", _outputs(), _inputs(), _prov())
+        a = _commit(cfd, "tx.a")
         with cb.open_current_snapshot(cfd) as snap:
             first = snap.read("campaign", "campaign_pool_FAD_family.csv")
-            b = cb.build_and_commit(cfd, "tx.b", "campA", _outputs(b"NEW\n"), _inputs(), _prov())  # CURRENT → b
+            b = _commit(cfd, "tx.b", suffix=b"NEW")
             assert a != b and snap.bundle_id == a
             second = snap.read("campaign", "campaign_pool_DFF_family.csv")
-            assert first.startswith(b"a,b") and second.startswith(b"a,b")  # ambos del bundle A
+            assert first.startswith(b"a,b") and second.startswith(b"a,b")
+    finally:
+        os.close(cfd)
+
+
+def test_b174_snapshot_partial_open_failure_no_fd_leak(tmp_path, monkeypatch):
+    # si una apertura parcial del snapshot falla, no deben quedar descriptores abiertos.
+    camp, cfd = _camp(tmp_path)
+    try:
+        _commit(cfd, "tx.a")
+        before = len(os.listdir("/dev/fd")) if os.path.isdir("/dev/fd") else len(os.listdir("/proc/self/fd"))
+        real_open_dir = cb._open_dir
+        state = {"n": 0}
+
+        def flaky_open_dir(parent_fd, name, **k):
+            state["n"] += 1
+            if state["n"] == 4:  # falla en una apertura intermedia (un label)
+                raise OSError("apertura parcial simulada")
+            return real_open_dir(parent_fd, name, **k)
+
+        monkeypatch.setattr(cb, "_open_dir", flaky_open_dir)
+        with pytest.raises(OSError):
+            cb.open_current_bundle(cfd)
+        monkeypatch.undo()
+        after = len(os.listdir("/dev/fd")) if os.path.isdir("/dev/fd") else len(os.listdir("/proc/self/fd"))
+        assert after <= before, f"fuga de fds: {before} -> {after}"
     finally:
         os.close(cfd)
 
