@@ -1218,23 +1218,68 @@ def _abort_receipt(camp_fd: int, txid: str, ctx: _TxContext) -> None:
                 ctx.close_errors.append(f"cerrar aborted fd: {exc}")
 
 
+def _bundle_provenance(quar: _Quarantine) -> dict:
+    """B164: procedencia oficial COMPLETA para el manifiesto del bundle, en la forma EXACTA que exige el esquema
+    cerrado: HEAD de git, hashes de los CUATRO módulos de la ruta de confianza + el contrato de ejecución (None si
+    ausente, no 'unknown'), y la cabeza terminal de cada journal de cuarentena."""
+    try:
+        ec: str | None = hashlib.sha256(open("environments/execution_contract.json", "rb").read()).hexdigest()
+    except OSError:
+        ec = None
+    heads = {st.source_label: (st.prev_sha or None) for st in quar._states.values()}
+    return {
+        "git_head": _git("rev-parse", "HEAD"),
+        # `__file__` (no `_module_hash`) porque el productor corre como `__main__` (python -m): su nombre lógico
+        # `tools.merge_campaign_pools` NO está en sys.modules y devolvería 'unknown'; el esquema exige hex64.
+        "code_sha_merge_campaign_pools": _file_sha(__file__),
+        "code_sha_campaign_bundle": _file_sha(_bundle.__file__),
+        "code_sha_atomic_fs": _module_hash("tools.atomic_fs"),
+        "code_sha_governed_read": _module_hash("tools.governed_read"),
+        "code_sha_execution_contract": ec,
+        "journal_heads": heads,
+    }
+
+
+def _file_sha(path: str) -> str:
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def _seal_bytes_from_fd(fd: int, certified_digest: str | None, what: str) -> bytes:
+    """B158: relee el contenido COMPLETO desde un fd CERTIFICADO revalidando digest + snapshot fstat pre/post. Si
+    el contenido mutó entre la certificación (recibo) y el sellado del bundle, ABORTA — el bundle jamás sella un
+    estado distinto del certificado."""
+    s0 = snapshot_fd(fd)
+    os.lseek(fd, 0, os.SEEK_SET)
+    data = b""
+    while chunk := os.read(fd, 1 << 16):
+        data += chunk
+    if certified_digest is None or hashlib.sha256(data).hexdigest() != certified_digest or snapshot_fd(fd) != s0:
+        raise _bundle.BundleValidationError(f"{what} mutó entre la certificación y el sellado del bundle (B158)")
+    return data
+
+
 def _publish_bundle(chain: _Chain, quar: _Quarantine, inputs: list[_InputLease], outs: list[_Out], campaign: str | None, ctx: _TxContext) -> None:  # fmt: skip
-    """B148/B145 (increment 1): tras el commit del recibo, sella los outputs VERIFICADOS en un bundle inmutable
-    content-addressed y publica el puntero CURRENT por CAS = la AUTORIDAD durable. Output-neutral: los CSV siguen
-    escritos como proyecciones. Un fallo aquí es post-commit (los outputs ya cruzaron) ⇒ Issue de postcommit."""
+    """B148/B145 + B158/B164: tras el commit del recibo, RELEE cada output desde su fd CERTIFICADO revalidando el
+    digest (aborta si mutó entre certificación y sellado, B158), lee los BYTES REALES de cada input desde su lease
+    (tamaño/hash sin reconstruir con pandas, B164), sella todo en un bundle inmutable content-addressed y publica el
+    puntero CURRENT por CAS = AUTORIDAD durable. Output-neutral. Un fallo aquí es post-commit ⇒ Issue."""
     try:
         seen: dict[str, _InputLease] = {}
         for i in inputs:
             seen.setdefault(i.name, i)
-        input_meta = [{"name": i.name, "size": len(i.df.to_csv(index=False).encode()), "sha256": i.digest} for i in seen.values()]  # fmt: skip
-        output_meta = []
-        for o in outs:
-            os.lseek(o.temp_fd, 0, os.SEEK_SET)
-            data = b""
-            while chunk := os.read(o.temp_fd, 1 << 16):
-                data += chunk
-            output_meta.append({"label": o.label, "name": o.name, "bytes": data, "rows": int(len(o.df)), "cols": int(len(o.df.columns))})  # fmt: skip
-        _bundle.build_and_commit(chain.camp, quar.txid, campaign, output_meta, input_meta, _provenance())
+        input_meta = [{"name": i.name, "bytes": _seal_bytes_from_fd(i.fd, i.digest, f"input {i.name!r}")} for i in seen.values()]  # fmt: skip
+        output_meta = [
+            {
+                "label": o.label,
+                "name": o.name,
+                "bytes": _seal_bytes_from_fd(o.temp_fd, o.temp_digest, f"output {o.name!r}"),
+                "rows": int(len(o.df)),
+                "cols": int(len(o.df.columns)),
+            }  # fmt: skip
+            for o in outs
+        ]
+        _bundle.build_and_commit(chain.camp, quar.txid, campaign, output_meta, input_meta, _bundle_provenance(quar))
     except (_bundle.BundleError, OSError, ValueError) as exc:
         ctx.flag("BUNDLE_PUBLISH_FAILED", f"no se pudo publicar el bundle/puntero CURRENT post-commit: {exc}")
 

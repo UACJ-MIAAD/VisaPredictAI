@@ -2397,5 +2397,60 @@ def test_b148_post_commit_csv_mutation_does_not_corrupt_authority(tmp_path, monk
         os.close(cfd)
 
 
+def test_b158_mutation_between_receipt_and_sealing_never_enters_bundle(tmp_path, monkeypatch):
+    # B158: una mutación de un output DESPUÉS del recibo y ANTES del sellado NO debe entrar al bundle. El sellado
+    # relee desde el fd certificado revalidando el digest → aborta la publicación → no hay autoridad envenenada.
+    import tools.campaign_bundle as cb
+
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    real_cert = mcp._certify_commit
+
+    def cert_then_mutate(chain, lock, inputs, outs, quar, ctx):
+        real_cert(chain, lock, inputs, outs, quar, ctx)  # commit del recibo (certifica los outputs)
+        p = camp / "campaign_pool_FAD_family.csv"  # …y ENTONCES un tercero muta el output ya certificado
+        os.chmod(p, 0o600)
+        with open(p, "ab") as fh:
+            fh.write(b"9,9,9\n")
+
+    monkeypatch.setattr(mcp, "_certify_commit", cert_then_mutate)
+    monkeypatch.chdir(tmp_path)
+    # el recibo cruzó (commit_reached), pero el sellado detecta la mutación y aborta ⇒ estado post-commit
+    # incompleto: el merge lo señala como CommittedStateError, jamás sella los bytes mutados.
+    with pytest.raises(mcp.CommittedStateError):
+        mcp.merge()
+    monkeypatch.undo()
+    cfd = os.open(str(camp), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(cb.BundleError):  # el bundle NO se publicó con los bytes mutados (RED en bddfe15)
+            cb.open_current_bundle(cfd)
+    finally:
+        os.close(cfd)
+
+
+def test_b164_manifest_provenance_carries_module_hashes_and_journal_heads(tmp_path, monkeypatch):
+    # B164: el manifiesto sella procedencia COMPLETA — hash REAL de campaign_bundle.py (y demás módulos) y las
+    # cabezas terminales de journal, no evidencia reconstruida ni ausente.
+    import hashlib
+
+    import tools.campaign_bundle as cb
+
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    monkeypatch.chdir(tmp_path)
+    assert mcp.merge() == 0
+    monkeypatch.undo()
+    cfd = os.open(str(camp), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        _, manifest = cb.open_current_bundle(cfd)
+    finally:
+        os.close(cfd)
+    prov = manifest["provenance"]
+    real = hashlib.sha256(open(cb.__file__, "rb").read()).hexdigest()
+    assert prov["code_sha_campaign_bundle"] == real, "provenance no lleva el hash real de campaign_bundle.py"
+    assert set(prov.keys()) == set(cb._REQUIRED_PROVENANCE)
+    assert isinstance(prov["journal_heads"], dict)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
