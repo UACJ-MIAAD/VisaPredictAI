@@ -1,52 +1,50 @@
 #!/usr/bin/env python
 """Fusiona las mitades del pool de campaña (nongbm + gbm) en `campaign_pool_*` y proyecta a
-`model_comparison_*` (P0R.5 · R9.4/B66/B74/B79..B118/B119-B127 — extraído del heredoc de
+`model_comparison_*` (P0R.5 · R9.4/B66/B74/B79..B127/B128-B139 — extraído del heredoc de
 run_campaign_aq{,_tail}.sh). Se invoca desde ROOT (run-command fija cwd=root).
 
-CAS ATÓMICO SIN VENTANA (R9.2R10, B121-B125): `os.replace`/`os.rename` NO son CAS — sobrescriben una colisión
-en silencio y el patrón validar→`os.replace` deja morir una actualización concurrente en la ventana. Aquí toda
-promoción/restauración/recuperación usa `tools/atomic_fs`:
-- output AUSENTE: `rename_noreplace(temp→target)` — si un tercero lo creó en la ventana, `FileExistsError` y se
-  ABORTA sin tocarlo (nunca se sobrescribe una creación concurrente).
-- output PREEXISTENTE: `rename_exchange(temp↔target)` — intercambio atómico; tras él, `target` liga a `temp_fd`
-  (nuestro contenido) y `temp_name` liga a `orig_fd` (el original desplazado). Si `temp_name` NO liga al
-  original (un tercero había reemplazado el target), se DESHACE el intercambio (swap de vuelta) y se preserva
-  la actualización concurrente en su ruta oficial; nada se destruye (el exchange nunca borra un inode).
-- ROLLBACK restaura con `rename_exchange(temp_name↔target)` y VERIFICA que el objeto desplazado era EXACTAMENTE
-  `temp_fd`; si no lo era (actualización concurrente), se deshace y se preserva — jamás se sobrescriben bytes
-  viejos encima de una actualización concurrente.
+CAS ATÓMICO CON ESTADO EXPLÍCITO (R9.2R11, B129/B139): toda promoción/restauración/recuperación usa
+`tools/atomic_fs` (`rename_noreplace`/`rename_exchange`). En cuanto un `rename_exchange` RETORNA, el output se
+considera MODIFICADO (`exchange_applied=True`); a partir de ahí, si la verificación falla se intenta un
+exchange COMPENSATORIO y SOLO una compensación VERIFICADA (ambos nombres, inodes y digests) limpia el estado.
+Si la compensación falla, no verifica, o SE DETECTÓ una actualización concurrente (aunque se preserve
+correctamente en su ruta oficial), el resultado es INCOMPLETO: hubo una divergencia externa que impide un
+reintento automático seguro (`RollbackIncompleteError`, B139). Un output nunca queda `promoted=False` si su
+primer exchange ocurrió y no fue compensado y verificado.
 
-CUARENTENA como JOURNAL DURABLE (B119/B120/B121/B126): la limpieza mueve temporales/desplazados a
-`.merge-quarantine/<txid>/` con `rename_noreplace` (nunca `os.rename` — sin sobrescritura silenciosa de una
-colisión). `MANIFEST.jsonl` se abre `O_CREAT|O_EXCL|O_NOFOLLOW` 0600 y se exige regular/UID/nlink==1/modo 0600
-(un hardlink/symlink/manifiesto ajeno plantado se rechaza). Por movimiento: registro INTENT (escritura completa
-+ `fsync`) ANTES del rename, y COMPLETED/FOREIGN_PRESERVED (+ `fsync`) DESPUÉS, con `fsync` de qtx/qroot/dir
-fuente. Un fallo del manifiesto ⇒ `_QUARANTINE_FAILED` (prohibido `except OSError: pass`). La recolección
-(reconciliar un INTENT sin COMPLETED tras un crash) vive en P2b.
+CUARENTENA = JOURNAL DURABLE BIDIRECCIONAL (B128/B136): la limpieza mueve objetos a `.merge-quarantine/<txid>/`
+con `rename_noreplace` (nunca `os.rename`). `MANIFEST.jsonl` se abre `O_CREAT|O_EXCL|O_RDWR|O_APPEND|O_NOFOLLOW`
+0600 (regular/UID/nlink==1/modo exacto). Cada operación (MOVE y RESTORE) escribe eventos INTENT y
+COMPLETED/FOREIGN_PRESERVED/COLLISION/ABORTED con `schema_version`, `sequence`, `operation_id`, identidad
+esperada y **cadena de hashes** (`previous_record_sha256`/`record_sha256`); tras cada escritura se hace `fsync`
+y se RE-LEE el registro desde el MISMO fd validando esquema/secuencia/cadena — un manifiesto truncado o alterado
+entre INTENT y COMPLETED aborta (B136). `restore()` también escribe RESTORE_INTENT/COMPLETED y hace `fsync`
+(B128). El directorio de cuarentena preexistente NO se REPARA: si su modo no es exactamente 0700 se ABORTA
+(B135); sólo un directorio creado en ESTA ejecución se crea 0700.
 
-Máquina de estados EXPLÍCITA (`_TxContext.phase`): LOADING → PREPARING → PROMOTING → {ROLLING_BACK |
-COMMIT_REACHED} → CLEANING → CLOSED. Errores CLASIFICADOS por INVARIANTES (B127):
-- `RollbackError`: rollback COMPLETO, todos los outputs reconciliados, sin errores → reintentar es SEGURO.
-- `RollbackIncompleteError`: hay actualización concurrente, output irrecuperable, cuarentena fallida, journal
-  incompleto o cierre que afecta durabilidad → NO reintentar automáticamente.
-- `CommittedStateError`: el commit SÍ se cruzó y quedó un problema post-commit (autoridad durable, no reintentar).
+FRONTERA DEL COMMIT CON RECIBO GOBERNADO (B131/B132): entre la última revalidación y el commit no basta con
+otra revalidación. Se revalidan inputs+lock+cadena+outputs, se escribe un RECIBO 0600 (identidad dev/ino y
+digest de las 8 mitades y los 8 outputs, lock, cadena, manifiestos, fase, sha de código), se `fsync`, se
+promueve con `rename_noreplace`, se `fsync` del directorio, se RE-ABRE desde la ruta oficial y se REVALIDA
+contra los inputs/outputs actuales; SÓLO entonces se marca `commit_reached=True`. Un input/lock/directorio
+cambiado tras la última revalidación se caza aquí.
+
+Errores CLASIFICADOS por INVARIANTES con taxonomía ESTRUCTURADA (`Issue`, B127/B130/B139): cualquier `Issue`
+de severidad "incomplete" (concurrencia detectada, compensación no verificada, `fsync` fallido, journal
+inválido, restore sin certificar, cuarentena fallida, output no reconciliado, cierre fallido, recibo inválido)
+⇒ `RollbackIncompleteError` (NO reintentar). Pre-commit + todo reconciliado ⇒ `RollbackError`. Post-commit +
+cualquier problema ⇒ `CommittedStateError`. Commit certificado + cero problemas ⇒ éxito.
 
 Validación en dominio (`_ValidationError`, atrapada → rollback); `KeyboardInterrupt`/`SystemExit` propagan.
-LEASES vivos hasta el commit: 8 mitades de entrada (B115), output previo (`orig_fd`, B114) y lock (`_LockGuard`,
-B116), revalidados en cada checkpoint. GOBERNANZA DE RUTAS (B90): cadena `.`→reports→campaign/eval abierta
-componente a componente `openat O_DIRECTORY|O_NOFOLLOW`, fd-relativa, identidad reverificada.
-
-FAIL-CLOSED sobre el esquema REAL (B79/B80/B85): 8 mitades, 19 columnas en orden, `run_id` string único,
-`table` coincidente, strings no vacíos, NaN real ≠ texto coercionado ≠ infinito, `secs` ≥ 0. Identidad de
-campaña (B85): con `CAMPAIGN_ID` las 8 mitades deben llevarla; standalone conserva el máximo lexicográfico.
-
-Garantías honestas: validación GLOBAL previa; promoción/rollback ATÓMICOS por fichero vía CAS; durabilidad por
-`fsync`. NO es atomicidad de bundle crash-safe (un kill a mitad puede dejar un INTENT sin COMPLETED, reconciliable
-en P2b).
+LEASES vivos hasta el commit: 8 mitades (B115), output previo (`orig_fd`, B114), lock (`_LockGuard`, B116).
+GOBERNANZA DE RUTAS (B90): cadena `.`→reports→campaign/eval `openat O_DIRECTORY|O_NOFOLLOW`, fd-relativa.
+FAIL-CLOSED sobre el esquema REAL (B79/B80/B85): 8 mitades, 19 columnas, `run_id` string único, `table`
+coincidente, NaN real ≠ texto ≠ infinito, `secs` ≥ 0, identidad de campaña `CAMPAIGN_ID`.
 """
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import hashlib
 import io
@@ -77,16 +75,23 @@ _METRIC_COLS = tuple(c for c in _POOL_COLS if c not in ("run_id", *_STR_COLS))
 _LOCK_NAME = ".merge.lock"
 _QUARANTINE_DIR = ".merge-quarantine"
 _MANIFEST_NAME = "MANIFEST.jsonl"
+_RECEIPT_PREFIX = ".merge-receipt"
+_SCHEMA_VERSION = 1
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 
 # Fases explícitas de la transacción.
 _LOADING = "LOADING"
 _PREPARING = "PREPARING"
 _PROMOTING = "PROMOTING"
+_CERTIFYING = "CERTIFYING"  # frontera del commit (recibo)
 _ROLLING_BACK = "ROLLING_BACK"
 _COMMIT_REACHED = "COMMIT_REACHED"
 _CLEANING = "CLEANING"
 _CLOSED = "CLOSED"
+
+# Severidades de `Issue`.
+_INCOMPLETE = "incomplete"  # ⇒ RollbackIncompleteError (pre-commit) o CommittedStateError (post-commit)
+_NOTE = "note"  # informativo (p. ej. una recuperación confirmada)
 
 
 def _fail(msg: str) -> NoReturn:
@@ -100,19 +105,37 @@ class _ValidationError(Exception):
 
 
 class RollbackError(OSError):
-    """B104/B127: fallo ANTES del commit y rollback COMPLETO — todos los outputs quedaron reconciliados (bytes
-    originales restaurados o actualización concurrente preservada, sin residuo). Reintentar es SEGURO."""
+    """B104/B127: fallo ANTES del commit y rollback COMPLETO — todo reconciliado, SIN divergencia externa ni
+    fallo de durabilidad. Reintentar es SEGURO."""
 
 
 class RollbackIncompleteError(OSError):
-    """B127: fallo ANTES del commit pero el rollback NO pudo reconciliar todo — actualización concurrente que
-    no se pudo restaurar limpiamente, output irrecuperable, cuarentena/journal fallidos o cierre que afecta la
-    durabilidad. NO reintentar automáticamente: requiere inspección (posible estado en disco inconsistente)."""
+    """B127/B130/B139: fallo ANTES del commit pero el rollback NO reconcilió limpiamente — actualización
+    concurrente detectada (aunque se preserve), compensación no verificada, `fsync`/journal/cuarentena fallidos,
+    restore sin certificar, output irrecuperable o cierre que afecta la durabilidad. NO reintentar
+    automáticamente: hubo una divergencia externa (posible estado en disco no canónico)."""
 
 
 class CommittedStateError(RuntimeError):
     """B104/B110: el commit SÍ se cruzó — los outputs nuevos son la AUTORIDAD y son durables — pero quedó estado
     incompleto (limpieza/fsync/cierre fallido o excepción posterior). Reintentar a ciegas es incorrecto."""
+
+
+class Issue:
+    """Taxonomía ESTRUCTURADA de un problema (R9.2R11 §6). `severity=='incomplete'` fuerza la clasificación a
+    RollbackIncompleteError/CommittedStateError; nunca es una simple cadena suelta."""
+
+    __slots__ = ("code", "phase", "severity", "output", "detail")
+
+    def __init__(self, code: str, phase: str, severity: str, output: str | None, detail: str) -> None:
+        self.code = code
+        self.phase = phase
+        self.severity = severity
+        self.output = output
+        self.detail = detail
+
+    def __repr__(self) -> str:
+        return f"{self.code}[{self.severity}] {self.phase} {self.output or '-'}: {self.detail}"
 
 
 def _write_all(fd: int, data: bytes) -> None:
@@ -124,6 +147,10 @@ def _write_all(fd: int, data: bytes) -> None:
         if n <= 0:
             raise OSError("escritura incompleta")
         off += n
+
+
+def _canon(rec: dict) -> bytes:
+    return json.dumps(rec, sort_keys=True, separators=(",", ":")).encode()
 
 
 def _open_dir_at(parent_fd: int | None, name: str, label: str) -> int:
@@ -176,7 +203,6 @@ class _Chain:
                     errs.append(f"cerrar cadena {label}: {exc}")
 
     def reverify(self, when: str) -> None:
-        """Una discrepancia de identidad es `_ValidationError` (dominio) — atrapada y clasificada."""
         fresh = _Chain()
         try:
             if fresh.idents() != self.idents():
@@ -260,8 +286,6 @@ def _fd_governed(fd: int, *, mode: int | None) -> str | None:
 
 
 def _binding_problem(dir_fd: int, name: str, fd: int, *, mode: int | None) -> str | None:
-    """El NOMBRE dentro de dir_fd debe ligar al MISMO inode (dev/ino) que `fd` — y `fd` regular/UID/nlink==1
-    (+ modo si se exige). Un mismatch = el nombre fue sustituido: jamás autoriza operar por él."""
     prob = _fd_governed(fd, mode=mode)
     if prob is not None:
         return prob
@@ -276,29 +300,47 @@ def _binding_problem(dir_fd: int, name: str, fd: int, *, mode: int | None) -> st
 
 
 def _binds(dir_fd: int, name: str, fd: int, *, mode: int | None = 0o600) -> bool:
-    """True si `name` dentro de `dir_fd` liga (dev/ino) al inode de `fd` y `fd` cumple el gobierno. Guarda toda
-    OSError (un fd inválido o un nombre ausente ⇒ False, nunca eleva)."""
     try:
         return _binding_problem(dir_fd, name, fd, mode=mode) is None
     except OSError:
         return False
 
 
+def _inode(dir_fd: int, name: str) -> tuple[int, int] | None:
+    try:
+        st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+        return (st.st_dev, st.st_ino)
+    except OSError:
+        return None
+
+
+def _dir_binds(parent_fd: int, name: str, dir_fd: int) -> bool:
+    """Como `_binds` pero para DIRECTORIOS (el objeto es un dir, no un fichero regular): `name` bajo `parent_fd`
+    liga (dev/ino) al inode de `dir_fd`, que es un dir real del UID actual."""
+    try:
+        stf = os.fstat(dir_fd)
+        if not stat.S_ISDIR(stf.st_mode) or stf.st_uid != os.geteuid():
+            return False
+        stn = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        return (stn.st_dev, stn.st_ino) == (stf.st_dev, stf.st_ino)
+    except OSError:
+        return False
+
+
 def _create_governed(dir_fd: int, base: str, kind: str, i: int) -> tuple[str, int]:
-    """Crea un artefacto con nombre de NONCE aleatorio + PID + índice vía `O_CREAT|O_EXCL|O_NOFOLLOW` 0600.
-    Devuelve (name, fd r/w VIVO)."""
+    """Crea un artefacto con nombre de NONCE aleatorio + PID + índice vía `O_CREAT|O_EXCL|O_NOFOLLOW` 0600."""
     name = f".{base}.{kind}.{os.getpid()}.{i}.{secrets.token_hex(8)}"
     fd = os.open(name, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
     return name, fd
 
 
 # --------------------------------------------------------------------------------------------------------
-# Cuarentena (B117/B119/B120/B121/B126): journal durable; `rename_noreplace`, manifiesto O_EXCL, INTENT/COMPLETED.
+# Cuarentena: journal durable BIDIRECCIONAL con cadena de hashes + re-lectura (B119/B120/B126/B128/B135/B136).
 # --------------------------------------------------------------------------------------------------------
 
-_QUARANTINED = "QUARANTINED"  # nuestro objeto salió del árbol vivo a la cuarentena inventariada
+_QUARANTINED = "QUARANTINED"
 _ALREADY_ABSENT = "ALREADY_ABSENT"
-_FOREIGN_OBJECT_PRESERVED = "FOREIGN_OBJECT_PRESERVED"  # se movió/preservó un objeto ajeno (no se destruyó)
+_FOREIGN_OBJECT_PRESERVED = "FOREIGN_OBJECT_PRESERVED"
 _QUARANTINE_FAILED = "QUARANTINE_FAILED"
 
 
@@ -311,43 +353,64 @@ class _MoveResult:
         self.qname = qname
 
 
-class _Quarantine:
-    """Gestor durable de `.merge-quarantine/<txid>/` por descriptor de directorio gobernado. Manifiesto O_EXCL
-    0600 (rechaza hardlink/symlink/ajeno), registros INTENT+COMPLETED con `fsync`, movimientos por
-    `rename_noreplace` (nunca `os.rename`). NUNCA borra: preserva. Un fallo del manifiesto ⇒ QUARANTINE_FAILED."""
+class _JournalState:
+    __slots__ = ("qroot", "qtx", "mfd", "seq", "prev_sha")
 
-    __slots__ = ("txid", "_qtx", "_qroot", "_manifests", "fds")
+    def __init__(self, qroot: int, qtx: int, mfd: int) -> None:
+        self.qroot = qroot
+        self.qtx = qtx
+        self.mfd = mfd
+        self.seq = 0
+        self.prev_sha = ""
+
+
+class _Quarantine:
+    """Gestor durable de `.merge-quarantine/<txid>/` por descriptor de directorio gobernado. Manifiesto
+    `O_CREAT|O_EXCL|O_RDWR|O_APPEND|O_NOFOLLOW` 0600 con cadena de hashes; cada evento se `fsync`ea y RE-LEE
+    (B136). El directorio preexistente NO se repara: modo != 0700 ⇒ abort (B135)."""
+
+    __slots__ = ("txid", "_states", "fds")
 
     def __init__(self, txid: str) -> None:
         self.txid = txid
-        self._qtx: dict[int, int] = {}  # dir_fd -> fd del subdir <txid>
-        self._qroot: dict[int, int] = {}  # dir_fd -> fd de .merge-quarantine
-        self._manifests: dict[int, int] = {}  # dir_fd -> fd del MANIFEST.jsonl
+        self._states: dict[int, _JournalState] = {}
         self.fds: list[int] = []
 
-    def _prepare(self, dir_fd: int) -> tuple[int, int, int]:
-        """Crea/valida `.merge-quarantine/<txid>/MANIFEST.jsonl` bajo `dir_fd` (B120). Devuelve (qroot, qtx,
-        mfd) con modos EXACTOS (0700/0700/0600), fstat de tipo/UID/nlink; hardlink o ajeno revientan."""
-        if dir_fd in self._qtx:
-            return self._qroot[dir_fd], self._qtx[dir_fd], self._manifests[dir_fd]
+    def _governed_subdir(self, name: str, parent_fd: int, *, created: bool) -> int:
+        """Abre `name` bajo `parent_fd` y exige dir real/UID/modo EXACTO 0700. Un directorio PREEXISTENTE
+        (`created=False`) con modo != 0700 se RECHAZA — NO se repara con fchmod (B135)."""
+        fd = os.open(name, _DIR_FLAGS, dir_fd=parent_fd)
+        self.fds.append(fd)
+        st = os.fstat(fd)
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid():
+            raise _ValidationError(f"cuarentena {name!r} ajena o no-dir")
+        if created:
+            os.fchmod(fd, 0o700)  # sólo un dir creado en ESTA ejecución se ajusta a 0700
+            st = os.fstat(fd)
+        if stat.S_IMODE(st.st_mode) != 0o700:  # un preexistente con otro modo NO se repara: se aborta
+            raise _ValidationError(
+                f"cuarentena {name!r} con modo {oct(stat.S_IMODE(st.st_mode))} != 0700 (no se repara)"
+            )
+        return fd
+
+    def _prepare(self, dir_fd: int) -> _JournalState:
+        if dir_fd in self._states:
+            return self._states[dir_fd]
         try:
             os.mkdir(_QUARANTINE_DIR, 0o700, dir_fd=dir_fd)
+            root_created = True
         except FileExistsError:
-            pass
-        qroot = os.open(_QUARANTINE_DIR, _DIR_FLAGS, dir_fd=dir_fd)
-        self.fds.append(qroot)
-        os.fchmod(qroot, 0o700)
-        st = os.fstat(qroot)
-        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or stat.S_IMODE(st.st_mode) != 0o700:
-            raise _ValidationError(f"{_QUARANTINE_DIR} ajeno/no-dir/modo != 0700")
-        os.mkdir(self.txid, 0o700, dir_fd=qroot)  # nonce → EEXIST reventaría (bien)
-        qtx = os.open(self.txid, _DIR_FLAGS, dir_fd=qroot)
-        self.fds.append(qtx)
-        os.fchmod(qtx, 0o700)
-        stt = os.fstat(qtx)
-        if not stat.S_ISDIR(stt.st_mode) or stt.st_uid != os.geteuid() or stat.S_IMODE(stt.st_mode) != 0o700:
-            raise _ValidationError("subdir de cuarentena ajeno/no-dir/modo != 0700")
-        mfd = os.open(_MANIFEST_NAME, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=qtx)
+            root_created = False  # preexistente → se VALIDA, no se repara
+        qroot = self._governed_subdir(_QUARANTINE_DIR, dir_fd, created=root_created)
+        os.mkdir(self.txid, 0o700, dir_fd=qroot)  # nonce → EEXIST reventaría (bien): siempre creado aquí
+        qtx = self._governed_subdir(self.txid, qroot, created=True)
+        # Manifiesto O_EXCL (rechaza hardlink/symlink plantado) + O_RDWR|O_APPEND (para re-leer la cadena).
+        mfd = os.open(
+            _MANIFEST_NAME,
+            os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_APPEND | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=qtx,
+        )
         self.fds.append(mfd)
         os.fchmod(mfd, 0o600)
         stm = os.fstat(mfd)
@@ -358,103 +421,131 @@ class _Quarantine:
             or stat.S_IMODE(stm.st_mode) != 0o600
         ):
             raise _ValidationError("MANIFEST.jsonl ajeno/no-regular/hardlink/modo != 0600")
-        self._qroot[dir_fd] = qroot
-        self._qtx[dir_fd] = qtx
-        self._manifests[dir_fd] = mfd
-        return qroot, qtx, mfd
+        state = _JournalState(qroot, qtx, mfd)
+        self._states[dir_fd] = state
+        return state
 
-    def _journal(self, mfd: int, rec: dict) -> bool:
-        """Escribe un registro COMPLETO + `fsync` (B126). False (no eleva) si falla; el llamador lo trata como
-        QUARANTINE_FAILED — nunca `except: pass`."""
+    def _journal(self, st: _JournalState, source_dir: str, rec: dict) -> bool:
+        """Escribe un evento con cadena de hashes, `fsync` y RE-LECTURA validada (B136). False (no eleva) si
+        cualquier paso falla — el llamador lo trata como fallo de journal (incompleto/QUARANTINE_FAILED)."""
         try:
-            _write_all(mfd, (json.dumps(rec, sort_keys=True) + "\n").encode())
-            os.fsync(mfd)
+            st.seq += 1
+            full = {"schema_version": _SCHEMA_VERSION, "txid": self.txid, "sequence": st.seq, "source_dir": source_dir, **rec, "previous_record_sha256": st.prev_sha}  # fmt: skip
+            rec_sha = hashlib.sha256(_canon(full)).hexdigest()
+            full["record_sha256"] = rec_sha
+            line = _canon(full) + b"\n"
+            _write_all(st.mfd, line)
+            os.fsync(st.mfd)
+            if not self._reread_ok(st, st.seq, rec_sha):  # B136: re-lee del MISMO fd y valida esquema/seq/cadena
+                return False
+            st.prev_sha = rec_sha
             return True
-        except OSError:
+        except OSError, ValueError:
             return False
 
+    def _reread_ok(self, st: _JournalState, expect_seq: int, expect_sha: str) -> bool:
+        """Re-lee el manifiesto ENTERO desde su fd (offset 0) y valida la cadena de hashes hasta el último evento
+        (esquema, secuencia monotónica 1..N, `previous`/`record` sha encadenados). B136: un truncado/alteración
+        entre INTENT y COMPLETED lo caza."""
+        cur = os.lseek(st.mfd, 0, os.SEEK_CUR)
+        try:
+            os.lseek(st.mfd, 0, os.SEEK_SET)
+            raw = b""
+            while chunk := os.read(st.mfd, 1 << 16):
+                raw += chunk
+        finally:
+            os.lseek(st.mfd, cur, os.SEEK_SET)
+        lines = raw.split(b"\n")
+        if lines and lines[-1] == b"":
+            lines = lines[:-1]
+        if len(lines) != expect_seq:
+            return False
+        prev = ""
+        for i, line in enumerate(lines, start=1):
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                return False
+            if rec.get("sequence") != i or rec.get("previous_record_sha256") != prev:
+                return False
+            claimed = rec.get("record_sha256")
+            body = {k: v for k, v in rec.items() if k != "record_sha256"}
+            if hashlib.sha256(_canon(body)).hexdigest() != claimed:
+                return False
+            prev = claimed
+        return prev == expect_sha
+
+    def _fsync_all(self, source_dir_fd: int, st: _JournalState) -> bool:
+        ok = True
+        for fd in (source_dir_fd, st.qtx, st.qroot):
+            try:
+                os.fsync(fd)
+            except OSError:
+                ok = False
+        return ok
+
     def move(self, o: _Out, name: str | None, fd: int, *, phase: str, reason: str) -> _MoveResult:
-        """Mueve `name` a la cuarentena con `rename_noreplace` (B121) y journal durable (B126). QUARANTINED si
-        liga a NUESTRO `fd`; FOREIGN_OBJECT_PRESERVED si movimos/preservamos un ajeno; ALREADY_ABSENT si no
-        había nada; QUARANTINE_FAILED ante error de syscall/manifiesto. Nunca eleva por un fallo operativo."""
+        """Mueve `name` a la cuarentena con `rename_noreplace` (B121) y journal MOVE_* durable (B126/B136)."""
         if name is None or fd < 0:
             return _MoveResult(_ALREADY_ABSENT)
-        try:
-            os.stat(name, dir_fd=o.dir_fd, follow_symlinks=False)
-        except FileNotFoundError:
+        if _inode(o.dir_fd, name) is None:
             return _MoveResult(_ALREADY_ABSENT)
-        except OSError:
-            return _MoveResult(_QUARANTINE_FAILED)
         try:
-            digest: str | None = digest_fd(fd)  # digest de NUESTRO inode (para el manifiesto), antes de mover
+            digest: str | None = digest_fd(fd)
         except OSError:
-            digest = None  # el digest es informativo en el manifiesto; su ausencia no aborta el movimiento
+            digest = None  # el digest es informativo; su ausencia no aborta el movimiento
         try:
-            _qroot, qtx, mfd = self._prepare(o.dir_fd)
+            st = self._prepare(o.dir_fd)
         except OSError, _ValidationError:
             return _MoveResult(_QUARANTINE_FAILED)
-        qname = f"{o.label}.{name.lstrip('.')}.{secrets.token_hex(6)}"
-        if not self._journal(
-            mfd,
-            {
-                "record": "INTENT",
-                "orig_name": name,
-                "quarantined_as": qname,
-                "digest": digest,
-                "phase": phase,
-                "reason": reason,
-            },
-        ):
-            return _MoveResult(_QUARANTINE_FAILED)  # B119: sin INTENT durable no se mueve nada
-        try:
-            rename_noreplace(o.dir_fd, name, qtx, qname)  # B121: nunca sobrescribe una colisión en el destino
-        except FileNotFoundError:
-            return _MoveResult(_ALREADY_ABSENT)
-        except FileExistsError, AtomicRenameError, AtomicUnsupportedError, OSError:
+        if not _dir_binds(st.qroot, self.txid, st.qtx):  # binding del dir de cuarentena antes del move
             return _MoveResult(_QUARANTINE_FAILED)
-        bound = _binds(qtx, qname, fd, mode=None)  # el objeto movido puede ser un temp (0600) o un original (0644)
+        op = secrets.token_hex(8)
+        qname = f"{o.label}.{name.lstrip('.')}.{secrets.token_hex(6)}"
+        exp = _inode(o.dir_fd, name) or (0, 0)
+        intent = {"record": "MOVE_INTENT", "operation_id": op, "source_name": name, "destination_name": qname, "expected_dev": exp[0], "expected_ino": exp[1], "expected_digest": digest}  # fmt: skip
+        if not self._journal(st, o.label, intent):  # B119: sin INTENT durable no se mueve nada
+            return _MoveResult(_QUARANTINE_FAILED)
         try:
-            stq = os.stat(qname, dir_fd=qtx, follow_symlinks=False)
-            inode = [stq.st_dev, stq.st_ino]
-        except OSError:
-            inode = None
-        ok = self._journal(
-            mfd,
-            {
-                "record": "COMPLETED" if bound else "FOREIGN_PRESERVED",
-                "quarantined_as": qname,
-                "inode": inode,
-                "bound_to_tx_fd": bound,
-            },
-        )
-        durable = self._fsync_all(o.dir_fd, qtx)  # B126: la durabilidad del movimiento se EXIGE, no es best-effort
-        if not ok or not durable:
-            return _MoveResult(_QUARANTINE_FAILED, qtx, qname)  # movido pero journal/durabilidad incompletos
-        return _MoveResult(_QUARANTINED if bound else _FOREIGN_OBJECT_PRESERVED, qtx, qname)
+            rename_noreplace(o.dir_fd, name, st.qtx, qname)  # B121
+        except FileNotFoundError:
+            self._journal(st, o.label, {"record": "MOVE_ABORTED", "operation_id": op, "destination_name": qname, "detail": "source ausente"})  # fmt: skip
+            return _MoveResult(_ALREADY_ABSENT)
+        except FileExistsError, AtomicRenameError, AtomicUnsupportedError, OSError, ValueError:
+            self._journal(st, o.label, {"record": "MOVE_ABORTED", "operation_id": op, "destination_name": qname, "detail": "rename falló"})  # fmt: skip
+            return _MoveResult(_QUARANTINE_FAILED, st.qtx, qname)
+        bound = _binds(st.qtx, qname, fd, mode=None)
+        moved = _inode(st.qtx, qname) or (0, 0)
+        rec = "MOVE_COMPLETED" if bound else "MOVE_FOREIGN_PRESERVED"
+        ok = self._journal(st, o.label, {"record": rec, "operation_id": op, "destination_name": qname, "moved_dev": moved[0], "moved_ino": moved[1], "bound_to_tx_fd": bound})  # fmt: skip
+        durable = self._fsync_all(o.dir_fd, st)  # B126: durabilidad EXIGIDA
+        if not ok or not durable or not _dir_binds(st.qroot, self.txid, st.qtx):
+            return _MoveResult(_QUARANTINE_FAILED, st.qtx, qname)
+        return _MoveResult(_QUARANTINED if bound else _FOREIGN_OBJECT_PRESERVED, st.qtx, qname)
 
-    def restore(self, mr: _MoveResult, dst_dir_fd: int, dst: str) -> bool:
-        """B125: devuelve un objeto ajeno de la cuarentena a su ruta oficial con `rename_noreplace`. True si la
-        ruta oficial estaba libre y lo recibió; False si estaba ocupada (colisión) o error — se preserva en
-        cuarentena y el llamador registra rollback incompleto."""
-        if mr.qname is None or mr.qtx < 0:
+    def restore(self, o: _Out, mr: _MoveResult, dst_dir_fd: int, dst: str) -> bool:
+        """B125/B128: devuelve un objeto ajeno de la cuarentena a su ruta oficial con `rename_noreplace`,
+        JOURNALIZANDO RESTORE_INTENT/COMPLETED/COLLISION y `fsync`. True sólo si llegó a la ruta oficial."""
+        if mr.qname is None or mr.qtx < 0 or o.dir_fd not in self._states:
+            return False
+        st = self._states[o.dir_fd]
+        op = secrets.token_hex(8)
+        moved = _inode(mr.qtx, mr.qname) or (0, 0)
+        if not self._journal(st, o.label, {"record": "RESTORE_INTENT", "operation_id": op, "source_name": mr.qname, "destination_name": dst, "expected_dev": moved[0], "expected_ino": moved[1]}):  # fmt: skip
             return False
         try:
             rename_noreplace(mr.qtx, mr.qname, dst_dir_fd, dst)
-            return True
-        except FileExistsError, FileNotFoundError, AtomicRenameError, AtomicUnsupportedError, OSError:
+        except FileExistsError, FileNotFoundError, AtomicRenameError, AtomicUnsupportedError, OSError, ValueError:
+            self._journal(st, o.label, {"record": "RESTORE_COLLISION", "operation_id": op, "destination_name": dst, "detail": "ruta oficial ocupada o error"})  # fmt: skip
             return False
-
-    def _fsync_all(self, src_dir_fd: int, qtx: int) -> bool:
-        """B126: fsync de la fuente, el subdir de tx y la raíz de cuarentena. Devuelve False si alguno falla
-        (NO se traga: el llamador degrada el movimiento a QUARANTINE_FAILED)."""
-        ok = True
-        for fd in (src_dir_fd, qtx, self._qroot.get(src_dir_fd, -1)):
-            if fd >= 0:
-                try:
-                    os.fsync(fd)
-                except OSError:
-                    ok = False
-        return ok
+        ok = self._journal(st, o.label, {"record": "RESTORE_COMPLETED", "operation_id": op, "destination_name": dst})  # fmt: skip
+        durable = ok
+        for fd in (dst_dir_fd, mr.qtx, st.qtx, st.qroot):
+            try:
+                os.fsync(fd)
+            except OSError:
+                durable = False
+        return ok and durable
 
     def close(self, errs: list[str]) -> None:
         for fd in reversed(self.fds):
@@ -466,9 +557,9 @@ class _Quarantine:
 
 
 class _Out:
-    """Estado transaccional por output. Propiedad por descriptor (nonce+O_EXCL, fd vivo). `existed_before` +
-    `orig_fd` (lease del inode previo, B114); tras el exchange de promoción el ORIGINAL vive en `temp_name`
-    ligado a `orig_fd`. `incomplete` marca una reconciliación imposible (actualización concurrente, etc., B127)."""
+    """Estado transaccional por output con ESTADO CAS EXPLÍCITO (R9.2R11 §2). Tras el exchange de promoción el
+    ORIGINAL vive en `temp_name` (ligado a `orig_fd`). `exchange_applied` marca que el output fue MODIFICADO por
+    un `rename_exchange` que aún no fue compensado y verificado; `incomplete` una reconciliación imposible."""
 
     __slots__ = (
         "dir_fd", "label", "name", "df",
@@ -476,6 +567,7 @@ class _Out:
         "orig_fd", "orig_snapshot", "orig_digest",
         "temp_created", "temp_name", "temp_fd", "temp_digest",
         "promoted", "restored", "concurrent_update", "incomplete",
+        "cas_started", "exchange_applied", "compensation_attempted", "compensation_verified",
         "recovery_created", "recovery_name", "recovery_fd", "recovery_digest",
     )  # fmt: skip
 
@@ -498,6 +590,10 @@ class _Out:
         self.restored = False
         self.concurrent_update = False
         self.incomplete = False
+        self.cas_started = False
+        self.exchange_applied = False
+        self.compensation_attempted = False
+        self.compensation_verified = False
         self.recovery_created = False
         self.recovery_name: str | None = None
         self.recovery_fd = -1
@@ -515,8 +611,7 @@ class _Out:
 
 
 class _InputLease:
-    """B115: mitad de entrada LEASED — fd vivo + snapshot + digest + DataFrame parseado de ESOS mismos bytes.
-    Se revalida (nombre↔inode, snapshot, digest) en cada checkpoint hasta el commit."""
+    """B115: mitad de entrada LEASED — fd vivo + snapshot + digest + DataFrame parseado de ESOS mismos bytes."""
 
     __slots__ = ("dir_fd", "name", "fd", "snapshot", "digest", "df")
 
@@ -543,8 +638,6 @@ class _InputLease:
 
 
 def _lease_half(camp_fd: int, fname: str, table: str, campaign: str | None) -> _InputLease:
-    """B115: abre la mitad como LEASE (fd vivo), lee sus bytes del MISMO descriptor con snapshot pre/post,
-    parsea el DataFrame de esos bytes y valida el esquema. Fallo de validación = `_fail` (pre-transacción)."""
     fd, snap0, err = open_governed_lease(camp_fd, fname)
     if err is not None:
         _fail(f"mitad {fname!r}: {err}")
@@ -599,20 +692,51 @@ def _validate_half(df: pd.DataFrame, fname: str, table: str, campaign: str | Non
 
 
 class _TxContext:
-    """Resultado transaccional compartido. CLASIFICA por INVARIANTES (B127): `incomplete` (rollback no
-    reconciliado) se distingue de un rollback limpio. Un error secundario nunca reemplaza `primary_error`."""
+    """Resultado transaccional con taxonomía ESTRUCTURADA (`issues`, R9.2R11 §6). `incomplete` es DERIVADO de
+    los issues de severidad 'incomplete' — un fallo de durabilidad o una divergencia externa NO puede quedar
+    como una cadena suelta que no cambie la clasificación."""
 
-    __slots__ = ("phase", "commit_reached", "incomplete", "primary_error", "rollback_errors", "recoveries", "postcommit_errors", "close_errors")  # fmt: skip
+    __slots__ = ("phase", "commit_reached", "primary_error", "issues", "recoveries", "close_errors")
 
     def __init__(self) -> None:
         self.phase = _LOADING
         self.commit_reached = False
-        self.incomplete = False  # B127: el rollback no pudo reconciliar (concurrencia/irrecuperable/journal)
         self.primary_error: BaseException | None = None
-        self.rollback_errors: list[str] = []
+        self.issues: list[Issue] = []
         self.recoveries: list[str] = []
-        self.postcommit_errors: list[str] = []
         self.close_errors: list[str] = []
+
+    def flag(self, code: str, detail: str, output: str | None = None) -> None:
+        """Registra un Issue INCOMPLETO (fuerza RollbackIncompleteError/CommittedStateError)."""
+        self.issues.append(Issue(code, self.phase, _INCOMPLETE, output, detail))
+
+    def note(self, code: str, detail: str, output: str | None = None) -> None:
+        self.issues.append(Issue(code, self.phase, _NOTE, output, detail))
+
+    @property
+    def incomplete(self) -> bool:
+        return any(i.severity == _INCOMPLETE for i in self.issues)
+
+    def incomplete_issues(self) -> list[Issue]:
+        return [i for i in self.issues if i.severity == _INCOMPLETE]
+
+
+def _verify_compensation(o: _Out, ctx: _TxContext) -> bool:
+    """R9.2R11 §2: una compensación (swap de vuelta) sólo se acepta si AMBOS nombres ligan a los inodes
+    esperados con los digests esperados — target↔concurrente(no-nuestro) y temp_name↔temp_fd (nuestro
+    contenido). Sólo entonces `exchange_applied=False` y el rollback de este output es COMPLETO."""
+    o.compensation_attempted = True
+    assert o.temp_name is not None
+    target_side_ok = _binds(o.dir_fd, o.temp_name, o.temp_fd, mode=0o600)  # nuestro contenido volvió a temp_name
+    try:
+        digest_ok = target_side_ok and digest_fd(o.temp_fd) == o.temp_digest
+    except OSError:
+        digest_ok = False
+    if digest_ok:
+        o.compensation_verified = True
+        o.exchange_applied = False
+        return True
+    return False
 
 
 def _recover_from_bytes(o: _Out, ctx: _TxContext) -> None:
@@ -621,17 +745,14 @@ def _recover_from_bytes(o: _Out, ctx: _TxContext) -> None:
     try:
         _recover_from_bytes_inner(o, ctx)
     except Exception as exc:  # noqa: BLE001 — la recuperación nunca escapa
-        ctx.rollback_errors.append(f"recuperación de {o.name!r} abortó ({type(exc).__name__}: {exc})")
+        ctx.flag("RECOVERY_ABORTED", f"recuperación abortó ({type(exc).__name__}: {exc})", o.name)
         o.incomplete = True
-        ctx.incomplete = True
 
 
 def _recover_from_bytes_inner(o: _Out, ctx: _TxContext) -> None:
-    errs = ctx.rollback_errors
     if o.previous_bytes is None or o.previous_digest is None:
-        errs.append(f"sin bytes previos de confianza para recuperar {o.name!r}")
+        ctx.flag("RECOVERY_NO_TRUSTED_BYTES", f"sin bytes de confianza para {o.name!r}", o.name)
         o.incomplete = True
-        ctx.incomplete = True
         return
     try:
         o.recovery_name, o.recovery_fd = _create_governed(o.dir_fd, o.name, "rec", 0)
@@ -642,212 +763,292 @@ def _recover_from_bytes_inner(o: _Out, ctx: _TxContext) -> None:
             os.fsync(rf.fileno())
         o.recovery_digest = digest_fd(o.recovery_fd)
     except OSError as exc:
-        errs.append(f"materializar recuperación de {o.name!r}: {exc}")
+        ctx.flag("RECOVERY_MATERIALIZE_FAILED", f"materializar recuperación de {o.name!r}: {exc}", o.name)
         o.incomplete = True
-        ctx.incomplete = True
         return
     if o.recovery_digest != o.previous_digest or not _binds(o.dir_fd, o.recovery_name, o.recovery_fd):
-        errs.append(f"recuperación de {o.name!r} no verifica antes de instalar")
+        ctx.flag("RECOVERY_UNVERIFIED", f"recuperación de {o.name!r} no verifica antes de instalar", o.name)
         o.incomplete = True
-        ctx.incomplete = True
         return
-    # Instala la recuperación por CAS. Si el target existe → exchange (verificando que lo desplazado era
-    # NUESTRO temporal); si no existe → noreplace. Nunca sobrescribe una actualización concurrente (B124).
-    target_present = True
-    try:
-        os.stat(o.name, dir_fd=o.dir_fd, follow_symlinks=False)
-    except FileNotFoundError:
-        target_present = False
-    except OSError as exc:
-        errs.append(f"estado del target {o.name!r} en recuperación: {exc}")
-        o.incomplete = True
-        ctx.incomplete = True
-        return
+    target_present = _inode(o.dir_fd, o.name) is not None
     if not target_present:
         try:
             rename_noreplace(o.dir_fd, o.recovery_name, o.dir_fd, o.name)
         except FileExistsError:
-            errs.append(f"recuperación de {o.name!r}: apareció una creación concurrente, preservada")
+            ctx.flag("RECOVERY_CONCURRENT_CREATE", f"{o.name!r}: creación concurrente durante recuperación", o.name)
             o.concurrent_update = True
             o.incomplete = True
-            ctx.incomplete = True
             return
         if _binds(o.dir_fd, o.name, o.recovery_fd) and digest_fd(o.recovery_fd) == o.previous_digest:
             o.restored = True
             ctx.recoveries.append(f"RECUPERACIÓN reports/{o.label}/{o.name} desde bytes de confianza")
         else:
-            errs.append(f"recuperación de {o.name!r} instalada no verifica")
+            ctx.flag("RECOVERY_INSTALL_UNVERIFIED", f"recuperación de {o.name!r} instalada no verifica", o.name)
             o.incomplete = True
-            ctx.incomplete = True
         return
-    # target presente → sólo se sobrescribe si es NUESTRO temporal; si no, es una actualización concurrente.
-    if not _binds(o.dir_fd, o.name, o.temp_fd):
-        errs.append(
-            f"{o.name!r} tiene una actualización concurrente; recuperación NO instalada, concurrente preservada"
-        )
+    if not _binds(o.dir_fd, o.name, o.temp_fd):  # target presente pero NO es nuestro temporal → concurrente
+        ctx.flag("RECOVERY_CONCURRENT_UPDATE", f"{o.name!r}: actualización concurrente; recuperación no instalada", o.name)  # fmt: skip
         o.concurrent_update = True
         o.incomplete = True
-        ctx.incomplete = True
         return
+    o.cas_started = True
     try:
         rename_exchange(o.dir_fd, o.recovery_name, o.dir_fd, o.name)
-    except OSError as exc:
-        errs.append(f"exchange de recuperación de {o.name!r}: {exc}")
+        o.exchange_applied = True
+    except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
+        ctx.flag("RECOVERY_EXCHANGE_FAILED", f"exchange de recuperación de {o.name!r}: {exc}", o.name)
         o.incomplete = True
-        ctx.incomplete = True
         return
-    # tras el exchange: target debe ligar a recovery_fd; lo desplazado (recovery_name) debe ser el temporal.
     if _binds(o.dir_fd, o.name, o.recovery_fd) and _binds(o.dir_fd, o.recovery_name, o.temp_fd):
+        o.exchange_applied = False
         o.restored = True
         ctx.recoveries.append(f"RECUPERACIÓN reports/{o.label}/{o.name} desde bytes de confianza (CAS)")
-    else:
-        try:  # deshace: lo desplazado no era nuestro temporal → actualización concurrente, preservar
-            rename_exchange(o.dir_fd, o.recovery_name, o.dir_fd, o.name)
-        except OSError as exc:
-            errs.append(f"no se pudo deshacer el exchange de recuperación de {o.name!r}: {exc}")
-        errs.append(f"{o.name!r}: actualización concurrente durante la recuperación, preservada")
-        o.concurrent_update = True
-        o.incomplete = True
-        ctx.incomplete = True
+        return
+    try:  # el desplazado no era nuestro temporal → concurrente: deshaz y preserva
+        rename_exchange(o.dir_fd, o.recovery_name, o.dir_fd, o.name)
+        if _binds(o.dir_fd, o.name, o.temp_fd):
+            o.exchange_applied = False
+    except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
+        ctx.flag("RECOVERY_COMPENSATION_FAILED", f"no se pudo deshacer el exchange de recuperación de {o.name!r}: {exc}", o.name)  # fmt: skip
+    ctx.flag("RECOVERY_CONCURRENT_UPDATE", f"{o.name!r}: actualización concurrente durante la recuperación", o.name)
+    o.concurrent_update = True
+    o.incomplete = True
 
 
 def _cas_promote(o: _Out) -> None:
-    """Promoción por CAS (B122). Ausente: `rename_noreplace` (una creación concurrente ⇒ abort sin tocarla).
-    Preexistente: `rename_exchange` — tras él `target`↔`temp_fd` y `temp_name`↔`orig_fd`; si el desplazado no
-    es el original (un tercero reemplazó el target), se DESHACE y se preserva la concurrente. Sin ventana."""
+    """Promoción por CAS (B122). Ausente: `rename_noreplace`. Preexistente: `rename_exchange` con estado
+    explícito — tras el swap, `exchange_applied=True`; si el desplazado no es el original (concurrencia), se
+    intenta compensar y SÓLO una compensación verificada limpia el estado (si no, se ELEVA para el rollback)."""
     assert o.temp_name is not None
     if not o.existed_before:
         try:
             rename_noreplace(o.dir_fd, o.temp_name, o.dir_fd, o.name)
         except FileExistsError as exc:
             raise _ValidationError(f"output {o.name!r} ausente fue CREADO por un tercero; no se sobrescribe") from exc
-        except (AtomicRenameError, AtomicUnsupportedError, OSError) as exc:
+        except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
             raise _ValidationError(f"no se pudo promover {o.name!r} (noreplace): {exc}") from exc
         if not _binds(o.dir_fd, o.name, o.temp_fd):
             raise _ValidationError(f"output {o.name!r} tras promover no liga al temporal creado")
         o.promoted = True
         return
+    o.cas_started = True
     try:
         rename_exchange(o.dir_fd, o.temp_name, o.dir_fd, o.name)
-    except (AtomicRenameError, AtomicUnsupportedError, OSError) as exc:
+        o.exchange_applied = True
+    except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
         raise _ValidationError(f"no se pudo promover {o.name!r} (exchange): {exc}") from exc
-    good = _binds(o.dir_fd, o.name, o.temp_fd) and _binds(o.dir_fd, o.temp_name, o.orig_fd, mode=None)
-    if good:
-        o.promoted = True
+    if _binds(o.dir_fd, o.name, o.temp_fd) and _binds(o.dir_fd, o.temp_name, o.orig_fd, mode=None):
+        o.promoted = (
+            True  # el original quedó desplazado en temp_name (exchange_applied sigue True hasta commit/rollback)
+        )
         return
-    # el desplazado no es el original ⇒ un tercero reemplazó el target: deshaz el swap y preserva la concurrente
+    # el desplazado no es el original ⇒ concurrencia: intenta compensar (swap de vuelta) y ELEVA para rollback
+    o.compensation_attempted = True
     try:
         rename_exchange(o.dir_fd, o.temp_name, o.dir_fd, o.name)
-    except OSError as exc:
-        raise _ValidationError(f"output {o.name!r} con actualización concurrente; no se pudo deshacer: {exc}") from exc
+        if _binds(o.dir_fd, o.temp_name, o.temp_fd):
+            o.exchange_applied = False
+            o.compensation_verified = True
+    except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
+        raise _ValidationError(f"output {o.name!r} concurrente; compensación falló: {exc}") from exc
     raise _ValidationError(f"output {o.name!r} fue modificado por un tercero antes de promover; preservado")
 
 
 def _cas_restore(o: _Out, ctx: _TxContext) -> None:
-    """Rollback de un output PREEXISTENTE promovido. El original vive en `temp_name` (ligado a `orig_fd`) tras
-    el exchange de promoción; se restaura con `rename_exchange(temp_name↔target)` VERIFICANDO que lo desplazado
-    era EXACTAMENTE nuestro temporal (B123). Si el target traía una actualización concurrente, se deshace y se
-    preserva; nunca se sobrescriben bytes viejos encima de una actualización concurrente."""
-    errs = ctx.rollback_errors
+    """Rollback de un output PREEXISTENTE promovido. Restaura con `rename_exchange(temp_name↔target)`; el
+    original vive en temp_name (ligado a orig_fd). Verifica que lo desplazado era EXACTAMENTE `temp_fd` (B123);
+    si no (concurrencia), compensa (swap de vuelta), verifica y marca INCOMPLETO (B139: la divergencia externa
+    impide reintento). Un exchange no compensado deja `exchange_applied=True` ⇒ incompleto."""
     if o.temp_name is None or not _binds(o.dir_fd, o.temp_name, o.orig_fd, mode=None):
-        _recover_from_bytes(o, ctx)  # el original no está donde debía → recupera desde bytes de confianza
+        _recover_from_bytes(o, ctx)
         return
+    o.cas_started = True
     try:
         rename_exchange(o.dir_fd, o.temp_name, o.dir_fd, o.name)
-    except OSError as exc:
-        errs.append(f"exchange de restauración de {o.name!r}: {exc}")
+        o.exchange_applied = True
+    except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
+        ctx.flag("RESTORE_EXCHANGE_FAILED", f"exchange de restauración de {o.name!r}: {exc}", o.name)
         _recover_from_bytes(o, ctx)
         return
     if _binds(o.dir_fd, o.name, o.orig_fd, mode=None) and _binds(o.dir_fd, o.temp_name, o.temp_fd):
-        if digest_fd(o.orig_fd) == o.orig_digest:
+        try:
+            digest_ok = digest_fd(o.orig_fd) == o.orig_digest
+        except OSError:
+            digest_ok = False
+        if digest_ok:
+            o.exchange_applied = False
             o.restored = True
             return
-        errs.append(f"restauración de {o.name!r} con digest del original alterado")
+        ctx.flag("RESTORE_DIGEST_MISMATCH", f"restauración de {o.name!r} con digest del original alterado", o.name)
         o.incomplete = True
-        ctx.incomplete = True
         return
-    # lo desplazado a temp_name NO es nuestro temporal ⇒ el target traía una actualización concurrente
+    # lo desplazado NO es nuestro temporal ⇒ el target traía una actualización concurrente: compensa y preserva
+    o.compensation_attempted = True
     try:
-        rename_exchange(o.dir_fd, o.temp_name, o.dir_fd, o.name)  # deshaz: concurrente vuelve al target
-    except OSError as exc:
-        errs.append(f"no se pudo deshacer la restauración de {o.name!r}: {exc}")
-    errs.append(f"{o.name!r}: actualización concurrente tras promover; NO se restauran bytes viejos, preservada")
-    o.concurrent_update = True
+        rename_exchange(o.dir_fd, o.temp_name, o.dir_fd, o.name)
+        if _binds(o.dir_fd, o.temp_name, o.temp_fd):
+            o.exchange_applied = False
+            o.compensation_verified = True
+    except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
+        ctx.flag("RESTORE_COMPENSATION_FAILED", f"no se pudo deshacer la restauración de {o.name!r}: {exc}", o.name)
+    ctx.flag("RESTORE_CONCURRENT_UPDATE", f"{o.name!r}: actualización concurrente tras promover; preservada", o.name)
+    o.concurrent_update = True  # B139: incompleto aunque la concurrente quede en su ruta oficial
     o.incomplete = True
-    ctx.incomplete = True
+
+
+def _receipt_body(
+    chain: _Chain, lock: _LockGuard, inputs: list[_InputLease], outs: list[_Out], quar: _Quarantine
+) -> dict:
+    """Recibo de commit gobernado (B131/B132): identidad+digest de inputs/outputs, lock, cadena y manifiestos."""
+    return {
+        "schema_version": _SCHEMA_VERSION,
+        "txid": quar.txid,
+        "code_sha": _CODE_SHA,
+        "chain": chain.idents(),
+        # inode ACTUAL de `.merge.lock` (no el guardado en el guard): un unlink+recreate del lock durante la
+        # certificación cambia el inode y la re-lectura del recibo lo caza (B132).
+        "lock": list(_inode(chain.camp, _LOCK_NAME) or (0, 0)),
+        "inputs": [
+            {"name": i.name, "inode": list(_inode(i.dir_fd, i.name) or (0, 0)), "digest": i.digest} for i in inputs
+        ],
+        "outputs": [
+            {
+                "name": o.name,
+                "label": o.label,
+                "inode": list(_inode(o.dir_fd, o.name) or (0, 0)),
+                "digest": _safe_digest(o.temp_fd),
+            }
+            for o in outs
+        ],  # fmt: skip
+        "manifests": sorted(st.prev_sha for st in quar._states.values()),
+    }
+
+
+def _safe_digest(fd: int) -> str | None:
+    try:
+        return digest_fd(fd)
+    except OSError:
+        return None
+
+
+def _certify_commit(
+    chain: _Chain, lock: _LockGuard, inputs: list[_InputLease], outs: list[_Out], quar: _Quarantine, ctx: _TxContext
+) -> None:
+    """B131/B132: recibo de commit gobernado. Revalida inputs+lock+cadena+outputs, escribe el recibo 0600,
+    `fsync`, lo promueve con `rename_noreplace`, `fsync` del dir, lo RE-ABRE desde la ruta oficial y lo REVALIDA
+    contra el estado actual. `commit_reached=True` sólo lo marca ESTE finalizador. Una divergencia (input/lock/
+    directorio/output cambiado tras la última revalidación) aborta con `_ValidationError`."""
+    for lease in inputs:  # revalidación final de leases + lock + cadena
+        prob = lease.problem()
+        if prob is not None:
+            raise _ValidationError(f"mitad de entrada inválida (certificación): {prob}")
+    lock.revalidate(chain.camp, "certificación")
+    chain.reverify("certificación")
+    for o in outs:  # los 8 target deben ligar a nuestro temporal con su digest
+        prob = _binding_problem(o.dir_fd, o.name, o.temp_fd, mode=0o600)
+        if prob is not None:
+            raise _ValidationError(f"output {o.name!r} alterado antes del commit: {prob}")
+        if digest_fd(o.temp_fd) != o.temp_digest:
+            raise _ValidationError(f"output {o.name!r} mutado antes del commit (digest)")
+    body = _receipt_body(chain, lock, inputs, outs, quar)
+    tmp_name, tmp_fd = _create_governed(chain.camp, _RECEIPT_PREFIX, "tmp", 0)
+    receipt_name = f"{_RECEIPT_PREFIX}.{quar.txid}.json"
+    try:
+        with os.fdopen(tmp_fd, "wb", closefd=False) as rf:
+            rf.write(_canon(body))
+            rf.flush()
+            os.fsync(rf.fileno())
+        rename_noreplace(chain.camp, tmp_name, chain.camp, receipt_name)
+        os.fsync(chain.camp)
+    except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
+        raise _ValidationError(f"no se pudo escribir/promover el recibo de commit: {exc}") from exc
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(tmp_fd)  # cierre best-effort del fd del temporal del recibo (ya consumido por el rename)
+    # RE-ABRE desde la ruta oficial y revalida el recibo contra el estado ACTUAL (cierra la ventana B131/B132).
+    # Se comparan BYTES canónicos (tuplas y listas serializan idéntico) — un input/lock/output cambiado difiere.
+    rfd = os.open(receipt_name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=chain.camp)
+    try:
+        raw = b""
+        while chunk := os.read(rfd, 1 << 16):
+            raw += chunk
+    finally:
+        os.close(rfd)
+    if raw != _canon(body) or raw != _canon(_receipt_body(chain, lock, inputs, outs, quar)):
+        raise _ValidationError("el recibo de commit ya no corresponde al estado actual (input/lock/output cambió)")
+    ctx.commit_reached = True  # ---- PUNTO DE COMMIT (único sitio) ----
 
 
 def _promote_transactionally(
     chain: _Chain, lock: _LockGuard, inputs: list[_InputLease], outs: list[_Out], quar: _Quarantine, ctx: _TxContext
 ) -> None:
-    """Transacción con CAS atómico, leases y estado clasificable. NUNCA deja escapar un error operativo: todo
-    se recopila en `ctx` y se clasifica en `_raise_outcome`."""
+    """Transacción con CAS atómico de estado explícito, journal durable y recibo de commit. NUNCA deja escapar
+    un error operativo: todo se recopila en `ctx` (Issues) y se clasifica en `_raise_outcome`."""
 
-    def _fsync_dirs() -> None:
-        os.fsync(chain.camp)
-        os.fsync(chain.ev)
+    def _fsync_dirs() -> bool:
+        ok = True
+        for fd in (chain.camp, chain.ev):
+            try:
+                os.fsync(fd)
+            except OSError:
+                ok = False
+        return ok
 
     def _revalidate_leases(when: str) -> None:
-        for lease in inputs:  # B115
+        for lease in inputs:
             prob = lease.problem()
             if prob is not None:
                 raise _ValidationError(f"mitad de entrada inválida ({when}): {prob}")
-        lock.revalidate(chain.camp, when)  # B116
-        chain.reverify(when)  # B90
+        lock.revalidate(chain.camp, when)
+        chain.reverify(when)
 
-    def _quarantine_temp(o: _Out, reason: str) -> None:
-        """Pone en cuarentena el temporal SOLO si `temp_name` sigue ligado a NUESTRO contenido (`temp_fd`); si
-        liga al original (caso incompleto) o desapareció, no se toca. Consume el resultado (B112)."""
+    def _quarantine_temp(o: _Out) -> None:
         if o.temp_name is None or o.temp_fd < 0 or not _binds(o.dir_fd, o.temp_name, o.temp_fd):
             return
-        mr = quar.move(o, o.temp_name, o.temp_fd, phase=ctx.phase, reason=reason)
+        mr = quar.move(o, o.temp_name, o.temp_fd, phase=ctx.phase, reason="temp-cleanup")
         if mr.status == _FOREIGN_OBJECT_PRESERVED:
-            ctx.rollback_errors.append(f"temporal de {o.name!r} sustituido por objeto ajeno (preservado)")
+            ctx.flag("TEMP_CLEANUP_FOREIGN", f"temporal de {o.name!r} sustituido por objeto ajeno (preservado)", o.name)
         elif mr.status == _QUARANTINE_FAILED:
-            ctx.rollback_errors.append(f"no se pudo poner en cuarentena el temporal de {o.name!r}")
-            ctx.incomplete = True
+            ctx.flag("TEMP_CLEANUP_FAILED", f"no se pudo poner en cuarentena el temporal de {o.name!r}", o.name)
 
-    def _rollback_one(o: _Out) -> None:  # B111: contención total por output; jamás interrumpe a los demás
+    def _rollback_one(o: _Out) -> None:  # B111: contención total por output
         try:
             if not o.promoted:
                 return
             if not o.existed_before:  # ausente: deshaz nuestra creación por cuarentena (B125)
                 mr = quar.move(o, o.name, o.temp_fd, phase=_ROLLING_BACK, reason="new-output-undo")
                 if mr.status == _FOREIGN_OBJECT_PRESERVED:  # movimos una actualización concurrente → devuélvela
-                    if quar.restore(mr, o.dir_fd, o.name):
-                        o.concurrent_update = True
-                        ctx.rollback_errors.append(f"{o.name!r}: actualización concurrente devuelta a la ruta oficial")
+                    if quar.restore(o, mr, o.dir_fd, o.name):
+                        ctx.flag("ABSENT_CONCURRENT_RETURNED", f"{o.name!r}: actualización concurrente devuelta a la ruta oficial", o.name)  # fmt: skip
                     else:
-                        o.incomplete = True
-                        ctx.incomplete = True
-                        ctx.rollback_errors.append(f"{o.name!r}: concurrente en cuarentena, ruta oficial ocupada")
+                        ctx.flag("ABSENT_CONCURRENT_ORPHANED", f"{o.name!r}: concurrente en cuarentena, ruta oficial ocupada", o.name)  # fmt: skip
+                    o.concurrent_update = True
                 elif mr.status == _QUARANTINE_FAILED:
-                    o.incomplete = True
-                    ctx.incomplete = True
-                    ctx.rollback_errors.append(f"no se pudo revertir {o.name!r} (cuarentena falló)")
+                    ctx.flag("ABSENT_UNDO_FAILED", f"no se pudo revertir {o.name!r} (cuarentena falló)", o.name)
                 else:
-                    o.restored = True  # QUARANTINED/ALREADY_ABSENT: la ruta oficial quedó limpia
+                    o.restored = True
                 return
             _cas_restore(o, ctx)  # preexistente promovido → restaura el original por CAS
         except Exception as exc:  # noqa: BLE001 — contención total (B111)
-            ctx.rollback_errors.append(f"rollback de {o.name!r} abortó ({type(exc).__name__}: {exc})")
+            ctx.flag("ROLLBACK_ABORTED", f"rollback de {o.name!r} abortó ({type(exc).__name__}: {exc})", o.name)
             o.incomplete = True
-            ctx.incomplete = True
 
-    def _rollback() -> None:  # B106/B111/B112: NO eleva; contiene cada output; consume CADA resultado de limpieza
+    def _rollback() -> None:  # B106/B111/B112: NO eleva; contiene cada output; consume CADA resultado
         ctx.phase = _ROLLING_BACK
-        for o in reversed(outs):  # deshace en orden INVERSO
+        for o in reversed(outs):
             _rollback_one(o)
-        for o in outs:  # los temporales que aún tengan NUESTRO contenido → cuarentena (los originales se preservan)
-            _quarantine_temp(o, "temp-cleanup")
-        try:
-            _fsync_dirs()  # B92
-        except OSError as exc:
-            ctx.rollback_errors.append(f"fsync de directorios: {exc}")
+        for o in outs:
+            _quarantine_temp(o)
+        for o in outs:  # R9.2R11 §2 regla 6: un exchange aplicado y no compensado ⇒ INCOMPLETO
+            if o.exchange_applied and not o.compensation_verified:
+                ctx.flag("EXCHANGE_UNCOMPENSATED", f"{o.name!r}: exchange aplicado sin compensación verificada", o.name)
+                o.incomplete = True
+        if not _fsync_dirs():  # B130: un fsync fallido en el rollback ⇒ INCOMPLETO, no sólo texto
+            ctx.flag("ROLLBACK_FSYNC_FAILED", "fsync de directorios falló durante el rollback")
 
     try:
         ctx.phase = _PREPARING
-        for i, o in enumerate(outs):  # 1. temporales: O_EXCL → escribe → fsync → digest
+        for i, o in enumerate(outs):  # 1. temporales
             data = o.df.to_csv(index=False).encode()
             o.temp_name, o.temp_fd = _create_governed(o.dir_fd, o.name, "tmp", i)
             o.temp_created = True
@@ -856,9 +1057,7 @@ def _promote_transactionally(
                 fh.flush()
                 os.fsync(fh.fileno())
             o.temp_digest = digest_fd(o.temp_fd)
-        for (
-            o
-        ) in outs:  # 2. lease del previo (B114) + bytes de confianza (B108); SIN backup escrito (el exchange desplaza)
+        for o in outs:  # 2. lease del previo (B114) + bytes de confianza; SIN backup escrito (el exchange desplaza)
             fd, snap0, err = open_governed_lease(o.dir_fd, o.name)
             if err is not None and err.startswith("ausente"):
                 o.existed_before = False
@@ -877,69 +1076,48 @@ def _promote_transactionally(
             o.previous_bytes = prev
             o.previous_digest = hashlib.sha256(prev).hexdigest()
             o.orig_digest = o.previous_digest
-        _revalidate_leases("después de cargar")  # B115/B116/B90 (checkpoint tras cargar las ocho)
-        for o in outs:  # 3. verifica binding + digest del temporal ANTES de promover (B102)
+        _revalidate_leases("después de cargar")
+        for o in outs:  # 3. binding + digest del temporal ANTES de promover
             assert o.temp_name is not None
             prob = _binding_problem(o.dir_fd, o.temp_name, o.temp_fd, mode=0o600)
             if prob is not None:
                 raise _ValidationError(f"temporal de {o.name!r} comprometido antes de promover: {prob}")
             if digest_fd(o.temp_fd) != o.temp_digest:
                 raise _ValidationError(f"temporal de {o.name!r} mutado antes de promover (digest)")
-        for o in (
-            outs
-        ):  # 3b. B114: el target no cambió desde el snapshot (preexistente liga al lease; ausente sigue ausente)
+        for o in outs:  # 3b. B114: el target no cambió desde el snapshot
             if o.existed_before:
                 assert o.orig_snapshot is not None and o.orig_digest is not None
                 lp = lease_problem(o.dir_fd, o.name, o.orig_fd, o.orig_snapshot, o.orig_digest)
                 if lp is not None:
                     raise _ValidationError(f"output {o.name!r} modificado por un tercero desde el snapshot: {lp}")
-            else:
-                try:
-                    os.stat(o.name, dir_fd=o.dir_fd, follow_symlinks=False)
-                    raise _ValidationError(f"output {o.name!r} ausente al inicio fue CREADO por un tercero")
-                except FileNotFoundError:
-                    pass
+            elif _inode(o.dir_fd, o.name) is not None:
+                raise _ValidationError(f"output {o.name!r} ausente al inicio fue CREADO por un tercero")
         ctx.phase = _PROMOTING
-        for o in outs:  # 4. promoción por CAS atómico (B122) — sin ventana validación→replace
+        for o in outs:  # 4. promoción por CAS atómico con estado explícito
             _cas_promote(o)
-        for o in outs:  # 5. verifica que el target liga al temporal que creamos + digest (B102)
+        for o in outs:  # 5. verifica target↔temp_fd + digest
             prob = _binding_problem(o.dir_fd, o.name, o.temp_fd, mode=0o600)
             if prob is not None:
                 raise _ValidationError(f"output {o.name!r} tras promover no liga al temporal creado: {prob}")
             if digest_fd(o.temp_fd) != o.temp_digest:
                 raise _ValidationError(f"output {o.name!r} tras promover con digest distinto")
-        _fsync_dirs()
-        _revalidate_leases("punto de commit")  # B99/B115/B116
-        for o in outs:  # 6. B107: re-verifica los 8 target (binding + digest + modo) JUSTO antes del commit
-            prob = _binding_problem(o.dir_fd, o.name, o.temp_fd, mode=0o600)
-            if prob is not None:
-                raise _ValidationError(f"output {o.name!r} alterado antes del commit: {prob}")
-            if digest_fd(o.temp_fd) != o.temp_digest:
-                raise _ValidationError(f"output {o.name!r} mutado antes del commit (digest) — contenido falsificado")
-        ctx.commit_reached = True  # ---- PUNTO DE COMMIT ----
+        if not _fsync_dirs():
+            raise _ValidationError("fsync de directorios falló antes del commit")
+        ctx.phase = _CERTIFYING
+        _certify_commit(chain, lock, inputs, outs, quar, ctx)  # B131/B132: recibo + commit_reached (único sitio)
         ctx.phase = _CLEANING
-        for o in outs:  # limpia los ORIGINALES desplazados (viven en temp_name para los preexistentes) por cuarentena
+        for o in outs:  # limpia los ORIGINALES desplazados (viven en temp_name) por cuarentena
             if not (o.existed_before and o.temp_name is not None):
                 continue
-            try:
-                os.stat(o.temp_name, dir_fd=o.dir_fd, follow_symlinks=False)
-            except FileNotFoundError:
-                continue  # el original desplazado ya no está (consumido por una restauración que no ocurre aquí)
-            except OSError as exc:
-                ctx.postcommit_errors.append(f"estado del original desplazado de {o.name!r}: {exc}")
+            if _inode(o.dir_fd, o.temp_name) is None:
                 continue
-            # SIEMPRE se intenta mover (nada de saltar en silencio un temp_name sustituido, B105): `move` clasifica.
             mr = quar.move(o, o.temp_name, o.orig_fd, phase=_CLEANING, reason="post-commit-original-cleanup")
             if mr.status == _FOREIGN_OBJECT_PRESERVED:
-                ctx.postcommit_errors.append(
-                    f"original desplazado de {o.name!r} sustituido por objeto ajeno (preservado)"
-                )
+                ctx.flag("POSTCOMMIT_FOREIGN", f"original desplazado de {o.name!r} sustituido por objeto ajeno (preservado)", o.name)  # fmt: skip
             elif mr.status == _QUARANTINE_FAILED:
-                ctx.postcommit_errors.append(f"no se pudo poner en cuarentena el original desplazado de {o.name!r}")
-        try:
-            _fsync_dirs()
-        except OSError as exc:
-            ctx.postcommit_errors.append(f"fsync de durabilidad post-commit: {exc}")
+                ctx.flag("POSTCOMMIT_CLEANUP_FAILED", f"no se pudo poner en cuarentena el original desplazado de {o.name!r}", o.name)  # fmt: skip
+        if not _fsync_dirs():
+            ctx.flag("POSTCOMMIT_FSYNC_FAILED", "fsync de durabilidad post-commit falló")
     except Exception as primary:  # noqa: BLE001 — dominio/OSError sí; KeyboardInterrupt/SystemExit NO
         ctx.primary_error = primary
         if not ctx.commit_reached:
@@ -947,37 +1125,32 @@ def _promote_transactionally(
 
 
 def _raise_outcome(ctx: _TxContext) -> None:
-    """Clasifica por INVARIANTES (B127), no solo por `commit_reached`:
-    - post-commit + cualquier problema (incl. `primary_error`, B110) ⇒ CommittedStateError;
-    - pre-commit + rollback INCOMPLETO (concurrencia/irrecuperable/journal/cierre) ⇒ RollbackIncompleteError;
-    - pre-commit + rollback completo con error primario ⇒ RollbackError;
-    - éxito ⇒ retorna. Un error de cierre nunca reemplaza el primario: se ADJUNTA."""
+    """Clasifica por INVARIANTES (B127/B130/B139). Cualquier Issue 'incomplete' o cierre fallido cambia la
+    clasificación; nunca queda como texto inerte."""
+    incomplete = ctx.incomplete_issues()
+    close = ctx.close_errors
     if ctx.commit_reached:
         problems: list[str] = []
-        if ctx.primary_error is not None:  # B110
+        if ctx.primary_error is not None:
             problems.append(f"excepción post-commit: {ctx.primary_error!r}")
-        problems += ctx.postcommit_errors
-        problems += [f"cierre: {e}" for e in ctx.close_errors]
+        problems += [repr(i) for i in incomplete]
+        problems += [f"cierre: {e}" for e in close]
         if problems:
             raise CommittedStateError(
                 f"COMMIT CRUZADO (outputs nuevos son la AUTORIDAD y son durables) pero quedó estado incompleto: "
                 f"{problems}. NO reintentar como si hubiera rollback."
             )
-        return  # éxito
-    incomplete = ctx.incomplete or bool(ctx.close_errors)
-    if ctx.primary_error is None and not ctx.rollback_errors and not incomplete:
-        return  # nada que reportar
-    detail = (
-        f"{ctx.primary_error!r}; recuperaciones: {ctx.recoveries}; errores de rollback: {ctx.rollback_errors}; "
-        f"cierres: {ctx.close_errors}"
-    )
-    if incomplete:  # B127: el rollback NO reconcilió todo → no reintentar automáticamente
+        return  # éxito certificado
+    if ctx.primary_error is None and not incomplete and not close:
+        return  # nada que reportar (no hubo error)
+    detail = f"{ctx.primary_error!r}; recuperaciones: {ctx.recoveries}; issues: {[repr(i) for i in ctx.issues]}; cierres: {close}"  # fmt: skip
+    if incomplete or close:  # B127/B130/B139: divergencia externa / durabilidad → NO reintentar
         err_i = RollbackIncompleteError(f"ROLLBACK INCOMPLETO (no reintentar automáticamente): {detail}")
         if ctx.primary_error is not None:
             raise err_i from ctx.primary_error
         raise err_i
     if ctx.primary_error is None:
-        raise RollbackError(f"errores de rollback sin error primario: {ctx.rollback_errors}")
+        raise RollbackError(f"issues sin error primario: {[repr(i) for i in ctx.issues]}")
     raise RollbackError(detail) from ctx.primary_error
 
 
@@ -985,14 +1158,14 @@ def merge() -> int:
     campaign = os.environ.get("CAMPAIGN_ID")
     if campaign is not None and not campaign.strip():
         _fail("CAMPAIGN_ID definido pero vacío")
-    chain = _Chain()  # B90: cadena gobernada abierta ANTES de tocar nada (cwd = ROOT)
+    chain = _Chain()
     lock: _LockGuard | None = None
     inputs: list[_InputLease] = []
     outs: list[_Out] = []
     quar = _Quarantine(f"{os.getpid()}.{secrets.token_hex(8)}")
     ctx = _TxContext()
     try:
-        lock = _acquire_lock(chain.camp)  # B89/B116: exclusión; los inputs se validan BAJO el lock
+        lock = _acquire_lock(chain.camp)
         try:
             chain.reverify("tras adquirir el lock")
         except _ValidationError as exc:
@@ -1010,8 +1183,8 @@ def merge() -> int:
                 outs.append(_Out(chain.camp, "campaign", f"campaign_pool_{table}_{block}.csv", full))
                 outs.append(_Out(chain.ev, "eval", tgt, full))
                 print(f"{table}/{block}: {len(full)} rows -> {tgt}")
-        _promote_transactionally(chain, lock, inputs, outs, quar, ctx)  # 2. CAS; `ctx` clasifica (nunca eleva)
-    finally:  # cierre único de TODOS los descriptores; errores → `ctx.close_errors` (B109/B113)
+        _promote_transactionally(chain, lock, inputs, outs, quar, ctx)
+    finally:
         ctx.phase = _CLOSED
         for o in outs:
             o.close_fds(ctx.close_errors)
@@ -1024,8 +1197,18 @@ def merge() -> int:
             except OSError as exc:
                 ctx.close_errors.append(f"cerrar lock: {exc}")
         chain.close(ctx.close_errors)
-    _raise_outcome(ctx)  # B104/B109/B110/B127: clasifica por invariantes
+    _raise_outcome(ctx)
     return 0
+
+
+def _resolve_code_sha() -> str:
+    try:
+        return hashlib.sha256(open(__file__, "rb").read()).hexdigest()[:16]
+    except OSError:
+        return "unknown"
+
+
+_CODE_SHA = _resolve_code_sha()
 
 
 if __name__ == "__main__":

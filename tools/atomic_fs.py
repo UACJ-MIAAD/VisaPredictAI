@@ -50,6 +50,34 @@ class AtomicRenameError(OSError):
         return f"{self.op}({self.src!r}->{self.dst!r}): [{self.errno}] {os.strerror(self.errno or 0)}"
 
 
+def _relative_name_problem(name: str) -> str | None:
+    """B134/Fase 8: `src`/`dst` deben ser NOMBRES RELATIVOS simples para `renameat*(dir_fd=…)` — un absoluto o
+    con `..`/separadores/NUL haría que la syscall ignore el descriptor y escape del árbol gobernado."""
+    if not isinstance(name, str) or not name:
+        return "nombre vacío o no-string"
+    if name in (".", ".."):
+        return f"nombre reservado {name!r}"
+    if "\x00" in name:
+        return "nombre con NUL"
+    if os.path.isabs(name):
+        return "nombre absoluto (ignoraría el descriptor)"
+    seps = {"/", os.sep} | ({os.altsep} if os.altsep else set())
+    if any(s in name for s in seps):
+        return "nombre con separador de ruta"
+    if name != os.path.basename(name):
+        return "nombre con componentes de directorio"
+    return None
+
+
+# errno → excepción tipada (B134): el docstring promete estas clases, el backend las produce.
+_ERRNO_EXC = {
+    _errno.EEXIST: FileExistsError,
+    _errno.ENOENT: FileNotFoundError,
+    _errno.ENOTDIR: NotADirectoryError,
+    _errno.EISDIR: IsADirectoryError,
+}
+
+
 def _machine_syscall_nr() -> int | None:
     # __NR_renameat2 por arquitectura (Linux). Fallback solo si el símbolo `renameat2` no existe en libc.
     m = platform.machine()
@@ -108,6 +136,10 @@ class _Backend:
             raise AtomicUnsupportedError(
                 f"rename atómico no disponible en {self.system!r}/{platform.machine()!r} — FAIL-CLOSED (sin fallback)"
             )
+        for label, name in (("src", src), ("dst", dst)):  # B134/Fase 8: solo nombres relativos simples
+            prob = _relative_name_problem(name)
+            if prob is not None:
+                raise ValueError(f"atomic rename: {label} inválido ({prob})")
         flag = self._flags[op]
         sb = os.fsencode(src)
         db = os.fsencode(dst)
@@ -119,11 +151,10 @@ class _Backend:
             rc = self._syscall(self._syscall_nr, src_dir_fd, sb, dst_dir_fd, db, flag)
         if rc != 0:
             e = ctypes.get_errno()
+            exc = _ERRNO_EXC.get(e)
+            if exc is not None:  # B134: EEXIST/ENOENT/ENOTDIR/EISDIR → clases estándar prometidas
+                raise exc(e, os.strerror(e), src, None, dst)
             name = "noreplace" if op == _RENAME_NOREPLACE else "exchange"
-            if e == _errno.EEXIST:
-                raise FileExistsError(e, os.strerror(e), src, None, dst)
-            if e == _errno.ENOENT:
-                raise FileNotFoundError(e, os.strerror(e), src, None, dst)
             raise AtomicRenameError(e, name, src, dst)
 
 
@@ -155,50 +186,53 @@ def _selftest() -> int:
     if not supported():
         print(f"atomic_fs selftest: NO SOPORTADO en {platform.system()}/{platform.machine()}", file=sys.stderr)
         return 1
-    d = tempfile.mkdtemp(prefix="atomicfs.")
-    dfd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
     ok = True
+    with tempfile.TemporaryDirectory(prefix="atomicfs.") as d:  # B133: se elimina siempre (incl. excepción)
+        dfd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
 
-    def _w(name: str, data: bytes) -> None:
-        fd = os.open(name, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=dfd)
-        os.write(fd, data)
-        os.close(fd)
-
-    def _r(name: str) -> bytes:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
-        try:
-            return os.read(fd, 4096)
-        finally:
+        def _w(name: str, data: bytes) -> None:
+            fd = os.open(name, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=dfd)
+            os.write(fd, data)
             os.close(fd)
 
-    try:
-        _w("a", b"AAA")
-        _w("b", b"BBB")
-        # NOREPLACE al ausente: éxito
-        rename_noreplace(dfd, "a", dfd, "c")
-        assert _r("c") == b"AAA", "noreplace no movió el contenido"
-        # NOREPLACE sobre existente: FileExistsError, sin tocar
+        def _r(name: str) -> bytes:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
+            try:
+                return os.read(fd, 4096)
+            finally:
+                os.close(fd)
+
         try:
-            rename_noreplace(dfd, "c", dfd, "b")
+            _w("a", b"AAA")
+            _w("b", b"BBB")
+            rename_noreplace(dfd, "a", dfd, "c")  # NOREPLACE al ausente
+            assert _r("c") == b"AAA", "noreplace no movió el contenido"
+            try:  # NOREPLACE sobre existente → FileExistsError, sin tocar
+                rename_noreplace(dfd, "c", dfd, "b")
+                ok = False
+                print("FALLO: noreplace sobrescribió un destino existente", file=sys.stderr)
+            except FileExistsError:
+                assert _r("b") == b"BBB" and _r("c") == b"AAA", "noreplace tocó los inodes en la colisión"
+            rename_exchange(dfd, "c", dfd, "b")  # EXCHANGE atómico
+            assert _r("b") == b"AAA" and _r("c") == b"BBB", "exchange no intercambió los inodes"
+            try:  # EXCHANGE con extremo ausente → FileNotFoundError
+                rename_exchange(dfd, "nope", dfd, "b")
+                ok = False
+                print("FALLO: exchange no falló con un extremo ausente", file=sys.stderr)
+            except FileNotFoundError:
+                pass
+            for bad in ("/abs", "../up", "a/b", "a\x00b", ".", ".."):  # nombres no relativos → ValueError
+                try:
+                    rename_noreplace(dfd, bad, dfd, "z")
+                    ok = False
+                    print(f"FALLO: aceptó nombre no relativo {bad!r}", file=sys.stderr)
+                except ValueError:
+                    pass
+        except AssertionError as exc:
             ok = False
-            print("FALLO: noreplace sobrescribió un destino existente", file=sys.stderr)
-        except FileExistsError:
-            assert _r("b") == b"BBB" and _r("c") == b"AAA", "noreplace tocó los inodes en la colisión"
-        # EXCHANGE: swap atómico
-        rename_exchange(dfd, "c", dfd, "b")
-        assert _r("b") == b"AAA" and _r("c") == b"BBB", "exchange no intercambió los inodes"
-        # EXCHANGE con extremo ausente: FileNotFoundError
-        try:
-            rename_exchange(dfd, "nope", dfd, "b")
-            ok = False
-            print("FALLO: exchange no falló con un extremo ausente", file=sys.stderr)
-        except FileNotFoundError:
-            pass
-    except AssertionError as exc:
-        ok = False
-        print(f"FALLO: {exc}", file=sys.stderr)
-    finally:
-        os.close(dfd)
+            print(f"FALLO: {exc}", file=sys.stderr)
+        finally:
+            os.close(dfd)
     print(f"atomic_fs selftest: {'OK' if ok else 'FALLO'} en {platform.system()}/{platform.machine()}")
     return 0 if ok else 1
 

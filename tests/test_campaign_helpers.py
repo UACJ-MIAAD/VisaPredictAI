@@ -73,6 +73,7 @@ def _loose_residue(*dirs):
 
 def _assert_quarantine_manifested(base):
     # R9.2R10: cada objeto en cuarentena DEBE tener un registro INTENT y uno COMPLETED/FOREIGN_PRESERVED (B126).
+    import hashlib as _hashlib
     import json as _json
 
     for qroot in base.rglob(mcp._QUARANTINE_DIR):
@@ -80,18 +81,27 @@ def _assert_quarantine_manifested(base):
             if not txid.is_dir():
                 continue
             manifest = txid / "MANIFEST.jsonl"
-            intents, results = set(), set()
+            intents, completed = set(), set()
+            prev = ""
             if manifest.exists():
                 assert (manifest.stat().st_mode & 0o777) == 0o600, "manifiesto de cuarentena no es 0600"
-                for line in manifest.read_text().splitlines():
+                for i, line in enumerate(manifest.read_text().splitlines(), start=1):
                     rec = _json.loads(line)
-                    if rec["record"] == "INTENT":
-                        intents.add(rec["quarantined_as"])
-                    else:
-                        results.add(rec["quarantined_as"])
+                    # cadena de hashes íntegra (secuencia 1..N, previous/record sha encadenados) — B136
+                    assert rec["sequence"] == i and rec["previous_record_sha256"] == prev, "cadena de journal rota"
+                    body = {k: v for k, v in rec.items() if k != "record_sha256"}
+                    assert _hashlib.sha256(mcp._canon(body)).hexdigest() == rec["record_sha256"], (
+                        "hash de journal inválido"
+                    )
+                    prev = rec["record_sha256"]
+                    if rec["record"] == "MOVE_INTENT":
+                        intents.add(rec["destination_name"])
+                    elif rec["record"] in ("MOVE_COMPLETED", "MOVE_FOREIGN_PRESERVED"):
+                        completed.add(rec["destination_name"])
             for item in txid.iterdir():
                 if item.name != "MANIFEST.jsonl":
-                    assert item.name in intents, f"objeto en cuarentena sin INTENT: {item}"
+                    assert item.name in intents, f"objeto en cuarentena sin MOVE_INTENT: {item}"
+                    assert item.name in completed, f"objeto en cuarentena sin MOVE_COMPLETED/FOREIGN: {item}"
 
 
 def _fail_nth_cas(monkeypatch, n, exc=None):
@@ -681,21 +691,28 @@ def test_b101_recovery_message_points_to_real_file(tmp_path, monkeypatch):
 
 
 def test_b104_post_commit_fsync_failure_is_typed(tmp_path, monkeypatch):
-    # un fallo de fsync DESPUÉS del punto de commit → CommittedStateError (NUNCA un OSError/rollback ambiguo).
+    # un fallo de fsync DESPUÉS del commit (certificación cruzada) → CommittedStateError (NUNCA ambiguo). Se ARMA
+    # el fallo cuando `_certify_commit` retorna (commit_reached=True); el 1er fsync de directorio posterior falla.
     _write_all_8(tmp_path)
     real_fsync = os.fsync
-    dir_fsyncs = {"n": 0}
+    armed = {"x": False}
 
     def counting(fd):
         import stat as _stat
 
-        if _stat.S_ISDIR(os.fstat(fd).st_mode):
-            dir_fsyncs["n"] += 1
-            if dir_fsyncs["n"] == 3:  # #1,#2 = pre-commit; #3 = post-commit
-                raise OSError("postcommit dir fsync failure")
+        if armed["x"] and _stat.S_ISDIR(os.fstat(fd).st_mode):
+            armed["x"] = False
+            raise OSError("postcommit dir fsync failure")
         return real_fsync(fd)
 
+    orig = mcp._certify_commit
+
+    def wrapped(*a):
+        orig(*a)
+        armed["x"] = True  # commit cruzado → el próximo fsync de dir (durabilidad post-commit) falla
+
     monkeypatch.setattr(mcp.os, "fsync", counting)
+    monkeypatch.setattr(mcp, "_certify_commit", wrapped)
     monkeypatch.chdir(tmp_path)
     with pytest.raises(mcp.CommittedStateError) as exc:
         mcp.merge()
@@ -737,7 +754,7 @@ def test_b105_substituted_displaced_original_after_commit_is_committed_state_err
 
     def hooked(self, when):
         r = real(self, when)
-        if when == "punto de commit":  # tras promover, el original vive en temp_name; sustitúyelo por un ajeno
+        if when == "certificación":  # tras promover, el original vive en temp_name; sustitúyelo por un ajeno
             for p in list(camp.iterdir()):
                 if p.name.startswith(".campaign_pool_FAD_family.csv.tmp."):
                     p.unlink()
@@ -753,14 +770,14 @@ def test_b105_substituted_displaced_original_after_commit_is_committed_state_err
 
 
 def test_b107_target_mutated_at_commit_point_is_intercepted(tmp_path, monkeypatch):
-    # mutar el MISMO inode del target durante reverify("punto de commit") → la re-verificación final (binding+
-    # digest) lo intercepta ANTES del commit; el contenido falsificado NO cruza.
+    # mutar el MISMO inode del target durante la certificación → la re-verificación final (binding+digest)
+    # lo intercepta ANTES del commit; el contenido falsificado NO cruza.
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
     real = mcp._Chain.reverify
 
     def hooked(self, when):
-        if when == "punto de commit":
+        if when == "certificación":
             with open(camp / "campaign_pool_FAD_family.csv", "wb") as f:
                 f.write(b"FORGED-AFTER-VERIFY\n")
         return real(self, when)
@@ -956,7 +973,7 @@ def test_b99_final_swap_rolls_back(tmp_path, monkeypatch):
     real_reverify = mcp._Chain.reverify
 
     def hooked(self, when):
-        if when == "punto de commit":
+        if when == "certificación":
             raise mcp._ValidationError("swap final inyectado")  # dominio → atrapado → rollback
         return real_reverify(self, when)
 
@@ -1284,13 +1301,6 @@ def test_b110_post_commit_unexpected_exception_is_committed_state_error(tmp_path
     _write_all_8(tmp_path)
     real_fsync = os.fsync
     armed = {"x": False}
-    real_rv = mcp._Chain.reverify
-
-    def rv(self, when):
-        r = real_rv(self, when)
-        if when == "punto de commit":
-            armed["x"] = True
-        return r
 
     def bad_fsync(fd):
         import stat as _s
@@ -1300,8 +1310,14 @@ def test_b110_post_commit_unexpected_exception_is_committed_state_error(tmp_path
             raise ValueError("post-commit non-OSError")  # NO-OSError: el except OSError post-commit no la ve
         return real_fsync(fd)
 
-    monkeypatch.setattr(mcp._Chain, "reverify", rv)
+    orig = mcp._certify_commit
+
+    def wrapped(*a):
+        orig(*a)
+        armed["x"] = True  # commit cruzado → el próximo fsync de dir post-commit eleva un NO-OSError
+
     monkeypatch.setattr(mcp.os, "fsync", bad_fsync)
+    monkeypatch.setattr(mcp, "_certify_commit", wrapped)
     monkeypatch.chdir(tmp_path)
     with pytest.raises(mcp.CommittedStateError):
         mcp.merge()
@@ -1493,7 +1509,7 @@ def test_b117_quarantine_move_never_destroys_foreign_integration(tmp_path, monke
 
     def hooked(self, when):
         r = real(self, when)
-        if when == "punto de commit":  # sustituye el original desplazado por un AJENO justo antes del commit
+        if when == "certificación":  # sustituye el original desplazado por un AJENO justo antes del commit
             for p in list(camp.iterdir()):
                 if p.name.startswith(".campaign_pool_FAD_family.csv.tmp."):
                     p.unlink()
@@ -1565,21 +1581,28 @@ def test_b119_manifest_write_failure_is_not_silent(tmp_path, monkeypatch):
         mcp.merge()
 
 
-def test_b120_manifest_planted_hardlink_rejected(tmp_path):
-    # un MANIFEST.jsonl plantado (hardlink a un fichero externo) no permite escribir fuera de la cuarentena:
-    # `_prepare` lo rechaza (O_EXCL del manifiesto + mkdir O_EXCL del txid) y el externo NO se modifica (B120).
+def test_b120_manifest_hardlink_race_rejected(tmp_path, monkeypatch):
+    # B120/B138: un hardlink a un fichero externo plantado como MANIFEST.jsonl JUSTO tras crear el txid y ANTES
+    # de abrirlo (la carrera real) es rechazado por O_EXCL — el fichero externo NO se modifica.
     d = tmp_path / "reports" / "campaign"
     d.mkdir(parents=True)
     external = tmp_path / "external.txt"
     external.write_bytes(b"EXTERNAL-UNTOUCHED\n")
     dfd = os.open(str(d), os.O_RDONLY | os.O_DIRECTORY)
     quar = mcp._Quarantine("planted.deadbeef")
+    real_mkdir = os.mkdir
+
+    def racing_mkdir(path, *a, dir_fd=None, **k):
+        r = real_mkdir(path, *a, dir_fd=dir_fd, **k)
+        if path == quar.txid:  # el txid acaba de crearse → un tercero planta el MANIFEST como hardlink al externo
+            os.link(str(external), str(d / ".merge-quarantine" / quar.txid / "MANIFEST.jsonl"))
+        return r
+
+    monkeypatch.setattr(mcp.os, "mkdir", racing_mkdir)
+    monkeypatch.chdir(tmp_path)
     try:
-        (d / ".merge-quarantine").mkdir()
-        (d / ".merge-quarantine" / "planted.deadbeef").mkdir()
-        os.link(str(external), str(d / ".merge-quarantine" / "planted.deadbeef" / "MANIFEST.jsonl"))
         with pytest.raises((OSError, mcp._ValidationError)):
-            quar._prepare(dfd)  # mkdir(txid) falla EEXIST → rechazado antes de tocar el manifiesto plantado
+            quar._prepare(dfd)  # el O_EXCL del MANIFEST cae sobre el hardlink plantado → rechazado
         assert external.read_bytes() == b"EXTERNAL-UNTOUCHED\n", "escribió fuera de la cuarentena (B120)"
     finally:
         quar.close([])
@@ -1599,7 +1622,7 @@ def test_b121_quarantine_collision_preserves_existing(tmp_path, monkeypatch):
         name, fd = mcp._create_governed(dfd, "y", "tmp", 0)
         os.write(fd, b"OURS\n")
         o = mcp._Out(dfd, "campaign", "y", None)
-        _qroot, qtx, _mfd = quar._prepare(dfd)
+        qtx = quar._prepare(dfd).qtx
         # planta el destino de cuarentena que `move` intentará usar (label.name.FIXED)
         collided = f"{o.label}.{name.lstrip('.')}.FIXED"
         cfd = os.open(collided, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=qtx)
@@ -1695,16 +1718,23 @@ def test_b125_absent_rollback_preserves_concurrent_on_official_path(tmp_path, mo
 
     monkeypatch.setattr(mcp, "rename_noreplace", nr)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
+    with pytest.raises(mcp.RollbackIncompleteError):  # B139: divergencia externa ⇒ no reintentable
         mcp.merge()
-    # el contenido concurrente sobrevive (en la ruta oficial o preservado en cuarentena) — jamás destruido
-    survivors = [p for p in ev.rglob("*") if p.is_file() and p.read_bytes() == b"V2-ABSENT-CONCURRENT\n"]
-    assert survivors, "la actualización concurrente de un output ausente fue destruida (B125)"
+    # B137: la concurrente DEBE volver a su RUTA OFICIAL, no sobrevivir "en cualquier lugar" (cuarentena huérfana).
+    assert absent_tgt.exists() and absent_tgt.read_bytes() == b"V2-ABSENT-CONCURRENT\n", (
+        "la actualización concurrente no volvió a la ruta oficial (B125/B137)"
+    )
+    q_orphans = [
+        p
+        for p in ev.rglob("*")
+        if mcp._QUARANTINE_DIR in p.parts and p.is_file() and p.read_bytes() == b"V2-ABSENT-CONCURRENT\n"
+    ]
+    assert not q_orphans, "la concurrente quedó huérfana en cuarentena en vez de volver a la ruta oficial (B137)"
 
 
 def test_b126_quarantine_journal_has_intent_and_completed(tmp_path, monkeypatch):
-    # cada objeto en cuarentena tiene un registro INTENT (antes del move) y uno COMPLETED/FOREIGN (después),
-    # con fsync (B126). Un merge con preexistentes desplaza originales → los pone en cuarentena inventariada.
+    # cada objeto en cuarentena tiene MOVE_INTENT (antes del move) y MOVE_COMPLETED/FOREIGN (después), con cadena
+    # de hashes válida y fsync (B126). Un merge con preexistentes desplaza originales → cuarentena inventariada.
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
     (camp / "campaign_pool_FAD_family.csv").write_bytes(b"PRE\n")
@@ -1722,12 +1752,14 @@ def test_b126_quarantine_journal_has_intent_and_completed(tmp_path, monkeypatch)
 
     manifest = next(camp.rglob("MANIFEST.jsonl"))
     records = [_json.loads(line) for line in manifest.read_text().splitlines()]
-    intents = [r for r in records if r["record"] == "INTENT"]
-    completed = [r for r in records if r["record"] in ("COMPLETED", "FOREIGN_PRESERVED")]
+    intents = [r for r in records if r["record"] == "MOVE_INTENT"]
+    completed = [r for r in records if r["record"] in ("MOVE_COMPLETED", "MOVE_FOREIGN_PRESERVED")]
     assert intents and completed and len(intents) == len(completed), (
-        "el journal no tiene INTENT+COMPLETED pareados (B126)"
+        "el journal no tiene MOVE_INTENT+COMPLETED pareados (B126)"
     )
+    assert records[0]["record"] == "MOVE_INTENT", "el primer evento de un objeto debe ser INTENT"
     assert fsyncs["n"] > 0
+    _assert_quarantine_manifested(tmp_path)  # valida la cadena de hashes íntegra
 
 
 def test_b127_error_taxonomy_is_distinct(tmp_path, monkeypatch):
@@ -1792,6 +1824,248 @@ def test_no_raw_fs_mutations_in_merge_module():
         and n.lineno not in allowed
     ]
     assert not bad_pass, f"except (amplio): pass en journal/CAS/rollback/cuarentena (B119): líneas {bad_pass}"
+
+
+# ----------------------------- B128-B139: journal bidireccional, compensación verificable, recibo de commit -----------------------------
+
+
+def test_b128_restore_is_journaled(tmp_path, monkeypatch):
+    # `restore()` (devolver una concurrente a su ruta oficial) escribe RESTORE_INTENT/COMPLETED en el journal
+    # (B128); en R9.2R10 no escribía nada y devolvía éxito sin evidencia durable.
+    _write_all_8(tmp_path)
+    ev = tmp_path / "reports" / "eval"
+    absent_tgt = ev / "model_comparison_DFF21.csv"
+    real_nr = mcp.rename_noreplace
+    st = {"done": False}
+
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        if dst == "model_comparison_EB_DFF21.csv":
+            raise OSError("promo-fail")
+        if src_dir_fd != dst_dir_fd and not st["done"] and absent_tgt.exists():
+            st["done"] = True
+            v2 = ev / ".v2"
+            v2.write_bytes(b"V2\n")
+            os.replace(str(v2), str(absent_tgt))
+        return real_nr(src_dir_fd, src, dst_dir_fd, dst)
+
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.RollbackIncompleteError):
+        mcp.merge()
+    import json as _json
+
+    records = []
+    for m in ev.rglob("MANIFEST.jsonl"):
+        records += [_json.loads(line)["record"] for line in m.read_text().splitlines()]
+    assert "RESTORE_INTENT" in records and "RESTORE_COMPLETED" in records, "restore no dejó evidencia durable (B128)"
+
+
+def test_b129_failed_compensation_is_incomplete(tmp_path, monkeypatch):
+    # si la compensación (swap de vuelta) tras detectar concurrencia EN LA PROMOCIÓN falla, el output oficial
+    # quedó modificado por un exchange no compensado → RollbackIncompleteError, NUNCA un RollbackError
+    # "reintentable" (B129). El estado `exchange_applied` sin `compensation_verified` fuerza la clasificación.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    tgt = camp / "campaign_pool_FAD_family.csv"  # idx0 preexistente → se promueve por exchange
+    tgt.write_bytes(b"PRE\n")
+    real_ex = mcp.rename_exchange
+    st = {"n": 0}
+
+    def ex(src_dir_fd, src, dst_dir_fd, dst):
+        if dst == "campaign_pool_FAD_family.csv":
+            st["n"] += 1
+            if st["n"] == 1:  # ANTES del 1er exchange (promoción), un tercero reemplaza el target
+                v2 = camp / ".v2"
+                v2.write_bytes(b"V2-CONCURRENT\n")
+                os.replace(str(v2), str(tgt))
+            elif st["n"] == 2:  # el 2º exchange = COMPENSACIÓN (swap de vuelta) → falla
+                raise OSError("compensation-fail")
+        return real_ex(src_dir_fd, src, dst_dir_fd, dst)
+
+    monkeypatch.setattr(mcp, "rename_exchange", ex)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.RollbackIncompleteError):  # exchange aplicado sin compensación verificada
+        mcp.merge()
+
+
+def test_b130_rollback_fsync_failure_is_incomplete(tmp_path, monkeypatch):
+    # un fsync de directorio fallido durante el rollback activa `incomplete` → RollbackIncompleteError, no un
+    # RollbackError con el fallo como mero texto (B130).
+    _write_all_8(tmp_path)
+    _fail_nth_cas(monkeypatch, 3)  # promoción #3 falla → rollback
+    real_fsync = os.fsync
+    armed = {"x": False}
+
+    def bad_fsync(fd):
+        import stat as _s
+
+        if armed["x"] and _s.S_ISDIR(os.fstat(fd).st_mode):
+            raise OSError("rollback dir fsync failure")
+        return real_fsync(fd)
+
+    orig_promote = mcp._promote_transactionally
+
+    def wrapped(*a):
+        armed["x"] = True  # a partir de la promoción, todo fsync de directorio falla → el rollback queda incompleto
+        return orig_promote(*a)
+
+    monkeypatch.setattr(mcp.os, "fsync", bad_fsync)
+    monkeypatch.setattr(mcp, "_promote_transactionally", wrapped)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.RollbackIncompleteError):
+        mcp.merge()
+
+
+def test_b131_input_changed_during_certification_aborts(tmp_path, monkeypatch):
+    # un input cambiado DESPUÉS de la última revalidación (durante la certificación del recibo) es cazado por la
+    # re-lectura del recibo → NO rc=0 (B131); en R9.2R10 producía rc=0.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    real_nr = mcp.rename_noreplace
+    done = {"x": False}
+
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        if not done["x"] and str(dst).startswith(mcp._RECEIPT_PREFIX):  # al promover el recibo, cambia un input
+            done["x"] = True
+            f = camp / "aq_pool_nongbm_FAD_family.csv"
+            f.unlink()
+            _pool_df("SWAPPED", "FAD", "family", ("ets",)).to_csv(f, index=False)
+        return real_nr(src_dir_fd, src, dst_dir_fd, dst)
+
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
+        mcp.merge()
+    assert not (camp / "campaign_pool_FAD_family.csv").exists(), (
+        "publicó con un input cambiado en la certificación (B131)"
+    )
+
+
+def test_b132_lock_replaced_during_certification_aborts(tmp_path, monkeypatch):
+    # el lock desligado+recreado DESPUÉS de la última revalidación (durante la certificación) es cazado por la
+    # re-lectura del recibo → NO rc=0 (B132).
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    lock = camp / ".merge.lock"
+    real_nr = mcp.rename_noreplace
+    done = {"x": False}
+
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        if not done["x"] and str(dst).startswith(mcp._RECEIPT_PREFIX):  # al promover el recibo, sustituye el lock
+            done["x"] = True
+            lock.unlink()
+            lock.write_bytes(b"")
+            os.chmod(lock, 0o600)
+        return real_nr(src_dir_fd, src, dst_dir_fd, dst)
+
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
+        mcp.merge()
+    assert not (camp / "campaign_pool_FAD_family.csv").exists(), (
+        "publicó con el lock sustituido en la certificación (B132)"
+    )
+
+
+def test_b134_atomic_errno_mapping():
+    # B134: el backend mapea ENOTDIR→NotADirectoryError e IsADirectoryError (además de EEXIST/ENOENT) — el
+    # docstring lo promete y el backend lo produce (las clases estándar, no un AtomicRenameError genérico).
+    import errno as _errno
+
+    import tools.atomic_fs as afs
+
+    assert afs._ERRNO_EXC[_errno.ENOTDIR] is NotADirectoryError
+    assert afs._ERRNO_EXC[_errno.EISDIR] is IsADirectoryError
+    assert afs._ERRNO_EXC[_errno.EEXIST] is FileExistsError
+    assert afs._ERRNO_EXC[_errno.ENOENT] is FileNotFoundError
+
+
+def test_b135_preexisting_quarantine_wrong_mode_not_repaired(tmp_path, monkeypatch):
+    # un `.merge-quarantine` preexistente en 0777 se RECHAZA (fail-closed), NO se "repara" a 0700 (B135).
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    (camp / "campaign_pool_FAD_family.csv").write_bytes(b"PRE\n")  # fuerza cleanup post-commit
+    q = camp / ".merge-quarantine"
+    q.mkdir()
+    os.chmod(q, 0o777)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.CommittedStateError):
+        mcp.merge()
+    assert (q.stat().st_mode & 0o777) == 0o777, "reparó silenciosamente el directorio de cuarentena (B135)"
+
+
+def test_b136_journal_truncation_between_records_detected(tmp_path):
+    # B136: un manifiesto truncado entre INTENT y COMPLETED se caza en la RE-LECTURA de la cadena de hashes.
+    d = tmp_path / "reports" / "campaign"
+    d.mkdir(parents=True)
+    dfd = os.open(str(d), os.O_RDONLY | os.O_DIRECTORY)
+    quar = mcp._Quarantine("trunc.deadbeef")
+    try:
+        st = quar._prepare(dfd)
+        assert quar._journal(st, "campaign", {"record": "MOVE_INTENT", "operation_id": "op"})  # INTENT ok
+        manifest = d / ".merge-quarantine" / "trunc.deadbeef" / "MANIFEST.jsonl"
+        os.truncate(str(manifest), 0)  # un tercero trunca el manifiesto entre eventos
+        assert not quar._journal(st, "campaign", {"record": "MOVE_COMPLETED", "operation_id": "op"}), (
+            "no cazó el truncado del journal (B136)"
+        )
+    finally:
+        quar.close([])
+        os.close(dfd)
+
+
+def test_b139_concurrency_preserved_is_incomplete(tmp_path, monkeypatch):
+    # una actualización concurrente de un output AUSENTE, devuelta CORRECTAMENTE a su ruta oficial durante el
+    # rollback, produce RollbackIncompleteError, NO un RollbackError reintentable: hubo divergencia externa
+    # (B139). En R9.2R10 este caso (ABSENT_CONCURRENT_RETURNED) se clasificaba como RollbackError.
+    _write_all_8(tmp_path)
+    ev = tmp_path / "reports" / "eval"
+    absent_tgt = ev / "model_comparison_DFF21.csv"
+    real_nr = mcp.rename_noreplace
+    st = {"done": False}
+
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        if dst == "model_comparison_EB_DFF21.csv":
+            raise OSError("promo-fail")
+        if src_dir_fd != dst_dir_fd and not st["done"] and absent_tgt.exists():
+            st["done"] = True
+            v2 = ev / ".v2"
+            v2.write_bytes(b"V2\n")
+            os.replace(str(v2), str(absent_tgt))
+        return real_nr(src_dir_fd, src, dst_dir_fd, dst)
+
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.RollbackIncompleteError):  # aunque la concurrente vuelva a su ruta oficial
+        mcp.merge()
+    assert absent_tgt.read_bytes() == b"V2\n", "la concurrente no quedó en su ruta oficial (B139)"
+
+
+def test_r11_static_gate_receipt_and_journal():
+    # GATE ESTÁTICO ampliado (R9.2R11 §9): commit_reached=True SÓLO en el certificador; MANIFEST con
+    # O_RDWR|O_APPEND|O_EXCL; estado exchange_applied; sin os.replace/rename/unlink; fchmod guardado por `created`.
+    import ast
+    import pathlib
+
+    src = pathlib.Path(mcp.__file__).read_text()
+    tree = ast.parse(src)
+    # commit_reached = True aparece exactamente una vez, dentro de _certify_commit
+    assigns = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Attribute) and t.attr == "commit_reached" for t in n.targets)
+        and isinstance(n.value, ast.Constant)
+        and n.value.value is True
+    ]
+    assert len(assigns) == 1, "commit_reached=True debe asignarse en UN solo sitio (el certificador)"
+    certify = next(fn for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef) and fn.name == "_certify_commit")
+    assert all(certify.lineno <= a.lineno <= (certify.end_lineno or a.lineno) for a in assigns), (
+        "commit_reached=True debe vivir dentro de _certify_commit"
+    )
+    assert "O_RDWR" in src and "O_APPEND" in src and "O_EXCL" in src, "MANIFEST debe abrirse O_RDWR|O_APPEND|O_EXCL"
+    assert "exchange_applied" in src and "compensation_verified" in src, "debe rastrear el estado CAS explícito"
+    assert "record_sha256" in src and "previous_record_sha256" in src, "el journal debe encadenar hashes"
+    assert "_RECEIPT_PREFIX" in src and "_certify_commit" in src, "debe existir el recibo de commit gobernado"
 
 
 if __name__ == "__main__":
