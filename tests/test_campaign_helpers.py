@@ -2351,5 +2351,51 @@ def test_b154_incompatible_terminal_rejected(tmp_path):
         os.close(dfd)
 
 
+# --------------------- B148/B145 (increment 1): el bundle content-addressed es la AUTORIDAD del commit ---------------------
+
+
+def test_b148_merge_publishes_bundle_authority_and_current(tmp_path, monkeypatch):
+    # tras un merge exitoso el commit publica un bundle inmutable + puntero CURRENT por CAS; los consumidores
+    # resuelven la añada oficial vía open_current_bundle()/read_current_csv() — no por leer el CSV suelto.
+    import tools.campaign_bundle as cb
+
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    monkeypatch.chdir(tmp_path)
+    assert mcp.merge() == 0
+    cfd = os.open(str(camp), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        bundle_id, manifest = cb.open_current_bundle(cfd)  # RED en HEAD: no hay CURRENT ⇒ BundleError
+        assert len(bundle_id) == 64 and len(manifest["outputs"]) == 8  # 4 tablas×bloques × (campaign+eval)
+        sealed = cb.read_current_csv(cfd, "campaign", "campaign_pool_FAD_family.csv")
+        assert sealed == (camp / "campaign_pool_FAD_family.csv").read_bytes(), (
+            "el bundle no selló el output committeado"
+        )
+    finally:
+        os.close(cfd)
+
+
+def test_b148_post_commit_csv_mutation_does_not_corrupt_authority(tmp_path, monkeypatch):
+    # B148 raíz: mutar un CSV committeado DESPUÉS del commit no altera la autoridad. El consumidor que resuelve
+    # por el bundle sigue leyendo los bytes SELLADOS (el CSV es una proyección; la verdad vive en el bundle).
+    import tools.campaign_bundle as cb
+
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    monkeypatch.chdir(tmp_path)
+    assert mcp.merge() == 0
+    csv = camp / "campaign_pool_FAD_family.csv"
+    original = csv.read_bytes()
+    os.chmod(csv, 0o600)
+    with open(csv, "ab") as fh:  # deriva del corte oficial tras cruzar el commit
+        fh.write(b"9,9,9\n")
+    cfd = os.open(str(camp), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        sealed = cb.read_current_csv(cfd, "campaign", "campaign_pool_FAD_family.csv")
+        assert sealed == original, "la autoridad del bundle se corrompió con una mutación post-commit del CSV"
+    finally:
+        os.close(cfd)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

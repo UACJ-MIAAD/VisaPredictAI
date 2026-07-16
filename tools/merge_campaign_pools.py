@@ -58,6 +58,7 @@ from typing import NoReturn
 
 import pandas as pd
 
+import tools.campaign_bundle as _bundle
 from tools.atomic_fs import AtomicRenameError, AtomicUnsupportedError, rename_exchange, rename_noreplace
 from tools.governed_read import digest_fd, lease_problem, open_governed_lease, relative_name_problem, snapshot_fd
 
@@ -1217,6 +1218,27 @@ def _abort_receipt(camp_fd: int, txid: str, ctx: _TxContext) -> None:
                 ctx.close_errors.append(f"cerrar aborted fd: {exc}")
 
 
+def _publish_bundle(chain: _Chain, quar: _Quarantine, inputs: list[_InputLease], outs: list[_Out], campaign: str | None, ctx: _TxContext) -> None:  # fmt: skip
+    """B148/B145 (increment 1): tras el commit del recibo, sella los outputs VERIFICADOS en un bundle inmutable
+    content-addressed y publica el puntero CURRENT por CAS = la AUTORIDAD durable. Output-neutral: los CSV siguen
+    escritos como proyecciones. Un fallo aquí es post-commit (los outputs ya cruzaron) ⇒ Issue de postcommit."""
+    try:
+        seen: dict[str, _InputLease] = {}
+        for i in inputs:
+            seen.setdefault(i.name, i)
+        input_meta = [{"name": i.name, "size": len(i.df.to_csv(index=False).encode()), "sha256": i.digest} for i in seen.values()]  # fmt: skip
+        output_meta = []
+        for o in outs:
+            os.lseek(o.temp_fd, 0, os.SEEK_SET)
+            data = b""
+            while chunk := os.read(o.temp_fd, 1 << 16):
+                data += chunk
+            output_meta.append({"label": o.label, "name": o.name, "bytes": data, "rows": int(len(o.df)), "cols": int(len(o.df.columns))})  # fmt: skip
+        _bundle.build_and_commit(chain.camp, quar.txid, campaign, output_meta, input_meta, _provenance())
+    except (_bundle.BundleError, OSError, ValueError) as exc:
+        ctx.flag("BUNDLE_PUBLISH_FAILED", f"no se pudo publicar el bundle/puntero CURRENT post-commit: {exc}")
+
+
 def _certify_commit(
     chain: _Chain, lock: _LockGuard, inputs: list[_InputLease], outs: list[_Out], quar: _Quarantine, ctx: _TxContext
 ) -> None:
@@ -1277,7 +1299,13 @@ def _certify_commit(
 
 
 def _promote_transactionally(
-    chain: _Chain, lock: _LockGuard, inputs: list[_InputLease], outs: list[_Out], quar: _Quarantine, ctx: _TxContext
+    chain: _Chain,
+    lock: _LockGuard,
+    inputs: list[_InputLease],
+    outs: list[_Out],
+    quar: _Quarantine,
+    ctx: _TxContext,
+    campaign: str | None = None,  # fmt: skip
 ) -> None:
     """Transacción con CAS atómico de estado explícito, journal durable y recibo de commit. NUNCA deja escapar
     un error operativo: todo se recopila en `ctx` (Issues) y se clasifica en `_raise_outcome`."""
@@ -1416,6 +1444,7 @@ def _promote_transactionally(
                 ctx.flag("POSTCOMMIT_CLEANUP_FAILED", f"no se pudo poner en cuarentena el original desplazado de {o.name!r}", o.name)  # fmt: skip
         if not _fsync_dirs():
             ctx.flag("POSTCOMMIT_FSYNC_FAILED", "fsync de durabilidad post-commit falló")
+        _publish_bundle(chain, quar, inputs, outs, campaign, ctx)  # B148/B145: sella la AUTORIDAD durable + CURRENT
     except Exception as primary:  # noqa: BLE001 — dominio/OSError sí; KeyboardInterrupt/SystemExit NO
         ctx.primary_error = primary
         if not ctx.commit_reached:
@@ -1481,7 +1510,7 @@ def merge() -> int:
                 outs.append(_Out(chain.camp, "campaign", f"campaign_pool_{table}_{block}.csv", full))
                 outs.append(_Out(chain.ev, "eval", tgt, full))
                 print(f"{table}/{block}: {len(full)} rows -> {tgt}")
-        _promote_transactionally(chain, lock, inputs, outs, quar, ctx)
+        _promote_transactionally(chain, lock, inputs, outs, quar, ctx, campaign)
     finally:
         ctx.phase = _CLOSED
         for o in outs:
