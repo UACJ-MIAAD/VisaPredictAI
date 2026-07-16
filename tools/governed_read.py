@@ -51,7 +51,10 @@ def relative_name_problem(name: str) -> str | None:
     return None
 
 
-def read_governed_csv(dir_fd: int, name: str, **read_csv_kwargs) -> tuple[pd.DataFrame | None, str | None]:
+def _governed_reader(dir_fd: int, name: str, reader):
+    """Abre `name` gobernado (nombre relativo + O_NOFOLLOW + fstat regular/UID/nlink==1/no escribible por
+    grupo-otros), llama `reader(fd)` DENTRO del snapshot fstat pre/post y devuelve `(resultado, None)` o
+    `(None, motivo)`. Cualquier mutación in-place durante `reader` (mismo inode, contenido cambiado) aborta."""
     problem = relative_name_problem(name)
     if problem is not None:
         return None, problem
@@ -70,10 +73,29 @@ def read_governed_csv(dir_fd: int, name: str, **read_csv_kwargs) -> tuple[pd.Dat
         if stat.S_IMODE(st0.st_mode) & 0o022:
             return None, "escribible por grupo/otros"
         snap0 = _snapshot(st0)
-        with os.fdopen(fd, "rb", closefd=False) as fh:
-            df = pd.read_csv(fh, **read_csv_kwargs)
+        result = reader(fd)
         if _snapshot(os.fstat(fd)) != snap0:
             return None, "mutado durante la lectura (snapshot fstat pre/post distinto)"
-        return df, None
+        return result, None
     finally:
         os.close(fd)
+
+
+def read_governed_csv(dir_fd: int, name: str, **read_csv_kwargs) -> tuple[pd.DataFrame | None, str | None]:
+    def _read(fd: int) -> pd.DataFrame:
+        with os.fdopen(fd, "rb", closefd=False) as fh:
+            return pd.read_csv(fh, **read_csv_kwargs)
+
+    return _governed_reader(dir_fd, name, _read)
+
+
+def read_governed_bytes(dir_fd: int, name: str) -> tuple[bytes | None, str | None]:
+    """B108: análogo a `read_governed_csv` pero devuelve los BYTES crudos del output previo con snapshot fstat
+    pre/post — la copia 'de confianza' (`previous_bytes`) que alimenta la recuperación del rollback debe estar
+    igual de gobernada que una lectura de evidencia."""
+
+    def _read(fd: int) -> bytes:
+        with os.fdopen(fd, "rb", closefd=False) as fh:
+            return fh.read()
+
+    return _governed_reader(dir_fd, name, _read)

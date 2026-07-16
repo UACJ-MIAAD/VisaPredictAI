@@ -1,7 +1,15 @@
 #!/usr/bin/env python
 """Fusiona las mitades del pool de campaña (nongbm + gbm) en `campaign_pool_*` y proyecta a
-`model_comparison_*` (P0R.5 · R9.4/B66/B74/B79/B80/B85/B89/B90/B92/B94/B95/B97/B98/B99 — extraído del heredoc
-de run_campaign_aq{,_tail}.sh). Se invoca desde ROOT (run-command fija cwd=root).
+`model_comparison_*` (P0R.5 · R9.4/B66/B74/B79/B80/B85/B89/B90/B92/B94/B95/B97/B98/B99/B100-B109 — extraído del
+heredoc de run_campaign_aq{,_tail}.sh). Se invoca desde ROOT (run-command fija cwd=root).
+
+Estado transaccional clasificable (`_TxContext`, B104/B105/B106/B109): un fallo ANTES del commit ⇒
+`RollbackError` (con recuperaciones/errores de rollback/cierres adjuntos); DESPUÉS del commit ⇒
+`CommittedStateError` (outputs nuevos = autoridad durable). El rollback NUNCA deja escapar una excepción antes
+del cierre/fsync global; la recuperación es una subtransacción total; los errores de cierre se ADJUNTAN al
+error de la fase, nunca lo reemplazan. El unlink post-commit devuelve un resultado EXPLÍCITO (un residuo ajeno
+NO es verde). El output previo se lee con snapshot gobernado (`read_governed_bytes`, B108) y los 8 target se
+RE-verifican (binding+digest) inmediatamente antes de marcar el commit (B107).
 
 Lectura de mitades gobernada (B95): cada CSV se lee por `governed_read.read_governed_csv` (nombre RELATIVO
 validado — B96) — snapshot `fstat` pre/post exacto (regular/UID/nlink==1/**sin escritura de grupo-otros**/
@@ -71,7 +79,7 @@ from typing import NoReturn
 
 import pandas as pd
 
-from tools.governed_read import read_governed_csv
+from tools.governed_read import read_governed_bytes, read_governed_csv
 
 _TABLES = ("FAD", "DFF")
 _BLOCKS = ("family", "employment")
@@ -297,7 +305,8 @@ class _Out:
         "existed_before", "previous_bytes", "previous_digest",
         "temp_created", "temp_name", "temp_fd", "temp_digest",
         "backup_created", "backup_name", "backup_fd", "backup_digest",
-        "promoted", "recovered", "recovery_name",
+        "promoted", "recovered",
+        "recovery_created", "recovery_name", "recovery_fd", "recovery_digest", "recovery_promoted",
     )  # fmt: skip
 
     def __init__(self, dir_fd: int, label: str, name: str, df: pd.DataFrame) -> None:
@@ -318,10 +327,16 @@ class _Out:
         self.backup_digest: str | None = None
         self.promoted = False
         self.recovered = False
+        self.recovery_created = False
         self.recovery_name: str | None = None
+        self.recovery_fd = -1
+        self.recovery_digest: str | None = None
+        self.recovery_promoted = False
 
     def close_fds(self, errs: list[str]) -> None:
-        for fd_attr in ("temp_fd", "backup_fd"):
+        # Fase 8: cierra recovery → backup → temp (los recoveries se abren y cierran dentro del rollback;
+        # aquí quedan temp/backup vivos de la transacción principal).
+        for fd_attr in ("recovery_fd", "backup_fd", "temp_fd"):
             fd = getattr(self, fd_attr)
             if fd >= 0:
                 try:
@@ -331,94 +346,140 @@ class _Out:
                 setattr(self, fd_attr, -1)
 
 
-def _safe_unlink_bound(o: _Out, name: str | None, fd: int, errs: list[str]) -> None:
-    """Borra `name` SOLO si sigue ligado al `fd` que la transacción creó (B100: nunca borra un objeto ajeno que
-    haya tomado el nombre). Ausencia = ya no está, nada que borrar."""
+# B105: resultado EXPLÍCITO de un unlink gobernado (nunca un retorno silencioso que oculte un residuo ajeno).
+_DELETED = "DELETED"
+_ALREADY_ABSENT = "ALREADY_ABSENT"
+_FOREIGN_OBJECT_PRESERVED = "FOREIGN_OBJECT_PRESERVED"
+_UNLINK_FAILED = "UNLINK_FAILED"
+
+
+def _safe_unlink_bound(o: _Out, name: str | None, fd: int) -> str:
+    """Borra `name` SOLO si sigue ligado al `fd` que la transacción creó (B100). Devuelve un resultado
+    EXPLÍCITO (B105): DELETED / ALREADY_ABSENT / FOREIGN_OBJECT_PRESERVED / UNLINK_FAILED — el llamador decide
+    si un residuo ajeno o un fallo es tolerable en su fase (pre-commit vs post-commit)."""
     if name is None or fd < 0:
-        return
+        return _ALREADY_ABSENT
+    try:
+        os.stat(name, dir_fd=o.dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return _ALREADY_ABSENT
+    except OSError:
+        return _UNLINK_FAILED
     if _binding_problem(o.dir_fd, name, fd, mode=0o600) is not None:
-        return  # el nombre no liga a NUESTRO fd → objeto ajeno, no se toca
+        return _FOREIGN_OBJECT_PRESERVED  # el nombre no liga a NUESTRO fd → objeto ajeno, no se toca
     try:
         os.unlink(name, dir_fd=o.dir_fd)
+        return _DELETED
     except FileNotFoundError:
-        pass
-    except OSError as exc:
-        errs.append(f"unlink {name!r}: {exc}")
+        return _ALREADY_ABSENT
+    except OSError:
+        return _UNLINK_FAILED
 
 
-def _recover_from_bytes(o: _Out, errs: list[str]) -> str | None:
-    """B98/B103: materializa una recuperación VERIFICABLE del output previo desde `previous_bytes` (copia de
-    confianza en memoria) cuando el backup en disco no es fiable. Escribe un artefacto nuevo (O_EXCL), fsync,
-    digest == previous_digest, intenta promoverlo al target y VERIFICA; si la promoción falla lo conserva con
-    su nombre de recuperación aleatorio, reabriéndolo para confirmar identidad+digest. Devuelve la ruta
-    relativa de la recuperación confirmada o None."""
+class _TxContext:
+    """Resultado transaccional compartido (Fase 6): permite CLASIFICAR cualquier fallo por el estado. Un error
+    secundario (rollback/cleanup/close) NUNCA reemplaza `primary_error`; se ADJUNTA."""
+
+    __slots__ = ("commit_reached", "primary_error", "rollback_errors", "recoveries", "postcommit_errors", "close_errors")  # fmt: skip
+
+    def __init__(self) -> None:
+        self.commit_reached = False
+        self.primary_error: BaseException | None = None
+        self.rollback_errors: list[str] = []
+        self.recoveries: list[str] = []
+        self.postcommit_errors: list[str] = []
+        self.close_errors: list[str] = []
+
+
+def _recover_from_bytes(o: _Out, errs: list[str], recoveries: list[str]) -> None:
+    """B98/B103/B106: subtransacción de recuperación TOTAL desde `previous_bytes` (copia de confianza) —
+    JAMÁS deja escapar una excepción (todo paso captura su error y CONTINÚA); registra propiedad del recovery
+    (fd vivo + dev/ino/digest) al crearlo, verifica identidad+digest, intenta promover y re-verifica. Anota la
+    ruta confirmada en `recoveries` o el motivo en `errs`. El fd del recovery queda en `o.recovery_fd` para el
+    cierre único (Fase 8)."""
     if o.previous_bytes is None or o.previous_digest is None:
         errs.append(f"sin bytes previos de confianza para recuperar {o.name!r}")
-        return None
+        return
     try:
-        rname, rfd = _create_governed(o.dir_fd, o.name, "rec", 0)
+        o.recovery_name, o.recovery_fd = _create_governed(o.dir_fd, o.name, "rec", 0)
+        o.recovery_created = True
     except OSError as exc:
         errs.append(f"crear recuperación de {o.name!r}: {exc}")
-        return None
+        return
     try:
-        with os.fdopen(rfd, "wb", closefd=False) as rf:
+        with os.fdopen(o.recovery_fd, "wb", closefd=False) as rf:
             rf.write(o.previous_bytes)
             rf.flush()
             os.fsync(rf.fileno())
-        if _digest_fd(rfd) != o.previous_digest:
+        o.recovery_digest = _digest_fd(o.recovery_fd)
+        if o.recovery_digest != o.previous_digest:
             errs.append(f"recuperación de {o.name!r} con digest inconsistente")
-            return None
-        try:  # intenta promover la recuperación al target y verificar
-            os.replace(rname, o.name, src_dir_fd=o.dir_fd, dst_dir_fd=o.dir_fd)
-            if _binding_problem(o.dir_fd, o.name, rfd, mode=0o600) is None and _digest_fd(rfd) == o.previous_digest:
-                os.fsync(o.dir_fd)
-                o.recovered = True
-                return f"reports/{o.label}/{o.name}"
+            return
+        if _binding_problem(o.dir_fd, o.recovery_name, o.recovery_fd, mode=0o600) is not None:
+            errs.append(f"recuperación de {o.name!r}: nombre no liga al descriptor")
+            return
+    except OSError as exc:
+        errs.append(f"escribir recuperación de {o.name!r}: {exc}")
+        return
+    try:  # intenta promover la recuperación al target y RE-verificar (nunca escapa)
+        os.replace(o.recovery_name, o.name, src_dir_fd=o.dir_fd, dst_dir_fd=o.dir_fd)
+        os.fsync(o.dir_fd)
+        if (
+            _binding_problem(o.dir_fd, o.name, o.recovery_fd, mode=0o600) is None
+            and _digest_fd(o.recovery_fd) == o.previous_digest
+        ):
+            o.recovered = True
+            o.recovery_promoted = True
+            recoveries.append(f"RECUPERACIÓN PRESERVADA reports/{o.label}/{o.name} (de {o.name!r})")
+        else:
             errs.append(f"recuperación promovida de {o.name!r} no verifica")
-            return None
-        except OSError:
-            os.fsync(o.dir_fd)  # conserva la recuperación bajo su nombre aleatorio y CONFIRMA que existe
-            if _binding_problem(o.dir_fd, rname, rfd, mode=0o600) is None and _digest_fd(rfd) == o.previous_digest:
-                o.recovery_name = rname
-                return f"reports/{o.label}/{rname}"
-            errs.append(f"recuperación de {o.name!r} no verificable en disco")
-            return None
-    finally:
+    except OSError:  # no se pudo promover → conserva la recuperación bajo su nombre aleatorio y CONFIRMA
         try:
-            os.close(rfd)
-        except OSError:
-            pass
+            os.fsync(o.dir_fd)
+        except OSError as exc:
+            errs.append(f"fsync tras recuperación de {o.name!r}: {exc}")
+        if (
+            _binding_problem(o.dir_fd, o.recovery_name, o.recovery_fd, mode=0o600) is None
+            and _digest_fd(o.recovery_fd) == o.previous_digest
+        ):
+            recoveries.append(f"RECUPERACIÓN PRESERVADA reports/{o.label}/{o.recovery_name} (de {o.name!r})")
+        else:
+            errs.append(f"recuperación de {o.name!r} no verificable en disco")
 
 
-def _promote_transactionally(chain: _Chain, outs: list[_Out]) -> None:
-    """Transacción con propiedad por descriptor (B90/B92/B94/B97/B98/B99/B100–B104). Secuencia (Fase 7):
-    prepara temps (O_EXCL, fd vivo, digest) → prepara backups (bytes de confianza + backup fd/digest) →
-    verifica bindings+digests → reverify → promueve → verifica target↔temp_fd+digest → reverify → fsync →
-    reverify FINAL (punto de commit, backups presentes) → COMMIT → limpia backups ligados → fsync. Un fallo
-    ANTES del commit ⇒ `_rollback` (restaura por backup ligado+digest o recupera desde bytes de confianza,
-    RollbackError). Un fallo DESPUÉS del commit ⇒ `CommittedStateError` (nunca ambiguo). Los fds se cierran en
-    un `finally` único (Fase 8)."""
+def _promote_transactionally(chain: _Chain, outs: list[_Out], ctx: _TxContext) -> None:
+    """Transacción con propiedad por descriptor y estado clasificable (B90..B109). Fases pre-commit (elevan →
+    rollback): temps → backups (snapshot gobernado del previo, B108) → verifica binding+digest → reverify →
+    promueve → verifica target↔temp_fd+digest → reverify → fsync → reverify FINAL → **re-verifica los 8 target
+    (binding+digest+modo) inmediatamente antes del commit (B107)** → COMMIT. Post-commit (no rollback): limpia
+    backups con resultado EXPLÍCITO (B105) → fsync durabilidad. Toda clasificación vive en `ctx`; el rollback
+    (B106) NUNCA deja escapar una excepción antes del cierre/fsync global."""
 
     def _fsync_dirs() -> None:
         os.fsync(chain.camp)
         os.fsync(chain.ev)
 
-    def _rollback(original: BaseException) -> NoReturn:
-        errs: list[str] = []
-        preserved: list[str] = []
+    def _rollback() -> None:  # B106: NO eleva — recopila en ctx.rollback_errors/ctx.recoveries
+        errs, recoveries = ctx.rollback_errors, ctx.recoveries
         for o in outs:  # deshace promociones
             if not o.promoted:
                 continue
             if not o.existed_before:  # ausente antes → elimina el nuevo SOLO si liga a NUESTRO temporal
-                if _binding_problem(o.dir_fd, o.name, o.temp_fd, mode=0o600) is None:
-                    _safe_unlink_bound(o, o.name, o.temp_fd, errs)
-                else:
-                    errs.append(f"{o.name!r} tras promover no liga al temporal creado; NO se elimina objeto ajeno")
+                res = _safe_unlink_bound(o, o.name, o.temp_fd)
+                if res == _FOREIGN_OBJECT_PRESERVED:
+                    errs.append(f"{o.name!r} tras promover no liga al temporal creado; objeto ajeno PRESERVADO")
+                elif res == _UNLINK_FAILED:
+                    errs.append(f"no se pudo eliminar {o.name!r} (ausente antes)")
                 continue
             restored = False  # existía antes → restaura desde el backup SOLO si liga a NUESTRO fd Y digest OK
             if o.backup_created and o.backup_name is not None:
                 bprob = _binding_problem(o.dir_fd, o.backup_name, o.backup_fd, mode=0o600)
-                if bprob is None and _digest_fd(o.backup_fd) == o.previous_digest:
+                bytes_ok = False
+                try:
+                    bytes_ok = bprob is None and _digest_fd(o.backup_fd) == o.previous_digest
+                except OSError as exc:
+                    errs.append(f"digest del backup de {o.name!r}: {exc}")
+                if bytes_ok:
                     try:
                         os.replace(o.backup_name, o.name, src_dir_fd=o.dir_fd, dst_dir_fd=o.dir_fd)
                         vfd = os.open(o.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=o.dir_fd)
@@ -435,22 +496,19 @@ def _promote_transactionally(chain: _Chain, outs: list[_Out]) -> None:
                 else:
                     errs.append(f"backup de {o.name!r} no fiable ({bprob or 'digest distinto'}); se recupera de bytes")
             if not restored:  # backup ausente/sustituido/inconsistente → recupera desde bytes de confianza
-                rec = _recover_from_bytes(o, errs)
-                if rec is not None:
-                    preserved.append(f"RECUPERACIÓN PRESERVADA {rec} (de {o.name!r})")
-                else:
+                _recover_from_bytes(o, errs, recoveries)
+                if not o.recovered:
                     errs.append(f"NO se pudo recuperar {o.name!r}")
         for o in outs:  # borra temporales SOLO si ligan a NUESTRO fd (B100)
-            _safe_unlink_bound(o, o.temp_name, o.temp_fd, errs)
+            _safe_unlink_bound(o, o.temp_name, o.temp_fd)
         for o in outs:  # backups: CONSERVA solo la última copia recuperable (promovido+existía+no-recuperado)
             if o.promoted and o.existed_before and not o.recovered:
                 continue  # B98/Fase 6.5: no borrar un backup cuya restauración/recuperación no se confirmó
-            _safe_unlink_bound(o, o.backup_name, o.backup_fd, errs)
+            _safe_unlink_bound(o, o.backup_name, o.backup_fd)
         try:
             _fsync_dirs()  # B92
         except OSError as exc:
             errs.append(f"fsync de directorios: {exc}")
-        raise RollbackError(f"{original!r}; recuperaciones: {preserved}; errores de rollback: {errs}") from original
 
     try:
         for i, o in enumerate(outs):  # 1. temporales: O_EXCL → registra fd → escribe → fsync → digest
@@ -462,30 +520,21 @@ def _promote_transactionally(chain: _Chain, outs: list[_Out]) -> None:
                 fh.flush()
                 os.fsync(fh.fileno())
             o.temp_digest = _digest_fd(o.temp_fd)
-        for i, o in enumerate(outs):  # 2. respaldos: lee source de confianza → O_EXCL → escribe → fsync → digest
-            try:
-                sfd = os.open(o.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=o.dir_fd)
-            except FileNotFoundError:
+        for i, o in enumerate(outs):  # 2. respaldos: snapshot GOBERNADO del previo (B108) → O_EXCL → escribe → digest
+            prev, prob = read_governed_bytes(o.dir_fd, o.name)
+            if prob is not None and prob.startswith("ausente"):
                 o.existed_before = False
                 continue
-            except OSError as exc:
-                _fail(f"output previo {o.name!r} inabrible (symlink plantado: {exc})")
-            try:
-                src_prob = _fd_governed(sfd, mode=None)
-                if src_prob is None and (stat.S_IMODE(os.fstat(sfd).st_mode) & 0o022):
-                    src_prob = "escribible por grupo/otros"
-                if src_prob is not None:
-                    _fail(f"output previo {o.name!r}: {src_prob}")
-                with os.fdopen(sfd, "rb", closefd=False) as sfh:
-                    o.previous_bytes = sfh.read()
-            finally:
-                os.close(sfd)
+            if prob is not None:
+                _fail(f"output previo {o.name!r}: {prob}")
+            assert prev is not None
             o.existed_before = True
-            o.previous_digest = hashlib.sha256(o.previous_bytes).hexdigest()
+            o.previous_bytes = prev
+            o.previous_digest = hashlib.sha256(prev).hexdigest()
             o.backup_name, o.backup_fd = _create_governed(o.dir_fd, o.name, "bak", i)
             o.backup_created = True
             with os.fdopen(o.backup_fd, "wb", closefd=False) as bfh:
-                bfh.write(o.previous_bytes)
+                bfh.write(prev)
                 bfh.flush()
                 os.fsync(bfh.fileno())
             o.backup_digest = _digest_fd(o.backup_fd)
@@ -511,25 +560,51 @@ def _promote_transactionally(chain: _Chain, outs: list[_Out]) -> None:
                 _fail(f"output {o.name!r} tras promover con digest distinto")
         chain.reverify("después de promover")
         _fsync_dirs()
-        chain.reverify("punto de commit")  # B99: reverify FINAL con los backups AÚN presentes
-    except BaseException as original:
-        _rollback(original)  # NoReturn: RollbackError o re-eleva
-    # ---- PUNTO DE COMMIT ---- (outputs nuevos = autoridad y durables; de aquí en adelante: CommittedStateError)
-    cleanup_errors: list[str] = []
-    for o in outs:  # limpia backups SOLO si su nombre sigue ligado a NUESTRO fd (B100)
-        _safe_unlink_bound(o, o.backup_name, o.backup_fd, cleanup_errors)
-    try:
-        _fsync_dirs()
-    except OSError as exc:  # B104: post-commit ⇒ estado comprometido, jamás un OSError ambiguo
-        raise CommittedStateError(
-            f"COMMIT CRUZADO (outputs nuevos son la autoridad y son durables) pero el fsync post-commit falló: "
-            f"{exc}. NO reintentar como si hubiera rollback."
-        ) from exc
-    if cleanup_errors:
-        raise CommittedStateError(
-            f"COMMIT CRUZADO (outputs nuevos son la autoridad) pero la limpieza de backups quedó incompleta: "
-            f"{cleanup_errors}. NO reintentar como si hubiera rollback."
-        )
+        chain.reverify("punto de commit")  # B99: reverify de la CADENA (backups AÚN presentes)
+        for o in outs:  # 6. B107: re-verifica los 8 target (binding + digest + modo/UID/nlink) JUSTO antes del commit
+            prob = _binding_problem(o.dir_fd, o.name, o.temp_fd, mode=0o600)
+            if prob is not None:
+                _fail(f"output {o.name!r} alterado antes del commit: {prob}")
+            if _digest_fd(o.temp_fd) != o.temp_digest:
+                _fail(f"output {o.name!r} mutado antes del commit (digest) — contenido falsificado interceptado")
+        ctx.commit_reached = True  # ---- PUNTO DE COMMIT ----
+        for o in outs:  # limpia backups con resultado EXPLÍCITO (B105: un residuo ajeno o fallo NO es verde)
+            res = _safe_unlink_bound(o, o.backup_name, o.backup_fd)
+            if res == _FOREIGN_OBJECT_PRESERVED:
+                ctx.postcommit_errors.append(f"backup de {o.name!r} sustituido por objeto ajeno (residuo, no borrado)")
+            elif res == _UNLINK_FAILED:
+                ctx.postcommit_errors.append(f"no se pudo borrar el backup de {o.name!r}")
+        try:
+            _fsync_dirs()
+        except OSError as exc:
+            ctx.postcommit_errors.append(f"fsync de durabilidad post-commit: {exc}")
+    except BaseException as primary:
+        ctx.primary_error = primary
+        if not ctx.commit_reached:
+            _rollback()  # B106: NO eleva
+
+
+def _raise_outcome(ctx: _TxContext) -> None:
+    """Clasifica el resultado (Fase 6): pre-commit ⇒ RollbackError (con recuperaciones + errores de rollback +
+    cierres); post-commit ⇒ CommittedStateError (autoridad durable, no reintentar); éxito ⇒ retorna. Un error
+    de cierre NUNCA reemplaza `primary_error`: se adjunta al error de la fase correspondiente."""
+    if ctx.commit_reached:
+        problems = ctx.postcommit_errors + [f"cierre: {e}" for e in ctx.close_errors]
+        if problems:
+            raise CommittedStateError(
+                f"COMMIT CRUZADO (outputs nuevos son la AUTORIDAD y son durables) pero quedó estado incompleto: "
+                f"{problems}. NO reintentar como si hubiera rollback."
+            )
+        return  # éxito
+    if ctx.primary_error is None:
+        if ctx.close_errors:
+            raise RollbackError(f"errores de cierre sin error primario: {ctx.close_errors}")
+        return
+    detail = (
+        f"{ctx.primary_error!r}; recuperaciones: {ctx.recoveries}; errores de rollback: {ctx.rollback_errors}; "
+        f"cierres: {ctx.close_errors}"
+    )
+    raise RollbackError(detail) from ctx.primary_error
 
 
 def merge() -> int:
@@ -539,6 +614,7 @@ def merge() -> int:
     chain = _Chain()  # B90: cadena gobernada abierta ANTES de tocar nada (cwd = ROOT)
     lock_fd = -1
     outs: list[_Out] = []
+    ctx = _TxContext()
     try:
         lock_fd = _acquire_lock(chain.camp)  # B89: exclusión; los inputs se validan BAJO el lock
         chain.reverify("tras adquirir el lock")
@@ -556,18 +632,18 @@ def merge() -> int:
                 outs.append(_Out(chain.camp, "campaign", f"campaign_pool_{table}_{block}.csv", full))
                 outs.append(_Out(chain.ev, "eval", tgt, full))
                 print(f"{table}/{block}: {len(full)} rows -> {tgt}")
-        # 2. Promoción transaccional fd-relativa (B99: la reverify FINAL vive DENTRO, antes del punto de commit —
-        # no hay reverify posterior a la destrucción de backups que pudiera detectar un swap sin poder revertir).
-        _promote_transactionally(chain, outs)
-    finally:  # Fase 8: cierre único de TODOS los descriptores (artefactos → lock → cadena) sin ocultar el resultado
-        close_errs: list[str] = []
+        # 2. Promoción transaccional fd-relativa; `ctx` clasifica el resultado (nunca eleva por sí sola).
+        _promote_transactionally(chain, outs, ctx)
+    finally:  # Fase 8: cierre único de TODOS los descriptores (artefactos → lock → cadena); errores → `ctx`
         for o in outs:
-            o.close_fds(close_errs)
+            o.close_fds(ctx.close_errors)
         if lock_fd >= 0:
-            os.close(lock_fd)
+            try:
+                os.close(lock_fd)
+            except OSError as exc:  # B109: un fallo de cierre del lock NO reemplaza el error primario
+                ctx.close_errors.append(f"cerrar lock: {exc}")
         chain.close()
-        if close_errs:
-            print(f"merge_campaign_pools: avisos de cierre de descriptores: {close_errs}", file=sys.stderr)
+    _raise_outcome(ctx)  # B104/B109: clasifica pre-commit (RollbackError) vs post-commit (CommittedStateError)
     return 0
 
 

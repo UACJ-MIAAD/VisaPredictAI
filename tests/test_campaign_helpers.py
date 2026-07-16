@@ -513,9 +513,9 @@ def test_b100_safe_unlink_never_deletes_foreign(tmp_path):
         foreign = os.open(name, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=dfd)
         os.write(foreign, b"FOREIGN\n")
         os.close(foreign)
-        errs: list[str] = []
         o = mcp._Out(dfd, "campaign", "x", None)
-        mcp._safe_unlink_bound(o, name, fd, errs)  # el nombre ya no liga a `fd` → NO se borra
+        res = mcp._safe_unlink_bound(o, name, fd)  # el nombre ya no liga a `fd` → resultado EXPLÍCITO (B105)
+        assert res == mcp._FOREIGN_OBJECT_PRESERVED
         assert (d / name).exists(), "borró un objeto ajeno que tomó el nombre (B100)"
         os.close(fd)
     finally:
@@ -665,6 +665,178 @@ def test_r9r7_no_fd_leak_across_runs(tmp_path, monkeypatch):
         mcp.merge()
     after = len(os.listdir("/dev/fd"))
     assert after <= before + 1, f"fuga de descriptores: {before} -> {after}"
+
+
+# ----------------------------- B105-B109: cleanup explícito, recovery total, verificación final, cierre -----------------------------
+
+
+def test_b105_substituted_backup_after_commit_is_committed_state_error(tmp_path, monkeypatch):
+    # sustituir un backup por un objeto ajeno tras el commit → cleanup NO lo borra pero tampoco es verde:
+    # CommittedStateError + el residuo ajeno sobrevive (nunca se toca).
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    (camp / "campaign_pool_FAD_family.csv").write_bytes(b"PRE\n")
+    real = mcp._Chain.reverify
+
+    def hooked(self, when):
+        r = real(self, when)
+        if when == "punto de commit":
+            for p in list(camp.iterdir()):
+                if ".bak." in p.name and "campaign_pool_FAD_family.csv" in p.name:
+                    p.unlink()
+                    p.write_text("FOREIGN-SENTINEL\n")
+        return r
+
+    monkeypatch.setattr(mcp._Chain, "reverify", hooked)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.CommittedStateError):
+        mcp.merge()
+    foreign = [p for p in camp.iterdir() if ".bak." in p.name and p.read_bytes() == b"FOREIGN-SENTINEL\n"]
+    assert len(foreign) == 1, "borró un objeto ajeno o no reportó el residuo (B105)"
+
+
+def test_b107_target_mutated_at_commit_point_is_intercepted(tmp_path, monkeypatch):
+    # mutar el MISMO inode del target durante reverify("punto de commit") → la re-verificación final (binding+
+    # digest) lo intercepta ANTES del commit; el contenido falsificado NO cruza.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    real = mcp._Chain.reverify
+
+    def hooked(self, when):
+        if when == "punto de commit":
+            with open(camp / "campaign_pool_FAD_family.csv", "wb") as f:
+                f.write(b"FORGED-AFTER-VERIFY\n")
+        return real(self, when)
+
+    monkeypatch.setattr(mcp._Chain, "reverify", hooked)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.RollbackError):
+        mcp.merge()
+    out = camp / "campaign_pool_FAD_family.csv"
+    assert not (out.exists() and b"FORGED" in out.read_bytes()), "contenido falsificado cruzó el commit (B107)"
+
+
+def test_b106_recovery_fsync_failure_does_not_interrupt_rollback(tmp_path, monkeypatch):
+    # un fallo dentro de _recover_from_bytes (fsync) NO debe dejar escapar una excepción cruda ni residuos:
+    # el rollback global termina y eleva RollbackError.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    (camp / "campaign_pool_FAD_family.csv").write_bytes(b"ORIGINAL\n")
+    real_replace = os.replace
+    real_fsync = os.fsync
+    st = {"n": 0, "armed": False}
+
+    def bad_replace(src, dst, *a, **k):
+        if isinstance(src, str) and ".tmp." in src and ".bak." not in src:
+            for p in camp.iterdir():
+                if ".bak." in p.name and "campaign_pool_FAD_family.csv" in p.name:
+                    p.write_text("FORGED\n")  # falsifica el backup → fuerza la rama de recovery
+        st["n"] += 1
+        if st["n"] == 3:
+            raise OSError("promotion failure")
+        return real_replace(src, dst, *a, **k)
+
+    def bad_fsync(fd):
+        import stat as _s
+
+        if st["armed"] and _s.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("recovery fsync failure")
+        return real_fsync(fd)
+
+    orig = mcp._recover_from_bytes
+
+    def wrapped(o, errs, recs):
+        st["armed"] = True
+        monkeypatch.setattr(mcp.os, "fsync", bad_fsync)
+        try:
+            return orig(o, errs, recs)
+        finally:
+            st["armed"] = False
+            monkeypatch.setattr(mcp.os, "fsync", real_fsync)
+
+    monkeypatch.setattr(mcp.os, "replace", bad_replace)
+    monkeypatch.setattr(mcp, "_recover_from_bytes", wrapped)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.RollbackError):  # NUNCA un OSError crudo
+        mcp.merge()
+    assert not [p for p in camp.iterdir() if ".tmp." in p.name], "temporales huérfanos tras recovery fallido (B106)"
+
+
+def test_b108_governed_reader_catches_mutation_during_read(tmp_path):
+    # el snapshot pre/post de read_governed_bytes/_governed_reader caza una mutación in-place durante la lectura.
+    d = tmp_path
+    f = d / "x.csv"
+    f.write_bytes(b"AAAA\n")
+    dfd = os.open(str(d), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+
+        def mutating_reader(fd):
+            with open(f, "ab") as extra:  # muta el MISMO inode durante la "lectura"
+                extra.write(b"B")
+            return b"ignored"
+
+        result, err = gr._governed_reader(dfd, "x.csv", mutating_reader)
+        assert result is None and err is not None and "mutado" in err
+    finally:
+        os.close(dfd)
+
+
+def test_b108_previous_output_mutated_during_read_rejected(tmp_path, monkeypatch):
+    # INTEGRACIÓN: mutación in-place del output previo DURANTE su lectura gobernada → abortar antes de promover.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    target = camp / "campaign_pool_FAD_family.csv"
+    target.write_bytes(b"PREVIOUS\n")  # 9 bytes: identifica la lectura del OUTPUT previo (no las mitades aq_pool)
+    import tools.governed_read as gr
+
+    real_fdopen = os.fdopen
+    done = {"x": False}
+
+    def hooked_fdopen(fd, *a, **k):
+        # tras el fstat inicial de _governed_reader, muta el output previo (size 9) antes de leerlo → post-fstat difiere
+        try:
+            if not done["x"] and os.fstat(fd).st_size == 9:
+                done["x"] = True
+                with open(target, "ab") as extra:
+                    extra.write(b"MUT\n")
+        except OSError:
+            pass
+        return real_fdopen(fd, *a, **k)
+
+    monkeypatch.setattr(gr.os, "fdopen", hooked_fdopen)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.RollbackError):
+        mcp.merge()
+
+
+def test_b109_close_error_does_not_replace_primary(tmp_path, monkeypatch):
+    # un fallo de cierre de fd NO reemplaza el error primario ni convierte un éxito real en verde silencioso.
+    # Forzamos éxito (commit) + un cierre que falla → CommittedStateError (post-commit) con la nota de cierre.
+    _write_all_8(tmp_path)
+    real_close = os.close
+    armed = {"x": False}
+
+    def bad_close(fd):
+        if armed["x"]:
+            armed["x"] = False
+            raise OSError("close failure")
+        return real_close(fd)
+
+    orig_close_fds = mcp._Out.close_fds
+
+    def hooked_close_fds(self, errs):
+        armed["x"] = True  # arma el fallo para el próximo os.close (un temp/backup fd)
+        monkeypatch.setattr(mcp.os, "close", bad_close)
+        try:
+            return orig_close_fds(self, errs)
+        finally:
+            monkeypatch.setattr(mcp.os, "close", real_close)
+
+    monkeypatch.setattr(mcp._Out, "close_fds", hooked_close_fds)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.CommittedStateError) as exc:
+        mcp.merge()
+    assert "cierre" in str(exc.value)
 
 
 # ----------------------------- B96: nombre relativo del lector gobernado -----------------------------
