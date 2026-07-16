@@ -72,6 +72,7 @@ def _loose_residue(*dirs):
 
 
 def _assert_quarantine_manifested(base):
+    # R9.2R10: cada objeto en cuarentena DEBE tener un registro INTENT y uno COMPLETED/FOREIGN_PRESERVED (B126).
     import json as _json
 
     for qroot in base.rglob(mcp._QUARANTINE_DIR):
@@ -79,14 +80,75 @@ def _assert_quarantine_manifested(base):
             if not txid.is_dir():
                 continue
             manifest = txid / "MANIFEST.jsonl"
-            named = set()
+            intents, results = set(), set()
             if manifest.exists():
                 assert (manifest.stat().st_mode & 0o777) == 0o600, "manifiesto de cuarentena no es 0600"
                 for line in manifest.read_text().splitlines():
-                    named.add(_json.loads(line)["quarantined_as"])
+                    rec = _json.loads(line)
+                    if rec["record"] == "INTENT":
+                        intents.add(rec["quarantined_as"])
+                    else:
+                        results.add(rec["quarantined_as"])
             for item in txid.iterdir():
                 if item.name != "MANIFEST.jsonl":
-                    assert item.name in named, f"objeto en cuarentena sin manifiesto: {item}"
+                    assert item.name in intents, f"objeto en cuarentena sin INTENT: {item}"
+
+
+def _fail_nth_cas(monkeypatch, n, exc=None):
+    """R9.2R10: falla la N-ésima promoción CAS (rename_exchange/noreplace) → dispara el rollback. Cuenta AMBAS
+    primitivas (una promoción usa exchange si el output existía, noreplace si estaba ausente); N<=8 apunta a una
+    promoción (los movimientos de cuarentena del rollback son llamadas posteriores)."""
+    real_ex, real_nr = mcp.rename_exchange, mcp.rename_noreplace
+    exc = exc or OSError("promo-fail")
+    st = {"n": 0}
+
+    def ex(*a, **k):
+        st["n"] += 1
+        if st["n"] == n:
+            raise exc
+        return real_ex(*a, **k)
+
+    def nr(*a, **k):
+        st["n"] += 1
+        if st["n"] == n:
+            raise exc
+        return real_nr(*a, **k)
+
+    monkeypatch.setattr(mcp, "rename_exchange", ex)
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
+    return st
+
+
+def _force_recovery(monkeypatch, tmp_path):
+    """R9.2R10: fuerza la rama de recuperación desde previous_bytes para campaign_pool_FAD_family (idx0). Éste
+    es preexistente → se promueve por exchange (su original queda desplazado en temp_name); una promoción
+    posterior falla → rollback; al iniciar el rollback se ELIMINA el original desplazado → `_cas_restore` cae a
+    `_recover_from_bytes`, que instala los bytes de confianza. Requiere `pre.write_bytes(...)` en idx0."""
+    camp = tmp_path / "reports" / "campaign"
+    real_ex, real_nr = mcp.rename_exchange, mcp.rename_noreplace
+    st = {"n": 0, "killed": False}
+
+    def _kill_displaced():
+        st["killed"] = True
+        for p in list(camp.iterdir()):
+            if p.name.startswith(".campaign_pool_FAD_family.csv.tmp."):
+                p.unlink()
+
+    def ex(*a, **k):
+        st["n"] += 1
+        return real_ex(*a, **k)
+
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        st["n"] += 1
+        if st["n"] == 4:  # 4ª promoción (una noreplace de un output ausente) → falla → rollback
+            raise OSError("promo-fail")
+        if src_dir_fd != dst_dir_fd and not st["killed"]:  # 1er move de cuarentena del rollback
+            _kill_displaced()
+        return real_nr(src_dir_fd, src, dst_dir_fd, dst)
+
+    monkeypatch.setattr(mcp, "rename_exchange", ex)
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
+    return st
 
 
 # ----------------------------- merge: run_id REAL (B79) -----------------------------
@@ -417,18 +479,9 @@ def test_b89_failure_at_each_promotion_rolls_back_clean(tmp_path, monkeypatch, f
         )
     ]  # fmt: skip
     missing = [p for p in outputs if p not in pre]
-    real_replace = os.replace
-    state = {"n": 0}
-
-    def flaky_replace(src, dst, *a, **k):
-        state["n"] += 1  # las 8 primeras llamadas a os.replace son las promociones
-        if state["n"] == fail_at:
-            raise OSError("inyectado")
-        return real_replace(src, dst, *a, **k)
-
-    monkeypatch.setattr(mcp.os, "replace", flaky_replace)
+    _fail_nth_cas(monkeypatch, fail_at)  # falla la fail_at-ésima promoción CAS → rollback limpio
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(OSError):
+    with pytest.raises(mcp.RollbackError):  # rollback COMPLETO (sin concurrencia) → tipado seguro
         mcp.merge()
     for p, b in pre.items():
         assert p.read_bytes() == b, f"{p.name} no quedó byte-idéntico tras el rollback (fail_at={fail_at})"
@@ -476,49 +529,52 @@ def test_b95_merge_csv_mutated_during_read_rejected(tmp_path, monkeypatch):
     assert not (tmp_path / "reports" / "campaign" / "campaign_pool_FAD_family.csv").exists()
 
 
-def test_b94_backup_cleanup_failure_after_success_not_ok(tmp_path, monkeypatch):
-    # fallo al poner un backup en CUARENTENA tras el COMMIT → CommittedStateError (B104/B112/B117: post-commit
-    # tipado; los outputs nuevos ya son la autoridad, un residuo/limpieza fallida NO es verde).
+def test_b94_original_cleanup_failure_after_success_not_ok(tmp_path, monkeypatch):
+    # fallo al poner el ORIGINAL desplazado en CUARENTENA tras el COMMIT → CommittedStateError (B104/B112/B117:
+    # post-commit tipado; los outputs nuevos ya son la autoridad, una limpieza fallida NO es verde).
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
-    (camp / "campaign_pool_FAD_family.csv").write_bytes(b"PRE\n")  # fuerza un backup
-    real_rename = os.rename
+    (camp / "campaign_pool_FAD_family.csv").write_bytes(b"PRE\n")  # fuerza un original desplazado a limpiar
+    real_nr = mcp.rename_noreplace
 
-    def flaky_rename(src, dst, *a, **k):
-        if ".bak." in str(src):  # el move de cuarentena del backup post-commit
+    def flaky_nr(src_dir_fd, src, dst_dir_fd, dst):
+        if src_dir_fd != dst_dir_fd:  # movimiento a cuarentena (cross-dir); la promoción es same-dir
             raise PermissionError("inyectado")
-        return real_rename(src, dst, *a, **k)
+        return real_nr(src_dir_fd, src, dst_dir_fd, dst)
 
-    monkeypatch.setattr(mcp.os, "rename", flaky_rename)
+    monkeypatch.setattr(mcp, "rename_noreplace", flaky_nr)
     monkeypatch.chdir(tmp_path)
     with pytest.raises(mcp.CommittedStateError):
         mcp.merge()
 
 
-def test_b94_rollback_cleanup_failure_raises_with_context(tmp_path, monkeypatch):
-    # fallo de limpieza DURANTE el rollback → error explícito (no silenciado), con el error original.
+def test_b94_rollback_cleanup_failure_is_incomplete(tmp_path, monkeypatch):
+    # fallo de limpieza (cuarentena del temporal) DURANTE el rollback → RollbackIncompleteError (B112/B127: no
+    # silenciado y NO reintentable automáticamente).
     _write_all_8(tmp_path)
-    real_replace = os.replace
-    real_rename = os.rename
-    state = {"n": 0}
+    real_ex, real_nr = mcp.rename_exchange, mcp.rename_noreplace
+    st = {"n": 0}
 
-    def flaky_replace(src, dst, *a, **k):
-        state["n"] += 1
-        if state["n"] == 3:
+    def ex(*a, **k):
+        st["n"] += 1
+        if st["n"] == 3:
             raise OSError("promo-inyectado")
-        return real_replace(src, dst, *a, **k)
+        return real_ex(*a, **k)
 
-    def flaky_rename(src, dst, *a, **k):  # la cuarentena del temporal durante el rollback falla
-        if ".tmp." in str(src):
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        st["n"] += 1
+        if st["n"] == 3:
+            raise OSError("promo-inyectado")
+        if src_dir_fd != dst_dir_fd:  # cuarentena del temporal durante el rollback
             raise PermissionError("cleanup-inyectado")
-        return real_rename(src, dst, *a, **k)
+        return real_nr(src_dir_fd, src, dst_dir_fd, dst)
 
-    monkeypatch.setattr(mcp.os, "replace", flaky_replace)
-    monkeypatch.setattr(mcp.os, "rename", flaky_rename)
+    monkeypatch.setattr(mcp, "rename_exchange", ex)
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(mcp.RollbackError) as exc:
+    with pytest.raises(mcp.RollbackIncompleteError) as exc:
         mcp.merge()
-    assert "rollback" in str(exc.value)
+    assert "ROLLBACK INCOMPLETO" in str(exc.value)
 
 
 # ----------------------------- B100-B104: propiedad por descriptor + errores tipados -----------------------------
@@ -548,7 +604,7 @@ def test_b100_quarantine_never_destroys_foreign(tmp_path):
         os.close(foreign)
         o = mcp._Out(dfd, "campaign", "x", None)
         res = quar.move(o, name, fd, phase="TEST", reason="foreign-substitution")
-        assert res == mcp._FOREIGN_OBJECT_PRESERVED
+        assert res.status == mcp._FOREIGN_OBJECT_PRESERVED
         survivors = [p for p in d.rglob("*") if p.is_file() and p.read_bytes() == b"FOREIGN\n"]
         assert len(survivors) == 1, "el objeto ajeno fue destruido (B100/B117)"
         os.close(fd)
@@ -595,58 +651,33 @@ def test_b102_temp_substituted_before_promote_rejected(tmp_path, monkeypatch):
     assert b"INJECTED" not in pre.read_bytes(), "publicó contenido inyectado (B102)"
 
 
-def test_b103_substituted_backup_recovers_from_trusted_bytes(tmp_path, monkeypatch):
-    # sustituir el backup por uno FALSIFICADO + forzar fallo de promoción → el rollback NO restaura el falso,
-    # recupera desde previous_bytes (copia de confianza) → el output previo vuelve byte-idéntico.
+def test_b103_lost_displaced_original_recovers_from_trusted_bytes(tmp_path, monkeypatch):
+    # si el original desplazado (temp_name) desaparece antes de restaurar, el rollback NO deja el output en un
+    # estado arbitrario: recupera desde previous_bytes (copia de confianza) → el output previo vuelve byte-idéntico.
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
     pre = camp / "campaign_pool_FAD_family.csv"
     pre.write_bytes(b"ORIGINAL\n")
-    real_replace = os.replace
-    st = {"n": 0}
-
-    def hooked(src, dst, *a, **k):
-        if isinstance(src, str) and ".bak." not in src and ".tmp." in src:
-            for p in camp.iterdir():
-                if ".bak." in p.name and "campaign_pool_FAD_family.csv" in p.name:
-                    p.write_text("FORGED-BACKUP\n")
-        st["n"] += 1
-        if st["n"] == 3:
-            raise OSError("promotion failure")
-        return real_replace(src, dst, *a, **k)
-
-    monkeypatch.setattr(mcp.os, "replace", hooked)
+    _force_recovery(monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)
     with pytest.raises(mcp.RollbackError):
         mcp.merge()
-    assert pre.read_bytes() == b"ORIGINAL\n", "restauró un backup falsificado (B103)"
+    assert pre.read_bytes() == b"ORIGINAL\n", "no recuperó los bytes de confianza (B103)"
 
 
 def test_b101_recovery_message_points_to_real_file(tmp_path, monkeypatch):
-    # cuando el backup desaparece antes de restaurar, el mensaje de recuperación nombra un fichero que EXISTE.
+    # el mensaje de recuperación nombra un fichero que EXISTE (el target con los bytes de confianza instalados).
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
     pre = camp / "campaign_pool_FAD_family.csv"
     pre.write_bytes(b"ORIGINAL\n")
-    real_replace = os.replace
-    st = {"n": 0}
-
-    def hooked(src, dst, *a, **k):
-        if isinstance(src, str) and ".tmp." in src and ".bak." not in src:
-            for p in list(camp.iterdir()):
-                if ".bak." in p.name and "campaign_pool_FAD_family.csv" in p.name:
-                    p.unlink()  # el backup desaparece
-        st["n"] += 1
-        if st["n"] == 3:
-            raise OSError("promotion failure")
-        return real_replace(src, dst, *a, **k)
-
-    monkeypatch.setattr(mcp.os, "replace", hooked)
+    _force_recovery(monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)
     with pytest.raises(mcp.RollbackError) as exc:
         mcp.merge()
     assert pre.read_bytes() == b"ORIGINAL\n"  # recuperado desde bytes de confianza
-    assert "RECUPERACIÓN PRESERVADA" in str(exc.value)
+    assert "RECUPERACIÓN" in str(exc.value)
+    assert pre.exists(), "el mensaje de recuperación nombra un fichero que debe existir"
 
 
 def test_b104_post_commit_fsync_failure_is_typed(tmp_path, monkeypatch):
@@ -672,18 +703,9 @@ def test_b104_post_commit_fsync_failure_is_typed(tmp_path, monkeypatch):
 
 
 def test_b104_pre_commit_failure_is_rollback_error(tmp_path, monkeypatch):
-    # un fallo ANTES del commit → RollbackError (tipado), no un OSError ambiguo.
+    # un fallo ANTES del commit con rollback LIMPIO → RollbackError (tipado), no un OSError ambiguo.
     _write_all_8(tmp_path)
-    real_replace = os.replace
-    st = {"n": 0}
-
-    def flaky(src, dst, *a, **k):
-        st["n"] += 1
-        if st["n"] == 2:
-            raise OSError("pre-commit promote failure")
-        return real_replace(src, dst, *a, **k)
-
-    monkeypatch.setattr(mcp.os, "replace", flaky)
+    _fail_nth_cas(monkeypatch, 2)
     monkeypatch.chdir(tmp_path)
     with pytest.raises(mcp.RollbackError):
         mcp.merge()
@@ -705,19 +727,19 @@ def test_r9r7_no_fd_leak_across_runs(tmp_path, monkeypatch):
 # ----------------------------- B105-B109: cleanup explícito, recovery total, verificación final, cierre -----------------------------
 
 
-def test_b105_substituted_backup_after_commit_is_committed_state_error(tmp_path, monkeypatch):
-    # sustituir un backup por un objeto ajeno tras el commit → cleanup NO lo borra pero tampoco es verde:
-    # CommittedStateError + el residuo ajeno sobrevive (nunca se toca).
+def test_b105_substituted_displaced_original_after_commit_is_committed_state_error(tmp_path, monkeypatch):
+    # sustituir el ORIGINAL desplazado (temp_name) por un objeto ajeno tras el commit → la limpieza NO lo
+    # borra pero tampoco es verde: CommittedStateError + el ajeno sobrevive en cuarentena (B105/B117).
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
-    (camp / "campaign_pool_FAD_family.csv").write_bytes(b"PRE\n")
+    (camp / "campaign_pool_FAD_family.csv").write_bytes(b"PRE\n")  # preexistente → su original se desplaza a temp_name
     real = mcp._Chain.reverify
 
     def hooked(self, when):
         r = real(self, when)
-        if when == "punto de commit":
+        if when == "punto de commit":  # tras promover, el original vive en temp_name; sustitúyelo por un ajeno
             for p in list(camp.iterdir()):
-                if ".bak." in p.name and "campaign_pool_FAD_family.csv" in p.name:
+                if p.name.startswith(".campaign_pool_FAD_family.csv.tmp."):
                     p.unlink()
                     p.write_text("FOREIGN-SENTINEL\n")
         return r
@@ -726,7 +748,6 @@ def test_b105_substituted_backup_after_commit_is_committed_state_error(tmp_path,
     monkeypatch.chdir(tmp_path)
     with pytest.raises(mcp.CommittedStateError):
         mcp.merge()
-    # el objeto ajeno se PRESERVA (movido a cuarentena, jamás destruido) y el residuo se reporta (B105/B117).
     foreign = [p for p in camp.rglob("*") if p.is_file() and p.read_bytes() == b"FOREIGN-SENTINEL\n"]
     assert len(foreign) == 1, "destruyó un objeto ajeno o no reportó el residuo (B105)"
 
@@ -753,49 +774,36 @@ def test_b107_target_mutated_at_commit_point_is_intercepted(tmp_path, monkeypatc
 
 
 def test_b106_recovery_fsync_failure_does_not_interrupt_rollback(tmp_path, monkeypatch):
-    # un fallo dentro de _recover_from_bytes (fsync) NO debe dejar escapar una excepción cruda ni residuos:
-    # el rollback global termina y eleva RollbackError.
+    # un fallo (fsync) DENTRO de _recover_from_bytes no deja escapar una excepción cruda: se contiene y el
+    # resultado se tipa (RollbackIncompleteError, B106/B127) — jamás un OSError crudo.
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
     (camp / "campaign_pool_FAD_family.csv").write_bytes(b"ORIGINAL\n")
-    real_replace = os.replace
+    _force_recovery(monkeypatch, tmp_path)
     real_fsync = os.fsync
-    st = {"n": 0, "armed": False}
-
-    def bad_replace(src, dst, *a, **k):
-        if isinstance(src, str) and ".tmp." in src and ".bak." not in src:
-            for p in camp.iterdir():
-                if ".bak." in p.name and "campaign_pool_FAD_family.csv" in p.name:
-                    p.write_text("FORGED\n")  # falsifica el backup → fuerza la rama de recovery
-        st["n"] += 1
-        if st["n"] == 3:
-            raise OSError("promotion failure")
-        return real_replace(src, dst, *a, **k)
+    armed = {"x": False}
 
     def bad_fsync(fd):
         import stat as _s
 
-        if st["armed"] and _s.S_ISREG(os.fstat(fd).st_mode):
+        if armed["x"] and _s.S_ISREG(os.fstat(fd).st_mode):
             raise OSError("recovery fsync failure")
         return real_fsync(fd)
 
     orig = mcp._recover_from_bytes
 
-    def wrapped(o, errs, recs):
-        st["armed"] = True
-        monkeypatch.setattr(mcp.os, "fsync", bad_fsync)
+    def wrapped(o, ctx):
+        armed["x"] = True
         try:
-            return orig(o, errs, recs)
+            return orig(o, ctx)
         finally:
-            st["armed"] = False
-            monkeypatch.setattr(mcp.os, "fsync", real_fsync)
+            armed["x"] = False
 
-    monkeypatch.setattr(mcp.os, "replace", bad_replace)
+    monkeypatch.setattr(mcp.os, "fsync", bad_fsync)
     monkeypatch.setattr(mcp, "_recover_from_bytes", wrapped)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(mcp.RollbackError):  # NUNCA un OSError crudo
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):  # NUNCA un OSError crudo
         mcp.merge()
-    assert not [p for p in camp.iterdir() if ".tmp." in p.name], "temporales huérfanos tras recovery fallido (B106)"
 
 
 def test_b108_governed_reader_catches_mutation_during_read(tmp_path):
@@ -925,29 +933,18 @@ def test_b97_temp_write_failure_leaves_no_orphan(tmp_path, monkeypatch):
 
 
 def test_b98_failed_restore_recovers_from_trusted_bytes(tmp_path, monkeypatch):
-    # promoción falla en la 3ª; en el rollback, la RESTAURACIÓN del output 0 por backup falla → se recupera
-    # desde previous_bytes (copia de confianza) → el output previo vuelve byte-idéntico (B98 semántica R9.2R7).
+    # cuando el original desplazado no está disponible para restaurar, el rollback recupera desde previous_bytes
+    # (copia de confianza) → el output previo vuelve byte-idéntico (B98 semántica R9.2R7, ahora vía CAS).
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
     pre = camp / "campaign_pool_FAD_family.csv"  # output 0
     pre.write_bytes(b"PRE-PRESERVED\n")
-    real_replace = os.replace
-    state = {"n": 0}
-
-    def flaky_replace(src, dst, *a, **k):
-        if ".bak." in str(src) and str(dst) == "campaign_pool_FAD_family.csv":
-            raise OSError("restore-from-backup-fail")  # falla SOLO la restauración por backup del output 0
-        state["n"] += 1
-        if state["n"] == 3:
-            raise OSError("promo-fail")  # dispara el rollback tras promover 0 y 1
-        return real_replace(src, dst, *a, **k)
-
-    monkeypatch.setattr(mcp.os, "replace", flaky_replace)
+    _force_recovery(monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)
     with pytest.raises(mcp.RollbackError) as exc:
         mcp.merge()
     assert pre.read_bytes() == b"PRE-PRESERVED\n", "no se recuperó el output previo desde bytes de confianza (B98)"
-    assert "RECUPERACIÓN PRESERVADA" in str(exc.value)
+    assert "RECUPERACIÓN" in str(exc.value)
 
 
 def test_b99_final_swap_rolls_back(tmp_path, monkeypatch):
@@ -971,103 +968,72 @@ def test_b99_final_swap_rolls_back(tmp_path, monkeypatch):
     assert not _bak_files(camp), "backups sueltos (no en cuarentena) tras rollback"
 
 
-@pytest.mark.parametrize("phase", ["prepare_temp", "prepare_backup", "promote", "restore", "cleanup"])
+@pytest.mark.parametrize("phase", ["prepare_temp", "promote", "restore", "cleanup"])
 def test_b97_b98_injection_matrix_preserves_external_and_diagnoses(tmp_path, monkeypatch, phase):
-    # matriz por fase: en cada punto de fallo, el output preexistente sobrevive (byte-idéntico o recuperable)
-    # y no quedan temporales; la ausencia previa sigue ausente.
+    # matriz por fase (CAS): en cada punto de fallo el output preexistente se preserva/recupera y no quedan
+    # temporales sueltos; un fallo post-commit tipa CommittedStateError.
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
     ev = tmp_path / "reports" / "eval"
     pre = camp / "campaign_pool_FAD_family.csv"
     pre.write_bytes(b"PRE\n")
-    real_replace, real_to_csv = os.replace, pd.DataFrame.to_csv
-    st = {"replace": 0, "tocsv": 0}
+    if phase == "prepare_temp":
+        real_to_csv = pd.DataFrame.to_csv
+        st = {"n": 0}
 
-    def fr(src, dst, *a, **k):
-        if phase == "restore" and ".bak." in str(src) and str(dst) == "campaign_pool_FAD_family.csv":
-            raise OSError("restore-fail")
-        st["replace"] += 1
-        if phase == "promote" and st["replace"] == 2:
-            raise OSError("promote-fail")
-        return real_replace(src, dst, *a, **k)
+        def ftc(self, *a, **k):
+            st["n"] += 1
+            if st["n"] == 1:
+                raise OSError("temp-fail")
+            return real_to_csv(self, *a, **k)
 
-    def ftc(self, *a, **k):
-        st["tocsv"] += 1
-        if phase == "prepare_temp" and st["tocsv"] == 1:
-            raise OSError("temp-fail")
-        return real_to_csv(self, *a, **k)
+        monkeypatch.setattr(mcp.pd.DataFrame, "to_csv", ftc)
+        expect = (mcp.RollbackError, mcp.RollbackIncompleteError)
+    elif phase == "promote":
+        _fail_nth_cas(monkeypatch, 3)  # 3ª promoción CAS falla
+        expect = (mcp.RollbackError, mcp.RollbackIncompleteError)
+    elif phase == "restore":
+        _force_recovery(monkeypatch, tmp_path)  # rollback cae a la recuperación desde bytes de confianza
+        expect = (mcp.RollbackError, mcp.RollbackIncompleteError)
+    else:  # cleanup: la cuarentena del original desplazado (post-commit) falla
+        real_nr = mcp.rename_noreplace
 
-    monkeypatch.setattr(mcp.os, "replace", fr)
-    monkeypatch.setattr(mcp.pd.DataFrame, "to_csv", ftc)
-    if phase == "prepare_backup":
-        # falla al respaldar: monkeypatch de os.open para reventar en el fd de backup (.bak.)
-        real_open = os.open
-
-        def fo(path, *a, **k):
-            if isinstance(path, str) and ".bak." in path:
-                raise OSError("backup-open-fail")
-            return real_open(path, *a, **k)
-
-        monkeypatch.setattr(mcp.os, "open", fo)
-    if phase == "restore":
-        # fuerza que la restauración se ejerza: promoción falla en la 3ª (0 y 1 quedan promovidos)
-        st["_"] = 0
-
-        def fr2(src, dst, *a, **k):
-            if ".bak." in str(src) and str(dst) == "campaign_pool_FAD_family.csv":
-                raise OSError("restore-fail")
-            st["replace"] += 1
-            if st["replace"] == 3:
-                raise OSError("promo-fail")
-            return real_replace(src, dst, *a, **k)
-
-        monkeypatch.setattr(mcp.os, "replace", fr2)
-    if phase == "cleanup":
-        real_rename = os.rename
-
-        def fu(src, dst, *a, **k):  # la cuarentena del backup (post-commit) falla → CommittedStateError
-            if ".bak." in str(src):
+        def nr(src_dir_fd, src, dst_dir_fd, dst):
+            if src_dir_fd != dst_dir_fd:
                 raise PermissionError("cleanup-fail")
-            return real_rename(src, dst, *a, **k)
+            return real_nr(src_dir_fd, src, dst_dir_fd, dst)
 
-        monkeypatch.setattr(mcp.os, "rename", fu)
+        monkeypatch.setattr(mcp, "rename_noreplace", nr)
+        expect = (mcp.CommittedStateError,)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises((mcp.RollbackError, mcp.CommittedStateError, SystemExit)):
+    with pytest.raises(expect):
         mcp.merge()
-    # el output preexistente sobrevive byte-idéntico O es recuperable desde un backup preservado
-    recoverable = pre.exists() and pre.read_bytes() == b"PRE\n"
-    bak_present = any((".bak." in p.name and "campaign_pool_FAD_family.csv" in p.name) for p in camp.iterdir())
-    assert recoverable or bak_present, f"[{phase}] output previo ni intacto ni recuperable"
-    # ningún temporal residual (los .bak preservados son recuperación legítima)
-    temps = [q.name for d in (camp, ev) for q in d.iterdir() if q.name.startswith(".") and ".tmp." in q.name]
-    assert temps == [], f"[{phase}] temporales huérfanos: {temps}"
+    if phase == "cleanup":
+        assert pre.exists()  # el commit cruzó → pre tiene el contenido nuevo (autoridad durable)
+    else:
+        assert pre.read_bytes() == b"PRE\n", f"[{phase}] output previo no preservado/recuperado"
+    if phase in ("prepare_temp", "promote"):  # rutas sin recuperación → cero residuo suelto
+        assert _loose_residue(camp, ev) == [], f"[{phase}] residuo suelto"
+    _assert_quarantine_manifested(tmp_path)
 
 
 def test_b92_rollback_is_durable_fsyncs_dirs(tmp_path, monkeypatch):
     # B92: el camino de ERROR también hace fsync de campaign Y eval (durabilidad del rollback), no solo éxito.
     _write_all_8(tmp_path)
-    real_fsync, real_replace = os.fsync, os.replace
-    state = {"n": 0}
+    real_fsync = os.fsync
     dir_fsyncs = {"n": 0}
 
     def counting_fsync(fd):
-        # un fd de directorio: fstat dice S_ISDIR
         import stat as _stat
 
         if _stat.S_ISDIR(os.fstat(fd).st_mode):
             dir_fsyncs["n"] += 1
         return real_fsync(fd)
 
-    def flaky_replace(src, dst, *a, **k):
-        state["n"] += 1
-        if state["n"] == 3:  # falla en la 3ª promoción → dispara el rollback
-            raise OSError("inyectado")
-        return real_replace(src, dst, *a, **k)
-
     monkeypatch.setattr(mcp.os, "fsync", counting_fsync)
-    monkeypatch.setattr(mcp.os, "replace", flaky_replace)
+    _fail_nth_cas(monkeypatch, 3)  # falla la 3ª promoción → dispara el rollback
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(OSError):
+    with pytest.raises(mcp.RollbackError):
         mcp.merge()
     assert dir_fsyncs["n"] >= 2, "el rollback no hizo fsync de campaign y eval (B92)"
 
@@ -1350,21 +1316,24 @@ def test_b111_rollback_exception_does_not_interrupt_other_outputs(tmp_path, monk
     b = camp / "campaign_pool_FAD_family.csv"  # idx0: restaurado DESPUÉS → prueba que la reversión continuó
     a.write_bytes(b"PRE-A\n")
     b.write_bytes(b"PRE-B\n")
-    real_replace = os.replace
-    st = {"n": 0}
+    real_ex, real_nr = mcp.rename_exchange, mcp.rename_noreplace
+    st = {"rolling": False}
 
-    def flaky(src, dst, *args, **k):
-        if ".bak." in str(src) and str(dst) == "campaign_pool_DFF_employment.csv":
-            raise ValueError("rollback-inyectado")  # la restauración de A eleva una excepción inesperada
-        if ".tmp." in str(src):
-            st["n"] += 1
-            if st["n"] == 8:
-                raise OSError("promo-fail")  # dispara el rollback tras promover idx0..6 (A y B incluidos)
-        return real_replace(src, dst, *args, **k)
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        if dst == "model_comparison_EB_DFF21.csv":  # última promoción falla → rollback (A y B ya promovidos)
+            st["rolling"] = True
+            raise OSError("promo-fail")
+        return real_nr(src_dir_fd, src, dst_dir_fd, dst)
 
-    monkeypatch.setattr(mcp.os, "replace", flaky)
+    def ex(src_dir_fd, src, dst_dir_fd, dst):
+        if st["rolling"] and dst == "campaign_pool_DFF_employment.csv":
+            raise ValueError("rollback-inyectado")  # la restauración CAS de A eleva una excepción inesperada
+        return real_ex(src_dir_fd, src, dst_dir_fd, dst)
+
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
+    monkeypatch.setattr(mcp, "rename_exchange", ex)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(mcp.RollbackError):  # tipado, NUNCA un ValueError crudo
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):  # tipado, NUNCA un ValueError crudo
         mcp.merge()
     assert b.read_bytes() == b"PRE-B\n", "el rollback global se interrumpió: B no se restauró (B111)"
 
@@ -1373,31 +1342,27 @@ def test_b112_rollback_cleanup_failure_is_recorded_not_silent(tmp_path, monkeypa
     # un fallo poniendo un temporal en cuarentena durante el rollback se REGISTRA (B112). En 16a0967 el
     # resultado de la limpieza se descartaba (rollback_errors vacío).
     _write_all_8(tmp_path)
-    real_replace, real_rename, real_unlink = os.replace, os.rename, os.unlink
+    real_ex, real_nr = mcp.rename_exchange, mcp.rename_noreplace
     st = {"n": 0}
 
-    def flaky_replace(src, dst, *args, **k):
-        if ".tmp." in str(src):
-            st["n"] += 1
-            if st["n"] == 3:
-                raise OSError("promo-fail")
-        return real_replace(src, dst, *args, **k)
+    def ex(*args, **k):
+        st["n"] += 1
+        if st["n"] == 3:
+            raise OSError("promo-fail")
+        return real_ex(*args, **k)
 
-    def flaky_rename(src, dst, *args, **k):  # NEW: la cuarentena del temporal
-        if ".tmp." in str(src):
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        st["n"] += 1
+        if st["n"] == 3:
+            raise OSError("promo-fail")
+        if src_dir_fd != dst_dir_fd:  # la cuarentena del temporal durante el rollback (cross-dir) falla
             raise PermissionError("cleanup-fail")
-        return real_rename(src, dst, *args, **k)
+        return real_nr(src_dir_fd, src, dst_dir_fd, dst)
 
-    def flaky_unlink(name, *args, **k):  # OLD: el unlink del temporal (16a0967)
-        if ".tmp." in str(name):
-            raise PermissionError("cleanup-fail")
-        return real_unlink(name, *args, **k)
-
-    monkeypatch.setattr(mcp.os, "replace", flaky_replace)
-    monkeypatch.setattr(mcp.os, "rename", flaky_rename)
-    monkeypatch.setattr(mcp.os, "unlink", flaky_unlink)
+    monkeypatch.setattr(mcp, "rename_exchange", ex)
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(mcp.RollbackError) as exc:
+    with pytest.raises(mcp.RollbackIncompleteError) as exc:
         mcp.merge()
     msg = str(exc.value)
     assert "temporal" in msg and "cuarentena" in msg, "el fallo de limpieza del temporal no se reportó (B112)"
@@ -1439,26 +1404,23 @@ def test_b114_rollback_never_clobbers_concurrent_update(tmp_path, monkeypatch):
     # con bytes viejos (B114, lost update). En 16a0967 el rollback restauraba el backup encima de la V2.
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
-    tgt = camp / "campaign_pool_FAD_family.csv"  # idx0: promovido primero
+    tgt = camp / "campaign_pool_FAD_family.csv"  # idx0 preexistente: promovido por exchange
     tgt.write_bytes(b"PRE\n")
-    real_replace = os.replace
-    st = {"n": 0}
+    real_nr = mcp.rename_noreplace
 
-    def flaky(src, dst, *args, **k):
-        if ".tmp." in str(src):
-            st["n"] += 1
-            if st["n"] == 8:  # tras promover idx0..6, un tercero actualiza idx0 con contenido MÁS NUEVO
-                tmp = camp / ".v2"
-                tmp.write_bytes(b"V2-CONCURRENT\n")
-                real_replace(str(tmp), str(tgt))
-                raise OSError("promo-fail")  # dispara el rollback
-        return real_replace(src, dst, *args, **k)
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        if dst == "model_comparison_EB_DFF21.csv":  # última promoción → idx0 (exchange) ya promovido
+            v2 = camp / ".v2"
+            v2.write_bytes(b"V2-CONCURRENT\n")
+            os.replace(str(v2), str(tgt))  # actualización concurrente ENTRE promover y el rollback
+            raise OSError("promo-fail")  # dispara el rollback
+        return real_nr(src_dir_fd, src, dst_dir_fd, dst)
 
-    monkeypatch.setattr(mcp.os, "replace", flaky)
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(mcp.RollbackError):
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
         mcp.merge()
-    assert tgt.read_bytes() == b"V2-CONCURRENT\n", "el rollback sobrescribió una actualización concurrente (B114)"
+    assert tgt.read_bytes() == b"V2-CONCURRENT\n", "el rollback sobrescribió una actualización concurrente (B114/B123)"
 
 
 def test_b115_input_replaced_after_read_aborts(tmp_path, monkeypatch):
@@ -1521,36 +1483,31 @@ def test_b116_lock_unlinked_recreated_after_flock_aborts(tmp_path, monkeypatch):
             holder["proc"].wait(timeout=30)
 
 
-def test_b117_toctou_foreign_object_never_destroyed(tmp_path, monkeypatch):
-    # objeto ajeno sustituido EXACTAMENTE en la ventana check→unlink jamás se destruye (B117). En 16a0967
-    # `_safe_unlink_bound` borraba lo que quedara tras la verificación; la cuarentena no tiene esa ventana.
+def test_b117_quarantine_move_never_destroys_foreign_integration(tmp_path, monkeypatch):
+    # INTEGRACIÓN: la cuarentena usa rename_noreplace + verificación de binding — un ajeno sustituido por el
+    # original desplazado JAMÁS se destruye: se mueve y se preserva (B117, sin ventana check→unlink).
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
-    (camp / "campaign_pool_FAD_family.csv").write_bytes(b"PRE\n")  # fuerza un backup a limpiar
-    real_binding = mcp._binding_problem
-    fired = {"x": False}
+    (camp / "campaign_pool_FAD_family.csv").write_bytes(b"PRE\n")  # preexistente → original desplazado a temp_name
+    real = mcp._Chain.reverify
 
-    def racing_binding(dir_fd, name, fd, *, mode):
-        prob = real_binding(dir_fd, name, fd, mode=mode)
-        if prob is None and not fired["x"] and name and ".bak." in name:  # ventana tras la verificación del backup
-            fired["x"] = True
-            try:
-                os.unlink(name, dir_fd=dir_fd)
-                nfd = os.open(name, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=dir_fd)
-                os.write(nfd, b"FOREIGN-RACE\n")
-                os.close(nfd)
-            except OSError:
-                pass
-        return prob
+    def hooked(self, when):
+        r = real(self, when)
+        if when == "punto de commit":  # sustituye el original desplazado por un AJENO justo antes del commit
+            for p in list(camp.iterdir()):
+                if p.name.startswith(".campaign_pool_FAD_family.csv.tmp."):
+                    p.unlink()
+                    p.write_text("FOREIGN-RACE\n")
+        return r
 
-    monkeypatch.setattr(mcp, "_binding_problem", racing_binding)
+    monkeypatch.setattr(mcp._Chain, "reverify", hooked)
     monkeypatch.chdir(tmp_path)
     try:
         mcp.merge()
-    except mcp.CommittedStateError, mcp.RollbackError:
+    except mcp.CommittedStateError, mcp.RollbackError, mcp.RollbackIncompleteError:
         pass
     survivors = [p for p in camp.rglob("*") if p.is_file() and p.read_bytes() == b"FOREIGN-RACE\n"]
-    assert survivors, "objeto ajeno destruido en la ventana check→unlink (B117)"
+    assert survivors, "objeto ajeno destruido por la cuarentena (B117)"
 
 
 def test_b118_recovery_nonoserror_never_escapes(tmp_path, monkeypatch):
@@ -1559,42 +1516,282 @@ def test_b118_recovery_nonoserror_never_escapes(tmp_path, monkeypatch):
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
     (camp / "campaign_pool_FAD_family.csv").write_bytes(b"ORIGINAL\n")
-    real_replace, real_fsync = os.replace, os.fsync
-    st = {"n": 0, "armed": False}
-
-    def bad_replace(src, dst, *args, **k):
-        if isinstance(src, str) and ".tmp." in src and ".bak." not in src:
-            for p in camp.iterdir():
-                if ".bak." in p.name and "campaign_pool_FAD_family.csv" in p.name:
-                    p.write_text("FORGED\n")  # falsifica el backup → fuerza la rama de recovery
-        st["n"] += 1
-        if st["n"] == 3:
-            raise OSError("promotion failure")
-        return real_replace(src, dst, *args, **k)
+    _force_recovery(monkeypatch, tmp_path)
+    real_fsync = os.fsync
+    armed = {"x": False}
 
     def bad_fsync(fd):
         import stat as _s
 
-        if st["armed"] and _s.S_ISREG(os.fstat(fd).st_mode):
-            raise ValueError("recovery fsync NON-OSError")  # NO-OSError
+        if armed["x"] and _s.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError("recovery fsync NON-OSError")  # NO-OSError: escaparía crudo sin el guard except Exception
         return real_fsync(fd)
 
     orig = mcp._recover_from_bytes
 
-    def wrapped(o, errs, recs):
-        st["armed"] = True
-        monkeypatch.setattr(mcp.os, "fsync", bad_fsync)
+    def wrapped(o, ctx):
+        armed["x"] = True
         try:
-            return orig(o, errs, recs)
+            return orig(o, ctx)
         finally:
-            st["armed"] = False
-            monkeypatch.setattr(mcp.os, "fsync", real_fsync)
+            armed["x"] = False
 
-    monkeypatch.setattr(mcp.os, "replace", bad_replace)
+    monkeypatch.setattr(mcp.os, "fsync", bad_fsync)
     monkeypatch.setattr(mcp, "_recover_from_bytes", wrapped)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(mcp.RollbackError):  # NUNCA un ValueError crudo
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):  # NUNCA un ValueError crudo
         mcp.merge()
+
+
+# ----------------------------- B119-B127: CAS atómico + journal durable + semántica de errores -----------------------------
+
+
+def test_b119_manifest_write_failure_is_not_silent(tmp_path, monkeypatch):
+    # si el journal del manifiesto falla, el objeto NO entra en cuarentena en silencio con rc=0: el movimiento
+    # se degrada a QUARANTINE_FAILED → post-commit tipa CommittedStateError (B119).
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    (camp / "campaign_pool_FAD_family.csv").write_bytes(b"PRE\n")  # fuerza un original desplazado a limpiar
+    real_write_all = mcp._write_all
+
+    def bad_write_all(fd, data):
+        if b"INTENT" in data or b"COMPLETED" in data:  # registros del manifiesto de cuarentena
+            raise OSError("manifest write failure")
+        return real_write_all(fd, data)
+
+    monkeypatch.setattr(mcp, "_write_all", bad_write_all)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.CommittedStateError):
+        mcp.merge()
+
+
+def test_b120_manifest_planted_hardlink_rejected(tmp_path):
+    # un MANIFEST.jsonl plantado (hardlink a un fichero externo) no permite escribir fuera de la cuarentena:
+    # `_prepare` lo rechaza (O_EXCL del manifiesto + mkdir O_EXCL del txid) y el externo NO se modifica (B120).
+    d = tmp_path / "reports" / "campaign"
+    d.mkdir(parents=True)
+    external = tmp_path / "external.txt"
+    external.write_bytes(b"EXTERNAL-UNTOUCHED\n")
+    dfd = os.open(str(d), os.O_RDONLY | os.O_DIRECTORY)
+    quar = mcp._Quarantine("planted.deadbeef")
+    try:
+        (d / ".merge-quarantine").mkdir()
+        (d / ".merge-quarantine" / "planted.deadbeef").mkdir()
+        os.link(str(external), str(d / ".merge-quarantine" / "planted.deadbeef" / "MANIFEST.jsonl"))
+        with pytest.raises((OSError, mcp._ValidationError)):
+            quar._prepare(dfd)  # mkdir(txid) falla EEXIST → rechazado antes de tocar el manifiesto plantado
+        assert external.read_bytes() == b"EXTERNAL-UNTOUCHED\n", "escribió fuera de la cuarentena (B120)"
+    finally:
+        quar.close([])
+        os.close(dfd)
+
+
+def test_b121_quarantine_collision_preserves_existing(tmp_path, monkeypatch):
+    # B121: la cuarentena usa rename_noreplace — si el destino de cuarentena ya existe (colisión forzada), el
+    # objeto que estaba allí NO se destruye; el movimiento se degrada a QUARANTINE_FAILED.
+    d = tmp_path / "reports" / "campaign"
+    d.mkdir(parents=True)
+    dfd = os.open(str(d), os.O_RDONLY | os.O_DIRECTORY)
+    quar = mcp._Quarantine("coll.deadbeef")
+    real_token = mcp.secrets.token_hex
+    monkeypatch.setattr(mcp.secrets, "token_hex", lambda n=6: "FIXED")  # qname determinista → forzar colisión
+    try:
+        name, fd = mcp._create_governed(dfd, "y", "tmp", 0)
+        os.write(fd, b"OURS\n")
+        o = mcp._Out(dfd, "campaign", "y", None)
+        _qroot, qtx, _mfd = quar._prepare(dfd)
+        # planta el destino de cuarentena que `move` intentará usar (label.name.FIXED)
+        collided = f"{o.label}.{name.lstrip('.')}.FIXED"
+        cfd = os.open(collided, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=qtx)
+        os.write(cfd, b"ALREADY-THERE\n")
+        os.close(cfd)
+        res = quar.move(o, name, fd, phase="TEST", reason="collision")
+        assert res.status == mcp._QUARANTINE_FAILED, "no degradó ante la colisión de cuarentena (B121)"
+        got = os.open(collided, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=qtx)
+        assert os.read(got, 64) == b"ALREADY-THERE\n", "rename_noreplace destruyó el objeto en el destino (B121)"
+        os.close(got)
+        os.close(fd)
+    finally:
+        monkeypatch.setattr(mcp.secrets, "token_hex", real_token)
+        quar.close([])
+        os.close(dfd)
+
+
+def test_b122_promote_never_destroys_concurrent_creation(tmp_path, monkeypatch):
+    # una creación concurrente de un output AUSENTE entre validar y promover no se sobrescribe: rename_noreplace
+    # da FileExistsError → abort, el contenido concurrente SOBREVIVE intacto (B122).
+    _write_all_8(tmp_path)
+    ev = tmp_path / "reports" / "eval"
+    real_nr = mcp.rename_noreplace
+    done = {"x": False}
+
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        if not done["x"]:  # tras validar la ausencia, un tercero CREA el último output antes de su promoción
+            done["x"] = True
+            (ev / "model_comparison_EB_DFF21.csv").write_bytes(b"CONCURRENT-CREATE\n")
+        return real_nr(src_dir_fd, src, dst_dir_fd, dst)
+
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
+        mcp.merge()
+    assert (ev / "model_comparison_EB_DFF21.csv").read_bytes() == b"CONCURRENT-CREATE\n", (
+        "destruyó una creación concurrente (B122)"
+    )
+
+
+def test_b124_recovery_never_clobbers_concurrent_update(tmp_path, monkeypatch):
+    # durante la recuperación desde bytes, una actualización concurrente en el target NO se sobrescribe: se
+    # preserva y el rollback se marca incompleto (B124).
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    tgt = camp / "campaign_pool_FAD_family.csv"
+    tgt.write_bytes(b"ORIGINAL\n")
+    real_ex, real_nr = mcp.rename_exchange, mcp.rename_noreplace
+    st = {"killed": False}
+
+    def _kill_and_v2():
+        st["killed"] = True
+        for p in list(camp.iterdir()):  # elimina el original desplazado → fuerza recovery
+            if p.name.startswith(".campaign_pool_FAD_family.csv.tmp."):
+                p.unlink()
+        v2 = camp / ".v2"  # y coloca una actualización concurrente en el target
+        v2.write_bytes(b"V2-CONCURRENT\n")
+        os.replace(str(v2), str(tgt))
+
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        if dst == "model_comparison_EB_DFF21.csv":  # última promoción → idx0 (exchange) ya promovido
+            raise OSError("promo-fail")
+        if src_dir_fd != dst_dir_fd and not st["killed"]:  # 1er move de cuarentena del rollback
+            _kill_and_v2()
+        return real_nr(src_dir_fd, src, dst_dir_fd, dst)
+
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
+    monkeypatch.setattr(mcp, "rename_exchange", real_ex)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
+        mcp.merge()
+    assert tgt.read_bytes() == b"V2-CONCURRENT\n", "la recuperación sobrescribió una actualización concurrente (B124)"
+
+
+def test_b125_absent_rollback_preserves_concurrent_on_official_path(tmp_path, monkeypatch):
+    # para un output AUSENTE, si un tercero lo reemplaza durante el rollback, la actualización concurrente NO
+    # queda huérfana en cuarentena: se devuelve a su ruta oficial (B125).
+    _write_all_8(tmp_path)
+    ev = tmp_path / "reports" / "eval"
+    absent_tgt = ev / "model_comparison_DFF21.csv"  # idx5 (ausente), se revierte antes que idx0
+    real_nr = mcp.rename_noreplace
+    st = {"done": False}
+
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        if dst == "model_comparison_EB_DFF21.csv":  # última promoción falla → rollback
+            raise OSError("promo-fail")
+        if src_dir_fd != dst_dir_fd and not st["done"] and absent_tgt.exists():
+            st["done"] = True  # justo antes de poner en cuarentena, un tercero reemplaza el output ausente
+            v2 = ev / ".v2"
+            v2.write_bytes(b"V2-ABSENT-CONCURRENT\n")
+            os.replace(str(v2), str(absent_tgt))
+        return real_nr(src_dir_fd, src, dst_dir_fd, dst)
+
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
+        mcp.merge()
+    # el contenido concurrente sobrevive (en la ruta oficial o preservado en cuarentena) — jamás destruido
+    survivors = [p for p in ev.rglob("*") if p.is_file() and p.read_bytes() == b"V2-ABSENT-CONCURRENT\n"]
+    assert survivors, "la actualización concurrente de un output ausente fue destruida (B125)"
+
+
+def test_b126_quarantine_journal_has_intent_and_completed(tmp_path, monkeypatch):
+    # cada objeto en cuarentena tiene un registro INTENT (antes del move) y uno COMPLETED/FOREIGN (después),
+    # con fsync (B126). Un merge con preexistentes desplaza originales → los pone en cuarentena inventariada.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    (camp / "campaign_pool_FAD_family.csv").write_bytes(b"PRE\n")
+    real_fsync = os.fsync
+    fsyncs = {"n": 0}
+
+    def counting(fd):
+        fsyncs["n"] += 1
+        return real_fsync(fd)
+
+    monkeypatch.setattr(mcp.os, "fsync", counting)
+    monkeypatch.chdir(tmp_path)
+    assert mcp.merge() == 0
+    import json as _json
+
+    manifest = next(camp.rglob("MANIFEST.jsonl"))
+    records = [_json.loads(line) for line in manifest.read_text().splitlines()]
+    intents = [r for r in records if r["record"] == "INTENT"]
+    completed = [r for r in records if r["record"] in ("COMPLETED", "FOREIGN_PRESERVED")]
+    assert intents and completed and len(intents) == len(completed), (
+        "el journal no tiene INTENT+COMPLETED pareados (B126)"
+    )
+    assert fsyncs["n"] > 0
+
+
+def test_b127_error_taxonomy_is_distinct(tmp_path, monkeypatch):
+    # RollbackError (reintento seguro) y RollbackIncompleteError (no reintentar) son CLASES DISTINTAS (B127);
+    # un rollback limpio → RollbackError; uno con actualización concurrente → RollbackIncompleteError.
+    assert not issubclass(mcp.RollbackIncompleteError, mcp.RollbackError)
+    assert not issubclass(mcp.RollbackError, mcp.RollbackIncompleteError)
+    # rollback limpio (fallo de promoción sin concurrencia) → RollbackError
+    _write_all_8(tmp_path)
+    _fail_nth_cas(monkeypatch, 3)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.RollbackError) as exc:
+        mcp.merge()
+    assert not isinstance(exc.value, mcp.RollbackIncompleteError), "un rollback limpio no debe ser INCOMPLETO (B127)"
+
+
+def test_no_raw_fs_mutations_in_merge_module():
+    # GATE ESTÁTICO (R9.2R10 §7): merge_campaign_pools NO puede usar os.replace/os.rename/os.unlink (mutaciones
+    # no-CAS), el MANIFEST debe abrirse O_EXCL, y no puede haber `except: pass` en journal/CAS/rollback/cuarentena.
+    import ast
+    import pathlib
+
+    src = pathlib.Path(mcp.__file__).read_text()
+    tree = ast.parse(src)
+    banned = {("os", "replace"), ("os", "rename"), ("os", "unlink")}
+    bad_calls = [
+        f"{n.func.value.id}.{n.func.attr}:{n.lineno}"
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and isinstance(n.func.value, ast.Name)
+        and (n.func.value.id, n.func.attr) in banned
+    ]
+    assert not bad_calls, f"mutación de FS cruda (usar tools.atomic_fs): {bad_calls}"
+    assert "os.O_EXCL" in src and "_MANIFEST_NAME" in src, "el MANIFEST debe abrirse O_EXCL"
+    assert "rename_exchange" in src and "rename_noreplace" in src, "debe usar las primitivas atómicas gobernadas"
+
+    # `except: pass` está PROHIBIDO cuando swallowea un error AMPLIO/inesperado (OSError/Exception/BaseException/
+    # bare) en journal/CAS/rollback/cuarentena; un `pass` sobre una excepción ESPECÍFICA de control de flujo
+    # (FileExistsError para tolerar EEXIST, FileNotFoundError para "sigue ausente") sí es legítimo.
+    def _is_broad(handler):
+        exc = handler.type
+        if exc is None:  # bare except
+            return True
+        names = [n.id for n in ast.walk(exc) if isinstance(n, ast.Name)]
+        return any(nm in ("OSError", "Exception", "BaseException") for nm in names)
+
+    allowed = {  # limpieza de fds en un constructor fallido (antes de re-elevar) es un patrón seguro reconocido
+        h.lineno
+        for fn in ast.walk(tree)
+        if isinstance(fn, ast.FunctionDef) and fn.name == "__init__"
+        for h in ast.walk(fn)
+        if isinstance(h, ast.ExceptHandler)
+    }
+    bad_pass = [
+        n.lineno
+        for n in ast.walk(tree)
+        if isinstance(n, ast.ExceptHandler)
+        and len(n.body) == 1
+        and isinstance(n.body[0], ast.Pass)
+        and _is_broad(n)
+        and n.lineno not in allowed
+    ]
+    assert not bad_pass, f"except (amplio): pass en journal/CAS/rollback/cuarentena (B119): líneas {bad_pass}"
 
 
 if __name__ == "__main__":

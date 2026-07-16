@@ -362,6 +362,9 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: '3.14'
+      - name: Atomic FS primitives selftest (NOREPLACE/EXCHANGE reales)  # R9.2R10 · Linux Y macOS
+        # stdlib-only (renameat2 en Linux / renameatx_np en macOS); esta matriz corre en ambos runners.
+        run: python -m tools.atomic_fs --selftest
       - name: Build isolated dvc-tool env + governed smoke + receipt
         env:
           # B6: procedencia REAL — el checkout de un PR es el merge sintético; el head fuente y la base
