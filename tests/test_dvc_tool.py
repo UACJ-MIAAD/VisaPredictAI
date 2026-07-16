@@ -1069,5 +1069,87 @@ def test_b70_ci_coverage_artifact_fails_closed():
     assert "if-no-files-found: error" in block, "coverage-by-layer sigue en if-no-files-found: ignore (B70)"
 
 
+# ----------------------- R9.2R3 · B84: registro machine-readable de warnings upstream -----------------------
+
+
+def _warn_doc(**overrides):
+    import tools.check_action_pins as pins
+
+    reg = pins.load_registry()
+    action = "actions/download-artifact"
+    w = {
+        "id": "DEP0005-download-artifact",
+        "action": action,
+        "sha": reg[action]["sha"],
+        "detail": "warning upstream de prueba",
+        "review": "2099-01-01",
+    }
+    w.update(overrides)
+    return {"schema_version": 1, "note": "test", "warnings": [w]}
+
+
+def _write_warn(tmp_path, doc):
+    p = tmp_path / "upstream_warnings.json"
+    p.write_text(json.dumps(doc))
+    return p
+
+
+def test_b84_real_upstream_warnings_file_valid():
+    import tools.check_action_pins as pins
+
+    # el archivo REAL del repo valida limpio contra el registro real y la fecha de hoy
+    assert pins.validate_upstream_warnings(pins.load_registry()) == []
+
+
+def test_b84_expired_review_fails(tmp_path):
+    import tools.check_action_pins as pins
+
+    p = _write_warn(tmp_path, _warn_doc(review="2020-01-01"))
+    probs = pins.validate_upstream_warnings(pins.load_registry(), p)
+    assert any("VENCIDA" in x for x in probs), probs
+
+
+def test_b84_review_expires_at_boundary(tmp_path):
+    import tools.check_action_pins as pins
+
+    p = _write_warn(tmp_path, _warn_doc(review="2026-01-01"))
+    ok = pins.validate_upstream_warnings(pins.load_registry(), p, today=dt.date(2026, 1, 1))
+    assert ok == []  # el día exacto de review aún vale
+    expired = pins.validate_upstream_warnings(pins.load_registry(), p, today=dt.date(2026, 1, 2))
+    assert any("VENCIDA" in x for x in expired)
+
+
+def test_b84_sha_mismatch_invalidates_acceptance(tmp_path):
+    import tools.check_action_pins as pins
+
+    p = _write_warn(tmp_path, _warn_doc(sha="f" * 40))  # la acción bumpeó → la aceptación caduca
+    probs = pins.validate_upstream_warnings(pins.load_registry(), p)
+    assert any("re-evaluar" in x for x in probs), probs
+
+
+def test_b84_unknown_action_fails(tmp_path):
+    import tools.check_action_pins as pins
+
+    p = _write_warn(tmp_path, _warn_doc(action="evil/unregistered"))
+    probs = pins.validate_upstream_warnings(pins.load_registry(), p)
+    assert any("NO está en el registro" in x for x in probs), probs
+
+
+def test_b84_bad_schema_fails(tmp_path):
+    import tools.check_action_pins as pins
+
+    doc = _warn_doc()
+    doc["warnings"][0]["extra"] = 1  # clave desconocida
+    p = _write_warn(tmp_path, doc)
+    probs = pins.validate_upstream_warnings(pins.load_registry(), p)
+    assert probs, "esquema con clave extra aceptado"
+
+
+def test_b84_missing_file_means_zero_accepted(tmp_path):
+    import tools.check_action_pins as pins
+
+    assert pins.validate_upstream_warnings(pins.load_registry(), tmp_path / "nope.json") == []
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

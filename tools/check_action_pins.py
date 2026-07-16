@@ -21,6 +21,7 @@ fail-closed.
 
 from __future__ import annotations
 
+import datetime
 import json
 import re
 import subprocess
@@ -31,6 +32,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRY = ROOT / "security" / "github_actions.json"
+WARNINGS = ROOT / "security" / "upstream_warnings.json"
+_WARN_TOP = {"schema_version", "note", "warnings"}
+_WARN_KEYS = {"id", "action", "sha", "detail", "review"}
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 # acción@ref ESTRUCTURAL (el valor ya viene del YAML parseado, sin comentario).
 _USES_VALUE = re.compile(r"^([^@\s]+)@([^\s#]+)$")
@@ -122,6 +126,60 @@ def _comment_on_line(line: str) -> str | None:
     return m.group(3) if m else None
 
 
+def validate_upstream_warnings(
+    reg: dict[str, dict[str, str]], path: Path = WARNINGS, today: datetime.date | None = None
+) -> list[str]:
+    """B84: registro machine-readable de warnings upstream ACEPTADOS (deuda con fecha de revisión), no
+    comentarios de workflow. Fail-closed: esquema exacto, id único, la acción debe existir en el registro
+    positivo con el MISMO SHA (un bump de la acción invalida la aceptación y fuerza re-evaluar) y
+    `review >= hoy` — la aceptación EXPIRA y pone el gate en rojo hasta re-evaluar o retirar la entrada.
+    Archivo ausente = cero warnings aceptados (válido)."""
+    if not path.exists():
+        return []
+    probs: list[str] = []
+    try:
+        doc = json.loads(path.read_text(), object_pairs_hook=_no_dup)
+    except (json.JSONDecodeError, SystemExit) as exc:
+        return [f"upstream_warnings: JSON inválido o con clave duplicada ({exc})"]
+    if not isinstance(doc, dict) or set(doc) != _WARN_TOP:
+        return [f"upstream_warnings: claves superiores != {sorted(_WARN_TOP)}"]
+    if type(doc["schema_version"]) is not int or doc["schema_version"] != 1:
+        probs.append("upstream_warnings: schema_version no es int == 1")
+    if not isinstance(doc["note"], str) or not doc["note"]:
+        probs.append("upstream_warnings: note no-string o vacía")
+    if not isinstance(doc["warnings"], list):
+        return probs + ["upstream_warnings: `warnings` no es lista"]
+    today = today or datetime.date.today()
+    seen: set[str] = set()
+    for w in doc["warnings"]:
+        if not isinstance(w, dict) or set(w) != _WARN_KEYS:
+            probs.append(f"upstream_warnings: entrada con claves != {sorted(_WARN_KEYS)}: {w!r}")
+            continue
+        if not all(isinstance(w[k], str) and w[k] for k in _WARN_KEYS):
+            probs.append(f"upstream_warnings: {w.get('id')!r} con campos no-string o vacíos")
+            continue
+        if w["id"] in seen:
+            probs.append(f"upstream_warnings: id duplicado {w['id']!r}")
+            continue
+        seen.add(w["id"])
+        entry = reg.get(w["action"])
+        if entry is None:
+            probs.append(f"upstream_warnings: {w['id']}: acción {w['action']!r} NO está en el registro positivo")
+        elif entry["sha"] != w["sha"]:
+            probs.append(
+                f"upstream_warnings: {w['id']}: SHA {w['sha']} != registro {entry['sha']} "
+                "(la acción cambió — re-evaluar el warning aceptado)"
+            )
+        try:
+            review = datetime.date.fromisoformat(w["review"])
+        except ValueError:
+            probs.append(f"upstream_warnings: {w['id']}: review {w['review']!r} no es fecha ISO YYYY-MM-DD")
+            continue
+        if review < today:
+            probs.append(f"upstream_warnings: {w['id']}: aceptación VENCIDA ({w['review']}) — re-evaluar o retirar")
+    return probs
+
+
 def check(root: Path = ROOT) -> list[str]:
     reg = load_registry()  # el registro autoritativo vive SIEMPRE en el repo real
     probs: list[str] = []
@@ -174,6 +232,8 @@ def check(root: Path = ROOT) -> list[str]:
     # B53: BIYECCIÓN — ninguna entrada del registro puede quedar huérfana (registrada pero sin usar).
     for orphan in sorted(set(reg) - used):
         probs.append(f"registro: {orphan} está autorizado pero NO se usa en ningún workflow (huérfano)")
+    # B84: los warnings upstream aceptados viven en security/upstream_warnings.json con fecha de revisión.
+    probs.extend(validate_upstream_warnings(reg))
     return probs
 
 

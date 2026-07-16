@@ -104,3 +104,6 @@ reports/campaign_aq_logs/
 reports/governance/supply_chain_receipt.json
 .vp_envs/
 .dvc/site-cache/
+
+# B89: lock de exclusión de merge_campaign_pools (artefacto runtime, jamás se trackea)
+reports/campaign/.merge.lock

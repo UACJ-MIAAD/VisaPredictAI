@@ -25,6 +25,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import TypedDict
 
 from tools import lock_contracts as lc
 from tools import python_env as pe
@@ -34,10 +35,24 @@ CONTRACT = ROOT / "environments" / "execution_contract.json"
 _TOP_KEYS = {"schema_version", "note", "commands"}
 _CMD_KEYS = {"profile", "variant", "mode", "target", "working_directory", "args_policy"}
 _MODES = {"module", "script", "installed_module"}
-# B78/R9.5: herramientas de desarrollo INSTALADAS en el entorno (no código de producto versionado bajo ROOT).
-# Se corren como `python -m <tool>` DENTRO del env content-addressed del perfil; su cierre lo fija el lock del
-# perfil (dev/model traen pytest/ruff/mypy). Allowlist CERRADA: nada de módulos arbitrarios de site-packages.
-_INSTALLED_MODULES = {"pytest", "ruff", "mypy"}
+
+
+class _InstalledTool(TypedDict):
+    distribution: str
+    profiles: tuple[str, ...]
+
+
+# B78/B88: herramientas de desarrollo INSTALADAS en el entorno (no código de producto versionado bajo ROOT),
+# corridas como `python -m <tool>` DENTRO del env content-addressed del perfil. Mapping EXACTO módulo →
+# distribución propietaria → perfiles autorizados (pytest corre la suite dev Y la de modelado; ruff/mypy solo
+# dev). La distribución debe estar PINEADA en el lock del perfil (versión esperada = inventario sellado) y el
+# bootstrap verifica en runtime versión + packages_distributions + origen bajo el entorno (B87). Allowlist
+# CERRADA: nada de módulos arbitrarios de site-packages.
+_INSTALLED_MODULES: dict[str, _InstalledTool] = {
+    "pytest": {"distribution": "pytest", "profiles": ("dev", "model")},
+    "ruff": {"distribution": "ruff", "profiles": ("dev",)},
+    "mypy": {"distribution": "mypy", "profiles": ("dev",)},
+}
 _WORKING_DIRS = {"root"}
 _ARGS_POLICIES = {"none", "passthrough"}
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -111,16 +126,26 @@ def load_contract(path: Path = CONTRACT) -> dict:
                 raise SystemExit(f"execution_contract: {cid!r} target de módulo no-string")
             _governed_module(tgt)  # B71: canónico + una resolución + regular + sin symlink + tracked + en ROOT
         elif c["mode"] == "installed_module":
-            # B78: herramienta dev INSTALADA (pytest/ruff/mypy). NO se gobierna como fichero de ROOT — vive en
-            # site-packages del env; el allowlist CERRADO impide correr un módulo arbitrario del entorno.
+            # B78/B88: herramienta dev INSTALADA (pytest/ruff/mypy). NO se gobierna como fichero de ROOT — vive
+            # en site-packages del env; el mapping CERRADO fija distribución propietaria y perfiles por
+            # herramienta, y la distribución debe estar SELLADA en el lock del perfil (versión resoluble).
             if not isinstance(tgt, str) or not _MODULE_RE.fullmatch(tgt):
                 raise SystemExit(f"execution_contract: {cid!r} target de installed_module no canónico {tgt!r}")
-            if tgt not in _INSTALLED_MODULES:
+            tool = _INSTALLED_MODULES.get(tgt)
+            if tool is None:
                 raise SystemExit(
                     f"execution_contract: {cid!r} installed_module {tgt!r} ∉ allowlist {sorted(_INSTALLED_MODULES)}"
                 )
-            if prof not in ("dev", "model"):
-                raise SystemExit(f"execution_contract: {cid!r} installed_module exige perfil dev/model (dado {prof!r})")
+            if prof not in tool["profiles"]:
+                raise SystemExit(
+                    f"execution_contract: {cid!r} installed_module {tgt!r} exige perfil ∈ {tool['profiles']} "
+                    f"(dado {prof!r})"
+                )
+            if tool["distribution"] not in pe.expected_inventory(prof, None):
+                raise SystemExit(
+                    f"execution_contract: {cid!r} distribución {tool['distribution']!r} no pineada en el lock "
+                    f"del perfil {prof!r}"
+                )
         else:
             pe._governed_script(tgt)  # relativo a ROOT, versionado, regular, sin symlink (fail-closed)
     return doc

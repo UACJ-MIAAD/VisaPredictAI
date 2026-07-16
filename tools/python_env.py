@@ -1327,9 +1327,34 @@ _RUNTIME_BOOTSTRAP = (
     "s = json.loads(sys.argv[1])\n"
     "os.chdir(s['root'])\n"
     "mode, rest = s['mode'], s['rest']\n"
-    "if mode in ('module', 'installed_module'):\n"
+    "if mode == 'module':\n"
     "    sys.argv = [s['name'], *rest]\n"
     "    runpy.run_module(s['name'], run_name='__main__', alter_sys=True)\n"
+    "elif mode == 'installed_module':\n"
+    "    import os.path, importlib.util, importlib.metadata\n"
+    "    name, dist, expver, root = s['name'], s['dist'], s['expected_version'], s['root']\n"
+    "    def _die(m):\n"
+    "        raise SystemExit('python_env bootstrap: ' + m)\n"
+    "    for cand in (os.path.join(root, name + '.py'), os.path.join(root, name)):\n"
+    "        if os.path.lexists(cand):\n"
+    "            _die('homonimo local de ' + name + ' dentro de ROOT: ' + cand)\n"
+    "    sys.path[:] = [p for p in sys.path if p != '']\n"
+    "    try:\n"
+    "        ver = importlib.metadata.version(dist)\n"
+    "    except importlib.metadata.PackageNotFoundError:\n"
+    "        _die('distribucion ' + dist + ' ausente del entorno')\n"
+    "    if ver != expver:\n"
+    "        _die('version de ' + dist + ' = ' + ver + ' != esperada ' + expver + ' (inventario sellado)')\n"
+    "    if dist not in importlib.metadata.packages_distributions().get(name, []):\n"
+    "        _die('el modulo ' + name + ' no pertenece a la distribucion ' + dist)\n"
+    "    spec_ = importlib.util.find_spec(name)\n"
+    "    if spec_ is None or not spec_.origin:\n"
+    "        _die('modulo ' + name + ' no resoluble en el entorno')\n"
+    "    pref = os.path.realpath(sys.prefix) + os.sep\n"
+    "    if not os.path.realpath(spec_.origin).startswith(pref):\n"
+    "        _die('origen de ' + name + ' fuera del entorno: ' + spec_.origin)\n"
+    "    sys.argv = [name, *rest]\n"
+    "    runpy.run_module(name, run_name='__main__', alter_sys=True)\n"
     "elif mode == 'code':\n"
     "    sys.argv = ['-c', *rest]\n"
     "    exec(compile(s['code'], '<string>', 'exec'), {'__name__': '__main__'})\n"
@@ -1339,8 +1364,12 @@ _RUNTIME_BOOTSTRAP = (
     "else:\n"
     "    raise SystemExit('python_env bootstrap: modo no soportado ' + repr(mode))\n"
 )
-# installed_module despacha por runpy.run_module IGUAL que module (`python -m pytest`); la distinción es de
-# VALIDACIÓN (allowlist dev vs fichero gobernado bajo ROOT), no de ejecución.
+# installed_module (B87/B88) SELLA la herramienta antes de despachar: rechaza cualquier homónimo local en
+# ROOT (fichero/paquete/symlink, tracked o no), quita '' (cwd) de sys.path para que el cwd JAMÁS participe en
+# la resolución, exige que la distribución declarada exista con la versión ESPERADA del inventario sellado,
+# que packages_distributions() asigne el módulo a esa distribución y que el ORIGEN resuelto viva bajo
+# sys.prefix (el entorno abierto — cuyo fd sostiene el orquestador durante toda la ejecución). Solo entonces
+# runpy.run_module — que re-resuelve sobre el MISMO sys.path ya sin cwd.
 _ALLOWED_MODES = {"module", "code", "script", "installed_module"}
 
 
@@ -1430,11 +1459,24 @@ def run_command(cid: str, args: list[str], *, capture: bool = False) -> subproce
             ec._governed_module(target)  # B71: re-valida el módulo gobernado (sin symlink/tracked) antes de lanzar
             spec = {"mode": "module", "name": target, "rest": list(args)}
         elif mode == "installed_module":
-            # B78: herramienta dev instalada (pytest/ruff/mypy); el contrato ya validó el allowlist. Se corre
-            # como `python -m <tool>` DENTRO del env del perfil (no es un fichero gobernado de ROOT).
-            if target not in ec._INSTALLED_MODULES:
+            # B78/B88: herramienta dev instalada (pytest/ruff/mypy) ligada semánticamente a su distribución y
+            # a la VERSIÓN del inventario sellado del perfil (el lock). El bootstrap (B87) verifica en runtime
+            # homónimos/versión/packages_distributions/origen bajo el entorno, cuyo fd sigue vivo aquí.
+            tool = ec._INSTALLED_MODULES.get(target)
+            if tool is None:
                 raise SystemExit(f"python_env: installed_module {target!r} fuera del allowlist del contrato")
-            spec = {"mode": "installed_module", "name": target, "rest": list(args)}
+            expver = expected_inventory(profile, variant, profiles).get(tool["distribution"])
+            if not expver:
+                raise SystemExit(
+                    f"python_env: {tool['distribution']!r} no está en el inventario sellado del perfil {profile!r}"
+                )
+            spec = {
+                "mode": "installed_module",
+                "name": target,
+                "dist": tool["distribution"],
+                "expected_version": expver,
+                "rest": list(args),
+            }
         else:
             spec = {"mode": "script", "name": _governed_script(target), "rest": list(args)}
         return _launch_fd_bound(env, spec, capture)

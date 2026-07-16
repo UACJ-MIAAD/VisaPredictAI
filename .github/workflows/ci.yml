@@ -402,7 +402,7 @@ jobs:
   # detección de tamper, y el gate anti-dvc-suelto). Nombre ESTABLE (check requerible).
   environment-contract:
     name: environment-contract
-    timeout-minutes: 15
+    timeout-minutes: 30
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
@@ -424,6 +424,15 @@ jobs:
           # C3: TODOS los perfiles declarados computan env_id determinista (deep exige variante).
           python -c "import tools.python_env as pe; combos=[('runtime',None),('dev',None),('model',None),('deep','cpu'),('deep','cu126'),('dvc-tool',None)]; ids={pe.env_id(p,v) for p,v in combos}; assert len(ids)==len(combos), 'env_id colisiona o falta'; print('env_id OK:', {f'{p}/{v}' if v else p: pe.env_id(p,v)[:12] for p,v in combos})"
           python -m pytest tests/test_python_env.py tests/test_dvc_tool.py -q -p no:cacheprovider --no-cov
+      # B87/B88: el env `dev` content-addressed construye DE VERDAD y las herramientas selladas corren por
+      # la interfaz oficial `run-command` — el bootstrap verifica homónimos/versión del inventario sellado/
+      # packages_distributions/origen bajo el entorno antes de despachar (smoke obligatorio de R9.2R3).
+      - name: Build dev env + sealed installed_module smokes (lint/typecheck/test)
+        run: |
+          python -m tools.python_env build --profile dev
+          python -m tools.python_env run-command --id lint -- --version
+          python -m tools.python_env run-command --id typecheck -- --version
+          python -m tools.python_env run-command --id test -- --version
 
   # P0R.5 R8R2 (B17): descarga los recibos dvc-tool de AMBAS plataformas y los cruza — valida cada uno
   # contra el repo (git limpio, source_head, dvc_status=0, site_cache_confined, hashes) y exige que el
@@ -440,10 +449,9 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: '3.14'
-      # B84 (upstream, no bloqueante): `actions/download-artifact@v8.0.1` (la última release) emite un
-      # DeprecationWarning DEP0005 (Buffer() deprecated) por invocación en el runner de Node — NO es la
-      # deprecación Node 20 (0 anotaciones de esas) ni un bloqueo de seguridad; sin bump disponible. Se
-      # mantiene el SHA oficial y se declara como warning upstream conocido; revisar cuando haya release nueva.
+      # B84: el DEP0005 upstream de download-artifact está ACEPTADO y gobernado en
+      # security/upstream_warnings.json (entrada machine-readable con fecha de revisión que
+      # tools/check_action_pins.py hace EXPIRAR). NO es Node 20.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           name: dvc-tool-receipt-linux-x86_64

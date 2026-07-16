@@ -2,7 +2,9 @@
 """¿Los 5 refits deep FAD camp_auto están COMPLETOS y CONSISTENTES? (P0R.5 · R9.4/B66/B74/B81 — extraído del
 heredoc de run_campaign_aq_tail.sh). Exit 0 solo si las CINCO semillas s1…s5 cumplen, ANTE evidencia posible-
 mente alterada: fichero REGULAR (no symlink), no vacío, columnas `unique_id`/`ds`/`y`/`AutoBiTCN` (formato
-ancho de NeuralForecast), `unique_id` no vacío, `ds` parseable, `y` y `AutoBiTCN` numéricos y finitos,
+ancho de NeuralForecast), `unique_id` presente y no vacío (B86: `isna()` se evalúa ANTES de `astype(str)` —
+NaN/None/celda vacía NO pasan como el string "nan"; whitespace también bloquea), `ds` parseable, `y` y
+`AutoBiTCN` numéricos y finitos,
 `(unique_id, ds)` ÚNICO dentro de cada semilla, y el conjunto ORDENADO de `(unique_id, ds, y)` IDÉNTICO
 (mismo número de filas y mismas claves) entre las cinco. Exit 1 ante cualquier ausencia/inconsistencia (⇒ el
 runbook re-corre los 5 refits). Sin efectos secundarios.
@@ -29,8 +31,12 @@ def _seed_keys(f: pathlib.Path) -> pd.DataFrame | None:
     df = pd.read_csv(f)
     if df.empty or not set(_REQUIRED_COLS) <= set(df.columns):
         return None
+    # B86: isna ANTES de astype — NaN/None/celda vacía se leen como NaN y astype(str) los
+    # enmascararía como el string "nan" (que NO es vacío). Después, vacío/whitespace también bloquean.
+    if df["unique_id"].isna().any():
+        return None  # unique_id ausente (None/NaN/celda vacía)
     if df["unique_id"].astype(str).str.strip().eq("").any():
-        return None  # unique_id vacío
+        return None  # unique_id en blanco/whitespace
     ds = pd.to_datetime(df["ds"], errors="coerce")
     if ds.isna().any():
         return None  # ds no parseable

@@ -1135,5 +1135,74 @@ def test_b67_no_production_callers_of_path_resolvers():
     assert offenders == [], f"callers de producción de los resolvers por ruta: {offenders}"
 
 
+# ----------------------- R9.2R3 · B87/B88: installed_module SELLADO en el bootstrap -----------------------
+# Se ejercita el _RUNTIME_BOOTSTRAP real con el intérprete de la suite (que tiene pytest/ruff/mypy del
+# cierre dev instalados) y un ROOT temporal: la semántica del sello es del bootstrap, no del env concreto.
+
+
+def _boot_installed(tmp_root, name, dist, expver, rest=("--version",)):
+    import subprocess
+    import sys
+
+    spec = {
+        "mode": "installed_module",
+        "name": name,
+        "dist": dist,
+        "expected_version": expver,
+        "rest": list(rest),
+        "root": str(tmp_root),
+    }
+    return subprocess.run(
+        [sys.executable, "-c", pe._RUNTIME_BOOTSTRAP, json.dumps(spec)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+def _ver(dist):
+    import importlib.metadata
+
+    return importlib.metadata.version(dist)
+
+
+def test_b87_homonym_module_in_root_rejected(tmp_path):
+    # un pytest.py local (aunque sea untracked) NO debe sombrear la herramienta sellada.
+    (tmp_path / "pytest.py").write_text("print('LOCAL_SHADOW_EXECUTED')\n")
+    r = _boot_installed(tmp_path, "pytest", "pytest", _ver("pytest"))
+    assert r.returncode != 0, "el bootstrap EJECUTÓ con un homónimo local presente (B87)"
+    assert "homonimo" in r.stderr
+    assert "LOCAL_SHADOW_EXECUTED" not in r.stdout
+
+
+def test_b87_homonym_package_in_root_rejected(tmp_path):
+    (tmp_path / "pytest").mkdir()
+    (tmp_path / "pytest" / "__init__.py").write_text("x = 1\n")
+    r = _boot_installed(tmp_path, "pytest", "pytest", _ver("pytest"))
+    assert r.returncode != 0
+    assert "homonimo" in r.stderr
+
+
+def test_b88_wrong_expected_version_rejected(tmp_path):
+    # la versión viva debe COINCIDIR con la del inventario sellado que declara el orquestador.
+    r = _boot_installed(tmp_path, "pytest", "pytest", "0.0.0")
+    assert r.returncode != 0, "el bootstrap ejecutó una versión distinta de la sellada (B88)"
+    assert "version" in r.stderr
+
+
+def test_b88_distribution_mismatch_rejected(tmp_path):
+    # packages_distributions() debe asignar el módulo a la distribución DECLARADA.
+    r = _boot_installed(tmp_path, "pytest", "mypy", _ver("mypy"))
+    assert r.returncode != 0
+    assert "no pertenece" in r.stderr
+
+
+def test_b87_sealed_tool_runs_with_clean_root(tmp_path):
+    # sin homónimos y con la versión sellada correcta, la herramienta REAL corre (happy path).
+    r = _boot_installed(tmp_path, "pytest", "pytest", _ver("pytest"))
+    assert r.returncode == 0, r.stderr
+    assert "pytest" in r.stdout
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
