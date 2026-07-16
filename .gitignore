@@ -107,3 +107,6 @@ reports/governance/supply_chain_receipt.json
 
 # B89: lock de exclusión de merge_campaign_pools (artefacto runtime, jamás se trackea)
 reports/campaign/.merge.lock
+# B117 (R9.2R9): cuarentena de temporales/respaldos del merge (GC diferido a P2b; runtime, nunca trackear)
+reports/campaign/.merge-quarantine/
+reports/eval/.merge-quarantine/

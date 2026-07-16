@@ -99,3 +99,81 @@ def read_governed_bytes(dir_fd: int, name: str) -> tuple[bytes | None, str | Non
             return fh.read()
 
     return _governed_reader(dir_fd, name, _read)
+
+
+def snapshot_fd(fd: int) -> tuple[int, ...]:
+    """B114/B115: snapshot fstat (los mismos campos que `_governed_reader` exige estables) de un descriptor
+    que la transacción mantiene ABIERTO. Un lease se revalida comparando este snapshot pre/post."""
+    return _snapshot(os.fstat(fd))
+
+
+def digest_fd(fd: int) -> str:
+    """sha256 del contenido leído DEL descriptor (no del nombre). Reutilizable por los leases de entrada/salida."""
+    os.lseek(fd, 0, os.SEEK_SET)
+    import hashlib
+
+    h = hashlib.sha256()
+    while chunk := os.read(fd, 1 << 16):
+        h.update(chunk)
+    return h.hexdigest()
+
+
+def open_governed_lease(dir_fd: int, name: str) -> tuple[int, tuple[int, ...] | None, str | None]:
+    """B114/B115: abre `name` gobernado (nombre relativo + O_NOFOLLOW + regular/UID/nlink==1/no escribible por
+    grupo-otros) y devuelve el fd VIVO + su snapshot para que el llamador lo mantenga abierto como LEASE hasta
+    el commit. Devuelve `(fd, snapshot, None)` en éxito o `(-1, None, motivo)` en fallo — el fd queda abierto y
+    es responsabilidad del llamador cerrarlo. No lee el contenido (eso lo hace el llamador vía `digest_fd`)."""
+    problem = relative_name_problem(name)
+    if problem is not None:
+        return -1, None, problem
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+    except OSError as exc:
+        return -1, None, f"ausente o symlink ({exc})"
+    st0 = os.fstat(fd)
+    if not stat.S_ISREG(st0.st_mode):
+        os.close(fd)
+        return -1, None, "no-regular"
+    if st0.st_uid != os.geteuid():
+        os.close(fd)
+        return -1, None, "propietario ajeno"
+    if st0.st_nlink != 1:
+        os.close(fd)
+        return -1, None, "hardlink (nlink != 1)"
+    if stat.S_IMODE(st0.st_mode) & 0o022:
+        os.close(fd)
+        return -1, None, "escribible por grupo/otros"
+    return fd, _snapshot(st0), None
+
+
+def lease_problem(dir_fd: int, name: str, fd: int, snapshot: tuple[int, ...], digest: str) -> str | None:
+    """B114/B115: revalida un lease VIVO — el `fd` sigue regular/UID/nlink==1/no escribible, su snapshot fstat
+    es IDÉNTICO al de la apertura, el `name` dentro de `dir_fd` sigue ligado al MISMO inode (dev/ino) que `fd` y
+    el contenido (digest) no cambió. Cualquier divergencia (nombre re-ligado, mutación in-place, truncado,
+    chmod, hardlink) devuelve el motivo. None si el lease sigue íntegro."""
+    try:
+        st = os.fstat(fd)
+    except OSError as exc:
+        return f"fstat del lease {name!r} falló ({exc})"
+    if not stat.S_ISREG(st.st_mode):
+        return "lease no-regular"
+    if st.st_uid != os.geteuid():
+        return "lease de propietario ajeno"
+    if st.st_nlink != 1:
+        return "lease con hardlink (nlink != 1)"
+    if stat.S_IMODE(st.st_mode) & 0o022:
+        return "lease escribible por grupo/otros"
+    if _snapshot(st) != snapshot:
+        return f"lease {name!r} con snapshot fstat distinto (mutación/truncado/chmod)"
+    try:
+        stn = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except OSError as exc:
+        return f"nombre {name!r} del lease ausente/inaccesible ({exc})"
+    if (stn.st_dev, stn.st_ino) != (st.st_dev, st.st_ino):
+        return f"nombre {name!r} ya no liga al lease (dev/ino distinto)"
+    try:
+        if digest_fd(fd) != digest:
+            return f"contenido del lease {name!r} cambió (digest distinto)"
+    except OSError as exc:
+        return f"re-digest del lease {name!r} falló ({exc})"
+    return None
