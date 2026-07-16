@@ -2002,12 +2002,18 @@ def test_b136_journal_truncation_between_records_detected(tmp_path):
     quar = mcp._Quarantine("trunc.deadbeef")
     try:
         st = quar._prepare(dfd)
-        assert quar._journal(st, "campaign", {"record": "MOVE_INTENT", "operation_id": "op"})  # INTENT ok
+        intent = {
+            "record": "MOVE_INTENT", "operation_id": "op", "source_name": "s", "destination_name": "dst",
+            "expected_dev": 0, "expected_ino": 0, "expected_digest": None,
+        }  # fmt: skip
+        assert quar._journal(st, dfd, "campaign", intent), "INTENT válido"
         manifest = d / ".merge-quarantine" / "trunc.deadbeef" / "MANIFEST.jsonl"
         os.truncate(str(manifest), 0)  # un tercero trunca el manifiesto entre eventos
-        assert not quar._journal(st, "campaign", {"record": "MOVE_COMPLETED", "operation_id": "op"}), (
-            "no cazó el truncado del journal (B136)"
-        )
+        completed = {
+            "record": "MOVE_COMPLETED", "operation_id": "op", "destination_name": "dst",
+            "moved_dev": 0, "moved_ino": 0, "bound_to_tx_fd": True,
+        }  # fmt: skip
+        assert not quar._journal(st, dfd, "campaign", completed), "no cazó el truncado del journal (B136)"
     finally:
         quar.close([])
         os.close(dfd)
@@ -2066,6 +2072,170 @@ def test_r11_static_gate_receipt_and_journal():
     assert "exchange_applied" in src and "compensation_verified" in src, "debe rastrear el estado CAS explícito"
     assert "record_sha256" in src and "previous_record_sha256" in src, "el journal debe encadenar hashes"
     assert "_RECEIPT_PREFIX" in src and "_certify_commit" in src, "debe existir el recibo de commit gobernado"
+
+
+# ----------------------------- B140-B147: recibo/journal/compensación endurecidos -----------------------------
+
+
+def test_b140_input_inplace_mutation_during_certification_aborts(tmp_path, monkeypatch):
+    # una mutación IN-PLACE (mismo inode) de un input durante la promoción del recibo es cazada porque el recibo
+    # RECALCULA el digest ACTUAL del input, no reutiliza el cacheado (B140). En f967a3c devolvía rc=0.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    real_nr = mcp.rename_noreplace
+    done = {"x": False}
+
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        if not done["x"] and str(dst).startswith(mcp._RECEIPT_PREFIX):
+            done["x"] = True
+            with open(camp / "aq_pool_nongbm_FAD_family.csv", "ab") as fh:  # mismo inode, contenido cambiado
+                fh.write(b"\n# tampered\n")
+        return real_nr(src_dir_fd, src, dst_dir_fd, dst)
+
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
+        mcp.merge()
+    assert not (camp / "campaign_pool_FAD_family.csv").exists(), "publicó con un input mutado in-place (B140)"
+
+
+def test_b141_concurrent_substituted_during_compensation_is_incomplete(tmp_path, monkeypatch):
+    # si el objeto CONCURRENTE es sustituido durante la compensación (el lado oficial queda con un ajeno), la
+    # verificación de AMBOS lados lo caza → RollbackIncompleteError, no un RollbackError reintentable (B141).
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    tgt = camp / "campaign_pool_FAD_family.csv"
+    tgt.write_bytes(b"PRE\n")
+    real_ex = mcp.rename_exchange
+    st = {"n": 0}
+
+    def ex(src_dir_fd, src, dst_dir_fd, dst):
+        if dst == "campaign_pool_FAD_family.csv":
+            st["n"] += 1
+            if st["n"] == 1:  # antes del 1er exchange: un tercero reemplaza el target (concurrencia)
+                v2 = camp / ".v2"
+                v2.write_bytes(b"V2-CONCURRENT\n")
+                os.replace(str(v2), str(tgt))
+            elif st["n"] == 2:  # antes de la COMPENSACIÓN: sustituye el concurrente desplazado en temp_name
+                for p in camp.iterdir():
+                    if p.name.startswith(".campaign_pool_FAD_family.csv.tmp."):
+                        with open(p, "wb") as fh:
+                            fh.write(b"V3-FORGED\n")
+        return real_ex(src_dir_fd, src, dst_dir_fd, dst)
+
+    monkeypatch.setattr(mcp, "rename_exchange", ex)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.RollbackIncompleteError):  # NUNCA RollbackError reintentable
+        mcp.merge()
+
+
+def test_b142_manifest_relinked_during_journaling_fails(tmp_path):
+    # si el MANIFEST.jsonl oficial se desliga y se sustituye por otro, `_journal` (que verifica el binding
+    # nombre↔fd antes/después) lo caza y NO valida sobre el fd huérfano (B142).
+    d = tmp_path / "reports" / "campaign"
+    d.mkdir(parents=True)
+    dfd = os.open(str(d), os.O_RDONLY | os.O_DIRECTORY)
+    quar = mcp._Quarantine("relink.deadbeef")
+    try:
+        st = quar._prepare(dfd)
+        manifest = d / ".merge-quarantine" / "relink.deadbeef" / "MANIFEST.jsonl"
+        manifest.unlink()  # desliga el oficial
+        (d / ".merge-quarantine" / "relink.deadbeef" / "MANIFEST.jsonl").write_text('{"record":"FORGED-OFFICIAL"}\n')
+        rec = {
+            "record": "MOVE_INTENT", "operation_id": "op", "source_name": "s", "destination_name": "dst",
+            "expected_dev": 0, "expected_ino": 0, "expected_digest": None,
+        }  # fmt: skip
+        assert not quar._journal(st, dfd, "campaign", rec), "escribió/validó sobre el manifiesto huérfano (B142)"
+    finally:
+        quar.close([])
+        os.close(dfd)
+
+
+def test_b143_receipt_hardlink_rejected(tmp_path, monkeypatch):
+    # un recibo con nlink=2 (hardlink) o sustituido por otro inode se RECHAZA en la re-apertura (B143): no basta
+    # comparar bytes, se exige regular/UID/modo 0600/nlink==1.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    real_nr = mcp.rename_noreplace
+    done = {"x": False}
+
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        r = real_nr(src_dir_fd, src, dst_dir_fd, dst)
+        if not done["x"] and str(dst).startswith(mcp._RECEIPT_PREFIX):  # tras promover el recibo, plántale un hardlink
+            done["x"] = True
+            os.link(str(camp / dst), str(camp / (dst + ".hardlink")))  # nlink pasa a 2
+        return r
+
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
+        mcp.merge()
+
+
+def test_b144_receipt_aborted_on_rollback(tmp_path, monkeypatch):
+    # si la certificación falla DESPUÉS de publicar el recibo, el rollback lo mueve a `.ABORTED` — jamás queda un
+    # recibo "oficial" con los outputs revertidos (B144).
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    real_open = mcp.os.open
+    done = {"x": False}
+
+    def flaky_open(path, *a, **k):  # revienta la RE-APERTURA del recibo (tras publicarlo) → certificación falla
+        if not done["x"] and isinstance(path, str) and path.startswith(mcp._RECEIPT_PREFIX) and path.endswith(".json"):
+            done["x"] = True
+            raise OSError("reopen-fail")
+        return real_open(path, *a, **k)
+
+    monkeypatch.setattr(mcp.os, "open", flaky_open)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
+        mcp.merge()
+    official = list(camp.glob(".merge-receipt.*.json"))
+    aborted = list(camp.glob(".merge-receipt.*.json.ABORTED"))
+    assert not official and aborted, "quedó un recibo oficial tras el rollback (B144)"
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        b'{"schema_version":1,"txid":"x","sequence":1,"source_dir":"campaign","record":"MOVE_INTENT","operation_id":"o","source_name":"s","destination_name":"d","expected_dev":0,"expected_ino":0,"expected_digest":null,"expected_digest":"dup","previous_record_sha256":"","record_sha256":"z"}',
+        b'{"schema_version":999,"txid":"x","sequence":1,"source_dir":"campaign","record":"MOVE_INTENT","operation_id":"o","source_name":"s","destination_name":"d","expected_dev":0,"expected_ino":0,"expected_digest":null,"previous_record_sha256":"","record_sha256":"z"}',
+        b'{"schema_version":1,"txid":"x","sequence":1,"source_dir":"campaign","record":"UNKNOWN_EVENT","operation_id":"o","previous_record_sha256":"","record_sha256":"z"}',
+        b'{"schema_version":1,"txid":"x","sequence":1,"source_dir":"campaign","record":"MOVE_INTENT","operation_id":"o","source_name":"s","destination_name":"d","expected_dev":0,"expected_ino":0,"expected_digest":null,"EXTRA":"field","previous_record_sha256":"","record_sha256":"z"}',
+    ],
+)
+def test_b146_journal_schema_rejects_tampering(tamper):
+    # B146: el reloader del journal rechaza claves duplicadas, schema_version falso, tipo desconocido y campos extra.
+    import hashlib as _h
+
+    # completa el record_sha256 correcto para aislar el fallo al esquema (no al hash)
+    import json as _json
+
+    try:
+        rec = mcp._strict_loads(tamper)  # las claves duplicadas mueren ya aquí
+        body = {k: v for k, v in rec.items() if k != "record_sha256"}
+        rec["record_sha256"] = _h.sha256(mcp._canon(body)).hexdigest()
+        line = mcp._canon(rec)
+        parsed = mcp._strict_loads(line)
+        ok = (
+            parsed["record"] in mcp._JOURNAL_SCHEMAS
+            and set(parsed.keys()) == mcp._JOURNAL_COMMON | mcp._JOURNAL_SCHEMAS[parsed["record"]]
+            and parsed["schema_version"] == mcp._SCHEMA_VERSION
+        )
+        assert not ok, "el journal aceptó un registro con esquema inválido (B146)"
+    except ValueError:
+        pass  # clave duplicada rechazada por _strict_loads — correcto
+    del _json
+
+
+def test_b147_receipt_provenance_is_complete():
+    # B147: la procedencia liga git/python/contrato/env_id y los hashes COMPLETOS (64 hex) de los tres módulos
+    # gobernantes, no 16 chars de uno solo.
+    prov = mcp._provenance()
+    assert set(prov) >= {"git_head", "python", "env_id", "contract_sha256", "modules"}
+    assert set(prov["modules"]) == {"merge_campaign_pools", "atomic_fs", "governed_read"}
+    for h in prov["modules"].values():
+        assert h == "unknown" or len(h) == 64, "hash de módulo incompleto (B147)"
 
 
 if __name__ == "__main__":

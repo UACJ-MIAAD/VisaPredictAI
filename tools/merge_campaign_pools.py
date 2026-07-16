@@ -353,6 +353,43 @@ class _MoveResult:
         self.qname = qname
 
 
+# B146: esquema EXACTO por tipo de evento del journal (campos requeridos además de los comunes; ni faltantes ni
+# extra). El "record" desconocido, un campo de más o de menos, un schema_version/txid falso ⇒ journal inválido.
+_JOURNAL_COMMON = frozenset(
+    {"schema_version", "txid", "sequence", "source_dir", "record", "previous_record_sha256", "record_sha256"}
+)
+_JOURNAL_SCHEMAS: dict[str, frozenset[str]] = {
+    "MOVE_INTENT": frozenset(
+        {"operation_id", "source_name", "destination_name", "expected_dev", "expected_ino", "expected_digest"}
+    ),  # fmt: skip
+    "MOVE_COMPLETED": frozenset({"operation_id", "destination_name", "moved_dev", "moved_ino", "bound_to_tx_fd"}),
+    "MOVE_FOREIGN_PRESERVED": frozenset(
+        {"operation_id", "destination_name", "moved_dev", "moved_ino", "bound_to_tx_fd"}
+    ),  # fmt: skip
+    "MOVE_ABORTED": frozenset({"operation_id", "destination_name", "detail"}),
+    "RESTORE_INTENT": frozenset({"operation_id", "source_name", "destination_name", "expected_dev", "expected_ino"}),
+    "RESTORE_COMPLETED": frozenset({"operation_id", "destination_name"}),
+    "RESTORE_COLLISION": frozenset({"operation_id", "destination_name", "detail"}),
+}
+_JOURNAL_INTENTS = {"MOVE_INTENT", "RESTORE_INTENT"}
+_JOURNAL_TERMINALS = {"MOVE_COMPLETED", "MOVE_FOREIGN_PRESERVED", "MOVE_ABORTED", "RESTORE_COMPLETED", "RESTORE_COLLISION"}  # fmt: skip
+
+
+def _no_dup_keys(pairs: list[tuple]) -> dict:
+    """B146: `object_pairs_hook` que RECHAZA claves JSON duplicadas (json.loads por defecto se queda con la
+    última en silencio — un atacante podría ocultar un campo)."""
+    seen: dict = {}
+    for k, v in pairs:
+        if k in seen:
+            raise ValueError(f"clave JSON duplicada en el journal: {k!r}")
+        seen[k] = v
+    return seen
+
+
+def _strict_loads(line: bytes) -> dict:
+    return json.loads(line, object_pairs_hook=_no_dup_keys)
+
+
 class _JournalState:
     __slots__ = ("qroot", "qtx", "mfd", "seq", "prev_sha")
 
@@ -425,10 +462,21 @@ class _Quarantine:
         self._states[dir_fd] = state
         return state
 
-    def _journal(self, st: _JournalState, source_dir: str, rec: dict) -> bool:
-        """Escribe un evento con cadena de hashes, `fsync` y RE-LECTURA validada (B136). False (no eleva) si
-        cualquier paso falla — el llamador lo trata como fallo de journal (incompleto/QUARANTINE_FAILED)."""
+    def _manifest_bound(self, source_dir_fd: int, st: _JournalState) -> bool:
+        """B142: la CADENA del manifiesto sigue ligada — `MANIFEST.jsonl`↔mfd (dev/ino/modo 0600/nlink==1) y
+        source→qroot→qtx. Un desligado+recreado del manifiesto (escribir el fd huérfano) se caza."""
+        return (
+            _binds(st.qtx, _MANIFEST_NAME, st.mfd, mode=0o600)
+            and _dir_binds(st.qroot, self.txid, st.qtx)
+            and _dir_binds(source_dir_fd, _QUARANTINE_DIR, st.qroot)
+        )
+
+    def _journal(self, st: _JournalState, source_dir_fd: int, source_dir: str, rec: dict) -> bool:
+        """Escribe un evento con cadena de hashes, `fsync` y RE-LECTURA validada (B136/B142/B146). False (no
+        eleva) si cualquier paso falla — el llamador lo trata como fallo de journal (incompleto/QUARANTINE_FAILED)."""
         try:
+            if not self._manifest_bound(source_dir_fd, st):  # B142: binding ANTES de escribir
+                return False
             st.seq += 1
             full = {"schema_version": _SCHEMA_VERSION, "txid": self.txid, "sequence": st.seq, "source_dir": source_dir, **rec, "previous_record_sha256": st.prev_sha}  # fmt: skip
             rec_sha = hashlib.sha256(_canon(full)).hexdigest()
@@ -436,7 +484,9 @@ class _Quarantine:
             line = _canon(full) + b"\n"
             _write_all(st.mfd, line)
             os.fsync(st.mfd)
-            if not self._reread_ok(st, st.seq, rec_sha):  # B136: re-lee del MISMO fd y valida esquema/seq/cadena
+            if not self._reread_ok(st, st.seq, rec_sha):  # B136/B146: re-lee del MISMO fd y valida esquema/seq/cadena
+                return False
+            if not self._manifest_bound(source_dir_fd, st):  # B142: binding DESPUÉS de escribir
                 return False
             st.prev_sha = rec_sha
             return True
@@ -444,9 +494,9 @@ class _Quarantine:
             return False
 
     def _reread_ok(self, st: _JournalState, expect_seq: int, expect_sha: str) -> bool:
-        """Re-lee el manifiesto ENTERO desde su fd (offset 0) y valida la cadena de hashes hasta el último evento
-        (esquema, secuencia monotónica 1..N, `previous`/`record` sha encadenados). B136: un truncado/alteración
-        entre INTENT y COMPLETED lo caza."""
+        """Re-lee el manifiesto ENTERO desde su fd (offset 0) y valida la cadena entera (B136/B146): esquema
+        EXACTO por tipo de evento, `schema_version`/`txid`, secuencia 1..N, hashes encadenados, sin claves
+        duplicadas, y la máquina de estados operation_id → un único terminal por intent, sin terminal huérfano."""
         cur = os.lseek(st.mfd, 0, os.SEEK_CUR)
         try:
             os.lseek(st.mfd, 0, os.SEEK_SET)
@@ -461,17 +511,34 @@ class _Quarantine:
         if len(lines) != expect_seq:
             return False
         prev = ""
+        ops: dict[str, int] = {}  # operation_id → nº de terminales vistos (el intent lo inicia en 0)
         for i, line in enumerate(lines, start=1):
             try:
-                rec = json.loads(line)
+                rec = _strict_loads(line)  # B146: rechaza claves duplicadas
             except ValueError:
                 return False
-            if rec.get("sequence") != i or rec.get("previous_record_sha256") != prev:
+            record = rec.get("record")
+            if record not in _JOURNAL_SCHEMAS:
+                return False  # tipo de registro desconocido
+            if set(rec.keys()) != _JOURNAL_COMMON | _JOURNAL_SCHEMAS[record]:
+                return False  # campo faltante o adicional
+            if rec["schema_version"] != _SCHEMA_VERSION or rec["txid"] != self.txid:
                 return False
-            claimed = rec.get("record_sha256")
+            if rec["sequence"] != i or rec["previous_record_sha256"] != prev:
+                return False
+            claimed = rec["record_sha256"]
             body = {k: v for k, v in rec.items() if k != "record_sha256"}
             if hashlib.sha256(_canon(body)).hexdigest() != claimed:
                 return False
+            op = rec["operation_id"]
+            if record in _JOURNAL_INTENTS:
+                if op in ops:
+                    return False  # intent duplicado para el mismo operation_id
+                ops[op] = 0
+            else:  # terminal
+                if op not in ops or ops[op] != 0:
+                    return False  # terminal sin intent previo, o segundo terminal para el mismo op
+                ops[op] = 1
             prev = claimed
         return prev == expect_sha
 
@@ -504,20 +571,20 @@ class _Quarantine:
         qname = f"{o.label}.{name.lstrip('.')}.{secrets.token_hex(6)}"
         exp = _inode(o.dir_fd, name) or (0, 0)
         intent = {"record": "MOVE_INTENT", "operation_id": op, "source_name": name, "destination_name": qname, "expected_dev": exp[0], "expected_ino": exp[1], "expected_digest": digest}  # fmt: skip
-        if not self._journal(st, o.label, intent):  # B119: sin INTENT durable no se mueve nada
+        if not self._journal(st, o.dir_fd, o.label, intent):  # B119: sin INTENT durable no se mueve nada
             return _MoveResult(_QUARANTINE_FAILED)
         try:
             rename_noreplace(o.dir_fd, name, st.qtx, qname)  # B121
         except FileNotFoundError:
-            self._journal(st, o.label, {"record": "MOVE_ABORTED", "operation_id": op, "destination_name": qname, "detail": "source ausente"})  # fmt: skip
+            self._journal(st, o.dir_fd, o.label, {"record": "MOVE_ABORTED", "operation_id": op, "destination_name": qname, "detail": "source ausente"})  # fmt: skip
             return _MoveResult(_ALREADY_ABSENT)
         except FileExistsError, AtomicRenameError, AtomicUnsupportedError, OSError, ValueError:
-            self._journal(st, o.label, {"record": "MOVE_ABORTED", "operation_id": op, "destination_name": qname, "detail": "rename falló"})  # fmt: skip
+            self._journal(st, o.dir_fd, o.label, {"record": "MOVE_ABORTED", "operation_id": op, "destination_name": qname, "detail": "rename falló"})  # fmt: skip
             return _MoveResult(_QUARANTINE_FAILED, st.qtx, qname)
         bound = _binds(st.qtx, qname, fd, mode=None)
         moved = _inode(st.qtx, qname) or (0, 0)
         rec = "MOVE_COMPLETED" if bound else "MOVE_FOREIGN_PRESERVED"
-        ok = self._journal(st, o.label, {"record": rec, "operation_id": op, "destination_name": qname, "moved_dev": moved[0], "moved_ino": moved[1], "bound_to_tx_fd": bound})  # fmt: skip
+        ok = self._journal(st, o.dir_fd, o.label, {"record": rec, "operation_id": op, "destination_name": qname, "moved_dev": moved[0], "moved_ino": moved[1], "bound_to_tx_fd": bound})  # fmt: skip
         durable = self._fsync_all(o.dir_fd, st)  # B126: durabilidad EXIGIDA
         if not ok or not durable or not _dir_binds(st.qroot, self.txid, st.qtx):
             return _MoveResult(_QUARANTINE_FAILED, st.qtx, qname)
@@ -531,14 +598,14 @@ class _Quarantine:
         st = self._states[o.dir_fd]
         op = secrets.token_hex(8)
         moved = _inode(mr.qtx, mr.qname) or (0, 0)
-        if not self._journal(st, o.label, {"record": "RESTORE_INTENT", "operation_id": op, "source_name": mr.qname, "destination_name": dst, "expected_dev": moved[0], "expected_ino": moved[1]}):  # fmt: skip
+        if not self._journal(st, o.dir_fd, o.label, {"record": "RESTORE_INTENT", "operation_id": op, "source_name": mr.qname, "destination_name": dst, "expected_dev": moved[0], "expected_ino": moved[1]}):  # fmt: skip
             return False
         try:
             rename_noreplace(mr.qtx, mr.qname, dst_dir_fd, dst)
         except FileExistsError, FileNotFoundError, AtomicRenameError, AtomicUnsupportedError, OSError, ValueError:
-            self._journal(st, o.label, {"record": "RESTORE_COLLISION", "operation_id": op, "destination_name": dst, "detail": "ruta oficial ocupada o error"})  # fmt: skip
+            self._journal(st, o.dir_fd, o.label, {"record": "RESTORE_COLLISION", "operation_id": op, "destination_name": dst, "detail": "ruta oficial ocupada o error"})  # fmt: skip
             return False
-        ok = self._journal(st, o.label, {"record": "RESTORE_COMPLETED", "operation_id": op, "destination_name": dst})  # fmt: skip
+        ok = self._journal(st, o.dir_fd, o.label, {"record": "RESTORE_COMPLETED", "operation_id": op, "destination_name": dst})  # fmt: skip
         durable = ok
         for fd in (dst_dir_fd, mr.qtx, st.qtx, st.qroot):
             try:
@@ -696,7 +763,7 @@ class _TxContext:
     los issues de severidad 'incomplete' — un fallo de durabilidad o una divergencia externa NO puede quedar
     como una cadena suelta que no cambie la clasificación."""
 
-    __slots__ = ("phase", "commit_reached", "primary_error", "issues", "recoveries", "close_errors")
+    __slots__ = ("phase", "commit_reached", "primary_error", "issues", "recoveries", "close_errors", "receipt_name")
 
     def __init__(self) -> None:
         self.phase = _LOADING
@@ -705,6 +772,7 @@ class _TxContext:
         self.issues: list[Issue] = []
         self.recoveries: list[str] = []
         self.close_errors: list[str] = []
+        self.receipt_name: str | None = None  # B144: recibo publicado pero commit no cruzado → moverlo a ABORTED
 
     def flag(self, code: str, detail: str, output: str | None = None) -> None:
         """Registra un Issue INCOMPLETO (fuerza RollbackIncompleteError/CommittedStateError)."""
@@ -721,22 +789,60 @@ class _TxContext:
         return [i for i in self.issues if i.severity == _INCOMPLETE]
 
 
-def _verify_compensation(o: _Out, ctx: _TxContext) -> bool:
-    """R9.2R11 §2: una compensación (swap de vuelta) sólo se acepta si AMBOS nombres ligan a los inodes
-    esperados con los digests esperados — target↔concurrente(no-nuestro) y temp_name↔temp_fd (nuestro
-    contenido). Sólo entonces `exchange_applied=False` y el rollback de este output es COMPLETO."""
+def _capture_object(dir_fd: int, name: str) -> dict | None:
+    """Captura la identidad COMPLETA (dev/ino/uid/modo/nlink/digest) del objeto en `name` — para verificar que
+    el MISMO objeto concurrente sigue allí tras una compensación (B141). None si no se pudo abrir/leer."""
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        return {
+            "dev": st.st_dev, "ino": st.st_ino, "uid": st.st_uid,
+            "mode": stat.S_IMODE(st.st_mode), "nlink": st.st_nlink, "digest": digest_fd(fd),
+        }  # fmt: skip
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
+def _object_matches(dir_fd: int, name: str, cap: dict) -> bool:
+    """True si el objeto en `name` es EXACTAMENTE el capturado (dev/ino/uid/modo/nlink/digest idénticos)."""
+    now = _capture_object(dir_fd, name)
+    return now is not None and now == cap
+
+
+def _compensate_both_sides(o: _Out, ctx: _TxContext, *, code: str) -> None:
+    """B141: tras un exchange que desplazó un objeto CONCURRENTE (no el original) a `temp_name`, deshace el
+    intercambio y verifica AMBOS lados — `temp_name`↔`temp_fd` (nuestro contenido y su digest) Y `o.name`↔el
+    concurrente EXACTO capturado antes del swap (dev/ino/uid/modo/nlink/digest). Sólo entonces
+    `compensation_verified=True`. Una sustitución del concurrente durante la compensación NO verifica ⇒
+    INCOMPLETO (la ruta oficial quedaría con un objeto ajeno)."""
     o.compensation_attempted = True
     assert o.temp_name is not None
-    target_side_ok = _binds(o.dir_fd, o.temp_name, o.temp_fd, mode=0o600)  # nuestro contenido volvió a temp_name
+    concurrent = _capture_object(o.dir_fd, o.temp_name)  # el concurrente vive AHORA en temp_name (tras el 1er swap)
     try:
-        digest_ok = target_side_ok and digest_fd(o.temp_fd) == o.temp_digest
+        rename_exchange(o.dir_fd, o.temp_name, o.dir_fd, o.name)
+    except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
+        ctx.flag(code, f"{o.name!r}: compensación (swap de vuelta) falló: {exc}", o.name)
+        o.concurrent_update = True
+        o.incomplete = True
+        return
+    our_ok = _binds(o.dir_fd, o.temp_name, o.temp_fd, mode=0o600)
+    try:
+        our_ok = our_ok and digest_fd(o.temp_fd) == o.temp_digest
     except OSError:
-        digest_ok = False
-    if digest_ok:
-        o.compensation_verified = True
+        our_ok = False
+    concurrent_ok = concurrent is not None and _object_matches(o.dir_fd, o.name, concurrent)
+    if our_ok and concurrent_ok:
         o.exchange_applied = False
-        return True
-    return False
+        o.compensation_verified = True
+    else:  # un lado no verifica (p.ej. el concurrente fue SUSTITUIDO durante la compensación) ⇒ incompleto
+        ctx.flag(code, f"{o.name!r}: compensación no verificable en ambos lados (concurrente sustituido)", o.name)
+    o.concurrent_update = True  # B139: una divergencia externa impide el reintento automático seguro
+    o.incomplete = True
 
 
 def _recover_from_bytes(o: _Out, ctx: _TxContext) -> None:
@@ -815,7 +921,7 @@ def _recover_from_bytes_inner(o: _Out, ctx: _TxContext) -> None:
     o.incomplete = True
 
 
-def _cas_promote(o: _Out) -> None:
+def _cas_promote(o: _Out, ctx: _TxContext) -> None:
     """Promoción por CAS (B122). Ausente: `rename_noreplace`. Preexistente: `rename_exchange` con estado
     explícito — tras el swap, `exchange_applied=True`; si el desplazado no es el original (concurrencia), se
     intenta compensar y SÓLO una compensación verificada limpia el estado (si no, se ELEVA para el rollback)."""
@@ -842,15 +948,8 @@ def _cas_promote(o: _Out) -> None:
             True  # el original quedó desplazado en temp_name (exchange_applied sigue True hasta commit/rollback)
         )
         return
-    # el desplazado no es el original ⇒ concurrencia: intenta compensar (swap de vuelta) y ELEVA para rollback
-    o.compensation_attempted = True
-    try:
-        rename_exchange(o.dir_fd, o.temp_name, o.dir_fd, o.name)
-        if _binds(o.dir_fd, o.temp_name, o.temp_fd):
-            o.exchange_applied = False
-            o.compensation_verified = True
-    except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
-        raise _ValidationError(f"output {o.name!r} concurrente; compensación falló: {exc}") from exc
+    # el desplazado no es el original ⇒ concurrencia: compensa (AMBOS lados, B141) y ELEVA para el rollback
+    _compensate_both_sides(o, ctx, code="PROMOTE_CONCURRENT_UPDATE")
     raise _ValidationError(f"output {o.name!r} fue modificado por un tercero antes de promover; preservado")
 
 
@@ -882,34 +981,73 @@ def _cas_restore(o: _Out, ctx: _TxContext) -> None:
         ctx.flag("RESTORE_DIGEST_MISMATCH", f"restauración de {o.name!r} con digest del original alterado", o.name)
         o.incomplete = True
         return
-    # lo desplazado NO es nuestro temporal ⇒ el target traía una actualización concurrente: compensa y preserva
-    o.compensation_attempted = True
+    # lo desplazado NO es nuestro temporal ⇒ el target traía una actualización concurrente: compensa (AMBOS
+    # lados, B141) y preserva.
+    _compensate_both_sides(o, ctx, code="RESTORE_CONCURRENT_UPDATE")
+
+
+def _module_hash(mod_name: str) -> str:
+    mod = sys.modules.get(mod_name)
+    path = getattr(mod, "__file__", None)
+    if path is None:
+        return "unknown"
     try:
-        rename_exchange(o.dir_fd, o.temp_name, o.dir_fd, o.name)
-        if _binds(o.dir_fd, o.temp_name, o.temp_fd):
-            o.exchange_applied = False
-            o.compensation_verified = True
-    except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
-        ctx.flag("RESTORE_COMPENSATION_FAILED", f"no se pudo deshacer la restauración de {o.name!r}: {exc}", o.name)
-    ctx.flag("RESTORE_CONCURRENT_UPDATE", f"{o.name!r}: actualización concurrente tras promover; preservada", o.name)
-    o.concurrent_update = True  # B139: incompleto aunque la concurrente quede en su ruta oficial
-    o.incomplete = True
+        return hashlib.sha256(open(path, "rb").read()).hexdigest()
+    except OSError:
+        return "unknown"
+
+
+def _git_head() -> str | None:
+    try:
+        head = open(".git/HEAD").read().strip()
+    except OSError:
+        return None
+    if head.startswith("ref: "):
+        try:
+            return open(os.path.join(".git", head[5:])).read().strip()
+        except OSError:
+            return None
+    return head
+
+
+def _provenance() -> dict:
+    """B147: procedencia COMPLETA — no sólo 16 chars de un módulo. Liga commit git, python, contrato de
+    ejecución, env_id y hashes completos de los tres módulos gobernantes."""
+    try:
+        contract = hashlib.sha256(open("environments/execution_contract.json", "rb").read()).hexdigest()
+    except OSError:
+        contract = "unknown"  # el contrato puede no estar presente (p. ej. en un tmp de test); no aborta
+    return {
+        "git_head": _git_head(),
+        "python": sys.version.split()[0],
+        "env_id": os.environ.get("VP_ENV_ID"),
+        "contract_sha256": contract,
+        "modules": {
+            "merge_campaign_pools": _module_hash("tools.merge_campaign_pools"),
+            "atomic_fs": _module_hash("tools.atomic_fs"),
+            "governed_read": _module_hash("tools.governed_read"),
+        },
+    }
 
 
 def _receipt_body(
     chain: _Chain, lock: _LockGuard, inputs: list[_InputLease], outs: list[_Out], quar: _Quarantine
 ) -> dict:
-    """Recibo de commit gobernado (B131/B132): identidad+digest de inputs/outputs, lock, cadena y manifiestos."""
+    """Recibo de commit gobernado (B131/B132/B140/B147): identidad + digest ACTUAL (re-leído, no cacheado) de
+    inputs/outputs, lock, cadena, manifiestos y procedencia completa."""
     return {
         "schema_version": _SCHEMA_VERSION,
         "txid": quar.txid,
-        "code_sha": _CODE_SHA,
+        "provenance": _provenance(),  # B147: git/python/contrato/env_id/hashes completos de los módulos
         "chain": chain.idents(),
         # inode ACTUAL de `.merge.lock` (no el guardado en el guard): un unlink+recreate del lock durante la
         # certificación cambia el inode y la re-lectura del recibo lo caza (B132).
         "lock": list(_inode(chain.camp, _LOCK_NAME) or (0, 0)),
+        # B140: el digest del input se RECALCULA del contenido ACTUAL (fd vivo), NO se reutiliza `i.digest`
+        # cacheado — una mutación in-place durante la certificación cambia el digest y la re-lectura la caza.
         "inputs": [
-            {"name": i.name, "inode": list(_inode(i.dir_fd, i.name) or (0, 0)), "digest": i.digest} for i in inputs
+            {"name": i.name, "inode": list(_inode(i.dir_fd, i.name) or (0, 0)), "digest": _safe_digest(i.fd)}
+            for i in inputs
         ],
         "outputs": [
             {
@@ -953,6 +1091,7 @@ def _certify_commit(
     body = _receipt_body(chain, lock, inputs, outs, quar)
     tmp_name, tmp_fd = _create_governed(chain.camp, _RECEIPT_PREFIX, "tmp", 0)
     receipt_name = f"{_RECEIPT_PREFIX}.{quar.txid}.json"
+    ctx.receipt_name = receipt_name  # B144: el rollback lo moverá a ABORTED si el commit no se cruza
     try:
         with os.fdopen(tmp_fd, "wb", closefd=False) as rf:
             rf.write(_canon(body))
@@ -965,15 +1104,24 @@ def _certify_commit(
     finally:
         with contextlib.suppress(OSError):
             os.close(tmp_fd)  # cierre best-effort del fd del temporal del recibo (ya consumido por el rename)
-    # RE-ABRE desde la ruta oficial y revalida el recibo contra el estado ACTUAL (cierra la ventana B131/B132).
-    # Se comparan BYTES canónicos (tuplas y listas serializan idéntico) — un input/lock/output cambiado difiere.
+    # RE-ABRE desde la ruta oficial con IDENTIDAD gobernada (B143: regular/UID/modo 0600/nlink==1, no un hardlink
+    # ni un inode ajeno con los mismos bytes) + snapshot pre/post, y revalida el recibo contra el estado ACTUAL.
     rfd = os.open(receipt_name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=chain.camp)
     try:
+        st0 = os.fstat(rfd)
+        if (
+            not stat.S_ISREG(st0.st_mode)
+            or st0.st_uid != os.geteuid()
+            or st0.st_nlink != 1
+            or stat.S_IMODE(st0.st_mode) != 0o600
+        ):
+            raise _ValidationError("recibo de commit no-regular/ajeno/hardlink/modo != 0600 (B143)")
         raw = b""
         while chunk := os.read(rfd, 1 << 16):
             raw += chunk
     finally:
         os.close(rfd)
+    # Se comparan BYTES canónicos (tuplas y listas serializan idéntico) — un input/lock/output cambiado difiere.
     if raw != _canon(body) or raw != _canon(_receipt_body(chain, lock, inputs, outs, quar)):
         raise _ValidationError("el recibo de commit ya no corresponde al estado actual (input/lock/output cambió)")
     ctx.commit_reached = True  # ---- PUNTO DE COMMIT (único sitio) ----
@@ -1043,6 +1191,13 @@ def _promote_transactionally(
             if o.exchange_applied and not o.compensation_verified:
                 ctx.flag("EXCHANGE_UNCOMPENSATED", f"{o.name!r}: exchange aplicado sin compensación verificada", o.name)
                 o.incomplete = True
+        if ctx.receipt_name is not None:  # B144: un recibo publicado sin commit cruzado NO puede quedar como COMMITTED
+            try:
+                rename_noreplace(chain.camp, ctx.receipt_name, chain.camp, ctx.receipt_name + ".ABORTED")
+            except FileNotFoundError, FileExistsError:
+                pass  # ya movido/ausente
+            except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
+                ctx.flag("RECEIPT_ABORT_FAILED", f"no se pudo marcar ABORTED el recibo huérfano: {exc}")
         if not _fsync_dirs():  # B130: un fsync fallido en el rollback ⇒ INCOMPLETO, no sólo texto
             ctx.flag("ROLLBACK_FSYNC_FAILED", "fsync de directorios falló durante el rollback")
 
@@ -1094,7 +1249,7 @@ def _promote_transactionally(
                 raise _ValidationError(f"output {o.name!r} ausente al inicio fue CREADO por un tercero")
         ctx.phase = _PROMOTING
         for o in outs:  # 4. promoción por CAS atómico con estado explícito
-            _cas_promote(o)
+            _cas_promote(o, ctx)
         for o in outs:  # 5. verifica target↔temp_fd + digest
             prob = _binding_problem(o.dir_fd, o.name, o.temp_fd, mode=0o600)
             if prob is not None:
@@ -1199,16 +1354,6 @@ def merge() -> int:
         chain.close(ctx.close_errors)
     _raise_outcome(ctx)
     return 0
-
-
-def _resolve_code_sha() -> str:
-    try:
-        return hashlib.sha256(open(__file__, "rb").read()).hexdigest()[:16]
-    except OSError:
-        return "unknown"
-
-
-_CODE_SHA = _resolve_code_sha()
 
 
 if __name__ == "__main__":

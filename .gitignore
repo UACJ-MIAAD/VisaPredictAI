@@ -110,3 +110,8 @@ reports/campaign/.merge.lock
 # B117 (R9.2R9): cuarentena de temporales/respaldos del merge (GC diferido a P2b; runtime, nunca trackear)
 reports/campaign/.merge-quarantine/
 reports/eval/.merge-quarantine/
+# B145 (R9.2R12): recibos/bundles/puntero del commit del merge (autoridad runtime, jamás trackear)
+reports/campaign/.merge-receipt.*
+reports/campaign/.merge-bundles/
+reports/campaign/.merge-staging.*
+reports/campaign/.merge-CURRENT*
