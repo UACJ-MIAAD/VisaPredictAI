@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 
 import tools.check_deep_refit as cdr
+import tools.governed_read as gr
 import tools.lock_contracts as lc
 import tools.merge_campaign_pools as mcp
 
@@ -486,7 +487,183 @@ def test_b94_rollback_cleanup_failure_raises_with_context(tmp_path, monkeypatch)
     monkeypatch.chdir(tmp_path)
     with pytest.raises(OSError) as exc:
         mcp.merge()
-    assert "rollback/limpieza" in str(exc.value)
+    assert "rollback" in str(exc.value)
+
+
+# ----------------------------- B96: nombre relativo del lector gobernado -----------------------------
+
+
+def test_b96_read_governed_csv_rejects_absolute(tmp_path):
+    (tmp_path / "inside").mkdir()
+    outside = tmp_path / "outside.csv"
+    pd.DataFrame([{"a": 1}]).to_csv(outside, index=False)
+    fd = os.open(str(tmp_path / "inside"), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        _, err = gr.read_governed_csv(fd, str(outside))
+        assert err is not None and "absolut" in err
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.parametrize("name", ["../outside.csv", "sub/x.csv", "", ".", "..", "a\x00b.csv", "/etc/passwd"])
+def test_b96_relative_name_problem_rejects(name):
+    assert gr.relative_name_problem(name) is not None
+
+
+def test_b96_relative_name_problem_accepts_plain():
+    assert gr.relative_name_problem("global_FAD_camp_auto_s1.csv") is None
+
+
+# ----------------------------- B97/B98/B99: modelo transaccional explícito -----------------------------
+
+
+def test_b97_temp_write_failure_leaves_no_orphan(tmp_path, monkeypatch):
+    # falla el to_csv del PRIMER temporal: el temporal ya está registrado → el rollback lo borra (sin huérfano).
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    real_to_csv = pd.DataFrame.to_csv
+    state = {"n": 0}
+
+    def flaky_to_csv(self, *a, **k):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise OSError("temp-write-fail")
+        return real_to_csv(self, *a, **k)
+
+    monkeypatch.setattr(mcp.pd.DataFrame, "to_csv", flaky_to_csv)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(OSError):
+        mcp.merge()
+    residue = [q.name for d in (camp, tmp_path / "reports" / "eval") for q in d.iterdir() if q.name.startswith(".")]
+    residue = [r for r in residue if r != ".merge.lock"]
+    assert residue == [], f"temporal huérfano tras fallo de escritura (B97): {residue}"
+
+
+def test_b98_failed_restore_preserves_backup(tmp_path, monkeypatch):
+    # promoción falla en la 3ª; en el rollback, la RESTAURACIÓN del output 0 falla → su backup se PRESERVA
+    # (última copia recuperable) y el error nombra la ruta de recuperación.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    pre = camp / "campaign_pool_FAD_family.csv"  # output 0
+    pre.write_bytes(b"PRE-PRESERVED\n")
+    real_replace = os.replace
+    state = {"n": 0}
+
+    def flaky_replace(src, dst, *a, **k):
+        if str(src).startswith(".bak.") and str(dst) == "campaign_pool_FAD_family.csv":
+            raise OSError("restore-fail")  # falla SOLO la restauración del output 0
+        state["n"] += 1
+        if state["n"] == 3:
+            raise OSError("promo-fail")  # dispara el rollback tras promover 0 y 1
+        return real_replace(src, dst, *a, **k)
+
+    monkeypatch.setattr(mcp.os, "replace", flaky_replace)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(OSError) as exc:
+        mcp.merge()
+    baks = [p.name for p in camp.iterdir() if p.name.startswith(".bak.campaign_pool_FAD_family.csv")]
+    assert len(baks) == 1, "el backup de la restauración fallida NO se preservó (B98)"
+    assert "BACKUP PRESERVADO" in str(exc.value), "el error no nombra la ruta de recuperación (B98)"
+    assert "reports/campaign" in str(exc.value)
+
+
+def test_b99_final_swap_rolls_back(tmp_path, monkeypatch):
+    # swap detectado en la reverificación del PUNTO DE COMMIT (backups aún presentes) → rollback completo.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    pre = camp / "campaign_pool_FAD_family.csv"
+    pre.write_bytes(b"PRE\n")
+    real_reverify = mcp._Chain.reverify
+
+    def hooked(self, when):
+        if when == "punto de commit":
+            self._fail_swap()  # type: ignore[attr-defined]
+        return real_reverify(self, when)
+
+    def _fail_swap(self):
+        import tools.merge_campaign_pools as m
+
+        m._fail("swap final inyectado")
+
+    monkeypatch.setattr(mcp._Chain, "_fail_swap", _fail_swap, raising=False)
+    monkeypatch.setattr(mcp._Chain, "reverify", hooked)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit):
+        mcp.merge()
+    assert pre.read_bytes() == b"PRE\n", "el swap final no restauró el output previo (B99)"
+    assert not [p for p in camp.iterdir() if p.name.startswith(".bak.")], "backups residuales tras rollback"
+
+
+@pytest.mark.parametrize("phase", ["prepare_temp", "prepare_backup", "promote", "restore", "cleanup"])
+def test_b97_b98_injection_matrix_preserves_external_and_diagnoses(tmp_path, monkeypatch, phase):
+    # matriz por fase: en cada punto de fallo, el output preexistente sobrevive (byte-idéntico o recuperable)
+    # y no quedan temporales; la ausencia previa sigue ausente.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    ev = tmp_path / "reports" / "eval"
+    pre = camp / "campaign_pool_FAD_family.csv"
+    pre.write_bytes(b"PRE\n")
+    real_replace, real_to_csv = os.replace, pd.DataFrame.to_csv
+    st = {"replace": 0, "tocsv": 0}
+
+    def fr(src, dst, *a, **k):
+        if phase == "restore" and str(src).startswith(".bak.") and str(dst) == "campaign_pool_FAD_family.csv":
+            raise OSError("restore-fail")
+        st["replace"] += 1
+        if phase == "promote" and st["replace"] == 2:
+            raise OSError("promote-fail")
+        return real_replace(src, dst, *a, **k)
+
+    def ftc(self, *a, **k):
+        st["tocsv"] += 1
+        if phase == "prepare_temp" and st["tocsv"] == 1:
+            raise OSError("temp-fail")
+        return real_to_csv(self, *a, **k)
+
+    monkeypatch.setattr(mcp.os, "replace", fr)
+    monkeypatch.setattr(mcp.pd.DataFrame, "to_csv", ftc)
+    if phase == "prepare_backup":
+        # falla al respaldar: monkeypatch de os.open para reventar en el fd de backup (.bak.)
+        real_open = os.open
+
+        def fo(path, *a, **k):
+            if isinstance(path, str) and path.startswith(".bak."):
+                raise OSError("backup-open-fail")
+            return real_open(path, *a, **k)
+
+        monkeypatch.setattr(mcp.os, "open", fo)
+    if phase == "restore":
+        # fuerza que la restauración se ejerza: promoción falla en la 3ª (0 y 1 quedan promovidos)
+        st["_"] = 0
+
+        def fr2(src, dst, *a, **k):
+            if str(src).startswith(".bak.") and str(dst) == "campaign_pool_FAD_family.csv":
+                raise OSError("restore-fail")
+            st["replace"] += 1
+            if st["replace"] == 3:
+                raise OSError("promo-fail")
+            return real_replace(src, dst, *a, **k)
+
+        monkeypatch.setattr(mcp.os, "replace", fr2)
+    if phase == "cleanup":
+        real_unlink = os.unlink
+
+        def fu(name, *a, **k):
+            if str(name).startswith(".bak."):
+                raise PermissionError("cleanup-fail")
+            return real_unlink(name, *a, **k)
+
+        monkeypatch.setattr(mcp.os, "unlink", fu)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises((OSError, SystemExit)):
+        mcp.merge()
+    # el output preexistente sobrevive byte-idéntico O es recuperable desde un backup preservado
+    recoverable = pre.exists() and pre.read_bytes() == b"PRE\n"
+    bak_present = any(p.name.startswith(".bak.campaign_pool_FAD_family.csv") for p in camp.iterdir())
+    assert recoverable or bak_present, f"[{phase}] output previo ni intacto ni recuperable"
+    # ningún temporal residual (los .bak preservados son recuperación legítima)
+    temps = [q.name for d in (camp, ev) for q in d.iterdir() if q.name.startswith(".") and ".tmp." in q.name]
+    assert temps == [], f"[{phase}] temporales huérfanos: {temps}"
 
 
 def test_b92_rollback_is_durable_fsyncs_dirs(tmp_path, monkeypatch):

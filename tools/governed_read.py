@@ -1,7 +1,10 @@
 #!/usr/bin/env python
-"""Lectura snapshot gobernada de un CSV RELATIVA a un descriptor de directorio (P0R.5 · R9.2R5/B95).
+"""Lectura snapshot gobernada de un CSV RELATIVA a un descriptor de directorio (P0R.5 · R9.2R5/R9.2R6/B95/B96).
 Compartida por `merge_campaign_pools` y `check_deep_refit` para que la evidencia se lea igual en ambos:
 
+0. `name` debe ser un NOMBRE RELATIVO simple (B96): str no vacío, `== os.path.basename(name)`, no absoluto, sin
+   separadores (`/`, `os.sep`, `os.altsep`), sin NUL y `∉ {".", ".."}`. Una ruta peligrosa se RECHAZA, no se
+   normaliza — un nombre absoluto/`..` haría que `os.open(..., dir_fd=)` IGNORE el descriptor y escape del árbol.
 1. `openat(dir_fd, name, O_RDONLY|O_NOFOLLOW)` — un symlink revienta (no se sigue).
 2. `fstat` inicial y exigencia de: fichero REGULAR, del UID actual, `nlink == 1` y **sin escritura de grupo/
    otros** (`mode & 0o022 == 0`) — un fichero que un tercero puede reescribir NO es evidencia de confianza.
@@ -29,7 +32,29 @@ def _snapshot(st: os.stat_result) -> tuple[int, ...]:
     return tuple(getattr(st, f) for f in _SNAP)
 
 
+def relative_name_problem(name: str) -> str | None:
+    """B96: None si `name` es un nombre RELATIVO simple seguro para `openat(dir_fd=…)`; si no, el motivo. Una
+    ruta absoluta o con `..`/separadores haría que `os.open(name, dir_fd=fd)` ignore el descriptor y escape."""
+    if not isinstance(name, str) or not name:
+        return "nombre vacío o no-string"
+    if name in (".", ".."):
+        return f"nombre reservado {name!r}"
+    if "\x00" in name:
+        return "nombre con NUL"
+    if os.path.isabs(name):
+        return "nombre absoluto (ignoraría el descriptor)"
+    seps = {"/", os.sep} | ({os.altsep} if os.altsep else set())
+    if any(s in name for s in seps):
+        return "nombre con separador de ruta"
+    if name != os.path.basename(name):
+        return "nombre con componentes de directorio"
+    return None
+
+
 def read_governed_csv(dir_fd: int, name: str, **read_csv_kwargs) -> tuple[pd.DataFrame | None, str | None]:
+    problem = relative_name_problem(name)
+    if problem is not None:
+        return None, problem
     try:
         fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
     except OSError as exc:

@@ -1,12 +1,18 @@
 #!/usr/bin/env python
 """Fusiona las mitades del pool de campaña (nongbm + gbm) en `campaign_pool_*` y proyecta a
-`model_comparison_*` (P0R.5 · R9.4/B66/B74/B79/B80/B85/B89/B90/B92/B94/B95 — extraído del heredoc de
-run_campaign_aq{,_tail}.sh). Se invoca desde ROOT (run-command fija cwd=root).
+`model_comparison_*` (P0R.5 · R9.4/B66/B74/B79/B80/B85/B89/B90/B92/B94/B95/B97/B98/B99 — extraído del heredoc
+de run_campaign_aq{,_tail}.sh). Se invoca desde ROOT (run-command fija cwd=root).
 
-Lectura de mitades gobernada (B95): cada CSV se lee por `governed_read.read_governed_csv` — snapshot `fstat`
-pre/post exacto (regular/UID/nlink==1/**sin escritura de grupo-otros**/dev·ino·size·mtime·ctime estables) del
-MISMO descriptor. Limpieza ESTRICTA (B94): un fallo al borrar backups/temporales NO deja devolver éxito y en
-rollback se adjunta al error original (nada de OSError silenciado).
+Lectura de mitades gobernada (B95): cada CSV se lee por `governed_read.read_governed_csv` (nombre RELATIVO
+validado — B96) — snapshot `fstat` pre/post exacto (regular/UID/nlink==1/**sin escritura de grupo-otros**/
+dev·ino·size·mtime·ctime estables) del MISMO descriptor.
+
+Transacción con estado EXPLÍCITO por output (`_Out`): temporales y backups se REGISTRAN en cuanto se crea su
+fd, ANTES de escribir (un fallo de escritura ya es conocido por el rollback — B97); la reverificación FINAL de
+la cadena ocurre con los backups aún presentes, definiendo el PUNTO DE COMMIT (B99: un swap final se detecta
+mientras todavía se puede revertir); el rollback PRESERVA el backup de toda restauración fallida (B98: no se
+destruye la última copia recuperable) y adjunta al error {target, operación, backup preservado, ruta de
+recuperación}. Limpieza ESTRICTA (B94): un residuo tras el commit NO es éxito.
 
 GOBERNANZA DE RUTAS (B90): la cadena `.` → `reports` → `campaign`/`eval` se abre COMPONENTE A COMPONENTE con
 `openat` `O_DIRECTORY|O_NOFOLLOW` (ningún ancestro puede ser symlink) y cada nivel exige directorio real, del
@@ -217,88 +223,130 @@ def _unlink_strict(name: str, dir_fd: int, errors: list[str]) -> None:
         errors.append(f"unlink {name!r}: {exc}")
 
 
-def _promote_transactionally(chain: _Chain, writes: list[tuple[int, str, pd.DataFrame]]) -> None:
-    """Todo fd-relativo (B90): temporales y respaldos con nombres RELATIVOS + O_CREAT|O_EXCL|O_NOFOLLOW dentro
-    del descriptor destino; promoción/restauración por `os.replace(src_dir_fd=…, dst_dir_fd=…)`; identidad de
-    la cadena reverificada ANTES y DESPUÉS de promover. Fsync de campaign y eval en éxito Y tras rollback
-    (B92: el rollback también es durable). B94: la limpieza es ESTRICTA — un fallo al borrar backups/temporales
-    (residuo) NO deja devolver éxito y en rollback se agrega al error original."""
-    temps: list[tuple[int, str, str]] = []
-    backups: dict[tuple[int, str], str | None] = {}
-    promoted: list[tuple[int, str]] = []
+class _Out:
+    """Estado transaccional EXPLÍCITO por output (B97/B98): en vez de inferir el estado por presencia/ausencia
+    de nombres, cada destino registra su ruta relativa, si existía antes, sus temporal/backup (registrados en
+    cuanto se CREAN, no tras escribir), y si fue promovido/restaurado. El rollback decide con estos campos."""
+
+    __slots__ = (
+        "dir_fd", "label", "name", "df",
+        "existed_before", "temp_name", "temp_complete", "backup_name", "backup_complete", "promoted", "restored",
+    )  # fmt: skip
+
+    def __init__(self, dir_fd: int, label: str, name: str, df: pd.DataFrame) -> None:
+        self.dir_fd = dir_fd
+        self.label = label  # "campaign"/"eval" — para la ruta de recuperación en los mensajes
+        self.name = name
+        self.df = df
+        self.existed_before = False
+        self.temp_name: str | None = None
+        self.temp_complete = False
+        self.backup_name: str | None = None
+        self.backup_complete = False
+        self.promoted = False
+        self.restored = False
+
+
+def _promote_transactionally(chain: _Chain, outs: list[_Out]) -> None:
+    """Transacción fd-relativa con estado explícito por output (B90/B92/B94/B97/B98/B99). Secuencia:
+    (1) temporales — REGISTRA el nombre en cuanto crea el fd, LUEGO escribe+fsync (un fallo de escritura ya es
+    conocido por el rollback, B97); (2) respaldos — igual, registra al crear; (3) reverify; (4) promueve;
+    (5) reverify; (6) fsync dirs; (7) **reverify FINAL con los backups AÚN presentes** (B99: el swap final se
+    detecta cuando todavía se puede hacer rollback) ⇒ PUNTO DE COMMIT. Solo DESPUÉS del commit se borran los
+    backups. El rollback PRESERVA el backup de toda restauración fallida (B98) y adjunta al error original la
+    lista de {target, operación, backup preservado, ruta de recuperación}."""
 
     def _fsync_dirs() -> None:
         os.fsync(chain.camp)
         os.fsync(chain.ev)
 
+    def _rollback(original: BaseException) -> None:
+        errs: list[str] = []
+        for o in outs:  # 1. deshace promociones — PRESERVA el backup si la restauración falla (B98)
+            if not o.promoted:
+                continue
+            if o.existed_before and o.backup_complete and o.backup_name is not None:
+                try:
+                    os.replace(o.backup_name, o.name, src_dir_fd=o.dir_fd, dst_dir_fd=o.dir_fd)
+                    o.restored = True  # el backup fue CONSUMIDO por el replace
+                except OSError as exc:
+                    errs.append(
+                        f"restaurar {o.name!r} desde reports/{o.label}/{o.backup_name} FALLÓ ({exc}); "
+                        f"BACKUP PRESERVADO en reports/{o.label}/{o.backup_name}"
+                    )
+            else:  # el target no existía antes → elimina el nuevo estrictamente
+                try:
+                    os.unlink(o.name, dir_fd=o.dir_fd)
+                except FileNotFoundError:
+                    pass
+                except OSError as exc:
+                    errs.append(f"eliminar {o.name!r} (ausente antes): {exc}")
+        for o in outs:  # 2. borra temporales (registrados aunque su escritura fallara, B97)
+            if o.temp_name is not None:
+                _unlink_strict(o.temp_name, o.dir_fd, errs)
+        for o in outs:  # 3. borra backups EXCEPTO el de una promoción no restaurada (última copia recuperable)
+            if o.backup_name is None:
+                continue
+            if o.promoted and o.existed_before and not o.restored:
+                continue  # B98: NO destruir la única copia recuperable
+            _unlink_strict(o.backup_name, o.dir_fd, errs)
+        try:
+            _fsync_dirs()  # B92: durabilidad TAMBIÉN en el camino de error
+        except OSError as exc:
+            errs.append(f"fsync de directorios: {exc}")
+        if errs:
+            raise OSError(f"{original!r}; fallos/recuperación de rollback: {errs}") from original
+        raise original
+
     try:
-        for i, (dfd, name, df) in enumerate(writes):  # 1. temporales fsync'd ANTES de promover ninguno
-            tname = f".{name}.tmp.{os.getpid()}.{i}"
-            tfd = os.open(tname, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=dfd)
+        for i, o in enumerate(outs):  # 1. temporales: REGISTRA al crear el fd, luego escribe+fsync
+            o.temp_name = f".{o.name}.tmp.{os.getpid()}.{i}"
+            tfd = os.open(o.temp_name, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=o.dir_fd)
             with os.fdopen(tfd, "w") as fh:
-                df.to_csv(fh, index=False)
+                o.df.to_csv(fh, index=False)
                 fh.flush()
                 os.fsync(fh.fileno())
-            temps.append((dfd, name, tname))
-        for i, (dfd, name, _df) in enumerate(writes):  # 2. respaldos fd-relativos de los outputs existentes
-            key = (dfd, name)
+            o.temp_complete = True
+        for i, o in enumerate(outs):  # 2. respaldos: REGISTRA al crear el fd, luego escribe+fsync
             try:
-                sfd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
+                sfd = os.open(o.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=o.dir_fd)
             except FileNotFoundError:
-                backups[key] = None
+                o.existed_before = False
                 continue
             except OSError as exc:
-                _fail(f"output previo {name!r} inabrible (symlink plantado: {exc})")
+                _fail(f"output previo {o.name!r} inabrible (symlink plantado: {exc})")
+            o.existed_before = True
             sst = os.fstat(sfd)
             if not stat.S_ISREG(sst.st_mode):
                 os.close(sfd)
-                _fail(f"output previo {name!r} no-regular")
+                _fail(f"output previo {o.name!r} no-regular")
             with os.fdopen(sfd, "rb") as sfh:
                 data = sfh.read()
-            bname = f".bak.{name}.{os.getpid()}.{i}"
-            bfd = os.open(bname, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=dfd)
+            o.backup_name = f".bak.{o.name}.{os.getpid()}.{i}"
+            bfd = os.open(o.backup_name, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=o.dir_fd)
             with os.fdopen(bfd, "wb") as bfh:
                 bfh.write(data)
                 bfh.flush()
                 os.fsync(bfh.fileno())
-            backups[key] = bname
-        chain.reverify("antes de promover")  # B90: la cadena sigue siendo LA validada
-        for dfd, name, tname in temps:  # 3. promueve (atómico por fichero, fd-relativo)
-            os.replace(tname, name, src_dir_fd=dfd, dst_dir_fd=dfd)
-            promoted.append((dfd, name))
+            o.backup_complete = True
+        chain.reverify("antes de promover")  # B90
+        for o in outs:  # 3. promueve (atómico por fichero, fd-relativo)
+            assert o.temp_name is not None  # invariante: todo output preparó su temporal en la fase 1
+            os.replace(o.temp_name, o.name, src_dir_fd=o.dir_fd, dst_dir_fd=o.dir_fd)
+            o.promoted = True
         chain.reverify("después de promover")
-    except BaseException as original:  # rollback transaccional fd-relativo: restaura los outputs previos
-        rb_errors: list[str] = []
-        for dfd, name in promoted:
-            b = backups.get((dfd, name))
-            try:
-                if b is not None:
-                    os.replace(b, name, src_dir_fd=dfd, dst_dir_fd=dfd)
-                else:
-                    os.unlink(name, dir_fd=dfd)
-            except FileNotFoundError:
-                pass
-            except OSError as exc:
-                rb_errors.append(f"restaurar {name!r}: {exc}")
-        for dfd, _name, tname in temps:
-            _unlink_strict(tname, dfd, rb_errors)
-        for (dfd, _n), b in backups.items():
-            if b is not None:
-                _unlink_strict(b, dfd, rb_errors)
-        try:
-            _fsync_dirs()  # B92: durabilidad TAMBIÉN en el camino de error
-        except OSError as exc:
-            rb_errors.append(f"fsync de directorios: {exc}")
-        if rb_errors:  # B94: adjunta los fallos de rollback/limpieza al error original
-            raise OSError(f"{original!r}; además fallos de rollback/limpieza: {rb_errors}") from original
-        raise
+        _fsync_dirs()
+        chain.reverify("punto de commit")  # B99: reverify FINAL con los backups AÚN presentes
+    except BaseException as original:
+        _rollback(original)
+    # ---- PUNTO DE COMMIT ---- (outputs promovidos y durables; nada de aquí en adelante exige rollback)
     cleanup_errors: list[str] = []
-    for (dfd, _n), b in backups.items():  # éxito: limpia respaldos ESTRICTAMENTE
-        if b is not None:
-            _unlink_strict(b, dfd, cleanup_errors)
+    for o in outs:  # limpia respaldos ESTRICTAMENTE (B94: un residuo NO es éxito, pero ya no hay rollback)
+        if o.backup_name is not None:
+            _unlink_strict(o.backup_name, o.dir_fd, cleanup_errors)
     _fsync_dirs()
-    if cleanup_errors:  # B94: éxito ⇒ CERO residuos; un backup que no se borró NO es éxito
-        _fail(f"promoción OK pero la limpieza de respaldos falló (residuos): {cleanup_errors}")
+    if cleanup_errors:
+        _fail(f"promoción COMMITEADA pero la limpieza de respaldos falló (residuos): {cleanup_errors}")
 
 
 def merge() -> int:
@@ -310,7 +358,7 @@ def merge() -> int:
     try:
         lock_fd = _acquire_lock(chain.camp)  # B89: exclusión; los inputs se validan BAJO el lock
         chain.reverify("tras adquirir el lock")
-        writes: list[tuple[int, str, pd.DataFrame]] = []
+        outs: list[_Out] = []
         # 1. Carga + valida las OCHO mitades ANTES de escribir nada (todo-o-nada), bajo el lock, fd-bound.
         for table in _TABLES:
             for block in _BLOCKS:
@@ -322,12 +370,12 @@ def merge() -> int:
                 # B85: bajo campaña el run_id ES la campaña; standalone = máximo LEXICOGRÁFICO (string).
                 full["run_id"] = campaign if campaign is not None else str(full["run_id"].astype(str).max())
                 tgt = f"model_comparison_{table}21.csv" if block == "family" else f"model_comparison_EB_{table}21.csv"
-                writes.append((chain.camp, f"campaign_pool_{table}_{block}.csv", full))
-                writes.append((chain.ev, tgt, full))
+                outs.append(_Out(chain.camp, "campaign", f"campaign_pool_{table}_{block}.csv", full))
+                outs.append(_Out(chain.ev, "eval", tgt, full))
                 print(f"{table}/{block}: {len(full)} rows -> {tgt}")
-        # 2. Promoción transaccional fd-relativa de los ocho outputs (validación global ya hecha).
-        _promote_transactionally(chain, writes)
-        chain.reverify("antes de devolver éxito")
+        # 2. Promoción transaccional fd-relativa (B99: la reverify FINAL vive DENTRO, antes del punto de commit —
+        # no hay reverify posterior a la destrucción de backups que pudiera detectar un swap sin poder revertir).
+        _promote_transactionally(chain, outs)
     finally:
         if lock_fd >= 0:
             os.close(lock_fd)
