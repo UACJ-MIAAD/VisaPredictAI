@@ -1,4 +1,4 @@
-"""Helpers de campaña gobernados (P0R.5 · R9.2R/R9.2R2/R9.2R3 · B74/B79/B80/B81/B85/B86/B89):
+"""Helpers de campaña gobernados (P0R.5 · R9.2R…R9.2R5 · B74/B79/B80/B81/B85/B86/B89/B90/B91/B92/B93/B94/B95):
 merge_campaign_pools y check_deep_refit fail-closed contra el esquema REAL de producción."""
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import time
 import pandas as pd
 import pytest
 
+import tools.check_deep_refit as cdr
 import tools.lock_contracts as lc
 import tools.merge_campaign_pools as mcp
 
@@ -273,6 +274,25 @@ def test_b90_group_writable_campaign_rejected(tmp_path):
     assert "escribible" in r.stderr or "gobernado" in r.stderr
 
 
+def test_b93_lock_recreated_during_wait_rejected(tmp_path, monkeypatch):
+    # si el .merge.lock se sustituye por otro inode (nlink/identidad) entre el open y el post-flock, el
+    # segundo _check_lock_fd debe cazarlo. Aquí forzamos un hardlink (nlink==2) tras adquirir el flock.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    real_flock = mcp.fcntl.flock
+
+    def hooked_flock(fd, op):
+        r = real_flock(fd, op)
+        # crea un hardlink al lock → nlink pasa a 2; el _check_lock_fd posterior debe fallar
+        os.link(camp / ".merge.lock", camp / ".merge.lock.hardlink")
+        return r
+
+    monkeypatch.setattr(mcp.fcntl, "flock", hooked_flock)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit):
+        mcp.merge()
+
+
 def test_b90_ancestor_swap_after_lock_aborts(tmp_path, monkeypatch):
     # swap del contenido de campaign tras adquirir el lock: la reverificación de identidad debe abortar.
     _write_all_8(tmp_path)
@@ -389,6 +409,84 @@ def test_b89_failure_at_each_promotion_rolls_back_clean(tmp_path, monkeypatch, f
         assert not p.exists(), f"{p.name} apareció pese al rollback (fail_at={fail_at})"
     residue = [q.name for d in (camp, ev) for q in d.iterdir() if q.name.startswith(".") and q.name != ".merge.lock"]
     assert residue == [], f"temporales/respaldos residuales tras el rollback: {residue}"
+
+
+def test_b95_merge_group_writable_csv_rejected(tmp_path):
+    _write_all_8(tmp_path)
+    os.chmod(tmp_path / "reports" / "campaign" / "aq_pool_gbm_FAD_family.csv", 0o666)
+    r = _run("tools.merge_campaign_pools", tmp_path)
+    assert r.returncode != 0, "CSV escribible por grupo/otros fue ACEPTADO (B95)"
+    assert "escribible" in r.stderr
+
+
+def test_b95_merge_other_writable_csv_rejected(tmp_path):
+    _write_all_8(tmp_path)
+    os.chmod(tmp_path / "reports" / "campaign" / "aq_pool_gbm_FAD_family.csv", 0o664)
+    assert _run("tools.merge_campaign_pools", tmp_path).returncode != 0
+
+
+def test_b95_merge_csv_mutated_during_read_rejected(tmp_path, monkeypatch):
+    # muta el inode del CSV entre el fstat inicial y el fstat final (snapshot pre/post) → rechazo.
+    _write_all_8(tmp_path)
+    target = tmp_path / "reports" / "campaign" / "aq_pool_gbm_FAD_family.csv"
+    real_read_csv = mcp.pd.read_csv
+    import tools.governed_read as gr
+
+    def mutating_read_csv(fh, *a, **k):
+        df = real_read_csv(fh, *a, **k)
+        # reescribe el MISMO fichero (mismo path/inode) durante la lectura → cambia size/mtime
+        with open(target, "ab") as extra:
+            extra.write(b"\n")
+        return df
+
+    monkeypatch.setattr(gr.pd, "read_csv", mutating_read_csv)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit):
+        mcp.merge()
+
+
+def test_b94_backup_cleanup_failure_after_success_not_ok(tmp_path, monkeypatch):
+    # fallo (PermissionError) al borrar un backup tras promoción exitosa → NO puede devolver éxito (residuo).
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    (camp / "campaign_pool_FAD_family.csv").write_bytes(b"PRE\n")  # fuerza un backup
+    real_unlink = os.unlink
+
+    def flaky_unlink(name, *a, **k):
+        if str(name).startswith(".bak."):
+            raise PermissionError("inyectado")
+        return real_unlink(name, *a, **k)
+
+    monkeypatch.setattr(mcp.os, "unlink", flaky_unlink)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit):
+        mcp.merge()
+
+
+def test_b94_rollback_cleanup_failure_raises_with_context(tmp_path, monkeypatch):
+    # fallo de limpieza DURANTE el rollback → error explícito (no silenciado), con el error original.
+    _write_all_8(tmp_path)
+    real_replace = os.replace
+    real_unlink = os.unlink
+    state = {"n": 0}
+
+    def flaky_replace(src, dst, *a, **k):
+        state["n"] += 1
+        if state["n"] == 3:
+            raise OSError("promo-inyectado")
+        return real_replace(src, dst, *a, **k)
+
+    def flaky_unlink(name, *a, **k):
+        if str(name).startswith(".") and "tmp" in str(name):
+            raise PermissionError("cleanup-inyectado")
+        return real_unlink(name, *a, **k)
+
+    monkeypatch.setattr(mcp.os, "replace", flaky_replace)
+    monkeypatch.setattr(mcp.os, "unlink", flaky_unlink)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(OSError) as exc:
+        mcp.merge()
+    assert "rollback/limpieza" in str(exc.value)
 
 
 def test_b92_rollback_is_durable_fsyncs_dirs(tmp_path, monkeypatch):
@@ -547,6 +645,96 @@ def test_b91_check_deep_refit_rejects_seed_symlink(tmp_path):
         _deep_seed(camp, s, [_row()])
     (camp / "global_FAD_camp_auto_s5.csv").symlink_to(outside)
     assert _run("tools.check_deep_refit", tmp_path).returncode == 1
+
+
+def test_b95_deep_group_writable_seed_rejected(tmp_path):
+    camp = tmp_path / "reports" / "campaign"
+    camp.mkdir(parents=True)
+    for s in (1, 2, 3, 4, 5):
+        _deep_seed(camp, s, [_row()])
+    os.chmod(camp / "global_FAD_camp_auto_s3.csv", 0o666)
+    assert _run("tools.check_deep_refit", tmp_path).returncode == 1
+
+
+def test_b95_deep_other_writable_seed_rejected(tmp_path):
+    camp = tmp_path / "reports" / "campaign"
+    camp.mkdir(parents=True)
+    for s in (1, 2, 3, 4, 5):
+        _deep_seed(camp, s, [_row()])
+    os.chmod(camp / "global_FAD_camp_auto_s3.csv", 0o664)
+    assert _run("tools.check_deep_refit", tmp_path).returncode == 1
+
+
+def test_b93_deep_campaign_swap_during_reads_rejected(tmp_path, monkeypatch):
+    # swap de reports/campaign a un árbol externo DESPUÉS de la 1ª lectura: aunque el descriptor original evite
+    # leer evidencia externa, la ruta oficial ya no representa la evidencia validada → NO se certifica.
+    camp = tmp_path / "reports" / "campaign"
+    camp.mkdir(parents=True)
+    ext = tmp_path / "external_camp"
+    ext.mkdir()
+    for s in (1, 2, 3, 4, 5):
+        _deep_seed(camp, s, [_row()])
+        _deep_seed(ext, s, [_row()])
+    real_seed = cdr._seed_keys_at
+    state = {"n": 0}
+
+    def hooked(camp_fd, fname):
+        r = real_seed(camp_fd, fname)
+        state["n"] += 1
+        if state["n"] == 1:
+            camp.rename(tmp_path / "reports" / "campaign-original")
+            os.symlink(str(ext), str(camp))
+        return r
+
+    monkeypatch.setattr(cdr, "_seed_keys_at", hooked)
+    monkeypatch.chdir(tmp_path)
+    assert cdr.main() == 1
+
+
+def test_b93_deep_reports_swap_during_reads_rejected(tmp_path, monkeypatch):
+    reports = tmp_path / "reports"
+    camp = reports / "campaign"
+    camp.mkdir(parents=True)
+    ext = tmp_path / "external_reports"
+    (ext / "campaign").mkdir(parents=True)
+    for s in (1, 2, 3, 4, 5):
+        _deep_seed(camp, s, [_row()])
+        _deep_seed(ext / "campaign", s, [_row()])
+    real_seed = cdr._seed_keys_at
+    state = {"n": 0}
+
+    def hooked(camp_fd, fname):
+        r = real_seed(camp_fd, fname)
+        state["n"] += 1
+        if state["n"] == 2:
+            reports.rename(tmp_path / "reports-original")
+            os.symlink(str(ext), str(reports))
+        return r
+
+    monkeypatch.setattr(cdr, "_seed_keys_at", hooked)
+    monkeypatch.chdir(tmp_path)
+    assert cdr.main() == 1
+
+
+def test_b95_deep_seed_mutated_during_read_rejected(tmp_path, monkeypatch):
+    camp = tmp_path / "reports" / "campaign"
+    camp.mkdir(parents=True)
+    for s in (1, 2, 3, 4, 5):
+        _deep_seed(camp, s, [_row()])
+    target = camp / "global_FAD_camp_auto_s1.csv"
+    import tools.governed_read as gr
+
+    real_read_csv = gr.pd.read_csv
+
+    def mutating(fh, *a, **k):
+        df = real_read_csv(fh, *a, **k)
+        with open(target, "ab") as extra:
+            extra.write(b"\n")
+        return df
+
+    monkeypatch.setattr(gr.pd, "read_csv", mutating)
+    monkeypatch.chdir(tmp_path)
+    assert cdr.main() == 1
 
 
 def test_b81_real_shape_seeds_pass(tmp_path):

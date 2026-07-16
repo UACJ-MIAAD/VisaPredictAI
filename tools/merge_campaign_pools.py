@@ -1,7 +1,12 @@
 #!/usr/bin/env python
 """Fusiona las mitades del pool de campaña (nongbm + gbm) en `campaign_pool_*` y proyecta a
-`model_comparison_*` (P0R.5 · R9.4/B66/B74/B79/B80/B85/B89/B90/B92 — extraído del heredoc de
+`model_comparison_*` (P0R.5 · R9.4/B66/B74/B79/B80/B85/B89/B90/B92/B94/B95 — extraído del heredoc de
 run_campaign_aq{,_tail}.sh). Se invoca desde ROOT (run-command fija cwd=root).
+
+Lectura de mitades gobernada (B95): cada CSV se lee por `governed_read.read_governed_csv` — snapshot `fstat`
+pre/post exacto (regular/UID/nlink==1/**sin escritura de grupo-otros**/dev·ino·size·mtime·ctime estables) del
+MISMO descriptor. Limpieza ESTRICTA (B94): un fallo al borrar backups/temporales NO deja devolver éxito y en
+rollback se adjunta al error original (nada de OSError silenciado).
 
 GOBERNANZA DE RUTAS (B90): la cadena `.` → `reports` → `campaign`/`eval` se abre COMPONENTE A COMPONENTE con
 `openat` `O_DIRECTORY|O_NOFOLLOW` (ningún ancestro puede ser symlink) y cada nivel exige directorio real, del
@@ -42,6 +47,8 @@ import sys
 from typing import NoReturn
 
 import pandas as pd
+
+from tools.governed_read import read_governed_csv
 
 _TABLES = ("FAD", "DFF")
 _BLOCKS = ("family", "employment")
@@ -152,19 +159,14 @@ def _acquire_lock(camp_fd: int) -> int:
 
 
 def _read_csv_at(dir_fd: int, fname: str) -> pd.DataFrame:
-    """B90: abre el CSV con openat O_NOFOLLOW, valida por fstat del DESCRIPTOR (regular/UID/nlink==1) y se lo
-    entrega a pandas como file object del MISMO descriptor — sin ventana check→reopen."""
-    try:
-        fd = os.open(fname, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
-    except OSError as exc:
-        _fail(f"mitad {fname!r} ausente o symlink ({exc})")
-    st = os.fstat(fd)
-    if not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid() or st.st_nlink != 1:
-        os.close(fd)
-        _fail(f"mitad {fname!r} no-regular/ajena/hardlink")
-    with os.fdopen(fd, "rb") as fh:
-        # run_id SIEMPRE como string (los reales son `20260706T114535-<sha>`, no numéricos).
-        return pd.read_csv(fh, dtype={"run_id": str})
+    """B90/B95: abre el CSV con openat O_NOFOLLOW y lo lee vía `read_governed_csv` — snapshot fstat pre/post
+    exacto (regular/UID/nlink==1/no escribible por grupo-otros/dev·ino·size·mtime·ctime estables); pandas lee
+    del MISMO descriptor. Un fichero escribible por terceros o mutado durante la lectura aborta."""
+    df, err = read_governed_csv(dir_fd, fname, dtype={"run_id": str})
+    if err is not None:
+        _fail(f"mitad {fname!r}: {err}")
+    assert df is not None
+    return df
 
 
 def _load_half(camp_fd: int, fname: str, table: str, campaign: str | None) -> pd.DataFrame:
@@ -204,18 +206,23 @@ def _load_half(camp_fd: int, fname: str, table: str, campaign: str | None) -> pd
     return df
 
 
-def _unlink_quiet(name: str, dir_fd: int) -> None:
+def _unlink_strict(name: str, dir_fd: int, errors: list[str]) -> None:
+    """B94: borra RELATIVO al descriptor; una ausencia esperable (FileNotFoundError) se tolera, pero
+    PermissionError/EIO/cualquier otro OSError se RECOPILA (jamás se silencia)."""
     try:
         os.unlink(name, dir_fd=dir_fd)
-    except OSError:
+    except FileNotFoundError:
         pass
+    except OSError as exc:
+        errors.append(f"unlink {name!r}: {exc}")
 
 
 def _promote_transactionally(chain: _Chain, writes: list[tuple[int, str, pd.DataFrame]]) -> None:
     """Todo fd-relativo (B90): temporales y respaldos con nombres RELATIVOS + O_CREAT|O_EXCL|O_NOFOLLOW dentro
     del descriptor destino; promoción/restauración por `os.replace(src_dir_fd=…, dst_dir_fd=…)`; identidad de
     la cadena reverificada ANTES y DESPUÉS de promover. Fsync de campaign y eval en éxito Y tras rollback
-    (B92: el rollback también es durable)."""
+    (B92: el rollback también es durable). B94: la limpieza es ESTRICTA — un fallo al borrar backups/temporales
+    (residuo) NO deja devolver éxito y en rollback se agrega al error original."""
     temps: list[tuple[int, str, str]] = []
     backups: dict[tuple[int, str], str | None] = {}
     promoted: list[tuple[int, str]] = []
@@ -260,24 +267,38 @@ def _promote_transactionally(chain: _Chain, writes: list[tuple[int, str, pd.Data
             os.replace(tname, name, src_dir_fd=dfd, dst_dir_fd=dfd)
             promoted.append((dfd, name))
         chain.reverify("después de promover")
-    except BaseException:  # rollback transaccional fd-relativo: restaura los outputs previos
+    except BaseException as original:  # rollback transaccional fd-relativo: restaura los outputs previos
+        rb_errors: list[str] = []
         for dfd, name in promoted:
             b = backups.get((dfd, name))
-            if b is not None:
-                os.replace(b, name, src_dir_fd=dfd, dst_dir_fd=dfd)
-            else:
-                _unlink_quiet(name, dfd)
+            try:
+                if b is not None:
+                    os.replace(b, name, src_dir_fd=dfd, dst_dir_fd=dfd)
+                else:
+                    os.unlink(name, dir_fd=dfd)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                rb_errors.append(f"restaurar {name!r}: {exc}")
         for dfd, _name, tname in temps:
-            _unlink_quiet(tname, dfd)
+            _unlink_strict(tname, dfd, rb_errors)
         for (dfd, _n), b in backups.items():
             if b is not None:
-                _unlink_quiet(b, dfd)
-        _fsync_dirs()  # B92: durabilidad TAMBIÉN en el camino de error
+                _unlink_strict(b, dfd, rb_errors)
+        try:
+            _fsync_dirs()  # B92: durabilidad TAMBIÉN en el camino de error
+        except OSError as exc:
+            rb_errors.append(f"fsync de directorios: {exc}")
+        if rb_errors:  # B94: adjunta los fallos de rollback/limpieza al error original
+            raise OSError(f"{original!r}; además fallos de rollback/limpieza: {rb_errors}") from original
         raise
-    for (dfd, _n), b in backups.items():  # éxito: limpia respaldos
+    cleanup_errors: list[str] = []
+    for (dfd, _n), b in backups.items():  # éxito: limpia respaldos ESTRICTAMENTE
         if b is not None:
-            _unlink_quiet(b, dfd)
+            _unlink_strict(b, dfd, cleanup_errors)
     _fsync_dirs()
+    if cleanup_errors:  # B94: éxito ⇒ CERO residuos; un backup que no se borró NO es éxito
+        _fail(f"promoción OK pero la limpieza de respaldos falló (residuos): {cleanup_errors}")
 
 
 def merge() -> int:
