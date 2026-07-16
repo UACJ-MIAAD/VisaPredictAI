@@ -1228,10 +1228,13 @@ def _bundle_provenance(quar: _Quarantine) -> dict:
         ec = None
     heads = {st.source_label: (st.prev_sha or None) for st in quar._states.values() if st.prev_sha}
     head = _git("rev-parse", "HEAD")
+    head = head if (head and len(head) == 40) else None  # B171: 40-hex o None (nunca comodín)
     return {
+        # B187: modo explícito — 'official' sólo cuando hay git HEAD real (F2 corre en el repo); sin git → 'test'.
+        "mode": "official" if head is not None else "test",
         # `__file__` (no `_module_hash`) porque el productor corre como `__main__` (python -m): su nombre lógico
         # `tools.merge_campaign_pools` NO está en sys.modules y devolvería 'unknown'; el esquema exige hex64.
-        "git_head": head if (head and len(head) == 40) else None,  # B171: 40-hex o None (nunca comodín)
+        "git_head": head,
         "code_sha_merge_campaign_pools": _file_sha(__file__),
         "code_sha_campaign_bundle": _file_sha(_bundle.__file__),
         "code_sha_atomic_fs": _module_hash("tools.atomic_fs"),
