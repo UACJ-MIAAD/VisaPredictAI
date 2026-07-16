@@ -447,20 +447,21 @@ def test_b95_merge_csv_mutated_during_read_rejected(tmp_path, monkeypatch):
 
 
 def test_b94_backup_cleanup_failure_after_success_not_ok(tmp_path, monkeypatch):
-    # fallo (PermissionError) al borrar un backup tras promoción exitosa → NO puede devolver éxito (residuo).
+    # fallo (PermissionError) al borrar un backup tras el COMMIT → CommittedStateError (B104: post-commit
+    # tipado, no un OSError/SystemExit ambiguo; los outputs nuevos ya son la autoridad).
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
     (camp / "campaign_pool_FAD_family.csv").write_bytes(b"PRE\n")  # fuerza un backup
     real_unlink = os.unlink
 
     def flaky_unlink(name, *a, **k):
-        if str(name).startswith(".bak."):
+        if ".bak." in str(name):
             raise PermissionError("inyectado")
         return real_unlink(name, *a, **k)
 
     monkeypatch.setattr(mcp.os, "unlink", flaky_unlink)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(SystemExit):
+    with pytest.raises(mcp.CommittedStateError):
         mcp.merge()
 
 
@@ -485,9 +486,185 @@ def test_b94_rollback_cleanup_failure_raises_with_context(tmp_path, monkeypatch)
     monkeypatch.setattr(mcp.os, "replace", flaky_replace)
     monkeypatch.setattr(mcp.os, "unlink", flaky_unlink)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(OSError) as exc:
+    with pytest.raises(mcp.RollbackError) as exc:
         mcp.merge()
     assert "rollback" in str(exc.value)
+
+
+# ----------------------------- B100-B104: propiedad por descriptor + errores tipados -----------------------------
+
+
+def _bak_files(camp):
+    return [p.name for p in camp.iterdir() if ".bak." in p.name]
+
+
+def _temp_files(camp, ev):
+    return [q.name for d in (camp, ev) for q in d.iterdir() if ".tmp." in q.name]
+
+
+def test_b100_safe_unlink_never_deletes_foreign(tmp_path):
+    # _safe_unlink_bound NO borra un nombre que ya no liga al descriptor que la transacción creó.
+    d = tmp_path / "reports" / "campaign"
+    d.mkdir(parents=True)
+    dfd = os.open(str(d), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        name, fd = mcp._create_governed(dfd, "x", "tmp", 0)  # nuestro artefacto
+        os.unlink(name, dir_fd=dfd)  # lo quitamos y ponemos un AJENO con el mismo nombre
+        foreign = os.open(name, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=dfd)
+        os.write(foreign, b"FOREIGN\n")
+        os.close(foreign)
+        errs: list[str] = []
+        o = mcp._Out(dfd, "campaign", "x", None)
+        mcp._safe_unlink_bound(o, name, fd, errs)  # el nombre ya no liga a `fd` → NO se borra
+        assert (d / name).exists(), "borró un objeto ajeno que tomó el nombre (B100)"
+        os.close(fd)
+    finally:
+        os.close(dfd)
+
+
+def test_b100_predictive_sentinel_untouched(tmp_path):
+    # nombres de nonce: un sentinel con nombre "estilo temporal" jamás se borra.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    sentinel = camp / ".campaign_pool_FAD_family.csv.tmp.999999.0.deadbeef"
+    sentinel.write_bytes(b"SENTINEL\n")
+    assert _run("tools.merge_campaign_pools", tmp_path).returncode == 0
+    assert sentinel.exists() and sentinel.read_bytes() == b"SENTINEL\n"
+
+
+def test_b102_temp_substituted_before_promote_rejected(tmp_path, monkeypatch):
+    # sustituir el inode del temporal antes de promover → el binding lo caza; NADA inyectado se publica.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    pre = camp / "campaign_pool_FAD_family.csv"
+    pre.write_bytes(b"ORIGINAL\n")
+    real_binding = mcp._binding_problem
+    done = {"x": False}
+
+    def hooked(dir_fd, name, fd, *, mode):
+        if not done["x"] and name and ".tmp." in name:
+            done["x"] = True
+            try:
+                os.unlink(name, dir_fd=dir_fd)
+                nfd = os.open(name, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=dir_fd)
+                os.write(nfd, b"INJECTED,DATA\n")
+                os.close(nfd)
+            except OSError:
+                pass
+        return real_binding(dir_fd, name, fd, mode=mode)
+
+    monkeypatch.setattr(mcp, "_binding_problem", hooked)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises((mcp.RollbackError, SystemExit)):
+        mcp.merge()
+    assert b"INJECTED" not in pre.read_bytes(), "publicó contenido inyectado (B102)"
+
+
+def test_b103_substituted_backup_recovers_from_trusted_bytes(tmp_path, monkeypatch):
+    # sustituir el backup por uno FALSIFICADO + forzar fallo de promoción → el rollback NO restaura el falso,
+    # recupera desde previous_bytes (copia de confianza) → el output previo vuelve byte-idéntico.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    pre = camp / "campaign_pool_FAD_family.csv"
+    pre.write_bytes(b"ORIGINAL\n")
+    real_replace = os.replace
+    st = {"n": 0}
+
+    def hooked(src, dst, *a, **k):
+        if isinstance(src, str) and ".bak." not in src and ".tmp." in src:
+            for p in camp.iterdir():
+                if ".bak." in p.name and "campaign_pool_FAD_family.csv" in p.name:
+                    p.write_text("FORGED-BACKUP\n")
+        st["n"] += 1
+        if st["n"] == 3:
+            raise OSError("promotion failure")
+        return real_replace(src, dst, *a, **k)
+
+    monkeypatch.setattr(mcp.os, "replace", hooked)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.RollbackError):
+        mcp.merge()
+    assert pre.read_bytes() == b"ORIGINAL\n", "restauró un backup falsificado (B103)"
+
+
+def test_b101_recovery_message_points_to_real_file(tmp_path, monkeypatch):
+    # cuando el backup desaparece antes de restaurar, el mensaje de recuperación nombra un fichero que EXISTE.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    pre = camp / "campaign_pool_FAD_family.csv"
+    pre.write_bytes(b"ORIGINAL\n")
+    real_replace = os.replace
+    st = {"n": 0}
+
+    def hooked(src, dst, *a, **k):
+        if isinstance(src, str) and ".tmp." in src and ".bak." not in src:
+            for p in list(camp.iterdir()):
+                if ".bak." in p.name and "campaign_pool_FAD_family.csv" in p.name:
+                    p.unlink()  # el backup desaparece
+        st["n"] += 1
+        if st["n"] == 3:
+            raise OSError("promotion failure")
+        return real_replace(src, dst, *a, **k)
+
+    monkeypatch.setattr(mcp.os, "replace", hooked)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.RollbackError) as exc:
+        mcp.merge()
+    assert pre.read_bytes() == b"ORIGINAL\n"  # recuperado desde bytes de confianza
+    assert "RECUPERACIÓN PRESERVADA" in str(exc.value)
+
+
+def test_b104_post_commit_fsync_failure_is_typed(tmp_path, monkeypatch):
+    # un fallo de fsync DESPUÉS del punto de commit → CommittedStateError (NUNCA un OSError/rollback ambiguo).
+    _write_all_8(tmp_path)
+    real_fsync = os.fsync
+    dir_fsyncs = {"n": 0}
+
+    def counting(fd):
+        import stat as _stat
+
+        if _stat.S_ISDIR(os.fstat(fd).st_mode):
+            dir_fsyncs["n"] += 1
+            if dir_fsyncs["n"] == 3:  # #1,#2 = pre-commit; #3 = post-commit
+                raise OSError("postcommit dir fsync failure")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(mcp.os, "fsync", counting)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.CommittedStateError) as exc:
+        mcp.merge()
+    assert "COMMIT CRUZADO" in str(exc.value)
+
+
+def test_b104_pre_commit_failure_is_rollback_error(tmp_path, monkeypatch):
+    # un fallo ANTES del commit → RollbackError (tipado), no un OSError ambiguo.
+    _write_all_8(tmp_path)
+    real_replace = os.replace
+    st = {"n": 0}
+
+    def flaky(src, dst, *a, **k):
+        st["n"] += 1
+        if st["n"] == 2:
+            raise OSError("pre-commit promote failure")
+        return real_replace(src, dst, *a, **k)
+
+    monkeypatch.setattr(mcp.os, "replace", flaky)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.RollbackError):
+        mcp.merge()
+
+
+@pytest.mark.skipif(not os.path.isdir("/dev/fd"), reason="sin /dev/fd (no macOS/Linux)")
+def test_r9r7_no_fd_leak_across_runs(tmp_path, monkeypatch):
+    # Fase 8.6: correr merge repetidamente no debe hacer crecer los descriptores abiertos del proceso.
+    _write_all_8(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    mcp.merge()  # calienta (crea outputs → siguientes corridas hacen backups)
+    before = len(os.listdir("/dev/fd"))
+    for _ in range(15):
+        mcp.merge()
+    after = len(os.listdir("/dev/fd"))
+    assert after <= before + 1, f"fuga de descriptores: {before} -> {after}"
 
 
 # ----------------------------- B96: nombre relativo del lector gobernado -----------------------------
@@ -539,9 +716,9 @@ def test_b97_temp_write_failure_leaves_no_orphan(tmp_path, monkeypatch):
     assert residue == [], f"temporal huérfano tras fallo de escritura (B97): {residue}"
 
 
-def test_b98_failed_restore_preserves_backup(tmp_path, monkeypatch):
-    # promoción falla en la 3ª; en el rollback, la RESTAURACIÓN del output 0 falla → su backup se PRESERVA
-    # (última copia recuperable) y el error nombra la ruta de recuperación.
+def test_b98_failed_restore_recovers_from_trusted_bytes(tmp_path, monkeypatch):
+    # promoción falla en la 3ª; en el rollback, la RESTAURACIÓN del output 0 por backup falla → se recupera
+    # desde previous_bytes (copia de confianza) → el output previo vuelve byte-idéntico (B98 semántica R9.2R7).
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
     pre = camp / "campaign_pool_FAD_family.csv"  # output 0
@@ -550,8 +727,8 @@ def test_b98_failed_restore_preserves_backup(tmp_path, monkeypatch):
     state = {"n": 0}
 
     def flaky_replace(src, dst, *a, **k):
-        if str(src).startswith(".bak.") and str(dst) == "campaign_pool_FAD_family.csv":
-            raise OSError("restore-fail")  # falla SOLO la restauración del output 0
+        if ".bak." in str(src) and str(dst) == "campaign_pool_FAD_family.csv":
+            raise OSError("restore-from-backup-fail")  # falla SOLO la restauración por backup del output 0
         state["n"] += 1
         if state["n"] == 3:
             raise OSError("promo-fail")  # dispara el rollback tras promover 0 y 1
@@ -559,12 +736,10 @@ def test_b98_failed_restore_preserves_backup(tmp_path, monkeypatch):
 
     monkeypatch.setattr(mcp.os, "replace", flaky_replace)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(OSError) as exc:
+    with pytest.raises(mcp.RollbackError) as exc:
         mcp.merge()
-    baks = [p.name for p in camp.iterdir() if p.name.startswith(".bak.campaign_pool_FAD_family.csv")]
-    assert len(baks) == 1, "el backup de la restauración fallida NO se preservó (B98)"
-    assert "BACKUP PRESERVADO" in str(exc.value), "el error no nombra la ruta de recuperación (B98)"
-    assert "reports/campaign" in str(exc.value)
+    assert pre.read_bytes() == b"PRE-PRESERVED\n", "no se recuperó el output previo desde bytes de confianza (B98)"
+    assert "RECUPERACIÓN PRESERVADA" in str(exc.value)
 
 
 def test_b99_final_swap_rolls_back(tmp_path, monkeypatch):
@@ -588,10 +763,10 @@ def test_b99_final_swap_rolls_back(tmp_path, monkeypatch):
     monkeypatch.setattr(mcp._Chain, "_fail_swap", _fail_swap, raising=False)
     monkeypatch.setattr(mcp._Chain, "reverify", hooked)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(SystemExit):
+    with pytest.raises(mcp.RollbackError):
         mcp.merge()
     assert pre.read_bytes() == b"PRE\n", "el swap final no restauró el output previo (B99)"
-    assert not [p for p in camp.iterdir() if p.name.startswith(".bak.")], "backups residuales tras rollback"
+    assert not _bak_files(camp), "backups residuales tras rollback"
 
 
 @pytest.mark.parametrize("phase", ["prepare_temp", "prepare_backup", "promote", "restore", "cleanup"])
@@ -607,7 +782,7 @@ def test_b97_b98_injection_matrix_preserves_external_and_diagnoses(tmp_path, mon
     st = {"replace": 0, "tocsv": 0}
 
     def fr(src, dst, *a, **k):
-        if phase == "restore" and str(src).startswith(".bak.") and str(dst) == "campaign_pool_FAD_family.csv":
+        if phase == "restore" and ".bak." in str(src) and str(dst) == "campaign_pool_FAD_family.csv":
             raise OSError("restore-fail")
         st["replace"] += 1
         if phase == "promote" and st["replace"] == 2:
@@ -627,7 +802,7 @@ def test_b97_b98_injection_matrix_preserves_external_and_diagnoses(tmp_path, mon
         real_open = os.open
 
         def fo(path, *a, **k):
-            if isinstance(path, str) and path.startswith(".bak."):
+            if isinstance(path, str) and ".bak." in path:
                 raise OSError("backup-open-fail")
             return real_open(path, *a, **k)
 
@@ -637,7 +812,7 @@ def test_b97_b98_injection_matrix_preserves_external_and_diagnoses(tmp_path, mon
         st["_"] = 0
 
         def fr2(src, dst, *a, **k):
-            if str(src).startswith(".bak.") and str(dst) == "campaign_pool_FAD_family.csv":
+            if ".bak." in str(src) and str(dst) == "campaign_pool_FAD_family.csv":
                 raise OSError("restore-fail")
             st["replace"] += 1
             if st["replace"] == 3:
@@ -649,17 +824,17 @@ def test_b97_b98_injection_matrix_preserves_external_and_diagnoses(tmp_path, mon
         real_unlink = os.unlink
 
         def fu(name, *a, **k):
-            if str(name).startswith(".bak."):
+            if ".bak." in str(name):
                 raise PermissionError("cleanup-fail")
             return real_unlink(name, *a, **k)
 
         monkeypatch.setattr(mcp.os, "unlink", fu)
     monkeypatch.chdir(tmp_path)
-    with pytest.raises((OSError, SystemExit)):
+    with pytest.raises((mcp.RollbackError, mcp.CommittedStateError, SystemExit)):
         mcp.merge()
     # el output preexistente sobrevive byte-idéntico O es recuperable desde un backup preservado
     recoverable = pre.exists() and pre.read_bytes() == b"PRE\n"
-    bak_present = any(p.name.startswith(".bak.campaign_pool_FAD_family.csv") for p in camp.iterdir())
+    bak_present = any((".bak." in p.name and "campaign_pool_FAD_family.csv" in p.name) for p in camp.iterdir())
     assert recoverable or bak_present, f"[{phase}] output previo ni intacto ni recuperable"
     # ningún temporal residual (los .bak preservados son recuperación legítima)
     temps = [q.name for d in (camp, ev) for q in d.iterdir() if q.name.startswith(".") and ".tmp." in q.name]
