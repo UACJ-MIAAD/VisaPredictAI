@@ -211,6 +211,91 @@ def test_b85_standalone_mode_unchanged(tmp_path):
     assert set(out["source_run_id"]) == {"rA", "rB"}
 
 
+# ----------------------------- B90: gobernanza de rutas del merge (ancestros symlink + swaps) -----------------------------
+
+
+def _symlink_dir(link_path, external_target):
+    ext = external_target
+    ext.mkdir(parents=True, exist_ok=True)
+    if link_path.exists() or link_path.is_symlink():
+        if link_path.is_dir() and not link_path.is_symlink():
+            for c in link_path.iterdir():
+                c.replace(ext / c.name)
+            link_path.rmdir()
+        else:
+            link_path.unlink()
+    link_path.symlink_to(ext)
+    return ext
+
+
+def test_b90_campaign_symlink_to_external_rejected(tmp_path):
+    _write_all_8(tmp_path)
+    ext = _symlink_dir(tmp_path / "reports" / "campaign", tmp_path / "external_camp")
+    (ext / "sentinel.txt").write_bytes(b"UNTOUCHED\n")
+    r = _run("tools.merge_campaign_pools", tmp_path)
+    assert r.returncode != 0, "reports/campaign symlink a árbol externo fue ACEPTADO (B90)"
+    assert not (ext / ".merge.lock").exists(), "creó el lock FUERA del repo"
+    assert not list(ext.glob("campaign_pool_*.csv")), "promovió outputs FUERA del repo"
+    assert (ext / "sentinel.txt").read_bytes() == b"UNTOUCHED\n"
+
+
+def test_b90_eval_symlink_to_external_rejected(tmp_path):
+    _write_all_8(tmp_path)
+    ext = _symlink_dir(tmp_path / "reports" / "eval", tmp_path / "external_eval")
+    r = _run("tools.merge_campaign_pools", tmp_path)
+    assert r.returncode != 0
+    assert not list(ext.glob("model_comparison_*.csv")), "escribió model_comparison FUERA del repo"
+
+
+def test_b90_reports_symlink_to_external_rejected(tmp_path):
+    _write_all_8(tmp_path)
+    # mueve el reports COMPLETO a un externo y deja reports como symlink (ancestro de campaign y eval).
+    ext = tmp_path / "external_reports"
+    (tmp_path / "reports").replace(ext)
+    (tmp_path / "reports").symlink_to(ext)
+    r = _run("tools.merge_campaign_pools", tmp_path)
+    assert r.returncode != 0, "reports symlink (ancestro) fue ACEPTADO (B90)"
+
+
+def test_b90_broken_campaign_symlink_rejected(tmp_path):
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "reports" / "eval").mkdir()
+    (tmp_path / "reports" / "campaign").symlink_to(tmp_path / "does_not_exist")
+    r = _run("tools.merge_campaign_pools", tmp_path)
+    assert r.returncode != 0
+
+
+def test_b90_group_writable_campaign_rejected(tmp_path):
+    _write_all_8(tmp_path)
+    os.chmod(tmp_path / "reports" / "campaign", 0o775)  # escribible por grupo
+    r = _run("tools.merge_campaign_pools", tmp_path)
+    assert r.returncode != 0
+    assert "escribible" in r.stderr or "gobernado" in r.stderr
+
+
+def test_b90_ancestor_swap_after_lock_aborts(tmp_path, monkeypatch):
+    # swap del contenido de campaign tras adquirir el lock: la reverificación de identidad debe abortar.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    external = tmp_path / "external_camp"
+    external.mkdir()
+    real_reverify = mcp._Chain.reverify
+    state = {"n": 0}
+
+    def swapping_reverify(self, when):
+        state["n"] += 1
+        if state["n"] == 1:  # justo tras adquirir el lock: reemplaza el DIRECTORIO campaign por otro inode
+            camp.rename(tmp_path / "reports" / ".campaign_old")
+            external.rename(camp)
+        return real_reverify(self, when)
+
+    monkeypatch.setattr(mcp._Chain, "reverify", swapping_reverify)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit):
+        mcp.merge()
+    assert not list(camp.glob("campaign_pool_*.csv")), "promovió al directorio swapeado"
+
+
 # ----------------------------- B89: exclusión concurrente + rollback en cada promoción -----------------------------
 
 
@@ -262,7 +347,9 @@ def test_b89_two_concurrent_merges_both_complete(tmp_path):
 @pytest.mark.parametrize("fail_at", list(range(1, 9)))
 def test_b89_failure_at_each_promotion_rolls_back_clean(tmp_path, monkeypatch, fail_at):
     """Fallo inyectado en CADA una de las 8 promociones, con mezcla de outputs preexistentes y ausentes:
-    los preexistentes quedan byte-idénticos, los ausentes siguen ausentes, cero .bak y cero temporales."""
+    los preexistentes quedan byte-idénticos, los ausentes siguen ausentes, cero .bak y cero temporales.
+    Rollback fd-relativo: os.replace ahora usa nombres relativos + src_dir_fd/dst_dir_fd; las 8 primeras
+    llamadas a os.replace son las promociones (temporales/respaldos usan open+write, no replace)."""
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
     ev = tmp_path / "reports" / "eval"
@@ -287,10 +374,9 @@ def test_b89_failure_at_each_promotion_rolls_back_clean(tmp_path, monkeypatch, f
     state = {"n": 0}
 
     def flaky_replace(src, dst, *a, **k):
-        if str(dst).endswith(".csv") and "reports" in str(dst):  # solo promociones/restauraciones a outputs
-            state["n"] += 1
-            if state["n"] == fail_at:
-                raise OSError("inyectado")
+        state["n"] += 1  # las 8 primeras llamadas a os.replace son las promociones
+        if state["n"] == fail_at:
+            raise OSError("inyectado")
         return real_replace(src, dst, *a, **k)
 
     monkeypatch.setattr(mcp.os, "replace", flaky_replace)
@@ -303,6 +389,35 @@ def test_b89_failure_at_each_promotion_rolls_back_clean(tmp_path, monkeypatch, f
         assert not p.exists(), f"{p.name} apareció pese al rollback (fail_at={fail_at})"
     residue = [q.name for d in (camp, ev) for q in d.iterdir() if q.name.startswith(".") and q.name != ".merge.lock"]
     assert residue == [], f"temporales/respaldos residuales tras el rollback: {residue}"
+
+
+def test_b92_rollback_is_durable_fsyncs_dirs(tmp_path, monkeypatch):
+    # B92: el camino de ERROR también hace fsync de campaign Y eval (durabilidad del rollback), no solo éxito.
+    _write_all_8(tmp_path)
+    real_fsync, real_replace = os.fsync, os.replace
+    state = {"n": 0}
+    dir_fsyncs = {"n": 0}
+
+    def counting_fsync(fd):
+        # un fd de directorio: fstat dice S_ISDIR
+        import stat as _stat
+
+        if _stat.S_ISDIR(os.fstat(fd).st_mode):
+            dir_fsyncs["n"] += 1
+        return real_fsync(fd)
+
+    def flaky_replace(src, dst, *a, **k):
+        state["n"] += 1
+        if state["n"] == 3:  # falla en la 3ª promoción → dispara el rollback
+            raise OSError("inyectado")
+        return real_replace(src, dst, *a, **k)
+
+    monkeypatch.setattr(mcp.os, "fsync", counting_fsync)
+    monkeypatch.setattr(mcp.os, "replace", flaky_replace)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(OSError):
+        mcp.merge()
+    assert dir_fsyncs["n"] >= 2, "el rollback no hizo fsync de campaign y eval (B92)"
 
 
 # ----------------------------- check_deep_refit (B81) -----------------------------
@@ -399,6 +514,38 @@ def test_b86_whitespace_unique_id_rejected(tmp_path):
     camp.mkdir(parents=True)
     for s in (1, 2, 3, 4, 5):
         _deep_seed(camp, s, [_row(u="   ")])
+    assert _run("tools.check_deep_refit", tmp_path).returncode == 1
+
+
+def test_b91_check_deep_refit_rejects_external_campaign_symlink(tmp_path):
+    # reports/campaign symlink a un árbol externo con 5 semillas válidas → NO se certifica evidencia externa.
+    ext = tmp_path / "external_camp"
+    ext.mkdir()
+    for s in (1, 2, 3, 4, 5):
+        _deep_seed(ext, s, [_row()])
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "reports" / "campaign").symlink_to(ext)
+    assert _run("tools.check_deep_refit", tmp_path).returncode == 1
+
+
+def test_b91_check_deep_refit_rejects_reports_symlink(tmp_path):
+    ext = tmp_path / "external_reports"
+    (ext / "campaign").mkdir(parents=True)
+    for s in (1, 2, 3, 4, 5):
+        _deep_seed(ext / "campaign", s, [_row()])
+    (tmp_path / "reports").symlink_to(ext)
+    assert _run("tools.check_deep_refit", tmp_path).returncode == 1
+
+
+def test_b91_check_deep_refit_rejects_seed_symlink(tmp_path):
+    # una semilla individual como symlink a un CSV externo → rechazada (openat O_NOFOLLOW).
+    camp = tmp_path / "reports" / "campaign"
+    camp.mkdir(parents=True)
+    outside = tmp_path / "outside_s5.csv"
+    pd.DataFrame([_row()]).to_csv(outside, index=False)
+    for s in (1, 2, 3, 4):
+        _deep_seed(camp, s, [_row()])
+    (camp / "global_FAD_camp_auto_s5.csv").symlink_to(outside)
     assert _run("tools.check_deep_refit", tmp_path).returncode == 1
 
 

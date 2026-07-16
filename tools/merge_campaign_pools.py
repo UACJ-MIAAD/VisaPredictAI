@@ -1,26 +1,35 @@
 #!/usr/bin/env python
 """Fusiona las mitades del pool de campaña (nongbm + gbm) en `campaign_pool_*` y proyecta a
-`model_comparison_*` (P0R.5 · R9.4/B66/B74/B79/B80/B85/B89 — extraído del heredoc de run_campaign_aq{,_tail}.sh).
+`model_comparison_*` (P0R.5 · R9.4/B66/B74/B79/B80/B85/B89/B90/B92 — extraído del heredoc de
+run_campaign_aq{,_tail}.sh). Se invoca desde ROOT (run-command fija cwd=root).
+
+GOBERNANZA DE RUTAS (B90): la cadena `.` → `reports` → `campaign`/`eval` se abre COMPONENTE A COMPONENTE con
+`openat` `O_DIRECTORY|O_NOFOLLOW` (ningún ancestro puede ser symlink) y cada nivel exige directorio real, del
+UID actual y sin escritura de grupo/otros. Los descriptores quedan ABIERTOS toda la transacción y TODA
+operación posterior (lock, lectura de mitades, temporales, respaldos, promoción, rollback, limpieza, fsync) es
+fd-relativa — nada se re-resuelve por ruta tras validar. La identidad de la cadena (st_dev/st_ino) se
+REVERIFICA tras adquirir el lock, antes de promover, después de promover y antes de devolver éxito: un swap de
+ancestro aborta con rollback relativo a los descriptores ORIGINALES y el árbol externo queda intacto. Cada CSV
+se abre con `openat O_NOFOLLOW`, se valida por `fstat` (regular/UID/nlink==1) y se entrega a pandas como file
+object del MISMO descriptor (prohibido check-then-reopen).
 
 FAIL-CLOSED sobre el esquema REAL de producción (B79/B80/B85): exige las OCHO mitades exactas (2 tablas × 2
-bloques × 2 mitades), cada una fichero REGULAR (no symlink), con EXACTAMENTE las 19 columnas canónicas en
-orden, un ÚNICO `run_id` no vacío tratado como STRING (nunca numérico — los reales son `20260706T114535-<sha>`),
-`table` coincidente con el nombre del fichero, `model`/`country`/`category` strings no vacíos (isna se evalúa
-ANTES de astype: NaN→"nan" enmascara el vacío), y métricas donde se distingue el NaN REAL (celda vacía =
-modelo fallido, permitido) del TEXTO no numérico coercionado a NaN (bloqueado) y del infinito (bloqueado);
-`secs` numérico ≥ 0. **Identidad de campaña (B85):** si `CAMPAIGN_ID` está en el entorno (el runbook la
-exporta y `vp_model.config` la pinea como run_id), las OCHO mitades deben llevar EXACTAMENTE ese run_id — no
-se fusionan campañas mezcladas; el run_id de salida es la campaña. En modo standalone (sin `CAMPAIGN_ID`) el
-run_id de salida es el MÁXIMO LEXICOGRÁFICO de las mitades; el original sobrevive en `source_run_id`.
+bloques × 2 mitades) con EXACTAMENTE las 19 columnas canónicas en orden, un ÚNICO `run_id` no vacío tratado
+como STRING (los reales son `20260706T114535-<sha>`), `table` coincidente con el nombre del fichero,
+`model`/`country`/`category` strings no vacíos (isna ANTES de astype: NaN→"nan" enmascara el vacío), y métricas
+donde se distingue el NaN REAL (celda vacía = modelo fallido, permitido) del TEXTO no numérico coercionado a
+NaN (bloqueado) y del infinito (bloqueado); `secs` numérico ≥ 0. **Identidad de campaña (B85):** si
+`CAMPAIGN_ID` está en el entorno (el runbook la exporta y `vp_model.config` la pinea como run_id), las OCHO
+mitades deben llevar EXACTAMENTE ese run_id; standalone conserva el MÁXIMO LEXICOGRÁFICO + `source_run_id`.
 
-Exclusión concurrente (B89): un lock gobernado (`reports/campaign/.merge.lock`, 0600, O_NOFOLLOW, regular,
-del UID, nlink==1) con `flock LOCK_EX` BLOQUEANTE se sostiene durante carga+validación+respaldo+promoción+
-rollback+fsync — los inputs se validan BAJO el lock y dos merges concurrentes se serializan.
+Exclusión concurrente (B89): lock gobernado `.merge.lock` DENTRO del descriptor de campaign (0600, O_NOFOLLOW,
+regular, del UID, nlink==1; el fstat se REPITE tras adquirir el `flock LOCK_EX` — un hardlink/chmod durante la
+espera muere) sostenido durante carga+validación+respaldo+promoción+rollback+fsync.
 
-Garantía de escritura (honesta): **validación GLOBAL previa, promoción ATÓMICA por fichero y ROLLBACK
-transaccional ante errores recuperables** (respalda los outputs previos y los restaura byte-idénticos si una
-promoción falla). NO es atomicidad de bundle crash-safe (un kill a mitad puede dejar estado parcial); esa
-garantía, con manifiesto final, vive en P2b antes de F2.
+Garantías de escritura (honestas): validación GLOBAL previa; promoción ATÓMICA por fichero; **ROLLBACK
+transaccional DURABLE** ante errores recuperables (restaura los outputs previos byte-idénticos y hace fsync de
+AMBOS directorios también en el camino de error — B92). NO es atomicidad de bundle crash-safe (un kill a mitad
+puede dejar estado parcial); esa garantía, con manifiesto final, vive en P2b antes de F2.
 """
 
 from __future__ import annotations
@@ -28,11 +37,8 @@ from __future__ import annotations
 import fcntl
 import math
 import os
-import pathlib
-import shutil
 import stat
 import sys
-import tempfile
 from typing import NoReturn
 
 import pandas as pd
@@ -49,6 +55,7 @@ _POOL_COLS = (
 _STR_COLS = ("model", "country", "category", "table")
 _METRIC_COLS = tuple(c for c in _POOL_COLS if c not in ("run_id", *_STR_COLS))
 _LOCK_NAME = ".merge.lock"
+_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 
 
 def _fail(msg: str) -> NoReturn:
@@ -56,21 +63,64 @@ def _fail(msg: str) -> NoReturn:
     raise SystemExit(1)
 
 
-def _acquire_lock(camp: pathlib.Path) -> int:
-    """B89: exclusión entre merges concurrentes. Abre/crea el lock gobernado (0600 vía fchmod inmune al
-    umask, O_NOFOLLOW ⇒ symlink revienta) y valida por fstat: regular, del UID, nlink==1, permisos 0600
-    exactos. `flock LOCK_EX` BLOQUEANTE: el segundo proceso espera y después opera sobre estado completo."""
-    p = camp / _LOCK_NAME
+def _open_dir_at(parent_fd: int | None, name: str, label: str) -> int:
+    """B90: un componente de la cadena gobernada. O_DIRECTORY|O_NOFOLLOW ⇒ un symlink (sano o roto) revienta
+    en el open; el fstat del DESCRIPTOR exige dir real, del UID actual y sin escritura de grupo/otros."""
     try:
-        fd = os.open(str(p), os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-        os.fchmod(fd, 0o600)
-    except FileExistsError:
-        try:
-            fd = os.open(str(p), os.O_RDWR | os.O_NOFOLLOW)
-        except OSError as exc:
-            _fail(f"lock de merge inabrible ({exc})")
+        fd = os.open(name, _DIR_FLAGS) if parent_fd is None else os.open(name, _DIR_FLAGS, dir_fd=parent_fd)
     except OSError as exc:
-        _fail(f"lock de merge no creable ({exc})")
+        _fail(f"directorio gobernado {label!r} inabrible (symlink/ausente/no-dir: {exc})")
+    st = os.fstat(fd)
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or (stat.S_IMODE(st.st_mode) & 0o022):
+        os.close(fd)
+        _fail(f"directorio gobernado {label!r} ajeno o escribible por grupo/otros")
+    return fd
+
+
+class _Chain:
+    """Cadena gobernada `.` → reports → campaign/eval. Los descriptores viven toda la transacción;
+    `reverify()` re-camina la cadena FRESCA desde cwd y exige la MISMA identidad (st_dev, st_ino) por nivel —
+    un swap de ancestro tras la validación aborta en vez de operar sobre el árbol equivocado."""
+
+    def __init__(self) -> None:
+        fds: list[int] = []
+        try:
+            fds.append(_open_dir_at(None, ".", "."))
+            fds.append(_open_dir_at(fds[0], "reports", "reports"))
+            fds.append(_open_dir_at(fds[1], "campaign", "reports/campaign"))
+            fds.append(_open_dir_at(fds[1], "eval", "reports/eval"))
+        except BaseException:
+            for fd in fds:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            raise
+        self.dot, self.reports, self.camp, self.ev = fds
+
+    def fds(self) -> tuple[int, int, int, int]:
+        return (self.dot, self.reports, self.camp, self.ev)
+
+    def idents(self) -> list[tuple[int, int]]:
+        return [(os.fstat(fd).st_dev, os.fstat(fd).st_ino) for fd in self.fds()]
+
+    def close(self) -> None:
+        for fd in self.fds():
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+    def reverify(self, when: str) -> None:
+        fresh = _Chain()
+        try:
+            if fresh.idents() != self.idents():
+                _fail(f"la cadena reports/campaign|eval cambió de identidad ({when}) — swap de ancestro")
+        finally:
+            fresh.close()
+
+
+def _check_lock_fd(fd: int) -> None:
     st = os.fstat(fd)
     if (
         not stat.S_ISREG(st.st_mode)
@@ -79,127 +129,188 @@ def _acquire_lock(camp: pathlib.Path) -> int:
         or stat.S_IMODE(st.st_mode) != 0o600
     ):
         os.close(fd)
-        _fail(f"lock de merge no-regular/ajeno/hardlink/permisos: {p}")
+        _fail("lock de merge no-regular/ajeno/hardlink/permisos")
+
+
+def _acquire_lock(camp_fd: int) -> int:
+    """B89/B90: lock RELATIVO al descriptor de campaign (jamás por ruta). fstat antes Y después del flock —
+    un hardlink/chmod plantado mientras esperábamos el lock también muere."""
+    try:
+        fd = os.open(_LOCK_NAME, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600, dir_fd=camp_fd)
+        os.fchmod(fd, 0o600)
+    except FileExistsError:
+        try:
+            fd = os.open(_LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW, dir_fd=camp_fd)
+        except OSError as exc:
+            _fail(f"lock de merge inabrible ({exc})")
+    except OSError as exc:
+        _fail(f"lock de merge no creable ({exc})")
+    _check_lock_fd(fd)
     fcntl.flock(fd, fcntl.LOCK_EX)
+    _check_lock_fd(fd)
     return fd
 
 
-def _load_half(f: pathlib.Path, table: str, block: str, kind: str, campaign: str | None) -> pd.DataFrame:
-    if f.is_symlink() or not f.is_file():
-        _fail(f"mitad {kind} de {table}/{block} ausente o no-regular: {f}")
-    # run_id SIEMPRE como string (los reales son `20260706T114535-<sha>`, no numéricos).
-    df = pd.read_csv(f, dtype={"run_id": str})
+def _read_csv_at(dir_fd: int, fname: str) -> pd.DataFrame:
+    """B90: abre el CSV con openat O_NOFOLLOW, valida por fstat del DESCRIPTOR (regular/UID/nlink==1) y se lo
+    entrega a pandas como file object del MISMO descriptor — sin ventana check→reopen."""
+    try:
+        fd = os.open(fname, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+    except OSError as exc:
+        _fail(f"mitad {fname!r} ausente o symlink ({exc})")
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid() or st.st_nlink != 1:
+        os.close(fd)
+        _fail(f"mitad {fname!r} no-regular/ajena/hardlink")
+    with os.fdopen(fd, "rb") as fh:
+        # run_id SIEMPRE como string (los reales son `20260706T114535-<sha>`, no numéricos).
+        return pd.read_csv(fh, dtype={"run_id": str})
+
+
+def _load_half(camp_fd: int, fname: str, table: str, campaign: str | None) -> pd.DataFrame:
+    df = _read_csv_at(camp_fd, fname)
     if df.empty:
-        _fail(f"mitad vacía: {f}")
+        _fail(f"mitad vacía: {fname}")
     if tuple(df.columns) != _POOL_COLS:
-        _fail(f"{f} con columnas {list(df.columns)} != las 19 canónicas en orden")
+        _fail(f"{fname} con columnas {list(df.columns)} != las 19 canónicas en orden")
     # B86-style: isna ANTES de astype (NaN→"nan" enmascararía el vacío).
     if df["run_id"].isna().any():
-        _fail(f"run_id vacío en {f}")
+        _fail(f"run_id vacío en {fname}")
     rid = df["run_id"].astype(str)
     if (rid.str.strip() == "").any():
-        _fail(f"run_id vacío en {f}")
+        _fail(f"run_id vacío en {fname}")
     if rid.nunique() != 1:
-        _fail(f"{f} con múltiples run_id ({rid.nunique()}) en una sola mitad")
+        _fail(f"{fname} con múltiples run_id ({rid.nunique()}) en una sola mitad")
     if campaign is not None and rid.iloc[0] != campaign:
-        _fail(f"{f} run_id {rid.iloc[0]!r} != CAMPAIGN_ID {campaign!r} (mezcla de campañas prohibida)")
+        _fail(f"{fname} run_id {rid.iloc[0]!r} != CAMPAIGN_ID {campaign!r} (mezcla de campañas prohibida)")
     if (df["table"].astype(str) != table).any():
-        _fail(f"{f} columna table != {table} del nombre de fichero")
+        _fail(f"{fname} columna table != {table} del nombre de fichero")
     for c in _STR_COLS:
         if df[c].isna().any():
-            _fail(f"{f} columna {c} con valores ausentes")
+            _fail(f"{fname} columna {c} con valores ausentes")
         if (df[c].astype(str).str.strip() == "").any():
-            _fail(f"{f} columna {c} con valores vacíos")
+            _fail(f"{fname} columna {c} con valores vacíos")
     for c in _METRIC_COLS:
         raw = df[c]
         v = pd.to_numeric(raw, errors="coerce")
         # B85: NaN REAL (celda vacía = modelo fallido) permitido; TEXTO no numérico coercionado a NaN, NO.
         if (raw.notna() & v.isna()).any():
-            _fail(f"{f} columna {c} con texto no numérico")
+            _fail(f"{fname} columna {c} con texto no numérico")
         if ((v == math.inf) | (v == -math.inf)).any():
-            _fail(f"{f} columna {c} con valor infinito")
+            _fail(f"{fname} columna {c} con valor infinito")
     secs = pd.to_numeric(df["secs"], errors="coerce")
     if secs.isna().any() or (secs < 0).any():
-        _fail(f"{f} columna secs ausente o negativa")
+        _fail(f"{fname} columna secs ausente o negativa")
     return df
 
 
-def _promote_transactionally(writes: list[tuple[pathlib.Path, pd.DataFrame]]) -> None:
-    """Escribe 8 temporales (fsync), respalda los outputs existentes, promueve por `os.replace` y, si una
-    promoción falla, RESTAURA todos los outputs previos byte-idénticos. Fsync de los directorios al final."""
-    temps: list[tuple[pathlib.Path, pathlib.Path]] = []
-    backups: dict[pathlib.Path, pathlib.Path | None] = {}
-    promoted: list[pathlib.Path] = []
+def _unlink_quiet(name: str, dir_fd: int) -> None:
     try:
-        for path, df in writes:  # 1. prepara + fsync TODOS los temporales antes de promover ninguno
-            fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.")
-            os.fchmod(fd, 0o600)
-            with os.fdopen(fd, "w") as fh:
+        os.unlink(name, dir_fd=dir_fd)
+    except OSError:
+        pass
+
+
+def _promote_transactionally(chain: _Chain, writes: list[tuple[int, str, pd.DataFrame]]) -> None:
+    """Todo fd-relativo (B90): temporales y respaldos con nombres RELATIVOS + O_CREAT|O_EXCL|O_NOFOLLOW dentro
+    del descriptor destino; promoción/restauración por `os.replace(src_dir_fd=…, dst_dir_fd=…)`; identidad de
+    la cadena reverificada ANTES y DESPUÉS de promover. Fsync de campaign y eval en éxito Y tras rollback
+    (B92: el rollback también es durable)."""
+    temps: list[tuple[int, str, str]] = []
+    backups: dict[tuple[int, str], str | None] = {}
+    promoted: list[tuple[int, str]] = []
+
+    def _fsync_dirs() -> None:
+        os.fsync(chain.camp)
+        os.fsync(chain.ev)
+
+    try:
+        for i, (dfd, name, df) in enumerate(writes):  # 1. temporales fsync'd ANTES de promover ninguno
+            tname = f".{name}.tmp.{os.getpid()}.{i}"
+            tfd = os.open(tname, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=dfd)
+            with os.fdopen(tfd, "w") as fh:
                 df.to_csv(fh, index=False)
                 fh.flush()
                 os.fsync(fh.fileno())
-            temps.append((path, pathlib.Path(tmp)))
-        for path, _ in writes:  # 2. respalda los outputs existentes
-            if path.exists():
-                bfd, bpath = tempfile.mkstemp(dir=str(path.parent), prefix=f".bak.{path.name}.")
-                os.close(bfd)
-                shutil.copy2(path, bpath)
-                backups[path] = pathlib.Path(bpath)
-            else:
-                backups[path] = None
-        for path, tpath in temps:  # 3. promueve (atómico por fichero)
-            os.replace(tpath, path)
-            promoted.append(path)
-    except BaseException:  # rollback transaccional: restaura los outputs previos
-        for path in promoted:
-            b = backups.get(path)
+            temps.append((dfd, name, tname))
+        for i, (dfd, name, _df) in enumerate(writes):  # 2. respaldos fd-relativos de los outputs existentes
+            key = (dfd, name)
+            try:
+                sfd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
+            except FileNotFoundError:
+                backups[key] = None
+                continue
+            except OSError as exc:
+                _fail(f"output previo {name!r} inabrible (symlink plantado: {exc})")
+            sst = os.fstat(sfd)
+            if not stat.S_ISREG(sst.st_mode):
+                os.close(sfd)
+                _fail(f"output previo {name!r} no-regular")
+            with os.fdopen(sfd, "rb") as sfh:
+                data = sfh.read()
+            bname = f".bak.{name}.{os.getpid()}.{i}"
+            bfd = os.open(bname, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=dfd)
+            with os.fdopen(bfd, "wb") as bfh:
+                bfh.write(data)
+                bfh.flush()
+                os.fsync(bfh.fileno())
+            backups[key] = bname
+        chain.reverify("antes de promover")  # B90: la cadena sigue siendo LA validada
+        for dfd, name, tname in temps:  # 3. promueve (atómico por fichero, fd-relativo)
+            os.replace(tname, name, src_dir_fd=dfd, dst_dir_fd=dfd)
+            promoted.append((dfd, name))
+        chain.reverify("después de promover")
+    except BaseException:  # rollback transaccional fd-relativo: restaura los outputs previos
+        for dfd, name in promoted:
+            b = backups.get((dfd, name))
             if b is not None:
-                os.replace(b, path)
+                os.replace(b, name, src_dir_fd=dfd, dst_dir_fd=dfd)
             else:
-                path.unlink(missing_ok=True)
-        for _p, tpath in temps:
-            tpath.unlink(missing_ok=True)
-        for b in backups.values():
+                _unlink_quiet(name, dfd)
+        for dfd, _name, tname in temps:
+            _unlink_quiet(tname, dfd)
+        for (dfd, _n), b in backups.items():
             if b is not None:
-                b.unlink(missing_ok=True)
+                _unlink_quiet(b, dfd)
+        _fsync_dirs()  # B92: durabilidad TAMBIÉN en el camino de error
         raise
-    for b in backups.values():  # éxito: limpia respaldos
+    for (dfd, _n), b in backups.items():  # éxito: limpia respaldos
         if b is not None:
-            b.unlink(missing_ok=True)
-    for d in {path.parent for path, _ in writes}:  # fsync de los directorios
-        dfd = os.open(str(d), os.O_RDONLY | os.O_DIRECTORY)
-        os.fsync(dfd)
-        os.close(dfd)
+            _unlink_quiet(b, dfd)
+    _fsync_dirs()
 
 
 def merge() -> int:
-    camp = pathlib.Path("reports/campaign")
-    ev = pathlib.Path("reports/eval")
     campaign = os.environ.get("CAMPAIGN_ID")
     if campaign is not None and not campaign.strip():
         _fail("CAMPAIGN_ID definido pero vacío")
-    lock_fd = _acquire_lock(camp)  # B89: exclusión; los inputs se validan BAJO el lock
+    chain = _Chain()  # B90: cadena gobernada abierta ANTES de tocar nada (cwd = ROOT)
+    lock_fd = -1
     try:
-        writes: list[tuple[pathlib.Path, pd.DataFrame]] = []
-        # 1. Carga + valida las OCHO mitades ANTES de escribir nada (todo-o-nada), bajo el lock.
+        lock_fd = _acquire_lock(chain.camp)  # B89: exclusión; los inputs se validan BAJO el lock
+        chain.reverify("tras adquirir el lock")
+        writes: list[tuple[int, str, pd.DataFrame]] = []
+        # 1. Carga + valida las OCHO mitades ANTES de escribir nada (todo-o-nada), bajo el lock, fd-bound.
         for table in _TABLES:
             for block in _BLOCKS:
                 parts = [
-                    _load_half(camp / f"aq_pool_{kind}_{table}_{block}.csv", table, block, kind, campaign)
-                    for kind in _HALVES
+                    _load_half(chain.camp, f"aq_pool_{kind}_{table}_{block}.csv", table, campaign) for kind in _HALVES
                 ]
                 full = pd.concat(parts, ignore_index=True)
                 full["source_run_id"] = full["run_id"]
                 # B85: bajo campaña el run_id ES la campaña; standalone = máximo LEXICOGRÁFICO (string).
                 full["run_id"] = campaign if campaign is not None else str(full["run_id"].astype(str).max())
                 tgt = f"model_comparison_{table}21.csv" if block == "family" else f"model_comparison_EB_{table}21.csv"
-                writes.append((camp / f"campaign_pool_{table}_{block}.csv", full))
-                writes.append((ev / tgt, full))
+                writes.append((chain.camp, f"campaign_pool_{table}_{block}.csv", full))
+                writes.append((chain.ev, tgt, full))
                 print(f"{table}/{block}: {len(full)} rows -> {tgt}")
-        # 2. Promoción transaccional de los ocho outputs (validación global ya hecha).
-        _promote_transactionally(writes)
+        # 2. Promoción transaccional fd-relativa de los ocho outputs (validación global ya hecha).
+        _promote_transactionally(chain, writes)
+        chain.reverify("antes de devolver éxito")
     finally:
-        os.close(lock_fd)
+        if lock_fd >= 0:
+            os.close(lock_fd)
+        chain.close()
     return 0
 
 
