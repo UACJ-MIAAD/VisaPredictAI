@@ -115,3 +115,4 @@ reports/campaign/.merge-receipt.*
 reports/campaign/.merge-bundles/
 reports/campaign/.merge-staging.*
 reports/campaign/.merge-CURRENT*
+reports/campaign/.merge-aborted/

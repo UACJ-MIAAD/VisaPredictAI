@@ -1602,7 +1602,7 @@ def test_b120_manifest_hardlink_race_rejected(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     try:
         with pytest.raises((OSError, mcp._ValidationError)):
-            quar._prepare(dfd)  # el O_EXCL del MANIFEST cae sobre el hardlink plantado → rechazado
+            quar._prepare(dfd, "campaign")  # el O_EXCL del MANIFEST cae sobre el hardlink plantado → rechazado
         assert external.read_bytes() == b"EXTERNAL-UNTOUCHED\n", "escribió fuera de la cuarentena (B120)"
     finally:
         quar.close([])
@@ -1622,7 +1622,7 @@ def test_b121_quarantine_collision_preserves_existing(tmp_path, monkeypatch):
         name, fd = mcp._create_governed(dfd, "y", "tmp", 0)
         os.write(fd, b"OURS\n")
         o = mcp._Out(dfd, "campaign", "y", None)
-        qtx = quar._prepare(dfd).qtx
+        qtx = quar._prepare(dfd, "campaign").qtx
         # planta el destino de cuarentena que `move` intentará usar (label.name.FIXED)
         collided = f"{o.label}.{name.lstrip('.')}.FIXED"
         cfd = os.open(collided, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=qtx)
@@ -2001,16 +2001,16 @@ def test_b136_journal_truncation_between_records_detected(tmp_path):
     dfd = os.open(str(d), os.O_RDONLY | os.O_DIRECTORY)
     quar = mcp._Quarantine("trunc.deadbeef")
     try:
-        st = quar._prepare(dfd)
+        st = quar._prepare(dfd, "campaign")
         intent = {
-            "record": "MOVE_INTENT", "operation_id": "op", "source_name": "s", "destination_name": "dst",
+            "record": "MOVE_INTENT", "operation_id": "0123456789abcdef", "source_name": "s", "destination_name": "dst",
             "expected_dev": 0, "expected_ino": 0, "expected_digest": None,
         }  # fmt: skip
         assert quar._journal(st, dfd, "campaign", intent), "INTENT válido"
         manifest = d / ".merge-quarantine" / "trunc.deadbeef" / "MANIFEST.jsonl"
         os.truncate(str(manifest), 0)  # un tercero trunca el manifiesto entre eventos
         completed = {
-            "record": "MOVE_COMPLETED", "operation_id": "op", "destination_name": "dst",
+            "record": "MOVE_COMPLETED", "operation_id": "0123456789abcdef", "destination_name": "dst",
             "moved_dev": 0, "moved_ino": 0, "bound_to_tx_fd": True,
         }  # fmt: skip
         assert not quar._journal(st, dfd, "campaign", completed), "no cazó el truncado del journal (B136)"
@@ -2137,12 +2137,12 @@ def test_b142_manifest_relinked_during_journaling_fails(tmp_path):
     dfd = os.open(str(d), os.O_RDONLY | os.O_DIRECTORY)
     quar = mcp._Quarantine("relink.deadbeef")
     try:
-        st = quar._prepare(dfd)
+        st = quar._prepare(dfd, "campaign")
         manifest = d / ".merge-quarantine" / "relink.deadbeef" / "MANIFEST.jsonl"
         manifest.unlink()  # desliga el oficial
         (d / ".merge-quarantine" / "relink.deadbeef" / "MANIFEST.jsonl").write_text('{"record":"FORGED-OFFICIAL"}\n')
         rec = {
-            "record": "MOVE_INTENT", "operation_id": "op", "source_name": "s", "destination_name": "dst",
+            "record": "MOVE_INTENT", "operation_id": "0123456789abcdef", "source_name": "s", "destination_name": "dst",
             "expected_dev": 0, "expected_ino": 0, "expected_digest": None,
         }  # fmt: skip
         assert not quar._journal(st, dfd, "campaign", rec), "escribió/validó sobre el manifiesto huérfano (B142)"
@@ -2173,26 +2173,29 @@ def test_b143_receipt_hardlink_rejected(tmp_path, monkeypatch):
 
 
 def test_b144_receipt_aborted_on_rollback(tmp_path, monkeypatch):
-    # si la certificación falla DESPUÉS de publicar el recibo, el rollback lo mueve a `.ABORTED` — jamás queda un
-    # recibo "oficial" con los outputs revertidos (B144).
+    # si la certificación falla DESPUÉS de publicar el recibo (aquí: se muta un output tras publicarlo, la
+    # re-verificación del recibo diverge), el rollback lo mueve al dir gobernado `.merge-aborted/<txid>/` — jamás
+    # queda un recibo "oficial" con los outputs revertidos (B144/B150).
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
-    real_open = mcp.os.open
+    real_nr = mcp.rename_noreplace
     done = {"x": False}
 
-    def flaky_open(path, *a, **k):  # revienta la RE-APERTURA del recibo (tras publicarlo) → certificación falla
-        if not done["x"] and isinstance(path, str) and path.startswith(mcp._RECEIPT_PREFIX) and path.endswith(".json"):
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        r = real_nr(src_dir_fd, src, dst_dir_fd, dst)
+        if not done["x"] and str(dst).startswith(mcp._RECEIPT_PREFIX):  # tras publicar el recibo, muta un output
             done["x"] = True
-            raise OSError("reopen-fail")
-        return real_open(path, *a, **k)
+            with open(camp / "campaign_pool_FAD_family.csv", "ab") as fh:
+                fh.write(b"\n# tampered after receipt\n")
+        return r
 
-    monkeypatch.setattr(mcp.os, "open", flaky_open)
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
     monkeypatch.chdir(tmp_path)
     with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
         mcp.merge()
     official = list(camp.glob(".merge-receipt.*.json"))
-    aborted = list(camp.glob(".merge-receipt.*.json.ABORTED"))
-    assert not official and aborted, "quedó un recibo oficial tras el rollback (B144)"
+    aborted = list((camp / ".merge-aborted").rglob("receipt.*")) if (camp / ".merge-aborted").exists() else []
+    assert not official and aborted, "quedó un recibo oficial tras el rollback (B144/B150)"
 
 
 @pytest.mark.parametrize(
@@ -2236,6 +2239,116 @@ def test_b147_receipt_provenance_is_complete():
     assert set(prov["modules"]) == {"merge_campaign_pools", "atomic_fs", "governed_read"}
     for h in prov["modules"].values():
         assert h == "unknown" or len(h) == 64, "hash de módulo incompleto (B147)"
+
+
+# ----------------------------- B149-B154 (R9.2R12R): recibo ligado al fd, aborted gobernado, journal semántico -----------------------------
+
+
+def test_b149_receipt_substituted_same_bytes_rejected(tmp_path, monkeypatch):
+    # sustituir el recibo por OTRO inode con los MISMOS bytes/modo 0600/nlink==1 tras publicarlo es cazado porque
+    # el recibo se lee del fd que CREAMOS y se exige que el nombre LIGUE a ese fd (B149). En 9734648 devolvía 0.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    real_nr = mcp.rename_noreplace
+    done = {"x": False}
+
+    def nr(src_dir_fd, src, dst_dir_fd, dst):
+        r = real_nr(src_dir_fd, src, dst_dir_fd, dst)
+        if not done["x"] and str(dst).startswith(mcp._RECEIPT_PREFIX):
+            done["x"] = True
+            rp = camp / dst
+            data = rp.read_bytes()
+            rp.unlink()
+            alt = camp / (dst + ".alt")  # NUEVO inode, mismos bytes, 0600, nlink==1
+            alt.write_bytes(data)
+            os.chmod(alt, 0o600)
+            os.replace(str(alt), str(rp))
+        return r
+
+    monkeypatch.setattr(mcp, "rename_noreplace", nr)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
+        mcp.merge()
+    assert not (camp / "campaign_pool_FAD_family.csv").exists(), "publicó con el recibo sustituido (B149)"
+
+
+def test_b150_aborted_collision_is_incomplete(tmp_path, monkeypatch):
+    # una colisión PREPLANTADA del dir aborted del txid hace que `_abort_receipt` falle CERRADO (RECEIPT_ABORT_
+    # FAILED → incompleto), no que se ignore con el recibo oficial intacto (B150).
+    d = tmp_path / "reports" / "campaign"
+    d.mkdir(parents=True)
+    (d / ".merge-receipt.tx150.json").write_bytes(b"{}\n")
+    os.chmod(d / ".merge-receipt.tx150.json", 0o600)
+    (d / ".merge-aborted").mkdir()
+    (d / ".merge-aborted" / "tx150").mkdir()  # colisión preplantada del <txid>
+    dfd = os.open(str(d), os.O_RDONLY | os.O_DIRECTORY)
+    monkeypatch.chdir(d)
+    ctx = mcp._TxContext()
+    ctx.receipt_name = ".merge-receipt.tx150.json"
+    try:
+        mcp._abort_receipt(dfd, "tx150", ctx)
+        assert ctx.incomplete, "una colisión del dir aborted no marcó incompleto (B150)"
+        assert (d / ".merge-receipt.tx150.json").exists(), "el recibo oficial no debe destruirse en el fallo"
+    finally:
+        os.close(dfd)
+
+
+def test_b152_official_run_requires_full_provenance(tmp_path, monkeypatch):
+    # una ejecución marcada OFICIAL (`VP_OFFICIAL_RUN=1`) sin procedencia completa (env_id/git/etc.) aborta
+    # fail-closed (B152). En 9734648 no había gate → rc=0.
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    monkeypatch.setenv("VP_OFFICIAL_RUN", "1")
+    monkeypatch.delenv("VP_ENV_ID", raising=False)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
+        mcp.merge()
+    assert not (camp / "campaign_pool_FAD_family.csv").exists(), "commit oficial sin procedencia (B152)"
+
+
+def test_b153_verified_compensation_still_incomplete(tmp_path, monkeypatch):
+    # una concurrencia cuya compensación RESTAURA ambos lados correctamente sigue siendo RollbackIncompleteError,
+    # nunca un RollbackError reintentable: la concurrencia DETECTADA es una divergencia externa (B153).
+    _write_all_8(tmp_path)
+    camp = tmp_path / "reports" / "campaign"
+    tgt = camp / "campaign_pool_FAD_family.csv"
+    tgt.write_bytes(b"PRE\n")
+    real_ex = mcp.rename_exchange
+    st = {"n": 0}
+
+    def ex(src_dir_fd, src, dst_dir_fd, dst):
+        if dst == "campaign_pool_FAD_family.csv":
+            st["n"] += 1
+            if st["n"] == 1:  # concurrencia antes de promover; la compensación luego restaura AMBOS lados
+                v2 = camp / ".v2"
+                v2.write_bytes(b"V2-CONCURRENT\n")
+                os.replace(str(v2), str(tgt))
+        return real_ex(src_dir_fd, src, dst_dir_fd, dst)
+
+    monkeypatch.setattr(mcp, "rename_exchange", ex)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.RollbackIncompleteError):  # aunque la compensación verifique ambos lados
+        mcp.merge()
+
+
+def test_b154_incompatible_terminal_rejected(tmp_path):
+    # el journal RECHAZA un terminal de familia incorrecta (MOVE_INTENT no cierra con RESTORE_*) (B154).
+    d = tmp_path / "reports" / "campaign"
+    d.mkdir(parents=True)
+    dfd = os.open(str(d), os.O_RDONLY | os.O_DIRECTORY)
+    quar = mcp._Quarantine("fam.deadbeef")
+    try:
+        st = quar._prepare(dfd, "campaign")
+        intent = {
+            "record": "MOVE_INTENT", "operation_id": "0123456789abcdef", "source_name": "s",
+            "destination_name": "dst", "expected_dev": 0, "expected_ino": 0, "expected_digest": None,
+        }  # fmt: skip
+        assert quar._journal(st, dfd, "campaign", intent), "MOVE_INTENT válido"
+        wrong = {"record": "RESTORE_COMPLETED", "operation_id": "0123456789abcdef", "destination_name": "dst"}
+        assert not quar._journal(st, dfd, "campaign", wrong), "aceptó un terminal RESTORE_* para un MOVE_INTENT (B154)"
+    finally:
+        quar.close([])
+        os.close(dfd)
 
 
 if __name__ == "__main__":

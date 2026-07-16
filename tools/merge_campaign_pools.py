@@ -44,7 +44,6 @@ coincidente, NaN real ≠ texto ≠ infinito, `secs` ≥ 0, identidad de campañ
 
 from __future__ import annotations
 
-import contextlib
 import fcntl
 import hashlib
 import io
@@ -53,13 +52,14 @@ import math
 import os
 import secrets
 import stat
+import subprocess
 import sys
 from typing import NoReturn
 
 import pandas as pd
 
 from tools.atomic_fs import AtomicRenameError, AtomicUnsupportedError, rename_exchange, rename_noreplace
-from tools.governed_read import digest_fd, lease_problem, open_governed_lease, snapshot_fd
+from tools.governed_read import digest_fd, lease_problem, open_governed_lease, relative_name_problem, snapshot_fd
 
 _TABLES = ("FAD", "DFF")
 _BLOCKS = ("family", "employment")
@@ -74,6 +74,7 @@ _STR_COLS = ("model", "country", "category", "table")
 _METRIC_COLS = tuple(c for c in _POOL_COLS if c not in ("run_id", *_STR_COLS))
 _LOCK_NAME = ".merge.lock"
 _QUARANTINE_DIR = ".merge-quarantine"
+_ABORTED_DIR = ".merge-aborted"
 _MANIFEST_NAME = "MANIFEST.jsonl"
 _RECEIPT_PREFIX = ".merge-receipt"
 _SCHEMA_VERSION = 1
@@ -372,7 +373,50 @@ _JOURNAL_SCHEMAS: dict[str, frozenset[str]] = {
     "RESTORE_COLLISION": frozenset({"operation_id", "destination_name", "detail"}),
 }
 _JOURNAL_INTENTS = {"MOVE_INTENT", "RESTORE_INTENT"}
-_JOURNAL_TERMINALS = {"MOVE_COMPLETED", "MOVE_FOREIGN_PRESERVED", "MOVE_ABORTED", "RESTORE_COMPLETED", "RESTORE_COLLISION"}  # fmt: skip
+# B154: cada intent liga a su conjunto EXACTO de terminales (un MOVE_INTENT no puede cerrar con RESTORE_*).
+_INTENT_TERMINALS: dict[str, frozenset[str]] = {
+    "MOVE_INTENT": frozenset({"MOVE_COMPLETED", "MOVE_FOREIGN_PRESERVED", "MOVE_ABORTED"}),
+    "RESTORE_INTENT": frozenset({"RESTORE_COMPLETED", "RESTORE_COLLISION"}),
+}
+_HEX64 = frozenset("0123456789abcdef")
+
+
+def _is_int(x: object) -> bool:
+    return type(x) is int  # excluye bool (bool es subclase de int) — B151
+
+
+def _is_hex(x: object, *, length: int | None = None) -> bool:
+    return isinstance(x, str) and (length is None or len(x) == length) and bool(x) and all(c in _HEX64 for c in x)
+
+
+def _valid_journal_types(rec: dict) -> bool:
+    """B151: valida los TIPOS de cada campo del journal (no sólo su presencia). `True`/`False` para un entero,
+    un inode string, un digest basura, un `operation_id` vacío o un `source_dir` falso ⇒ inválido."""
+    if not _is_int(rec["schema_version"]) or not (_is_int(rec["sequence"]) and rec["sequence"] > 0):
+        return False
+    if rec["source_dir"] not in ("campaign", "eval"):
+        return False
+    if not (isinstance(rec["txid"], str) and rec["txid"]):
+        return False
+    if not (isinstance(rec["previous_record_sha256"], str) and (rec["previous_record_sha256"] == "" or _is_hex(rec["previous_record_sha256"], length=64))):  # fmt: skip
+        return False
+    if not _is_hex(rec["record_sha256"], length=64):
+        return False
+    if not _is_hex(rec["operation_id"], length=16):
+        return False
+    for k in ("expected_dev", "expected_ino", "moved_dev", "moved_ino"):
+        if k in rec and not (_is_int(rec[k]) and rec[k] >= 0):
+            return False
+    if "expected_digest" in rec and rec["expected_digest"] is not None and not _is_hex(rec["expected_digest"], length=64):  # fmt: skip
+        return False
+    if "bound_to_tx_fd" in rec and not isinstance(rec["bound_to_tx_fd"], bool):
+        return False
+    for k in ("source_name", "destination_name"):
+        if k in rec and (relative_name_problem(rec[k]) is not None):
+            return False
+    if "detail" in rec and not (isinstance(rec["detail"], str) and 0 < len(rec["detail"]) <= 4096):
+        return False
+    return True
 
 
 def _no_dup_keys(pairs: list[tuple]) -> dict:
@@ -391,14 +435,15 @@ def _strict_loads(line: bytes) -> dict:
 
 
 class _JournalState:
-    __slots__ = ("qroot", "qtx", "mfd", "seq", "prev_sha")
+    __slots__ = ("qroot", "qtx", "mfd", "seq", "prev_sha", "source_label")
 
-    def __init__(self, qroot: int, qtx: int, mfd: int) -> None:
+    def __init__(self, qroot: int, qtx: int, mfd: int, source_label: str) -> None:
         self.qroot = qroot
         self.qtx = qtx
         self.mfd = mfd
         self.seq = 0
         self.prev_sha = ""
+        self.source_label = source_label  # "campaign"|"eval": el journal exige source_dir concordante (B151)
 
 
 class _Quarantine:
@@ -430,7 +475,7 @@ class _Quarantine:
             )
         return fd
 
-    def _prepare(self, dir_fd: int) -> _JournalState:
+    def _prepare(self, dir_fd: int, source_label: str) -> _JournalState:
         if dir_fd in self._states:
             return self._states[dir_fd]
         try:
@@ -458,7 +503,7 @@ class _Quarantine:
             or stat.S_IMODE(stm.st_mode) != 0o600
         ):
             raise _ValidationError("MANIFEST.jsonl ajeno/no-regular/hardlink/modo != 0600")
-        state = _JournalState(qroot, qtx, mfd)
+        state = _JournalState(qroot, qtx, mfd, source_label)
         self._states[dir_fd] = state
         return state
 
@@ -511,7 +556,7 @@ class _Quarantine:
         if len(lines) != expect_seq:
             return False
         prev = ""
-        ops: dict[str, int] = {}  # operation_id → nº de terminales vistos (el intent lo inicia en 0)
+        ops: dict[str, tuple[str, int]] = {}  # operation_id → (record del intent, nº de terminales vistos)
         for i, line in enumerate(lines, start=1):
             try:
                 rec = _strict_loads(line)  # B146: rechaza claves duplicadas
@@ -522,7 +567,11 @@ class _Quarantine:
                 return False  # tipo de registro desconocido
             if set(rec.keys()) != _JOURNAL_COMMON | _JOURNAL_SCHEMAS[record]:
                 return False  # campo faltante o adicional
+            if not _valid_journal_types(rec):  # B151: TIPOS exactos (bool≠int, digest 64hex, op_id 16hex, …)
+                return False
             if rec["schema_version"] != _SCHEMA_VERSION or rec["txid"] != self.txid:
+                return False
+            if rec["source_dir"] != st.source_label:  # B151: source_dir concordante con el descriptor esperado
                 return False
             if rec["sequence"] != i or rec["previous_record_sha256"] != prev:
                 return False
@@ -534,11 +583,11 @@ class _Quarantine:
             if record in _JOURNAL_INTENTS:
                 if op in ops:
                     return False  # intent duplicado para el mismo operation_id
-                ops[op] = 0
-            else:  # terminal
-                if op not in ops or ops[op] != 0:
-                    return False  # terminal sin intent previo, o segundo terminal para el mismo op
-                ops[op] = 1
+                ops[op] = (record, 0)
+            else:  # terminal: debe tener un intent previo, ser el ÚNICO y de la FAMILIA correcta (B154)
+                if op not in ops or ops[op][1] != 0 or record not in _INTENT_TERMINALS[ops[op][0]]:
+                    return False
+                ops[op] = (ops[op][0], 1)
             prev = claimed
         return prev == expect_sha
 
@@ -562,7 +611,7 @@ class _Quarantine:
         except OSError:
             digest = None  # el digest es informativo; su ausencia no aborta el movimiento
         try:
-            st = self._prepare(o.dir_fd)
+            st = self._prepare(o.dir_fd, o.label)
         except OSError, _ValidationError:
             return _MoveResult(_QUARANTINE_FAILED)
         if not _dir_binds(st.qroot, self.txid, st.qtx):  # binding del dir de cuarentena antes del move
@@ -763,7 +812,7 @@ class _TxContext:
     los issues de severidad 'incomplete' — un fallo de durabilidad o una divergencia externa NO puede quedar
     como una cadena suelta que no cambie la clasificación."""
 
-    __slots__ = ("phase", "commit_reached", "primary_error", "issues", "recoveries", "close_errors", "receipt_name")
+    __slots__ = ("phase", "commit_reached", "primary_error", "issues", "recoveries", "close_errors", "receipt_name", "receipt_fd")  # fmt: skip
 
     def __init__(self) -> None:
         self.phase = _LOADING
@@ -773,6 +822,7 @@ class _TxContext:
         self.recoveries: list[str] = []
         self.close_errors: list[str] = []
         self.receipt_name: str | None = None  # B144: recibo publicado pero commit no cruzado → moverlo a ABORTED
+        self.receipt_fd = -1  # B149: fd del recibo que creamos (se lee de AQUÍ, no reabriendo por nombre)
 
     def flag(self, code: str, detail: str, output: str | None = None) -> None:
         """Registra un Issue INCOMPLETO (fuerza RollbackIncompleteError/CommittedStateError)."""
@@ -836,12 +886,15 @@ def _compensate_both_sides(o: _Out, ctx: _TxContext, *, code: str) -> None:
     except OSError:
         our_ok = False
     concurrent_ok = concurrent is not None and _object_matches(o.dir_fd, o.name, concurrent)
-    if our_ok and concurrent_ok:
+    if our_ok and concurrent_ok:  # `compensation_verified` describe SÓLO el estado físico, no borra la divergencia
         o.exchange_applied = False
         o.compensation_verified = True
-    else:  # un lado no verifica (p.ej. el concurrente fue SUSTITUIDO durante la compensación) ⇒ incompleto
+    else:  # un lado no verifica (p.ej. el concurrente fue SUSTITUIDO durante la compensación)
         ctx.flag(code, f"{o.name!r}: compensación no verificable en ambos lados (concurrente sustituido)", o.name)
-    o.concurrent_update = True  # B139: una divergencia externa impide el reintento automático seguro
+    # B153/B139: TODA concurrencia DETECTADA es incompleta — aunque ambos lados queden restaurados exactamente,
+    # hubo una divergencia externa que impide el reintento automático seguro. Se registra SIEMPRE el Issue.
+    ctx.flag("CONCURRENT_UPDATE_DETECTED", f"{o.name!r}: actualización concurrente detectada durante {code}", o.name)
+    o.concurrent_update = True
     o.incomplete = True
 
 
@@ -997,30 +1050,32 @@ def _module_hash(mod_name: str) -> str:
         return "unknown"
 
 
-def _git_head() -> str | None:
+def _git(*args: str) -> str | None:
+    """B152/A6: resuelve git mediante COMANDOS git (compatible con worktrees donde `.git` es un fichero), no
+    leyendo `.git/HEAD` a mano. None si git no está disponible o el cwd no es un repo (p. ej. un tmp de test)."""
     try:
-        head = open(".git/HEAD").read().strip()
-    except OSError:
+        out = subprocess.run(["git", *args], capture_output=True, text=True, timeout=10, check=False)  # noqa: S603,S607
+    except OSError, subprocess.SubprocessError:
         return None
-    if head.startswith("ref: "):
-        try:
-            return open(os.path.join(".git", head[5:])).read().strip()
-        except OSError:
-            return None
-    return head
+    return out.stdout.strip() if out.returncode == 0 else None
 
 
 def _provenance() -> dict:
-    """B147: procedencia COMPLETA — no sólo 16 chars de un módulo. Liga commit git, python, contrato de
-    ejecución, env_id y hashes completos de los tres módulos gobernantes."""
+    """B147/B152: procedencia COMPLETA — git HEAD/tree/dirty (vía comandos git), python, contrato, env_id/perfil/
+    variante (inyectados por el orquestador) y hashes completos de los tres módulos gobernantes."""
     try:
         contract = hashlib.sha256(open("environments/execution_contract.json", "rb").read()).hexdigest()
     except OSError:
         contract = "unknown"  # el contrato puede no estar presente (p. ej. en un tmp de test); no aborta
+    status = _git("status", "--porcelain")
     return {
-        "git_head": _git_head(),
+        "git_head": _git("rev-parse", "HEAD"),
+        "git_tree": _git("rev-parse", "HEAD^{tree}"),
+        "git_dirty": None if status is None else (status != ""),
+        "env_id": os.environ.get("VP_ENV_ID"),  # el orquestador python_env lo inyecta en una ejecución oficial
+        "profile": os.environ.get("VP_ENV_PROFILE"),
+        "variant": os.environ.get("VP_ENV_VARIANT") or None,
         "python": sys.version.split()[0],
-        "env_id": os.environ.get("VP_ENV_ID"),
         "contract_sha256": contract,
         "modules": {
             "merge_campaign_pools": _module_hash("tools.merge_campaign_pools"),
@@ -1069,6 +1124,99 @@ def _safe_digest(fd: int) -> str | None:
         return None
 
 
+def _require_official_provenance(prov: dict) -> None:
+    """B152: en una ejecución OFICIAL (marcada por `VP_OFFICIAL_RUN=1`, que el orquestador `python_env` fija),
+    la procedencia debe estar COMPLETA y fail-closed — `env_id` 64hex, perfil `runtime`, variante null, git HEAD
+    y tree de 40hex, `git_dirty=false`, contrato y módulos de 64hex; prohibido None/unknown. Una ejecución no
+    oficial (dev/test) no exige esto. Cierra 'ejecución oficial fuera de run-command'."""
+    if os.environ.get("VP_OFFICIAL_RUN") != "1":
+        return
+    problems: list[str] = []
+    if not _is_hex(prov.get("env_id"), length=64):
+        problems.append("env_id no es 64hex")
+    if prov.get("profile") != "runtime":
+        problems.append("perfil != runtime")
+    if prov.get("variant") is not None:
+        problems.append("variante != null")
+    if not _is_hex(prov.get("git_head"), length=40):
+        problems.append("git_head no es 40hex")
+    if not _is_hex(prov.get("git_tree"), length=40):
+        problems.append("git_tree no es 40hex")
+    if prov.get("git_dirty") is not False:
+        problems.append("git_dirty != false")
+    if not _is_hex(prov.get("contract_sha256"), length=64):
+        problems.append("contract_sha256 no es 64hex")
+    mods = prov.get("modules") or {}
+    if set(mods) != {"merge_campaign_pools", "atomic_fs", "governed_read"} or not all(
+        _is_hex(h, length=64) for h in mods.values()
+    ):
+        problems.append("hashes de módulos incompletos")
+    if problems:
+        raise _ValidationError(f"procedencia oficial incompleta (B152): {problems}")
+
+
+def _open_governed_0700(parent_fd: int, name: str, *, created: bool) -> int:
+    """Abre `name` bajo `parent_fd` exigiendo dir real/UID/modo EXACTO 0700. Un preexistente con otro modo se
+    RECHAZA (B135, no se repara); sólo un dir creado en ESTA ejecución se ajusta a 0700."""
+    fd = os.open(name, _DIR_FLAGS, dir_fd=parent_fd)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid():
+            raise _ValidationError(f"{name!r} ajeno o no-dir")
+        if created:
+            os.fchmod(fd, 0o700)
+            st = os.fstat(fd)
+        if stat.S_IMODE(st.st_mode) != 0o700:
+            raise _ValidationError(f"{name!r} con modo {oct(stat.S_IMODE(st.st_mode))} != 0700 (no se repara)")
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _abort_receipt(camp_fd: int, txid: str, ctx: _TxContext) -> None:
+    """B150: mueve el recibo huérfano (publicado sin commit) a `.merge-aborted/<txid>/` GOBERNADO por
+    `rename_noreplace` — nada de un nombre predecible `recibo+".ABORTED"` ni de ignorar `FileExistsError`. Una
+    colisión preplantada del txid, un objeto ajeno o cualquier fallo dejan un Issue INCOMPLETO; se verifica que
+    la ruta oficial ya NO contiene el recibo."""
+    if ctx.receipt_name is None or _inode(camp_fd, ctx.receipt_name) is None:
+        return  # nunca se publicó / ya ausente
+    fds: list[int] = []
+    try:
+        try:
+            os.mkdir(_ABORTED_DIR, 0o700, dir_fd=camp_fd)
+            root_created = True
+        except FileExistsError:
+            root_created = False  # el contenedor puede preexistir → se VALIDA (no se repara)
+        aroot = _open_governed_0700(camp_fd, _ABORTED_DIR, created=root_created)
+        fds.append(aroot)
+        os.mkdir(txid, 0o700, dir_fd=aroot)  # create-only: una colisión PREPLANTADA del txid revienta EEXIST (B150)
+        atx = _open_governed_0700(aroot, txid, created=True)
+        fds.append(atx)
+        aname = f"receipt.{secrets.token_hex(8)}"
+        rename_noreplace(camp_fd, ctx.receipt_name, atx, aname)
+        for fd in (camp_fd, atx, aroot):
+            os.fsync(fd)
+        if _inode(camp_fd, ctx.receipt_name) is not None:  # la ruta oficial DEBE quedar sin recibo
+            ctx.flag("RECEIPT_ABORT_INCOMPLETE", "el recibo sigue en la ruta oficial tras abortar")
+    except (
+        FileExistsError,
+        FileNotFoundError,
+        AtomicRenameError,
+        AtomicUnsupportedError,
+        OSError,
+        ValueError,
+        _ValidationError,
+    ) as exc:  # fail-closed: NO se ignora ninguna colisión/objeto ajeno/fallo
+        ctx.flag("RECEIPT_ABORT_FAILED", f"no se pudo abortar el recibo (fail-closed): {exc}")
+    finally:
+        for fd in fds:
+            try:
+                os.close(fd)
+            except OSError as exc:
+                ctx.close_errors.append(f"cerrar aborted fd: {exc}")
+
+
 def _certify_commit(
     chain: _Chain, lock: _LockGuard, inputs: list[_InputLease], outs: list[_Out], quar: _Quarantine, ctx: _TxContext
 ) -> None:
@@ -1089,38 +1237,39 @@ def _certify_commit(
         if digest_fd(o.temp_fd) != o.temp_digest:
             raise _ValidationError(f"output {o.name!r} mutado antes del commit (digest)")
     body = _receipt_body(chain, lock, inputs, outs, quar)
+    _require_official_provenance(body["provenance"])  # B152: una ejecución OFICIAL exige procedencia completa
     tmp_name, tmp_fd = _create_governed(chain.camp, _RECEIPT_PREFIX, "tmp", 0)
     receipt_name = f"{_RECEIPT_PREFIX}.{quar.txid}.json"
-    ctx.receipt_name = receipt_name  # B144: el rollback lo moverá a ABORTED si el commit no se cruza
+    ctx.receipt_name = receipt_name  # B144: el rollback lo moverá a un dir aborted si el commit no se cruza
+    ctx.receipt_fd = tmp_fd  # B149: se LEE de ESTE fd (el que creamos), NO reabriendo por nombre; se cierra en merge()
     try:
-        with os.fdopen(tmp_fd, "wb", closefd=False) as rf:
-            rf.write(_canon(body))
-            rf.flush()
-            os.fsync(rf.fileno())
+        os.lseek(tmp_fd, 0, os.SEEK_SET)
+        os.ftruncate(tmp_fd, 0)
+        _write_all(tmp_fd, _canon(body))
+        os.fsync(tmp_fd)
         rename_noreplace(chain.camp, tmp_name, chain.camp, receipt_name)
         os.fsync(chain.camp)
     except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
         raise _ValidationError(f"no se pudo escribir/promover el recibo de commit: {exc}") from exc
-    finally:
-        with contextlib.suppress(OSError):
-            os.close(tmp_fd)  # cierre best-effort del fd del temporal del recibo (ya consumido por el rename)
-    # RE-ABRE desde la ruta oficial con IDENTIDAD gobernada (B143: regular/UID/modo 0600/nlink==1, no un hardlink
-    # ni un inode ajeno con los mismos bytes) + snapshot pre/post, y revalida el recibo contra el estado ACTUAL.
-    rfd = os.open(receipt_name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=chain.camp)
-    try:
-        st0 = os.fstat(rfd)
-        if (
-            not stat.S_ISREG(st0.st_mode)
-            or st0.st_uid != os.geteuid()
-            or st0.st_nlink != 1
-            or stat.S_IMODE(st0.st_mode) != 0o600
-        ):
-            raise _ValidationError("recibo de commit no-regular/ajeno/hardlink/modo != 0600 (B143)")
-        raw = b""
-        while chunk := os.read(rfd, 1 << 16):
-            raw += chunk
-    finally:
-        os.close(rfd)
+    # B149: NO se re-abre por nombre (un tercero podría sustituir el nombre por otro inode con los mismos bytes).
+    # Se exige que `receipt_name` LIGUE al fd que CREAMOS (dev/ino) con identidad gobernada, y se lee de ese fd.
+    st0 = os.fstat(tmp_fd)
+    if (
+        not stat.S_ISREG(st0.st_mode)
+        or st0.st_uid != os.geteuid()
+        or st0.st_nlink != 1
+        or stat.S_IMODE(st0.st_mode) != 0o600
+    ):
+        raise _ValidationError("recibo de commit no-regular/ajeno/hardlink/modo != 0600 (B143)")
+    prob = _binding_problem(chain.camp, receipt_name, tmp_fd, mode=0o600)
+    if prob is not None:
+        raise _ValidationError(f"recibo de commit sustituido por otro inode: {prob} (B149)")
+    os.lseek(tmp_fd, 0, os.SEEK_SET)
+    raw = b""
+    while chunk := os.read(tmp_fd, 1 << 16):
+        raw += chunk
+    if os.fstat(tmp_fd).st_ino != st0.st_ino:  # B143: el inode del fd no cambia durante la lectura
+        raise _ValidationError("recibo de commit mutado durante la lectura")
     # Se comparan BYTES canónicos (tuplas y listas serializan idéntico) — un input/lock/output cambiado difiere.
     if raw != _canon(body) or raw != _canon(_receipt_body(chain, lock, inputs, outs, quar)):
         raise _ValidationError("el recibo de commit ya no corresponde al estado actual (input/lock/output cambió)")
@@ -1191,13 +1340,7 @@ def _promote_transactionally(
             if o.exchange_applied and not o.compensation_verified:
                 ctx.flag("EXCHANGE_UNCOMPENSATED", f"{o.name!r}: exchange aplicado sin compensación verificada", o.name)
                 o.incomplete = True
-        if ctx.receipt_name is not None:  # B144: un recibo publicado sin commit cruzado NO puede quedar como COMMITTED
-            try:
-                rename_noreplace(chain.camp, ctx.receipt_name, chain.camp, ctx.receipt_name + ".ABORTED")
-            except FileNotFoundError, FileExistsError:
-                pass  # ya movido/ausente
-            except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
-                ctx.flag("RECEIPT_ABORT_FAILED", f"no se pudo marcar ABORTED el recibo huérfano: {exc}")
+        _abort_receipt(chain.camp, quar.txid, ctx)  # B144/B150: recibo huérfano → dir aborted gobernado (fail-closed)
         if not _fsync_dirs():  # B130: un fsync fallido en el rollback ⇒ INCOMPLETO, no sólo texto
             ctx.flag("ROLLBACK_FSYNC_FAILED", "fsync de directorios falló durante el rollback")
 
@@ -1346,6 +1489,12 @@ def merge() -> int:
         for lease in inputs:
             lease.close(ctx.close_errors)
         quar.close(ctx.close_errors)
+        if ctx.receipt_fd >= 0:  # B149: cierre único del fd del recibo (se reportan fallos, no se tragan)
+            try:
+                os.close(ctx.receipt_fd)
+            except OSError as exc:
+                ctx.close_errors.append(f"cerrar recibo: {exc}")
+            ctx.receipt_fd = -1
         if lock is not None and lock.fd >= 0:
             try:
                 os.close(lock.fd)
