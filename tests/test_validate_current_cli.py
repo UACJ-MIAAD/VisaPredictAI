@@ -148,3 +148,53 @@ def test_forged_campaign_id_divergence(tmp_path, capsys):
     os.write(fd, cb._canon(p))
     os.close(fd)
     assert _run(camp) == 3 and json.loads(capsys.readouterr().out)["status"] == "invalid"
+
+
+def test_b230_self_loop_rejected(tmp_path, capsys):
+    # B230: forjar CURRENT.previous_bundle_id = bundle_id (self-loop) sobre un manifiesto con previous sellado != eso
+    # -> validate-current DEBE rechazar (linaje del puntero DEBE == linaje sellado en el manifiesto).
+    import json as _j
+
+    camp = _build_current(tmp_path)
+    cur = _pointer(camp)
+    p = _j.loads(cur.read_bytes())
+    p["previous_bundle_id"] = p["bundle_id"]  # ciclo
+    os.chmod(cur, 0o600)
+    fd = os.open(str(cur), os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW)
+    os.write(fd, cb._canon(p))
+    os.close(fd)
+    assert _run(camp) == 3 and json.loads(capsys.readouterr().out)["status"] == "invalid"
+
+
+def _merge_again(camp, run_id):
+    # segunda añada: reescribe run_id de las 8 mitades (evita el guard de mezcla de campañas) y re-mergea -> EXCHANGE
+    import pandas as pd
+
+    for f in os.listdir(camp):
+        if f.startswith("aq_pool_"):
+            p = camp / f
+            df = pd.read_csv(p, dtype={"run_id": str})
+            df["run_id"] = run_id
+            df.to_csv(p, index=False)
+    env = {**os.environ, "PYTHONPATH": str(ROOT), "CAMPAIGN_ID": run_id}
+    r = subprocess.run([sys.executable, "-m", "tools.merge_campaign_pools"], cwd=str(camp.parent.parent), env=env, capture_output=True, text=True)  # fmt: skip
+    assert r.returncode == 0, f"segundo merge falló: {r.stderr}"
+
+
+def test_b230_wrong_predecessor_rejected(tmp_path, capsys):
+    # B230: con una cadena B1<-B2 (CURRENT=B2, previous sellado=B1), reescribir CURRENT.previous_bundle_id=None (o
+    # cualquier predecesor VÁLIDO pero no el sellado) -> invalid. En 2c76a06 esto se ACEPTABA (previous solo en el
+    # puntero mutable, sin cruce con el manifiesto).
+    import json as _j
+
+    camp = _build_current(tmp_path)  # B1 (previous=None)
+    _merge_again(camp, "second")  # B2 (previous sellado=B1)
+    cur = _pointer(camp)
+    p = _j.loads(cur.read_bytes())
+    assert p["previous_bundle_id"] is not None  # CURRENT=B2 con predecesor real B1
+    p["previous_bundle_id"] = None  # borra el linaje sellado (predecesor equivocado)
+    os.chmod(cur, 0o600)
+    fd = os.open(str(cur), os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW)
+    os.write(fd, cb._canon(p))
+    os.close(fd)
+    assert _run(camp) == 3 and json.loads(capsys.readouterr().out)["status"] == "invalid"

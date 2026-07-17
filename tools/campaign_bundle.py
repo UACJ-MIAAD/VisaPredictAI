@@ -129,7 +129,7 @@ _PROV_MODULE_HASHES = (
     "code_sha_atomic_fs",
     "code_sha_governed_read",
 )
-_MANIFEST_KEYS = frozenset({"schema_version", "campaign_id", "txid", "inputs", "outputs", "provenance"})
+_MANIFEST_KEYS = frozenset({"schema_version", "campaign_id", "txid", "previous_bundle_id", "inputs", "outputs", "provenance"})  # fmt: skip
 _INPUT_KEYS = frozenset({"name", "size", "sha256"})
 _OUTPUT_KEYS = frozenset({"label", "name", "rows", "cols", "sha256"})
 _POINTER_KEYS = frozenset({"schema_version", "campaign_id", "bundle_id", "previous_bundle_id"})
@@ -343,6 +343,9 @@ def _validate_manifest(manifest: object) -> dict:
     _validate_campaign_id(manifest["campaign_id"])
     if not (isinstance(manifest["txid"], str) and manifest["txid"]):
         raise BundleValidationError("txid vacío/no-str")
+    prev = manifest["previous_bundle_id"]  # B230: predecesor sellado = None (CAS inicial) o sha256 de 64 hex
+    if prev is not None and not _is_hex64(prev):
+        raise BundleValidationError(f"previous_bundle_id inválido en manifiesto: {prev!r}")
     inputs = manifest["inputs"]
     if not isinstance(inputs, list) or len(inputs) != len(_EXPECTED_INPUTS):
         raise BundleValidationError(f"inputs debe tener exactamente {len(_EXPECTED_INPUTS)} entradas")
@@ -451,11 +454,15 @@ def _validate_pointer(obj: object) -> dict:
     return obj
 
 
-def _manifest_for(campaign_id: str | None, txid: str, inputs: list[dict], outputs: list[dict], provenance: dict) -> dict:  # fmt: skip
+def _manifest_for(campaign_id: str | None, txid: str, previous_bundle_id: str | None, inputs: list[dict], outputs: list[dict], provenance: dict) -> dict:  # fmt: skip
+    # B230: el predecesor de linaje va DENTRO del manifiesto content-addressed → bundle_id = sha256(manifest) COMPROMETE
+    # al predecesor. Cambiar el linaje cambia el bundle_id; un self-loop (previous == bundle_id) es un punto fijo de
+    # hash, computacionalmente inconstruible; el puntero no puede reescribir la historia sin invalidarse.
     return {
         "schema_version": _SCHEMA_VERSION,
         "campaign_id": campaign_id,
         "txid": txid,
+        "previous_bundle_id": previous_bundle_id,
         "inputs": sorted(inputs, key=lambda d: d["name"]),
         "outputs": sorted(outputs, key=lambda d: (d["label"], d["name"])),
         "provenance": provenance,
@@ -543,20 +550,24 @@ class _PreparedBundle:
     `campaign_id` es una PROPIEDAD derivada del manifiesto validado (no un atributo mutable separado, B175); el
     handle es de USO ÚNICO. CURRENT aún NO tocado. Context manager: cierra el fd al salir."""
 
-    __slots__ = ("camp_fd", "bundle_id", "manifest", "_bundle_fd", "_ident", "_used")
+    __slots__ = ("camp_fd", "bundle_id", "manifest", "_bundle_fd", "_ident", "_used", "prev_ident", "prev_raw")
     camp_fd: int
     bundle_id: str
     manifest: dict
     _bundle_fd: int
     _ident: tuple[int, int]
     _used: bool
+    prev_ident: tuple[int, int] | None  # B230: identidad del predecesor CAPTURADO en prepare (None = CAS inicial)
+    prev_raw: bytes | None  # B230: bytes canónicos del puntero predecesor capturado (para exigirlo intacto en el CAS)
 
-    def __init__(self, camp_fd: int, bundle_id: str, campaign_id: str | None, manifest: dict) -> None:
+    def __init__(self, camp_fd: int, bundle_id: str, campaign_id: str | None, manifest: dict, prev_ident: tuple[int, int] | None = None, prev_raw: bytes | None = None) -> None:  # fmt: skip
         if manifest.get("campaign_id") != campaign_id:  # B175: el manifiesto es la ÚNICA fuente de campaign_id
             raise BundleValidationError("campaign_id del handle diverge del manifiesto")
         self.camp_fd = camp_fd
         self.bundle_id = bundle_id
         self.manifest = manifest
+        self.prev_ident = prev_ident
+        self.prev_raw = prev_raw
         self._used = False
         broot = _open_dir(camp_fd, _BUNDLES_DIR, mode=0o700)
         try:
@@ -571,6 +582,10 @@ class _PreparedBundle:
     @property
     def campaign_id(self) -> str | None:  # B175: read-only, derivado del manifiesto — no se puede mutar el puntero
         return self.manifest["campaign_id"]
+
+    @property
+    def previous_bundle_id(self) -> str | None:  # B230: predecesor SELLADO en el manifiesto (no un atributo mutable)
+        return self.manifest["previous_bundle_id"]
 
     def _consume(self) -> None:
         if self._used:  # B175: handle de uso único (segunda llamada a commit_current se rechaza)
@@ -651,7 +666,17 @@ def prepare_bundle(
         _verify_csv(frozen, o["rows"], o["cols"])  # B169/B186: header exacto + filas reales
         out_meta.append({"label": o["label"], "name": o["name"], "rows": o["rows"], "cols": o["cols"], "sha256": hashlib.sha256(frozen).hexdigest()})  # fmt: skip
         sealed[(o["label"], o["name"])] = frozen
-    manifest = _validate_manifest(_manifest_for(campaign_id, txid, in_meta, out_meta, provenance))
+    # B230: captura y VALIDA el predecesor (CURRENT vigente) ANTES de sellar; su bundle_id se SELLA en el manifiesto
+    # (linaje content-addressed) y su identidad/bytes se conservan para exigirlo intacto en el CAS. Si CURRENT cambia
+    # entre prepare y commit, el CAS aborta y NO reutiliza este manifiesto (B230, pasos 3.5–3.6).
+    prev = _read_current(camp_fd)
+    if prev is None:
+        prev_id, prev_ident, prev_raw = None, None, None
+    else:
+        prev_pointer, prev_raw, prev_ident = prev
+        prev_id = prev_pointer["bundle_id"]
+        _validate_authority(camp_fd, prev_id)  # el predecesor apuntado debe ser un bundle VÁLIDO
+    manifest = _validate_manifest(_manifest_for(campaign_id, txid, prev_id, in_meta, out_meta, provenance))
     bundle_id = hashlib.sha256(_canon(manifest)).hexdigest()
 
     staging_name = f"{_STAGING_PREFIX}.{secrets.token_hex(12)}"
@@ -684,7 +709,7 @@ def prepare_bundle(
         finally:
             if sroot >= 0:
                 os.close(sroot)
-    prepared = _PreparedBundle(camp_fd, bundle_id, campaign_id, manifest)
+    prepared = _PreparedBundle(camp_fd, bundle_id, campaign_id, manifest, prev_ident, prev_raw)
     try:
         prepared.revalidate()
     except BaseException:
@@ -840,7 +865,7 @@ def _certify_current(camp_fd: int, prepared: _PreparedBundle, pbytes: bytes, tmp
     TRAS validar (cierra el swap-durante-certificación). Devuelve un `CommitCertificate`."""
     fd, raw, pointer, ident = _open_pointer_governed(camp_fd, _CURRENT_NAME)  # B177: nlink==1/modo/esquema
     try:
-        if raw != pbytes or pointer["bundle_id"] != prepared.bundle_id or ident != tmp_ident:
+        if raw != pbytes or pointer["bundle_id"] != prepared.bundle_id or ident != tmp_ident or pointer["previous_bundle_id"] != prepared.manifest["previous_bundle_id"]:  # B230: linaje del puntero == sellado  # fmt: skip
             raise BundleValidationError("CURRENT no es mi puntero certificable")
     finally:
         os.close(fd)
@@ -853,12 +878,15 @@ def _certify_current(camp_fd: int, prepared: _PreparedBundle, pbytes: bytes, tmp
 
 
 def _build_certificate(prepared: _PreparedBundle, pbytes: bytes, tmp_ident: tuple[int, int], prev_id: str | None, durability_state: str) -> CommitCertificate:  # fmt: skip
-    """Construye el CommitCertificate desde el manifiesto VALIDADO del bundle y el puntero CURRENT observado."""
+    """Construye el CommitCertificate desde el manifiesto VALIDADO del bundle y el puntero CURRENT observado. B230: el
+    predecesor del certificado se toma del manifiesto SELLADO (fuente única) y debe coincidir con el observado."""
     manifest = prepared.manifest
+    if prev_id != manifest["previous_bundle_id"]:  # B230: el predecesor observado DEBE == el sellado en el manifiesto
+        raise BundleValidationError(f"predecesor observado ({prev_id!r}) diverge del sellado ({manifest['previous_bundle_id']!r})")  # fmt: skip
     prov = manifest["provenance"]
     return CommitCertificate(
         bundle_id=prepared.bundle_id,
-        previous_bundle_id=prev_id,
+        previous_bundle_id=manifest["previous_bundle_id"],
         campaign_id=manifest["campaign_id"],
         pointer_digest=hashlib.sha256(pbytes).hexdigest(),
         pointer_inode=tmp_ident,
@@ -906,6 +934,8 @@ def _reconcile_and_raise(camp_fd: int, prepared: _PreparedBundle, tmp_ident: tup
         try:
             if pointer.get("campaign_id") != prepared.manifest["campaign_id"]:  # B227: puntero↔manifiesto coherentes
                 raise BundleValidationError("CURRENT.campaign_id diverge del manifiesto del bundle nuevo")
+            if pointer.get("previous_bundle_id") != prepared.manifest["previous_bundle_id"]:  # B230: linaje coherente
+                raise BundleValidationError("CURRENT.previous_bundle_id diverge del manifiesto del bundle nuevo")
             _validate_authority(camp_fd, new_bid)  # el bundle nuevo apuntado es válido
             os.fsync(camp_fd)  # asegura durabilidad (flush; NO sobrescribe CURRENT)
             # B225: RE-VERIFICA que CURRENT SIGA ligado EXACTAMENTE al MISMO inode Y bytes tras validar+fsync — cierra
@@ -991,9 +1021,18 @@ def _run_commit(camp_fd: int, quar: GovernedQuarantine, prepared: _PreparedBundl
     except FileNotFoundError:
         prev_fd, prev_raw, prev_pointer, prev_ident = -1, None, None, None
     try:
-        prev_id = prev_pointer["bundle_id"] if prev_pointer is not None else None
-        if prev_pointer is not None:  # B173: autoridad previa inválida BLOQUEA
-            _validate_authority(camp_fd, prev_pointer["bundle_id"])
+        # B230: el predecesor VIVO debe coincidir EXACTAMENTE con el capturado+sellado en prepare (bundle_id + bytes +
+        # inode). El puntero usa el predecesor SELLADO en el manifiesto, NO una relectura libre — así CURRENT no puede
+        # reescribir la historia y el certificado no puede contradecir a la autoridad observada.
+        sealed_prev = prepared.manifest["previous_bundle_id"]
+        if prepared.prev_ident is None or prepared.prev_raw is None:  # prepare selló 'sin predecesor' (CAS inicial)
+            if prev_pointer is not None:
+                raise BundleConcurrencyError("CURRENT apareció entre prepare y commit (el manifiesto selló sin predecesor)")  # fmt: skip
+        elif prev_pointer is None or prev_ident != prepared.prev_ident or prev_raw != prepared.prev_raw or prev_pointer["bundle_id"] != sealed_prev:  # fmt: skip
+            raise BundleConcurrencyError("el predecesor cambió entre prepare y commit; no se reutiliza el manifiesto sellado")  # fmt: skip
+        else:
+            _validate_authority(camp_fd, sealed_prev)  # B173: autoridad previa inválida BLOQUEA
+        prev_id = sealed_prev
         pointer = {"schema_version": _SCHEMA_VERSION, "campaign_id": prepared.manifest["campaign_id"], "bundle_id": prepared.bundle_id, "previous_bundle_id": prev_id}  # fmt: skip
         pbytes = _canon(pointer)
         tmp_name = f"{_CURRENT_TMP_PREFIX}.{secrets.token_hex(12)}"
@@ -1179,6 +1218,12 @@ class _BundleSnapshot:
                 pointer_campaign != self.manifest["campaign_id"]
             ):  # B227: CURRENT.campaign_id DEBE == manifest.campaign_id
                 raise BundleValidationError(f"CURRENT.campaign_id ({pointer_campaign!r}) diverge del manifiesto ({self.manifest['campaign_id']!r})")  # fmt: skip
+            if (
+                self.previous_bundle_id != self.manifest["previous_bundle_id"]
+            ):  # B230: linaje del puntero == linaje SELLADO
+                raise BundleValidationError(f"CURRENT.previous_bundle_id ({self.previous_bundle_id!r}) diverge del manifiesto ({self.manifest['previous_bundle_id']!r})")  # fmt: skip
+            if self.previous_bundle_id == self.bundle_id:  # B230: self-loop prohibido (defensa explícita)
+                raise BundleValidationError(f"linaje cíclico: CURRENT apunta a sí mismo ({self.bundle_id})")
             outs = _open_dir(bfd, _OUTPUTS_DIR, mode=0o700)
             self._fds.append(outs)
             for lab in _LABELS:

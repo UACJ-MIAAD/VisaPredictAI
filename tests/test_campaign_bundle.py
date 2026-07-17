@@ -78,7 +78,9 @@ def _manifest_ok():
     ins = [{"name": n, "size": 3, "sha256": _H} for n in _INPUTS]
     outs = [{"label": "campaign", "name": n, "rows": 1, "cols": len(_COLS), "sha256": _H} for n in _CAMP]
     outs += [{"label": "eval", "name": n, "rows": 1, "cols": len(_COLS), "sha256": _H} for n in _EVAL]
-    return cb._manifest_for("campA", "tx.aaaa", ins, outs, _prov())
+    return cb._manifest_for(
+        "campA", "tx.aaaa", None, ins, outs, _prov()
+    )  # B230: previous_bundle_id sellado (None=inicial)
 
 
 def _residue(camp):
