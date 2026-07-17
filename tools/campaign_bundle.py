@@ -40,26 +40,26 @@ import secrets
 import stat
 
 from tools.atomic_fs import AtomicRenameError, AtomicUnsupportedError, rename_exchange, rename_noreplace
-from tools.governed_fs import GovernedQuarantine, GovernedRemovalError
+from tools.governed_fs import GovernedQuarantine, GovernedQuarantineError, GovernedRemovalError, OwnedLease
 from tools.governed_read import read_governed_bytes, relative_name_problem
 
-
-def _load_csv_contract() -> dict:
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "security", "campaign_bundle_contract.json")
-    with open(path, "rb") as fh:
-        contract = json.loads(fh.read())
-    if not (isinstance(contract.get("columns"), list) and contract["columns"] and contract.get("encoding") == "utf-8"):
-        raise BundleError("contrato CSV inválido")
-    return contract
+# B198: el contrato CSV se ANCLA por sha256 pineado (no una caché mutable). `_csv_columns()` RELEE el fichero y
+# verifica su hash en CADA uso → mutar una caché en memoria no puede aflojarlo, y mutar el fichero rompe el hash. El
+# mismo hash entra en la procedencia (→ manifiesto → bundle_id), ligando cada bundle a un contrato exacto.
+_CSV_CONTRACT_SHA256 = "1784f9b080a852885625d502e9110e74992bba2f442419a7c9a516373936f67e"
+_CSV_CONTRACT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "security", "campaign_bundle_contract.json")  # fmt: skip
 
 
-_CSV_CONTRACT_CACHE: dict = {}  # se puebla perezosamente en _csv_columns() (mutación, sin rebind → sin `global`)
-
-
-def _csv_columns() -> list[str]:
-    if "columns" not in _CSV_CONTRACT_CACHE:
-        _CSV_CONTRACT_CACHE.update(_load_csv_contract())
-    return _CSV_CONTRACT_CACHE["columns"]
+def _csv_columns() -> tuple[str, ...]:
+    with open(_CSV_CONTRACT_PATH, "rb") as fh:
+        raw = fh.read()
+    if hashlib.sha256(raw).hexdigest() != _CSV_CONTRACT_SHA256:
+        raise BundleValidationError("el contrato CSV en disco no coincide con el sha256 pineado (B198)")
+    contract = json.loads(raw)
+    cols = contract.get("columns")
+    if not (isinstance(cols, list) and cols and contract.get("encoding") == "utf-8"):
+        raise BundleValidationError("contrato CSV inválido")
+    return tuple(cols)  # inmutable: no se puede reescribir el resultado
 
 
 _BUNDLES_DIR = ".merge-bundles"
@@ -95,11 +95,15 @@ _REQUIRED_PROVENANCE = frozenset(
     {
         "mode",
         "git_head",
+        "git_tree",
+        "git_dirty",
+        "env_id",
         "code_sha_merge_campaign_pools",
         "code_sha_campaign_bundle",
         "code_sha_atomic_fs",
         "code_sha_governed_read",
         "code_sha_execution_contract",
+        "csv_contract_sha256",
         "journal_heads",
         "python",
         "platform",
@@ -283,7 +287,7 @@ def _verify_csv(data: bytes, rows: int, cols: int) -> None:
         header = next(reader)
     except StopIteration:
         raise BundleValidationError("CSV sellado vacío (sin header)") from None
-    if header != columns:
+    if tuple(header) != columns:
         raise BundleValidationError(f"header CSV != contrato (nombres/orden): {header}")
     n = 0
     for row in reader:
@@ -366,11 +370,19 @@ def _validate_provenance(prov: object) -> None:
         raise BundleValidationError("provenance oficial exige git_head 40-hex no nulo")
     if prov["git_head"] is not None and not _is_hex(prov["git_head"], 40):
         raise BundleValidationError(f"git_head no es sha git 40-hex|None: {prov['git_head']!r}")
+    if prov["git_tree"] is not None and not _is_hex(prov["git_tree"], 40):
+        raise BundleValidationError(f"git_tree no es sha git 40-hex|None: {prov['git_tree']!r}")
+    if prov["git_dirty"] is not None and not isinstance(prov["git_dirty"], bool):
+        raise BundleValidationError("git_dirty no es bool|None")
+    if prov["env_id"] is not None and not _is_hex64(prov["env_id"]):
+        raise BundleValidationError("env_id no es sha256|None")
     for k in _PROV_MODULE_HASHES:
         if not _is_hex64(prov[k]):
             raise BundleValidationError(f"{k} no es sha256: {prov[k]!r}")
     if prov["code_sha_execution_contract"] is not None and not _is_hex64(prov["code_sha_execution_contract"]):
         raise BundleValidationError("code_sha_execution_contract no sha256|None")
+    if not _is_hex64(prov["csv_contract_sha256"]) or prov["csv_contract_sha256"] != _CSV_CONTRACT_SHA256:  # B198
+        raise BundleValidationError("csv_contract_sha256 no liga al contrato CSV pineado")
     heads = prov["journal_heads"]
     if not isinstance(heads, dict):
         raise BundleValidationError("journal_heads no es dict")
@@ -383,6 +395,13 @@ def _validate_provenance(prov: object) -> None:
     for k in ("profile", "variant"):
         if prov[k] is not None and not isinstance(prov[k], str):
             raise BundleValidationError(f"provenance.{k} no str|None")
+    if prov["mode"] == "official":  # B199: 'official' exige los marcadores del run GOBERNADO, no solo git
+        if not _is_hex64(prov["env_id"]):
+            raise BundleValidationError("official exige env_id 64-hex (run gobernado)")
+        if not _is_hex(prov["git_tree"], 40) or prov["git_dirty"] is not False:
+            raise BundleValidationError("official exige git_tree 40-hex y git_dirty=false")
+        if not (isinstance(prov["profile"], str) and prov["profile"].strip()):
+            raise BundleValidationError("official exige profile no vacío")
 
 
 def _validate_pointer(obj: object) -> dict:
@@ -455,13 +474,18 @@ def validate_bundle(bundles_root_fd: int, bundle_id: str) -> dict:
 # --------------------------------------------------- limpieza fail-closed ---------------------------------------------------
 
 
-def _cleanup_staging(camp_fd: int, staging_name: str, staging_ident: tuple[int, int] | None) -> None:
-    """B170/B180: si el staging SOBREVIVE (colisión/error; en éxito el rename lo consumió), lo remueve ligado a su
-    inode a través de una cuarentena gobernada — jamás borra por nombre un árbol que fue re-ligado a uno ajeno."""
-    if staging_ident is None or _name_ident(camp_fd, staging_name) is None:
+def _cleanup_staging(camp_fd: int, staging_name: str, staging_fd: int) -> None:
+    """B170/B180: si el staging SOBREVIVE (colisión/error; en éxito el rename lo consumió), lo RETIRA por cuarentena
+    MOVE-ONLY ligado a su fd VIVO (dev/ino) — jamás borra por nombre un árbol re-ligado a uno ajeno; move-only nunca
+    borra (B191). `staging_fd` es el fd vivo del dir de staging (o < 0 si nunca se creó)."""
+    if staging_fd < 0 or _name_ident(camp_fd, staging_name) is None:
         return  # nunca se creó, o el rename ya lo consumió
-    with GovernedQuarantine(camp_fd) as quar:
-        quar.remove_tree_owned(camp_fd, staging_name, staging_ident)
+    lease = OwnedLease(staging_fd, is_dir=True)  # ligado al inode vivo del staging
+    with GovernedQuarantine(camp_fd, secrets.token_hex(12)) as quar:
+        try:
+            quar.quarantine(camp_fd, staging_name, lease)
+        except GovernedRemovalError as exc:
+            raise BundleRollbackIncompleteError(str(exc)) from exc
 
 
 # ------------------------------------------- preparar / validar / commit -------------------------------------------
@@ -585,38 +609,37 @@ def prepare_bundle(
     bundle_id = hashlib.sha256(_canon(manifest)).hexdigest()
 
     staging_name = f"{_STAGING_PREFIX}.{secrets.token_hex(12)}"
-    staging_ident: tuple[int, int] | None = None
     committed_or_collided = False
+    sroot = -1  # B180/Fase4: fd VIVO del dir de staging, retenido desde la creación hasta promoción/cuarentena
     try:
         sroot = _mkdir_governed(camp_fd, staging_name)
-        staging_ident = _ident(os.fstat(sroot))  # B180: ligar el staging a su inode para una remoción gobernada
+        outs_root = _mkdir_governed(sroot, _OUTPUTS_DIR)
         try:
-            outs_root = _mkdir_governed(sroot, _OUTPUTS_DIR)
-            try:
-                for lab in _LABELS:
-                    lfd = _mkdir_governed(outs_root, lab)
-                    try:
-                        for name in sorted(_EXPECTED_OUTPUTS[lab]):
-                            _seal_file(lfd, name, sealed[(lab, name)])
-                        os.fsync(lfd)
-                    finally:
-                        os.close(lfd)
-                os.fsync(outs_root)
-            finally:
-                os.close(outs_root)
-            _seal_file(sroot, _MANIFEST, _canon(manifest))
-            os.fsync(sroot)
+            for lab in _LABELS:
+                lfd = _mkdir_governed(outs_root, lab)
+                try:
+                    for name in sorted(_EXPECTED_OUTPUTS[lab]):
+                        _seal_file(lfd, name, sealed[(lab, name)])
+                    os.fsync(lfd)
+                finally:
+                    os.close(lfd)
+            os.fsync(outs_root)
         finally:
-            os.close(sroot)
+            os.close(outs_root)
+        _seal_file(sroot, _MANIFEST, _canon(manifest))
+        os.fsync(sroot)
         _promote_staging(camp_fd, staging_name, bundle_id, manifest)
         committed_or_collided = True
     finally:
-        try:  # B170/B180/B185: limpieza fail-closed vía cuarentena, clasificando BundleError además de OSError
-            _cleanup_staging(camp_fd, staging_name, staging_ident)
-        except (GovernedRemovalError, BundleError, OSError) as exc:
+        try:  # B170/B180/B185: limpieza fail-closed vía cuarentena move-only, ligada al fd vivo del staging
+            _cleanup_staging(camp_fd, staging_name, sroot)
+        except (GovernedRemovalError, GovernedQuarantineError, BundleError, OSError) as exc:
             if committed_or_collided:
                 raise CommittedStateError(f"bundle promovido pero el staging {staging_name} no se limpió: {exc}") from exc  # fmt: skip
             raise BundleRollbackIncompleteError(f"no se pudo limpiar el staging {staging_name}: {exc}") from exc
+        finally:
+            if sroot >= 0:
+                os.close(sroot)
     prepared = _PreparedBundle(camp_fd, bundle_id, campaign_id, manifest)
     try:
         prepared.revalidate()
@@ -747,10 +770,25 @@ def _pointer_matches(dir_fd: int, name: str, ident: tuple[int, int], content: by
         os.close(fd)
 
 
-def _quar_remove(quar: GovernedQuarantine, camp_fd: int, name: str, ident: tuple[int, int]) -> None:
-    """Remueve `name` (que la tx posee, ident) vía cuarentena gobernada. Un objeto ajeno se PRESERVA (B167/B179)."""
+class CommitCertificate:
+    """Prueba estructurada del commit del bundle (B189): CURRENT y el bundle se certificaron como UNA unidad. NO se
+    devuelve un simple string."""
+
+    __slots__ = ("bundle_id", "pointer_digest", "pointer_inode", "previous_bundle_id")
+
+    def __init__(self, bundle_id: str, pointer_digest: str, pointer_inode: tuple[int, int], previous_bundle_id: str | None) -> None:  # fmt: skip
+        self.bundle_id = bundle_id
+        self.pointer_digest = pointer_digest
+        self.pointer_inode = pointer_inode
+        self.previous_bundle_id = previous_bundle_id
+
+
+def _quarantine_pointer(quar: GovernedQuarantine, camp_fd: int, name: str, fd: int, content: bytes) -> None:
+    """MOVE-ONLY: mueve el puntero `name` (que la tx posee: `fd` vivo + `content` conocido) a la cuarantena y lo
+    PRESERVA. Un objeto ajeno/mutado se preserva como FOREIGN y eleva incompleto. Nunca borra (B191/B192)."""
+    lease = OwnedLease(fd, is_dir=False, known_digest=hashlib.sha256(content).hexdigest())
     try:
-        quar.remove_owned(camp_fd, name, ident)
+        quar.quarantine(camp_fd, name, lease)
     except GovernedRemovalError as exc:
         raise BundleRollbackIncompleteError(str(exc)) from exc
 
@@ -773,29 +811,34 @@ def _fsync_typed(camp_fd: int) -> None:
         raise CommittedStateError(f"fsync post-CAS de durabilidad falló: {exc}") from exc
 
 
-def _certify_current(camp_fd: int, prepared: _PreparedBundle, pbytes: bytes) -> None:
-    """Certifica que CURRENT es EXACTAMENTE mi puntero (gobernado: nlink==1/modo/esquema, B177 + contenido) y que el
-    bundle apuntado es válido A TRAVÉS del fd vivo del handle y su nombre sigue ligado al mismo inode (B178)."""
-    fd, raw, pointer, _ptr_ident = _open_pointer_governed(camp_fd, _CURRENT_NAME)  # B177: nlink==1/modo/esquema
+def _certify_current(camp_fd: int, prepared: _PreparedBundle, pbytes: bytes, tmp_ident: tuple[int, int], prev_id: str | None) -> CommitCertificate:  # fmt: skip
+    """Certifica CURRENT + bundle como UNA unidad (B189): CURRENT liga EXACTAMENTE a mi puntero (gobernado nlink/modo/
+    esquema + identidad + contenido), el bundle es válido a través del fd vivo, y CURRENT SIGUE ligado a mi puntero
+    TRAS validar (cierra el swap-durante-certificación). Devuelve un `CommitCertificate`."""
+    fd, raw, pointer, ident = _open_pointer_governed(camp_fd, _CURRENT_NAME)  # B177: nlink==1/modo/esquema
     try:
-        if raw != pbytes or pointer["bundle_id"] != prepared.bundle_id:
+        if raw != pbytes or pointer["bundle_id"] != prepared.bundle_id or ident != tmp_ident:
             raise BundleValidationError("CURRENT no es mi puntero certificable")
     finally:
         os.close(fd)
     prepared.revalidate()  # B178: el bundle apuntado es válido y su nombre no fue re-ligado
+    if prev_id is not None:  # B197: la autoridad previa referenciada sigue siendo válida en la linealización
+        _validate_authority(camp_fd, prev_id)
+    if not _pointer_matches(camp_fd, _CURRENT_NAME, tmp_ident, pbytes):  # B189: CURRENT no cambió durante la validación
+        raise BundleValidationError("CURRENT fue cambiado durante la certificación (B189)")
+    return CommitCertificate(prepared.bundle_id, hashlib.sha256(pbytes).hexdigest(), tmp_ident, prev_id)
 
 
-def commit_current(prepared: _PreparedBundle) -> str:
+def commit_current(prepared: _PreparedBundle) -> CommitCertificate:
     """PUNTO DE COMMIT del bundle (uso ÚNICO). `campaign_id` sale del manifiesto validado (B175). Bajo una cuarentena
-    gobernada de la transacción: valida la autoridad PREVIA (B173) y la RE-valida justo antes del exchange (B184);
-    mantiene vivos los fds del puntero temporal (nlink==1, B177) y del CURRENT anterior (B166); tras el CAS certifica
-    identidad+contenido+bundle ANTES de declarar el commit, y compensa si algo falla (B176/B178/B183). Las remociones
-    van por cuarentena (B167/B179). Devuelve el `bundle_id`."""
+    MOVE-ONLY: certifica CURRENT+bundle como una unidad (B189), compensa ante CUALQUIER Exception antes de certificar
+    (B190), y CADA temporal creado se retira por cuarentena move-only en toda salida (B195/B196). Devuelve un
+    `CommitCertificate`."""
     camp_fd = prepared.camp_fd
     prepared._consume()  # B175: handle de uso único
     prepared.revalidate()  # B165: re-validar el bundle a través del fd vivo antes de nada
 
-    with GovernedQuarantine(camp_fd) as quar:
+    with GovernedQuarantine(camp_fd, secrets.token_hex(12)) as quar:
         try:
             prev_fd, prev_raw, prev_pointer, prev_ident = _open_pointer_governed(camp_fd, _CURRENT_NAME)
         except FileNotFoundError:
@@ -812,76 +855,80 @@ def commit_current(prepared: _PreparedBundle) -> str:
                 _write_all(tmp_fd, pbytes)
                 os.fsync(tmp_fd)
                 tmp_ident = _ident(os.fstat(tmp_fd))
-                if os.fstat(tmp_fd).st_nlink != 1:  # B177: sin hardlinks del temporal
+                if os.fstat(tmp_fd).st_nlink != 1:  # B177/B195: hardlink del temporal → se retira por cuarentena
+                    _quarantine_pointer(quar, camp_fd, tmp_name, tmp_fd, pbytes)
                     raise BundleValidationError("puntero temporal con nlink != 1")
                 if not _pointer_matches(camp_fd, tmp_name, tmp_ident, pbytes):  # B166: identidad Y contenido
+                    _quarantine_pointer(quar, camp_fd, tmp_name, tmp_fd, pbytes)
                     raise BundleValidationError("el puntero temporal no liga a su fd/contenido tras escribir")
-                _cas_pointer(camp_fd, quar, prepared, tmp_name, tmp_ident, pbytes, prev_ident, prev_raw, prev_pointer)
+                return _cas_pointer(camp_fd, quar, prepared, tmp_name, tmp_fd, tmp_ident, pbytes, prev_fd, prev_ident, prev_raw, prev_pointer)  # fmt: skip
             finally:
                 os.close(tmp_fd)
         finally:
             if prev_fd >= 0:
                 os.close(prev_fd)
-    return prepared.bundle_id
 
 
-def _cas_pointer(camp_fd: int, quar: GovernedQuarantine, prepared: _PreparedBundle, tmp_name: str, tmp_ident: tuple[int, int], pbytes: bytes, prev_ident: tuple[int, int] | None, prev_raw: bytes | None, prev_pointer: dict | None) -> None:  # fmt: skip
-    """CAS con estado explícito. Ausente → `rename_noreplace`; existente → `rename_exchange`. En AMBOS casos, tras el
-    rename se CERTIFICA (identidad+contenido+nlink+bundle) ANTES de declarar el commit; si falla, compensa (retira
-    CURRENT/restaura el previo) sin dejar residuo (B176/B178/B181)."""
+def _cas_pointer(camp_fd: int, quar: GovernedQuarantine, prepared: _PreparedBundle, tmp_name: str, tmp_fd: int, tmp_ident: tuple[int, int], pbytes: bytes, prev_fd: int, prev_ident: tuple[int, int] | None, prev_raw: bytes | None, prev_pointer: dict | None) -> CommitCertificate:  # fmt: skip
+    """CAS con estado explícito. Tras el rename se CERTIFICA (identidad+contenido+nlink+bundle+previo) como una unidad
+    ANTES de declarar el commit; CUALQUIER Exception (no solo BundleError, B190) → compensa. Los temporales se retiran
+    por cuarentena MOVE-ONLY en toda salida (B195/B196). Devuelve un `CommitCertificate`."""
+    prev_id = prev_pointer["bundle_id"] if prev_pointer is not None else None
     if prev_pointer is None:
         try:
             rename_noreplace(camp_fd, tmp_name, camp_fd, _CURRENT_NAME)
         except FileExistsError as exc:
-            _quar_remove(quar, camp_fd, tmp_name, tmp_ident)  # B181: retira mi temporal, cero residuo
+            _quarantine_pointer(quar, camp_fd, tmp_name, tmp_fd, pbytes)  # B181/B196: retira mi temporal
             raise BundleConcurrencyError(f"CURRENT apareció durante el CAS inicial: {exc}") from exc
         except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
-            _quar_remove(quar, camp_fd, tmp_name, tmp_ident)
+            _quarantine_pointer(quar, camp_fd, tmp_name, tmp_fd, pbytes)
             raise BundleError(f"no se pudo hacer CAS inicial de CURRENT: {exc}") from exc
         try:
-            _certify_current(camp_fd, prepared, pbytes)  # B176/B177/B178: identidad+contenido+nlink+bundle
-        except BundleError:
-            _compensate_first(camp_fd, quar, tmp_ident)  # retira CURRENT (mi inode) → restaura ausencia
+            cert = _certify_current(camp_fd, prepared, pbytes, tmp_ident, None)
+        except Exception:  # noqa: BLE001 — B190: compensa CUALQUIER excepción (no BaseException) antes de certificar
+            _quarantine_pointer(quar, camp_fd, _CURRENT_NAME, tmp_fd, pbytes)  # move-only: CURRENT sale → ausencia
             raise
         _fsync_typed(camp_fd)
-        return
+        return cert
 
-    if prev_ident is None or prev_raw is None:
-        raise BundleError("estado inconsistente: puntero previo sin identidad/bytes")
+    if prev_ident is None or prev_raw is None or prev_fd < 0:
+        raise BundleError("estado inconsistente: puntero previo sin identidad/bytes/fd")
     _validate_authority(camp_fd, prev_pointer["bundle_id"])  # B184: re-validar el previo JUSTO antes del exchange
     try:
         rename_exchange(camp_fd, tmp_name, camp_fd, _CURRENT_NAME)  # tmp <-> CURRENT
     except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
+        _quarantine_pointer(quar, camp_fd, tmp_name, tmp_fd, pbytes)  # B196: el temporal no debe quedar residual
         raise BundleError(f"no se pudo hacer CAS (exchange) de CURRENT: {exc}") from exc
     displaced = _capture(camp_fd, tmp_name)  # lo que estaba en CURRENT justo antes de MI exchange
     cur_ok = _pointer_matches(camp_fd, _CURRENT_NAME, tmp_ident, pbytes)
     if cur_ok and displaced == (prev_ident, prev_raw):  # swap legítimo: desplazado == el previo EXACTO
         try:
-            _certify_current(camp_fd, prepared, pbytes)  # B177/B178 ANTES de retirar el previo desplazado
-        except BundleError:
-            _compensate(camp_fd, quar, tmp_name, tmp_ident, pbytes, displaced)  # restaura el previo
+            cert = _certify_current(camp_fd, prepared, pbytes, tmp_ident, prev_id)  # B189/B197: unidad + previo válido
+        except Exception:  # noqa: BLE001 — B190: compensa CUALQUIER excepción (no BaseException) antes de certificar
+            _compensate(camp_fd, quar, tmp_name, tmp_fd, tmp_ident, pbytes, prev_fd, prev_raw, displaced)
             raise
         _fsync_typed(camp_fd)
-        _quar_remove(quar, camp_fd, tmp_name, prev_ident)  # retira el previo desplazado (post-commit)
-        return
+        _quarantine_pointer_prev(quar, camp_fd, tmp_name, prev_fd, prev_raw)  # retira el previo desplazado (move-only)
+        return cert
     # Carrera: CURRENT había cambiado. Restaurar el valor CONCURRENTE (el desplazado real), no el previo stale.
-    _compensate(camp_fd, quar, tmp_name, tmp_ident, pbytes, displaced)
+    _compensate(camp_fd, quar, tmp_name, tmp_fd, tmp_ident, pbytes, prev_fd, prev_raw, displaced)
     raise BundleConcurrencyError("CURRENT fue modificado concurrentemente; commit abortado y compensado")
 
 
-def _compensate_first(camp_fd: int, quar: GovernedQuarantine, tmp_ident: tuple[int, int]) -> None:
-    """Compensa un CAS INICIAL fallido: CURRENT es mi propio inode (tmp_ident) → retirarlo (governed) para restaurar
-    la ausencia previa. Si CURRENT no liga a mi inode (algo ajeno lo ocupó), PRESERVA y eleva incompleto (B176)."""
-    if _name_ident(camp_fd, _CURRENT_NAME) != tmp_ident:
-        raise BundleRollbackIncompleteError("tras el CAS inicial CURRENT no liga a mi inode; PRESERVADO")
-    _quar_remove(quar, camp_fd, _CURRENT_NAME, tmp_ident)
+def _quarantine_pointer_prev(quar: GovernedQuarantine, camp_fd: int, name: str, prev_fd: int, prev_raw: bytes) -> None:
+    """Retira el previo DESPLAZADO (ahora en `name`) por cuarentena move-only, ligado a `prev_fd` (su inode)."""
+    lease = OwnedLease(prev_fd, is_dir=False, known_digest=hashlib.sha256(prev_raw).hexdigest())
+    try:
+        quar.quarantine(camp_fd, name, lease)
+    except GovernedRemovalError as exc:
+        raise CommittedStateError(f"commit certificado pero el previo desplazado no se pudo poner en cuarentena: {exc}") from exc  # fmt: skip
 
 
-def _compensate(camp_fd: int, quar: GovernedQuarantine, tmp_name: str, tmp_ident: tuple[int, int], pbytes: bytes, displaced: tuple[tuple[int, int], bytes] | None) -> None:  # fmt: skip
+def _compensate(camp_fd: int, quar: GovernedQuarantine, tmp_name: str, tmp_fd: int, tmp_ident: tuple[int, int], pbytes: bytes, prev_fd: int, prev_raw: bytes, displaced: tuple[tuple[int, int], bytes] | None) -> None:  # fmt: skip
     """Deshace un exchange que clobbereó un CURRENT concurrente: segundo exchange que restaura el valor CONCURRENTE
     (`displaced`) y verifica FÍSICAMENTE ambos lados por identidad Y contenido. La autoridad concurrente restaurada
-    debe apuntar a un bundle VÁLIDO (B183); si no, incompleto. Sólo entonces retira mi puntero (cuarentena). Si no se
-    puede probar la restauración, PRESERVA todo y eleva `BundleRollbackIncompleteError` (B167)."""
+    debe apuntar a un bundle VÁLIDO (B183). Sólo entonces retira mi puntero por cuarentena move-only. Si no se puede
+    probar la restauración, PRESERVA todo y eleva `BundleRollbackIncompleteError` (B167)."""
     if displaced is None:
         raise BundleRollbackIncompleteError("el valor concurrente desplazado desapareció; estado PRESERVADO")
     try:
@@ -897,7 +944,7 @@ def _compensate(camp_fd: int, quar: GovernedQuarantine, tmp_name: str, tmp_ident
         _validate_authority(camp_fd, restored[0]["bundle_id"])
     except BundleError as exc:
         raise BundleRollbackIncompleteError(f"la autoridad concurrente restaurada es inválida: {exc}") from exc
-    _quar_remove(quar, camp_fd, tmp_name, tmp_ident)  # sólo mi propio puntero, verificado por binding
+    _quarantine_pointer(quar, camp_fd, tmp_name, tmp_fd, pbytes)  # retira mi puntero por cuarentena move-only
 
 
 def build_and_commit(
@@ -908,10 +955,10 @@ def build_and_commit(
     inputs: list[dict],
     provenance: dict,
 ) -> str:
-    """Envoltura: prepara+valida el bundle inmutable (fd vivo) y hace CAS de CURRENT. Devuelve el `bundle_id` SÓLO
-    cuando CURRENT apunta al bundle válido (punto de commit)."""
+    """Envoltura: prepara+valida el bundle inmutable (fd vivo) y hace CAS de CURRENT. Devuelve el `bundle_id` del
+    `CommitCertificate` SÓLO cuando CURRENT apunta al bundle válido (punto de commit)."""
     with prepare_bundle(camp_fd, txid, campaign_id, outputs, inputs, provenance) as prepared:
-        return commit_current(prepared)
+        return commit_current(prepared).bundle_id
 
 
 # --------------------------------------- resolución para consumidores (snapshot) ---------------------------------------

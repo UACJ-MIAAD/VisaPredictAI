@@ -29,21 +29,26 @@ def _camp(tmp_path):
     return camp, os.open(str(camp), os.O_RDONLY | os.O_DIRECTORY)
 
 
-def _prov(mode="test", git_head=None):
+def _prov(**over):
     base = {
-        "mode": mode,
-        "git_head": git_head,
+        "mode": "test",
+        "git_head": None,
+        "git_tree": None,
+        "git_dirty": None,
+        "env_id": None,
         "code_sha_merge_campaign_pools": _H,
         "code_sha_campaign_bundle": _H,
         "code_sha_atomic_fs": _H,
         "code_sha_governed_read": _H,
         "code_sha_execution_contract": None,
+        "csv_contract_sha256": getattr(cb, "_CSV_CONTRACT_SHA256", _H),  # module-adaptivo (rojo limpio en SHA viejo)
         "journal_heads": {},
         "python": "3.14.2",
         "platform": "darwin",
         "profile": None,
         "variant": None,
     }
+    base.update(over)
     return {k: base[k] for k in cb._REQUIRED_PROVENANCE}
 
 
@@ -77,7 +82,12 @@ def _manifest_ok():
 
 
 def _residue(camp):
-    return sorted(p.name for p in camp.iterdir() if p.name.startswith((".merge-staging", ".merge-CURRENT.tmp", ".merge-quar")))  # fmt: skip
+    # SÓLO temporales de la RUTA OFICIAL. `.merge-quar.*` es cuarentena MOVE-ONLY: PRESERVADA a propósito (GC futuro).
+    return sorted(p.name for p in camp.iterdir() if p.name.startswith((".merge-staging", ".merge-CURRENT.tmp")))
+
+
+def _quarantines(camp):
+    return [p for p in camp.iterdir() if p.name.startswith(".merge-quar")]
 
 
 def _commit(cfd, txid="tx.aaaa", suffix=""):
@@ -223,14 +233,16 @@ def test_b171_provenance_schema_rejects(mutate):
         cb._validate_manifest(m)
 
 
-def test_b187_official_requires_non_null_git():
-    # mode=official con git_head=None se rechaza; con git 40-hex pasa.
+def test_b187_official_requires_governed_markers():
+    # B187/B199: mode=official sin los marcadores del run gobernado (git limpio + env_id + profile) se rechaza;
+    # con TODOS pasa. Un git presente NO basta para 'official'.
     m = _manifest_ok()
     m["provenance"]["mode"] = "official"
-    with pytest.raises(cb.BundleValidationError):
-        cb._validate_manifest(m)
     m["provenance"]["git_head"] = "a" * 40
-    cb._validate_manifest(m)  # ahora sí
+    with pytest.raises(cb.BundleValidationError):  # falta env_id/git_tree/git_dirty=false/profile
+        cb._validate_manifest(m)
+    m["provenance"].update(git_tree="b" * 40, git_dirty=False, env_id=_H, profile="model")
+    cb._validate_manifest(m)  # ahora sí (run gobernado completo)
 
 
 # --------------------------------------------- B160/B172/B188: identidad + modo ---------------------------------------------
@@ -423,19 +435,19 @@ def test_b177_hardlinked_tmp_pointer_rejected(tmp_path, monkeypatch):
     try:
         with cb.prepare_bundle(cfd, "tx.a", "campA", _outputs(), _inputs(), _prov()) as prepared:
             real_fsync = cb.os.fsync
+            state = {"done": False}
 
             def hardlinking_fsync(fd):
-                # tras escribir el tmp, plantar un hardlink antes del CAS (una sola vez)
-                for n in os.listdir(cfd):
-                    if n.startswith(".merge-CURRENT.tmp") and not os.path.exists(str(camp / (n + ".hl"))):
-                        try:
+                if not state["done"]:  # exactamente UNA vez, en el primer fsync (el del tmp)
+                    for n in os.listdir(cfd):
+                        if n.startswith(".merge-CURRENT.tmp"):
+                            state["done"] = True
                             os.link(n, n + ".hl", src_dir_fd=cfd, dst_dir_fd=cfd)
-                        except OSError, FileExistsError:
-                            pass
+                            break
                 return real_fsync(fd)
 
             monkeypatch.setattr(cb.os, "fsync", hardlinking_fsync)
-            with pytest.raises(cb.BundleValidationError):
+            with pytest.raises(cb.BundleError):  # nlink!=1 → se detecta y se retira por cuarentena
                 cb.commit_current(prepared)
             monkeypatch.undo()
         assert cb._read_current(cfd) is None  # no se publicó un CURRENT con nlink!=1
@@ -540,19 +552,44 @@ def test_b182_postcas_fsync_failure_is_committed_state(tmp_path, monkeypatch):
 # --------------------------------------------- B179/B180: cuarentena gobernada ---------------------------------------------
 
 
-def test_b179_governed_quarantine_preserves_foreign():
-    # la cuarentena NUNCA borra un objeto que no liga al inode de la transacción (elimina el check→unlink).
+def test_b179_b191_quarantine_is_move_only_never_deletes():
+    # B191: la cuarentena MOVE-ONLY jamás borra: mueve y PRESERVA. Un objeto que coincide con el lease queda
+    # durable en la cuarentena (no unlink); uno mutado sobre el mismo inode se preserva como FOREIGN.
     import tempfile
 
     d = tempfile.mkdtemp()
     cfd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        fd = os.open("obj", os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=cfd)
+        fd = os.open("obj", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd)
+        os.write(fd, b"content")
+        lease = gf.OwnedLease(fd, is_dir=False)
         os.close(fd)
-        with gf.GovernedQuarantine(cfd) as q:
-            with pytest.raises(gf.GovernedRemovalError):
-                q.remove_owned(cfd, "obj", (123456789, 987654321))  # ident falso
-        assert "obj" in os.listdir(cfd)  # preservado, no borrado
+        with gf.GovernedQuarantine(cfd, "tx.move01") as q:
+            dest = q.quarantine(cfd, "obj", lease)
+        assert "obj" not in os.listdir(cfd)  # movido fuera de la ruta oficial
+        quar = next(p for p in os.listdir(d) if p.startswith(".merge-quar"))
+        assert dest in os.listdir(os.path.join(d, quar))  # PRESERVADO en cuarentena (move-only, no borrado)
+    finally:
+        os.close(cfd)
+
+
+def test_b192_same_inode_mutation_preserved_not_deleted():
+    import tempfile
+
+    d = tempfile.mkdtemp()
+    cfd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fd = os.open("obj", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd)
+        os.write(fd, b"orig")
+        lease = gf.OwnedLease(fd, is_dir=False)
+        os.ftruncate(fd, 0)
+        os.lseek(fd, 0, 0)
+        os.write(fd, b"MUTATED-concurrent")  # mismo inode, contenido concurrente distinto
+        os.close(fd)
+        with gf.GovernedQuarantine(cfd, "tx.mut02") as q:
+            with pytest.raises(gf.GovernedRemovalError):  # digest != lease → FOREIGN_PRESERVED
+                q.quarantine(cfd, "obj", lease)
+        assert "obj" not in os.listdir(cfd)  # movido, pero PRESERVADO (no borrado) — la actualización no se pierde
     finally:
         os.close(cfd)
 
@@ -572,11 +609,11 @@ def test_b180_staging_rebound_to_foreign_preserved(tmp_path, monkeypatch):
             raise cb.BundleError("promoción simulada rota")
 
         monkeypatch.setattr(cb, "_promote_staging", failing_promote)
-        with pytest.raises(cb.BundleError):  # la limpieza no puede borrar un árbol que no liga al inode del staging
+        with pytest.raises(cb.BundleError):  # move-only: el árbol ajeno se preserva, jamás se borra
             _commit(cfd, "tx.a")
         monkeypatch.undo()
-        # el árbol ajeno (bajo el nombre del staging) NO fue borrado: su sentinel sobrevive
-        assert any((p / "sentinel").exists() for p in camp.iterdir() if p.is_dir()), "el árbol ajeno fue borrado"
+        # el árbol ajeno NO fue borrado: su sentinel sobrevive (preservado en la cuarentena move-only)
+        assert list(camp.rglob("sentinel")), "el árbol ajeno fue borrado (violación move-only)"
     finally:
         os.close(cfd)
 
@@ -603,6 +640,125 @@ def test_no_current_raises(tmp_path):
     try:
         with pytest.raises(cb.BundleError):
             cb.open_current_bundle(cfd)
+    finally:
+        os.close(cfd)
+
+
+# --------------------------------------------- B189/B190/B197: certificación como unidad + compensación total ---------------------------------------------
+
+
+def test_b189_current_swapped_during_certification_detected(tmp_path, monkeypatch):
+    # cambiar CURRENT a OTRO bundle válido DENTRO de la certificación se detecta (CURRENT+bundle son una unidad).
+    camp, cfd = _camp(tmp_path)
+    try:
+        other = _commit(cfd, "tx.other")  # existe un bundle válido alternativo
+        with cb.prepare_bundle(cfd, "tx.a", "campA", _outputs("A"), _inputs(), _prov()) as prepared:
+            real = cb._PreparedBundle.revalidate
+            calls = {"n": 0}
+
+            def swapping(self):
+                calls["n"] += 1
+                r = real(self)
+                if calls["n"] == 2:  # dentro de _certify_current: swap CURRENT a `other`
+                    ptr = cb._canon({"schema_version": 1, "campaign_id": "x", "bundle_id": other, "previous_bundle_id": None})  # fmt: skip
+                    fd = os.open(cb._CURRENT_NAME, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW, dir_fd=cfd)
+                    os.write(fd, ptr)
+                    os.fsync(fd)
+                    os.close(fd)
+                return r
+
+            monkeypatch.setattr(cb._PreparedBundle, "revalidate", swapping)
+            with pytest.raises(cb.BundleError):
+                cb.commit_current(prepared)
+            monkeypatch.undo()
+    finally:
+        os.close(cfd)
+
+
+def test_b190_oserror_in_certify_compensates(tmp_path, monkeypatch):
+    # un OSError (no BundleError) durante la certificación NO escapa crudo: compensa (CURRENT del primer commit se
+    # retira) y re-eleva.
+    camp, cfd = _camp(tmp_path)
+    try:
+        with cb.prepare_bundle(cfd, "tx.a", "campA", _outputs(), _inputs(), _prov()) as prepared:
+            monkeypatch.setattr(cb, "_certify_current", lambda *a, **k: (_ for _ in ()).throw(OSError("crudo")))
+            with pytest.raises(OSError):
+                cb.commit_current(prepared)
+            monkeypatch.undo()
+        assert cb._read_current(cfd) is None  # CURRENT del primer commit se retiró → ausencia restaurada
+    finally:
+        os.close(cfd)
+
+
+def test_b197_prior_corrupted_during_exchange_compensates(tmp_path, monkeypatch):
+    # corromper el bundle previo DENTRO de rename_exchange (tras B184, en la linealización) → la certificación
+    # (B197) revalida el previo, falla y compensa (restaura el previo desplazado); CURRENT no queda con autoridad rota.
+    camp, cfd = _camp(tmp_path)
+    try:
+        a = _commit(cfd, "tx.a")
+        before = cb._read_current(cfd)[1]
+        real_ex = cb.rename_exchange
+        done = {"x": False}
+
+        def corrupting_exchange(sfd, s, dfd, d):
+            if not done["x"]:
+                done["x"] = True
+                p = camp / ".merge-bundles" / a / "outputs" / "campaign" / "campaign_pool_FAD_family.csv"
+                os.chmod(p, 0o600)
+                with open(p, "ab") as fh:
+                    fh.write(b"corrupt\n")
+            return real_ex(sfd, s, dfd, d)
+
+        monkeypatch.setattr(cb, "rename_exchange", corrupting_exchange)
+        with pytest.raises(cb.BundleError):
+            _commit(cfd, "tx.b", suffix="new")
+        monkeypatch.undo()
+        assert cb._read_current(cfd)[1] == before  # el previo desplazado fue restaurado como CURRENT
+    finally:
+        os.close(cfd)
+
+
+# --------------------------------------------- B198/B200: contrato CSV anclado + journal durable ---------------------------------------------
+
+
+def test_b198_mutated_contract_file_rejected(tmp_path, monkeypatch):
+    # el contrato CSV se ancla por sha256 pineado: mutar el fichero en disco rompe la validación (caché no mutable).
+    bad = tmp_path / "bad_contract.json"
+    bad.write_text('{"encoding":"utf-8","columns":["a","b"]}')
+    monkeypatch.setattr(cb, "_CSV_CONTRACT_PATH", str(bad))
+    with pytest.raises(cb.BundleValidationError):
+        cb._csv_columns()
+
+
+def test_b198_manifest_carries_contract_sha(tmp_path):
+    camp, cfd = _camp(tmp_path)
+    try:
+        _commit(cfd, "tx.a")
+        _, man = cb.open_current_bundle(cfd)
+        assert man["provenance"]["csv_contract_sha256"] == cb._CSV_CONTRACT_SHA256
+    finally:
+        os.close(cfd)
+
+
+def test_b200_quarantine_journal_tamper_detected(tmp_path):
+    # el journal de la cuarentena se RELEE y valida su cadena tras cada append: un registro alterado se caza.
+    import tempfile
+
+    d = tempfile.mkdtemp()
+    cfd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fd = os.open("o", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd)
+        os.write(fd, b"z")
+        lease = gf.OwnedLease(fd, is_dir=False)
+        os.close(fd)
+        q = gf.GovernedQuarantine(cfd, "tx.j01")
+        q.quarantine(cfd, "o", lease)
+        jpath = os.path.join(d, q.name, "MANIFEST.jsonl")
+        data = open(jpath, "rb").read().replace(b'"MOVED"', b'"HACKED"')
+        open(jpath, "wb").write(data)
+        with pytest.raises(gf.GovernedQuarantineError):
+            q._reread_and_validate()
+        q.close()
     finally:
         os.close(cfd)
 

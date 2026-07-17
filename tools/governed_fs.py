@@ -1,15 +1,17 @@
 #!/usr/bin/env python
-"""Cuarentena gobernada por transacción (P0R.5 · B148/B145 · Incremento 1R3 · B179/B180). CONCENTRA las primitivas
-destructivas del sistema de archivos (`os.unlink`/`os.rmdir` + `rename_*` de `atomic_fs`) fuera de
-`campaign_bundle.py`, para que un gate AST prohíba mutaciones crudas en la capa de bundle.
+"""Cuarentena gobernada MOVE-ONLY por transacción (P0R.5 · B148/B145 · Incremento 1R4 · B189-B201). Durante la
+transacción online NO se borra NADA: los objetos a retirar de la ruta oficial se MUEVEN (rename atómico) a un
+directorio de cuarentena DURABLE `.merge-quar.<txid>/` y se PRESERVAN con un journal durable encadenado. El borrado
+físico pertenece a un GC POSTERIOR, separado, bajo lock exclusivo y autorización (aún NO implementado).
 
-El problema (B179): `check(inode) → os.unlink(name)` tiene una ventana en la que el nombre puede re-ligarse a un
-objeto CONCURRENTE que termina borrado. (B180): `rmtree(name)` borra el árbol que ESTÉ en `name`, aunque haya sido
-re-ligado a un árbol ajeno. La cura: NUNCA borrar por nombre tras un check. En su lugar, MOVER el objeto (rename
-atómico) a un directorio de cuarentena PRIVADO de la transacción (0700, nonce), verificar que el objeto movido liga
-al inode que la transacción POSEE (fd propio) y sólo entonces borrarlo DENTRO del privado (sin carrera, nadie más lo
-conoce). Un objeto ajeno/mutado se DEVUELVE al origen si es posible y jamás se borra. Journal mínimo durable
-(`MANIFEST.jsonl`, INTENT/MOVED/DELETED/PRESERVED, secuencia + hash encadenado)."""
+Causa raíz (B191/B192): `verificar nombre/inode → os.unlink(nombre)` NO es seguro contra un proceso del MISMO UID;
+aunque el directorio sea 0700, otro proceso del mismo UID puede sustituir/mutar el objeto en la ventana entre el
+check y el unlink. La única cura online es NO borrar: mover-y-preservar. Así no existe ventana check→unlink.
+
+Propiedad por LEASE (B192): mover exige un `OwnedLease` (fd vivo + snapshot COMPLETO + digest + tipo + modo + uid +
+nlink) capturado por la transacción; se verifica el lease ANTES y DESPUÉS del move, de modo que una mutación sobre el
+MISMO inode (mismo dev/ino, contenido distinto) se detecta y se PRESERVA como ajena, jamás se pierde. Ningún
+`os.unlink`/`os.rmdir` aquí: un gate AST fail-closed lo garantiza (`tools/check_raw_fs_mutations.py`)."""
 
 from __future__ import annotations
 
@@ -24,18 +26,29 @@ from tools.atomic_fs import AtomicRenameError, AtomicUnsupportedError, rename_no
 _QUAR_PREFIX = ".merge-quar"
 _JOURNAL = "MANIFEST.jsonl"
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+# Snapshot SIN timestamps: `rename` bump-ea ctime del inodo, así que comparar ctime/mtime daría falsos positivos en
+# todo move legítimo. La mutación de CONTENIDO se detecta por `digest` (ficheros) y el rebind por dev/ino; nlink caza
+# hardlinks y el modo, chmod. (dev, ino, nlink, mode) + digest cubre mutación/ajeno/hardlink/chmod sin ruido de reloj.
+_SNAP_FIELDS = ("st_dev", "st_ino", "st_nlink", "st_mode")
+_INTENT = "INTENT"
+_TERMINALS = frozenset({"MOVED", "FOREIGN_PRESERVED", "ABSENT"})
+_JOURNAL_KEYS = frozenset({"seq", "record", "operation_id", "dest", "previous_record_sha256", "record_sha256"})
 
 
 class GovernedRemovalError(Exception):
-    """No se pudo remover de forma gobernada; el objeto ajeno/mutado se PRESERVA (nunca se borra a ciegas)."""
+    """El objeto no coincide con el lease de la transacción; se PRESERVA en cuarentena, jamás se borra ni se pierde."""
+
+
+class GovernedQuarantineError(Exception):
+    """Fallo de construcción/journal/cierre de la cuarentena (durabilidad no garantizable)."""
 
 
 def _canon(obj: object) -> bytes:
     return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
 
 
-def _ident(st: os.stat_result) -> tuple[int, int]:
-    return (st.st_dev, st.st_ino)
+def _snap(st: os.stat_result) -> tuple[int, ...]:
+    return tuple(getattr(st, f) for f in _SNAP_FIELDS)
 
 
 def _write_all(fd: int, data: bytes) -> None:
@@ -44,152 +57,166 @@ def _write_all(fd: int, data: bytes) -> None:
     while off < len(mv):
         n = os.write(fd, mv[off:])
         if n <= 0:
-            raise GovernedRemovalError("escritura de journal incompleta")
+            raise GovernedQuarantineError("escritura de journal incompleta")
         off += n
 
 
-class GovernedQuarantine:
-    """Cuarentena de una sola transacción. `with GovernedQuarantine(camp_fd) as q: q.remove_owned(...)`."""
+class OwnedLease:
+    """Prueba de PROPIEDAD de un objeto que la transacción abrió: fd vivo + snapshot COMPLETO + digest + tipo. Se
+    verifica ANTES y DESPUÉS de moverlo a cuarentena (detecta mutación sobre el mismo inode: B192)."""
 
-    __slots__ = ("camp_fd", "name", "fd", "_jfd", "_seq", "_prev", "_pending")
+    __slots__ = ("fd", "snap", "digest", "is_dir")
+
+    def __init__(self, fd: int, *, is_dir: bool, known_digest: str | None = None) -> None:
+        st = os.fstat(fd)
+        if st.st_uid != os.geteuid():
+            raise GovernedRemovalError("lease de objeto ajeno (UID)")
+        if is_dir and not stat.S_ISDIR(st.st_mode):
+            raise GovernedRemovalError("lease de dir sobre no-dir")
+        if not is_dir and not stat.S_ISREG(st.st_mode):
+            raise GovernedRemovalError("lease de fichero sobre no-regular")
+        self.fd = fd
+        self.snap = _snap(st)
+        self.is_dir = is_dir
+        # `known_digest`: para fds O_WRONLY (p. ej. el puntero temporal) cuyo contenido la tx YA conoce (no relegible)
+        self.digest = None if is_dir else (known_digest if known_digest is not None else _digest_fd(fd))
+
+    def ident(self) -> tuple[int, int]:
+        return (self.snap[0], self.snap[1])
+
+
+def _digest_fd(fd: int) -> str:
+    os.lseek(fd, 0, os.SEEK_SET)
+    h = hashlib.sha256()
+    while chunk := os.read(fd, 1 << 16):
+        h.update(chunk)
+    return h.hexdigest()
+
+
+class GovernedQuarantine:
+    """Cuarentena MOVE-ONLY de una sola transacción. `with GovernedQuarantine(camp_fd, txid) as q: q.quarantine(...)`.
+    NUNCA borra: mueve y preserva. El directorio y su journal PERSISTEN (evidencia durable; GC futuro)."""
+
+    __slots__ = ("camp_fd", "txid", "name", "fd", "_jfd", "_seq", "_prev", "_closed")
     camp_fd: int
+    txid: str
     name: str
     fd: int
     _jfd: int
     _seq: int
     _prev: str
-    _pending: int
+    _closed: bool
 
-    def __init__(self, camp_fd: int) -> None:
+    def __init__(self, camp_fd: int, txid: str) -> None:
+        # PEREZOSA: no crea el directorio hasta el primer `quarantine()` — un commit que no necesita retirar nada no
+        # deja una cuarentena vacía residual.
         self.camp_fd = camp_fd
+        self.txid = txid
         self.name = f"{_QUAR_PREFIX}.{secrets.token_hex(12)}"
-        os.mkdir(self.name, 0o700, dir_fd=camp_fd)
-        self.fd = os.open(self.name, _DIR_FLAGS, dir_fd=camp_fd)
+        self.fd = -1
+        self._jfd = -1
+        self._seq = 0
+        self._prev = ""
+        self._closed = False
+
+    def _ensure(self) -> None:
+        if self.fd >= 0:
+            return
+        os.mkdir(self.name, 0o700, dir_fd=self.camp_fd)
+        try:
+            self.fd = os.open(self.name, _DIR_FLAGS, dir_fd=self.camp_fd)
+        except BaseException:
+            raise GovernedQuarantineError(f"no se pudo abrir la cuarentena {self.name}") from None
         try:
             os.fchmod(self.fd, 0o700)
             st = os.fstat(self.fd)
             if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or stat.S_IMODE(st.st_mode) != 0o700:
-                raise GovernedRemovalError("cuarentena ajena/no-dir/modo != 0700")
+                raise GovernedQuarantineError("cuarentena ajena/no-dir/modo != 0700")
             self._jfd = os.open(
-                _JOURNAL, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW, 0o600, dir_fd=self.fd
+                _JOURNAL, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_APPEND | os.O_NOFOLLOW, 0o600, dir_fd=self.fd
             )
+            os.fsync(self.fd)  # el directorio de cuarentena + su journal son durables antes de operar
         except BaseException:
-            os.close(self.fd)
+            os.close(self.fd)  # B194: no dejar un dir con fd abierto; el dir se preserva manifestado (no se borra)
+            self.fd = -1
             raise
-        self._seq = 0
-        self._prev = ""
-        self._pending = 0  # objetos preservados (no borrados) → la cuarentena no puede cerrarse limpia
 
-    def _journal(self, record: str, **fields: object) -> None:
+    def _journal(self, record: str, operation_id: str, dest: str) -> None:
         self._seq += 1
-        rec = {"seq": self._seq, "record": record, "previous_record_sha256": self._prev, **fields}
+        rec = {"seq": self._seq, "record": record, "operation_id": operation_id, "dest": dest, "previous_record_sha256": self._prev}  # fmt: skip
         sha = hashlib.sha256(_canon(rec)).hexdigest()
         rec["record_sha256"] = sha
         _write_all(self._jfd, _canon(rec) + b"\n")
-        os.fsync(self._jfd)
+        os.fsync(self._jfd)  # B200: durabilidad del registro…
+        self._reread_and_validate()  # …y RELECTURA + validación de la cadena completa desde el mismo fd
         self._prev = sha
 
-    def _bind(self, obj: str, expected: tuple[int, int]) -> bool:
-        fd = os.open(obj, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.fd)
-        try:
-            return _ident(os.fstat(fd)) == expected
-        finally:
-            os.close(fd)
+    def _reread_and_validate(self) -> None:
+        os.lseek(self._jfd, 0, os.SEEK_SET)
+        raw = b""
+        while chunk := os.read(self._jfd, 1 << 16):
+            raw += chunk
+        prev = ""
+        seq = 0
+        for line in raw.splitlines():
+            rec = json.loads(line, object_pairs_hook=_no_dup)
+            seq += 1
+            if set(rec.keys()) != _JOURNAL_KEYS or rec["seq"] != seq or rec["previous_record_sha256"] != prev:
+                raise GovernedQuarantineError("journal de cuarentena con cadena/esquema inválido")
+            body = {k: v for k, v in rec.items() if k != "record_sha256"}
+            if hashlib.sha256(_canon(body)).hexdigest() != rec["record_sha256"]:
+                raise GovernedQuarantineError("journal de cuarentena con hash inválido")
+            prev = rec["record_sha256"]
 
-    def _bind_dir(self, obj: str, expected: tuple[int, int]) -> bool:
-        fd = os.open(obj, _DIR_FLAGS, dir_fd=self.fd)
+    def quarantine(self, dir_fd: int, name: str, lease: OwnedLease) -> str:
+        """MUEVE `name` (bajo `dir_fd`) a la cuarentena y lo PRESERVA. Verifica el LEASE COMPLETO (snapshot+digest)
+        del objeto movido: si coincide → MOVED; si difiere (mutación/ajeno) → FOREIGN_PRESERVED + eleva. NUNCA borra;
+        el objeto queda durable en la cuarentena. `name` queda libre en la ruta oficial (cero residuo)."""
+        if self._closed:
+            raise GovernedQuarantineError("cuarentena cerrada")
+        self._ensure()  # crea el dir + journal en el primer uso real
+        oid = secrets.token_hex(8)
+        dest = f"o.{oid}"
+        self._journal(_INTENT, oid, dest)
         try:
-            return _ident(os.fstat(fd)) == expected
-        finally:
-            os.close(fd)
-
-    def remove_owned(self, dir_fd: int, name: str, owned_ident: tuple[int, int]) -> None:
-        """Elimina el FICHERO `name` bajo `dir_fd` que la transacción POSEE (owned_ident = dev/ino de su fd). Mueve a
-        cuarentena, verifica binding y borra en privado. Objeto ajeno → devuelve al origen y eleva
-        `GovernedRemovalError` (jamás borra un objeto que no liga al fd de la transacción, B179)."""
-        obj = f"f.{secrets.token_hex(8)}"
-        self._journal("INTENT", kind="file", dest=obj, expected=list(owned_ident))
-        try:
-            rename_noreplace(dir_fd, name, self.fd, obj)
-        except (AtomicRenameError, AtomicUnsupportedError, FileNotFoundError, OSError, ValueError) as exc:
-            raise GovernedRemovalError(f"no se pudo mover {name!r} a cuarentena: {exc}") from exc
-        if not self._bind(obj, owned_ident):  # el objeto movido NO es el que la tx posee → ajeno/mutado
-            self._return_or_preserve(obj, dir_fd, name, is_dir=False)
-            raise GovernedRemovalError(f"{name!r} no ligaba al fd de la transacción; preservado, no borrado")
-        self._journal("MOVED", dest=obj)
-        os.unlink(obj, dir_fd=self.fd)  # privado + inode verificado → sin carrera
-        self._journal("DELETED", dest=obj)
-
-    def remove_tree_owned(self, parent_fd: int, name: str, owned_ident: tuple[int, int]) -> None:
-        """Elimina el ÁRBOL `name` bajo `parent_fd` que la transacción POSEE. Mueve a cuarentena, verifica binding y
-        borra recursivamente en privado. Árbol ajeno → devuelve al origen y eleva `GovernedRemovalError` (B180)."""
-        obj = f"d.{secrets.token_hex(8)}"
-        self._journal("INTENT", kind="tree", dest=obj, expected=list(owned_ident))
-        try:
-            rename_noreplace(parent_fd, name, self.fd, obj)
+            rename_noreplace(dir_fd, name, self.fd, dest)
         except FileNotFoundError:
-            self._journal("ABSENT", dest=obj)
-            return
+            self._journal("ABSENT", oid, dest)
+            return dest
         except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
-            raise GovernedRemovalError(f"no se pudo mover el árbol {name!r} a cuarentena: {exc}") from exc
-        if not self._bind_dir(obj, owned_ident):
-            self._return_or_preserve(obj, parent_fd, name, is_dir=True)
-            raise GovernedRemovalError(f"árbol {name!r} no ligaba al fd de la transacción; preservado, no borrado")
-        self._journal("MOVED", dest=obj)
-        self._rmtree_private(obj)
-        self._journal("DELETED", dest=obj)
+            raise GovernedRemovalError(f"no se pudo mover {name!r} a cuarentena: {exc}") from exc
+        os.fsync(dir_fd)  # origen durable (name ya no está)
+        os.fsync(self.fd)  # destino durable
+        if self._lease_matches(dest, lease):
+            self._journal("MOVED", oid, dest)
+            return dest
+        self._journal("FOREIGN_PRESERVED", oid, dest)
+        raise GovernedRemovalError(f"{name!r} no coincide con el lease de la transacción; PRESERVADO en cuarentena")
 
-    def _return_or_preserve(self, obj: str, dir_fd: int, name: str, *, is_dir: bool) -> None:
+    def _lease_matches(self, dest: str, lease: OwnedLease) -> bool:
+        flags = _DIR_FLAGS if lease.is_dir else (os.O_RDONLY | os.O_NOFOLLOW)
         try:
-            rename_noreplace(self.fd, obj, dir_fd, name)  # devolver el ajeno a su lugar
-            self._journal("RETURNED", dest=obj)
-        except AtomicRenameError, AtomicUnsupportedError, OSError, ValueError:
-            self._pending += 1  # no se pudo devolver → queda PRESERVADO en cuarentena (evidencia)
-            self._journal("PRESERVED", dest=obj, kind="dir" if is_dir else "file")
-
-    def _rmtree_private(self, name: str) -> None:
-        """Remoción recursiva DENTRO de la cuarentena privada (sin carrera). Valida dir/UID/sin symlinks/especiales."""
-        fd = os.open(name, _DIR_FLAGS, dir_fd=self.fd)
+            fd = os.open(dest, flags, dir_fd=self.fd)
+        except OSError:
+            return False
         try:
-            st = os.fstat(fd)
-            if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid():
-                raise GovernedRemovalError(f"árbol en cuarentena {name!r} ajeno/no-dir")
-            for entry in os.listdir(fd):
-                est = os.lstat(entry, dir_fd=fd)
-                if stat.S_ISLNK(est.st_mode):
-                    raise GovernedRemovalError(f"symlink en árbol de cuarentena: {entry!r}")
-                if stat.S_ISDIR(est.st_mode):
-                    self._rmtree_private_at(fd, entry)
-                elif stat.S_ISREG(est.st_mode):
-                    os.unlink(entry, dir_fd=fd)
-                else:
-                    raise GovernedRemovalError(f"objeto especial en árbol de cuarentena: {entry!r}")
+            if _snap(os.fstat(fd)) != lease.snap:  # snapshot COMPLETO: detecta mutación sobre el mismo inode
+                return False
+            return lease.is_dir or _digest_fd(fd) == lease.digest
         finally:
             os.close(fd)
-        os.rmdir(name, dir_fd=self.fd)
 
-    def _rmtree_private_at(self, parent_fd: int, name: str) -> None:
-        fd = os.open(name, _DIR_FLAGS, dir_fd=parent_fd)
-        try:
-            for entry in os.listdir(fd):
-                est = os.lstat(entry, dir_fd=fd)
-                if stat.S_ISLNK(est.st_mode) or not (stat.S_ISDIR(est.st_mode) or stat.S_ISREG(est.st_mode)):
-                    raise GovernedRemovalError(f"objeto no regular en árbol de cuarentena: {entry!r}")
-                if stat.S_ISDIR(est.st_mode):
-                    self._rmtree_private_at(fd, entry)
-                else:
-                    os.unlink(entry, dir_fd=fd)
-        finally:
-            os.close(fd)
-        os.rmdir(name, dir_fd=parent_fd)
-
-    def close(self, errors: list[str] | None = None) -> None:
-        """Cierra el journal y, si NO quedan objetos preservados, elimina el directorio de cuarentena. Si quedan
-        preservados (ajenos que no se pudieron devolver), lo DEJA como evidencia (no borra). Reporta, no eleva."""
-        errs = errors if errors is not None else []
+    def close(self) -> list[str]:
+        """Cierra los fds y sincroniza. Devuelve la lista de errores de cierre (JAMÁS los descarta: B193). El dir de
+        cuarentena y su journal se PRESERVAN (move-only; no se borra en verde)."""
+        errs: list[str] = []
+        if self._closed:
+            return errs
+        self._closed = True
         jfd = getattr(self, "_jfd", -1)
         if jfd >= 0:
             try:
+                os.fsync(jfd)
                 os.close(jfd)
             except OSError as exc:
                 errs.append(f"cerrar journal de cuarentena: {exc}")
@@ -197,29 +224,26 @@ class GovernedQuarantine:
         fd = getattr(self, "fd", -1)
         if fd >= 0:
             try:
+                os.fsync(fd)
                 os.close(fd)
             except OSError as exc:
-                errs.append(f"cerrar fd de cuarentena: {exc}")
+                errs.append(f"cerrar/sincronizar cuarentena: {exc}")
             self.fd = -1
-        if self._pending == 0:
-            try:
-                self._remove_empty_quarantine()
-            except OSError as exc:
-                errs.append(f"remover cuarentena vacía: {exc}")
-
-    def _remove_empty_quarantine(self) -> None:
-        qfd = os.open(self.name, _DIR_FLAGS, dir_fd=self.camp_fd)
-        try:
-            leftover = [e for e in os.listdir(qfd) if e != _JOURNAL]
-            if leftover:
-                return  # algo quedó → no se borra (evidencia)
-            os.unlink(_JOURNAL, dir_fd=qfd)
-        finally:
-            os.close(qfd)
-        os.rmdir(self.name, dir_fd=self.camp_fd)
+        return errs
 
     def __enter__(self) -> GovernedQuarantine:
         return self
 
     def __exit__(self, *exc: object) -> None:
-        self.close()
+        errs = self.close()
+        if errs and exc[0] is None:  # B193: si no hay ya una excepción en vuelo, los errores de cierre SE ELEVAN
+            raise GovernedQuarantineError("; ".join(errs))
+
+
+def _no_dup(pairs: list[tuple]) -> dict:
+    out: dict = {}
+    for k, v in pairs:
+        if k in out:
+            raise GovernedQuarantineError(f"clave JSON duplicada en journal: {k!r}")
+        out[k] = v
+    return out

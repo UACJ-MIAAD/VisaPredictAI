@@ -1229,21 +1229,34 @@ def _bundle_provenance(quar: _Quarantine) -> dict:
     heads = {st.source_label: (st.prev_sha or None) for st in quar._states.values() if st.prev_sha}
     head = _git("rev-parse", "HEAD")
     head = head if (head and len(head) == 40) else None  # B171: 40-hex o None (nunca comodín)
+    tree = _git("rev-parse", "HEAD^{tree}")
+    tree = tree if (tree and len(tree) == 40) else None
+    status = _git("status", "--porcelain")
+    dirty = None if status is None else (status != "")
+    env_id = os.environ.get("VP_ENV_ID")
+    env_id = env_id if (env_id and len(env_id) == 64) else None
+    profile = os.environ.get("VP_ENV_PROFILE")
+    # B199: 'official' SÓLO desde un run gobernado (env_id del run-command) sobre un árbol LIMPIO con git íntegro.
+    # F2 aún no corre por la interfaz gobernada ⇒ sin VP_ENV_ID ⇒ 'test' (honesto; no falsa autoridad oficial).
+    official = bool(env_id and head and tree and dirty is False and profile)
     return {
-        # B187: modo explícito — 'official' sólo cuando hay git HEAD real (F2 corre en el repo); sin git → 'test'.
-        "mode": "official" if head is not None else "test",
+        "mode": "official" if official else "test",
         # `__file__` (no `_module_hash`) porque el productor corre como `__main__` (python -m): su nombre lógico
         # `tools.merge_campaign_pools` NO está en sys.modules y devolvería 'unknown'; el esquema exige hex64.
         "git_head": head,
+        "git_tree": tree,
+        "git_dirty": dirty,
+        "env_id": env_id,
         "code_sha_merge_campaign_pools": _file_sha(__file__),
         "code_sha_campaign_bundle": _file_sha(_bundle.__file__),
         "code_sha_atomic_fs": _module_hash("tools.atomic_fs"),
         "code_sha_governed_read": _module_hash("tools.governed_read"),
         "code_sha_execution_contract": ec,
+        "csv_contract_sha256": _bundle._CSV_CONTRACT_SHA256,  # B198: liga el bundle al contrato CSV exacto
         "journal_heads": heads,
         "python": sys.version.split()[0],
         "platform": sys.platform,
-        "profile": os.environ.get("VP_ENV_PROFILE"),
+        "profile": profile,
         "variant": os.environ.get("VP_ENV_VARIANT") or None,
     }
 
