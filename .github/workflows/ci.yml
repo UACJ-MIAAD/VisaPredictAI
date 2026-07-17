@@ -472,13 +472,43 @@ jobs:
             rc-linux/dvc-tool-receipt-linux-x86_64.json rc-linux/sbom-dvc-tool-env-linux-x86_64.json \
             rc-macos/dvc-tool-receipt-macos-arm64.json rc-macos/sbom-dvc-tool-env-macos-arm64.json
 
+  # Incremento 2: contrato end-to-end del bundle/CURRENT en un workspace DESECHABLE — merge #1 (sin previo) →
+  # merge #2 (EXCHANGE sobre la autoridad previa) → validate-current (rc 0) → NEGATIVO obligatorio (puntero
+  # corrupto → rc != 0). El recibo JSON liga al SHA. La autoridad es el CommitCertificate de CURRENT, no el recibo.
+  campaign-bundle-contract:
+    name: campaign-bundle-contract
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          fetch-depth: 0  # el recibo del contrato liga al SHA de git (git rev-parse HEAD)
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.14'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
+          pip install --require-hashes -r locks/dev-linux-x86_64.txt
+          pip install -e . --no-deps
+      - name: Bundle/CURRENT contract (merge → exchange → validate-current → negativo)
+        run: python -m tools.campaign_bundle_contract_smoke --receipt campaign_bundle_contract_receipt.json
+      - name: Upload contract receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: campaign-bundle-contract-receipt-${{ github.sha }}
+          path: campaign_bundle_contract_receipt.json
+          if-no-files-found: error
+
   # P0R.4R2: check ESTABLE y único a exigir en branch protection. Depende de todos los jobs y falla
   # si CUALQUIERA no terminó en success (failure/cancelled/skipped incluidos). Los nombres largos del
   # matrix deep NO deben registrarse como checks requeridos (cambian al bumpear torch).
   ci-gate:
     name: ci-gate
     if: always()
-    needs: [commit-policy, lint-and-test, model-tests, consistency, supply-chain, deep-lock-install, dvc-tool-install, environment-contract, environment-receipts]
+    needs: [commit-policy, lint-and-test, model-tests, consistency, supply-chain, deep-lock-install, dvc-tool-install, environment-contract, environment-receipts, campaign-bundle-contract]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any required job was not success
