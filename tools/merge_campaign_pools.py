@@ -100,6 +100,19 @@ _COMMIT_REACHED = "COMMIT_REACHED"
 _CLEANING = "CLEANING"
 _CLOSED = "CLOSED"
 
+# Incremento 2 — MÁQUINA DE ESTADOS del commit (autoridad = CommitCertificate de CURRENT, NO el recibo). Transiciones
+# SÓLO hacia adelante en este orden; `commit_reached` se DERIVA de estos estados, jamás se marca por texto/recibo.
+_S_PREPARING = "PREPARING"  # cargando/creando temporales/promoviendo proyecciones
+_S_PROJECTIONS_DURABLE = "PROJECTIONS_DURABLE"  # proyecciones promovidas + fsync
+_S_RECEIPT_CERTIFIED = "RECEIPT_CERTIFIED"  # recibo publicado y revalidado (EVIDENCIA, no autoridad)
+_S_CURRENT_CAS_STARTED = "CURRENT_CAS_STARTED"  # se inició el CAS de CURRENT (puede haber cruzado o no)
+_S_CURRENT_CERTIFIED = "CURRENT_CERTIFIED"  # CommitCertificate válido → COMMIT CRUZADO (autoridad durable)
+_S_COMMITTED_INCOMPLETE = "COMMITTED_INCOMPLETE"  # CAS cruzó pero quedó estado post-commit incompleto
+_S_CLOSED = "CLOSED"
+# Orden LINEAL de avance permitido (índice creciente). COMMITTED_INCOMPLETE y CLOSED son RAMAS terminales que se
+# alcanzan por métodos dedicados (mark_committed_incomplete / mark_closed), no por `transition`.
+_STATE_ORDER = (_S_PREPARING, _S_PROJECTIONS_DURABLE, _S_RECEIPT_CERTIFIED, _S_CURRENT_CAS_STARTED, _S_CURRENT_CERTIFIED)  # fmt: skip
+
 # Severidades de `Issue`.
 _INCOMPLETE = "incomplete"  # ⇒ RollbackIncompleteError (pre-commit) o CommittedStateError (post-commit)
 _NOTE = "note"  # informativo (p. ej. una recuperación confirmada)
@@ -822,17 +835,57 @@ class _TxContext:
     los issues de severidad 'incomplete' — un fallo de durabilidad o una divergencia externa NO puede quedar
     como una cadena suelta que no cambie la clasificación."""
 
-    __slots__ = ("phase", "commit_reached", "primary_error", "issues", "recoveries", "close_errors", "receipt_name", "receipt_fd")  # fmt: skip
+    __slots__ = ("phase", "state", "certificate", "_committed", "primary_error", "issues", "recoveries", "close_errors", "receipt_name", "receipt_fd")  # fmt: skip
 
     def __init__(self) -> None:
         self.phase = _LOADING
-        self.commit_reached = False
+        self.state = _S_PREPARING  # Incremento 2: máquina de estados del commit (autoridad = CommitCertificate)
+        self.certificate: object | None = None  # el CommitCertificate que autorizó el commit (evidencia estructurada)
+        self._committed = False  # LATCH: True SÓLO vía mark_current_certified/mark_committed_incomplete; nunca se baja
         self.primary_error: BaseException | None = None
         self.issues: list[Issue] = []
         self.recoveries: list[str] = []
         self.close_errors: list[str] = []
         self.receipt_name: str | None = None  # B144: recibo publicado pero commit no cruzado → moverlo a ABORTED
         self.receipt_fd = -1  # B149: fd del recibo que creamos (se lee de AQUÍ, no reabriendo por nombre)
+
+    def transition(self, new_state: str) -> None:
+        """Avance HACIA ADELANTE en la máquina de estados lineal (fail-closed): rechaza estados inválidos, saltos
+        atrás y transiciones desde una rama terminal (COMMITTED_INCOMPLETE/CLOSED)."""
+        if new_state not in _STATE_ORDER:
+            raise RollbackError(f"transición a estado no lineal {new_state!r}")
+        if self.state not in _STATE_ORDER:
+            raise RollbackError(f"transición desde rama terminal {self.state!r}")
+        if _STATE_ORDER.index(new_state) <= _STATE_ORDER.index(self.state):
+            raise RollbackError(f"transición no monotónica {self.state!r} -> {new_state!r}")
+        self.state = new_state
+
+    def mark_current_certified(self, certificate: object) -> None:
+        """ÚNICO punto que declara el commit CRUZADO: consume un CommitCertificate ESTRUCTURADO (no texto). Sólo
+        desde CURRENT_CAS_STARTED."""
+        if certificate is None or getattr(certificate, "authority_crossed", False) is not True:
+            raise RollbackError("mark_current_certified sin CommitCertificate válido (authority_crossed)")
+        if self.state != _S_CURRENT_CAS_STARTED:
+            raise RollbackError(f"CURRENT_CERTIFIED sólo desde CURRENT_CAS_STARTED (estado {self.state!r})")
+        self.certificate = certificate
+        self.state = _S_CURRENT_CERTIFIED
+        self._committed = True
+
+    def mark_committed_incomplete(self) -> None:
+        """El CAS de CURRENT CRUZÓ pero quedó estado post-commit incompleto. Exige evidencia de cruce (CAS iniciado
+        o ya certificado); jamás desde antes del CAS."""
+        if self.state not in (_S_CURRENT_CAS_STARTED, _S_CURRENT_CERTIFIED):
+            raise RollbackError(f"COMMITTED_INCOMPLETE exige evidencia de CAS cruzado (estado {self.state!r})")
+        self.state = _S_COMMITTED_INCOMPLETE
+        self._committed = True
+
+    def mark_closed(self) -> None:
+        self.state = _S_CLOSED  # rama terminal; el LATCH `_committed` PERSISTE (commit_reached no se pierde al cerrar)
+
+    @property
+    def commit_reached(self) -> bool:
+        """DERIVADO del latch estructurado (certificado/CAS-cruzado), jamás del recibo ni de texto de excepción."""
+        return self._committed
 
     def flag(self, code: str, detail: str, output: str | None = None) -> None:
         """Registra un Issue INCOMPLETO (fuerza RollbackIncompleteError/CommittedStateError)."""
@@ -1337,38 +1390,37 @@ def _seal_bytes_from_fd(fd: int, certified_digest: str | None, what: str) -> byt
     return data
 
 
-def _publish_bundle(chain: _Chain, quar: _Quarantine, inputs: list[_InputLease], outs: list[_Out], campaign: str | None, ctx: _TxContext) -> None:  # fmt: skip
-    """B148/B145 + B158/B164: tras el commit del recibo, RELEE cada output desde su fd CERTIFICADO revalidando el
-    digest (aborta si mutó entre certificación y sellado, B158), lee los BYTES REALES de cada input desde su lease
-    (tamaño/hash sin reconstruir con pandas, B164), sella todo en un bundle inmutable content-addressed y publica el
-    puntero CURRENT por CAS = AUTORIDAD durable. Output-neutral. Un fallo aquí es post-commit ⇒ Issue."""
-    try:
-        seen: dict[str, _InputLease] = {}
-        for i in inputs:
-            seen.setdefault(i.name, i)
-        input_meta = [{"name": i.name, "bytes": _seal_bytes_from_fd(i.fd, i.digest, f"input {i.name!r}")} for i in seen.values()]  # fmt: skip
-        output_meta = [
-            {
-                "label": o.label,
-                "name": o.name,
-                "bytes": _seal_bytes_from_fd(o.temp_fd, o.temp_digest, f"output {o.name!r}"),
-                "rows": int(len(o.df)),
-                "cols": int(len(o.df.columns)),
-            }  # fmt: skip
-            for o in outs
-        ]
-        _bundle.build_and_commit(chain.camp, quar.txid, campaign, output_meta, input_meta, _bundle_provenance(quar))
-    except (_bundle.BundleError, _bundle.GovernedQuarantineError, _bundle.GovernedRemovalError, OSError, ValueError) as exc:  # fmt: skip
-        ctx.flag("BUNDLE_PUBLISH_FAILED", f"no se pudo publicar el bundle/puntero CURRENT post-commit: {exc}")
+def _publish_bundle(chain: _Chain, quar: _Quarantine, inputs: list[_InputLease], outs: list[_Out], campaign: str | None) -> _bundle.CommitCertificate:  # fmt: skip
+    """B148/B145 + B158/B164 + Incremento 2: RELEE cada output desde su fd CERTIFICADO revalidando el digest (aborta si
+    mutó entre certificación y sellado, B158), lee los BYTES REALES de cada input desde su lease (B164), sella todo en
+    un bundle inmutable content-addressed y hace CAS del puntero CURRENT. **Devuelve el CommitCertificate = AUTORIDAD
+    del commit; NO absorbe errores como Issue.** Un fallo PRE-CAS (sellado/validación/concurrencia) se propaga (→
+    rollback); un `CommittedStateError` POST-CAS se propaga (→ COMMITTED_INCOMPLETE). Output-neutral."""
+    seen: dict[str, _InputLease] = {}
+    for i in inputs:
+        seen.setdefault(i.name, i)
+    input_meta = [{"name": i.name, "bytes": _seal_bytes_from_fd(i.fd, i.digest, f"input {i.name!r}")} for i in seen.values()]  # fmt: skip
+    output_meta = [
+        {
+            "label": o.label,
+            "name": o.name,
+            "bytes": _seal_bytes_from_fd(o.temp_fd, o.temp_digest, f"output {o.name!r}"),
+            "rows": int(len(o.df)),
+            "cols": int(len(o.df.columns)),
+        }  # fmt: skip
+        for o in outs
+    ]
+    return _bundle.build_and_certify(chain.camp, quar.txid, campaign, output_meta, input_meta, _bundle_provenance(quar))
 
 
-def _certify_commit(
+def _certify_receipt(
     chain: _Chain, lock: _LockGuard, inputs: list[_InputLease], outs: list[_Out], quar: _Quarantine, ctx: _TxContext
 ) -> None:
-    """B131/B132: recibo de commit gobernado. Revalida inputs+lock+cadena+outputs, escribe el recibo 0600,
-    `fsync`, lo promueve con `rename_noreplace`, `fsync` del dir, lo RE-ABRE desde la ruta oficial y lo REVALIDA
-    contra el estado actual. `commit_reached=True` sólo lo marca ESTE finalizador. Una divergencia (input/lock/
-    directorio/output cambiado tras la última revalidación) aborta con `_ValidationError`."""
+    """B131/B132 + Incremento 2: recibo de commit gobernado como EVIDENCIA (NO autoridad). Revalida inputs+lock+cadena+
+    outputs, escribe el recibo 0600, `fsync`, lo promueve con `rename_noreplace`, `fsync` del dir, lo RE-ABRE desde la
+    ruta oficial y lo REVALIDA contra el estado actual. **NUNCA declara el commit** — la autoridad es el
+    CommitCertificate de CURRENT. Una divergencia (input/lock/directorio/output cambiado tras la última revalidación)
+    aborta con `_ValidationError`."""
     for lease in inputs:  # revalidación final de leases + lock + cadena
         prob = lease.problem()
         if prob is not None:
@@ -1418,7 +1470,7 @@ def _certify_commit(
     # Se comparan BYTES canónicos (tuplas y listas serializan idéntico) — un input/lock/output cambiado difiere.
     if raw != _canon(body) or raw != _canon(_receipt_body(chain, lock, inputs, outs, quar)):
         raise _ValidationError("el recibo de commit ya no corresponde al estado actual (input/lock/output cambió)")
-    ctx.commit_reached = True  # ---- PUNTO DE COMMIT (único sitio) ----
+    # Incremento 2: el recibo es EVIDENCIA revalidada; JAMÁS declara el commit. La autoridad es CURRENT (CommitCertificate).
 
 
 def _promote_transactionally(
@@ -1552,8 +1604,26 @@ def _promote_transactionally(
                 raise _ValidationError(f"output {o.name!r} tras promover con digest distinto")
         if not _fsync_dirs():
             raise _ValidationError("fsync de directorios falló antes del commit")
+        ctx.transition(_S_PROJECTIONS_DURABLE)  # 6. proyecciones promovidas + durables
         ctx.phase = _CERTIFYING
-        _certify_commit(chain, lock, inputs, outs, quar, ctx)  # B131/B132: recibo + commit_reached (único sitio)
+        _certify_receipt(chain, lock, inputs, outs, quar, ctx)  # 7. recibo = EVIDENCIA (NO autoridad, NO commit)
+        ctx.transition(_S_RECEIPT_CERTIFIED)
+        # 8. AUTORIDAD: CAS de CURRENT + CommitCertificate. Los ORIGINALES siguen en temp_name → el rollback es posible
+        # hasta que el certificado cruce. build_and_certify: éxito→cert; CommittedStateError→CAS cruzó incompleto;
+        # cualquier otro error→CAS NO cruzó→rollback.
+        ctx.transition(_S_CURRENT_CAS_STARTED)
+        ctx.phase = _COMMIT_REACHED
+        try:
+            cert = _publish_bundle(chain, quar, inputs, outs, campaign)
+        except _bundle.BundleError as be:
+            if getattr(be, "authority_crossed", False) is True:  # EVIDENCIA ESTRUCTURADA del cruce (no texto)
+                ctx.mark_committed_incomplete()  # CURRENT cruzó pero el sellado quedó incompleto (post-commit)
+                ctx.flag("BUNDLE_PUBLISH_INCOMPLETE", f"CURRENT cruzó pero el sellado post-CAS quedó incompleto: {be}")
+            else:
+                raise  # pre-CAS (validación/concurrencia/rollback-incompleto): CURRENT no cruzó → rollback
+        else:
+            ctx.mark_current_certified(cert)  # ---- PUNTO DE COMMIT ÚNICO: consume el CommitCertificate ----
+        # 9. POST-COMMIT (CURRENT ya es la autoridad): limpia los ORIGINALES desplazados; ya NO se restauran
         ctx.phase = _CLEANING
         for o in outs:  # limpia los ORIGINALES desplazados (viven en temp_name) por cuarentena
             if not (o.existed_before and o.temp_name is not None):
@@ -1567,10 +1637,9 @@ def _promote_transactionally(
                 ctx.flag("POSTCOMMIT_CLEANUP_FAILED", f"no se pudo poner en cuarentena el original desplazado de {o.name!r}", o.name)  # fmt: skip
         if not _fsync_dirs():
             ctx.flag("POSTCOMMIT_FSYNC_FAILED", "fsync de durabilidad post-commit falló")
-        _publish_bundle(chain, quar, inputs, outs, campaign, ctx)  # B148/B145: sella la AUTORIDAD durable + CURRENT
     except Exception as primary:  # noqa: BLE001 — dominio/OSError sí; KeyboardInterrupt/SystemExit NO
         ctx.primary_error = primary
-        if not ctx.commit_reached:
+        if not ctx.commit_reached:  # DERIVADO del latch estructurado; jamás del recibo → rollback sólo pre-commit
             _rollback()  # B106/B111: NO eleva
 
 

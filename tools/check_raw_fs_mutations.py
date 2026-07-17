@@ -88,7 +88,9 @@ class _Scanner(ast.NodeVisitor):
                 self._flag(node, f"acceso a os.{attr} destructivo/ejecución (alias {base.id})")
             if base.id in self.shutil_aliases and attr in _SHUTIL_FORBIDDEN:
                 self._flag(node, f"acceso a shutil.{attr} destructivo")
-        if attr in _PATH_FORBIDDEN:  # Path(...).unlink / p.rmdir — cualquier receptor
+        # Path(...).unlink / p.rmdir — cualquier receptor; EXCEPTO `dataclasses.replace` (construye un frozen NUEVO,
+        # no toca el filesystem).
+        if attr in _PATH_FORBIDDEN and not (attr == "replace" and isinstance(base, ast.Name) and base.id == "dataclasses"):  # fmt: skip
             self._flag(node, f"acceso a .{attr} de Path (destructivo)")
         if attr == "__dict__":  # os.__dict__["unlink"] elude el análisis
             self._flag(node, "acceso a __dict__ (elude el gate)")

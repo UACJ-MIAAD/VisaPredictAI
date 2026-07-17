@@ -691,8 +691,9 @@ def test_b101_recovery_message_points_to_real_file(tmp_path, monkeypatch):
 
 
 def test_b104_post_commit_fsync_failure_is_typed(tmp_path, monkeypatch):
-    # un fallo de fsync DESPUÉS del commit (certificación cruzada) → CommittedStateError (NUNCA ambiguo). Se ARMA
-    # el fallo cuando `_certify_commit` retorna (commit_reached=True); el 1er fsync de directorio posterior falla.
+    # Incremento 2: un fallo de fsync DESPUÉS de que el CommitCertificate de CURRENT cruzó → CommittedStateError
+    # (NUNCA ambiguo). Se ARMA el fallo cuando `_publish_bundle` retorna el certificado; el 1er fsync de directorio
+    # posterior (durabilidad post-commit del CLEANING) falla.
     _write_all_8(tmp_path)
     real_fsync = os.fsync
     armed = {"x": False}
@@ -705,14 +706,15 @@ def test_b104_post_commit_fsync_failure_is_typed(tmp_path, monkeypatch):
             raise OSError("postcommit dir fsync failure")
         return real_fsync(fd)
 
-    orig = mcp._certify_commit
+    orig = mcp._publish_bundle
 
     def wrapped(*a):
-        orig(*a)
+        cert = orig(*a)  # CURRENT ya cruzó y se certificó
         armed["x"] = True  # commit cruzado → el próximo fsync de dir (durabilidad post-commit) falla
+        return cert
 
     monkeypatch.setattr(mcp.os, "fsync", counting)
-    monkeypatch.setattr(mcp, "_certify_commit", wrapped)
+    monkeypatch.setattr(mcp, "_publish_bundle", wrapped)
     monkeypatch.chdir(tmp_path)
     with pytest.raises(mcp.CommittedStateError) as exc:
         mcp.merge()
@@ -1310,14 +1312,15 @@ def test_b110_post_commit_unexpected_exception_is_committed_state_error(tmp_path
             raise ValueError("post-commit non-OSError")  # NO-OSError: el except OSError post-commit no la ve
         return real_fsync(fd)
 
-    orig = mcp._certify_commit
+    orig = mcp._publish_bundle
 
     def wrapped(*a):
-        orig(*a)
+        cert = orig(*a)  # Incremento 2: CURRENT cruzó y se certificó
         armed["x"] = True  # commit cruzado → el próximo fsync de dir post-commit eleva un NO-OSError
+        return cert
 
     monkeypatch.setattr(mcp.os, "fsync", bad_fsync)
-    monkeypatch.setattr(mcp, "_certify_commit", wrapped)
+    monkeypatch.setattr(mcp, "_publish_bundle", wrapped)
     monkeypatch.chdir(tmp_path)
     with pytest.raises(mcp.CommittedStateError):
         mcp.merge()
@@ -2047,31 +2050,40 @@ def test_b139_concurrency_preserved_is_incomplete(tmp_path, monkeypatch):
 
 
 def test_r11_static_gate_receipt_and_journal():
-    # GATE ESTÁTICO ampliado (R9.2R11 §9): commit_reached=True SÓLO en el certificador; MANIFEST con
-    # O_RDWR|O_APPEND|O_EXCL; estado exchange_applied; sin os.replace/rename/unlink; fchmod guardado por `created`.
+    # GATE ESTÁTICO (R9.2R11 §9 + Incremento 2): la AUTORIDAD del commit es el CommitCertificate de CURRENT, NO el
+    # recibo. commit_reached es DERIVADO (property); el LATCH `_committed=True` SÓLO se pone en mark_current_certified/
+    # mark_committed_incomplete; _certify_receipt NO lo toca. MANIFEST O_RDWR|O_APPEND|O_EXCL; journal encadenado.
     import ast
     import pathlib
 
     src = pathlib.Path(mcp.__file__).read_text()
     tree = ast.parse(src)
-    # commit_reached = True aparece exactamente una vez, dentro de _certify_commit
-    assigns = [
+    funcs = {fn.name: fn for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef)}
+    # `self._committed = True` (el latch) aparece EXACTAMENTE dos veces: en mark_current_certified y mark_committed_incomplete
+    latch = [
         n
         for n in ast.walk(tree)
         if isinstance(n, ast.Assign)
-        and any(isinstance(t, ast.Attribute) and t.attr == "commit_reached" for t in n.targets)
+        and any(isinstance(t, ast.Attribute) and t.attr == "_committed" for t in n.targets)
         and isinstance(n.value, ast.Constant)
         and n.value.value is True
     ]
-    assert len(assigns) == 1, "commit_reached=True debe asignarse en UN solo sitio (el certificador)"
-    certify = next(fn for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef) and fn.name == "_certify_commit")
-    assert all(certify.lineno <= a.lineno <= (certify.end_lineno or a.lineno) for a in assigns), (
-        "commit_reached=True debe vivir dentro de _certify_commit"
+    assert len(latch) == 2, "el latch _committed=True vive SÓLO en mark_current_certified/mark_committed_incomplete"
+    for name in ("mark_current_certified", "mark_committed_incomplete"):
+        fn = funcs[name]
+        assert any(fn.lineno <= a.lineno <= (fn.end_lineno or a.lineno) for a in latch), f"{name} debe poner el latch"
+    cr = funcs["_certify_receipt"]  # el recibo NUNCA declara el commit (es evidencia)
+    assert not any(cr.lineno <= a.lineno <= (cr.end_lineno or a.lineno) for a in latch), (
+        "_certify_receipt NO declara commit"
     )
+    assert "@property" in src and "def commit_reached" in src, "commit_reached debe ser una property DERIVADA"
+    assert "authority_crossed" in src, "el commit se declara consumiendo un CommitCertificate (authority_crossed)"
     assert "O_RDWR" in src and "O_APPEND" in src and "O_EXCL" in src, "MANIFEST debe abrirse O_RDWR|O_APPEND|O_EXCL"
     assert "exchange_applied" in src and "compensation_verified" in src, "debe rastrear el estado CAS explícito"
     assert "record_sha256" in src and "previous_record_sha256" in src, "el journal debe encadenar hashes"
-    assert "_RECEIPT_PREFIX" in src and "_certify_commit" in src, "debe existir el recibo de commit gobernado"
+    assert "_RECEIPT_PREFIX" in src and "_certify_receipt" in src, (
+        "debe existir el recibo de commit gobernado (evidencia)"
+    )
 
 
 # ----------------------------- B140-B147: recibo/journal/compensación endurecidos -----------------------------
@@ -2398,26 +2410,26 @@ def test_b148_post_commit_csv_mutation_does_not_corrupt_authority(tmp_path, monk
 
 
 def test_b158_mutation_between_receipt_and_sealing_never_enters_bundle(tmp_path, monkeypatch):
-    # B158: una mutación de un output DESPUÉS del recibo y ANTES del sellado NO debe entrar al bundle. El sellado
-    # relee desde el fd certificado revalidando el digest → aborta la publicación → no hay autoridad envenenada.
+    # B158 + Incremento 2: una mutación de un output DESPUÉS del recibo (EVIDENCIA) y ANTES del sellado NO entra al
+    # bundle. El sellado relee desde el fd certificado revalidando el digest → BundleValidationError ANTES del CAS de
+    # CURRENT → el commit NO cruza → ROLLBACK (la autoridad CURRENT jamás se envenena; nunca se sella lo mutado).
     import tools.campaign_bundle as cb
 
     _write_all_8(tmp_path)
     camp = tmp_path / "reports" / "campaign"
-    real_cert = mcp._certify_commit
+    real_cert = mcp._certify_receipt
 
     def cert_then_mutate(chain, lock, inputs, outs, quar, ctx):
-        real_cert(chain, lock, inputs, outs, quar, ctx)  # commit del recibo (certifica los outputs)
+        real_cert(chain, lock, inputs, outs, quar, ctx)  # recibo (evidencia; certifica los outputs)
         p = camp / "campaign_pool_FAD_family.csv"  # …y ENTONCES un tercero muta el output ya certificado
         os.chmod(p, 0o600)
         with open(p, "ab") as fh:
             fh.write(b"9,9,9\n")
 
-    monkeypatch.setattr(mcp, "_certify_commit", cert_then_mutate)
+    monkeypatch.setattr(mcp, "_certify_receipt", cert_then_mutate)
     monkeypatch.chdir(tmp_path)
-    # el recibo cruzó (commit_reached), pero el sellado detecta la mutación y aborta ⇒ estado post-commit
-    # incompleto: el merge lo señala como CommittedStateError, jamás sella los bytes mutados.
-    with pytest.raises(mcp.CommittedStateError):
+    # el CAS de CURRENT NO cruza (la mutación se detecta pre-CAS en el sellado) ⇒ rollback; jamás se sella lo mutado.
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
         mcp.merge()
     monkeypatch.undo()
     cfd = os.open(str(camp), os.O_RDONLY | os.O_DIRECTORY)
@@ -2570,3 +2582,110 @@ def test_read_bytes_path_rejects_ancestor_symlink(tmp_path):
             gr.read_bytes_path(rfd, "link/sub/f")
     finally:
         os.close(rfd)
+
+
+# ------------------------- Incremento 2: la autoridad del commit es el CommitCertificate de CURRENT -------------------------
+
+
+def test_inc2_seal_failure_before_cas_rolls_back(tmp_path, monkeypatch):
+    # Incremento 2 (frontera): un fallo del sellado del bundle ANTES del CAS de CURRENT NO es un Issue post-commit —
+    # el commit NO cruza y el merge hace ROLLBACK. RED sobre 02f9d6c (allí el recibo ya "commiteó" ⇒ CommittedStateError).
+    import tools.campaign_bundle as cb
+
+    _write_all_8(tmp_path)
+
+    def boom(fd, digest, what):
+        raise cb.BundleValidationError(f"seal failed pre-CAS: {what}")
+
+    monkeypatch.setattr(mcp, "_seal_bytes_from_fd", boom)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
+        mcp.merge()
+    camp = tmp_path / "reports" / "campaign"
+    cfd = os.open(str(camp), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(cb.BundleError):  # CURRENT nunca cruzó → no hay bundle publicado
+            cb.open_current_bundle(cfd)
+    finally:
+        os.close(cfd)
+
+
+def test_inc2_real_merge_crosses_via_certificate(tmp_path, monkeypatch):
+    # una corrida real cruza el commit vía CURRENT (CommitCertificate); CURRENT apunta a un bundle válido.
+    import tools.campaign_bundle as cb
+
+    _write_all_8(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert mcp.merge() == 0
+    camp = tmp_path / "reports" / "campaign"
+    cfd = os.open(str(camp), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        bundle_id, manifest = cb.open_current_bundle(cfd)  # CURRENT es autoridad válida
+        assert isinstance(bundle_id, str) and len(bundle_id) == 64
+    finally:
+        os.close(cfd)
+
+
+def test_inc2_certificate_is_immutable():
+    # el CommitCertificate es FROZEN: ningún consumidor puede mutar la evidencia del commit.
+    import dataclasses
+
+    import tools.campaign_bundle as cb
+
+    cert = cb.CommitCertificate(
+        bundle_id="a" * 64, previous_bundle_id=None, campaign_id="c", pointer_digest="b" * 64,
+        pointer_inode=(1, 2), manifest_digest="a" * 64, bundle_inode=(3, 4), csv_contract_sha256="d" * 64,
+        provenance_digest="e" * 64, durability_state="durable",
+    )  # fmt: skip
+    assert cert.authority_crossed is True
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        cert.bundle_id = "z" * 64  # inmutable
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        cert.authority_crossed = False
+
+
+def test_inc2_txcontext_frontier_invariants():
+    # la máquina de estados del commit: sólo un CommitCertificate declara el cruce; forward-only; incompleto exige CAS.
+    class FakeCert:
+        authority_crossed = True
+
+    c = mcp._TxContext()
+    c.transition(mcp._S_PROJECTIONS_DURABLE)
+    c.transition(mcp._S_RECEIPT_CERTIFIED)
+    assert not c.commit_reached  # el recibo NO es autoridad
+    c.transition(mcp._S_CURRENT_CAS_STARTED)
+    # certificado forjado (sin authority_crossed) → rechazado
+    with pytest.raises(mcp.RollbackError):
+        c.mark_current_certified(object())
+    with pytest.raises(mcp.RollbackError):
+        c.mark_current_certified(None)
+    c.mark_current_certified(FakeCert())
+    assert c.commit_reached and c.certificate is not None
+    # forward-only: no se puede volver atrás
+    with pytest.raises(mcp.RollbackError):
+        c.transition(mcp._S_RECEIPT_CERTIFIED)
+    # el latch persiste al cerrar
+    c.mark_closed()
+    assert c.commit_reached
+
+
+def test_inc2_committed_incomplete_requires_crossed_evidence():
+    # COMMITTED_INCOMPLETE (post-commit incompleto) EXIGE evidencia de que el CAS cruzó; jamás antes del CAS.
+    c = mcp._TxContext()
+    c.transition(mcp._S_PROJECTIONS_DURABLE)
+    c.transition(mcp._S_RECEIPT_CERTIFIED)
+    with pytest.raises(mcp.RollbackError):  # aún no se inició el CAS
+        c.mark_committed_incomplete()
+    c.transition(mcp._S_CURRENT_CAS_STARTED)
+    c.mark_committed_incomplete()
+    assert c.commit_reached  # el CAS cruzó incompleto → sigue siendo commit cruzado (no rollback)
+
+
+def test_inc2_committed_state_error_carries_crossed_evidence():
+    # CommittedStateError lleva la EVIDENCIA ESTRUCTURADA del cruce (authority_crossed), no texto.
+    import tools.campaign_bundle as cb
+
+    assert cb.CommittedStateError.authority_crossed is True
+    assert getattr(cb.CommittedStateError("x"), "authority_crossed", False) is True
+    # un error pre-CAS NO lleva la evidencia
+    assert getattr(cb.BundleValidationError("x"), "authority_crossed", False) is False

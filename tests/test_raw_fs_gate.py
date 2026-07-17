@@ -99,6 +99,27 @@ def test_b214_gate_catches_destructive_open(src):
         os.unlink(path)
 
 
+def test_gate_allows_dataclasses_replace_but_not_fs_replace():
+    # Incremento 2: `dataclasses.replace` (construye un frozen NUEVO) es SEGURO; `os.replace`/`Path(p).replace`
+    # (renombre destructivo) siguen prohibidos.
+    safe = "import dataclasses\ndef f(c):\n    return dataclasses.replace(c, x=1)\n"
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as fh:
+        fh.write(safe)
+        path = fh.name
+    try:
+        assert not gate._violations(path), "falso positivo sobre dataclasses.replace"
+    finally:
+        os.unlink(path)
+    for bad in ("import os\ndef f():\n    os.replace('a', 'b')\n", "from pathlib import Path\ndef f(p):\n    Path(p).replace('x')\n"):  # fmt: skip
+        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as fh:
+            fh.write(bad)
+            path = fh.name
+        try:
+            assert gate._violations(path), f"el gate no marcó un replace destructivo: {bad!r}"
+        finally:
+            os.unlink(path)
+
+
 def test_b214_gate_allows_safe_reads():
     src = "import os\ndef f(d):\n    open('x', 'rb')\n    os.open('y', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=d)\n"
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as fh:

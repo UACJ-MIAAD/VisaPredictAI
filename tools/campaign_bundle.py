@@ -32,6 +32,7 @@ output desde su fd CERTIFICADO con snapshot pre/post y revalida el digest antes 
 from __future__ import annotations
 
 import csv
+import dataclasses
 import hashlib
 import io
 import json
@@ -149,7 +150,11 @@ class BundleRollbackIncompleteError(BundleError):
 
 
 class CommittedStateError(BundleError):
-    """El CAS de CURRENT ya cruzó (autoridad válida y durable); un fallo posterior NO es un rollback."""
+    """El CAS de CURRENT ya cruzó (autoridad válida y durable); un fallo posterior NO es un rollback. Incremento 2:
+    lleva `authority_crossed = True` como EVIDENCIA ESTRUCTURADA del cruce — el llamador clasifica por este atributo
+    (o por el tipo), JAMÁS leyendo el texto de la excepción."""
+
+    authority_crossed = True
 
 
 # --------------------------------------------------- helpers base ---------------------------------------------------
@@ -771,17 +776,24 @@ def _pointer_matches(dir_fd: int, name: str, ident: tuple[int, int], content: by
         return False
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
 class CommitCertificate:
-    """Prueba estructurada del commit del bundle (B189): CURRENT y el bundle se certificaron como UNA unidad. NO se
-    devuelve un simple string."""
+    """Prueba ESTRUCTURADA E INMUTABLE del commit (B189 + Incremento 2): CURRENT y el bundle se certificaron como UNA
+    unidad. El commit se declara SÓLO consumiendo este certificado (`authority_crossed`), jamás por texto de excepción.
+    Frozen: ningún consumidor puede mutar la evidencia. Transporta la identidad completa del puntero, el bundle, el
+    manifiesto, el contrato CSV, la procedencia y el estado de durabilidad."""
 
-    __slots__ = ("bundle_id", "pointer_digest", "pointer_inode", "previous_bundle_id")
-
-    def __init__(self, bundle_id: str, pointer_digest: str, pointer_inode: tuple[int, int], previous_bundle_id: str | None) -> None:  # fmt: skip
-        self.bundle_id = bundle_id
-        self.pointer_digest = pointer_digest
-        self.pointer_inode = pointer_inode
-        self.previous_bundle_id = previous_bundle_id
+    bundle_id: str
+    previous_bundle_id: str | None
+    campaign_id: str | None
+    pointer_digest: str
+    pointer_inode: tuple[int, int]
+    manifest_digest: str
+    bundle_inode: tuple[int, int]
+    csv_contract_sha256: str
+    provenance_digest: str
+    durability_state: str
+    authority_crossed: bool = True
 
 
 def _quarantine_pointer(quar: GovernedQuarantine, camp_fd: int, name: str, fd: int, content: bytes) -> None:
@@ -827,7 +839,22 @@ def _certify_current(camp_fd: int, prepared: _PreparedBundle, pbytes: bytes, tmp
         _validate_authority(camp_fd, prev_id)
     if not _pointer_matches(camp_fd, _CURRENT_NAME, tmp_ident, pbytes):  # B189: CURRENT no cambió durante la validación
         raise BundleValidationError("CURRENT fue cambiado durante la certificación (B189)")
-    return CommitCertificate(prepared.bundle_id, hashlib.sha256(pbytes).hexdigest(), tmp_ident, prev_id)
+    manifest = prepared.manifest
+    prov = manifest["provenance"]
+    return CommitCertificate(
+        bundle_id=prepared.bundle_id,
+        previous_bundle_id=prev_id,
+        campaign_id=manifest["campaign_id"],
+        pointer_digest=hashlib.sha256(pbytes).hexdigest(),
+        pointer_inode=tmp_ident,
+        manifest_digest=hashlib.sha256(
+            _canon(manifest)
+        ).hexdigest(),  # == bundle_id (invariante bundle_id==sha(manifest))
+        bundle_inode=prepared._ident,
+        csv_contract_sha256=prov["csv_contract_sha256"],
+        provenance_digest=hashlib.sha256(_canon(prov)).hexdigest(),
+        durability_state="cas_crossed",  # el _cas_pointer lo eleva a 'durable' TRAS el fsync post-CAS
+    )
 
 
 def commit_current(prepared: _PreparedBundle) -> CommitCertificate:
@@ -919,7 +946,7 @@ def _cas_pointer(camp_fd: int, quar: GovernedQuarantine, prepared: _PreparedBund
             _quarantine_pointer(quar, camp_fd, _CURRENT_NAME, tmp_fd, pbytes)  # move-only: CURRENT sale → ausencia
             raise
         _fsync_typed(camp_fd)
-        return cert
+        return dataclasses.replace(cert, durability_state="durable")  # Incremento 2: durable TRAS el fsync post-CAS
 
     if prev_ident is None or prev_raw is None or prev_fd < 0:
         raise BundleError("estado inconsistente: puntero previo sin identidad/bytes/fd")
@@ -938,6 +965,7 @@ def _cas_pointer(camp_fd: int, quar: GovernedQuarantine, prepared: _PreparedBund
             _compensate(camp_fd, quar, tmp_name, tmp_fd, tmp_ident, pbytes, prev_fd, prev_raw, displaced)
             raise
         _fsync_typed(camp_fd)
+        cert = dataclasses.replace(cert, durability_state="durable")  # Incremento 2: durable TRAS el fsync post-CAS
         _quarantine_pointer_prev(quar, camp_fd, tmp_name, prev_fd, prev_raw)  # retira el previo desplazado (move-only)
         return cert
     # Carrera: CURRENT había cambiado. Restaurar el valor CONCURRENTE (el desplazado real), no el previo stale.
@@ -977,6 +1005,22 @@ def _compensate(camp_fd: int, quar: GovernedQuarantine, tmp_name: str, tmp_fd: i
     _quarantine_pointer(quar, camp_fd, tmp_name, tmp_fd, pbytes)  # retira mi puntero por cuarentena move-only
 
 
+def build_and_certify(
+    camp_fd: int,
+    txid: str,
+    campaign_id: str | None,
+    outputs: list[dict],
+    inputs: list[dict],
+    provenance: dict,
+) -> CommitCertificate:
+    """Incremento 2: prepara+valida el bundle inmutable (fd vivo) y hace CAS de CURRENT. Devuelve el CommitCertificate
+    ESTRUCTURADO (autoridad del commit) SÓLO cuando CURRENT apunta al bundle válido. Un fallo pre-CAS eleva
+    BundleValidationError/BundleConcurrencyError/BundleRollbackIncompleteError; un fallo post-CAS eleva
+    CommittedStateError (con `authority_crossed`)."""
+    with prepare_bundle(camp_fd, txid, campaign_id, outputs, inputs, provenance) as prepared:
+        return commit_current(prepared)
+
+
 def build_and_commit(
     camp_fd: int,
     txid: str,
@@ -985,10 +1029,9 @@ def build_and_commit(
     inputs: list[dict],
     provenance: dict,
 ) -> str:
-    """Envoltura: prepara+valida el bundle inmutable (fd vivo) y hace CAS de CURRENT. Devuelve el `bundle_id` del
-    `CommitCertificate` SÓLO cuando CURRENT apunta al bundle válido (punto de commit)."""
-    with prepare_bundle(camp_fd, txid, campaign_id, outputs, inputs, provenance) as prepared:
-        return commit_current(prepared).bundle_id
+    """Envoltura de compatibilidad: devuelve sólo el `bundle_id` del CommitCertificate (los tests lo usan como
+    string). El merge usa `build_and_certify` para consumir el certificado como autoridad del commit."""
+    return build_and_certify(camp_fd, txid, campaign_id, outputs, inputs, provenance).bundle_id
 
 
 # --------------------------------------- resolución para consumidores (snapshot) ---------------------------------------
