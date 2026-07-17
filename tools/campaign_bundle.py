@@ -41,7 +41,13 @@ import stat
 
 from tools.atomic_fs import AtomicRenameError, AtomicUnsupportedError, rename_exchange, rename_noreplace
 from tools.governed_fs import GovernedQuarantine, GovernedQuarantineError, GovernedRemovalError, OwnedLease
-from tools.governed_read import GovernedOpenError, opened_regular_noblock_at, read_governed_bytes, relative_name_problem
+from tools.governed_read import (
+    GovernedOpenError,
+    opened_regular_noblock_at,
+    read_bytes_abs,
+    read_governed_bytes,
+    relative_name_problem,
+)
 
 # B198: el contrato CSV se ANCLA por sha256 pineado (no una caché mutable). `_csv_columns()` RELEE el fichero y
 # verifica su hash en CADA uso → mutar una caché en memoria no puede aflojarlo, y mutar el fichero rompe el hash. El
@@ -51,8 +57,10 @@ _CSV_CONTRACT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".
 
 
 def _csv_columns() -> tuple[str, ...]:
-    with open(_CSV_CONTRACT_PATH, "rb") as fh:
-        raw = fh.read()
+    try:  # B218: lectura no bloqueante (un contrato sustituido por FIFO no cuelga; el leaf se valida S_ISREG)
+        raw = read_bytes_abs(_CSV_CONTRACT_PATH)
+    except GovernedOpenError as exc:
+        raise BundleValidationError(f"el contrato CSV en disco no es un fichero regular: {exc}") from exc
     if hashlib.sha256(raw).hexdigest() != _CSV_CONTRACT_SHA256:
         raise BundleValidationError("el contrato CSV en disco no coincide con el sha256 pineado (B198)")
     contract = json.loads(raw)
@@ -710,21 +718,18 @@ def _open_pointer_governed(dir_fd: int, name: str) -> tuple[int, bytes, dict, tu
     post) + esquema CERRADO. Devuelve `(fd, raw, pointer, (dev,ino))`; el llamador es dueño del fd. Propaga
     `FileNotFoundError` si ausente; cualquier otro problema → `BundleValidationError`."""
     _require_relative("pointer", name)
-    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)  # B217: un FIFO no cuelga el abrir
-    try:
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid() or st.st_nlink != 1 or stat.S_IMODE(st.st_mode) != 0o600:  # fmt: skip
-            raise BundleValidationError("pointer no-regular/ajeno/hardlink/modo != 0600")
-        raw = b""
-        while chunk := os.read(fd, 1 << 16):
-            raw += chunk
-        if _snap(os.fstat(fd)) != _snap(st):
-            raise BundleValidationError("pointer mutado durante la lectura")
-        pointer = _validate_pointer(_strict_loads(raw))
-    except BaseException:
-        os.close(fd)
-        raise
-    return fd, raw, pointer, _ident(st)
+    try:  # B218: apertura por la FUENTE ÚNICA (no bloqueante + S_ISREG/UID/nlink/modo); el fd vivo se DUPLICA fuera
+        with opened_regular_noblock_at(dir_fd, name, uid=os.geteuid(), nlink=1, mode=0o600) as (fd0, st):
+            raw = b""
+            while chunk := os.read(fd0, 1 << 16):
+                raw += chunk
+            if _snap(os.fstat(fd0)) != _snap(st):
+                raise BundleValidationError("pointer mutado durante la lectura")
+            pointer = _validate_pointer(_strict_loads(raw))
+            live = os.dup(fd0)  # el llamador es dueño del fd; la primitiva cierra el suyo al salir
+        return live, raw, pointer, _ident(st)
+    except GovernedOpenError as exc:
+        raise BundleValidationError(f"pointer no-regular/ajeno/hardlink/modo != 0600: {exc}") from exc
 
 
 def _read_current(camp_fd: int) -> tuple[dict, bytes, tuple[int, int]] | None:

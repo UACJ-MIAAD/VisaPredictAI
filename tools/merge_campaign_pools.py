@@ -66,6 +66,7 @@ from tools.governed_read import (
     lease_problem,
     open_governed_lease,
     opened_regular_noblock_at,
+    read_bytes_abs,
     relative_name_problem,
     snapshot_fd,
 )
@@ -1079,9 +1080,9 @@ def _module_hash(mod_name: str) -> str:
     path = getattr(mod, "__file__", None)
     if path is None:
         return "unknown"
-    try:
-        return hashlib.sha256(open(path, "rb").read()).hexdigest()
-    except OSError:
+    try:  # B218: lectura no bloqueante (un módulo sustituido por FIFO no cuelga el hash de procedencia)
+        return hashlib.sha256(read_bytes_abs(path)).hexdigest()
+    except OSError, GovernedOpenError:
         return "unknown"
 
 
@@ -1098,9 +1099,9 @@ def _git(*args: str) -> str | None:
 def _provenance() -> dict:
     """B147/B152: procedencia COMPLETA — git HEAD/tree/dirty (vía comandos git), python, contrato, env_id/perfil/
     variante (inyectados por el orquestador) y hashes completos de los tres módulos gobernantes."""
-    try:
-        contract = hashlib.sha256(open("environments/execution_contract.json", "rb").read()).hexdigest()
-    except OSError:
+    try:  # B218: lectura no bloqueante del contrato de ejecución
+        contract = hashlib.sha256(read_bytes_abs("environments/execution_contract.json")).hexdigest()
+    except OSError, GovernedOpenError:
         contract = "unknown"  # el contrato puede no estar presente (p. ej. en un tmp de test); no aborta
     status = _git("status", "--porcelain")
     return {
@@ -1266,9 +1267,9 @@ def _governed_run_identity() -> dict | None:
     prefix = os.path.realpath(sys.prefix)
     if f"{os.sep}.vp_envs{os.sep}" not in prefix or not prefix.endswith(f"{os.sep}{env_id}"):
         return None  # el intérprete en ejecución NO es el entorno content-addressed sellado <env_id>
-    try:
-        ready = json.loads(open(os.path.join(prefix, "READY.json"), "rb").read())
-    except OSError, ValueError:
+    try:  # B218: lectura no bloqueante de READY.json bajo el prefijo del entorno (R9 hará la cadena completa)
+        ready = json.loads(read_bytes_abs(os.path.join(prefix, "READY.json")))
+    except OSError, GovernedOpenError, ValueError:
         return None
     if not (isinstance(ready, dict) and ready.get("env_id") == env_id and ready.get("profile") == profile):
         return None
@@ -1279,9 +1280,9 @@ def _bundle_provenance(quar: _Quarantine) -> dict:
     """B164: procedencia oficial COMPLETA para el manifiesto del bundle, en la forma EXACTA que exige el esquema
     cerrado: HEAD de git, hashes de los CUATRO módulos de la ruta de confianza + el contrato de ejecución (None si
     ausente, no 'unknown'), y la cabeza terminal de cada journal de cuarentena."""
-    try:
-        ec: str | None = hashlib.sha256(open("environments/execution_contract.json", "rb").read()).hexdigest()
-    except OSError:
+    try:  # B218: lectura no bloqueante del contrato de ejecución
+        ec: str | None = hashlib.sha256(read_bytes_abs("environments/execution_contract.json")).hexdigest()
+    except OSError, GovernedOpenError:
         ec = None
     heads = {st.source_label: (st.prev_sha or None) for st in quar._states.values() if st.prev_sha}
     head = _git("rev-parse", "HEAD")
@@ -1319,8 +1320,7 @@ def _bundle_provenance(quar: _Quarantine) -> dict:
 
 
 def _file_sha(path: str) -> str:
-    with open(path, "rb") as fh:
-        return hashlib.sha256(fh.read()).hexdigest()
+    return hashlib.sha256(read_bytes_abs(path)).hexdigest()  # B218: lectura no bloqueante del módulo
 
 
 def _seal_bytes_from_fd(fd: int, certified_digest: str | None, what: str) -> bytes:

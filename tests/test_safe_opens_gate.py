@@ -20,6 +20,21 @@ def test_online_path_has_no_hangable_opens():
 @pytest.mark.parametrize(
     "src",
     [
+        "from tools.governed_fs import GovernedQuarantine\n",  # nuevo módulo que usa la cuarentena online
+        "import tools.campaign_bundle as cb\n",  # importa la maquinaria del bundle
+        "import tools.merge_campaign_pools\n",  # importa el merge
+    ],
+)
+def test_inventory_flags_new_online_module(src):
+    import ast as _ast
+
+    problems = gate._online_import_problems("tools/nuevo_online.py", _ast.parse(src))
+    assert problems, f"el inventario no marcó un módulo online nuevo: {src!r}"
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
         "import os\ndef f(d):\n    os.open('x', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=d)\n",  # lectura sin O_NONBLOCK
         "import os\ndef f(d):\n    os.open('x', os.O_RDWR | os.O_NOFOLLOW, dir_fd=d)\n",  # RW sin O_NONBLOCK
         "import os\ndef f(d):\n    os.open('x', os.O_RDONLY | os.O_NONBLOCK, dir_fd=d)\n",  # sin O_NOFOLLOW
@@ -37,6 +52,44 @@ def test_gate_flags_hangable_opens(src):
         assert gate._violations(path), f"el gate no detectó la apertura insegura: {src!r}"
     finally:
         os.unlink(path)
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
+        "def f():\n    open('c.json', 'rb').read()\n",  # builtin open (lectura por ruta sin gobernar)
+        "o = open\ndef f():\n    o('c', 'rb')\n",  # alias del builtin open
+        "import io\ndef f():\n    io.open('c', 'rb')\n",  # io.open
+        "from io import open\ndef f():\n    open('c')\n",  # from io import open
+        "from pathlib import Path\ndef f(p):\n    Path(p).read_bytes()\n",  # Path(...).read_bytes()
+        "def f(p):\n    p.read_text()\n",  # <x>.read_text()
+        "import os\ndef f(d):\n    os.open('x', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=d)\n",  # lectura O_RDONLY fuera de la fuente única
+    ],
+)
+def test_gate_flags_ungoverned_reads(src):
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as fh:
+        fh.write(src)
+        path = fh.name
+    try:
+        assert gate._violations(path), f"el gate no detectó la lectura no gobernada: {src!r}"
+    finally:
+        os.unlink(path)
+
+
+def test_gate_allows_read_only_inside_source_helper():
+    # una os.open de LECTURA es válida SÓLO dentro de la fuente única real (por (fichero, función)).
+    src = "import os\ndef opened_regular_noblock_at(d, n):\n    os.open(n, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=d)\n"
+    import ast as _ast
+
+    sc = gate._Scanner("tools/governed_read.py")  # el path del registro positivo
+    tree = _ast.parse(src)
+    sc.prescan(tree)
+    sc.visit(tree)
+    assert not sc.problems, f"falso positivo dentro de la fuente única: {sc.problems}"
+    sc2 = gate._Scanner("tools/merge_campaign_pools.py")  # MISMO código en otro fichero → prohibido
+    sc2.prescan(tree)
+    sc2.visit(tree)
+    assert sc2.problems, "una lectura O_RDONLY en un fichero que no es la fuente única debe fallar"
 
 
 @pytest.mark.parametrize(
@@ -61,17 +114,15 @@ def test_gate_catches_bypasses(src):
 @pytest.mark.parametrize(
     "src",
     [
-        "import os\ndef f(d):\n    os.open('x', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=d)\n",  # lectura segura
         "import os\n_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW\ndef f(d):\n    os.open('x', _DIR, dir_fd=d)\n",  # dir por constante
         "import os\ndef f(d):\n    os.open('x', os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=d)\n",  # create-only
-        "import os\ndef f(d, c):\n    os.open('x', os.O_RDONLY | (os.O_NOFOLLOW | os.O_NONBLOCK), dir_fd=d)\n",  # BinOp anidado
-        "import os\ndef f(d, p):\n    os.open('x', _D) if p else os.open('x', _D, dir_fd=d)\n",  # IfExp de dos os.open (cada uno visitado)
+        "import os\ndef f(d):\n    os.open('l', os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=d)\n",  # lock RW inline (no lee contenido)
+        "import os\n_D = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW\ndef f(d, p):\n    os.open('x', _D) if p else os.open('x', _D, dir_fd=d)\n",  # IfExp de dos os.open de dir
     ],
 )
 def test_gate_allows_safe_opens(src):
-    prelude = "_D = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW\n" if "_D)" in src or "_D," in src else ""
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as fh:
-        fh.write(src.replace("import os\n", "import os\n" + prelude, 1))
+        fh.write(src)
         path = fh.name
     try:
         assert not gate._violations(path), f"falso positivo sobre apertura segura: {src!r}"
