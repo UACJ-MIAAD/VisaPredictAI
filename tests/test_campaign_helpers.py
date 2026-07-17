@@ -2545,28 +2545,39 @@ def test_b219_capture_object_discriminates(tmp_path):
         os.close(dfd)
 
 
-def test_read_bytes_abs_fifo_no_hang():
-    # B218: read_bytes_abs sobre un FIFO (contrato/módulo/READY sustituido) NO cuelga; rechaza por tipo.
+@pytest.mark.parametrize("kind", ["fifo", "socket"])
+def test_read_bytes_abs_special_no_hang(kind):
+    # B218: read_bytes_abs sobre un FIFO/socket (contrato/módulo/READY sustituido) NO cuelga; rechaza por tipo/OS.
+    import socket
     import tempfile
+    import threading
 
-    d = tempfile.mkdtemp(dir="/tmp")
-    os.mkfifo(os.path.join(d, "fifo"))
+    d = tempfile.mkdtemp(dir="/tmp")  # ruta corta: un socket AF_UNIX topa el límite de sun_path
+    target = os.path.join(d, "special")
+    sock = None
+    if kind == "fifo":
+        os.mkfifo(target)
+    else:
+        sock = socket.socket(socket.AF_UNIX)
+        sock.bind(target)
     holder: dict = {}
 
     def run():
         try:
-            gr.read_bytes_abs(os.path.join(d, "fifo"))
+            gr.read_bytes_abs(target)
             holder["ok"] = True
-        except gr.GovernedOpenError:
-            holder["special"] = True
-
-    import threading
+        except (gr.GovernedOpenError, OSError) as exc:
+            holder["rejected"] = type(exc).__name__
 
     t = threading.Thread(target=run, daemon=True)
     t.start()
     t.join(4)
-    assert not t.is_alive(), "read_bytes_abs COLGÓ sobre un FIFO"
-    assert holder.get("special"), "read_bytes_abs debe rechazar un FIFO como GovernedOpenError"
+    try:
+        assert not t.is_alive(), f"read_bytes_abs COLGÓ sobre un {kind}"
+        assert holder.get("rejected"), f"read_bytes_abs debe rechazar un {kind}"
+    finally:
+        if sock is not None:
+            sock.close()
 
 
 def test_read_bytes_path_rejects_ancestor_symlink(tmp_path):
@@ -2689,3 +2700,66 @@ def test_inc2_committed_state_error_carries_crossed_evidence():
     assert getattr(cb.CommittedStateError("x"), "authority_crossed", False) is True
     # un error pre-CAS NO lleva la evidencia
     assert getattr(cb.BundleValidationError("x"), "authority_crossed", False) is False
+
+
+def test_inc2_postcommit_failure_keeps_current_authority(tmp_path, monkeypatch):
+    # Ronda adversarial (Incremento 2): tras cruzar CURRENT, un fallo post-commit → CommittedStateError, PERO CURRENT
+    # sigue siendo la autoridad VÁLIDA — JAMÁS se hace rollback tras el certificado (invariante #13).
+    import tools.campaign_bundle as cb
+
+    _write_all_8(tmp_path)
+    real_fsync = os.fsync
+    armed = {"x": False}
+
+    def counting(fd):
+        import stat as _s
+
+        if armed["x"] and _s.S_ISDIR(os.fstat(fd).st_mode):
+            armed["x"] = False
+            raise OSError("postcommit dir fsync")
+        return real_fsync(fd)
+
+    orig = mcp._publish_bundle
+
+    def wrapped(*a):
+        cert = orig(*a)  # CURRENT cruzó y se certificó
+        armed["x"] = True
+        return cert
+
+    monkeypatch.setattr(mcp.os, "fsync", counting)
+    monkeypatch.setattr(mcp, "_publish_bundle", wrapped)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(mcp.CommittedStateError):
+        mcp.merge()
+    monkeypatch.undo()
+    camp = tmp_path / "reports" / "campaign"
+    cfd = os.open(str(camp), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        bid, _manifest = cb.open_current_bundle(cfd)  # CURRENT sigue siendo autoridad válida (no hubo rollback)
+        assert len(bid) == 64
+    finally:
+        os.close(cfd)
+
+
+def test_inc2_no_forged_receipt_authority(tmp_path, monkeypatch):
+    # Ronda adversarial: un recibo válido NO basta para declarar commit. Si el CAS de CURRENT no cruza (bundle falla
+    # pre-CAS), el recibo existe pero el commit NO cruzó → rollback; CURRENT nunca aparece.
+    import tools.campaign_bundle as cb
+
+    _write_all_8(tmp_path)
+
+    def boom(fd, digest, what):
+        raise cb.BundleValidationError("pre-CAS")
+
+    monkeypatch.setattr(mcp, "_seal_bytes_from_fd", boom)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises((mcp.RollbackError, mcp.RollbackIncompleteError)):
+        mcp.merge()
+    monkeypatch.undo()
+    camp = tmp_path / "reports" / "campaign"
+    cfd = os.open(str(camp), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(cb.BundleError):  # el recibo por sí solo NO crea autoridad CURRENT
+            cb.open_current_bundle(cfd)
+    finally:
+        os.close(cfd)
