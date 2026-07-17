@@ -158,6 +158,35 @@ def frontier_problems(src: str) -> list[str]:
         problems.append("debe existir el terminal AUTHORITY_INDETERMINATE + mark_indeterminate")
     if funcs.get("rollback_allowed") is None:
         problems.append("debe existir la property rollback_allowed (rollback SÓLO si no cruzó y no indeterminado)")
+
+    # 9. B231: el merge JAMÁS construye un CommitCertificate — sólo consume el que EMITE la fábrica del módulo bundle.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            f = node.func
+            if (isinstance(f, ast.Name) and f.id == "CommitCertificate") or (isinstance(f, ast.Attribute) and f.attr == "CommitCertificate"):  # fmt: skip
+                problems.append(f"construcción directa de CommitCertificate en {_TARGET}:{node.lineno} (sólo la fábrica _build_certificate la emite)")  # fmt: skip
+    return problems
+
+
+_FACTORY_TARGET = "tools/campaign_bundle.py"
+_FACTORY_FN = "_build_certificate"
+
+
+def factory_problems(src: str) -> list[str]:
+    """B231: en `campaign_bundle`, `CommitCertificate(...)` se construye SÓLO dentro de la fábrica `_build_certificate`;
+    ningún otro sitio del módulo fabrica un certificado (un cert es autoridad sólo si lo emitió la fábrica desde
+    evidencia viva)."""
+    tree = ast.parse(src)
+    factory = next((fn for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef) and fn.name == _FACTORY_FN), None)
+    problems: list[str] = []
+    if factory is None:
+        return [f"falta la fábrica {_FACTORY_FN} en {_FACTORY_TARGET}"]
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "CommitCertificate":
+            if not (factory.lineno <= node.lineno <= (factory.end_lineno or factory.lineno)):
+                problems.append(
+                    f"CommitCertificate construido FUERA de {_FACTORY_FN} en {_FACTORY_TARGET}:{node.lineno}"
+                )
     return problems
 
 
@@ -194,6 +223,15 @@ def main() -> int:
         problems = frontier_problems(src)
     except SyntaxError as exc:
         print(f"✗ {_TARGET}: no parseable ({exc}) (fail-closed)")
+        return 1
+    if not _git_tracked(_FACTORY_TARGET):  # B231: la fábrica del certificado también fail-closed
+        print(f"✗ {_FACTORY_TARGET}: NO versionado o git ls-files falló (fail-closed)")
+        return 1
+    try:
+        with open(_FACTORY_TARGET, encoding="utf-8") as fh:
+            problems += factory_problems(fh.read())
+    except (OSError, SyntaxError) as exc:
+        print(f"✗ {_FACTORY_TARGET}: ilegible/no parseable ({exc}) (fail-closed)")
         return 1
     if problems:
         print("✗ frontera de commit violada:")

@@ -1265,3 +1265,25 @@ def test_b225_reconcile_reverifies_current_binding(tmp_path, monkeypatch):
             monkeypatch.undo()
     finally:
         os.close(cfd)
+
+
+def test_b232_pointer_matches_enforces_governance(tmp_path):
+    # B232: la re-verificacion final exige las MISMAS invariantes gobernadas que la lectura inicial (nlink==1, modo
+    # 0600); un hardlink o un cambio de modo tras la primera lectura hace que _pointer_matches deje de coincidir.
+    camp, cfd = _camp(tmp_path)
+    try:
+        name = "p"
+        content = b'{"x":1}'
+        fd = os.open(name, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=cfd)
+        os.write(fd, content)
+        os.close(fd)
+        ident = cb._ident(os.stat(name, dir_fd=cfd, follow_symlinks=False))
+        assert cb._pointer_matches(cfd, name, ident, content)  # gobernado OK (regular, UID, nlink==1, 0600)
+        os.link(name, "p.hardlink", src_dir_fd=cfd, dst_dir_fd=cfd)  # nlink -> 2
+        assert not cb._pointer_matches(cfd, name, ident, content)  # B232: hardlink adicional NO coincide
+        os.unlink("p.hardlink", dir_fd=cfd)
+        assert cb._pointer_matches(cfd, name, ident, content)  # restaurado
+        os.chmod(name, 0o666, dir_fd=cfd)  # modo 0600 -> 0666
+        assert not cb._pointer_matches(cfd, name, ident, content)  # B232: modo != 0600 NO coincide
+    finally:
+        os.close(cfd)

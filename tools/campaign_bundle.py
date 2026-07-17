@@ -804,16 +804,19 @@ def _capture(dir_fd: int, name: str) -> tuple[tuple[int, int], bytes] | None:
 
 
 def _pointer_matches(dir_fd: int, name: str, ident: tuple[int, int], content: bytes) -> bool:
-    """B166: `name` liga EXACTAMENTE al inode `ident` Y su contenido son los bytes `content`. Cierra tanto el swap
-    de inode como la sustitución de contenido en sitio (O_TRUNC sobre el mismo inode). Un objeto ausente/especial
-    nunca coincide (B217/B218: no se lee)."""
+    """B166/B232: `name` liga EXACTAMENTE al inode `ident`, su contenido son los bytes `content`, Y satisface las MISMAS
+    invariantes gobernadas que la lectura inicial (regular, UID actual, nlink==1, modo EXACTO 0600, sin mutación pre/post).
+    Cierra swap de inode, sustitución en sitio (O_TRUNC), hardlink adicional, cambio de modo y mutación durante la lectura
+    final. Un objeto ausente/especial/ajeno/hardlinkeado nunca coincide (B217/B218)."""
     try:
-        with opened_regular_noblock_at(dir_fd, name) as (fd, st):
+        with opened_regular_noblock_at(dir_fd, name, uid=os.geteuid(), nlink=1, mode=0o600) as (fd, st):
             if _ident(st) != ident:
                 return False
             data = b""
             while chunk := os.read(fd, 1 << 16):
                 data += chunk
+            if _snap(os.fstat(fd)) != _snap(st):  # B232: mutación (contenido/modo/nlink) durante la lectura final
+                return False
             return data == content
     except FileNotFoundError, GovernedOpenError, OSError:
         return False
@@ -822,9 +825,10 @@ def _pointer_matches(dir_fd: int, name: str, ident: tuple[int, int], content: by
 @dataclasses.dataclass(frozen=True, slots=True)
 class CommitCertificate:
     """Prueba ESTRUCTURADA E INMUTABLE del commit (B189 + Incremento 2): CURRENT y el bundle se certificaron como UNA
-    unidad. El commit se declara SÓLO consumiendo este certificado (`authority_crossed`), jamás por texto de excepción.
-    Frozen: ningún consumidor puede mutar la evidencia. Transporta la identidad completa del puntero, el bundle, el
-    manifiesto, el contrato CSV, la procedencia y el estado de durabilidad."""
+    unidad. B231: la autoridad NO es un bool — el commit se declara consumiendo un CommitCertificate REAL (del TIPO
+    exacto, EMITIDO por la fábrica `_build_certificate` desde evidencia viva y validado contra ella), jamás por un
+    atributo `authority_crossed`. Frozen: ningún consumidor puede mutar la evidencia. Transporta la identidad completa
+    del puntero, el bundle, el manifiesto, el contrato CSV, la procedencia y el estado de durabilidad."""
 
     bundle_id: str
     previous_bundle_id: str | None
@@ -836,7 +840,6 @@ class CommitCertificate:
     csv_contract_sha256: str
     provenance_digest: str
     durability_state: str
-    authority_crossed: bool = True
 
 
 def _quarantine_pointer(quar: GovernedQuarantine, camp_fd: int, name: str, fd: int, content: bytes) -> None:

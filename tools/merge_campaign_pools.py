@@ -849,21 +849,22 @@ def _is_hex64(v: object) -> bool:
 
 
 def _is_inode(v: object) -> bool:
-    return isinstance(v, tuple) and len(v) == 2 and all(isinstance(x, int) and not isinstance(x, bool) and x >= 0 for x in v)  # fmt: skip
+    # B231: (dev, ino) PLAUSIBLE — enteros (no bool), dev >= 0, ino >= 1. Ningún fichero real tiene inode 0, así que
+    # un cert sintético con inodes (0, 0) queda rechazado.
+    return isinstance(v, tuple) and len(v) == 2 and all(isinstance(x, int) and not isinstance(x, bool) for x in v) and v[0] >= 0 and v[1] >= 1  # fmt: skip
 
 
-def _validate_commit_certificate(certificate: object) -> None:
-    """B222/B226: valida FAIL-CLOSED que `certificate` es un CommitCertificate REAL, DURABLE y SEMÁNTICAMENTE coherente —
-    jamás acepta un objeto con `authority_crossed` (duck typing) ni uno con campos con forma de SHA pero valores
-    inválidos. Exige: tipo exacto; durabilidad; hashes de 64 hex; `manifest_digest == bundle_id`;
-    `csv_contract_sha256` == el contrato CSV pineado; `previous_bundle_id` None o 64-hex; `campaign_id` None o str no
-    vacío; inodes (pointer/bundle) como pares de enteros no negativos; `authority_crossed is True`."""
+def _validate_commit_certificate(certificate: object, *, expected_campaign: str | None) -> None:
+    """B222/B226/B231: valida FAIL-CLOSED que `certificate` es un CommitCertificate REAL, DURABLE, SEMÁNTICAMENTE
+    coherente y LIGADO A LA EVIDENCIA de ESTA transacción. B231: la autoridad NO es un bool `authority_crossed` — es el
+    TIPO exacto EMITIDO por la fábrica (`_build_certificate`, gate `check_commit_frontier`) desde evidencia viva. Exige:
+    tipo exacto; durabilidad; hashes 64-hex; `manifest_digest == bundle_id`; `csv_contract_sha256` == contrato pineado;
+    `previous_bundle_id` None o 64-hex; `campaign_id` None o str NO vacío/whitespace; inodes (pointer/bundle) PLAUSIBLES
+    (dev>=0, ino>=1 — rechaza (0,0)); y `campaign_id` == la campaña que ESTA transacción fusionó (evidencia)."""
     if not isinstance(certificate, _bundle.CommitCertificate):
         raise RollbackError(f"certificado no es un CommitCertificate real (tipo {type(certificate).__name__})")
     if certificate.durability_state != "durable":
         raise RollbackError(f"CommitCertificate no durable (durability_state={certificate.durability_state!r})")
-    if certificate.authority_crossed is not True:
-        raise RollbackError("CommitCertificate sin authority_crossed=True")
     for field in ("bundle_id", "manifest_digest", "pointer_digest", "provenance_digest", "csv_contract_sha256"):
         if not _is_hex64(getattr(certificate, field)):
             raise RollbackError(f"CommitCertificate.{field} no es un sha256 de 64 hex")
@@ -874,11 +875,13 @@ def _validate_commit_certificate(certificate: object) -> None:
     prev = certificate.previous_bundle_id  # B226: linaje = None (CAS inicial) o un sha256 de 64 hex
     if prev is not None and not _is_hex64(prev):
         raise RollbackError(f"CommitCertificate.previous_bundle_id inválido ({prev!r})")
-    camp = certificate.campaign_id  # B226: campaign_id None o str NO vacío (jamás object() ni entero)
-    if camp is not None and not (isinstance(camp, str) and camp):
-        raise RollbackError(f"CommitCertificate.campaign_id inválido ({camp!r})")
-    if not _is_inode(certificate.pointer_inode) or not _is_inode(certificate.bundle_inode):  # B226: pares de int >= 0
-        raise RollbackError("CommitCertificate.pointer_inode/bundle_inode no son pares de enteros no negativos")
+    camp = certificate.campaign_id  # B231: campaign_id None o str NO vacío/whitespace (jamás object(), entero ni "   ")
+    if camp is not None and not (isinstance(camp, str) and camp.strip()):
+        raise RollbackError(f"CommitCertificate.campaign_id inválido/whitespace ({camp!r})")
+    if not _is_inode(certificate.pointer_inode) or not _is_inode(certificate.bundle_inode):  # B231: inodes plausibles
+        raise RollbackError("CommitCertificate.pointer_inode/bundle_inode no son (dev>=0, ino>=1)")
+    if camp != expected_campaign:  # B231: evidencia — el cert DEBE ligar a la campaña que ESTA transacción fusionó
+        raise RollbackError(f"CommitCertificate.campaign_id ({camp!r}) != campaña fusionada ({expected_campaign!r})")
 
 
 class _TxContext:
@@ -912,20 +915,22 @@ class _TxContext:
             raise RollbackError(f"transición no monotónica {self.state!r} -> {new_state!r}")
         self.state = new_state
 
-    def mark_current_certified(self, certificate: object) -> None:
-        """ÚNICO punto que declara el commit CRUZADO. B222: consume un CommitCertificate REAL (isinstance + durable +
-        hashes válidos), JAMÁS un objeto con `authority_crossed` (duck typing). Sólo desde CURRENT_CAS_STARTED."""
-        _validate_commit_certificate(certificate)  # fail-closed: tipo exacto + durabilidad + hashes + manifest==bundle
+    def mark_current_certified(self, certificate: object, *, expected_campaign: str | None) -> None:
+        """ÚNICO punto que declara el commit CRUZADO. B222/B231: consume un CommitCertificate REAL (isinstance + durable +
+        hashes + semántica + LIGADO a la campaña de ESTA transacción), JAMÁS un bool `authority_crossed`. Sólo desde
+        CURRENT_CAS_STARTED."""
+        _validate_commit_certificate(certificate, expected_campaign=expected_campaign)  # fail-closed + evidencia
         if self.state != _S_CURRENT_CAS_STARTED:
             raise RollbackError(f"CURRENT_CERTIFIED sólo desde CURRENT_CAS_STARTED (estado {self.state!r})")
         self.certificate = certificate
         self.state = _S_CURRENT_CERTIFIED
         self._committed = True
 
-    def mark_committed_incomplete(self, certificate: object) -> None:
+    def mark_committed_incomplete(self, certificate: object, *, expected_campaign: str | None) -> None:
         """El CAS de CURRENT CRUZÓ (reconciliado como autoridad NUEVA válida y durable) pero quedó estado post-commit
-        incompleto. B221/B222: exige el CommitCertificate REAL de la autoridad cruzada, jamás sólo 'CAS iniciado'."""
-        _validate_commit_certificate(certificate)  # el cruce se prueba con un certificado durable, no con la fase
+        incompleto. B221/B222/B231: exige el CommitCertificate REAL de la autoridad cruzada (ligado a la campaña de ESTA
+        transacción), jamás sólo 'CAS iniciado'."""
+        _validate_commit_certificate(certificate, expected_campaign=expected_campaign)  # cruce probado por cert durable
         if self.state not in (_S_CURRENT_CAS_STARTED, _S_CURRENT_CERTIFIED):
             raise RollbackError(f"COMMITTED_INCOMPLETE exige evidencia de CAS cruzado (estado {self.state!r})")
         self.certificate = certificate
@@ -1687,14 +1692,14 @@ def _promote_transactionally(
             cert = _publish_bundle(chain, quar, inputs, outs, campaign)
         except _bundle.CommittedStateError as cse:
             ctx.mark_committed_incomplete(
-                cse.certificate
+                cse.certificate, expected_campaign=campaign
             )  # CURRENT cruzó (cert durable) pero el sellado quedó incompleto
             ctx.flag("BUNDLE_PUBLISH_INCOMPLETE", f"CURRENT cruzó pero el sellado post-CAS quedó incompleto: {cse}")
         except _bundle.AuthorityIndeterminateError as aie:
             ctx.mark_indeterminate(aie)  # CURRENT indeterminado: NI rollback de proyecciones NI reintento automático
             ctx.flag("AUTHORITY_INDETERMINATE", f"CURRENT no reconciliable tras el CAS (reconciliación humana): {aie}")
         else:
-            ctx.mark_current_certified(cert)  # ---- PUNTO DE COMMIT ÚNICO: consume el CommitCertificate REAL ----
+            ctx.mark_current_certified(cert, expected_campaign=campaign)  # ---- COMMIT ÚNICO: consume el cert REAL ----
         # (un BundleValidationError/BundleConcurrencyError/BundleRollbackIncompleteError pre-CAS se PROPAGA al except
         #  externo, que hace rollback SÓLO si `ctx.rollback_allowed`.)
         # 9. POST-COMMIT: sólo si el commit CRUZÓ (CURRENT_CERTIFIED/COMMITTED_INCOMPLETE) limpia los ORIGINALES

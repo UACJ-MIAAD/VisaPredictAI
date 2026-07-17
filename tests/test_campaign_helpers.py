@@ -2077,7 +2077,9 @@ def test_r11_static_gate_receipt_and_journal():
         "_certify_receipt NO declara commit"
     )
     assert "@property" in src and "def commit_reached" in src, "commit_reached debe ser una property DERIVADA"
-    assert "authority_crossed" in src, "el commit se declara consumiendo un CommitCertificate (authority_crossed)"
+    assert "_validate_commit_certificate" in src, (
+        "el commit se declara consumiendo un CommitCertificate VALIDADO (B231)"
+    )
     assert "O_RDWR" in src and "O_APPEND" in src and "O_EXCL" in src, "MANIFEST debe abrirse O_RDWR|O_APPEND|O_EXCL"
     assert "exchange_applied" in src and "compensation_verified" in src, "debe rastrear el estado CAS explícito"
     assert "record_sha256" in src and "previous_record_sha256" in src, "el journal debe encadenar hashes"
@@ -2660,11 +2662,11 @@ def test_inc2_certificate_is_immutable():
         pointer_inode=(1, 2), manifest_digest="a" * 64, bundle_inode=(3, 4), csv_contract_sha256="d" * 64,
         provenance_digest="e" * 64, durability_state="durable",
     )  # fmt: skip
-    assert cert.authority_crossed is True
+    assert not hasattr(cert, "authority_crossed")  # B231: la autoridad NO es un bool de clase
     with pytest.raises(dataclasses.FrozenInstanceError):
         cert.bundle_id = "z" * 64  # inmutable
     with pytest.raises(dataclasses.FrozenInstanceError):
-        cert.authority_crossed = False
+        cert.durability_state = "cas_crossed"  # frozen: ningún consumidor muta la evidencia
 
 
 def test_inc2_txcontext_frontier_invariants():
@@ -2681,15 +2683,17 @@ def test_inc2_txcontext_frontier_invariants():
     c.transition(mcp._S_CURRENT_CAS_STARTED)
     for forged in (object(), None, types.SimpleNamespace(authority_crossed=True)):  # duck typing RECHAZADO
         with pytest.raises(mcp.RollbackError):
-            c.mark_current_certified(forged)
+            c.mark_current_certified(forged, expected_campaign="c")
     nondurable = dataclasses_replace_durability(_durable_cert(), "cas_crossed")  # cert real pero NO durable → rechazado
     with pytest.raises(mcp.RollbackError):
-        c.mark_current_certified(nondurable)
+        c.mark_current_certified(nondurable, expected_campaign="c")
     bad_hash = dataclasses_replace_bundle_id(_durable_cert(), "zz")  # manifest_digest != bundle_id / no 64-hex
     with pytest.raises(mcp.RollbackError):
-        c.mark_current_certified(bad_hash)
+        c.mark_current_certified(bad_hash, expected_campaign="c")
+    with pytest.raises(mcp.RollbackError):  # B231: cert real pero campaña != la fusionada (evidencia) → rechazado
+        c.mark_current_certified(_durable_cert(), expected_campaign="otra")
     assert isinstance(_durable_cert(), cb.CommitCertificate)
-    c.mark_current_certified(_durable_cert())  # cert real durable → cruza
+    c.mark_current_certified(_durable_cert(), expected_campaign="c")  # cert real durable + campaña ligada → cruza
     assert c.commit_reached and c.certificate is not None
     with pytest.raises(mcp.RollbackError):
         c.transition(mcp._S_RECEIPT_CERTIFIED)  # forward-only
@@ -2715,11 +2719,11 @@ def test_inc2_committed_incomplete_requires_crossed_evidence():
     c.transition(mcp._S_PROJECTIONS_DURABLE)
     c.transition(mcp._S_RECEIPT_CERTIFIED)
     with pytest.raises(mcp.RollbackError):  # aún no se inició el CAS
-        c.mark_committed_incomplete(_durable_cert())
+        c.mark_committed_incomplete(_durable_cert(), expected_campaign="c")
     c.transition(mcp._S_CURRENT_CAS_STARTED)
     with pytest.raises(mcp.RollbackError):  # sin cert real → 'CAS iniciado' NO basta como evidencia de cruce
-        c.mark_committed_incomplete(object())
-    c.mark_committed_incomplete(_durable_cert())
+        c.mark_committed_incomplete(object(), expected_campaign="c")
+    c.mark_committed_incomplete(_durable_cert(), expected_campaign="c")
     assert c.commit_reached  # el CAS cruzó (cert durable) incompleto → sigue siendo commit cruzado (no rollback)
 
 
@@ -2832,8 +2836,9 @@ def test_b221_compensation_failure_current_crossed_no_rollback(tmp_path, monkeyp
 
 
 def test_b226_certificate_semantic_fields_rejected():
-    # B226: un CommitCertificate REAL con campos con forma valida pero SEMANTICAMENTE invalidos es RECHAZADO por
-    # _validate_commit_certificate (previous no-SHA, campaign_id object/vacio, inodes invalidos, contrato CSV ajeno).
+    # B226/B231: un CommitCertificate REAL con campos con forma valida pero SEMANTICAMENTE invalidos, o no ligado a la
+    # campana de ESTA transaccion, es RECHAZADO por _validate_commit_certificate (previous no-SHA, campaign_id
+    # object/vacio/whitespace, inodes invalidos o (0,0), contrato CSV ajeno, campana != la fusionada).
     import tools.campaign_bundle as cb
 
     def cert(**over):
@@ -2845,15 +2850,20 @@ def test_b226_certificate_semantic_fields_rejected():
         base.update(over)
         return cb.CommitCertificate(**base)
 
-    mcp._validate_commit_certificate(cert())  # el valido pasa
+    mcp._validate_commit_certificate(cert(), expected_campaign="c")  # el valido, ligado a su campana, pasa
     for bad in (
         {"previous_bundle_id": "NOT-A-SHA"},
         {"campaign_id": object()},
         {"campaign_id": ""},
+        {"campaign_id": "   "},  # B231: whitespace ya NO pasa
         {"pointer_inode": (-1, 2)},
         {"bundle_inode": ("x", 2)},
+        {"pointer_inode": (0, 0)},  # B231: inode 0 implausible
+        {"bundle_inode": (0, 0)},  # B231: inode 0 implausible
         {"csv_contract_sha256": "d" * 64},
         {"manifest_digest": "f" * 64},
     ):
         with pytest.raises(mcp.RollbackError):
-            mcp._validate_commit_certificate(cert(**bad))
+            mcp._validate_commit_certificate(cert(**bad), expected_campaign="c")
+    with pytest.raises(mcp.RollbackError):  # B231: cert valido pero campana != la fusionada (evidencia)
+        mcp._validate_commit_certificate(cert(), expected_campaign="otra-campana")
