@@ -902,13 +902,21 @@ def _reconcile_and_raise(camp_fd: int, prepared: _PreparedBundle, tmp_ident: tup
         ) from primary
     pointer, raw, ident = cur
     cur_bid = pointer["bundle_id"]
-    if cur_bid == new_bid:  # CURRENT es la autoridad NUEVA
+    if cur_bid == new_bid:  # CURRENT es la autoridad NUEVA — verifica identidad+bytes+campaign_id, NO sólo bundle_id
         try:
+            if pointer.get("campaign_id") != prepared.manifest["campaign_id"]:  # B227: puntero↔manifiesto coherentes
+                raise BundleValidationError("CURRENT.campaign_id diverge del manifiesto del bundle nuevo")
             _validate_authority(camp_fd, new_bid)  # el bundle nuevo apuntado es válido
             os.fsync(camp_fd)  # asegura durabilidad (flush; NO sobrescribe CURRENT)
+            # B225: RE-VERIFICA que CURRENT SIGA ligado EXACTAMENTE al MISMO inode Y bytes tras validar+fsync — cierra
+            # el swap/mutación entre la primera lectura y la construcción del certificado (evidencia OBSOLETA).
+            if not _pointer_matches(camp_fd, _CURRENT_NAME, ident, raw):
+                raise BundleValidationError(
+                    "CURRENT cambió (inode/bytes) durante la reconciliación — evidencia obsoleta"
+                )
         except (BundleError, OSError) as exc:
             raise AuthorityIndeterminateError(
-                f"CURRENT==nuevo pero no verificable/durable tras {failure_point}: {exc}",
+                f"CURRENT==nuevo pero no verificable/durable/estable tras {failure_point}: {exc}",
                 expected_new=new_bid,
                 expected_previous=prev_id,
                 observed_current=cur_bid,
@@ -919,9 +927,11 @@ def _reconcile_and_raise(camp_fd: int, prepared: _PreparedBundle, tmp_ident: tup
     if prev_id is not None and cur_bid == prev_id:  # CURRENT == previo (compensación exitosa) → NO cruzó
         try:
             _validate_authority(camp_fd, prev_id)
+            if not _pointer_matches(camp_fd, _CURRENT_NAME, ident, raw):  # B225: el previo sigue ligado exactamente
+                raise BundleValidationError("CURRENT (previo) cambió durante la reconciliación")
         except BundleError as exc:
             raise AuthorityIndeterminateError(
-                f"CURRENT==previo pero inválido tras {failure_point}: {exc}",
+                f"CURRENT==previo pero inválido/inestable tras {failure_point}: {exc}",
                 expected_new=new_bid,
                 expected_previous=prev_id,
                 observed_current=cur_bid,
@@ -1154,6 +1164,9 @@ class _BundleSnapshot:
                 raise BundleValidationError("no hay puntero CURRENT (ninguna campaña committeada)")
             self.bundle_id = cur[0]["bundle_id"]
             self.previous_bundle_id = cur[0]["previous_bundle_id"]  # del MISMO puntero resuelto (sin doble lectura)
+            pointer_campaign = cur[0][
+                "campaign_id"
+            ]  # B227: se cruza contra el manifiesto (no basta validar por separado)
             broot = _open_dir(camp_fd, _BUNDLES_DIR, mode=0o700)
             self._fds.append(broot)
             try:
@@ -1162,6 +1175,10 @@ class _BundleSnapshot:
                 raise BundleValidationError(f"CURRENT apunta a un bundle inexistente {self.bundle_id}") from exc
             self._fds.append(bfd)
             self.manifest = _validate_bundle_at(bfd, self.bundle_id)  # valida A TRAVÉS del fd que retengo
+            if (
+                pointer_campaign != self.manifest["campaign_id"]
+            ):  # B227: CURRENT.campaign_id DEBE == manifest.campaign_id
+                raise BundleValidationError(f"CURRENT.campaign_id ({pointer_campaign!r}) diverge del manifiesto ({self.manifest['campaign_id']!r})")  # fmt: skip
             outs = _open_dir(bfd, _OUTPUTS_DIR, mode=0o700)
             self._fds.append(outs)
             for lab in _LABELS:

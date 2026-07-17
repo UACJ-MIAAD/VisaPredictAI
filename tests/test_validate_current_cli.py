@@ -132,3 +132,19 @@ def test_non_governed_dir_rejected(tmp_path, capsys):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+def test_forged_campaign_id_divergence(tmp_path, capsys):
+    # B227: mutar SOLO CURRENT.campaign_id (puntero) sin tocar el manifiesto → validate-current DEBE rechazar
+    # (la resolucion cruza puntero<->manifiesto, no solo valida cada objeto por separado).
+    import json as _j
+
+    camp = _build_current(tmp_path)
+    cur = _pointer(camp)
+    p = _j.loads(cur.read_bytes())
+    p["campaign_id"] = "FORGED-CAMPAIGN"
+    os.chmod(cur, 0o600)
+    fd = os.open(str(cur), os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW)
+    os.write(fd, cb._canon(p))
+    os.close(fd)
+    assert _run(camp) == 3 and json.loads(capsys.readouterr().out)["status"] == "invalid"

@@ -1231,3 +1231,35 @@ def test_b220_taxonomy_special_placeholder(phase, tmp_path):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+def test_b225_reconcile_reverifies_current_binding(tmp_path, monkeypatch):
+    # B225: la reconciliacion RE-VERIFICA inode+bytes de CURRENT tras validar+fsync; una mutacion en sitio en esa
+    # ventana (evidencia obsoleta) -> AuthorityIndeterminate, jamas un certificado obsoleto.
+    camp, cfd = _camp(tmp_path)
+    try:
+        _commit(cfd, "tx.a")  # CURRENT = bundle A
+        real_fsync = os.fsync
+        fired = {"n": 0}
+
+        def fsync_mutate(fd):
+            if fired["n"] == 0:  # muta CURRENT en sitio (mismo inode, bytes distintos) durante el fsync de reconcile
+                fired["n"] = 1
+                mfd = os.open(cb._CURRENT_NAME, os.O_RDWR | os.O_NOFOLLOW, dir_fd=cfd)
+                data = b""
+                while chunk := os.read(mfd, 4096):
+                    data += chunk
+                os.lseek(mfd, 0, os.SEEK_SET)
+                os.write(mfd, data + b" ")
+                os.close(mfd)
+            return real_fsync(fd)
+
+        with cb.prepare_bundle(cfd, "tx.a", "campA", _outputs(), _inputs(), _prov()) as prepared:
+            # prepared.bundle_id == A (mismo txid+outputs) == CURRENT.bundle_id -> rama CURRENT==nuevo
+            ident = cb._read_current(cfd)[2]
+            monkeypatch.setattr(cb.os, "fsync", fsync_mutate)
+            with pytest.raises(cb.AuthorityIndeterminateError):
+                cb._reconcile_and_raise(cfd, prepared, ident, None, cb.BundleValidationError("primary"), "test")
+            monkeypatch.undo()
+    finally:
+        os.close(cfd)
