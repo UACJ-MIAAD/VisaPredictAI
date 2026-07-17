@@ -1068,5 +1068,147 @@ def test_b217_lease_check_on_fifo_no_hang():
         os.close(cfd)
 
 
+def _run_isolated(code, timeout=6.0):
+    """Ejecuta `code` en un SUBPROCESO killable (NO un thread daemon: un open bloqueante sobre un FIFO no se puede
+    interrumpir dentro del mismo proceso). Devuelve (terminó_a_tiempo, stdout+stderr)."""
+    import subprocess
+    import sys as _sys
+
+    p = subprocess.Popen(
+        [_sys.executable, "-c", code], cwd=_ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
+    try:
+        out, _ = p.communicate(timeout=timeout)
+        return True, out
+    except subprocess.TimeoutExpired:
+        p.kill()
+        p.wait()
+        return False, "<TIMEOUT>"
+
+
+_B218_JOURNAL_SPECIAL = """
+import os, sys, tempfile
+sys.path.insert(0, os.getcwd())
+import tools.governed_fs as gf
+d = tempfile.mkdtemp(dir="/tmp")  # ruta corta: un socket AF_UNIX topa el límite de 104 bytes de sun_path
+cfd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
+q = gf.GovernedQuarantine(cfd, "tx.b218")
+fd = os.open("o1", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd); os.write(fd, b"a")
+l1 = gf.OwnedLease(fd, is_dir=False); os.close(fd)
+q.quarantine(cfd, "o1", l1)                       # 1ª operación: crea el dir de cuarentena + journal
+man = os.path.join(d, q.name, "MANIFEST.jsonl")
+os.unlink(man)
+if {kind!r} == "fifo":
+    os.mkfifo(man)                                # un tercero del mismo UID sustituye el journal por un FIFO
+else:
+    import socket
+    s = socket.socket(socket.AF_UNIX); s.bind(man)
+fd2 = os.open("o2", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd); os.write(fd2, b"b")
+l2 = gf.OwnedLease(fd2, is_dir=False); os.close(fd2)
+try:                                              # 2ª operación: _journal(INTENT) -> _bind_all -> reabre MANIFEST.jsonl
+    q.quarantine(cfd, "o2", l2)                   # VIEJO(FIFO): CUELGA en el open O_RDONLY; NUEVO: error de dominio
+    print("NO_ERROR")
+except gf.GovernedQuarantineError as e:
+    print("CLASSIFIED:" + type(e).__name__)
+print("DONE")
+"""
+
+
+@pytest.mark.parametrize("kind", ["fifo", "socket"])
+def test_b218_journal_special_object_no_hang_post_source_cas(kind):
+    # B218: la reapertura por NOMBRE de MANIFEST.jsonl en _bind_all() debe ser no bloqueante — un FIFO sustituido no
+    # debe COLGAR la transacción tras el source-CAS (subproceso killable, no thread daemon).
+    completed, out = _run_isolated(_B218_JOURNAL_SPECIAL.replace("{kind!r}", repr(kind)))
+    assert completed, f"B218: la reapertura del journal COLGÓ sobre un {kind}"
+    assert "DONE" in out and "CLASSIFIED" in out, out
+
+
+def _journal_ops(quar_dir):
+    """Lee MANIFEST.jsonl y agrupa por operation_id → {oid: [records...]}."""
+    man = os.path.join(quar_dir, "MANIFEST.jsonl")
+    by_op: dict = {}
+    for line in open(man).read().splitlines():
+        rec = json.loads(line)
+        by_op.setdefault(rec["operation_id"], []).append(rec["record"])
+    return by_op
+
+
+def test_b220_special_object_writes_incomplete_terminal(monkeypatch):
+    # B220: si el placeholder oficial es sustituido por un FIFO tras el source-CAS, la operación NO puede terminar con
+    # un INTENT colgante — debe journalizar EXACTAMENTE un terminal INCOMPLETE, preservar el objeto y no dar éxito.
+    d, cfd = _tmp_camp()
+    try:
+        fd = os.open("obj", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd)
+        os.write(fd, b"mine")
+        lease = gf.OwnedLease(fd, is_dir=False)
+        os.close(fd)
+        q = gf.GovernedQuarantine(cfd, "tx.b220")
+        real_rn = gf.rename_noreplace
+        fired = {"n": 0}
+
+        def racing(sfd, s, dfd, dd):
+            if fired["n"] == 0 and s == "obj":  # el 2º move (placeholder oficial → cuarentena)
+                fired["n"] = 1
+                os.unlink(os.path.join(d, "obj"))
+                os.mkfifo(os.path.join(d, "obj"))  # un tercero sustituye el placeholder por un FIFO
+            return real_rn(sfd, s, dfd, dd)
+
+        monkeypatch.setattr(gf, "rename_noreplace", racing)
+        with pytest.raises((gf.GovernedRemovalError, gf.GovernedQuarantineIncompleteError)):
+            q.quarantine(cfd, "obj", lease)
+        monkeypatch.undo()
+        by_op = _journal_ops(os.path.join(d, q.name))
+        for ops in by_op.values():  # cada INTENT tiene EXACTAMENTE un terminal (sin colgantes, sin dobles)
+            assert ops.count("INTENT") == 1
+            terminals = [x for x in ops if x in ("MOVED", "FOREIGN_PRESERVED", "ABSENT", "INCOMPLETE")]
+            assert len(terminals) == 1, f"operación sin terminal único: {ops}"
+        assert any("INCOMPLETE" in ops for ops in by_op.values()), "la operación sustituida debe terminar en INCOMPLETE"
+        import stat as _st
+
+        quar = os.path.join(d, q.name)  # el objeto especial (FIFO) se PRESERVA en la cuarentena, no se borra
+        assert any(_st.S_ISFIFO(os.lstat(os.path.join(quar, n)).st_mode) for n in os.listdir(quar)), (
+            "el objeto especial (FIFO) debe preservarse en la cuarentena"
+        )
+        q.close()
+    finally:
+        os.close(cfd)
+
+
+@pytest.mark.parametrize("phase", ["pre_cas", "post_cert"])
+def test_b220_taxonomy_special_placeholder(phase, tmp_path):
+    # B220/taxonomía: un objeto especial en la cuarentena de un puntero se clasifica según la fase —
+    # pre-CAS → BundleRollbackIncompleteError; post-certificado → CommittedStateError.
+    camp, cfd = _camp(tmp_path)
+    try:
+        with gf.GovernedQuarantine(cfd, f"tx.tax.{phase}") as q:
+            tmp_fd = os.open("ptr.tmp", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd)
+            os.write(tmp_fd, b"P")
+            real_rx = gf.rename_exchange
+            fired = {"n": 0}
+
+            def racing(sfd, s, dfd, dd):
+                if fired["n"] == 0 and s == "ptr.tmp":  # tras el 1er exchange, sustituir el placeholder por un FIFO
+                    fired["n"] = 1
+                    r = real_rx(sfd, s, dfd, dd)
+                    os.unlink(os.path.join(str(camp), "ptr.tmp"))
+                    os.mkfifo(os.path.join(str(camp), "ptr.tmp"))
+                    return r
+                return real_rx(sfd, s, dfd, dd)
+
+            import unittest.mock as _m
+
+            fn = cb._quarantine_pointer if phase == "pre_cas" else cb._quarantine_pointer_prev
+            expected = cb.BundleRollbackIncompleteError if phase == "pre_cas" else cb.CommittedStateError
+            with _m.patch.object(gf, "rename_exchange", racing):
+                with pytest.raises(expected):
+                    fn(q, cfd, "ptr.tmp", tmp_fd, b"P")
+            try:
+                os.close(tmp_fd)
+            except OSError:
+                pass
+    finally:
+        os.close(cfd)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

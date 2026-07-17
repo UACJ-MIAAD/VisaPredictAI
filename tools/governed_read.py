@@ -5,7 +5,8 @@ Compartida por `merge_campaign_pools` y `check_deep_refit` para que la evidencia
 0. `name` debe ser un NOMBRE RELATIVO simple (B96): str no vacío, `== os.path.basename(name)`, no absoluto, sin
    separadores (`/`, `os.sep`, `os.altsep`), sin NUL y `∉ {".", ".."}`. Una ruta peligrosa se RECHAZA, no se
    normaliza — un nombre absoluto/`..` haría que `os.open(..., dir_fd=)` IGNORE el descriptor y escape del árbol.
-1. `openat(dir_fd, name, O_RDONLY|O_NOFOLLOW)` — un symlink revienta (no se sigue).
+1. `openat(dir_fd, name, O_RDONLY|O_NOFOLLOW|O_NONBLOCK)` — un symlink revienta (no se sigue) y un FIFO/socket
+   sustituido NO cuelga el open (B217/B218); el tipo se valida por `fstat` ANTES de leer.
 2. `fstat` inicial y exigencia de: fichero REGULAR, del UID actual, `nlink == 1` y **sin escritura de grupo/
    otros** (`mode & 0o022 == 0`) — un fichero que un tercero puede reescribir NO es evidencia de confianza.
 3. Se registra el snapshot (`st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns, st_uid, st_mode, st_nlink`) y
@@ -19,10 +20,18 @@ Devuelve `(df, None)` en éxito o `(None, motivo)` en fallo — el llamador deci
 
 from __future__ import annotations
 
+import contextlib
 import os
 import stat
 
 import pandas as pd
+
+
+class GovernedOpenError(Exception):
+    """B217/B218/B219: el objeto en un nombre gobernado NO es un fichero regular apto para lectura — tipo especial
+    (FIFO/socket/dispositivo) o UID/nlink/modo inesperados. Es un error de DOMINIO (no `OSError`) para que un
+    `except OSError` genérico jamás lo trague en silencio y para distinguirlo de una AUSENCIA (`FileNotFoundError`)."""
+
 
 # Campos del snapshot que deben ser idénticos pre/post lectura (tamaño/tiempos/identidad).
 _SNAP = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns", "st_uid", "st_mode", "st_nlink")
@@ -49,6 +58,33 @@ def relative_name_problem(name: str) -> str | None:
     if name != os.path.basename(name):
         return "nombre con componentes de directorio"
     return None
+
+
+@contextlib.contextmanager
+def opened_regular_noblock_at(dir_fd: int, name: str, *, uid: int | None = None, nlink: int | None = None, mode: int | None = None):  # fmt: skip
+    """FUENTE ÚNICA de apertura de lectura segura (B217/B218/B219). Abre `name` (nombre RELATIVO simple) bajo
+    `dir_fd` con `O_RDONLY | O_NOFOLLOW | O_NONBLOCK` — un FIFO/socket sustituido NO cuelga el `open()` esperando un
+    escritor — hace `fstat` del MISMO descriptor y EXIGE `S_ISREG` (+ UID/nlink/modo si se piden) ANTES de ceder el
+    fd; NUNCA se lee el contenido de un objeto especial. Cede `(fd, st)` y CIERRA el fd en TODA salida.
+    `FileNotFoundError` si el nombre está ausente; `GovernedOpenError` (de dominio, nunca cruda) si es especial o no
+    cumple los atributos exigidos."""
+    prob = relative_name_problem(name)
+    if prob is not None:
+        raise GovernedOpenError(f"nombre no gobernado {name!r}: {prob}")
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)  # FIFO/socket no cuelga
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):  # objeto especial → jamás se lee su contenido
+            raise GovernedOpenError(f"{name!r} no es un fichero regular (FIFO/socket/dispositivo)")
+        if uid is not None and st.st_uid != uid:
+            raise GovernedOpenError(f"{name!r} de UID inesperado ({st.st_uid} != {uid})")
+        if nlink is not None and st.st_nlink != nlink:
+            raise GovernedOpenError(f"{name!r} con nlink inesperado ({st.st_nlink} != {nlink})")
+        if mode is not None and stat.S_IMODE(st.st_mode) != mode:
+            raise GovernedOpenError(f"{name!r} con modo inesperado ({oct(stat.S_IMODE(st.st_mode))} != {oct(mode)})")
+        yield fd, st
+    finally:
+        os.close(fd)
 
 
 def _governed_reader(dir_fd: int, name: str, reader):

@@ -41,7 +41,7 @@ import stat
 
 from tools.atomic_fs import AtomicRenameError, AtomicUnsupportedError, rename_exchange, rename_noreplace
 from tools.governed_fs import GovernedQuarantine, GovernedQuarantineError, GovernedRemovalError, OwnedLease
-from tools.governed_read import read_governed_bytes, relative_name_problem
+from tools.governed_read import GovernedOpenError, opened_regular_noblock_at, read_governed_bytes, relative_name_problem
 
 # B198: el contrato CSV se ANCLA por sha256 pineado (no una caché mutable). `_csv_columns()` RELEE el fichero y
 # verifica su hash en CADA uso → mutar una caché en memoria no puede aflojarlo, y mutar el fichero rompe el hash. El
@@ -737,54 +737,33 @@ def _read_current(camp_fd: int) -> tuple[dict, bytes, tuple[int, int]] | None:
     return pointer, raw, ptr_ident
 
 
-def _name_ident(dir_fd: int, name: str) -> tuple[int, int] | None:
-    try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)  # B217: FIFO no cuelga
-    except OSError:
-        return None
-    try:
-        return _ident(os.fstat(fd))
-    finally:
-        os.close(fd)
-
-
 def _capture(dir_fd: int, name: str) -> tuple[tuple[int, int], bytes] | None:
-    """Captura `(ident, bytes)` de `name` tal cual está (sin gobernanza) — para poder RESTAURAR verbatim el valor
-    concurrente que un exchange desplazó. Devuelve None si el objeto no existe."""
+    """Captura `(ident, bytes)` de `name` tal cual está — para poder RESTAURAR verbatim el valor concurrente que un
+    exchange desplazó. None si el objeto no existe o no es un fichero regular (B217/B218: un especial no se lee)."""
     try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)  # B217: FIFO no cuelga
-    except OSError:
+        with opened_regular_noblock_at(dir_fd, name) as (fd, st):
+            data = b""
+            while chunk := os.read(fd, 1 << 16):
+                data += chunk
+            return _ident(st), data
+    except FileNotFoundError, GovernedOpenError, OSError:
         return None
-    try:
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode):  # B217: un objeto especial no es un puntero capturable (no se lee)
-            return None
-        ident = _ident(st)
-        data = b""
-        while chunk := os.read(fd, 1 << 16):
-            data += chunk
-        return ident, data
-    finally:
-        os.close(fd)
 
 
 def _pointer_matches(dir_fd: int, name: str, ident: tuple[int, int], content: bytes) -> bool:
     """B166: `name` liga EXACTAMENTE al inode `ident` Y su contenido son los bytes `content`. Cierra tanto el swap
-    de inode como la sustitución de contenido en sitio (O_TRUNC sobre el mismo inode)."""
+    de inode como la sustitución de contenido en sitio (O_TRUNC sobre el mismo inode). Un objeto ausente/especial
+    nunca coincide (B217/B218: no se lee)."""
     try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)  # B217: FIFO no cuelga
-    except OSError:
+        with opened_regular_noblock_at(dir_fd, name) as (fd, st):
+            if _ident(st) != ident:
+                return False
+            data = b""
+            while chunk := os.read(fd, 1 << 16):
+                data += chunk
+            return data == content
+    except FileNotFoundError, GovernedOpenError, OSError:
         return False
-    try:
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or _ident(st) != ident:  # B217: un objeto especial nunca coincide (no se lee)
-            return False
-        data = b""
-        while chunk := os.read(fd, 1 << 16):
-            data += chunk
-        return data == content
-    finally:
-        os.close(fd)
 
 
 class CommitCertificate:

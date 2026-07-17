@@ -22,6 +22,7 @@ import secrets
 import stat
 
 from tools.atomic_fs import AtomicRenameError, AtomicUnsupportedError, rename_exchange, rename_noreplace
+from tools.governed_read import GovernedOpenError, opened_regular_noblock_at
 
 _QUAR_PREFIX = ".merge-quar"
 _JOURNAL = "MANIFEST.jsonl"
@@ -175,13 +176,14 @@ class GovernedQuarantine:
                 raise GovernedQuarantineError("dir de cuarentena ajeno/no-dir/modo != 0700")
         finally:
             os.close(dfd)
-        jfd = os.open(_JOURNAL, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.fd)
-        try:
-            st = os.fstat(jfd)
-            if _ident(st) != self._jino or st.st_uid != os.geteuid() or not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or stat.S_IMODE(st.st_mode) != 0o600:  # fmt: skip
-                raise GovernedQuarantineError("MANIFEST.jsonl fue sustituido (nombre no liga al fd del journal)")
-        finally:
-            os.close(jfd)
+        try:  # B218: reapertura NO bloqueante del journal (un MANIFEST.jsonl sustituido por FIFO no cuelga _bind_all)
+            with opened_regular_noblock_at(self.fd, _JOURNAL, uid=os.geteuid(), nlink=1, mode=0o600) as (_jfd, st):  # fmt: skip
+                if _ident(st) != self._jino:
+                    raise GovernedQuarantineError("MANIFEST.jsonl fue sustituido (nombre no liga al fd del journal)")
+        except GovernedOpenError as exc:
+            raise GovernedQuarantineError(f"MANIFEST.jsonl no es un journal regular válido: {exc}") from exc
+        except FileNotFoundError as exc:
+            raise GovernedQuarantineError("MANIFEST.jsonl desapareció") from exc
 
     def _journal(self, record: str, operation_id: str, dest: str) -> None:
         try:
@@ -260,15 +262,23 @@ class GovernedQuarantine:
             os.close(os.open(obj, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=self.fd))
         os.fsync(self.fd)
         ph_ident = self._ident_of(obj, lease.is_dir)  # B208: identidad del placeholder para verificar el 2º move
+        terminal = {"done": False}
+
+        def _terminal(record: str) -> None:  # B220: journaliza el terminal y marca la operación como CERRADA
+            self._journal(record, oid, obj)
+            terminal["done"] = True
+
         try:  # source-CAS: name (oficial) ↔ obj (placeholder en cuarentena)
             rename_exchange(dir_fd, name, self.fd, obj)
         except FileNotFoundError:
-            self._journal("ABSENT", oid, obj)
+            _terminal("ABSENT")
             return obj
         except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
+            # el source-CAS NO cruzó (el objeto sigue en su ruta oficial); el placeholder queda huérfano → INCOMPLETE
+            self._ensure_terminal(oid, obj, terminal, exc)
             raise GovernedRemovalError(f"no se pudo hacer source-CAS de {name!r}: {exc}") from exc
-        # B216: CADA primitiva posterior al source-CAS (el objeto fuente YA está en cuarentena) se envuelve — ninguna
-        # cruda escapa; un fallo deja la operación INCOMPLETE, journalizada y clasificable.
+        # B216/B220: CADA primitiva posterior al source-CAS (el objeto fuente YA está en cuarentena) se envuelve —
+        # ninguna cruda escapa y NINGUNA salida deja un INTENT sin terminal durable (MOVED/FOREIGN_PRESERVED/INCOMPLETE).
         try:
             os.fsync(dir_fd)
             os.fsync(self.fd)
@@ -285,10 +295,10 @@ class GovernedQuarantine:
                         restored = self._name_binds(dir_fd, name, concurrent_ident)  # B216-4: verifica la restauración
                     except AtomicRenameError, AtomicUnsupportedError, FileExistsError, OSError, ValueError:
                         restored = False
-                    self._journal("FOREIGN_PRESERVED", oid, obj)
+                    _terminal("FOREIGN_PRESERVED")
                     where = "restaurado y verificado en su ruta oficial" if restored else "PRESERVADO en cuarentena"
                     raise GovernedRemovalError(f"placeholder de {name!r} sustituido; objeto concurrente {where}")
-                self._journal("MOVED", oid, obj)
+                _terminal("MOVED")
                 return obj
             # AJENO: restaura el objeto a su ruta oficial (intercambio inverso) — jamás lo retira (B207)
             concurrent_ident = self._ident_of(obj, lease.is_dir)  # identidad del ajeno desplazado
@@ -296,73 +306,84 @@ class GovernedQuarantine:
             os.fsync(dir_fd)
             os.fsync(self.fd)
             if not self._name_binds(dir_fd, name, concurrent_ident):  # B216-4: la restauración debe verificarse
-                self._journal("INCOMPLETE", oid, obj)
+                _terminal("INCOMPLETE")
                 raise GovernedQuarantineIncompleteError(f"restauración de {name!r} no verificable; PRESERVADO")
-            self._journal("FOREIGN_PRESERVED", oid, obj)
+            _terminal("FOREIGN_PRESERVED")
             raise GovernedRemovalError(f"{name!r} no coincide con el lease; RESTAURADO a su ruta oficial, no retirado")
-        except GovernedRemovalError, GovernedQuarantineIncompleteError:
+        except (GovernedRemovalError, GovernedQuarantineIncompleteError) as exc:
+            self._ensure_terminal(oid, obj, terminal, exc)  # B220: ninguna salida deja un INTENT sin terminal
             raise  # ya son de dominio (preservado / incompleto)
         except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
-            try:
-                self._journal("INCOMPLETE", oid, obj)  # best-effort: registra el terminal INCOMPLETE
-            except GovernedQuarantineError:
-                pass
+            self._ensure_terminal(oid, obj, terminal, exc)
             raise GovernedQuarantineIncompleteError(f"cuarentena INCOMPLETA tras el source-CAS de {name!r} (fuente en {obj}): {exc}") from exc  # fmt: skip
 
+    def _ensure_terminal(self, oid: str, obj: str, terminal: dict, primary: BaseException) -> None:
+        """B220: garantiza que la operación deje EXACTAMENTE un terminal durable en el journal. Si aún no se
+        journalizó ninguno (p. ej. el placeholder fue sustituido por un FIFO tras el source-CAS y `_ident_of` elevó
+        antes de journalizar), journaliza INCOMPLETE. Si el propio journal falla, eleva
+        GovernedQuarantineIncompleteError con el error PRIMARIO como causa — JAMÁS se declara una remoción 'completa'
+        sin terminal durable (el GC futuro decide el estado por la máquina de estados, no por inferencia)."""
+        if terminal["done"]:
+            return
+        try:
+            self._journal("INCOMPLETE", oid, obj)
+            terminal["done"] = True
+        except (GovernedQuarantineError, OSError) as jexc:
+            raise GovernedQuarantineIncompleteError(
+                f"cuarentena INCOMPLETA y el terminal INCOMPLETE no se pudo journalizar: {jexc}"
+            ) from primary
+
     def _ident_of(self, name: str, is_dir: bool) -> tuple[int, int]:
-        # B217: NUNCA O_RDONLY sobre un nombre potencialmente sustituido (un FIFO/socket colgaría esperando escritor).
-        # Ficheros → O_NONBLOCK (no cuelga) + fstat exige S_ISREG; directorios → O_DIRECTORY|O_NOFOLLOW (ENOTDIR).
+        # B217/B218: NUNCA O_RDONLY sobre un nombre sustituible (un FIFO/socket colgaría esperando escritor). Ficheros
+        # → apertura no bloqueante gobernada (S_ISREG antes de tocar); directorios → O_DIRECTORY|O_NOFOLLOW (ENOTDIR).
         if is_dir:
             fd = os.open(name, _DIR_FLAGS, dir_fd=self.fd)
             try:
                 return _ident(os.fstat(fd))
             finally:
                 os.close(fd)
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=self.fd)
         try:
-            st = os.fstat(fd)
-            if not stat.S_ISREG(st.st_mode):
-                raise GovernedRemovalError(f"objeto {name!r} no es regular (tipo especial: FIFO/socket/dispositivo)")
-            return _ident(st)
-        finally:
-            os.close(fd)
+            with opened_regular_noblock_at(self.fd, name) as (_fd, st):
+                return _ident(st)
+        except GovernedOpenError as exc:
+            raise GovernedRemovalError(f"objeto {name!r} no es regular (tipo especial: FIFO/socket/dispositivo): {exc}") from exc  # fmt: skip
 
     def _name_binds(self, dir_fd: int, name: str, ident: tuple[int, int]) -> bool:
-        """B216-4/B217: `name` bajo `dir_fd` liga al inode `ident`. NO sigue symlinks, NO bloquea en objetos especiales
-        (O_NONBLOCK), exige tipo regular/dir; identidad no demostrable → False."""
+        """B216-4/B217/B218: `name` bajo `dir_fd` liga al inode `ident`. NO sigue symlinks, NO bloquea en objetos
+        especiales (apertura no bloqueante), exige tipo regular o dir; identidad no demostrable → False."""
         try:
-            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
-        except OSError:
+            with opened_regular_noblock_at(dir_fd, name) as (_fd, st):
+                return _ident(st) == ident
+        except FileNotFoundError:
+            return False
+        except GovernedOpenError, OSError:  # puede ser un DIR (restauración de un dir); un especial → ENOTDIR → False
             try:
                 fd = os.open(name, _DIR_FLAGS, dir_fd=dir_fd)
             except OSError:
                 return False
-        try:
-            st = os.fstat(fd)
-            if not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode)):  # FIFO/socket/dispositivo → no demostrable
-                return False
-            return _ident(st) == ident
-        finally:
-            os.close(fd)
+            try:
+                return _ident(os.fstat(fd)) == ident
+            finally:
+                os.close(fd)
 
     def _lease_matches(self, dest: str, lease: OwnedLease) -> bool:
-        # B217: O_NONBLOCK para ficheros (un FIFO sustituido no cuelga) + exigir S_ISREG antes de leer el digest;
-        # directorios con O_DIRECTORY|O_NOFOLLOW (ENOTDIR sobre no-dir). NUNCA se lee contenido de un objeto especial.
-        flags = _DIR_FLAGS if lease.is_dir else (os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        # B217/B218: NUNCA se lee (digest) un objeto especial. Ficheros → apertura no bloqueante gobernada + S_ISREG
+        # antes del digest; directorios con O_DIRECTORY|O_NOFOLLOW (ENOTDIR sobre no-dir).
+        if lease.is_dir:
+            try:
+                fd = os.open(dest, _DIR_FLAGS, dir_fd=self.fd)
+            except OSError:
+                return False
+            try:
+                st = os.fstat(fd)
+                return stat.S_ISDIR(st.st_mode) and _snap(st) == lease.snap
+            finally:
+                os.close(fd)
         try:
-            fd = os.open(dest, flags, dir_fd=self.fd)
-        except OSError:
+            with opened_regular_noblock_at(self.fd, dest) as (fd, st):
+                return _snap(st) == lease.snap and _digest_fd(fd) == lease.digest
+        except FileNotFoundError, GovernedOpenError, OSError:  # ausente/especial/tipo distinto → no coincide, sin leer
             return False
-        try:
-            st = os.fstat(fd)
-            expected_type = stat.S_ISDIR if lease.is_dir else stat.S_ISREG
-            if not expected_type(st.st_mode):  # FIFO/socket/dispositivo/tipo distinto → no coincide, sin leer
-                return False
-            if _snap(st) != lease.snap:  # snapshot COMPLETO: detecta mutación sobre el mismo inode
-                return False
-            return lease.is_dir or _digest_fd(fd) == lease.digest
-        finally:
-            os.close(fd)
 
     def close(self) -> list[str]:
         """Cierra los fds y sincroniza. Devuelve la lista de errores de cierre (JAMÁS los descarta: B193). El dir de

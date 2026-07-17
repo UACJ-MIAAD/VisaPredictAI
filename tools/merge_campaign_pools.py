@@ -60,7 +60,15 @@ import pandas as pd
 
 import tools.campaign_bundle as _bundle
 from tools.atomic_fs import AtomicRenameError, AtomicUnsupportedError, rename_exchange, rename_noreplace
-from tools.governed_read import digest_fd, lease_problem, open_governed_lease, relative_name_problem, snapshot_fd
+from tools.governed_read import (
+    GovernedOpenError,
+    digest_fd,
+    lease_problem,
+    open_governed_lease,
+    opened_regular_noblock_at,
+    relative_name_problem,
+    snapshot_fd,
+)
 
 _TABLES = ("FAD", "DFF")
 _BLOCKS = ("family", "employment")
@@ -261,8 +269,8 @@ def _acquire_lock(camp_fd: int) -> _LockGuard:
         fd = os.open(_LOCK_NAME, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600, dir_fd=camp_fd)
         os.fchmod(fd, 0o600)
     except FileExistsError:
-        try:
-            fd = os.open(_LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW, dir_fd=camp_fd)
+        try:  # B218: O_NONBLOCK — un `.merge.lock` sustituido por FIFO/dispositivo no cuelga la reapertura
+            fd = os.open(_LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=camp_fd)
         except OSError as exc:
             _fail(f"lock de merge inabrible ({exc})")
     except OSError as exc:
@@ -840,29 +848,55 @@ class _TxContext:
         return [i for i in self.issues if i.severity == _INCOMPLETE]
 
 
-def _capture_object(dir_fd: int, name: str) -> dict | None:
-    """Captura la identidad COMPLETA (dev/ino/uid/modo/nlink/digest) del objeto en `name` — para verificar que
-    el MISMO objeto concurrente sigue allí tras una compensación (B141). None si no se pudo abrir/leer."""
-    try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
-    except OSError:
-        return None
-    try:
-        st = os.fstat(fd)
-        return {
-            "dev": st.st_dev, "ino": st.st_ino, "uid": st.st_uid,
-            "mode": stat.S_IMODE(st.st_mode), "nlink": st.st_nlink, "digest": digest_fd(fd),
-        }  # fmt: skip
-    except OSError:
-        return None
-    finally:
-        os.close(fd)
+class _ObjState:
+    """B219: resultado ESTRUCTURADO de capturar un objeto — nunca un `None` ambiguo. `kind` distingue los cuatro
+    casos que la compensación debe tratar distinto: `regular` (con `ident` completo), `special` (FIFO/socket/
+    dispositivo — estado INCOMPLETO, se PRESERVA, jamás se lee), `absent` (no existe) y `error` (fallo de lectura)."""
+
+    __slots__ = ("kind", "ident")
+
+    def __init__(self, kind: str, ident: dict | None = None) -> None:
+        self.kind = kind
+        self.ident = ident
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _ObjState) and self.kind == other.kind and self.ident == other.ident
+
+    def __repr__(self) -> str:
+        return f"_ObjState(kind={self.kind!r}, ident={self.ident!r})"
 
 
-def _object_matches(dir_fd: int, name: str, cap: dict) -> bool:
-    """True si el objeto en `name` es EXACTAMENTE el capturado (dev/ino/uid/modo/nlink/digest idénticos)."""
+def _capture_object(dir_fd: int, name: str) -> _ObjState:
+    """B141/B219: captura la identidad COMPLETA (dev/ino/uid/modo/nlink/digest) del objeto REGULAR en `name` para
+    verificar que el MISMO concurrente sigue allí tras una compensación. NUNCA bloquea (apertura no bloqueante) ni
+    lee un objeto especial. Devuelve un `_ObjState` con `kind` ∈ {regular, special, absent, error} — un objeto
+    especial produce estado INCOMPLETO (`special`) y se preserva, jamás un `None` ambiguo."""
+    try:
+        with opened_regular_noblock_at(dir_fd, name) as (fd, st):
+            return _ObjState(
+                "regular",
+                {
+                    "dev": st.st_dev,
+                    "ino": st.st_ino,
+                    "uid": st.st_uid,
+                    "mode": stat.S_IMODE(st.st_mode),
+                    "nlink": st.st_nlink,
+                    "digest": digest_fd(fd),
+                },  # fmt: skip
+            )
+    except FileNotFoundError:
+        return _ObjState("absent")
+    except GovernedOpenError:
+        return _ObjState("special")
+    except OSError:
+        return _ObjState("error")
+
+
+def _object_matches(dir_fd: int, name: str, cap: _ObjState) -> bool:
+    """True SÓLO si el objeto en `name` es un fichero REGULAR EXACTAMENTE igual al capturado (dev/ino/uid/modo/
+    nlink/digest). Un objeto especial/ausente/errado NUNCA coincide."""
     now = _capture_object(dir_fd, name)
-    return now is not None and now == cap
+    return now.kind == "regular" and cap.kind == "regular" and now.ident == cap.ident
 
 
 def _compensate_both_sides(o: _Out, ctx: _TxContext, *, code: str) -> None:
@@ -886,7 +920,7 @@ def _compensate_both_sides(o: _Out, ctx: _TxContext, *, code: str) -> None:
         our_ok = our_ok and digest_fd(o.temp_fd) == o.temp_digest
     except OSError:
         our_ok = False
-    concurrent_ok = concurrent is not None and _object_matches(o.dir_fd, o.name, concurrent)
+    concurrent_ok = concurrent.kind == "regular" and _object_matches(o.dir_fd, o.name, concurrent)
     if our_ok and concurrent_ok:  # `compensation_verified` describe SÓLO el estado físico, no borra la divergencia
         o.exchange_applied = False
         o.compensation_verified = True

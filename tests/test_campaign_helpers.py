@@ -2469,3 +2469,65 @@ def test_b203_b210_fabricated_identity_rejected(monkeypatch, tmp_path):
     assert mcp._governed_run_identity() is None  # el dir falso no se convierte en sys.prefix
     monkeypatch.setenv("VP_ENV_ID", "ZZZ" + "a" * 61)  # no hexadecimal
     assert mcp._governed_run_identity() is None
+
+
+def _run_isolated(code, timeout=6.0):
+    """Ejecuta `code` en un SUBPROCESO killable (un open bloqueante sobre un FIFO no se interrumpe dentro del mismo
+    proceso). Devuelve (terminó_a_tiempo, stdout+stderr)."""
+    p = subprocess.Popen(
+        [sys.executable, "-c", code], cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
+    try:
+        out, _ = p.communicate(timeout=timeout)
+        return True, out
+    except subprocess.TimeoutExpired:
+        p.kill()
+        p.wait()
+        return False, "<TIMEOUT>"
+
+
+_B219_CAPTURE_SPECIAL = """
+import os, sys, tempfile
+sys.path.insert(0, os.getcwd())
+import tools.merge_campaign_pools as mcp
+d = tempfile.mkdtemp(dir="/tmp"); dfd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
+name = "cap_special"
+if {kind!r} == "fifo":
+    os.mkfifo(os.path.join(d, name))
+else:
+    import socket
+    s = socket.socket(socket.AF_UNIX); s.bind(os.path.join(d, name))
+r = mcp._capture_object(dfd, name)     # VIEJO: O_RDONLY sobre un FIFO CUELGA; NUEVO: no cuelga, no es 'regular'
+print("KIND:" + getattr(r, "kind", "LEGACY_" + type(r).__name__))
+print("DONE")
+"""
+
+
+@pytest.mark.parametrize("kind,expected", [("fifo", ("special",)), ("socket", ("special", "error"))])
+def test_b219_capture_object_special_no_hang(kind, expected):
+    # B219: _capture_object() sobre un objeto especial NO debe COLGAR (apertura no bloqueante) — es la ruta de
+    # compensación CAS que un tercero del mismo UID podría sustituir por un FIFO en `temp_name`.
+    completed, out = _run_isolated(_B219_CAPTURE_SPECIAL.replace("{kind!r}", repr(kind)))
+    assert completed, f"B219: _capture_object COLGÓ sobre un {kind}"
+    assert any(f"KIND:{e}" in out for e in expected), out
+
+
+def test_b219_capture_object_discriminates(tmp_path):
+    # B219: resultado ESTRUCTURADO — regular/absent/special no se confunden (nada de None ambiguo); un especial
+    # jamás coincide con un regular capturado (no se puede desplazar con éxito).
+    d = tmp_path / "cap"
+    d.mkdir()
+    dfd = os.open(str(d), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fd = os.open("reg", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=dfd)
+        os.write(fd, b"hi")
+        os.close(fd)
+        os.mkfifo("fifo", dir_fd=dfd)
+        assert mcp._capture_object(dfd, "reg").kind == "regular"
+        assert mcp._capture_object(dfd, "nope").kind == "absent"
+        assert mcp._capture_object(dfd, "fifo").kind == "special"
+        cap = mcp._capture_object(dfd, "reg")
+        assert mcp._object_matches(dfd, "reg", cap) is True
+        assert mcp._object_matches(dfd, "fifo", cap) is False  # un especial nunca coincide con el regular capturado
+    finally:
+        os.close(dfd)
