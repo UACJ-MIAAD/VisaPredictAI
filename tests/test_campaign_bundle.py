@@ -1287,3 +1287,20 @@ def test_b232_pointer_matches_enforces_governance(tmp_path):
         assert not cb._pointer_matches(cfd, name, ident, content)  # B232: modo != 0600 NO coincide
     finally:
         os.close(cfd)
+
+
+def test_b230_concurrent_predecessor_change_aborts(tmp_path):
+    # B230: si un tercero cambia CURRENT entre prepare y commit, el CAS exige el predecesor CAPTURADO+SELLADO exacto
+    # (bundle_id+bytes+inode) y ABORTA sin reutilizar el manifiesto. Cierra la ventana prepare->commit.
+    camp, cfd = _camp(tmp_path)
+    try:
+        _commit(cfd, "tx.a")  # CURRENT = A
+        prepared = cb.prepare_bundle(cfd, "tx.b", "campA", _outputs("b"), _inputs(), _prov())  # sella previous = A
+        try:
+            _commit(cfd, "tx.c", suffix="c")  # tercero: CURRENT A -> C (predecesor cambia)
+            with pytest.raises(cb.BundleConcurrencyError):
+                cb.commit_current(prepared)
+        finally:
+            prepared.close()
+    finally:
+        os.close(cfd)

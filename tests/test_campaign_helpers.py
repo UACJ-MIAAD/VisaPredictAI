@@ -2867,3 +2867,14 @@ def test_b226_certificate_semantic_fields_rejected():
             mcp._validate_commit_certificate(cert(**bad), expected_campaign="c")
     with pytest.raises(mcp.RollbackError):  # B231: cert valido pero campana != la fusionada (evidencia)
         mcp._validate_commit_certificate(cert(), expected_campaign="otra-campana")
+
+
+def test_b231_dataclasses_replace_forgery_rejected():
+    # B231: copiar un cert REAL con dataclasses.replace cambiando campos (campana/inode/durabilidad) NO burla la
+    # validacion — se rechaza por evidencia/semantica (expected_campaign + inodes plausibles + durabilidad).
+    import dataclasses
+
+    real = _durable_cert()  # campaign_id="c", durable, inodes (1,2)/(3,4)
+    for over in ({"campaign_id": "evil"}, {"pointer_inode": (0, 0)}, {"bundle_inode": (0, 0)}, {"durability_state": "cas_crossed"}):  # fmt: skip
+        with pytest.raises(mcp.RollbackError):
+            mcp._validate_commit_certificate(dataclasses.replace(real, **over), expected_campaign="c")
