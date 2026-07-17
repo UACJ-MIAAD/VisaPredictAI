@@ -40,6 +40,7 @@ import os
 import secrets
 import stat
 import sys
+import typing
 
 from tools.atomic_fs import AtomicRenameError, AtomicUnsupportedError, rename_exchange, rename_noreplace
 from tools.governed_fs import GovernedQuarantine, GovernedQuarantineError, GovernedRemovalError, OwnedLease
@@ -151,11 +152,29 @@ class BundleRollbackIncompleteError(BundleError):
 
 
 class CommittedStateError(BundleError):
-    """El CAS de CURRENT ya cruzó (autoridad válida y durable); un fallo posterior NO es un rollback. Incremento 2:
-    lleva `authority_crossed = True` como EVIDENCIA ESTRUCTURADA del cruce — el llamador clasifica por este atributo
-    (o por el tipo), JAMÁS leyendo el texto de la excepción."""
+    """El CAS de CURRENT ya cruzó Y se reconcilió como autoridad nueva VÁLIDA Y DURABLE; un fallo posterior NO es un
+    rollback. Incremento 2R (B222): lleva el `CommitCertificate` EXACTO de la autoridad cruzada (`.certificate`), no un
+    atributo booleano de clase — el llamador clasifica por TIPO y consume el certificado real."""
 
-    authority_crossed = True
+    def __init__(self, message: str, certificate: CommitCertificate) -> None:
+        super().__init__(message)
+        self.certificate = certificate
+
+
+class AuthorityIndeterminateError(BundleError):
+    """Incremento 2R (B221): el CAS pudo haber cruzado pero la compensación NO pudo restaurar CURRENT y la
+    reconciliación fd-bound NO pudo demostrar que CURRENT sea ni el previo válido ni el bundle nuevo válido. Estado
+    NO reconciliado: prohibido rollback de proyecciones, prohibido reintento automático, requiere reconciliación
+    humana. Lleva evidencia ESTRUCTURADA y `retry_safe = False`."""
+
+    retry_safe = False
+
+    def __init__(self, message: str, *, expected_new: str | None, expected_previous: str | None, observed_current: object, failure_point: str) -> None:  # fmt: skip
+        super().__init__(message)
+        self.expected_new = expected_new
+        self.expected_previous = expected_previous
+        self.observed_current = observed_current
+        self.failure_point = failure_point
 
 
 # --------------------------------------------------- helpers base ---------------------------------------------------
@@ -636,7 +655,6 @@ def prepare_bundle(
     bundle_id = hashlib.sha256(_canon(manifest)).hexdigest()
 
     staging_name = f"{_STAGING_PREFIX}.{secrets.token_hex(12)}"
-    committed_or_collided = False
     sroot = -1  # B180/Fase4: fd VIVO del dir de staging, retenido desde la creación hasta promoción/cuarentena
     try:
         sroot = _mkdir_governed(camp_fd, staging_name)
@@ -656,13 +674,12 @@ def prepare_bundle(
         _seal_file(sroot, _MANIFEST, _canon(manifest))
         os.fsync(sroot)
         _promote_staging(camp_fd, staging_name, bundle_id, manifest)
-        committed_or_collided = True
     finally:
         try:  # B170/B180/B185: limpieza fail-closed vía cuarentena move-only, ligada al fd vivo del staging
             _cleanup_staging(camp_fd, staging_name, sroot)
         except (GovernedRemovalError, GovernedQuarantineError, BundleError, OSError) as exc:
-            if committed_or_collided:
-                raise CommittedStateError(f"bundle promovido pero el staging {staging_name} no se limpió: {exc}") from exc  # fmt: skip
+            # PRE-CAS (el bundle está en el store inmutable, CURRENT NO tocado): residuo de staging, no autoridad
+            # cruzada → BundleRollbackIncompleteError (no CommittedStateError, que ahora exige un CommitCertificate).
             raise BundleRollbackIncompleteError(f"no se pudo limpiar el staging {staging_name}: {exc}") from exc
         finally:
             if sroot >= 0:
@@ -817,14 +834,6 @@ def _validate_authority(camp_fd: int, bundle_id: str) -> None:
         os.close(broot)
 
 
-def _fsync_typed(camp_fd: int) -> None:
-    """B182: un fsync fallido DESPUÉS del CAS es un fallo post-commit tipado, no un OSError crudo escapando."""
-    try:
-        os.fsync(camp_fd)
-    except OSError as exc:
-        raise CommittedStateError(f"fsync post-CAS de durabilidad falló: {exc}") from exc
-
-
 def _certify_current(camp_fd: int, prepared: _PreparedBundle, pbytes: bytes, tmp_ident: tuple[int, int], prev_id: str | None) -> CommitCertificate:  # fmt: skip
     """Certifica CURRENT + bundle como UNA unidad (B189): CURRENT liga EXACTAMENTE a mi puntero (gobernado nlink/modo/
     esquema + identidad + contenido), el bundle es válido a través del fd vivo, y CURRENT SIGUE ligado a mi puntero
@@ -840,6 +849,11 @@ def _certify_current(camp_fd: int, prepared: _PreparedBundle, pbytes: bytes, tmp
         _validate_authority(camp_fd, prev_id)
     if not _pointer_matches(camp_fd, _CURRENT_NAME, tmp_ident, pbytes):  # B189: CURRENT no cambió durante la validación
         raise BundleValidationError("CURRENT fue cambiado durante la certificación (B189)")
+    return _build_certificate(prepared, pbytes, tmp_ident, prev_id, "cas_crossed")
+
+
+def _build_certificate(prepared: _PreparedBundle, pbytes: bytes, tmp_ident: tuple[int, int], prev_id: str | None, durability_state: str) -> CommitCertificate:  # fmt: skip
+    """Construye el CommitCertificate desde el manifiesto VALIDADO del bundle y el puntero CURRENT observado."""
     manifest = prepared.manifest
     prov = manifest["provenance"]
     return CommitCertificate(
@@ -854,8 +868,73 @@ def _certify_current(camp_fd: int, prepared: _PreparedBundle, pbytes: bytes, tmp
         bundle_inode=prepared._ident,
         csv_contract_sha256=prov["csv_contract_sha256"],
         provenance_digest=hashlib.sha256(_canon(prov)).hexdigest(),
-        durability_state="cas_crossed",  # el _cas_pointer lo eleva a 'durable' TRAS el fsync post-CAS
+        durability_state=durability_state,
     )
+
+
+def _reconcile_and_raise(camp_fd: int, prepared: _PreparedBundle, tmp_ident: tuple[int, int], prev_id: str | None, primary: BaseException, failure_point: str) -> typing.NoReturn:  # fmt: skip
+    """B221 (Incremento 2R): tras un fallo POST-EXCHANGE (certificación/compensación/fsync/cuarentena), NUNCA infiere
+    del tipo del `primary`. RECONCILIA CURRENT fd-bound y eleva el error TIPADO correcto:
+    - CURRENT == bundle NUEVO válido y (re)hecho durable → `CommittedStateError(certificate)` (CROSSED).
+    - CURRENT == previo válido (compensación exitosa) → `BundleConcurrencyError` (NOT_CROSSED → rollback permitido).
+    - cualquier otro caso (ajeno/ausente-con-previo/ilegible/no-durable) → `AuthorityIndeterminateError` (INDETERMINATE).
+    NUNCA sobrescribe CURRENT, borra cuarentenas ni restaura datos viejos."""
+    new_bid = prepared.bundle_id
+    try:
+        cur = _read_current(camp_fd)
+    except (BundleError, OSError) as exc:
+        raise AuthorityIndeterminateError(
+            f"CURRENT ilegible tras {failure_point}: {exc}",
+            expected_new=new_bid,
+            expected_previous=prev_id,
+            observed_current="unreadable",
+            failure_point=failure_point,  # fmt: skip
+        ) from primary
+    if cur is None:
+        if prev_id is None:  # CAS inicial: CURRENT ausente ⇒ no cruzó (compensación move-only lo dejó ausente)
+            raise BundleConcurrencyError(f"CURRENT ausente tras {failure_point} (CAS inicial no cruzó): {primary}") from primary  # fmt: skip
+        raise AuthorityIndeterminateError(
+            f"CURRENT desapareció tras {failure_point}",
+            expected_new=new_bid,
+            expected_previous=prev_id,
+            observed_current=None,
+            failure_point=failure_point,  # fmt: skip
+        ) from primary
+    pointer, raw, ident = cur
+    cur_bid = pointer["bundle_id"]
+    if cur_bid == new_bid:  # CURRENT es la autoridad NUEVA
+        try:
+            _validate_authority(camp_fd, new_bid)  # el bundle nuevo apuntado es válido
+            os.fsync(camp_fd)  # asegura durabilidad (flush; NO sobrescribe CURRENT)
+        except (BundleError, OSError) as exc:
+            raise AuthorityIndeterminateError(
+                f"CURRENT==nuevo pero no verificable/durable tras {failure_point}: {exc}",
+                expected_new=new_bid,
+                expected_previous=prev_id,
+                observed_current=cur_bid,
+                failure_point=failure_point,  # fmt: skip
+            ) from primary
+        cert = _build_certificate(prepared, raw, ident, prev_id, "durable")
+        raise CommittedStateError(f"CURRENT cruzó (reconciliado) pero {failure_point} quedó incompleto: {primary}", certificate=cert)  # fmt: skip
+    if prev_id is not None and cur_bid == prev_id:  # CURRENT == previo (compensación exitosa) → NO cruzó
+        try:
+            _validate_authority(camp_fd, prev_id)
+        except BundleError as exc:
+            raise AuthorityIndeterminateError(
+                f"CURRENT==previo pero inválido tras {failure_point}: {exc}",
+                expected_new=new_bid,
+                expected_previous=prev_id,
+                observed_current=cur_bid,
+                failure_point=failure_point,  # fmt: skip
+            ) from primary
+        raise BundleConcurrencyError(f"CURRENT restaurado al previo tras {failure_point} (no cruzó): {primary}") from primary  # fmt: skip
+    raise AuthorityIndeterminateError(  # CURRENT ajeno / no coincide con nuevo ni previo
+        f"CURRENT ajeno tras {failure_point} (bundle {cur_bid})",
+        expected_new=new_bid,
+        expected_previous=prev_id,
+        observed_current=cur_bid,
+        failure_point=failure_point,  # fmt: skip
+    ) from primary
 
 
 def commit_current(prepared: _PreparedBundle) -> CommitCertificate:
@@ -882,15 +961,15 @@ def commit_current(prepared: _PreparedBundle) -> CommitCertificate:
         if not close_errs:
             raise primary
         joined = "; ".join(close_errs)
-        if isinstance(primary, (CommittedStateError, BundleRollbackIncompleteError)):
-            primary.add_note("errores de cierre de cuarentena: " + joined)  # ya es el tipo correcto
+        if isinstance(primary, (CommittedStateError, BundleRollbackIncompleteError, AuthorityIndeterminateError)):
+            primary.add_note("errores de cierre de cuarentena: " + joined)  # ya es el tipo TAXONÓMICO correcto
             raise primary
         # B212: fallo pre-CAS/no-certificado + cierre fallido ⇒ estado NO verificable ⇒ RollbackIncomplete
         raise BundleRollbackIncompleteError(f"fallo con cierre de cuarentena fallido: {joined}") from primary
-    if close_errs:  # sin excepción primaria: clasificar según si el commit cruzó (B204)
+    if close_errs:  # sin excepción primaria: el commit cruzó (hay cert) → CommittedStateError CON el cert
         joined = "; ".join(close_errs)
         if cert is not None:
-            raise CommittedStateError(f"commit certificado pero el cierre de cuarentena falló: {joined}")
+            raise CommittedStateError(f"commit certificado pero el cierre de cuarentena falló: {joined}", certificate=cert)  # fmt: skip
         raise BundleRollbackIncompleteError(f"cierre de cuarentena falló: {joined}")
     assert cert is not None  # el commit cruzó sin excepción → hay certificado
     return cert
@@ -941,13 +1020,18 @@ def _cas_pointer(camp_fd: int, quar: GovernedQuarantine, prepared: _PreparedBund
         except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
             _quarantine_pointer(quar, camp_fd, tmp_name, tmp_fd, pbytes)
             raise BundleError(f"no se pudo hacer CAS inicial de CURRENT: {exc}") from exc
-        try:
+        try:  # PRE-DURABLE: certifica + fsync; un fallo aquí quita CURRENT (move-only) y RECONCILIA (B221)
             cert = _certify_current(camp_fd, prepared, pbytes, tmp_ident, None)
-        except Exception:  # noqa: BLE001 — B190: compensa CUALQUIER excepción (no BaseException) antes de certificar
-            _quarantine_pointer(quar, camp_fd, _CURRENT_NAME, tmp_fd, pbytes)  # move-only: CURRENT sale → ausencia
-            raise
-        _fsync_typed(camp_fd)
-        return dataclasses.replace(cert, durability_state="durable")  # Incremento 2: durable TRAS el fsync post-CAS
+            os.fsync(camp_fd)  # durabilidad post-CAS
+        except Exception as exc:  # noqa: BLE001 — B190: NO infiere del tipo; reconcilia CURRENT fd-bound
+            try:
+                _quarantine_pointer(
+                    quar, camp_fd, _CURRENT_NAME, tmp_fd, pbytes
+                )  # best-effort: CURRENT sale → ausencia
+            except GovernedRemovalError, GovernedQuarantineError, BundleError, OSError:
+                pass  # la reconciliación decide el estado REAL de CURRENT
+            _reconcile_and_raise(camp_fd, prepared, tmp_ident, None, exc, "initial-cas")
+        return dataclasses.replace(cert, durability_state="durable")  # durable TRAS el fsync post-CAS
 
     if prev_ident is None or prev_raw is None or prev_fd < 0:
         raise BundleError("estado inconsistente: puntero previo sin identidad/bytes/fd")
@@ -960,27 +1044,36 @@ def _cas_pointer(camp_fd: int, quar: GovernedQuarantine, prepared: _PreparedBund
     displaced = _capture(camp_fd, tmp_name)  # lo que estaba en CURRENT justo antes de MI exchange
     cur_ok = _pointer_matches(camp_fd, _CURRENT_NAME, tmp_ident, pbytes)
     if cur_ok and displaced == (prev_ident, prev_raw):  # swap legítimo: desplazado == el previo EXACTO
-        try:
+        try:  # PRE-DURABLE: certifica + fsync; un fallo → compensa (best-effort) + RECONCILIA (B221)
             cert = _certify_current(camp_fd, prepared, pbytes, tmp_ident, prev_id)  # B189/B197: unidad + previo válido
-        except Exception:  # noqa: BLE001 — B190: compensa CUALQUIER excepción (no BaseException) antes de certificar
-            _compensate(camp_fd, quar, tmp_name, tmp_fd, tmp_ident, pbytes, prev_fd, prev_raw, displaced)
-            raise
-        _fsync_typed(camp_fd)
-        cert = dataclasses.replace(cert, durability_state="durable")  # Incremento 2: durable TRAS el fsync post-CAS
-        _quarantine_pointer_prev(quar, camp_fd, tmp_name, prev_fd, prev_raw)  # retira el previo desplazado (move-only)
+            os.fsync(camp_fd)  # durabilidad post-CAS
+        except Exception as exc:  # noqa: BLE001 — B190/B221: compensa (best-effort) y SIEMPRE reconcilia (no infiere)
+            try:
+                _compensate(camp_fd, quar, tmp_name, tmp_fd, tmp_ident, pbytes, prev_fd, prev_raw, displaced)
+            except BundleError, OSError:
+                pass  # una compensación fallida NO decide el estado — la reconciliación fd-bound sí
+            _reconcile_and_raise(camp_fd, prepared, tmp_ident, prev_id, exc, "exchange-certify")
+        cert = dataclasses.replace(cert, durability_state="durable")  # durable TRAS el fsync post-CAS
+        # POST-DURABLE: la autoridad YA cruzó y es durable; un fallo de limpieza es CommittedStateError CON el cert
+        try:
+            _quarantine_pointer_prev(quar, camp_fd, tmp_name, prev_fd, prev_raw)  # retira el previo desplazado
+        except (GovernedRemovalError, GovernedQuarantineError) as exc:
+            raise CommittedStateError(f"commit certificado pero el previo desplazado no se pudo poner en cuarentena: {exc}", certificate=cert) from exc  # fmt: skip
         return cert
-    # Carrera: CURRENT había cambiado. Restaurar el valor CONCURRENTE (el desplazado real), no el previo stale.
-    _compensate(camp_fd, quar, tmp_name, tmp_fd, tmp_ident, pbytes, prev_fd, prev_raw, displaced)
-    raise BundleConcurrencyError("CURRENT fue modificado concurrentemente; commit abortado y compensado")
+    # Carrera: CURRENT había cambiado. Compensa (best-effort) y SIEMPRE reconcilia el estado REAL de CURRENT (B221).
+    try:
+        _compensate(camp_fd, quar, tmp_name, tmp_fd, tmp_ident, pbytes, prev_fd, prev_raw, displaced)
+    except BundleError, OSError:
+        pass
+    _reconcile_and_raise(camp_fd, prepared, tmp_ident, prev_id, BundleConcurrencyError("CURRENT fue modificado concurrentemente"), "race")  # fmt: skip
 
 
 def _quarantine_pointer_prev(quar: GovernedQuarantine, camp_fd: int, name: str, prev_fd: int, prev_raw: bytes) -> None:
-    """Retira el previo DESPLAZADO (ahora en `name`) por cuarentena move-only, ligado a `prev_fd` (su inode)."""
+    """Retira el previo DESPLAZADO (ahora en `name`) por cuarentena move-only, ligado a `prev_fd` (su inode). Su fallo
+    PROPAGA la GovernedRemovalError/GovernedQuarantineError; el llamador (`_cas_pointer`, post-durable) la clasifica
+    como CommittedStateError CON el certificado de la autoridad cruzada (Incremento 2R)."""
     lease = OwnedLease(prev_fd, is_dir=False, known_digest=hashlib.sha256(prev_raw).hexdigest())
-    try:
-        quar.quarantine(camp_fd, name, lease)
-    except (GovernedRemovalError, GovernedQuarantineError) as exc:  # B204: post-commit ⇒ CommittedStateError
-        raise CommittedStateError(f"commit certificado pero el previo desplazado no se pudo poner en cuarentena: {exc}") from exc  # fmt: skip
+    quar.quarantine(camp_fd, name, lease)
 
 
 def _compensate(camp_fd: int, quar: GovernedQuarantine, tmp_name: str, tmp_fd: int, tmp_ident: tuple[int, int], pbytes: bytes, prev_fd: int, prev_raw: bytes, displaced: tuple[tuple[int, int], bytes] | None) -> None:  # fmt: skip
@@ -1134,6 +1227,8 @@ def validate_current_report(camp_fd: int) -> dict:
     prov = manifest["provenance"]
     return {
         "status": "valid",
+        "authority_state": "crossed_certified",  # CURRENT es una autoridad committeada y VÁLIDA (reconciliable)
+        "retry_safe": True,  # una autoridad válida y estable es segura de re-leer/re-consumir
         "bundle_id": bundle_id,
         "previous_bundle_id": prev_id,
         "campaign_id": manifest["campaign_id"],
@@ -1164,7 +1259,7 @@ def _cli_validate_current(camp_path: str) -> int:
         try:
             report = validate_current_report(fd)
         except (BundleError, OSError) as exc:  # BundleError o anomalía OS (symlink/ELOOP/permiso) → autoridad inválida
-            sys.stdout.write(_canon({"status": "invalid", "reason": str(exc)}).decode() + "\n")
+            sys.stdout.write(_canon({"status": "invalid", "authority_state": "invalid", "retry_safe": False, "reason": str(exc)}).decode() + "\n")  # fmt: skip
             return 3
         sys.stdout.write(_canon(report).decode() + "\n")
         return 0

@@ -7,15 +7,16 @@ maquinaria del merge respete esa frontera:
 1. `commit_reached` NUNCA se ASIGNA (es una `@property` DERIVADA del latch `_committed`).
 2. El latch `_committed = True` aparece EXACTAMENTE dos veces, y SÓLO dentro de `mark_current_certified` y
    `mark_committed_incomplete` (métodos de `_TxContext`).
-3. `mark_current_certified` CONSUME un certificado (referencia `authority_crossed`) — el commit se declara con un
-   `CommitCertificate` estructurado, no con texto.
+3. B222/B223: `mark_current_certified` y `mark_committed_incomplete` VALIDAN el cert con `_validate_commit_certificate`
+   (isinstance CommitCertificate + `durability_state` durable + hashes) — jamás un bool `authority_crossed` (duck typing).
 4. `_certify_receipt` (el recibo = EVIDENCIA) JAMÁS toca el estado comprometido (`_committed` /
    `mark_current_certified` / `mark_committed_incomplete`).
 5. `mark_current_certified(...)` se llama EXACTAMENTE una vez en todo el módulo (punto de commit único).
-6. TODA llamada a `_rollback()` está GUARDADA por una condición que menciona `commit_reached` (jamás corre tras el
-   certificado).
-7. La rama que declara COMMITTED_INCOMPLETE decide por `authority_crossed` (evidencia ESTRUCTURADA), no por el texto
-   de la excepción (`str(...)` / `.args` de una excepción).
+6. B221: TODA llamada a `_rollback()` está GUARDADA por `rollback_allowed` (jamás corre tras el certificado NI en
+   estado INDETERMINADO).
+7. B222/B223: PROHIBIDO `getattr(x, "authority_crossed")`; la clasificación post-publish decide por TIPO estructurado
+   (`except _bundle.CommittedStateError`/`AuthorityIndeterminateError`), nunca por texto de excepción.
+8. B221: existen el terminal `AUTHORITY_INDETERMINATE`, `mark_indeterminate` y la property `rollback_allowed`.
 
 Escanea SÓLO el fichero versionado; si git falla o no parsea, FALLA cerrado.
 """
@@ -87,10 +88,16 @@ def frontier_problems(src: str) -> list[str]:
         if not any(_within(funcs.get(m), a) for m in _LATCH_METHODS):
             problems.append(f"_committed=True (línea {a.lineno}) fuera de {_LATCH_METHODS}")
 
-    # 3. mark_current_certified consume un certificado (authority_crossed)
-    mcc = funcs.get("mark_current_certified")
-    if mcc is None or not _names_in(mcc, ("authority_crossed",)):
-        problems.append("mark_current_certified debe consumir un CommitCertificate (authority_crossed)")
+    # 3. mark_current_certified y mark_committed_incomplete VALIDAN el certificado (no duck typing por authority_crossed)
+    for m in ("mark_current_certified", "mark_committed_incomplete"):
+        fn = funcs.get(m)
+        if fn is None or not _names_in(fn, ("_validate_commit_certificate",)):
+            problems.append(f"{m} debe validar el cert con _validate_commit_certificate (no un bool authority_crossed)")
+    vcc = funcs.get("_validate_commit_certificate")
+    if vcc is None or not _names_in(vcc, ("CommitCertificate", "durability_state")):
+        problems.append(
+            "_validate_commit_certificate debe exigir isinstance(CommitCertificate) + durability_state durable"
+        )
 
     # 4. _certify_receipt no toca el estado comprometido
     cr = funcs.get("_certify_receipt")
@@ -110,10 +117,11 @@ def frontier_problems(src: str) -> list[str]:
     if len(calls) != 1:
         problems.append(f"mark_current_certified se llama {len(calls)} veces (debe ser 1 — commit único)")
 
-    # 6. toda llamada a _rollback() está guardada por una condición que menciona commit_reached
+    # 6. toda llamada a _rollback() está guardada por una condición que menciona `rollback_allowed` (B221: jamás
+    # corre en estado cruzado NI indeterminado)
     guarded: set[int] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.If) and _names_in(node.test, ("commit_reached",)):
+        if isinstance(node, ast.If) and _names_in(node.test, ("rollback_allowed",)):
             for stmt in node.body:
                 for c in ast.walk(stmt):
                     if isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id == "_rollback":
@@ -125,24 +133,26 @@ def frontier_problems(src: str) -> list[str]:
     ]
     for c in all_rollback_calls:
         if id(c) not in guarded:
-            problems.append(f"_rollback() en línea {c.lineno} NO está guardado por `commit_reached`")
+            problems.append(f"_rollback() en línea {c.lineno} NO está guardado por `rollback_allowed`")
 
-    # 7. la decisión de COMMITTED_INCOMPLETE usa authority_crossed y NO texto de excepción
-    promote = funcs.get("_promote_transactionally")
-    if promote is not None:
-        mci_calls = [
-            n
-            for n in ast.walk(promote)
-            if isinstance(n, ast.Call)
-            and isinstance(n.func, ast.Attribute)
-            and n.func.attr == "mark_committed_incomplete"  # fmt: skip
-        ]
-        for handler in ast.walk(promote):
-            if isinstance(handler, ast.ExceptHandler) and any(_within_node(handler, m) for m in mci_calls):
-                if not _names_in(handler, ("authority_crossed",)):
-                    problems.append("la rama COMMITTED_INCOMPLETE no decide por authority_crossed (evidencia estructurada)")  # fmt: skip
-                if _decides_by_text(handler):
-                    problems.append("la rama COMMITTED_INCOMPLETE decide por TEXTO de excepción (str/args)")
+    # 7. NADIE decide el cruce por `authority_crossed` (duck typing) ni por texto: prohibido getattr(x,'authority_crossed')
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr" and len(node.args) >= 2:  # fmt: skip
+            arg = node.args[1]
+            if isinstance(arg, ast.Constant) and arg.value == "authority_crossed":
+                problems.append(f"getattr(..., 'authority_crossed') en línea {node.lineno} (clasificación por duck typing)")  # fmt: skip
+    # el clasificador post-publish decide por TIPOS estructurados (CommittedStateError/AuthorityIndeterminateError)
+    if "except _bundle.CommittedStateError" not in src or "except _bundle.AuthorityIndeterminateError" not in src:
+        problems.append("la clasificación post-publish debe usar `except _bundle.CommittedStateError`/`AuthorityIndeterminateError` (por tipo)")  # fmt: skip
+    for handler in ast.walk(tree):  # ningún handler de la clasificación del cruce ramifica por texto de excepción
+        if isinstance(handler, ast.ExceptHandler) and _names_in(handler, ("mark_committed_incomplete", "mark_indeterminate")) and _decides_by_text(handler):  # fmt: skip
+            problems.append("la clasificación del cruce decide por TEXTO de excepción (str/args)")
+
+    # 8. terminal AUTHORITY_INDETERMINATE + mark_indeterminate + rollback_allowed existen (B221)
+    if "_S_AUTHORITY_INDETERMINATE" not in src or funcs.get("mark_indeterminate") is None:
+        problems.append("debe existir el terminal AUTHORITY_INDETERMINATE + mark_indeterminate")
+    if funcs.get("rollback_allowed") is None:
+        problems.append("debe existir la property rollback_allowed (rollback SÓLO si no cruzó y no indeterminado)")
     return problems
 
 

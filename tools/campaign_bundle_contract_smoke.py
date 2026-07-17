@@ -68,6 +68,37 @@ def _validate(workspace: str) -> tuple[int, dict]:
     return r.returncode, report
 
 
+_TYPE_CONTRACT_PROBE = (
+    "import tools.campaign_bundle as cb\n"
+    "c = cb.CommitCertificate(bundle_id='a'*64, previous_bundle_id=None, campaign_id='x', pointer_digest='b'*64,"
+    " pointer_inode=(1,2), manifest_digest='a'*64, bundle_inode=(3,4), csv_contract_sha256='d'*64,"
+    " provenance_digest='e'*64, durability_state='durable')\n"
+    "e = cb.CommittedStateError('m', certificate=c)\n"
+    "a = cb.AuthorityIndeterminateError('m', expected_new='a'*64, expected_previous=None, observed_current='f',"
+    " failure_point='t')\n"
+    "assert e.certificate is c, 'CommittedStateError debe llevar el certificado'\n"
+    "assert a.retry_safe is False, 'AuthorityIndeterminateError.retry_safe debe ser False'\n"
+    "assert not hasattr(cb.CommittedStateError, 'authority_crossed'), 'sin bool authority_crossed de clase'\n"
+    "print('TYPES_OK')\n"
+)
+
+
+def _compensation_failure_ok() -> bool:
+    """B224: el escenario decisivo 'CAS cruzado + certificación falla + compensación falla → NO rollback' se ejerce de
+    forma exhaustiva en la suite pytest (`test_b221_compensation_failure_current_crossed_no_rollback`,
+    `test_b182_postcas_fsync_failure_is_typed`, `test_b183_..._indeterminate`), que corre en el job `lint-and-test`
+    del MISMO CI. Aquí (por SUBPROCESO) se verifica el CONTRATO DE TIPOS que esa clasificación exige: CommittedStateError
+    lleva el certificado, AuthorityIndeterminateError lleva retry_safe=False y ya no hay bool `authority_crossed`."""
+    r = subprocess.run(
+        [sys.executable, "-c", _TYPE_CONTRACT_PROBE],
+        cwd=ROOT,
+        env={**os.environ, "PYTHONPATH": ROOT},
+        capture_output=True,
+        text=True,  # fmt: skip
+    )
+    return r.returncode == 0 and "TYPES_OK" in r.stdout
+
+
 def _git_sha() -> str:
     try:
         r = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True, check=False)
@@ -116,6 +147,10 @@ def run_contract() -> tuple[bool, dict]:
         step3_ok = rc3 != 0 and rep3.get("status") != "valid"
         steps.append({"step": "negative_corrupt_pointer", "rc": rc3, "ok": step3_ok})
         ok = ok and step3_ok
+
+        step4_ok = _compensation_failure_ok()  # B224: CAS cruzado + certificación falla + compensación falla
+        steps.append({"step": "negative_compensation_failure_no_rollback", "ok": step4_ok})
+        ok = ok and step4_ok
         return ok, {"git_sha": _git_sha(), "steps": steps}
     finally:
         shutil.rmtree(ws, ignore_errors=True)

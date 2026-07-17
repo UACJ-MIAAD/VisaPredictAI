@@ -2637,6 +2637,16 @@ def test_inc2_real_merge_crosses_via_certificate(tmp_path, monkeypatch):
         os.close(cfd)
 
 
+def _durable_cert(bid: str = "a" * 64):
+    import tools.campaign_bundle as cb
+
+    return cb.CommitCertificate(
+        bundle_id=bid, previous_bundle_id=None, campaign_id="c", pointer_digest="b" * 64, pointer_inode=(1, 2),
+        manifest_digest=bid, bundle_inode=(3, 4), csv_contract_sha256="d" * 64, provenance_digest="e" * 64,
+        durability_state="durable",
+    )  # fmt: skip
+
+
 def test_inc2_certificate_is_immutable():
     # el CommitCertificate es FROZEN: ningún consumidor puede mutar la evidencia del commit.
     import dataclasses
@@ -2656,50 +2666,72 @@ def test_inc2_certificate_is_immutable():
 
 
 def test_inc2_txcontext_frontier_invariants():
-    # la máquina de estados del commit: sólo un CommitCertificate declara el cruce; forward-only; incompleto exige CAS.
-    class FakeCert:
-        authority_crossed = True
+    # B222: SÓLO un CommitCertificate REAL y DURABLE declara el cruce; un objeto con authority_crossed (duck typing)
+    # es RECHAZADO; forward-only; incompleto exige cert.
+    import types
+
+    import tools.campaign_bundle as cb
 
     c = mcp._TxContext()
     c.transition(mcp._S_PROJECTIONS_DURABLE)
     c.transition(mcp._S_RECEIPT_CERTIFIED)
     assert not c.commit_reached  # el recibo NO es autoridad
     c.transition(mcp._S_CURRENT_CAS_STARTED)
-    # certificado forjado (sin authority_crossed) → rechazado
+    for forged in (object(), None, types.SimpleNamespace(authority_crossed=True)):  # duck typing RECHAZADO
+        with pytest.raises(mcp.RollbackError):
+            c.mark_current_certified(forged)
+    nondurable = dataclasses_replace_durability(_durable_cert(), "cas_crossed")  # cert real pero NO durable → rechazado
     with pytest.raises(mcp.RollbackError):
-        c.mark_current_certified(object())
+        c.mark_current_certified(nondurable)
+    bad_hash = dataclasses_replace_bundle_id(_durable_cert(), "zz")  # manifest_digest != bundle_id / no 64-hex
     with pytest.raises(mcp.RollbackError):
-        c.mark_current_certified(None)
-    c.mark_current_certified(FakeCert())
+        c.mark_current_certified(bad_hash)
+    assert isinstance(_durable_cert(), cb.CommitCertificate)
+    c.mark_current_certified(_durable_cert())  # cert real durable → cruza
     assert c.commit_reached and c.certificate is not None
-    # forward-only: no se puede volver atrás
     with pytest.raises(mcp.RollbackError):
-        c.transition(mcp._S_RECEIPT_CERTIFIED)
-    # el latch persiste al cerrar
+        c.transition(mcp._S_RECEIPT_CERTIFIED)  # forward-only
     c.mark_closed()
     assert c.commit_reached
 
 
+def dataclasses_replace_durability(cert, durability):
+    import dataclasses
+
+    return dataclasses.replace(cert, durability_state=durability)
+
+
+def dataclasses_replace_bundle_id(cert, bid):
+    import dataclasses
+
+    return dataclasses.replace(cert, bundle_id=bid)
+
+
 def test_inc2_committed_incomplete_requires_crossed_evidence():
-    # COMMITTED_INCOMPLETE (post-commit incompleto) EXIGE evidencia de que el CAS cruzó; jamás antes del CAS.
+    # B221/B222: COMMITTED_INCOMPLETE EXIGE el CommitCertificate REAL de la autoridad cruzada; jamás sólo 'CAS iniciado'.
     c = mcp._TxContext()
     c.transition(mcp._S_PROJECTIONS_DURABLE)
     c.transition(mcp._S_RECEIPT_CERTIFIED)
     with pytest.raises(mcp.RollbackError):  # aún no se inició el CAS
-        c.mark_committed_incomplete()
+        c.mark_committed_incomplete(_durable_cert())
     c.transition(mcp._S_CURRENT_CAS_STARTED)
-    c.mark_committed_incomplete()
-    assert c.commit_reached  # el CAS cruzó incompleto → sigue siendo commit cruzado (no rollback)
+    with pytest.raises(mcp.RollbackError):  # sin cert real → 'CAS iniciado' NO basta como evidencia de cruce
+        c.mark_committed_incomplete(object())
+    c.mark_committed_incomplete(_durable_cert())
+    assert c.commit_reached  # el CAS cruzó (cert durable) incompleto → sigue siendo commit cruzado (no rollback)
 
 
 def test_inc2_committed_state_error_carries_crossed_evidence():
-    # CommittedStateError lleva la EVIDENCIA ESTRUCTURADA del cruce (authority_crossed), no texto.
+    # B222: CommittedStateError lleva el CommitCertificate REAL (.certificate), no un atributo booleano de clase;
+    # AuthorityIndeterminateError lleva retry_safe=False.
     import tools.campaign_bundle as cb
 
-    assert cb.CommittedStateError.authority_crossed is True
-    assert getattr(cb.CommittedStateError("x"), "authority_crossed", False) is True
-    # un error pre-CAS NO lleva la evidencia
-    assert getattr(cb.BundleValidationError("x"), "authority_crossed", False) is False
+    cert = _durable_cert()
+    e = cb.CommittedStateError("x", certificate=cert)
+    assert e.certificate is cert and e.certificate.durability_state == "durable"
+    assert not hasattr(cb.CommittedStateError, "authority_crossed")  # ya no es un bool de clase forjable
+    aie = cb.AuthorityIndeterminateError("y", expected_new="a" * 64, expected_previous=None, observed_current="foreign", failure_point="test")  # fmt: skip
+    assert aie.retry_safe is False
 
 
 def test_inc2_postcommit_failure_keeps_current_authority(tmp_path, monkeypatch):
@@ -2761,5 +2793,37 @@ def test_inc2_no_forged_receipt_authority(tmp_path, monkeypatch):
     try:
         with pytest.raises(cb.BundleError):  # el recibo por sí solo NO crea autoridad CURRENT
             cb.open_current_bundle(cfd)
+    finally:
+        os.close(cfd)
+
+
+def test_b221_compensation_failure_current_crossed_no_rollback(tmp_path, monkeypatch):
+    # B221 (FLAGSHIP): exchange CRUZADO + certificación falla + compensación falla → la reconciliación fd-bound ve
+    # CURRENT==nuevo bundle válido → COMMITTED (cruzado), JAMÁS rollback de proyecciones. RED sobre e1e7dd5 (allí
+    # "sin authority_crossed" ⇒ pre-CAS ⇒ rollback, dejando CURRENT→nuevo pero proyecciones→viejas: autoridad partida).
+    import pandas as pd
+
+    import tools.campaign_bundle as cb
+
+    _write_all_8(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert mcp.merge() == 0  # 1er commit: CURRENT + outputs
+    camp = tmp_path / "reports" / "campaign"
+    for f in os.listdir(camp):  # 2º merge con bundle DISTINTO (run_id distinto) → EXCHANGE
+        if f.startswith("aq_pool_"):
+            p = camp / f
+            df = pd.read_csv(p, dtype={"run_id": str})
+            df["run_id"] = "v2"
+            df.to_csv(p, index=False)
+    # inyecta: certificación falla + compensación falla → CURRENT queda como el NUEVO bundle (compensación no lo deshace)
+    monkeypatch.setattr(cb, "_certify_current", lambda *a, **k: (_ for _ in ()).throw(cb.BundleValidationError("inject certify")))  # fmt: skip
+    monkeypatch.setattr(cb, "_compensate", lambda *a, **k: (_ for _ in ()).throw(cb.BundleRollbackIncompleteError("inject compensate")))  # fmt: skip
+    with pytest.raises(mcp.CommittedStateError):  # CURRENT cruzó (reconciliado) → NO rollback como pre-CAS
+        mcp.merge()
+    monkeypatch.undo()
+    cfd = os.open(str(camp), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        bid, _manifest = cb.open_current_bundle(cfd)  # CURRENT sigue siendo la autoridad NUEVA válida (cruzó)
+        assert len(bid) == 64
     finally:
         os.close(cfd)

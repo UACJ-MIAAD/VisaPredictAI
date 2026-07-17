@@ -511,8 +511,9 @@ def test_b156_race_restores_concurrent(tmp_path, monkeypatch):
         os.close(cfd)
 
 
-def test_b183_concurrent_authority_to_missing_bundle_is_incomplete(tmp_path, monkeypatch):
-    # si el valor concurrente apunta a un bundle INEXISTENTE, la compensación lo detecta y eleva incompleto.
+def test_b183_concurrent_authority_to_missing_bundle_is_indeterminate(tmp_path, monkeypatch):
+    # B221R: si un tercero deja CURRENT apuntando a un bundle INEXISTENTE (ajeno), la reconciliación fd-bound no puede
+    # clasificarlo como previo ni nuevo → AuthorityIndeterminateError (reconciliación humana; sin rollback ni reintento).
     camp, cfd = _camp(tmp_path)
     try:
         _commit(cfd, "tx.a")
@@ -531,20 +532,36 @@ def test_b183_concurrent_authority_to_missing_bundle_is_incomplete(tmp_path, mon
                 return real_ex(sfd, s, dfd, d)
 
             monkeypatch.setattr(cb, "rename_exchange", racing)
-            with pytest.raises(cb.BundleRollbackIncompleteError):
+            with pytest.raises(cb.AuthorityIndeterminateError):
                 cb.commit_current(prepared)
             monkeypatch.undo()
     finally:
         os.close(cfd)
 
 
-def test_b182_postcas_fsync_failure_is_committed_state(tmp_path, monkeypatch):
-    # un fsync(camp_fd) fallido DESPUÉS del CAS certificado escapa como CommittedStateError, no OSError crudo.
+def test_b182_postcas_fsync_failure_is_typed(tmp_path, monkeypatch):
+    # B221R: un fsync fallido DESPUÉS del CAS NO escapa como OSError crudo — la reconciliación fd-bound lo TIPA
+    # (AuthorityIndeterminate: CURRENT cruzó pero no se pudo confirmar durable). Nunca un OSError suelto.
     camp, cfd = _camp(tmp_path)
     try:
         with cb.prepare_bundle(cfd, "tx.a", "campA", _outputs(), _inputs(), _prov()) as prepared:
-            monkeypatch.setattr(cb, "_fsync_typed", lambda fd: (_ for _ in ()).throw(cb.CommittedStateError("fsync")))
-            with pytest.raises(cb.CommittedStateError):
+            armed = {"x": False}
+            real_fsync = os.fsync
+
+            def failing(fd):
+                if armed["x"]:
+                    raise OSError("post-cas fsync")
+                return real_fsync(fd)
+
+            orig_cas = cb._cas_pointer
+
+            def wrap_cas(*a, **k):  # arma el fallo justo antes del CAS: el próximo fsync es el post-CAS de durabilidad
+                armed["x"] = True
+                return orig_cas(*a, **k)
+
+            monkeypatch.setattr(cb.os, "fsync", failing)
+            monkeypatch.setattr(cb, "_cas_pointer", wrap_cas)
+            with pytest.raises(cb.BundleError):  # TIPADO (BundleError), jamás un OSError crudo
                 cb.commit_current(prepared)
             monkeypatch.undo()
     finally:
@@ -681,16 +698,16 @@ def test_b189_current_swapped_during_certification_detected(tmp_path, monkeypatc
 
 
 def test_b190_oserror_in_certify_compensates(tmp_path, monkeypatch):
-    # un OSError (no BundleError) durante la certificación NO escapa crudo: compensa (CURRENT del primer commit se
-    # retira) y re-eleva.
+    # B221R: un OSError (no BundleError) durante la certificación NO escapa crudo: se retira CURRENT (move-only) y la
+    # reconciliación fd-bound (CURRENT ausente, CAS inicial) lo tipa como BundleError (no cruzó). CURRENT queda ausente.
     camp, cfd = _camp(tmp_path)
     try:
         with cb.prepare_bundle(cfd, "tx.a", "campA", _outputs(), _inputs(), _prov()) as prepared:
             monkeypatch.setattr(cb, "_certify_current", lambda *a, **k: (_ for _ in ()).throw(OSError("crudo")))
-            with pytest.raises(OSError):
+            with pytest.raises(cb.BundleError):  # tipado (no OSError crudo)
                 cb.commit_current(prepared)
             monkeypatch.undo()
-        assert cb._read_current(cfd) is None  # CURRENT del primer commit se retiró → ausencia restaurada
+        assert cb._read_current(cfd) is None  # CURRENT del primer commit se retiró → ausencia restaurada (no cruzó)
     finally:
         os.close(cfd)
 
@@ -1198,7 +1215,9 @@ def test_b220_taxonomy_special_placeholder(phase, tmp_path):
             import unittest.mock as _m
 
             fn = cb._quarantine_pointer if phase == "pre_cas" else cb._quarantine_pointer_prev
-            expected = cb.BundleRollbackIncompleteError if phase == "pre_cas" else cb.CommittedStateError
+            # B221R: pre-CAS clasifica a BundleRollbackIncompleteError; post-cert `_quarantine_pointer_prev` PROPAGA
+            # el error gobernado (el llamador `_cas_pointer` lo tipa como CommittedStateError CON el certificado).
+            expected = cb.BundleRollbackIncompleteError if phase == "pre_cas" else (gf.GovernedRemovalError, gf.GovernedQuarantineError)  # fmt: skip
             with _m.patch.object(gf, "rename_exchange", racing):
                 with pytest.raises(expected):
                     fn(q, cfd, "ptr.tmp", tmp_fd, b"P")

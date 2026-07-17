@@ -28,8 +28,8 @@ def test_gate_flags_second_commit_point():
 
 
 def test_gate_flags_unguarded_rollback():
-    bad = _SRC.replace("if not ctx.commit_reached:  # DERIVADO", "if True:  # unguarded", 1)
-    assert gate.frontier_problems(bad), "un _rollback() no guardado por commit_reached debe fallar"
+    bad = _SRC.replace("if ctx.rollback_allowed:  # B221", "if True:  # unguarded", 1)
+    assert gate.frontier_problems(bad), "un _rollback() no guardado por rollback_allowed debe fallar"
 
 
 def test_gate_flags_receipt_touching_committed_state():
@@ -45,10 +45,37 @@ def test_gate_flags_receipt_touching_committed_state():
     )
 
 
-def test_gate_flags_text_based_commit_decision():
-    # decidir el cruce por texto de excepción (str(be)) en vez de authority_crossed debe fallar
-    bad = _SRC.replace('getattr(be, "authority_crossed", False) is True', '"COMMIT" in str(be)', 1)
-    assert gate.frontier_problems(bad), "decidir el cruce por texto de excepción debe fallar"
+def test_gate_flags_getattr_authority_crossed():
+    # B222/B223: clasificar el cruce por `getattr(x, "authority_crossed")` (duck typing) debe fallar.
+    bad = _SRC.replace(
+        "        _validate_commit_certificate(certificate)",
+        '        getattr(certificate, "authority_crossed", False)',
+        1,
+    )
+    probs = gate.frontier_problems(bad)
+    assert any("authority_crossed" in p for p in probs), "getattr(authority_crossed) debe fallar"
+
+
+def test_gate_flags_rollback_not_guarded_by_rollback_allowed():
+    # B221: el rollback debe estar guardado por `rollback_allowed` (no `commit_reached`, que ignora el indeterminado).
+    bad = _SRC.replace("if ctx.rollback_allowed:  # B221", "if not ctx.commit_reached:  # DEBILITADO", 1)
+    assert gate.frontier_problems(bad), (
+        "un rollback guardado sólo por commit_reached debe fallar (ignora indeterminado)"
+    )
+
+
+def test_gate_flags_missing_indeterminate_terminal():
+    # B221: el terminal AUTHORITY_INDETERMINATE y mark_indeterminate deben existir.
+    bad = _SRC.replace("_S_AUTHORITY_INDETERMINATE", "_S_REMOVED_XX")
+    assert gate.frontier_problems(bad), "quitar el terminal AUTHORITY_INDETERMINATE debe fallar"
+
+
+def test_gate_flags_missing_certificate_validation():
+    # B222: mark_current_certified debe validar con _validate_commit_certificate (no aceptar cualquier objeto).
+    bad = _SRC.replace(
+        "        _validate_commit_certificate(certificate)  # fail-closed", "        pass  # sin validar", 1
+    )
+    assert gate.frontier_problems(bad), "mark_current_certified sin _validate_commit_certificate debe fallar"
 
 
 if __name__ == "__main__":

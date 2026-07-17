@@ -108,6 +108,9 @@ _S_RECEIPT_CERTIFIED = "RECEIPT_CERTIFIED"  # recibo publicado y revalidado (EVI
 _S_CURRENT_CAS_STARTED = "CURRENT_CAS_STARTED"  # se inició el CAS de CURRENT (puede haber cruzado o no)
 _S_CURRENT_CERTIFIED = "CURRENT_CERTIFIED"  # CommitCertificate válido → COMMIT CRUZADO (autoridad durable)
 _S_COMMITTED_INCOMPLETE = "COMMITTED_INCOMPLETE"  # CAS cruzó pero quedó estado post-commit incompleto
+_S_AUTHORITY_INDETERMINATE = (
+    "AUTHORITY_INDETERMINATE"  # B221: CURRENT NO reconciliable — prohibido rollback Y reintento
+)
 _S_CLOSED = "CLOSED"
 # Orden LINEAL de avance permitido (índice creciente). COMMITTED_INCOMPLETE y CLOSED son RAMAS terminales que se
 # alcanzan por métodos dedicados (mark_committed_incomplete / mark_closed), no por `transition`.
@@ -143,6 +146,14 @@ class RollbackIncompleteError(OSError):
 class CommittedStateError(RuntimeError):
     """B104/B110: el commit SÍ se cruzó — los outputs nuevos son la AUTORIDAD y son durables — pero quedó estado
     incompleto (limpieza/fsync/cierre fallido o excepción posterior). Reintentar a ciegas es incorrecto."""
+
+
+class AuthorityIndeterminateError(RuntimeError):
+    """B221: el CAS pudo cruzar pero CURRENT NO es reconciliable como el previo válido ni el bundle nuevo válido y
+    durable. Estado NO clasificable: PROHIBIDO rollback de proyecciones Y reintento automático; requiere reconciliación
+    HUMANA. Lleva `retry_safe = False`."""
+
+    retry_safe = False
 
 
 class Issue:
@@ -830,18 +841,43 @@ def _validate_half(df: pd.DataFrame, fname: str, table: str, campaign: str | Non
         _fail(f"{fname} columna secs ausente o negativa")
 
 
+_HEX64 = frozenset("0123456789abcdef")
+
+
+def _is_hex64(v: object) -> bool:
+    return isinstance(v, str) and len(v) == 64 and all(c in _HEX64 for c in v)
+
+
+def _validate_commit_certificate(certificate: object) -> None:
+    """B222: valida FAIL-CLOSED que `certificate` es un CommitCertificate REAL, DURABLE y coherente — jamás acepta un
+    objeto arbitrario con `authority_crossed` (duck typing). Exige: tipo exacto, durabilidad, hashes de 64 hex,
+    `manifest_digest == bundle_id` y `authority_crossed is True`."""
+    if not isinstance(certificate, _bundle.CommitCertificate):
+        raise RollbackError(f"certificado no es un CommitCertificate real (tipo {type(certificate).__name__})")
+    if certificate.durability_state != "durable":
+        raise RollbackError(f"CommitCertificate no durable (durability_state={certificate.durability_state!r})")
+    if certificate.authority_crossed is not True:
+        raise RollbackError("CommitCertificate sin authority_crossed=True")
+    for field in ("bundle_id", "manifest_digest", "pointer_digest", "provenance_digest", "csv_contract_sha256"):
+        if not _is_hex64(getattr(certificate, field)):
+            raise RollbackError(f"CommitCertificate.{field} no es un sha256 de 64 hex")
+    if certificate.manifest_digest != certificate.bundle_id:  # invariante bundle_id == sha(manifest)
+        raise RollbackError("CommitCertificate.manifest_digest != bundle_id")
+
+
 class _TxContext:
     """Resultado transaccional con taxonomía ESTRUCTURADA (`issues`, R9.2R11 §6). `incomplete` es DERIVADO de
     los issues de severidad 'incomplete' — un fallo de durabilidad o una divergencia externa NO puede quedar
     como una cadena suelta que no cambie la clasificación."""
 
-    __slots__ = ("phase", "state", "certificate", "_committed", "primary_error", "issues", "recoveries", "close_errors", "receipt_name", "receipt_fd")  # fmt: skip
+    __slots__ = ("phase", "state", "certificate", "_committed", "_indeterminate", "primary_error", "issues", "recoveries", "close_errors", "receipt_name", "receipt_fd")  # fmt: skip
 
     def __init__(self) -> None:
         self.phase = _LOADING
         self.state = _S_PREPARING  # Incremento 2: máquina de estados del commit (autoridad = CommitCertificate)
         self.certificate: object | None = None  # el CommitCertificate que autorizó el commit (evidencia estructurada)
         self._committed = False  # LATCH: True SÓLO vía mark_current_certified/mark_committed_incomplete; nunca se baja
+        self._indeterminate = False  # B221: LATCH de estado indeterminado (ni cruzado ni rollback-seguro)
         self.primary_error: BaseException | None = None
         self.issues: list[Issue] = []
         self.recoveries: list[str] = []
@@ -861,31 +897,44 @@ class _TxContext:
         self.state = new_state
 
     def mark_current_certified(self, certificate: object) -> None:
-        """ÚNICO punto que declara el commit CRUZADO: consume un CommitCertificate ESTRUCTURADO (no texto). Sólo
-        desde CURRENT_CAS_STARTED."""
-        if certificate is None or getattr(certificate, "authority_crossed", False) is not True:
-            raise RollbackError("mark_current_certified sin CommitCertificate válido (authority_crossed)")
+        """ÚNICO punto que declara el commit CRUZADO. B222: consume un CommitCertificate REAL (isinstance + durable +
+        hashes válidos), JAMÁS un objeto con `authority_crossed` (duck typing). Sólo desde CURRENT_CAS_STARTED."""
+        _validate_commit_certificate(certificate)  # fail-closed: tipo exacto + durabilidad + hashes + manifest==bundle
         if self.state != _S_CURRENT_CAS_STARTED:
             raise RollbackError(f"CURRENT_CERTIFIED sólo desde CURRENT_CAS_STARTED (estado {self.state!r})")
         self.certificate = certificate
         self.state = _S_CURRENT_CERTIFIED
         self._committed = True
 
-    def mark_committed_incomplete(self) -> None:
-        """El CAS de CURRENT CRUZÓ pero quedó estado post-commit incompleto. Exige evidencia de cruce (CAS iniciado
-        o ya certificado); jamás desde antes del CAS."""
+    def mark_committed_incomplete(self, certificate: object) -> None:
+        """El CAS de CURRENT CRUZÓ (reconciliado como autoridad NUEVA válida y durable) pero quedó estado post-commit
+        incompleto. B221/B222: exige el CommitCertificate REAL de la autoridad cruzada, jamás sólo 'CAS iniciado'."""
+        _validate_commit_certificate(certificate)  # el cruce se prueba con un certificado durable, no con la fase
         if self.state not in (_S_CURRENT_CAS_STARTED, _S_CURRENT_CERTIFIED):
             raise RollbackError(f"COMMITTED_INCOMPLETE exige evidencia de CAS cruzado (estado {self.state!r})")
+        self.certificate = certificate
         self.state = _S_COMMITTED_INCOMPLETE
         self._committed = True
 
+    def mark_indeterminate(self, evidence: object) -> None:
+        """B221: CURRENT NO reconciliable (compensación fallida + reconciliación fd-bound sin veredicto). Estado
+        terminal: NI cruzado NI rollback-seguro. Prohíbe rollback de proyecciones Y reintento automático."""
+        self.certificate = evidence  # AuthorityIndeterminateError con la evidencia estructurada (retry_safe=False)
+        self.state = _S_AUTHORITY_INDETERMINATE
+        self._indeterminate = True
+
     def mark_closed(self) -> None:
-        self.state = _S_CLOSED  # rama terminal; el LATCH `_committed` PERSISTE (commit_reached no se pierde al cerrar)
+        self.state = _S_CLOSED  # rama terminal; los latches `_committed`/`_indeterminate` PERSISTEN
 
     @property
     def commit_reached(self) -> bool:
-        """DERIVADO del latch estructurado (certificado/CAS-cruzado), jamás del recibo ni de texto de excepción."""
+        """DERIVADO del latch estructurado (certificado real), jamás del recibo ni de texto de excepción."""
         return self._committed
+
+    @property
+    def rollback_allowed(self) -> bool:
+        """El rollback de proyecciones SÓLO es seguro si el commit NO cruzó Y el estado NO es indeterminado (B221)."""
+        return not self._committed and not self._indeterminate
 
     def flag(self, code: str, detail: str, output: str | None = None) -> None:
         """Registra un Issue INCOMPLETO (fuerza RollbackIncompleteError/CommittedStateError)."""
@@ -1609,37 +1658,48 @@ def _promote_transactionally(
         _certify_receipt(chain, lock, inputs, outs, quar, ctx)  # 7. recibo = EVIDENCIA (NO autoridad, NO commit)
         ctx.transition(_S_RECEIPT_CERTIFIED)
         # 8. AUTORIDAD: CAS de CURRENT + CommitCertificate. Los ORIGINALES siguen en temp_name → el rollback es posible
-        # hasta que el certificado cruce. build_and_certify: éxito→cert; CommittedStateError→CAS cruzó incompleto;
-        # cualquier otro error→CAS NO cruzó→rollback.
+        # SÓLO hasta que el estado deje de ser reconciliable como NOT_CROSSED. B221/B222: se clasifica por el TIPO
+        # ESTRUCTURADO de la excepción (que la capa de bundle produce TRAS reconciliar CURRENT fd-bound), jamás por
+        # `authority_crossed`/texto:
+        #   - éxito → CommitCertificate real → CURRENT_CERTIFIED.
+        #   - CommittedStateError(cert) → CURRENT cruzó (reconciliado durable) pero incompleto → COMMITTED_INCOMPLETE.
+        #   - AuthorityIndeterminateError → CURRENT NO reconciliable → INDETERMINATE (sin rollback, sin reintento).
+        #   - cualquier otro BundleError → CURRENT reconciliado al previo (NO cruzó) → rollback.
         ctx.transition(_S_CURRENT_CAS_STARTED)
         ctx.phase = _COMMIT_REACHED
         try:
             cert = _publish_bundle(chain, quar, inputs, outs, campaign)
-        except _bundle.BundleError as be:
-            if getattr(be, "authority_crossed", False) is True:  # EVIDENCIA ESTRUCTURADA del cruce (no texto)
-                ctx.mark_committed_incomplete()  # CURRENT cruzó pero el sellado quedó incompleto (post-commit)
-                ctx.flag("BUNDLE_PUBLISH_INCOMPLETE", f"CURRENT cruzó pero el sellado post-CAS quedó incompleto: {be}")
-            else:
-                raise  # pre-CAS (validación/concurrencia/rollback-incompleto): CURRENT no cruzó → rollback
+        except _bundle.CommittedStateError as cse:
+            ctx.mark_committed_incomplete(
+                cse.certificate
+            )  # CURRENT cruzó (cert durable) pero el sellado quedó incompleto
+            ctx.flag("BUNDLE_PUBLISH_INCOMPLETE", f"CURRENT cruzó pero el sellado post-CAS quedó incompleto: {cse}")
+        except _bundle.AuthorityIndeterminateError as aie:
+            ctx.mark_indeterminate(aie)  # CURRENT indeterminado: NI rollback de proyecciones NI reintento automático
+            ctx.flag("AUTHORITY_INDETERMINATE", f"CURRENT no reconciliable tras el CAS (reconciliación humana): {aie}")
         else:
-            ctx.mark_current_certified(cert)  # ---- PUNTO DE COMMIT ÚNICO: consume el CommitCertificate ----
-        # 9. POST-COMMIT (CURRENT ya es la autoridad): limpia los ORIGINALES desplazados; ya NO se restauran
-        ctx.phase = _CLEANING
-        for o in outs:  # limpia los ORIGINALES desplazados (viven en temp_name) por cuarentena
-            if not (o.existed_before and o.temp_name is not None):
-                continue
-            if _inode(o.dir_fd, o.temp_name) is None:
-                continue
-            mr = quar.move(o, o.temp_name, o.orig_fd, phase=_CLEANING, reason="post-commit-original-cleanup")
-            if mr.status == _FOREIGN_OBJECT_PRESERVED:
-                ctx.flag("POSTCOMMIT_FOREIGN", f"original desplazado de {o.name!r} sustituido por objeto ajeno (preservado)", o.name)  # fmt: skip
-            elif mr.status == _QUARANTINE_FAILED:
-                ctx.flag("POSTCOMMIT_CLEANUP_FAILED", f"no se pudo poner en cuarentena el original desplazado de {o.name!r}", o.name)  # fmt: skip
-        if not _fsync_dirs():
-            ctx.flag("POSTCOMMIT_FSYNC_FAILED", "fsync de durabilidad post-commit falló")
+            ctx.mark_current_certified(cert)  # ---- PUNTO DE COMMIT ÚNICO: consume el CommitCertificate REAL ----
+        # (un BundleValidationError/BundleConcurrencyError/BundleRollbackIncompleteError pre-CAS se PROPAGA al except
+        #  externo, que hace rollback SÓLO si `ctx.rollback_allowed`.)
+        # 9. POST-COMMIT: sólo si el commit CRUZÓ (CURRENT_CERTIFIED/COMMITTED_INCOMPLETE) limpia los ORIGINALES
+        # desplazados. En estado INDETERMINADO NO se toca nada (B221: no borrar cuarentenas, preservar para reconciliar).
+        if ctx.commit_reached:
+            ctx.phase = _CLEANING
+            for o in outs:  # limpia los ORIGINALES desplazados (viven en temp_name) por cuarentena
+                if not (o.existed_before and o.temp_name is not None):
+                    continue
+                if _inode(o.dir_fd, o.temp_name) is None:
+                    continue
+                mr = quar.move(o, o.temp_name, o.orig_fd, phase=_CLEANING, reason="post-commit-original-cleanup")
+                if mr.status == _FOREIGN_OBJECT_PRESERVED:
+                    ctx.flag("POSTCOMMIT_FOREIGN", f"original desplazado de {o.name!r} sustituido por objeto ajeno (preservado)", o.name)  # fmt: skip
+                elif mr.status == _QUARANTINE_FAILED:
+                    ctx.flag("POSTCOMMIT_CLEANUP_FAILED", f"no se pudo poner en cuarentena el original desplazado de {o.name!r}", o.name)  # fmt: skip
+            if not _fsync_dirs():
+                ctx.flag("POSTCOMMIT_FSYNC_FAILED", "fsync de durabilidad post-commit falló")
     except Exception as primary:  # noqa: BLE001 — dominio/OSError sí; KeyboardInterrupt/SystemExit NO
         ctx.primary_error = primary
-        if not ctx.commit_reached:  # DERIVADO del latch estructurado; jamás del recibo → rollback sólo pre-commit
+        if ctx.rollback_allowed:  # B221: rollback SÓLO si NO cruzó Y NO es indeterminado (jamás del recibo/texto)
             _rollback()  # B106/B111: NO eleva
 
 
@@ -1648,6 +1708,15 @@ def _raise_outcome(ctx: _TxContext) -> None:
     clasificación; nunca queda como texto inerte."""
     incomplete = ctx.incomplete_issues()
     close = ctx.close_errors
+    if ctx.state == _S_AUTHORITY_INDETERMINATE:  # B221: ni éxito ni rollback — reconciliación humana, sin reintento
+        ev = ctx.certificate  # el _bundle.AuthorityIndeterminateError con evidencia estructurada (retry_safe=False)
+        err_ind = AuthorityIndeterminateError(
+            f"AUTORIDAD INDETERMINADA: CURRENT no reconciliable tras el CAS. Reconciliación HUMANA requerida; "
+            f"reintento AUTOMÁTICO PROHIBIDO (retry_safe=False). Evidencia: {ev!r}; cierres: {close}"
+        )
+        if isinstance(ev, BaseException):
+            raise err_ind from ev
+        raise err_ind
     if ctx.commit_reached:
         problems: list[str] = []
         if ctx.primary_error is not None:
