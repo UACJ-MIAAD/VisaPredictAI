@@ -710,7 +710,7 @@ def _open_pointer_governed(dir_fd: int, name: str) -> tuple[int, bytes, dict, tu
     post) + esquema CERRADO. Devuelve `(fd, raw, pointer, (dev,ino))`; el llamador es dueño del fd. Propaga
     `FileNotFoundError` si ausente; cualquier otro problema → `BundleValidationError`."""
     _require_relative("pointer", name)
-    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)  # B217: un FIFO no cuelga el abrir
     try:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid() or st.st_nlink != 1 or stat.S_IMODE(st.st_mode) != 0o600:  # fmt: skip
@@ -739,7 +739,7 @@ def _read_current(camp_fd: int) -> tuple[dict, bytes, tuple[int, int]] | None:
 
 def _name_ident(dir_fd: int, name: str) -> tuple[int, int] | None:
     try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)  # B217: FIFO no cuelga
     except OSError:
         return None
     try:
@@ -752,11 +752,14 @@ def _capture(dir_fd: int, name: str) -> tuple[tuple[int, int], bytes] | None:
     """Captura `(ident, bytes)` de `name` tal cual está (sin gobernanza) — para poder RESTAURAR verbatim el valor
     concurrente que un exchange desplazó. Devuelve None si el objeto no existe."""
     try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)  # B217: FIFO no cuelga
     except OSError:
         return None
     try:
-        ident = _ident(os.fstat(fd))
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):  # B217: un objeto especial no es un puntero capturable (no se lee)
+            return None
+        ident = _ident(st)
         data = b""
         while chunk := os.read(fd, 1 << 16):
             data += chunk
@@ -769,11 +772,12 @@ def _pointer_matches(dir_fd: int, name: str, ident: tuple[int, int], content: by
     """B166: `name` liga EXACTAMENTE al inode `ident` Y su contenido son los bytes `content`. Cierra tanto el swap
     de inode como la sustitución de contenido en sitio (O_TRUNC sobre el mismo inode)."""
     try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)  # B217: FIFO no cuelga
     except OSError:
         return False
     try:
-        if _ident(os.fstat(fd)) != ident:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or _ident(st) != ident:  # B217: un objeto especial nunca coincide (no se lee)
             return False
         data = b""
         while chunk := os.read(fd, 1 << 16):

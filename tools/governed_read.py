@@ -59,7 +59,7 @@ def _governed_reader(dir_fd: int, name: str, reader):
     if problem is not None:
         return None, problem
     try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)  # B217: FIFO no cuelga
     except OSError as exc:
         return None, f"ausente o symlink ({exc})"
     try:
@@ -127,7 +127,7 @@ def open_governed_lease(dir_fd: int, name: str) -> tuple[int, tuple[int, ...] | 
     if problem is not None:
         return -1, None, problem
     try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)  # B217: FIFO no cuelga
     except OSError as exc:
         return -1, None, f"ausente o symlink ({exc})"
     st0 = os.fstat(fd)

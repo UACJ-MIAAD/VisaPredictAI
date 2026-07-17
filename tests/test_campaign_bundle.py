@@ -983,5 +983,90 @@ def test_b216_postcas_second_move_failure_is_committed_state(tmp_path, monkeypat
         os.close(cfd)
 
 
+def _run_with_timeout(fn, timeout=5.0):
+    import threading
+
+    out = {}
+
+    def run():
+        try:
+            fn()
+            out["ok"] = True
+        except BaseException as exc:  # noqa: BLE001 — capturamos el tipo para el aserto
+            out["exc"] = type(exc).__name__
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(timeout)
+    return (not t.is_alive()), out  # (terminó a tiempo, resultado)
+
+
+@pytest.mark.parametrize("special", ["fifo", "socket"])
+def test_b217_special_object_placeholder_no_hang(special):
+    # B217: sustituir el placeholder oficial por un FIFO/socket tras el source-CAS NO debe COLGAR la transacción
+    # (O_NONBLOCK) — debe terminar clasificando, no en un open() bloqueante infinito.
+    import socket
+    import tempfile
+
+    d = tempfile.mkdtemp()
+    cfd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
+    sock = None
+    try:
+        fd = os.open("obj", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd)
+        os.write(fd, b"mine")
+        lease = gf.OwnedLease(fd, is_dir=False)
+        os.close(fd)
+        q = gf.GovernedQuarantine(cfd, "tx.b217")
+        real = gf.rename_noreplace
+
+        def substituting(sfd, s, dfd, dd):
+            if s == "obj":  # tras el 1er exchange, un tercero sustituye el placeholder por un objeto ESPECIAL
+                os.rename(os.path.join(d, "obj"), os.path.join(d, "gone"))
+                if special == "fifo":
+                    os.mkfifo(os.path.join(d, "obj"))
+                else:
+                    nonlocal sock
+                    sock = socket.socket(socket.AF_UNIX)
+                    sock.bind(os.path.join(d, "obj"))
+            return real(sfd, s, dfd, dd)
+
+        import unittest.mock as _m
+
+        with _m.patch.object(gf, "rename_noreplace", substituting):
+            finished, out = _run_with_timeout(lambda: q.quarantine(cfd, "obj", lease))
+        assert finished, f"B217: la operación COLGÓ en un objeto {special} (open bloqueante)"
+        assert out.get("exc") in ("GovernedRemovalError", "GovernedQuarantineIncompleteError")
+        try:
+            q.close()
+        except gf.GovernedQuarantineError:
+            pass
+    finally:
+        if sock is not None:
+            sock.close()
+        os.close(cfd)
+
+
+def test_b217_lease_check_on_fifo_no_hang():
+    # el chequeo de lease sobre un FIFO no bloquea y no coincide (nunca se lee su contenido).
+    import tempfile
+
+    d = tempfile.mkdtemp()
+    cfd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fd = os.open("real", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd)
+        os.write(fd, b"x")
+        lease = gf.OwnedLease(fd, is_dir=False)
+        os.close(fd)
+        q = gf.GovernedQuarantine(cfd, "tx.b217b")
+        q._ensure()
+        os.mkfifo("fifo_slot", dir_fd=q.fd)
+        holder: list = []
+        finished, _out = _run_with_timeout(lambda: holder.append(q._lease_matches("fifo_slot", lease)))
+        assert finished and holder[-1] is False  # no cuelga, no coincide
+        q.close()
+    finally:
+        os.close(cfd)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

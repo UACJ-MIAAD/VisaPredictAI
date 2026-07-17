@@ -310,34 +310,55 @@ class GovernedQuarantine:
             raise GovernedQuarantineIncompleteError(f"cuarentena INCOMPLETA tras el source-CAS de {name!r} (fuente en {obj}): {exc}") from exc  # fmt: skip
 
     def _ident_of(self, name: str, is_dir: bool) -> tuple[int, int]:
-        fd = os.open(name, _DIR_FLAGS if is_dir else (os.O_RDONLY | os.O_NOFOLLOW), dir_fd=self.fd)
+        # B217: NUNCA O_RDONLY sobre un nombre potencialmente sustituido (un FIFO/socket colgaría esperando escritor).
+        # Ficheros → O_NONBLOCK (no cuelga) + fstat exige S_ISREG; directorios → O_DIRECTORY|O_NOFOLLOW (ENOTDIR).
+        if is_dir:
+            fd = os.open(name, _DIR_FLAGS, dir_fd=self.fd)
+            try:
+                return _ident(os.fstat(fd))
+            finally:
+                os.close(fd)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=self.fd)
         try:
-            return _ident(os.fstat(fd))
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                raise GovernedRemovalError(f"objeto {name!r} no es regular (tipo especial: FIFO/socket/dispositivo)")
+            return _ident(st)
         finally:
             os.close(fd)
 
     def _name_binds(self, dir_fd: int, name: str, ident: tuple[int, int]) -> bool:
-        """B216-4: `name` bajo `dir_fd` liga exactamente al inode `ident` (verificación de una restauración)."""
+        """B216-4/B217: `name` bajo `dir_fd` liga al inode `ident`. NO sigue symlinks, NO bloquea en objetos especiales
+        (O_NONBLOCK), exige tipo regular/dir; identidad no demostrable → False."""
         try:
-            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
         except OSError:
             try:
                 fd = os.open(name, _DIR_FLAGS, dir_fd=dir_fd)
             except OSError:
                 return False
         try:
-            return _ident(os.fstat(fd)) == ident
+            st = os.fstat(fd)
+            if not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode)):  # FIFO/socket/dispositivo → no demostrable
+                return False
+            return _ident(st) == ident
         finally:
             os.close(fd)
 
     def _lease_matches(self, dest: str, lease: OwnedLease) -> bool:
-        flags = _DIR_FLAGS if lease.is_dir else (os.O_RDONLY | os.O_NOFOLLOW)
+        # B217: O_NONBLOCK para ficheros (un FIFO sustituido no cuelga) + exigir S_ISREG antes de leer el digest;
+        # directorios con O_DIRECTORY|O_NOFOLLOW (ENOTDIR sobre no-dir). NUNCA se lee contenido de un objeto especial.
+        flags = _DIR_FLAGS if lease.is_dir else (os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         try:
             fd = os.open(dest, flags, dir_fd=self.fd)
         except OSError:
             return False
         try:
-            if _snap(os.fstat(fd)) != lease.snap:  # snapshot COMPLETO: detecta mutación sobre el mismo inode
+            st = os.fstat(fd)
+            expected_type = stat.S_ISDIR if lease.is_dir else stat.S_ISREG
+            if not expected_type(st.st_mode):  # FIFO/socket/dispositivo/tipo distinto → no coincide, sin leer
+                return False
+            if _snap(st) != lease.snap:  # snapshot COMPLETO: detecta mutación sobre el mismo inode
                 return False
             return lease.is_dir or _digest_fd(fd) == lease.digest
         finally:
