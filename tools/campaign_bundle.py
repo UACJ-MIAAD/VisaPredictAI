@@ -39,6 +39,7 @@ import json
 import os
 import secrets
 import stat
+import sys
 
 from tools.atomic_fs import AtomicRenameError, AtomicUnsupportedError, rename_exchange, rename_noreplace
 from tools.governed_fs import GovernedQuarantine, GovernedQuarantineError, GovernedRemovalError, OwnedLease
@@ -1042,9 +1043,10 @@ class _BundleSnapshot:
     MISMO fd que se queda abierto (sin re-abrir por ruta) y mantiene ABIERTOS todos los fds (bundles/bundle/outputs/
     labels) durante la sesión. En cualquier fallo parcial cierra TODOS los fds ya abiertos (sin fugas)."""
 
-    __slots__ = ("camp_fd", "bundle_id", "manifest", "_fds", "_labs")
+    __slots__ = ("camp_fd", "bundle_id", "previous_bundle_id", "manifest", "_fds", "_labs")
     camp_fd: int
     bundle_id: str
+    previous_bundle_id: str | None
     manifest: dict
     _fds: list[int]
     _labs: dict[str, int]
@@ -1058,6 +1060,7 @@ class _BundleSnapshot:
             if cur is None:
                 raise BundleValidationError("no hay puntero CURRENT (ninguna campaña committeada)")
             self.bundle_id = cur[0]["bundle_id"]
+            self.previous_bundle_id = cur[0]["previous_bundle_id"]  # del MISMO puntero resuelto (sin doble lectura)
             broot = _open_dir(camp_fd, _BUNDLES_DIR, mode=0o700)
             self._fds.append(broot)
             try:
@@ -1118,5 +1121,64 @@ def read_current_csv(camp_fd: int, label: str, name: str) -> bytes:
         return snap.read(label, name)
 
 
+def validate_current_report(camp_fd: int) -> dict:
+    """Incremento 2: valida la AUTORIDAD CURRENT (puntero + bundle + manifiesto + inventario + contrato CSV + linaje
+    previous_bundle_id) bajo UN solo snapshot A TRAVÉS del fd (sin re-abrir por ruta) y devuelve un reporte canónico
+    machine-readable de la autoridad OBSERVADA. **NO repara nada.** Eleva `BundleError` en cualquier anomalía (puntero
+    corrupto, bundle ausente, manifiesto/CSV alterado, contrato incorrecto, symlink/FIFO en el puntero, previo
+    inválido)."""
+    with _BundleSnapshot(camp_fd) as snap:  # resuelve+valida el bundle COMPLETO a través del fd (validación fuerte)
+        bundle_id, manifest, prev_id = snap.bundle_id, snap.manifest, snap.previous_bundle_id
+    if prev_id is not None:  # el previo referenciado debe existir y validar (linaje)
+        _validate_authority(camp_fd, prev_id)
+    prov = manifest["provenance"]
+    return {
+        "status": "valid",
+        "bundle_id": bundle_id,
+        "previous_bundle_id": prev_id,
+        "campaign_id": manifest["campaign_id"],
+        "schema_version": manifest["schema_version"],
+        "manifest_digest": hashlib.sha256(_canon(manifest)).hexdigest(),
+        "csv_contract_sha256": prov["csv_contract_sha256"],
+        "n_inputs": len(manifest["inputs"]),
+        "n_outputs": len(manifest["outputs"]),
+    }
+
+
+def _cli_validate_current(camp_path: str) -> int:
+    """CLI fail-closed: abre `camp_path` como directorio gobernado (O_DIRECTORY|O_NOFOLLOW, del UID, sin escritura de
+    grupo/otros), valida CURRENT y emite JSON canónico. Retorna 0 si la autoridad es válida, != 0 en cualquier
+    anomalía. NO repara."""
+    try:
+        fd = os.open(camp_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as exc:
+        sys.stdout.write(_canon({"status": "error", "reason": f"directorio inabrible: {exc}"}).decode() + "\n")
+        return 2
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or (stat.S_IMODE(st.st_mode) & 0o022):
+            sys.stdout.write(
+                _canon({"status": "error", "reason": "directorio ajeno/no-dir/escribible"}).decode() + "\n"
+            )
+            return 2
+        try:
+            report = validate_current_report(fd)
+        except (BundleError, OSError) as exc:  # BundleError o anomalía OS (symlink/ELOOP/permiso) → autoridad inválida
+            sys.stdout.write(_canon({"status": "invalid", "reason": str(exc)}).decode() + "\n")
+            return 3
+        sys.stdout.write(_canon(report).decode() + "\n")
+        return 0
+    finally:
+        os.close(fd)
+
+
+def _main(argv: list[str]) -> int:
+    if len(argv) >= 1 and argv[0] == "validate-current":
+        camp_path = argv[1] if len(argv) >= 2 else os.path.join("reports", "campaign")
+        return _cli_validate_current(camp_path)
+    sys.stderr.write("uso: python -m tools.campaign_bundle validate-current [DIR_CAMPAIGN]\n")
+    return 2
+
+
 if __name__ == "__main__":
-    raise SystemExit("tools.campaign_bundle es una biblioteca; la CLI validate-current llega en el Incremento 2C")
+    sys.exit(_main(sys.argv[1:]))
