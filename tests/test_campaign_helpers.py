@@ -2456,8 +2456,16 @@ if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
 
 
-def test_b203_fabricated_env_vars_not_governed_identity(monkeypatch):
-    # B203: VP_ENV_ID/VP_ENV_PROFILE fabricados NO bastan para 'official' — el intérprete no es el entorno sellado.
+def test_b203_b210_fabricated_identity_rejected(monkeypatch, tmp_path):
+    # B203/B210: env vars fabricadas Y un .vp_envs/<64hex>/READY.json falso NO bastan — sys.prefix del proceso no es
+    # el entorno sellado, y un env_id no-hex se rechaza. El intérprete real no cambia por un dir plantado.
     monkeypatch.setenv("VP_ENV_ID", "a" * 64)
     monkeypatch.setenv("VP_ENV_PROFILE", "model")
+    assert mcp._governed_run_identity() is None  # sys.prefix real (ante) no es .vp_envs/<env_id>
+    # plantar un dir falso .vp_envs/model/<64hex>/READY.json no cambia sys.prefix del proceso
+    fake = tmp_path / ".vp_envs" / "model" / ("a" * 64)
+    fake.mkdir(parents=True)
+    (fake / "READY.json").write_text('{"env_id":"' + "a" * 64 + '","profile":"model"}')
+    assert mcp._governed_run_identity() is None  # el dir falso no se convierte en sys.prefix
+    monkeypatch.setenv("VP_ENV_ID", "ZZZ" + "a" * 61)  # no hexadecimal
     assert mcp._governed_run_identity() is None

@@ -79,5 +79,36 @@ def test_b206_gate_catches_indirection(src):
         os.unlink(path)
 
 
+@pytest.mark.parametrize(
+    "src",
+    [
+        "def f():\n    open('victim', 'w')\n",  # B214: open en modo escritura
+        "def f():\n    open('victim', 'a')\n",  # B214: modo append
+        "import os\ndef f(d):\n    os.open('x', os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW, dir_fd=d)\n",  # O_TRUNC
+        "import os\ndef f(d, fl):\n    os.open('x', fl, dir_fd=d)\n",  # flags dinámicos
+        "import os\ndef f(d):\n    os.open('x', os.O_WRONLY, dir_fd=d)\n",  # sin O_NOFOLLOW
+    ],
+)
+def test_b214_gate_catches_destructive_open(src):
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as fh:
+        fh.write(src)
+        path = fh.name
+    try:
+        assert gate._violations(path), f"el gate no detectó la apertura destructiva: {src!r}"
+    finally:
+        os.unlink(path)
+
+
+def test_b214_gate_allows_safe_reads():
+    src = "import os\ndef f(d):\n    open('x', 'rb')\n    os.open('y', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=d)\n"
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as fh:
+        fh.write(src)
+        path = fh.name
+    try:
+        assert not gate._violations(path), "falso positivo sobre lecturas seguras"
+    finally:
+        os.unlink(path)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

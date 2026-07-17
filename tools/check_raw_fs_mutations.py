@@ -40,6 +40,16 @@ class _Scanner(ast.NodeVisitor):
         self.shutil_aliases: set[str] = {"shutil"}
         self.from_os: set[str] = set()  # nombres importados con `from os import X`
         self.from_shutil: set[str] = set()
+        self.flag_consts: dict[str, tuple[set[str], set[str]]] = {}  # `_X = os.O_A | …` → (garantizado, posible)
+
+    def prescan(self, tree: ast.AST) -> None:
+        # B214: recoge constantes/variables de flags (varias pasadas para resolver constantes encadenadas)
+        for _ in range(4):
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                    bounds = self._flag_bounds(node.value)
+                    if bounds is not None:
+                        self.flag_consts[node.targets[0].id] = bounds
 
     def _flag(self, node: ast.AST, what: str) -> None:
         self.problems.append(f"{self.path}:{getattr(node, 'lineno', 0)}: {what}")
@@ -93,7 +103,45 @@ class _Scanner(ast.NodeVisitor):
                 self._flag(node, f"{f.id}(...) prohibido en la ruta online del bundle")
             if f.id in self.from_os or f.id in self.from_shutil:  # nombre importado de os/shutil (destructivo)
                 self._flag(node, f"{f.id}(...) importado de os/shutil (destructivo)")
+            if f.id == "open":  # B214: builtins.open en modo escritura (w/a/x/+) es una mutación destructiva
+                mode = node.args[1] if len(node.args) >= 2 else None
+                if mode is None or not isinstance(mode, ast.Constant) or not isinstance(mode.value, str):
+                    self._flag(node, "open(...) sin modo constante (potencial escritura)")
+                elif any(c in mode.value for c in "wax+"):
+                    self._flag(node, f"open(..., {mode.value!r}) en modo escritura destructiva")
+        elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in self.os_aliases and f.attr == "open":  # fmt: skip
+            self._check_os_open(node)  # B214: os.open debe ser estático, con O_NOFOLLOW y sin O_TRUNC
         self.generic_visit(node)
+
+    def _check_os_open(self, node: ast.Call) -> None:
+        bounds = self._flag_bounds(node.args[1]) if len(node.args) >= 2 else None
+        if bounds is None:
+            self._flag(node, "os.open con flags DINÁMICOS (no resolubles a os.O_*)")
+            return
+        guaranteed, possible = bounds
+        if "O_TRUNC" in possible:  # O_TRUNC posible en ALGUNA rama → mutación destructiva
+            self._flag(node, "os.open con O_TRUNC (mutación destructiva)")
+        if "O_NOFOLLOW" not in guaranteed:  # O_NOFOLLOW debe estar GARANTIZADO en TODAS las ramas
+            self._flag(node, "os.open sin O_NOFOLLOW garantizado")
+
+    def _flag_bounds(self, expr: ast.AST) -> tuple[set[str], set[str]] | None:
+        # (garantizado, posible): `os.O_A | os.O_B`, IfExp de dos ramas, o Name de una constante recogida. None si
+        # aparece algo NO estático.
+        if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.BitOr):
+            left = self._flag_bounds(expr.left)
+            right = self._flag_bounds(expr.right)
+            return None if left is None or right is None else (left[0] | right[0], left[1] | right[1])
+        if isinstance(expr, ast.IfExp):
+            body = self._flag_bounds(expr.body)
+            orelse = self._flag_bounds(expr.orelse)
+            return None if body is None or orelse is None else (body[0] & orelse[0], body[1] | orelse[1])
+        if isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Name) and expr.value.id in self.os_aliases and expr.attr.startswith("O_"):  # fmt: skip
+            return ({expr.attr}, {expr.attr})
+        if isinstance(expr, ast.Name) and expr.id in self.from_os and expr.id.startswith("O_"):
+            return ({expr.id}, {expr.id})
+        if isinstance(expr, ast.Name) and expr.id in self.flag_consts:  # `_DIR_FLAGS`/`flags` = os.O_* | …
+            return self.flag_consts[expr.id]
+        return None
 
 
 def _scan(rel: str) -> list[str]:
@@ -102,6 +150,7 @@ def _scan(rel: str) -> list[str]:
     with open(os.path.join(_ROOT, rel), "rb") as fh:
         tree = ast.parse(fh.read(), filename=rel)
     sc = _Scanner(rel)
+    sc.prescan(tree)
     sc.visit(tree)
     return sc.problems
 
@@ -125,6 +174,7 @@ def _violations(path: str) -> list[str]:
     with open(path, "rb") as fh:
         tree = ast.parse(fh.read(), filename=path)
     sc = _Scanner(path)
+    sc.prescan(tree)
     sc.visit(tree)
     return sc.problems
 

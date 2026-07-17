@@ -838,5 +838,123 @@ def test_b205_staging_symlink_is_rollback_incomplete(tmp_path, monkeypatch):
         os.close(cfd)
 
 
+# --------------------------------------------- B208/B209/B213/B215: ventanas y durabilidad de la cuarentena ---------------------------------------------
+
+
+def _tmp_camp():
+    import tempfile
+
+    d = tempfile.mkdtemp()
+    return d, os.open(d, os.O_RDONLY | os.O_DIRECTORY)
+
+
+def test_b208_source_cas_placeholder_substitution(monkeypatch):
+    # segunda ventana del source-CAS: sustituir el placeholder oficial tras el 1er exchange y antes del 2º move; el
+    # objeto concurrente NO debe quedar desplazado con éxito → se detecta y restaura, elevando incompleto.
+    d, cfd = _tmp_camp()
+    try:
+        fd = os.open("obj", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd)
+        os.write(fd, b"mine")
+        lease = gf.OwnedLease(fd, is_dir=False)
+        os.close(fd)
+        q = gf.GovernedQuarantine(cfd, "tx.b208")
+        real_rn = gf.rename_noreplace
+        state = {"n": 0}
+
+        def racing(sfd, s, dfd, dd):
+            if state["n"] == 0 and s == "obj":  # el 2º move (placeholder oficial → cuarentena)
+                state["n"] = 1
+                os.rename(os.path.join(d, "obj"), os.path.join(d, "ph_gone"))  # un tercero sustituye el placeholder
+                cc = os.open("obj", os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=cfd)
+                os.write(cc, b"CONCURRENT")
+                os.close(cc)
+            return real_rn(sfd, s, dfd, dd)
+
+        monkeypatch.setattr(gf, "rename_noreplace", racing)
+        with pytest.raises(gf.GovernedRemovalError):
+            q.quarantine(cfd, "obj", lease)
+        monkeypatch.undo()
+        assert "obj" in os.listdir(d)  # el objeto concurrente no desapareció (restaurado/preservado)
+        q.close()
+    finally:
+        os.close(cfd)
+
+
+def test_b209_quarantine_dir_rebind_detected():
+    # religar el NOMBRE .merge-quar.* deja el fd huérfano; la siguiente operación lo caza (nombre↔inode del dir).
+    d, cfd = _tmp_camp()
+    try:
+        fd = os.open("o", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd)
+        os.write(fd, b"z")
+        lease = gf.OwnedLease(fd, is_dir=False)
+        os.close(fd)
+        q = gf.GovernedQuarantine(cfd, "tx.b209")
+        q.quarantine(cfd, "o", lease)  # crea el dir de cuarentena
+        os.rename(os.path.join(d, q.name), os.path.join(d, "quar_gone"))  # religa el nombre a un dir ajeno
+        os.mkdir(os.path.join(d, q.name), 0o700)
+        fd2 = os.open("o2", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd)
+        os.write(fd2, b"z")
+        l2 = gf.OwnedLease(fd2, is_dir=False)
+        os.close(fd2)
+        with pytest.raises(gf.GovernedQuarantineError):
+            q.quarantine(cfd, "o2", l2)
+        q.close()
+    finally:
+        os.close(cfd)
+
+
+def test_b213_fsync_failure_still_closes_fd(monkeypatch):
+    # si fsync falla en close(), el fd SE CIERRA igualmente (no se fuga) y el error se reporta.
+    d, cfd = _tmp_camp()
+    try:
+        fd = os.open("o", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd)
+        os.write(fd, b"z")
+        lease = gf.OwnedLease(fd, is_dir=False)
+        os.close(fd)
+        q = gf.GovernedQuarantine(cfd, "tx.b213")
+        q.quarantine(cfd, "o", lease)
+        jfd = q._jfd
+        monkeypatch.setattr(gf.os, "fsync", lambda fd: (_ for _ in ()).throw(OSError("fsync roto")))
+        errs = q.close()
+        monkeypatch.undo()
+        assert errs  # se reportó el fallo de fsync
+        with pytest.raises(OSError):  # el fd YA fue cerrado (re-cerrar → EBADF): no se fugó
+            os.close(jfd)
+    finally:
+        os.close(cfd)
+
+
+def test_b215_journal_state_machine_rejects_bad_records():
+    # el journal exige tipos exactos y máquina de estados: seq bool, terminal sin INTENT y record desconocido se cazan.
+    import hashlib as _h
+
+    d, cfd = _tmp_camp()
+    try:
+        fd = os.open("o", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd)
+        os.write(fd, b"z")
+        lease = gf.OwnedLease(fd, is_dir=False)
+        os.close(fd)
+        q = gf.GovernedQuarantine(cfd, "tx.b215")
+        q.quarantine(cfd, "o", lease)
+        jpath = os.path.join(d, q.name, "MANIFEST.jsonl")
+
+        def rec(**kw):
+            body = {"seq": kw["seq"], "record": kw["record"], "operation_id": kw["oid"], "dest": "o.x", "previous_record_sha256": ""}  # fmt: skip
+            body["record_sha256"] = _h.sha256(gf._canon(body)).hexdigest()
+            return gf._canon(body) + b"\n"
+
+        for bad in (
+            rec(seq=True, record="INTENT", oid="0" * 16),  # seq bool
+            rec(seq=1, record="MOVED", oid="0" * 16),  # terminal sin INTENT
+            rec(seq=1, record="WEIRD", oid="0" * 16),  # record desconocido
+        ):
+            open(jpath, "wb").write(bad)
+            with pytest.raises(gf.GovernedQuarantineError):
+                q._reread_and_validate()
+        q.close()
+    finally:
+        os.close(cfd)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

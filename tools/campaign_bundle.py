@@ -487,13 +487,18 @@ def _cleanup_staging(camp_fd: int, staging_name: str, staging_fd: int) -> None:
         return  # B205: SÓLO ausente si de verdad no existe (el rename lo consumió)
     lease = OwnedLease(staging_fd, is_dir=True)  # ligado al inode vivo del staging
     quar = GovernedQuarantine(camp_fd, secrets.token_hex(12))
+    primary: BaseException | None = None
     try:
         quar.quarantine(camp_fd, staging_name, lease)  # source-CAS: verifica antes de retirar (B207)
     except (GovernedRemovalError, GovernedQuarantineError) as exc:
-        raise BundleRollbackIncompleteError(str(exc)) from exc
-    finally:
-        for e in quar.close():  # B193/B204: los errores de cierre no se descartan
-            raise BundleRollbackIncompleteError(f"cierre de cuarentena de staging falló: {e}")
+        primary = exc
+    close_errs = quar.close()  # B193/B204: los errores de cierre no se descartan
+    if primary is not None:  # B212: el error PRIMARIO no se sustituye por un fallo de cierre
+        if close_errs:
+            primary.add_note("cierre de cuarentena de staging: " + "; ".join(close_errs))
+        raise BundleRollbackIncompleteError(str(primary)) from primary
+    if close_errs:
+        raise BundleRollbackIncompleteError("cierre de cuarentena de staging falló: " + "; ".join(close_errs))
 
 
 # ------------------------------------------- preparar / validar / commit -------------------------------------------
@@ -856,9 +861,16 @@ def commit_current(prepared: _PreparedBundle) -> CommitCertificate:
         primary = exc
     close_errs = quar.close()  # B193/B204: los errores de cierre NUNCA se descartan
     if primary is not None:
-        if close_errs:
-            primary.add_note("errores de cierre de cuarentena: " + "; ".join(close_errs))
-        raise primary
+        if isinstance(primary, (KeyboardInterrupt, SystemExit)):  # B204: no convertir en error de dominio
+            raise primary
+        if not close_errs:
+            raise primary
+        joined = "; ".join(close_errs)
+        if isinstance(primary, (CommittedStateError, BundleRollbackIncompleteError)):
+            primary.add_note("errores de cierre de cuarentena: " + joined)  # ya es el tipo correcto
+            raise primary
+        # B212: fallo pre-CAS/no-certificado + cierre fallido ⇒ estado NO verificable ⇒ RollbackIncomplete
+        raise BundleRollbackIncompleteError(f"fallo con cierre de cuarentena fallido: {joined}") from primary
     if close_errs:  # sin excepción primaria: clasificar según si el commit cruzó (B204)
         joined = "; ".join(close_errs)
         if cert is not None:

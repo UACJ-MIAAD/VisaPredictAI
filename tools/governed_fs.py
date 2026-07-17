@@ -55,6 +55,14 @@ def _ident(st: os.stat_result) -> tuple[int, int]:
     return (st.st_dev, st.st_ino)
 
 
+def _is_int(x: object) -> bool:
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
+def _is_hex(x: object, n: int) -> bool:
+    return isinstance(x, str) and len(x) == n and all(c in "0123456789abcdef" for c in x)
+
+
 def _write_all(fd: int, data: bytes) -> None:
     mv = memoryview(data)
     off = 0
@@ -101,11 +109,12 @@ class GovernedQuarantine:
     """Cuarentena MOVE-ONLY de una sola transacción. `with GovernedQuarantine(camp_fd, txid) as q: q.quarantine(...)`.
     NUNCA borra: mueve y preserva. El directorio y su journal PERSISTEN (evidencia durable; GC futuro)."""
 
-    __slots__ = ("camp_fd", "txid", "name", "fd", "_jfd", "_jino", "_seq", "_prev", "_closed")
+    __slots__ = ("camp_fd", "txid", "name", "fd", "_dino", "_jfd", "_jino", "_seq", "_prev", "_closed")
     camp_fd: int
     txid: str
     name: str
     fd: int
+    _dino: tuple[int, int]
     _jfd: int
     _jino: tuple[int, int]
     _seq: int
@@ -140,6 +149,7 @@ class GovernedQuarantine:
             self._jfd = os.open(
                 _JOURNAL, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_APPEND | os.O_NOFOLLOW, 0o600, dir_fd=self.fd
             )
+            self._dino = _ident(os.fstat(self.fd))  # B209: identidad del DIR de cuarentena para ligar nombre↔inode
             self._jino = _ident(os.fstat(self._jfd))  # B202: identidad del journal para ligar nombre↔inode
             os.fsync(self.fd)  # el directorio de cuarentena + su journal son durables antes de operar
         except BaseException:
@@ -147,43 +157,83 @@ class GovernedQuarantine:
             self.fd = -1
             raise
 
-    def _bind_journal(self) -> None:
-        """B202: el NOMBRE `MANIFEST.jsonl` debe seguir ligado al inode del fd del journal — si fue sustituido, el fd
-        quedó huérfano y el journal VISIBLE es ajeno/forjado."""
-        fd = os.open(_JOURNAL, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.fd)
+    def _bind_all(self) -> None:
+        """B202/B209: el NOMBRE del dir de cuarentena (bajo camp_fd) debe ligar al inode de MI fd de dir, y el NOMBRE
+        `MANIFEST.jsonl` (bajo el dir) al inode de MI fd de journal — con identidad gobernada COMPLETA. Si cualquiera
+        fue sustituido/religado, el fd quedó huérfano y lo VISIBLE es ajeno/forjado."""
+        dfd = os.open(self.name, _DIR_FLAGS, dir_fd=self.camp_fd)
         try:
-            if _ident(os.fstat(fd)) != self._jino:
+            st = os.fstat(dfd)
+            if _ident(st) != self._dino or _ident(st) != _ident(os.fstat(self.fd)):
+                raise GovernedQuarantineError("el dir de cuarentena fue religado (nombre no liga al fd del dir)")
+            if st.st_uid != os.geteuid() or not stat.S_ISDIR(st.st_mode) or stat.S_IMODE(st.st_mode) != 0o700:
+                raise GovernedQuarantineError("dir de cuarentena ajeno/no-dir/modo != 0700")
+        finally:
+            os.close(dfd)
+        jfd = os.open(_JOURNAL, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.fd)
+        try:
+            st = os.fstat(jfd)
+            if _ident(st) != self._jino or st.st_uid != os.geteuid() or not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or stat.S_IMODE(st.st_mode) != 0o600:  # fmt: skip
                 raise GovernedQuarantineError("MANIFEST.jsonl fue sustituido (nombre no liga al fd del journal)")
         finally:
-            os.close(fd)
+            os.close(jfd)
 
     def _journal(self, record: str, operation_id: str, dest: str) -> None:
-        self._bind_journal()  # B202: antes de escribir, el nombre del journal liga a MI fd
-        self._seq += 1
-        rec = {"seq": self._seq, "record": record, "operation_id": operation_id, "dest": dest, "previous_record_sha256": self._prev}  # fmt: skip
-        sha = hashlib.sha256(_canon(rec)).hexdigest()
-        rec["record_sha256"] = sha
-        _write_all(self._jfd, _canon(rec) + b"\n")
-        os.fsync(self._jfd)  # B200: durabilidad del registro…
-        self._reread_and_validate()  # …y RELECTURA + validación de la cadena completa desde el mismo fd
-        self._bind_journal()  # B202: y tras escribir sigue ligado (no fue sustituido durante el append)
-        self._prev = sha
+        try:
+            self._bind_all()  # B202/B209: antes de escribir, dir y journal ligan a MIS fds
+            self._seq += 1
+            rec = {"seq": self._seq, "record": record, "operation_id": operation_id, "dest": dest, "previous_record_sha256": self._prev}  # fmt: skip
+            sha = hashlib.sha256(_canon(rec)).hexdigest()
+            rec["record_sha256"] = sha
+            _write_all(self._jfd, _canon(rec) + b"\n")
+            os.fsync(self._jfd)  # B200: durabilidad del registro…
+            self._reread_and_validate()  # …y RELECTURA + validación de la cadena completa desde el mismo fd
+            self._bind_all()  # B202/B209: y tras escribir siguen ligados (no fueron sustituidos durante el append)
+            self._prev = sha
+        except OSError as exc:  # B211: un OSError natural del journal (p. ej. desaparición) NO escapa crudo
+            raise GovernedQuarantineError(f"fallo de I/O en el journal de cuarentena: {exc}") from exc
 
     def _reread_and_validate(self) -> None:
+        """B200/B215: relee el journal COMPLETO desde el fd y valida esquema estricto (tipos exactos, bool != int),
+        cadena de hashes, y la MÁQUINA DE ESTADOS por operación: exactamente un INTENT y a lo sumo un terminal, ningún
+        terminal antes de su INTENT, ningún segundo terminal, operation_id único por INTENT."""
         os.lseek(self._jfd, 0, os.SEEK_SET)
         raw = b""
         while chunk := os.read(self._jfd, 1 << 16):
             raw += chunk
         prev = ""
         seq = 0
+        intents: set[str] = set()
+        terminals: set[str] = set()
         for line in raw.splitlines():
             rec = json.loads(line, object_pairs_hook=_no_dup)
             seq += 1
-            if set(rec.keys()) != _JOURNAL_KEYS or rec["seq"] != seq or rec["previous_record_sha256"] != prev:
-                raise GovernedQuarantineError("journal de cuarentena con cadena/esquema inválido")
+            if set(rec.keys()) != _JOURNAL_KEYS:
+                raise GovernedQuarantineError("journal: claves de registro inválidas")
+            if not (_is_int(rec["seq"]) and rec["seq"] == seq):  # bool != int, secuencia exacta
+                raise GovernedQuarantineError("journal: seq no es entero consecutivo")
+            if rec["previous_record_sha256"] != prev or not _is_hex(rec["record_sha256"], 64):
+                raise GovernedQuarantineError("journal: cadena de hashes rota")
+            if not _is_hex(rec["operation_id"], 16):
+                raise GovernedQuarantineError("journal: operation_id no hex-16")
+            if not (isinstance(rec["dest"], str) and rec["dest"] and "/" not in rec["dest"] and rec["dest"] not in (".", "..")):  # fmt: skip
+                raise GovernedQuarantineError("journal: dest no es nombre relativo gobernado")
             body = {k: v for k, v in rec.items() if k != "record_sha256"}
             if hashlib.sha256(_canon(body)).hexdigest() != rec["record_sha256"]:
-                raise GovernedQuarantineError("journal de cuarentena con hash inválido")
+                raise GovernedQuarantineError("journal: hash de registro inválido")
+            oid, record = rec["operation_id"], rec["record"]
+            if record == _INTENT:
+                if oid in intents:
+                    raise GovernedQuarantineError("journal: operation_id duplicado en INTENT")
+                intents.add(oid)
+            elif record in _TERMINALS:
+                if oid not in intents:
+                    raise GovernedQuarantineError("journal: terminal sin INTENT previo")
+                if oid in terminals:
+                    raise GovernedQuarantineError("journal: segundo terminal para una operación")
+                terminals.add(oid)
+            else:
+                raise GovernedQuarantineError(f"journal: record desconocido {record!r}")
             prev = rec["record_sha256"]
 
     def quarantine(self, dir_fd: int, name: str, lease: OwnedLease) -> str:
@@ -204,6 +254,7 @@ class GovernedQuarantine:
         else:
             os.close(os.open(obj, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=self.fd))
         os.fsync(self.fd)
+        ph_ident = self._ident_of(obj, lease.is_dir)  # B208: identidad del placeholder para verificar el 2º move
         try:  # source-CAS: name (oficial) ↔ obj (placeholder en cuarentena)
             rename_exchange(dir_fd, name, self.fd, obj)
         except FileNotFoundError:
@@ -218,6 +269,16 @@ class GovernedQuarantine:
             rename_noreplace(dir_fd, name, self.fd, ph)
             os.fsync(dir_fd)
             os.fsync(self.fd)
+            if self._ident_of(ph, lease.is_dir) != ph_ident:  # B208: lo movido NO era mi placeholder (sustituido)
+                restored = False  # un objeto CONCURRENTE ocupó `name` tras el 1er exchange
+                try:
+                    rename_noreplace(self.fd, ph, dir_fd, name)  # restaurarlo si `name` sigue ausente
+                    restored = True
+                except AtomicRenameError, AtomicUnsupportedError, FileExistsError, OSError, ValueError:
+                    pass
+                self._journal("FOREIGN_PRESERVED", oid, obj)
+                where = "restaurado a su ruta oficial" if restored else "PRESERVADO en cuarentena"
+                raise GovernedRemovalError(f"placeholder de {name!r} sustituido; objeto concurrente {where}")
             self._journal("MOVED", oid, obj)
             return obj
         try:  # AJENO: restaura el objeto a su ruta oficial (intercambio inverso) — jamás lo retira (B207)
@@ -229,6 +290,13 @@ class GovernedQuarantine:
         os.fsync(self.fd)
         self._journal("FOREIGN_PRESERVED", oid, obj)
         raise GovernedRemovalError(f"{name!r} no coincide con el lease; RESTAURADO a su ruta oficial, no retirado")
+
+    def _ident_of(self, name: str, is_dir: bool) -> tuple[int, int]:
+        fd = os.open(name, _DIR_FLAGS if is_dir else (os.O_RDONLY | os.O_NOFOLLOW), dir_fd=self.fd)
+        try:
+            return _ident(os.fstat(fd))
+        finally:
+            os.close(fd)
 
     def _lease_matches(self, dest: str, lease: OwnedLease) -> bool:
         flags = _DIR_FLAGS if lease.is_dir else (os.O_RDONLY | os.O_NOFOLLOW)
@@ -250,22 +318,19 @@ class GovernedQuarantine:
         if self._closed:
             return errs
         self._closed = True
-        jfd = getattr(self, "_jfd", -1)
-        if jfd >= 0:
-            try:
-                os.fsync(jfd)
-                os.close(jfd)
-            except OSError as exc:
-                errs.append(f"cerrar journal de cuarentena: {exc}")
-            self._jfd = -1
-        fd = getattr(self, "fd", -1)
-        if fd >= 0:
-            try:
+        for attr, label in (("_jfd", "journal"), ("fd", "cuarentena")):
+            fd = getattr(self, attr, -1)
+            if fd < 0:
+                continue
+            try:  # B213: fsync y close SEPARADOS — el fd SIEMPRE se intenta cerrar aunque el fsync falle
                 os.fsync(fd)
+            except OSError as exc:
+                errs.append(f"fsync {label}: {exc}")
+            try:
                 os.close(fd)
             except OSError as exc:
-                errs.append(f"cerrar/sincronizar cuarentena: {exc}")
-            self.fd = -1
+                errs.append(f"cerrar {label}: {exc}")
+            setattr(self, attr, -1)  # sólo tras intentar el cierre (nunca se pierde el descriptor)
         return errs
 
     def __enter__(self) -> GovernedQuarantine:

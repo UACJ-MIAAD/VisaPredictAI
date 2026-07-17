@@ -1219,23 +1219,24 @@ def _abort_receipt(camp_fd: int, txid: str, ctx: _TxContext) -> None:
 
 
 def _governed_run_identity() -> dict | None:
-    """B203: identidad del run GOBERNADO. NO confía en variables de entorno sueltas: exige que el intérprete SEA el
-    del entorno content-addressed sellado (`sys.executable` bajo `.vp_envs/…/<env_id>/`) y que un `READY.json` del
-    entorno ligue el `env_id`. Variables `VP_ENV_ID`/`VP_ENV_PROFILE` fabricadas sin el entorno sellado ⇒ None."""
+    """B203/B210: identidad del run GOBERNADO. NO confía en variables de entorno sueltas ni en un directorio falso.
+    Usa `sys.prefix` (el prefijo REAL del intérprete en ejecución, NO `realpath(sys.executable)` que escapa por
+    symlinks hacia Homebrew): el prefijo debe SER el entorno content-addressed sellado `.vp_envs/<perfil>/<env_id>` y
+    su `READY.json` debe ligar `env_id`+`profile`. Un `.vp_envs/…/<64hex>/READY.json` fabricado NO cambia `sys.prefix`
+    del proceso. (La validación semántica COMPLETA del READY —árbol/hashes/pip— y la inyección desde `run-command`
+    llegan con R9; F2 aún no corre gobernada ⇒ mode=test.)"""
     env_id = os.environ.get("VP_ENV_ID")
     profile = os.environ.get("VP_ENV_PROFILE")
-    if not (env_id and len(env_id) == 64 and profile):
+    if not (env_id and len(env_id) == 64 and all(c in "0123456789abcdef" for c in env_id) and profile):
         return None
-    exe = os.path.realpath(sys.executable)
-    marker = f"/{env_id}/"
-    if ".vp_envs" not in exe or marker not in exe:  # el intérprete debe ser el entorno content-addressed real
-        return None
-    env_root = exe.split(marker, 1)[0] + f"/{env_id}"
+    prefix = os.path.realpath(sys.prefix)
+    if f"{os.sep}.vp_envs{os.sep}" not in prefix or not prefix.endswith(f"{os.sep}{env_id}"):
+        return None  # el intérprete en ejecución NO es el entorno content-addressed sellado <env_id>
     try:
-        ready = json.loads(open(os.path.join(env_root, "READY.json"), "rb").read())
+        ready = json.loads(open(os.path.join(prefix, "READY.json"), "rb").read())
     except OSError, ValueError:
         return None
-    if not (isinstance(ready, dict) and ready.get("env_id") == env_id):
+    if not (isinstance(ready, dict) and ready.get("env_id") == env_id and ready.get("profile") == profile):
         return None
     return {"env_id": env_id, "profile": profile, "variant": os.environ.get("VP_ENV_VARIANT") or None}
 
