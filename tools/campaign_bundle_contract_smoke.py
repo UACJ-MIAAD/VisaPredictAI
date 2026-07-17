@@ -82,21 +82,78 @@ _TYPE_CONTRACT_PROBE = (
     "print('TYPES_OK')\n"
 )
 
+# B228: probe de COMPORTAMIENTO REAL (no un contrato de tipos). Inyecta el escenario decisivo por FALLA REAL —
+# CAS cruza a B sobre A, la certificación falla y la compensación TAMBIÉN falla → la reconciliación fd-bound observa
+# CURRENT ya cruzado a B y eleva CommittedStateError CON un certificado durable real; NO hay rollback (CURRENT sigue en
+# B, jamás restaurado a A). Corre por SUBPROCESO para que el módulo del smoke no importe la maquinaria online.
+_COMPENSATION_FAILURE_PROBE = r"""
+import hashlib, json, os, shutil, tempfile
+import tools.campaign_bundle as cb
+R = os.path.dirname(os.path.dirname(os.path.abspath(cb.__file__)))
+COLS = json.load(open(os.path.join(R, "security", "campaign_bundle_contract.json")))["columns"]
+HDR = ",".join(COLS); H = hashlib.sha256(b"x").hexdigest()
+INPUTS = [f"aq_pool_{k}_{t}_{b}.csv" for k in ("nongbm","gbm") for t in ("FAD","DFF") for b in ("family","employment")]
+CAMP = [f"campaign_pool_{t}_{b}.csv" for t in ("FAD","DFF") for b in ("family","employment")]
+EVAL = ["model_comparison_FAD21.csv","model_comparison_EB_FAD21.csv","model_comparison_DFF21.csv","model_comparison_EB_DFF21.csv"]
+def _csv(tag): return (HDR + "\n" + ",".join([str(tag)] + ["0"]*(len(COLS)-1)) + "\n").encode()
+def outs(sfx=""):
+    o = [{"label":"campaign","name":n,"bytes":_csv("c"+n+sfx),"rows":1,"cols":len(COLS)} for n in CAMP]
+    return o + [{"label":"eval","name":n,"bytes":_csv("e"+n+sfx),"rows":1,"cols":len(COLS)} for n in EVAL]
+def ins(): return [{"name":n,"bytes":b"col\n"+n.encode()+b"\n"} for n in INPUTS]
+def prov():
+    base = {"mode":"test","git_head":None,"git_tree":None,"git_dirty":None,"env_id":None,
+        "code_sha_merge_campaign_pools":H,"code_sha_campaign_bundle":H,"code_sha_atomic_fs":H,
+        "code_sha_governed_read":H,"code_sha_execution_contract":None,"csv_contract_sha256":cb._CSV_CONTRACT_SHA256,
+        "journal_heads":{},"python":"3.14.2","platform":"darwin","profile":None,"variant":None}
+    return {k: base[k] for k in cb._REQUIRED_PROVENANCE}
+d = tempfile.mkdtemp(prefix="cbcinj.", dir="/tmp"); cfd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    a = cb.build_and_commit(cfd, "tx.a", "campA", outs(), ins(), prov())            # CURRENT = A
+    cb._certify_current = lambda *A, **K: (_ for _ in ()).throw(cb.BundleValidationError("inject-certify-fail"))
+    cb._compensate = lambda *A, **K: (_ for _ in ()).throw(cb.BundleError("inject-compensate-fail"))
+    raised = None
+    with cb.prepare_bundle(cfd, "tx.b", "campA", outs("z"), ins(), prov()) as prep:  # B != A (txid+contenido)
+        b = prep.bundle_id
+        try:
+            cb.commit_current(prep)
+        except cb.CommittedStateError as e:
+            raised = e
+    assert raised is not None, "esperaba CommittedStateError (CAS cruzado + compensacion fallida)"
+    cert = raised.certificate
+    assert isinstance(cert, cb.CommitCertificate) and cert.durability_state == "durable", "cert real durable"
+    assert cert.bundle_id == b and cert.previous_bundle_id == a, "el cert liga B sobre A"
+    cur = cb._read_current(cfd)[0]
+    assert cur["bundle_id"] == b and cur["previous_bundle_id"] == a, "CURRENT quedo cruzado a B (sin rollback)"
+    print("COMPENSATION_FAILURE_OK")
+finally:
+    os.close(cfd); shutil.rmtree(d, ignore_errors=True)
+"""
 
-def _compensation_failure_ok() -> bool:
-    """B224: el escenario decisivo 'CAS cruzado + certificación falla + compensación falla → NO rollback' se ejerce de
-    forma exhaustiva en la suite pytest (`test_b221_compensation_failure_current_crossed_no_rollback`,
-    `test_b182_postcas_fsync_failure_is_typed`, `test_b183_..._indeterminate`), que corre en el job `lint-and-test`
-    del MISMO CI. Aquí (por SUBPROCESO) se verifica el CONTRATO DE TIPOS que esa clasificación exige: CommittedStateError
-    lleva el certificado, AuthorityIndeterminateError lleva retry_safe=False y ya no hay bool `authority_crossed`."""
+
+def _probe_ok(program: str, token: str) -> bool:
     r = subprocess.run(
-        [sys.executable, "-c", _TYPE_CONTRACT_PROBE],
+        [sys.executable, "-c", program],
         cwd=ROOT,
         env={**os.environ, "PYTHONPATH": ROOT},
         capture_output=True,
         text=True,  # fmt: skip
     )
-    return r.returncode == 0 and "TYPES_OK" in r.stdout
+    if r.returncode != 0 or token not in r.stdout:
+        sys.stderr.write(f"probe {token} falló (rc={r.returncode}): {r.stderr[:400]}\n")
+        return False
+    return True
+
+
+def _compensation_failure_ok() -> bool:
+    """B228: ejerce el escenario decisivo por FALLA REAL inyectada (no un contrato de tipos): CAS cruzado + certificación
+    falla + compensación falla → `CommittedStateError` con certificado durable real y CURRENT cruzado, SIN rollback."""
+    return _probe_ok(_COMPENSATION_FAILURE_PROBE, "COMPENSATION_FAILURE_OK")
+
+
+def _type_contract_ok() -> bool:
+    """Contrato de TIPOS que la clasificación por-tipo del merge exige: CommittedStateError lleva el certificado,
+    AuthorityIndeterminateError lleva retry_safe=False y no hay bool `authority_crossed` de clase."""
+    return _probe_ok(_TYPE_CONTRACT_PROBE, "TYPES_OK")
 
 
 def _git_sha() -> str:
@@ -148,9 +205,13 @@ def run_contract() -> tuple[bool, dict]:
         steps.append({"step": "negative_corrupt_pointer", "rc": rc3, "ok": step3_ok})
         ok = ok and step3_ok
 
-        step4_ok = _compensation_failure_ok()  # B224: CAS cruzado + certificación falla + compensación falla
+        step4_ok = _compensation_failure_ok()  # B228: CAS cruzado + certificación falla + compensación falla (REAL)
         steps.append({"step": "negative_compensation_failure_no_rollback", "ok": step4_ok})
         ok = ok and step4_ok
+
+        step5_ok = _type_contract_ok()  # contrato de tipos que la clasificación por-tipo exige
+        steps.append({"step": "type_contract", "ok": step5_ok})
+        ok = ok and step5_ok
         return ok, {"git_sha": _git_sha(), "steps": steps}
     finally:
         shutil.rmtree(ws, ignore_errors=True)
