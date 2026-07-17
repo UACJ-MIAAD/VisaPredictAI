@@ -94,7 +94,7 @@ _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 _LOADING = "LOADING"
 _PREPARING = "PREPARING"
 _PROMOTING = "PROMOTING"
-_CERTIFYING = "CERTIFYING"  # frontera del commit (recibo)
+_CERTIFYING = "CERTIFYING"  # fase del recibo (EVIDENCIA, NO autoridad — la frontera es el CommitCertificate de CURRENT)
 _ROLLING_BACK = "ROLLING_BACK"
 _COMMIT_REACHED = "COMMIT_REACHED"
 _CLEANING = "CLEANING"
@@ -848,10 +848,16 @@ def _is_hex64(v: object) -> bool:
     return isinstance(v, str) and len(v) == 64 and all(c in _HEX64 for c in v)
 
 
+def _is_inode(v: object) -> bool:
+    return isinstance(v, tuple) and len(v) == 2 and all(isinstance(x, int) and not isinstance(x, bool) and x >= 0 for x in v)  # fmt: skip
+
+
 def _validate_commit_certificate(certificate: object) -> None:
-    """B222: valida FAIL-CLOSED que `certificate` es un CommitCertificate REAL, DURABLE y coherente — jamás acepta un
-    objeto arbitrario con `authority_crossed` (duck typing). Exige: tipo exacto, durabilidad, hashes de 64 hex,
-    `manifest_digest == bundle_id` y `authority_crossed is True`."""
+    """B222/B226: valida FAIL-CLOSED que `certificate` es un CommitCertificate REAL, DURABLE y SEMÁNTICAMENTE coherente —
+    jamás acepta un objeto con `authority_crossed` (duck typing) ni uno con campos con forma de SHA pero valores
+    inválidos. Exige: tipo exacto; durabilidad; hashes de 64 hex; `manifest_digest == bundle_id`;
+    `csv_contract_sha256` == el contrato CSV pineado; `previous_bundle_id` None o 64-hex; `campaign_id` None o str no
+    vacío; inodes (pointer/bundle) como pares de enteros no negativos; `authority_crossed is True`."""
     if not isinstance(certificate, _bundle.CommitCertificate):
         raise RollbackError(f"certificado no es un CommitCertificate real (tipo {type(certificate).__name__})")
     if certificate.durability_state != "durable":
@@ -863,6 +869,16 @@ def _validate_commit_certificate(certificate: object) -> None:
             raise RollbackError(f"CommitCertificate.{field} no es un sha256 de 64 hex")
     if certificate.manifest_digest != certificate.bundle_id:  # invariante bundle_id == sha(manifest)
         raise RollbackError("CommitCertificate.manifest_digest != bundle_id")
+    if certificate.csv_contract_sha256 != _bundle._CSV_CONTRACT_SHA256:  # B226: liga al contrato CSV pineado
+        raise RollbackError("CommitCertificate.csv_contract_sha256 no liga al contrato CSV pineado")
+    prev = certificate.previous_bundle_id  # B226: linaje = None (CAS inicial) o un sha256 de 64 hex
+    if prev is not None and not _is_hex64(prev):
+        raise RollbackError(f"CommitCertificate.previous_bundle_id inválido ({prev!r})")
+    camp = certificate.campaign_id  # B226: campaign_id None o str NO vacío (jamás object() ni entero)
+    if camp is not None and not (isinstance(camp, str) and camp):
+        raise RollbackError(f"CommitCertificate.campaign_id inválido ({camp!r})")
+    if not _is_inode(certificate.pointer_inode) or not _is_inode(certificate.bundle_inode):  # B226: pares de int >= 0
+        raise RollbackError("CommitCertificate.pointer_inode/bundle_inode no son pares de enteros no negativos")
 
 
 class _TxContext:

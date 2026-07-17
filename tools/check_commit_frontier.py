@@ -98,6 +98,11 @@ def frontier_problems(src: str) -> list[str]:
         problems.append(
             "_validate_commit_certificate debe exigir isinstance(CommitCertificate) + durability_state durable"
         )
+    # B226: la validación del cert NO puede reducirse a tipo+durabilidad — debe cubrir los campos SEMÁNTICOS (linaje,
+    # campaña, ambos inodes), o un cert real con basura en esos campos pasaría. Estos nombres viven SÓLO en el bloque
+    # semántico (no en el bucle de hashes), así que su ausencia delata que se eliminó la validación B226.
+    elif not all(_names_in(vcc, (f,)) for f in ("previous_bundle_id", "campaign_id", "pointer_inode", "bundle_inode")):  # fmt: skip
+        problems.append("_validate_commit_certificate debe validar los campos semánticos (B226): previous_bundle_id, campaign_id y ambos inodes")  # fmt: skip
 
     # 4. _certify_receipt no toca el estado comprometido
     cr = funcs.get("_certify_receipt")

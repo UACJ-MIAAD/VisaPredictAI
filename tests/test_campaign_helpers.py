@@ -2640,9 +2640,11 @@ def test_inc2_real_merge_crosses_via_certificate(tmp_path, monkeypatch):
 def _durable_cert(bid: str = "a" * 64):
     import tools.campaign_bundle as cb
 
+    # B226: un cert REAL durable liga al contrato CSV pineado (lo que produce _build_certificate); usar el sha pineado
+    # para que la validación semántica lo acepte (los demás campos ya son semánticamente válidos).
     return cb.CommitCertificate(
         bundle_id=bid, previous_bundle_id=None, campaign_id="c", pointer_digest="b" * 64, pointer_inode=(1, 2),
-        manifest_digest=bid, bundle_inode=(3, 4), csv_contract_sha256="d" * 64, provenance_digest="e" * 64,
+        manifest_digest=bid, bundle_inode=(3, 4), csv_contract_sha256=cb._CSV_CONTRACT_SHA256, provenance_digest="e" * 64,
         durability_state="durable",
     )  # fmt: skip
 
@@ -2827,3 +2829,31 @@ def test_b221_compensation_failure_current_crossed_no_rollback(tmp_path, monkeyp
         assert len(bid) == 64
     finally:
         os.close(cfd)
+
+
+def test_b226_certificate_semantic_fields_rejected():
+    # B226: un CommitCertificate REAL con campos con forma valida pero SEMANTICAMENTE invalidos es RECHAZADO por
+    # _validate_commit_certificate (previous no-SHA, campaign_id object/vacio, inodes invalidos, contrato CSV ajeno).
+    import tools.campaign_bundle as cb
+
+    def cert(**over):
+        base = dict(
+            bundle_id="a" * 64, previous_bundle_id=None, campaign_id="c", pointer_digest="b" * 64, pointer_inode=(1, 2),
+            manifest_digest="a" * 64, bundle_inode=(3, 4), csv_contract_sha256=cb._CSV_CONTRACT_SHA256,
+            provenance_digest="e" * 64, durability_state="durable",
+        )  # fmt: skip
+        base.update(over)
+        return cb.CommitCertificate(**base)
+
+    mcp._validate_commit_certificate(cert())  # el valido pasa
+    for bad in (
+        {"previous_bundle_id": "NOT-A-SHA"},
+        {"campaign_id": object()},
+        {"campaign_id": ""},
+        {"pointer_inode": (-1, 2)},
+        {"bundle_inode": ("x", 2)},
+        {"csv_contract_sha256": "d" * 64},
+        {"manifest_digest": "f" * 64},
+    ):
+        with pytest.raises(mcp.RollbackError):
+            mcp._validate_commit_certificate(cert(**bad))

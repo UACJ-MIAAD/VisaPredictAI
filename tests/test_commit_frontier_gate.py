@@ -80,3 +80,13 @@ def test_gate_flags_missing_certificate_validation():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+def test_gate_flags_certificate_without_semantic_fields():
+    # B226: un _validate_commit_certificate reducido a tipo+durabilidad+hashes (sin los campos SEMANTICOS:
+    # previous_bundle_id / campaign_id / inodes) debe fallar el gate — o un cert real con basura ahi pasaria.
+    bad = _SRC
+    for f in ("previous_bundle_id", "campaign_id", "pointer_inode", "bundle_inode"):
+        bad = bad.replace(f"certificate.{f}", "certificate.bundle_id")
+    probs = gate.frontier_problems(bad)
+    assert any("semántico" in p or "B226" in p for p in probs), "un cert-validator sin campos semanticos debe fallar"
