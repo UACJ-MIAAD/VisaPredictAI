@@ -31,8 +31,10 @@ _ONLINE = (
     "tools/campaign_bundle.py",
     "tools/merge_campaign_pools.py",
 )
-# Registro POSITIVO: (fichero, función) donde una os.open de LECTURA está autorizada — la fuente única.
+# Registro POSITIVO: (fichero, función) donde una os.open de LECTURA (O_RDONLY) está autorizada — la fuente única.
 _READ_OPEN_ALLOWED: frozenset[tuple[str, str]] = frozenset({("tools/governed_read.py", "opened_regular_noblock_at")})
+# Registro POSITIVO de aperturas WR/RW (locks/manifiestos): (fichero, función) — NUNCA una lectura genérica.
+_RDWR_OPEN_ALLOWED: frozenset[tuple[str, str]] = frozenset({("tools/merge_campaign_pools.py", "_acquire_lock")})
 _READ_LIKE_ATTRS = frozenset({"read_text", "read_bytes"})  # Path(...).read_text() y variantes
 
 
@@ -59,12 +61,22 @@ class _Scanner(ast.NodeVisitor):
         self.path = path
         self.problems: list[str] = []
         self.os_aliases: set[str] = {"os"}
+        self.io_aliases: set[str] = {"io"}
         self.from_os: set[str] = set()
         self.open_aliases: set[str] = set()  # nombres que refieren a os.open o al builtin open
         self.flag_consts: dict[str, tuple[set[str], set[str]]] = {}
         self._func_stack: list[str] = []
 
     def prescan(self, tree: ast.AST) -> None:
+        for node in ast.walk(
+            tree
+        ):  # PRIMERO los alias de módulo (os/io), para resolver `f = o.open` con `import os as o`
+            if isinstance(node, ast.Import):
+                for a in node.names:
+                    if a.name == "os":
+                        self.os_aliases.add(a.asname or "os")
+                    elif a.name == "io":
+                        self.io_aliases.add(a.asname or "io")
         for _ in range(4):  # varias pasadas para resolver constantes de flags encadenadas (_DIR_FLAGS = os.O_* | …)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
@@ -84,6 +96,8 @@ class _Scanner(ast.NodeVisitor):
         for a in node.names:
             if a.name == "os":
                 self.os_aliases.add(a.asname or "os")
+            elif a.name == "io":
+                self.io_aliases.add(a.asname or "io")
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
@@ -120,7 +134,7 @@ class _Scanner(ast.NodeVisitor):
         if isinstance(f, ast.Attribute):
             if isinstance(f.value, ast.Name) and f.value.id in self.os_aliases and f.attr == "open":
                 self._check_os_open(node)
-            elif isinstance(f.value, ast.Name) and f.value.id == "io" and f.attr == "open":
+            elif isinstance(f.value, ast.Name) and f.value.id in self.io_aliases and f.attr == "open":
                 self._flag(node, "io.open(...) en la ruta online (apertura no gobernada)")
             elif f.attr in _READ_LIKE_ATTRS:  # Path(...).read_text() / p.read_bytes() — lectura por ruta sin gobernar
                 self._flag(node, f".{f.attr}() (lectura por ruta sin apertura gobernada no bloqueante)")
@@ -150,7 +164,12 @@ class _Scanner(ast.NodeVisitor):
             if "O_EXCL" not in guaranteed:
                 self._flag(node, "os.open con O_CREAT sin O_EXCL garantizado (podría abrir un objeto preexistente)")
             return
-        if "O_WRONLY" in guaranteed or "O_RDWR" in guaranteed:  # apertura para escribir/lock (no lee contenido): inline
+        if (
+            "O_WRONLY" in guaranteed or "O_RDWR" in guaranteed
+        ):  # apertura WR/RW (lock/manifiesto): SÓLO sitios registrados
+            if (self.path, self._current_func()) not in _RDWR_OPEN_ALLOWED:
+                self._flag(node, f"os.open WR/RW fuera del registro de locks (en {self._current_func()}) — nunca como lectura genérica")  # fmt: skip
+                return
             if "O_NONBLOCK" not in guaranteed:
                 self._flag(node, "os.open WR/RW sin O_NONBLOCK garantizado (podría colgar en un FIFO)")
             return
@@ -204,11 +223,15 @@ def _scan(rel: str) -> list[str]:
 
 
 def _online_import_problems(rel: str, tree: ast.AST) -> list[str]:
-    """Marcadores de maquinaria online en `tree`: importar `GovernedQuarantine` o la maquinaria del bundle."""
+    """Marcadores de maquinaria online en `tree`: importar `GovernedQuarantine` o la maquinaria del bundle en
+    CUALQUIER forma (`import tools.campaign_bundle`, `from tools.campaign_bundle import …`, `from tools.governed_fs
+    import GovernedQuarantine`)."""
     problems: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module == "tools.governed_fs" and any(a.name == "GovernedQuarantine" for a in node.names):  # fmt: skip
             problems.append(f"{rel}: importa GovernedQuarantine pero no está en el inventario online")
+        if isinstance(node, ast.ImportFrom) and node.module in ("tools.campaign_bundle", "tools.merge_campaign_pools"):
+            problems.append(f"{rel}: 'from {node.module} import …' — maquinaria online sin inventariar")
         if isinstance(node, ast.Import) and any(a.name in ("tools.campaign_bundle", "tools.merge_campaign_pools") for a in node.names):  # fmt: skip
             problems.append(f"{rel}: importa la maquinaria online (campaign_bundle/merge) sin inventariar")
     return problems

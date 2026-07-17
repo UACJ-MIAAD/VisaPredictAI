@@ -23,6 +23,8 @@ def test_online_path_has_no_hangable_opens():
         "from tools.governed_fs import GovernedQuarantine\n",  # nuevo módulo que usa la cuarentena online
         "import tools.campaign_bundle as cb\n",  # importa la maquinaria del bundle
         "import tools.merge_campaign_pools\n",  # importa el merge
+        "from tools.campaign_bundle import prepare_bundle\n",  # from-import de la maquinaria online
+        "from tools.merge_campaign_pools import _publish_bundle\n",  # from-import del merge
     ],
 )
 def test_inventory_flags_new_online_module(src):
@@ -30,6 +32,34 @@ def test_inventory_flags_new_online_module(src):
 
     problems = gate._online_import_problems("tools/nuevo_online.py", _ast.parse(src))
     assert problems, f"el inventario no marcó un módulo online nuevo: {src!r}"
+
+
+def test_gate_flags_rdwr_read_outside_lock():
+    # una os.open WR/RW fuera del registro de locks (p. ej. para LEER contenido) → prohibida.
+    src = "import os\ndef read_it(d):\n    fd = os.open('x', os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=d)\n    os.read(fd, 10)\n"
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as fh:
+        fh.write(src)
+        path = fh.name
+    try:
+        assert gate._violations(path), "el gate no marcó una os.open WR/RW genérica fuera del registro"
+    finally:
+        os.unlink(path)
+
+
+def test_gate_allows_rdwr_only_in_registered_lock():
+    # una os.open WR/RW es válida SÓLO en el sitio de lock REGISTRADO (por fichero+función).
+    import ast as _ast
+
+    src = "import os\ndef _acquire_lock(d):\n    os.open('l', os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=d)\n"
+    tree = _ast.parse(src)
+    ok = gate._Scanner("tools/merge_campaign_pools.py")  # sitio registrado
+    ok.prescan(tree)
+    ok.visit(tree)
+    assert not ok.problems, f"falso positivo en el lock registrado: {ok.problems}"
+    bad = gate._Scanner("tools/campaign_bundle.py")  # MISMO código en otro fichero → prohibido
+    bad.prescan(tree)
+    bad.visit(tree)
+    assert bad.problems, "una os.open WR/RW en un fichero sin lock registrado debe fallar"
 
 
 @pytest.mark.parametrize(
@@ -96,6 +126,8 @@ def test_gate_allows_read_only_inside_source_helper():
     "src",
     [
         "import os\nf = os.open\ndef g(d):\n    f('x', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=d)\n",  # alias de os.open
+        "import os as o\nf = o.open\ndef g(d):\n    f('x', o.O_RDONLY | o.O_NOFOLLOW, dir_fd=d)\n",  # alias de módulo os + alias de open
+        "import io as myio\ndef g():\n    myio.open('c', 'rb')\n",  # alias de módulo io
         "import os\ndef g():\n    getattr(os, 'open')('x', 0)\n",  # getattr(os, 'open')
         "import os\ndef g():\n    os.__dict__['open']('x', 0)\n",  # os.__dict__
         "def g():\n    __import__('os').open('x', 0)\n",  # __import__
@@ -116,7 +148,6 @@ def test_gate_catches_bypasses(src):
     [
         "import os\n_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW\ndef f(d):\n    os.open('x', _DIR, dir_fd=d)\n",  # dir por constante
         "import os\ndef f(d):\n    os.open('x', os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=d)\n",  # create-only
-        "import os\ndef f(d):\n    os.open('l', os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=d)\n",  # lock RW inline (no lee contenido)
         "import os\n_D = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW\ndef f(d, p):\n    os.open('x', _D) if p else os.open('x', _D, dir_fd=d)\n",  # IfExp de dos os.open de dir
     ],
 )

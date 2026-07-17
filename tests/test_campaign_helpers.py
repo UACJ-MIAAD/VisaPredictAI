@@ -2531,3 +2531,42 @@ def test_b219_capture_object_discriminates(tmp_path):
         assert mcp._object_matches(dfd, "fifo", cap) is False  # un especial nunca coincide con el regular capturado
     finally:
         os.close(dfd)
+
+
+def test_read_bytes_abs_fifo_no_hang():
+    # B218: read_bytes_abs sobre un FIFO (contrato/módulo/READY sustituido) NO cuelga; rechaza por tipo.
+    import tempfile
+
+    d = tempfile.mkdtemp(dir="/tmp")
+    os.mkfifo(os.path.join(d, "fifo"))
+    holder: dict = {}
+
+    def run():
+        try:
+            gr.read_bytes_abs(os.path.join(d, "fifo"))
+            holder["ok"] = True
+        except gr.GovernedOpenError:
+            holder["special"] = True
+
+    import threading
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(4)
+    assert not t.is_alive(), "read_bytes_abs COLGÓ sobre un FIFO"
+    assert holder.get("special"), "read_bytes_abs debe rechazar un FIFO como GovernedOpenError"
+
+
+def test_read_bytes_path_rejects_ancestor_symlink(tmp_path):
+    # B218: opened_regular_noblock_path camina cada dir con O_NOFOLLOW → un ancestro symlink revienta (no lo sigue).
+    real = tmp_path / "real" / "sub"
+    real.mkdir(parents=True)
+    (real / "f").write_text("x")
+    (tmp_path / "link").symlink_to(tmp_path / "real")
+    rfd = os.open(str(tmp_path), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        assert gr.read_bytes_path(rfd, "real/sub/f") == b"x"  # ruta real funciona
+        with pytest.raises((OSError, gr.GovernedOpenError)):  # ancestro symlink → NotADirectoryError/ELOOP
+            gr.read_bytes_path(rfd, "link/sub/f")
+    finally:
+        os.close(rfd)
