@@ -31,7 +31,7 @@ _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 # hardlinks y el modo, chmod. (dev, ino, nlink, mode) + digest cubre mutación/ajeno/hardlink/chmod sin ruido de reloj.
 _SNAP_FIELDS = ("st_dev", "st_ino", "st_nlink", "st_mode")
 _INTENT = "INTENT"
-_TERMINALS = frozenset({"MOVED", "FOREIGN_PRESERVED", "ABSENT"})
+_TERMINALS = frozenset({"MOVED", "FOREIGN_PRESERVED", "ABSENT", "INCOMPLETE"})  # B216/B215: INCOMPLETE explícito
 _JOURNAL_KEYS = frozenset({"seq", "record", "operation_id", "dest", "previous_record_sha256", "record_sha256"})
 
 
@@ -41,6 +41,11 @@ class GovernedRemovalError(Exception):
 
 class GovernedQuarantineError(Exception):
     """Fallo de construcción/journal/cierre de la cuarentena (durabilidad no garantizable)."""
+
+
+class GovernedQuarantineIncompleteError(GovernedQuarantineError):
+    """B216: un fallo POSTERIOR al source-CAS (el objeto fuente ya está en cuarentena) dejó la operación en estado
+    INCOMPLETO. Ninguna primitiva cruda escapa: los llamadores la clasifican (post-commit → CommittedStateError)."""
 
 
 def _canon(obj: object) -> bytes:
@@ -262,39 +267,66 @@ class GovernedQuarantine:
             return obj
         except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
             raise GovernedRemovalError(f"no se pudo hacer source-CAS de {name!r}: {exc}") from exc
-        os.fsync(dir_fd)
-        os.fsync(self.fd)
-        # ahora: dir_fd/name = placeholder; self.fd/obj = objeto original
-        if self._lease_matches(obj, lease):  # es MÍO: libera `name` moviendo el placeholder a la cuarentena
-            rename_noreplace(dir_fd, name, self.fd, ph)
+        # B216: CADA primitiva posterior al source-CAS (el objeto fuente YA está en cuarentena) se envuelve — ninguna
+        # cruda escapa; un fallo deja la operación INCOMPLETE, journalizada y clasificable.
+        try:
             os.fsync(dir_fd)
             os.fsync(self.fd)
-            if self._ident_of(ph, lease.is_dir) != ph_ident:  # B208: lo movido NO era mi placeholder (sustituido)
-                restored = False  # un objeto CONCURRENTE ocupó `name` tras el 1er exchange
-                try:
-                    rename_noreplace(self.fd, ph, dir_fd, name)  # restaurarlo si `name` sigue ausente
-                    restored = True
-                except AtomicRenameError, AtomicUnsupportedError, FileExistsError, OSError, ValueError:
-                    pass
-                self._journal("FOREIGN_PRESERVED", oid, obj)
-                where = "restaurado a su ruta oficial" if restored else "PRESERVADO en cuarentena"
-                raise GovernedRemovalError(f"placeholder de {name!r} sustituido; objeto concurrente {where}")
-            self._journal("MOVED", oid, obj)
-            return obj
-        try:  # AJENO: restaura el objeto a su ruta oficial (intercambio inverso) — jamás lo retira (B207)
+            # ahora: dir_fd/name = placeholder; self.fd/obj = objeto original
+            if self._lease_matches(obj, lease):  # es MÍO: libera `name` moviendo el placeholder a la cuarentena
+                rename_noreplace(dir_fd, name, self.fd, ph)
+                os.fsync(dir_fd)
+                os.fsync(self.fd)
+                if self._ident_of(ph, lease.is_dir) != ph_ident:  # B208: lo movido NO era mi placeholder (sustituido)
+                    concurrent_ident = self._ident_of(ph, lease.is_dir)
+                    restored = False  # un objeto CONCURRENTE ocupó `name` tras el 1er exchange
+                    try:
+                        rename_noreplace(self.fd, ph, dir_fd, name)  # restaurarlo si `name` sigue ausente
+                        restored = self._name_binds(dir_fd, name, concurrent_ident)  # B216-4: verifica la restauración
+                    except AtomicRenameError, AtomicUnsupportedError, FileExistsError, OSError, ValueError:
+                        restored = False
+                    self._journal("FOREIGN_PRESERVED", oid, obj)
+                    where = "restaurado y verificado en su ruta oficial" if restored else "PRESERVADO en cuarentena"
+                    raise GovernedRemovalError(f"placeholder de {name!r} sustituido; objeto concurrente {where}")
+                self._journal("MOVED", oid, obj)
+                return obj
+            # AJENO: restaura el objeto a su ruta oficial (intercambio inverso) — jamás lo retira (B207)
+            concurrent_ident = self._ident_of(obj, lease.is_dir)  # identidad del ajeno desplazado
             rename_exchange(dir_fd, name, self.fd, obj)
-        except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
+            os.fsync(dir_fd)
+            os.fsync(self.fd)
+            if not self._name_binds(dir_fd, name, concurrent_ident):  # B216-4: la restauración debe verificarse
+                self._journal("INCOMPLETE", oid, obj)
+                raise GovernedQuarantineIncompleteError(f"restauración de {name!r} no verificable; PRESERVADO")
             self._journal("FOREIGN_PRESERVED", oid, obj)
-            raise GovernedRemovalError(f"objeto ajeno de {name!r} no se pudo restaurar (PRESERVADO en cuarentena): {exc}") from exc  # fmt: skip
-        os.fsync(dir_fd)
-        os.fsync(self.fd)
-        self._journal("FOREIGN_PRESERVED", oid, obj)
-        raise GovernedRemovalError(f"{name!r} no coincide con el lease; RESTAURADO a su ruta oficial, no retirado")
+            raise GovernedRemovalError(f"{name!r} no coincide con el lease; RESTAURADO a su ruta oficial, no retirado")
+        except GovernedRemovalError, GovernedQuarantineIncompleteError:
+            raise  # ya son de dominio (preservado / incompleto)
+        except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
+            try:
+                self._journal("INCOMPLETE", oid, obj)  # best-effort: registra el terminal INCOMPLETE
+            except GovernedQuarantineError:
+                pass
+            raise GovernedQuarantineIncompleteError(f"cuarentena INCOMPLETA tras el source-CAS de {name!r} (fuente en {obj}): {exc}") from exc  # fmt: skip
 
     def _ident_of(self, name: str, is_dir: bool) -> tuple[int, int]:
         fd = os.open(name, _DIR_FLAGS if is_dir else (os.O_RDONLY | os.O_NOFOLLOW), dir_fd=self.fd)
         try:
             return _ident(os.fstat(fd))
+        finally:
+            os.close(fd)
+
+    def _name_binds(self, dir_fd: int, name: str, ident: tuple[int, int]) -> bool:
+        """B216-4: `name` bajo `dir_fd` liga exactamente al inode `ident` (verificación de una restauración)."""
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+        except OSError:
+            try:
+                fd = os.open(name, _DIR_FLAGS, dir_fd=dir_fd)
+            except OSError:
+                return False
+        try:
+            return _ident(os.fstat(fd)) == ident
         finally:
             os.close(fd)
 

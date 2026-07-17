@@ -956,5 +956,32 @@ def test_b215_journal_state_machine_rejects_bad_records():
         os.close(cfd)
 
 
+def test_b216_postcas_second_move_failure_is_committed_state(tmp_path, monkeypatch):
+    # B216: si el 2º move (retiro del placeholder) del previo DESPLAZADO falla tras cruzar el CAS del bundle, el error
+    # NO escapa crudo: se clasifica CommittedStateError; CURRENT ya es la autoridad nueva.
+    camp, cfd = _camp(tmp_path)
+    try:
+        first = _commit(cfd, "tx.a")
+        with cb.prepare_bundle(cfd, "tx.b", "campA", _outputs("b"), _inputs(), _prov()) as prepared:
+            real = gf.rename_noreplace
+            state = {"n": 0}
+
+            def failing(sfd, s, dfd, dd):
+                # el CAS del bundle usa rename_exchange; el 1er rename_noreplace es el retiro del placeholder del
+                # previo desplazado (post-CAS) → inyectar el fallo ahí
+                state["n"] += 1
+                if state["n"] == 1:
+                    raise OSError("INJECTED_SECOND_MOVE")
+                return real(sfd, s, dfd, dd)
+
+            monkeypatch.setattr(gf, "rename_noreplace", failing)
+            with pytest.raises(cb.CommittedStateError):  # jamás OSError crudo
+                cb.commit_current(prepared)
+            monkeypatch.undo()
+        assert cb._read_current(cfd)[0]["bundle_id"] != first  # el CAS cruzó: CURRENT es la autoridad nueva
+    finally:
+        os.close(cfd)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
