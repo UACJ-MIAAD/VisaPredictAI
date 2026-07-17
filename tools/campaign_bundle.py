@@ -475,17 +475,25 @@ def validate_bundle(bundles_root_fd: int, bundle_id: str) -> dict:
 
 
 def _cleanup_staging(camp_fd: int, staging_name: str, staging_fd: int) -> None:
-    """B170/B180: si el staging SOBREVIVE (colisión/error; en éxito el rename lo consumió), lo RETIRA por cuarentena
-    MOVE-ONLY ligado a su fd VIVO (dev/ino) — jamás borra por nombre un árbol re-ligado a uno ajeno; move-only nunca
-    borra (B191). `staging_fd` es el fd vivo del dir de staging (o < 0 si nunca se creó)."""
-    if staging_fd < 0 or _name_ident(camp_fd, staging_name) is None:
-        return  # nunca se creó, o el rename ya lo consumió
+    """B170/B180/B205: si el staging SOBREVIVE (colisión/error; en éxito el rename lo consumió), lo RETIRA por
+    cuarentena SOURCE-CAS ligada a su fd VIVO. B205: SÓLO `FileNotFoundError` cuenta como ausente; cualquier otra
+    condición (symlink, permisos, tipo) llega a la cuarentena, cuyo source-CAS verifica ANTES de retirar y restaura un
+    objeto ajeno a su ruta oficial."""
+    if staging_fd < 0:
+        return  # nunca se creó
+    try:
+        os.stat(staging_name, dir_fd=camp_fd, follow_symlinks=False)  # ¿hay algo en el nombre? (incluye symlink)
+    except FileNotFoundError:
+        return  # B205: SÓLO ausente si de verdad no existe (el rename lo consumió)
     lease = OwnedLease(staging_fd, is_dir=True)  # ligado al inode vivo del staging
-    with GovernedQuarantine(camp_fd, secrets.token_hex(12)) as quar:
-        try:
-            quar.quarantine(camp_fd, staging_name, lease)
-        except GovernedRemovalError as exc:
-            raise BundleRollbackIncompleteError(str(exc)) from exc
+    quar = GovernedQuarantine(camp_fd, secrets.token_hex(12))
+    try:
+        quar.quarantine(camp_fd, staging_name, lease)  # source-CAS: verifica antes de retirar (B207)
+    except (GovernedRemovalError, GovernedQuarantineError) as exc:
+        raise BundleRollbackIncompleteError(str(exc)) from exc
+    finally:
+        for e in quar.close():  # B193/B204: los errores de cierre no se descartan
+            raise BundleRollbackIncompleteError(f"cierre de cuarentena de staging falló: {e}")
 
 
 # ------------------------------------------- preparar / validar / commit -------------------------------------------
@@ -789,7 +797,7 @@ def _quarantine_pointer(quar: GovernedQuarantine, camp_fd: int, name: str, fd: i
     lease = OwnedLease(fd, is_dir=False, known_digest=hashlib.sha256(content).hexdigest())
     try:
         quar.quarantine(camp_fd, name, lease)
-    except GovernedRemovalError as exc:
+    except (GovernedRemovalError, GovernedQuarantineError) as exc:  # B204: clasifica también errores de cuarentena
         raise BundleRollbackIncompleteError(str(exc)) from exc
 
 
@@ -838,35 +846,57 @@ def commit_current(prepared: _PreparedBundle) -> CommitCertificate:
     prepared._consume()  # B175: handle de uso único
     prepared.revalidate()  # B165: re-validar el bundle a través del fd vivo antes de nada
 
-    with GovernedQuarantine(camp_fd, secrets.token_hex(12)) as quar:
+    # B204: gestión MANUAL de la cuarentena para clasificar sus errores de cierre por si el commit YA cruzó.
+    quar = GovernedQuarantine(camp_fd, secrets.token_hex(12))
+    cert: CommitCertificate | None = None
+    primary: BaseException | None = None
+    try:
+        cert = _run_commit(camp_fd, quar, prepared)
+    except BaseException as exc:  # noqa: BLE001 — se re-eleva tras adjuntar los errores de cierre (B204)
+        primary = exc
+    close_errs = quar.close()  # B193/B204: los errores de cierre NUNCA se descartan
+    if primary is not None:
+        if close_errs:
+            primary.add_note("errores de cierre de cuarentena: " + "; ".join(close_errs))
+        raise primary
+    if close_errs:  # sin excepción primaria: clasificar según si el commit cruzó (B204)
+        joined = "; ".join(close_errs)
+        if cert is not None:
+            raise CommittedStateError(f"commit certificado pero el cierre de cuarentena falló: {joined}")
+        raise BundleRollbackIncompleteError(f"cierre de cuarentena falló: {joined}")
+    assert cert is not None  # el commit cruzó sin excepción → hay certificado
+    return cert
+
+
+def _run_commit(camp_fd: int, quar: GovernedQuarantine, prepared: _PreparedBundle) -> CommitCertificate:
+    try:
+        prev_fd, prev_raw, prev_pointer, prev_ident = _open_pointer_governed(camp_fd, _CURRENT_NAME)
+    except FileNotFoundError:
+        prev_fd, prev_raw, prev_pointer, prev_ident = -1, None, None, None
+    try:
+        prev_id = prev_pointer["bundle_id"] if prev_pointer is not None else None
+        if prev_pointer is not None:  # B173: autoridad previa inválida BLOQUEA
+            _validate_authority(camp_fd, prev_pointer["bundle_id"])
+        pointer = {"schema_version": _SCHEMA_VERSION, "campaign_id": prepared.manifest["campaign_id"], "bundle_id": prepared.bundle_id, "previous_bundle_id": prev_id}  # fmt: skip
+        pbytes = _canon(pointer)
+        tmp_name = f"{_CURRENT_TMP_PREFIX}.{secrets.token_hex(12)}"
+        tmp_fd = os.open(tmp_name, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=camp_fd)
         try:
-            prev_fd, prev_raw, prev_pointer, prev_ident = _open_pointer_governed(camp_fd, _CURRENT_NAME)
-        except FileNotFoundError:
-            prev_fd, prev_raw, prev_pointer, prev_ident = -1, None, None, None
-        try:
-            prev_id = prev_pointer["bundle_id"] if prev_pointer is not None else None
-            if prev_pointer is not None:  # B173: autoridad previa inválida BLOQUEA
-                _validate_authority(camp_fd, prev_pointer["bundle_id"])
-            pointer = {"schema_version": _SCHEMA_VERSION, "campaign_id": prepared.manifest["campaign_id"], "bundle_id": prepared.bundle_id, "previous_bundle_id": prev_id}  # fmt: skip
-            pbytes = _canon(pointer)
-            tmp_name = f"{_CURRENT_TMP_PREFIX}.{secrets.token_hex(12)}"
-            tmp_fd = os.open(tmp_name, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=camp_fd)
-            try:
-                _write_all(tmp_fd, pbytes)
-                os.fsync(tmp_fd)
-                tmp_ident = _ident(os.fstat(tmp_fd))
-                if os.fstat(tmp_fd).st_nlink != 1:  # B177/B195: hardlink del temporal → se retira por cuarentena
-                    _quarantine_pointer(quar, camp_fd, tmp_name, tmp_fd, pbytes)
-                    raise BundleValidationError("puntero temporal con nlink != 1")
-                if not _pointer_matches(camp_fd, tmp_name, tmp_ident, pbytes):  # B166: identidad Y contenido
-                    _quarantine_pointer(quar, camp_fd, tmp_name, tmp_fd, pbytes)
-                    raise BundleValidationError("el puntero temporal no liga a su fd/contenido tras escribir")
-                return _cas_pointer(camp_fd, quar, prepared, tmp_name, tmp_fd, tmp_ident, pbytes, prev_fd, prev_ident, prev_raw, prev_pointer)  # fmt: skip
-            finally:
-                os.close(tmp_fd)
+            _write_all(tmp_fd, pbytes)
+            os.fsync(tmp_fd)
+            tmp_ident = _ident(os.fstat(tmp_fd))
+            if os.fstat(tmp_fd).st_nlink != 1:  # B177/B195: hardlink del temporal → se retira por cuarentena
+                _quarantine_pointer(quar, camp_fd, tmp_name, tmp_fd, pbytes)
+                raise BundleValidationError("puntero temporal con nlink != 1")
+            if not _pointer_matches(camp_fd, tmp_name, tmp_ident, pbytes):  # B166: identidad Y contenido
+                _quarantine_pointer(quar, camp_fd, tmp_name, tmp_fd, pbytes)
+                raise BundleValidationError("el puntero temporal no liga a su fd/contenido tras escribir")
+            return _cas_pointer(camp_fd, quar, prepared, tmp_name, tmp_fd, tmp_ident, pbytes, prev_fd, prev_ident, prev_raw, prev_pointer)  # fmt: skip
         finally:
-            if prev_fd >= 0:
-                os.close(prev_fd)
+            os.close(tmp_fd)
+    finally:
+        if prev_fd >= 0:
+            os.close(prev_fd)
 
 
 def _cas_pointer(camp_fd: int, quar: GovernedQuarantine, prepared: _PreparedBundle, tmp_name: str, tmp_fd: int, tmp_ident: tuple[int, int], pbytes: bytes, prev_fd: int, prev_ident: tuple[int, int] | None, prev_raw: bytes | None, prev_pointer: dict | None) -> CommitCertificate:  # fmt: skip
@@ -920,7 +950,7 @@ def _quarantine_pointer_prev(quar: GovernedQuarantine, camp_fd: int, name: str, 
     lease = OwnedLease(prev_fd, is_dir=False, known_digest=hashlib.sha256(prev_raw).hexdigest())
     try:
         quar.quarantine(camp_fd, name, lease)
-    except GovernedRemovalError as exc:
+    except (GovernedRemovalError, GovernedQuarantineError) as exc:  # B204: post-commit ⇒ CommittedStateError
         raise CommittedStateError(f"commit certificado pero el previo desplazado no se pudo poner en cuarentena: {exc}") from exc  # fmt: skip
 
 
@@ -987,7 +1017,10 @@ class _BundleSnapshot:
             self.bundle_id = cur[0]["bundle_id"]
             broot = _open_dir(camp_fd, _BUNDLES_DIR, mode=0o700)
             self._fds.append(broot)
-            bfd = _open_dir(broot, self.bundle_id, mode=0o700)
+            try:
+                bfd = _open_dir(broot, self.bundle_id, mode=0o700)
+            except FileNotFoundError as exc:  # CURRENT apunta a un bundle inexistente → autoridad inválida
+                raise BundleValidationError(f"CURRENT apunta a un bundle inexistente {self.bundle_id}") from exc
             self._fds.append(bfd)
             self.manifest = _validate_bundle_at(bfd, self.bundle_id)  # valida A TRAVÉS del fd que retengo
             outs = _open_dir(bfd, _OUTPUTS_DIR, mode=0o700)

@@ -400,9 +400,10 @@ def test_b165_bundle_altered_after_prepare_rejected(tmp_path):
 # --------------------------------------------- B176/B177/B181: primer CAS + nlink ---------------------------------------------
 
 
-def test_b176_first_commit_substitution_removes_current(tmp_path, monkeypatch):
-    # primer commit: sustituir CURRENT (O_TRUNC) tras rename_noreplace no debe dejarlo en el bundle atacante;
-    # se retira y se restaura la ausencia.
+def test_b176_first_commit_substitution_never_valid_attacker(tmp_path, monkeypatch):
+    # primer commit: sustituir el contenido de CURRENT (O_TRUNC) tras rename_noreplace NO deja una autoridad VÁLIDA
+    # del atacante. El source-CAS detecta el contenido tampereado y lo PRESERVA (no lo retira); CURRENT queda
+    # envenenado (apunta a un bundle inexistente) → no resuelve, y el commit eleva incompleto. Sin residuo `.tmp`.
     camp, cfd = _camp(tmp_path)
     try:
         with cb.prepare_bundle(cfd, "tx.a", "campA", _outputs(), _inputs(), _prov()) as prepared:
@@ -411,7 +412,7 @@ def test_b176_first_commit_substitution_removes_current(tmp_path, monkeypatch):
 
             def substituting(sfd, s, dfd, d):
                 r = real_rn(sfd, s, dfd, d)
-                if state["n"] == 0:  # justo tras crear CURRENT, un tercero lo reescribe en sitio
+                if state["n"] == 0:
                     state["n"] = 1
                     fd = os.open(cb._CURRENT_NAME, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW, dir_fd=cfd)
                     os.write(fd, b'{"schema_version":1,"campaign_id":"evil","bundle_id":"' + b"e" * 64 + b'","previous_bundle_id":null}')  # fmt: skip
@@ -423,8 +424,9 @@ def test_b176_first_commit_substitution_removes_current(tmp_path, monkeypatch):
             with pytest.raises(cb.BundleError):
                 cb.commit_current(prepared)
             monkeypatch.undo()
-        assert cb._read_current(cfd) is None  # CURRENT ausente (jamás el atacante); sin residuo
-        assert _residue(camp) == []
+        with pytest.raises(cb.BundleError):  # CURRENT no resuelve a un bundle VÁLIDO (jamás autoridad atacante)
+            cb.open_current_bundle(cfd)
+        assert _residue(camp) == []  # sin `.merge-CURRENT.tmp` en la ruta oficial
     finally:
         os.close(cfd)
 
@@ -573,7 +575,9 @@ def test_b179_b191_quarantine_is_move_only_never_deletes():
         os.close(cfd)
 
 
-def test_b192_same_inode_mutation_preserved_not_deleted():
+def test_b192_b207_same_inode_mutation_restored_to_official():
+    # B192/B207 (source-CAS): una mutación de contenido sobre el mismo inode se detecta ANTES de retirar y el objeto
+    # se RESTAURA a su ruta oficial (jamás se retira/pierde la actualización concurrente).
     import tempfile
 
     d = tempfile.mkdtemp()
@@ -587,9 +591,10 @@ def test_b192_same_inode_mutation_preserved_not_deleted():
         os.write(fd, b"MUTATED-concurrent")  # mismo inode, contenido concurrente distinto
         os.close(fd)
         with gf.GovernedQuarantine(cfd, "tx.mut02") as q:
-            with pytest.raises(gf.GovernedRemovalError):  # digest != lease → FOREIGN_PRESERVED
+            with pytest.raises(gf.GovernedRemovalError):
                 q.quarantine(cfd, "obj", lease)
-        assert "obj" not in os.listdir(cfd)  # movido, pero PRESERVADO (no borrado) — la actualización no se pierde
+        assert "obj" in os.listdir(cfd)  # RESTAURADO a su ruta oficial (source-CAS)
+        assert open(os.path.join(d, "obj"), "rb").read() == b"MUTATED-concurrent"  # la actualización se conserva
     finally:
         os.close(cfd)
 
@@ -759,6 +764,76 @@ def test_b200_quarantine_journal_tamper_detected(tmp_path):
         with pytest.raises(gf.GovernedQuarantineError):
             q._reread_and_validate()
         q.close()
+    finally:
+        os.close(cfd)
+
+
+# --------------------------------------------- B202/B204/B205/B207: source-CAS, journal, taxonomía ---------------------------------------------
+
+
+def test_b202_journal_name_substitution_detected():
+    # sustituir el NOMBRE MANIFEST.jsonl deja el fd huérfano; la próxima operación de journal lo caza (nombre↔inode).
+    import tempfile
+
+    d = tempfile.mkdtemp()
+    cfd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fd = os.open("o", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd)
+        os.write(fd, b"z")
+        lease = gf.OwnedLease(fd, is_dir=False)
+        os.close(fd)
+        q = gf.GovernedQuarantine(cfd, "tx.jsub")
+        q.quarantine(cfd, "o", lease)  # crea el journal
+        jdir = os.path.join(d, q.name)
+        os.rename(os.path.join(jdir, "MANIFEST.jsonl"), os.path.join(jdir, "orphan"))
+        open(os.path.join(jdir, "MANIFEST.jsonl"), "wb").write(b"FORGED\n")  # nombre re-ligado a un fichero ajeno
+        fd2 = os.open("o2", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd)
+        os.write(fd2, b"z")
+        l2 = gf.OwnedLease(fd2, is_dir=False)
+        os.close(fd2)
+        with pytest.raises(gf.GovernedQuarantineError):  # el nombre no liga al fd del journal
+            q.quarantine(cfd, "o2", l2)
+        q.close()
+    finally:
+        os.close(cfd)
+
+
+def test_b204_postcas_close_failure_is_committed_state(tmp_path, monkeypatch):
+    # un error de cierre de la cuarentena DESPUÉS del CAS certificado se clasifica como CommittedStateError.
+    camp, cfd = _camp(tmp_path)
+    try:
+        _commit(cfd, "tx.a")  # primer commit
+        with cb.prepare_bundle(cfd, "tx.b", "campA", _outputs("b"), _inputs(), _prov()) as prepared:
+            real_close = gf.GovernedQuarantine.close
+
+            def failing_close(self):
+                real_close(self)
+                return ["fallo de cierre simulado"]  # el commit ya cruzó (previo desplazado en cuarentena)
+
+            monkeypatch.setattr(gf.GovernedQuarantine, "close", failing_close)
+            with pytest.raises(cb.CommittedStateError):
+                cb.commit_current(prepared)
+            monkeypatch.undo()
+    finally:
+        os.close(cfd)
+
+
+def test_b205_staging_symlink_is_rollback_incomplete(tmp_path, monkeypatch):
+    # sustituir el staging por un SYMLINK no se confunde con "ausente"; el source-CAS lo trata como ajeno e informa
+    # incompleto (jamás silencia el symlink como si el staging hubiera desaparecido).
+    camp, cfd = _camp(tmp_path)
+    try:
+
+        def sym_promote(camp_fd, staging_name, bundle_id, manifest):
+            os.rename(str(camp / staging_name), str(camp / "staging_real"))
+            os.symlink("staging_real", str(camp / staging_name))
+            raise cb.BundleError("promoción rota")
+
+        monkeypatch.setattr(cb, "_promote_staging", sym_promote)
+        with pytest.raises(cb.BundleError):
+            _commit(cfd, "tx.a")
+        monkeypatch.undo()
+        assert (camp / "staging_real").exists()  # el objeto ajeno no se perdió
     finally:
         os.close(cfd)
 

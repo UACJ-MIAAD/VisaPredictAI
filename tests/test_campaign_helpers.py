@@ -2454,3 +2454,10 @@ def test_b164_manifest_provenance_carries_module_hashes_and_journal_heads(tmp_pa
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+def test_b203_fabricated_env_vars_not_governed_identity(monkeypatch):
+    # B203: VP_ENV_ID/VP_ENV_PROFILE fabricados NO bastan para 'official' — el intérprete no es el entorno sellado.
+    monkeypatch.setenv("VP_ENV_ID", "a" * 64)
+    monkeypatch.setenv("VP_ENV_PROFILE", "model")
+    assert mcp._governed_run_identity() is None

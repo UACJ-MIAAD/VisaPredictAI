@@ -1218,6 +1218,28 @@ def _abort_receipt(camp_fd: int, txid: str, ctx: _TxContext) -> None:
                 ctx.close_errors.append(f"cerrar aborted fd: {exc}")
 
 
+def _governed_run_identity() -> dict | None:
+    """B203: identidad del run GOBERNADO. NO confía en variables de entorno sueltas: exige que el intérprete SEA el
+    del entorno content-addressed sellado (`sys.executable` bajo `.vp_envs/…/<env_id>/`) y que un `READY.json` del
+    entorno ligue el `env_id`. Variables `VP_ENV_ID`/`VP_ENV_PROFILE` fabricadas sin el entorno sellado ⇒ None."""
+    env_id = os.environ.get("VP_ENV_ID")
+    profile = os.environ.get("VP_ENV_PROFILE")
+    if not (env_id and len(env_id) == 64 and profile):
+        return None
+    exe = os.path.realpath(sys.executable)
+    marker = f"/{env_id}/"
+    if ".vp_envs" not in exe or marker not in exe:  # el intérprete debe ser el entorno content-addressed real
+        return None
+    env_root = exe.split(marker, 1)[0] + f"/{env_id}"
+    try:
+        ready = json.loads(open(os.path.join(env_root, "READY.json"), "rb").read())
+    except OSError, ValueError:
+        return None
+    if not (isinstance(ready, dict) and ready.get("env_id") == env_id):
+        return None
+    return {"env_id": env_id, "profile": profile, "variant": os.environ.get("VP_ENV_VARIANT") or None}
+
+
 def _bundle_provenance(quar: _Quarantine) -> dict:
     """B164: procedencia oficial COMPLETA para el manifiesto del bundle, en la forma EXACTA que exige el esquema
     cerrado: HEAD de git, hashes de los CUATRO módulos de la ruta de confianza + el contrato de ejecución (None si
@@ -1233,12 +1255,12 @@ def _bundle_provenance(quar: _Quarantine) -> dict:
     tree = tree if (tree and len(tree) == 40) else None
     status = _git("status", "--porcelain")
     dirty = None if status is None else (status != "")
-    env_id = os.environ.get("VP_ENV_ID")
-    env_id = env_id if (env_id and len(env_id) == 64) else None
-    profile = os.environ.get("VP_ENV_PROFILE")
-    # B199: 'official' SÓLO desde un run gobernado (env_id del run-command) sobre un árbol LIMPIO con git íntegro.
-    # F2 aún no corre por la interfaz gobernada ⇒ sin VP_ENV_ID ⇒ 'test' (honesto; no falsa autoridad oficial).
-    official = bool(env_id and head and tree and dirty is False and profile)
+    identity = _governed_run_identity()  # B203: identidad VERIFICADA del entorno sellado, no variables sueltas
+    env_id = identity["env_id"] if identity else None
+    profile = identity["profile"] if identity else os.environ.get("VP_ENV_PROFILE")
+    # B199/B203: 'official' SÓLO desde un run gobernado VERIFICADO (intérprete sellado + READY.json) sobre árbol
+    # LIMPIO con git íntegro. F2 aún no corre gobernada ⇒ identity None ⇒ 'test' (honesto; sin falsa autoridad).
+    official = bool(identity and head and tree and dirty is False)
     return {
         "mode": "official" if official else "test",
         # `__file__` (no `_module_hash`) porque el productor corre como `__main__` (python -m): su nombre lógico
@@ -1301,7 +1323,7 @@ def _publish_bundle(chain: _Chain, quar: _Quarantine, inputs: list[_InputLease],
             for o in outs
         ]
         _bundle.build_and_commit(chain.camp, quar.txid, campaign, output_meta, input_meta, _bundle_provenance(quar))
-    except (_bundle.BundleError, OSError, ValueError) as exc:
+    except (_bundle.BundleError, _bundle.GovernedQuarantineError, _bundle.GovernedRemovalError, OSError, ValueError) as exc:  # fmt: skip
         ctx.flag("BUNDLE_PUBLISH_FAILED", f"no se pudo publicar el bundle/puntero CURRENT post-commit: {exc}")
 
 

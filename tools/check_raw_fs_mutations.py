@@ -68,25 +68,29 @@ class _Scanner(ast.NodeVisitor):
                 self.from_shutil.add(a.asname or a.name)
         self.generic_visit(node)
 
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        # B206: cualquier ACCESO a `os.<destructivo>` (llamada, ASIGNACIÓN a alias `f = os.unlink`, argumento…) o a
+        # `.<Path-destructivo>`/`shutil.<destructivo>` — no solo las llamadas.
+        base = node.value
+        attr = node.attr
+        if isinstance(base, ast.Name):
+            if base.id in self.os_aliases and (attr in _OS_FORBIDDEN or attr.startswith(_OS_FORBIDDEN_PREFIX)):
+                self._flag(node, f"acceso a os.{attr} destructivo/ejecución (alias {base.id})")
+            if base.id in self.shutil_aliases and attr in _SHUTIL_FORBIDDEN:
+                self._flag(node, f"acceso a shutil.{attr} destructivo")
+        if attr in _PATH_FORBIDDEN:  # Path(...).unlink / p.rmdir — cualquier receptor
+            self._flag(node, f"acceso a .{attr} de Path (destructivo)")
+        if attr == "__dict__":  # os.__dict__["unlink"] elude el análisis
+            self._flag(node, "acceso a __dict__ (elude el gate)")
+        self.generic_visit(node)
+
     def visit_Call(self, node: ast.Call) -> None:
         f = node.func
-        if isinstance(f, ast.Attribute):
-            base = f.value
-            attr = f.attr
-            if isinstance(base, ast.Name):
-                if base.id in self.os_aliases and (attr in _OS_FORBIDDEN or attr.startswith(_OS_FORBIDDEN_PREFIX)):
-                    self._flag(node, f"os.{attr}(...) destructivo/ejecución (alias {base.id})")
-                if base.id in self.shutil_aliases and attr in _SHUTIL_FORBIDDEN:
-                    self._flag(node, f"shutil.{attr}(...) destructivo")
-            if attr in _PATH_FORBIDDEN:  # Path(...).unlink() / p.rmdir() — cualquier receptor
-                self._flag(node, f".{attr}(...) de Path (destructivo)")
-            if attr == "getattr":  # os.getattr no aplica; getattr manejado abajo
-                pass
-        elif isinstance(f, ast.Name):
-            if f.id == "getattr" and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
-                nm = node.args[1].value
-                if isinstance(node.args[0], ast.Name) and node.args[0].id in self.os_aliases and nm in _OS_FORBIDDEN:
-                    self._flag(node, f"getattr(os, {nm!r}) elude el gate")
+        if isinstance(f, ast.Name):
+            if f.id == "getattr" and node.args and isinstance(node.args[0], ast.Name) and node.args[0].id in self.os_aliases:  # fmt: skip
+                self._flag(node, "getattr(os, …) dinámico (elude el gate)")  # B206: cualquier getattr(os, …)
+            if f.id in ("__import__", "exec", "eval", "compile"):
+                self._flag(node, f"{f.id}(...) prohibido en la ruta online del bundle")
             if f.id in self.from_os or f.id in self.from_shutil:  # nombre importado de os/shutil (destructivo)
                 self._flag(node, f"{f.id}(...) importado de os/shutil (destructivo)")
         self.generic_visit(node)

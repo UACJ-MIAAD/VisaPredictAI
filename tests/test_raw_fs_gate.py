@@ -60,7 +60,24 @@ def test_csv_contract_is_well_formed():
     assert set(contract["outputs"]) == {"campaign", "eval"}
 
 
-if __name__ == "__main__":
-    import pytest
+@pytest.mark.parametrize(
+    "src",
+    [
+        "import os\nf = os.unlink\ndef g():\n    f('x')\n",  # asignación de alias (B206)
+        "import os\ndef g():\n    getattr(os, 'un' + 'link')('x')\n",  # getattr computado (B206)
+        "import os\ndef g():\n    os.__dict__['unlink']('x')\n",  # acceso a __dict__ (B206)
+        "def g():\n    __import__('os').unlink('x')\n",  # __import__ (B206)
+    ],
+)
+def test_b206_gate_catches_indirection(src):
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as fh:
+        fh.write(src)
+        path = fh.name
+    try:
+        assert gate._violations(path), f"el gate no detectó la indirección: {src!r}"
+    finally:
+        os.unlink(path)
 
+
+if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

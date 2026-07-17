@@ -21,7 +21,7 @@ import os
 import secrets
 import stat
 
-from tools.atomic_fs import AtomicRenameError, AtomicUnsupportedError, rename_noreplace
+from tools.atomic_fs import AtomicRenameError, AtomicUnsupportedError, rename_exchange, rename_noreplace
 
 _QUAR_PREFIX = ".merge-quar"
 _JOURNAL = "MANIFEST.jsonl"
@@ -49,6 +49,10 @@ def _canon(obj: object) -> bytes:
 
 def _snap(st: os.stat_result) -> tuple[int, ...]:
     return tuple(getattr(st, f) for f in _SNAP_FIELDS)
+
+
+def _ident(st: os.stat_result) -> tuple[int, int]:
+    return (st.st_dev, st.st_ino)
 
 
 def _write_all(fd: int, data: bytes) -> None:
@@ -97,12 +101,13 @@ class GovernedQuarantine:
     """Cuarentena MOVE-ONLY de una sola transacción. `with GovernedQuarantine(camp_fd, txid) as q: q.quarantine(...)`.
     NUNCA borra: mueve y preserva. El directorio y su journal PERSISTEN (evidencia durable; GC futuro)."""
 
-    __slots__ = ("camp_fd", "txid", "name", "fd", "_jfd", "_seq", "_prev", "_closed")
+    __slots__ = ("camp_fd", "txid", "name", "fd", "_jfd", "_jino", "_seq", "_prev", "_closed")
     camp_fd: int
     txid: str
     name: str
     fd: int
     _jfd: int
+    _jino: tuple[int, int]
     _seq: int
     _prev: str
     _closed: bool
@@ -135,13 +140,25 @@ class GovernedQuarantine:
             self._jfd = os.open(
                 _JOURNAL, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_APPEND | os.O_NOFOLLOW, 0o600, dir_fd=self.fd
             )
+            self._jino = _ident(os.fstat(self._jfd))  # B202: identidad del journal para ligar nombre↔inode
             os.fsync(self.fd)  # el directorio de cuarentena + su journal son durables antes de operar
         except BaseException:
             os.close(self.fd)  # B194: no dejar un dir con fd abierto; el dir se preserva manifestado (no se borra)
             self.fd = -1
             raise
 
+    def _bind_journal(self) -> None:
+        """B202: el NOMBRE `MANIFEST.jsonl` debe seguir ligado al inode del fd del journal — si fue sustituido, el fd
+        quedó huérfano y el journal VISIBLE es ajeno/forjado."""
+        fd = os.open(_JOURNAL, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.fd)
+        try:
+            if _ident(os.fstat(fd)) != self._jino:
+                raise GovernedQuarantineError("MANIFEST.jsonl fue sustituido (nombre no liga al fd del journal)")
+        finally:
+            os.close(fd)
+
     def _journal(self, record: str, operation_id: str, dest: str) -> None:
+        self._bind_journal()  # B202: antes de escribir, el nombre del journal liga a MI fd
         self._seq += 1
         rec = {"seq": self._seq, "record": record, "operation_id": operation_id, "dest": dest, "previous_record_sha256": self._prev}  # fmt: skip
         sha = hashlib.sha256(_canon(rec)).hexdigest()
@@ -149,6 +166,7 @@ class GovernedQuarantine:
         _write_all(self._jfd, _canon(rec) + b"\n")
         os.fsync(self._jfd)  # B200: durabilidad del registro…
         self._reread_and_validate()  # …y RELECTURA + validación de la cadena completa desde el mismo fd
+        self._bind_journal()  # B202: y tras escribir sigue ligado (no fue sustituido durante el append)
         self._prev = sha
 
     def _reread_and_validate(self) -> None:
@@ -169,29 +187,48 @@ class GovernedQuarantine:
             prev = rec["record_sha256"]
 
     def quarantine(self, dir_fd: int, name: str, lease: OwnedLease) -> str:
-        """MUEVE `name` (bajo `dir_fd`) a la cuarentena y lo PRESERVA. Verifica el LEASE COMPLETO (snapshot+digest)
-        del objeto movido: si coincide → MOVED; si difiere (mutación/ajeno) → FOREIGN_PRESERVED + eleva. NUNCA borra;
-        el objeto queda durable en la cuarentena. `name` queda libre en la ruta oficial (cero residuo)."""
+        """SOURCE-CAS MOVE-ONLY (B207): verifica el objeto ANTES de que abandone su ruta oficial. Crea un placeholder
+        gobernado en la cuarentena e intercambia (`rename_exchange`) `name`↔placeholder; el objeto queda en la
+        cuarentena y el placeholder en la ruta oficial. Verifica el LEASE COMPLETO (snapshot+digest) del objeto: si
+        coincide → libera `name` moviendo el placeholder a la cuarentena (MOVED); si NO (mutación/ajeno) → intercambia
+        de vuelta ATÓMICAMENTE, restaurando el objeto ajeno a su ruta oficial (jamás lo retira), y eleva. NUNCA borra."""
         if self._closed:
             raise GovernedQuarantineError("cuarentena cerrada")
-        self._ensure()  # crea el dir + journal en el primer uso real
+        self._ensure()
         oid = secrets.token_hex(8)
-        dest = f"o.{oid}"
-        self._journal(_INTENT, oid, dest)
-        try:
-            rename_noreplace(dir_fd, name, self.fd, dest)
+        obj = f"o.{oid}"  # slot del objeto en cuarentena
+        ph = f"p.{oid}"  # placeholder gobernado
+        self._journal(_INTENT, oid, obj)
+        if lease.is_dir:  # placeholder del MISMO tipo que el objeto (para el intercambio atómico)
+            os.mkdir(obj, 0o700, dir_fd=self.fd)
+        else:
+            os.close(os.open(obj, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=self.fd))
+        os.fsync(self.fd)
+        try:  # source-CAS: name (oficial) ↔ obj (placeholder en cuarentena)
+            rename_exchange(dir_fd, name, self.fd, obj)
         except FileNotFoundError:
-            self._journal("ABSENT", oid, dest)
-            return dest
+            self._journal("ABSENT", oid, obj)
+            return obj
         except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
-            raise GovernedRemovalError(f"no se pudo mover {name!r} a cuarentena: {exc}") from exc
-        os.fsync(dir_fd)  # origen durable (name ya no está)
-        os.fsync(self.fd)  # destino durable
-        if self._lease_matches(dest, lease):
-            self._journal("MOVED", oid, dest)
-            return dest
-        self._journal("FOREIGN_PRESERVED", oid, dest)
-        raise GovernedRemovalError(f"{name!r} no coincide con el lease de la transacción; PRESERVADO en cuarentena")
+            raise GovernedRemovalError(f"no se pudo hacer source-CAS de {name!r}: {exc}") from exc
+        os.fsync(dir_fd)
+        os.fsync(self.fd)
+        # ahora: dir_fd/name = placeholder; self.fd/obj = objeto original
+        if self._lease_matches(obj, lease):  # es MÍO: libera `name` moviendo el placeholder a la cuarentena
+            rename_noreplace(dir_fd, name, self.fd, ph)
+            os.fsync(dir_fd)
+            os.fsync(self.fd)
+            self._journal("MOVED", oid, obj)
+            return obj
+        try:  # AJENO: restaura el objeto a su ruta oficial (intercambio inverso) — jamás lo retira (B207)
+            rename_exchange(dir_fd, name, self.fd, obj)
+        except (AtomicRenameError, AtomicUnsupportedError, OSError, ValueError) as exc:
+            self._journal("FOREIGN_PRESERVED", oid, obj)
+            raise GovernedRemovalError(f"objeto ajeno de {name!r} no se pudo restaurar (PRESERVADO en cuarentena): {exc}") from exc  # fmt: skip
+        os.fsync(dir_fd)
+        os.fsync(self.fd)
+        self._journal("FOREIGN_PRESERVED", oid, obj)
+        raise GovernedRemovalError(f"{name!r} no coincide con el lease; RESTAURADO a su ruta oficial, no retirado")
 
     def _lease_matches(self, dest: str, lease: OwnedLease) -> bool:
         flags = _DIR_FLAGS if lease.is_dir else (os.O_RDONLY | os.O_NOFOLLOW)
