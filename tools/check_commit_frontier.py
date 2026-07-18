@@ -236,8 +236,9 @@ def _git_tracked_py() -> list[str]:
 
 
 def _const_str(node: ast.AST) -> str | None:
-    """B242: resuelve un nodo a un string CONSTANTE si es determinable estáticamente — literal, concatenación `a + b` de
-    constantes, o f-string SIN partes dinámicas. Cierra el bypass `getattr(x, "_reg" + "ister_certificate")`."""
+    """B242/B245: resuelve un nodo a un string CONSTANTE si es determinable estáticamente — literal, `a + b`, f-string
+    constante, `"sep".join([const, …])` y `"pat".format(const, …)`. Cierra los bypass
+    `getattr(x, "_reg" + "ister…")`, `"".join(["_reg", "ister…"])`, `"_reg{}".format("ister…")`."""
     if isinstance(node, ast.Constant):
         return node.value if isinstance(node.value, str) else None
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
@@ -256,7 +257,36 @@ def _const_str(node: ast.AST) -> str | None:
             else:
                 return None
         return "".join(parts)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        recv = _const_str(node.func.value)  # el receptor debe ser un string constante
+        if recv is not None and node.func.attr == "join" and len(node.args) == 1 and not node.keywords and isinstance(node.args[0], (ast.List, ast.Tuple)):  # fmt: skip
+            jparts = [_const_str(e) for e in node.args[0].elts]
+            if all(isinstance(p, str) for p in jparts):
+                return recv.join(p for p in jparts if isinstance(p, str))
+        if recv is not None and node.func.attr == "format" and not node.keywords:
+            args = [_const_str(a) for a in node.args]
+            if all(isinstance(a, str) for a in args):
+                try:
+                    return recv.format(*[a for a in args if isinstance(a, str)])
+                except IndexError, KeyError, ValueError:
+                    return None
     return None
+
+
+def _campaign_bundle_aliases(tree: ast.AST) -> set[str]:
+    """B245: nombres locales que refieren al MÓDULO `campaign_bundle` (`import tools.campaign_bundle as X`,
+    `from tools import campaign_bundle as X`), para cazar acceso DINÁMICO a su superficie de autoridad."""
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name == "tools.campaign_bundle" and a.asname:
+                    aliases.add(a.asname)
+        elif isinstance(node, ast.ImportFrom) and node.module in ("tools", None):
+            for a in node.names:
+                if a.name == "campaign_bundle":
+                    aliases.add(a.asname or "campaign_bundle")
+    return aliases
 
 
 def _enclosing_fn_name(funcs: list[ast.FunctionDef], lineno: int) -> str | None:
@@ -290,9 +320,20 @@ def authority_scope_problems() -> list[str]:
             continue
         funcs = [fn for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef)]
         allow = _AUTHORITY_ALLOW.get(rel, {})  # sin entrada → NINGÚN uso permitido en este módulo
+        cb_aliases = _campaign_bundle_aliases(tree)  # B245: nombres que refieren al módulo campaign_bundle
         for node in ast.walk(tree):
             if rel in _AUTHORITY_ALLOW and isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("exec", "eval", "compile"):  # fmt: skip
                 problems.append(f"{rel}:{node.lineno} usa {node.func.id}() en un módulo de autoridad (resolución dinámica prohibida)")  # fmt: skip
+            # B245: acceso DINÁMICO a la superficie de autoridad → fail-closed
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr" and node.args and isinstance(node.args[0], ast.Name) and node.args[0].id in cb_aliases:  # fmt: skip
+                if len(node.args) < 2 or _const_str(node.args[1]) is None:  # nombre NO resoluble estáticamente
+                    problems.append(f"{rel}:{node.lineno} getattr dinámico sobre el módulo campaign_bundle (fail-closed B245)")  # fmt: skip
+            if isinstance(node, ast.Attribute) and node.attr == "__dict__" and isinstance(node.value, ast.Name) and node.value.id in cb_aliases:  # fmt: skip
+                problems.append(f"{rel}:{node.lineno} accede a campaign_bundle.__dict__ (elude el gate B245)")
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "import_module" and node.args and (_m := _const_str(node.args[0])) and "campaign_bundle" in _m:  # fmt: skip
+                problems.append(f"{rel}:{node.lineno} importlib.import_module de campaign_bundle (elude el gate B245)")
+            if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute) and node.value.attr == "modules" and (_k := _const_str(node.slice)) and "campaign_bundle" in _k:  # fmt: skip
+                problems.append(f"{rel}:{node.lineno} sys.modules[...campaign_bundle...] (elude el gate B245)")
             # resuelve el/los nombre(s) de primitiva que este nodo referencia
             hit: str | None = None
             if isinstance(node, ast.Name) and node.id in _AUTHORITY_PRIMITIVES:

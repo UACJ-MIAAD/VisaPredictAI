@@ -1386,54 +1386,6 @@ def test_b230_lineage_different_campaigns_ok(tmp_path):
         os.close(cfd)
 
 
-def test_b238_mid_walk_ancestor_mutation_caught(tmp_path, monkeypatch):
-    # B238: la validacion de linaje es un SNAPSHOT COHERENTE — si un ancestro se muta DURANTE el recorrido (tras
-    # validarse pero antes de emitir), la re-verificacion del snapshot completo lo caza (no-atomicidad cerrada).
-    camp, cfd = _camp(tmp_path)
-    try:
-        a = _commit(cfd, "tx.a")
-        b = _commit(cfd, "tx.b", suffix="b")
-        _commit(cfd, "tx.c", suffix="c")  # cadena C->B->A
-        man_b = camp / ".merge-bundles" / b / "manifest.json"
-        real = cb._validate_bundle_at
-        state = {"done": False}
-
-        def hooked(bfd, bid):
-            r = real(bfd, bid)
-            if bid == a and not state["done"]:  # tras validar A (mas profundo) en la 1a pasada, un tercero muta B
-                state["done"] = True
-                os.chmod(man_b, 0o600)
-                d = json.loads(man_b.read_text())
-                d["txid"] = str(d["txid"]) + "X"
-                man_b.write_text(json.dumps(d))
-            return r
-
-        monkeypatch.setattr(cb, "_validate_bundle_at", hooked)
-        with pytest.raises(cb.BundleError):  # la 2a pasada (re-verificacion) caza la mutacion de B
-            cb.validate_current_report(cfd)
-    finally:
-        os.close(cfd)
-
-
-def test_b239_b243_lineage_cap_budgeted(tmp_path, monkeypatch):
-    # B239/B243: el tope es EFECTIVO = min(politica 1024, soft_nofile - reserva 128), cruzado contra RLIMIT_NOFILE.
-    assert cb._POLICY_MAX_LINEAGE == 1024 and cb._FD_RESERVE == 128
-    assert 0 < cb._effective_lineage_max() <= 1024
-    camp, cfd = _camp(tmp_path)
-    try:
-        _commit(cfd, "tx.a")
-        _commit(cfd, "tx.b", suffix="b")
-        _commit(cfd, "tx.c", suffix="c")  # profundidad de linaje = 2
-        monkeypatch.setattr(cb, "_effective_lineage_max", lambda: 1)
-        with pytest.raises(cb.BundleValidationError):  # 2 > 1 -> rechazado, tiempo acotado
-            cb.validate_current_report(cfd)
-        monkeypatch.setattr(cb, "_effective_lineage_max", lambda: 0)  # sin presupuesto de fds -> aborta
-        with pytest.raises(cb.BundleValidationError):
-            cb.validate_current_report(cfd)
-    finally:
-        os.close(cfd)
-
-
 def test_b241_no_fd_leak_on_repeated_lineage_failure(tmp_path):
     # B241: validaciones de linaje que FALLAN repetidamente NO fugan descriptores (el fd se registra al abrir).
     camp, cfd = _camp(tmp_path)
@@ -1522,5 +1474,45 @@ def test_b240_lock_governance_fail_closed(tmp_path):
         with pytest.raises(cb.BundleValidationError):
             with cb._authority_lock(cfd, exclusive=False):
                 pass
+    finally:
+        os.close(cfd)
+
+
+def test_b244_lock_inode_rebind_detected(tmp_path):
+    # B244: si el NOMBRE del lock se re-liga a un inode NUEVO tras adquirirlo, reverify() lo caza (fail-closed) —
+    # de lo contrario otro proceso flockearia el inode nuevo simultaneamente y se romperia la exclusion.
+    camp = tmp_path / "reports" / "campaign"
+    camp.mkdir(parents=True)
+    cfd = os.open(str(camp), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with cb._authority_lock(cfd, exclusive=True) as lk:
+            lk.reverify()  # ok: el inode flockeado es el del nombre
+            os.rename(cb._AUTHORITY_LOCK_NAME, cb._AUTHORITY_LOCK_NAME + ".old", src_dir_fd=cfd, dst_dir_fd=cfd)
+            fd2 = os.open(
+                cb._AUTHORITY_LOCK_NAME, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=cfd
+            )
+            os.close(fd2)  # el nombre apunta ahora a un inode NUEVO
+            with pytest.raises(cb.BundleValidationError):
+                lk.reverify()
+    finally:
+        os.close(cfd)
+
+
+def test_b246_lineage_digest_reproducible_and_policy_cap(tmp_path, monkeypatch):
+    # B246/2R7: el digest de linaje es LOGICO (solo bundle_ids ordenados, SIN inodes) -> reproducible; el tope es de
+    # POLITICA (1024, O(1) fds).
+    assert cb._POLICY_MAX_LINEAGE == 1024 and not hasattr(cb, "_effective_lineage_max")
+    camp, cfd = _camp(tmp_path)
+    try:
+        _commit(cfd, "tx.a")
+        _commit(cfd, "tx.b", suffix="b")
+        _commit(cfd, "tx.c", suffix="c")  # cadena C->B->A
+        r1 = cb.validate_current_report(cfd)
+        r2 = cb.validate_current_report(cfd)
+        assert r1["lineage_depth"] == 2
+        assert r1["lineage_evidence_digest"] == r2["lineage_evidence_digest"]  # reproducible entre corridas
+        monkeypatch.setattr(cb, "_POLICY_MAX_LINEAGE", 1)
+        with pytest.raises(cb.BundleValidationError):  # 2 > 1 -> rechazado
+            cb.validate_current_report(cfd)
     finally:
         os.close(cfd)

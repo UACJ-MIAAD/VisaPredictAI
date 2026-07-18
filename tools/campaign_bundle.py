@@ -39,7 +39,6 @@ import hashlib
 import io
 import json
 import os
-import resource
 import secrets
 import stat
 import sys
@@ -908,21 +907,39 @@ def _validate_authority(camp_fd: int, bundle_id: str) -> None:
 _AUTHORITY_LOCK_NAME = ".merge-authority.lock"  # B240: lock gobernado compartido/exclusivo de la autoridad del bundle
 
 
+class _AuthorityLockHandle:
+    """B244: handle del lock gobernado que RETIENE su fd e inode. `reverify()` comprueba que el NOMBRE del lock siga
+    ligado al MISMO inode que flockeamos — un rebind del inode (rename-replace) rompería la exclusión (otro proceso
+    flockearía el inode NUEVO simultáneamente), así que fail-closed. Se re-verifica en checkpoints (antes/después del
+    CAS y antes de emitir resultados)."""
+
+    __slots__ = ("_camp_fd", "_fd", "_ident")
+
+    def __init__(self, camp_fd: int, fd: int, ident: tuple[int, int]) -> None:
+        self._camp_fd, self._fd, self._ident = camp_fd, fd, ident
+
+    def reverify(self) -> None:
+        try:
+            st = os.stat(_AUTHORITY_LOCK_NAME, dir_fd=self._camp_fd, follow_symlinks=False)
+        except OSError as exc:
+            raise BundleValidationError(f"lock de autoridad: reverify falló ({exc})") from exc
+        if not stat.S_ISREG(st.st_mode) or _ident(st) != self._ident:
+            raise BundleValidationError("el nombre del lock de autoridad fue re-ligado a otro inode (B244)")
+
+
 @contextlib.contextmanager
-def _authority_lock(camp_fd: int, *, exclusive: bool) -> typing.Iterator[None]:
-    """B240: FRONTERA de coherencia de la autoridad del bundle mediante `flock` GOBERNADO — escritores (prepare/commit)
-    toman `LOCK_EX`, lectores (validate-current) toman `LOCK_SH`. Da una INSTANTÁNEA global: mientras un lector la
-    sostiene, ningún escritor COOPERATIVO puede intercalarse (y viceversa), así que la validación de CURRENT+bundle+
-    linaje ocurre sobre un estado que ningún cooperante muta. El fichero de lock es regular, del UID actual, `nlink==1`,
-    modo EXACTO `0600`, `O_NOFOLLOW`. Orden fijo: se adquiere DESPUÉS de `.merge.lock` (el escritor ya lo sostiene vía el
-    merge) → sin deadlock (el lector jamás toma `.merge.lock`; los escritores se serializan entre sí por `.merge.lock`).
-    ⚠️ LÍMITE HONESTO: `flock` es ADVISORY — la garantía cubre procesos COOPERATIVOS del mismo UID. Un proceso hostil del
-    mismo UID que IGNORE el lock queda FUERA (haría falta otro usuario/privilegios, un filesystem inmutable o firma con
-    clave fuera de su alcance)."""
-    try:  # crea EXCLUSIVO (O_EXCL) o, si ya existe, ABRE el existente O_RDWR|O_NOFOLLOW|O_NONBLOCK — nunca O_CREAT sin O_EXCL
+def _authority_lock(camp_fd: int, *, exclusive: bool) -> typing.Iterator[_AuthorityLockHandle]:
+    """B240/B244: FRONTERA de coherencia de la autoridad mediante `flock` GOBERNADO — escritores (commit) toman
+    `LOCK_EX`, lectores (validate-current) toman `LOCK_SH`. Mientras un lector la sostiene, ningún escritor COOPERATIVO
+    puede intercalarse. Lock file regular, del UID actual, `nlink==1`, `0600`, `O_NOFOLLOW`, `O_NONBLOCK` (un FIFO no
+    cuelga; el S_ISREG lo rechaza). Tras flock, B244 exige que el inode flockeado SIGA siendo el que el nombre resuelve
+    (`handle.reverify()`); el llamador re-verifica en cada checkpoint. Orden fijo tras `.merge.lock` (sin deadlock).
+    ⚠️ LÍMITE HONESTO: `flock` es ADVISORY — la garantía cubre SÓLO procesos COOPERATIVOS del mismo UID; un proceso
+    hostil que IGNORE el lock queda FUERA (haría falta otro usuario/privilegios, FS inmutable o firma fuera de alcance)."""
+    try:  # crea EXCLUSIVO (O_EXCL) o, si ya existe, ABRE el existente — nunca O_CREAT sin O_EXCL
         fd = os.open(_AUTHORITY_LOCK_NAME, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, 0o600, dir_fd=camp_fd)  # fmt: skip
     except FileExistsError:
-        fd = os.open(_AUTHORITY_LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=camp_fd)  # O_NONBLOCK: un FIFO no cuelga  # fmt: skip
+        fd = os.open(_AUTHORITY_LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=camp_fd)
     try:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid() or st.st_nlink != 1 or stat.S_IMODE(st.st_mode) != 0o600:  # fmt: skip
@@ -930,58 +947,35 @@ def _authority_lock(camp_fd: int, *, exclusive: bool) -> typing.Iterator[None]:
                 "lock de autoridad no gobernado (regular/UID/nlink/modo 0600) o especial (FIFO)"
             )
         fcntl.flock(fd, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
-        try:
-            yield
-        finally:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+        handle = _AuthorityLockHandle(camp_fd, fd, _ident(st))
+        handle.reverify()  # B244: el inode flockeado ES el que el nombre resuelve AHORA (sin rebind previo)
+        yield handle
     finally:
-        os.close(fd)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
-_POLICY_MAX_LINEAGE = 1024  # B243: tope de POLÍTICA del recorrido de linaje
-_FD_RESERVE = 128  # B243: margen de fds reservado a outputs/manifests/pytest/proceso
-
-
-def _effective_lineage_max() -> int:
-    """B243: tope EFECTIVO = min(política, soft RLIMIT_NOFILE − reserva). Como el recorrido retiene un fd por ancestro,
-    el límite se cruza con el presupuesto REAL de descriptores del proceso. Sin presupuesto → 0 (aborta antes de abrir)."""
-    try:
-        soft, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
-    except OSError, ValueError:
-        return 0
-    if soft == resource.RLIM_INFINITY:
-        return _POLICY_MAX_LINEAGE
-    return max(0, min(_POLICY_MAX_LINEAGE, int(soft) - _FD_RESERVE))
+_POLICY_MAX_LINEAGE = 1024  # B239/B243/2R7: tope de POLÍTICA (CPU/I/O); el recorrido es O(1) en descriptores
 
 
 def _walk_lineage(camp_fd: int, bundle_id: str, manifest: dict) -> tuple[int, str]:
-    """B230/B238/B239/B241/B243: recorre la cadena `previous_bundle_id` y captura un SNAPSHOT COHERENTE de los ancestros.
-    MANTIENE ABIERTO el fd del directorio de CADA ancestro durante el recorrido COMPLETO y, al final, RE-VERIFICA que
-    cada ancestro (a) siga ligado al MISMO inode por su nombre (sin rebind) y (b) su manifiesto no cambió — caza mutación
-    in-place O rebind por rename. `visited` anti-ciclo. **B241**: CADA fd abierto se registra en `open_fds` ANTES de
-    cualquier operación fallable (fstat/validación) → cero fugas; los cierres se recopilan (nunca `except OSError: pass`)
-    y un error de cierre en éxito es fail-closed. **B243**: el tope es EFECTIVO (política ∧ RLIMIT_NOFILE). Devuelve
-    `(profundidad, lineage_evidence_digest)`.
-    ⚠️ LÍMITE HONESTO: fds vivos + re-verificación + el lock gobernado (ver `validate_current_report`) dan atomicidad
-    frente a escritores COOPERATIVOS del mismo UID; un proceso hostil del mismo UID que IGNORE el lock queda FUERA de la
-    garantía (haría falta otro usuario/privilegios, un filesystem inmutable o firma con clave fuera de su alcance)."""
-    effective_max = _effective_lineage_max()
+    """B230/2R7: recorre la cadena `previous_bundle_id` BAJO el LOCK_SH de autoridad (el llamador lo sostiene y
+    re-verifica en checkpoints). Como ningún escritor COOPERATIVO puede mutar durante el recorrido, se valida y CIERRA
+    cada ancestro de a UNO → O(1) descriptores (sin fugas, sin `except BaseException`, sin presupuesto RLIMIT). `visited`
+    anti-ciclo + tope de política 1024. Devuelve `(profundidad, logical_digest)` donde el digest es `sha256` de la cadena
+    ORDENADA de bundle_ids (SIN inodes → REPRODUCIBLE). ⚠️ garantía sólo frente a escritores COOPERATIVOS del mismo UID."""
     broot = _open_dir(camp_fd, _BUNDLES_DIR, mode=0o700)
-    open_fds: list[int] = [broot]  # B241: TODA apertura entra AQUÍ antes de cualquier op fallable (cero fuga)
-    held: list[tuple[str, int, tuple[int, int], str]] = []  # (bundle_id, dir_fd VIVO, dir_ident, manifest_digest)
-    close_errors: list[str] = []
-    primary: BaseException | None = None
-    result: tuple[int, str] | None = None
     try:
-        if effective_max <= 0:
-            raise BundleValidationError("sin presupuesto de descriptores para recorrer el linaje (RLIMIT_NOFILE)")
         visited = {bundle_id}
+        chain: list[str] = []
         prev = manifest["previous_bundle_id"]
         depth = 0
-        while prev is not None:  # 1ª pasada: abre+valida cada ancestro y RETIENE su fd
+        while prev is not None:
             depth += 1
-            if depth > effective_max:
-                raise BundleValidationError(f"linaje excede el tope efectivo {effective_max} (política {_POLICY_MAX_LINEAGE} ∧ RLIMIT) — anti-DoS")  # fmt: skip
+            if depth > _POLICY_MAX_LINEAGE:
+                raise BundleValidationError(f"linaje excede el tope de política {_POLICY_MAX_LINEAGE} (anti-DoS)")
             if prev in visited:  # defensa explícita (un ciclo content-addressed es inconstruible)
                 raise BundleValidationError(f"ciclo de linaje detectado en {prev}")
             visited.add(prev)
@@ -989,43 +983,15 @@ def _walk_lineage(camp_fd: int, bundle_id: str, manifest: dict) -> tuple[int, st
                 bfd = _open_dir(broot, prev, mode=0o700)
             except FileNotFoundError as exc:
                 raise BundleValidationError(f"ancestro de linaje inexistente {prev}") from exc
-            open_fds.append(bfd)  # B241: REGISTRA el fd YA, antes de fstat/validación (que pueden fallar)
-            dir_ident = _ident(os.fstat(bfd))
-            prev_manifest = _validate_bundle_at(bfd, prev)  # existe + bundle_id==sha(manifest) A TRAVÉS del fd vivo
-            held.append((prev, bfd, dir_ident, hashlib.sha256(_canon(prev_manifest)).hexdigest()))
+            try:  # valida el ancestro a través del fd y lo CIERRA de inmediato (O(1) fds; sin fuga aunque falle)
+                prev_manifest = _validate_bundle_at(bfd, prev)
+            finally:
+                os.close(bfd)
+            chain.append(prev)
             prev = prev_manifest["previous_bundle_id"]
-        for bid, bfd, dir_ident, mdigest in held:  # 2ª pasada B238: RE-VERIFICA el snapshot COMPLETO como una unidad
-            namefd = _open_dir(broot, bid, mode=0o700)  # el nombre debe seguir ligado al MISMO inode (sin rebind)
-            try:
-                if _ident(os.fstat(namefd)) != dir_ident:
-                    raise BundleValidationError(f"ancestro {bid} re-ligado a otro inode durante el recorrido (no atómico)")  # fmt: skip
-            finally:  # namefd es transitorio: se cierra YA (no se acumula) y su error de cierre se recopila
-                try:
-                    os.close(namefd)
-                except OSError as exc:
-                    close_errors.append(f"namefd {bid}: {exc}")
-            if _ident(os.fstat(bfd)) != dir_ident:  # el fd vivo no cambió de identidad
-                raise BundleValidationError(f"el fd del ancestro {bid} cambió de identidad")
-            reval = _validate_bundle_at(bfd, bid)  # el manifiesto no cambió in-place (via el fd vivo)
-            if hashlib.sha256(_canon(reval)).hexdigest() != mdigest:
-                raise BundleValidationError(f"el manifiesto del ancestro {bid} cambió durante el recorrido")
-        evidence = _canon([[bid, list(dir_ident), mdigest] for bid, _, dir_ident, mdigest in held])
-        result = (depth, hashlib.sha256(evidence).hexdigest())
-    except BaseException as exc:  # noqa: BLE001 — se recopilan los cierres y se re-eleva la causa primaria
-        primary = exc
-    for fd in open_fds:  # B241: cierra CADA fd EXACTAMENTE una vez; los errores se RECOPILAN (jamás se descartan)
-        try:
-            os.close(fd)
-        except OSError as exc:
-            close_errors.append(f"fd {fd}: {exc}")
-    if primary is not None:
-        if close_errors and isinstance(primary, BundleError):
-            primary.add_note("errores de cierre de fds del linaje: " + "; ".join(close_errors))
-        raise primary
-    if close_errors:  # B241: en ÉXITO, un error de cierre es fail-closed (no se descarta)
-        raise BundleValidationError("errores al cerrar fds del linaje: " + "; ".join(close_errors))
-    assert result is not None
-    return result
+        return depth, hashlib.sha256(_canon(chain)).hexdigest()  # digest LÓGICO: sólo los bundle_ids ordenados
+    finally:
+        os.close(broot)
 
 
 def _certify_current(camp_fd: int, prepared: _PreparedBundle, pbytes: bytes, tmp_ident: tuple[int, int], prev_id: str | None) -> CommitCertificate:  # fmt: skip
@@ -1177,8 +1143,12 @@ def commit_current(prepared: _PreparedBundle) -> CommitCertificate:
     cert: CommitCertificate | None = None
     primary: BaseException | None = None
     try:
-        with _authority_lock(camp_fd, exclusive=True):  # B240: escritor — excluye a lectores del linaje durante el CAS
+        with _authority_lock(
+            camp_fd, exclusive=True
+        ) as lk:  # B240: escritor — excluye lectores del linaje durante el CAS
+            lk.reverify()  # B244: checkpoint ANTES del CAS
             cert = _run_commit(camp_fd, quar, prepared)
+            lk.reverify()  # B244: checkpoint DESPUÉS del CAS (el lock no fue re-ligado mientras cruzaba)
     except BaseException as exc:  # noqa: BLE001 — se re-eleva tras adjuntar los errores de cierre (B204)
         primary = exc
     close_errs = quar.close()  # B193/B204: los errores de cierre NUNCA se descartan
@@ -1474,12 +1444,12 @@ def validate_current_report(camp_fd: int) -> dict:
     manifiesto/CSV alterado, contrato incorrecto, symlink/FIFO en el puntero, o un ANCESTRO inexistente/alterado). B240:
     todo bajo el LOCK COMPARTIDO de autoridad → CURRENT+bundle+linaje se validan como una INSTANTÁNEA que ningún
     escritor cooperante puede intercalar."""
-    with _authority_lock(camp_fd, exclusive=False):  # B240: lector — instantánea frente a escritores cooperativos
+    with _authority_lock(camp_fd, exclusive=False) as lk:  # B240: lector — instantánea frente a escritores cooperativos
         with _BundleSnapshot(camp_fd) as snap:  # resuelve+valida el bundle COMPLETO a través del fd (validación fuerte)
             bundle_id, manifest, prev_id = snap.bundle_id, snap.manifest, snap.previous_bundle_id
-        lineage_depth, lineage_evidence_digest = _walk_lineage(
-            camp_fd, bundle_id, manifest
-        )  # B230/B238: snapshot atómico
+        lk.reverify()  # B244: el lock siguió ligado al mismo inode durante la resolución
+        lineage_depth, lineage_evidence_digest = _walk_lineage(camp_fd, bundle_id, manifest)  # O(1) fds bajo el lock
+        lk.reverify()  # B244: re-verifica ANTES de emitir el resultado (el lock no fue re-ligado)
     prov = manifest["provenance"]
     return {
         "status": "valid",

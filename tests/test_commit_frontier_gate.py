@@ -214,3 +214,28 @@ def test_gate_b242_authority_modules_are_scanned(tmp_path, monkeypatch):
 def test_gate_b242_real_code_clean():
     # el codigo real (fabrica+consumidor+resto) pasa la allowlist por-ocurrencia
     assert not gate.authority_scope_problems()
+
+
+def test_gate_b245_dynamic_and_string_bypasses(tmp_path, monkeypatch):
+    # B245: join/format/getattr-dinamico/__dict__/importlib/sys.modules/attrgetter sobre la superficie de autoridad
+    # se cazan (resolucion de constantes + fail-closed ante acceso dinamico al modulo campaign_bundle).
+    stray = tmp_path / "stray.py"
+    stray.write_text(
+        "import tools.campaign_bundle as cb\n"
+        "import importlib, sys, operator\n"
+        "getattr(cb, ''.join(['_reg', 'ister_certificate']))(x)\n"
+        "getattr(cb, '_register_{}'.format('certificate'))(x)\n"
+        "getattr(cb, some_var)(x)\n"
+        "cb.__dict__['_ISSUED_CERTS']\n"
+        "importlib.import_module('tools.campaign_bundle')\n"
+        "sys.modules['tools.campaign_bundle']\n"
+        "operator.attrgetter('consume_commit_certificate')(cb)\n"
+    )
+    monkeypatch.setattr(gate, "_git_tracked_py", lambda: [str(stray)])
+    probs = gate.authority_scope_problems()
+    assert any("_register_certificate" in p for p in probs), "join constante debe fallar"
+    assert any("getattr dinámico" in p for p in probs), "getattr dinamico del modulo debe fallar"
+    assert any("__dict__" in p for p in probs), "__dict__ debe fallar"
+    assert any("import_module" in p for p in probs), "importlib de campaign_bundle debe fallar"
+    assert any("sys.modules" in p for p in probs), "sys.modules debe fallar"
+    assert any("consume_commit_certificate" in p for p in probs), "attrgetter constante debe fallar"
