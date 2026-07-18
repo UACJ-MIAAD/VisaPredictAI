@@ -208,6 +208,57 @@ def factory_problems(src: str) -> list[str]:
     return problems
 
 
+_AUTHORITY_PRIMITIVES = ("_register_certificate", "_ISSUED_CERTS", "consume_commit_certificate")
+_GATE_SELF = "tools/check_commit_frontier.py"
+# Módulos con gate dedicado (no se re-escanean por el barrido global): la fábrica, el consumidor y el propio gate.
+_AUTHORITY_EXEMPT = frozenset({_FACTORY_TARGET, _TARGET, _GATE_SELF})
+
+
+def _git_tracked_py() -> list[str]:
+    try:
+        out = subprocess.run(["git", "ls-files", "--", "*.py"], capture_output=True, text=True)
+    except OSError:
+        return []
+    if out.returncode != 0:
+        return []
+    return [ln for ln in out.stdout.splitlines() if ln.strip()]
+
+
+def authority_scope_problems() -> list[str]:
+    """B237: NINGÚN módulo de producción FUERA de la fábrica (`campaign_bundle`), el consumidor autorizado (`merge`) y
+    el propio gate toca las primitivas de autoridad del certificado — `_register_certificate`, `_ISSUED_CERTS`,
+    `consume_commit_certificate` (CUALQUIER referencia: Name/Attribute/`getattr` string/`from…import`) — ni CONSTRUYE
+    `CommitCertificate(...)`. Escanea TODOS los `.py` versionados (`git ls-files`), excluye `tests/` (con sus propias
+    pruebas adversariales). Fail-closed: si git o el parseo fallan, es un problema."""
+    files = _git_tracked_py()
+    if not files:
+        return ["git ls-files no devolvió .py (fail-closed)"]
+    problems: list[str] = []
+    for rel in files:
+        if rel.startswith("tests/") or rel in _AUTHORITY_EXEMPT:
+            continue
+        try:
+            with open(rel, encoding="utf-8") as fh:
+                tree = ast.parse(fh.read())
+        except (OSError, SyntaxError) as exc:
+            problems.append(f"✗ {rel}: ilegible/no parseable ({exc}) (fail-closed)")
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id in _AUTHORITY_PRIMITIVES:
+                problems.append(f"{rel}:{node.lineno} referencia la primitiva de autoridad {node.id!r} fuera de la fábrica/consumidor")  # fmt: skip
+            elif isinstance(node, ast.Attribute) and node.attr in _AUTHORITY_PRIMITIVES:
+                problems.append(f"{rel}:{node.lineno} referencia la primitiva de autoridad .{node.attr} fuera de la fábrica/consumidor")  # fmt: skip
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in _AUTHORITY_PRIMITIVES:
+                problems.append(f"{rel}:{getattr(node, 'lineno', '?')} nombra la primitiva {node.value!r} como string (getattr/__dict__)")  # fmt: skip
+            elif isinstance(node, ast.ImportFrom) and any(a.name in _AUTHORITY_PRIMITIVES for a in node.names):
+                problems.append(f"{rel}:{node.lineno} importa una primitiva de autoridad del certificado")
+            elif isinstance(node, ast.Call) and ((isinstance(node.func, ast.Name) and node.func.id == "CommitCertificate") or (isinstance(node.func, ast.Attribute) and node.func.attr == "CommitCertificate")):  # fmt: skip
+                problems.append(
+                    f"{rel}:{node.lineno} CONSTRUYE CommitCertificate fuera de la fábrica _build_certificate"
+                )
+    return problems
+
+
 def _within_node(outer: ast.AST, inner: ast.AST) -> bool:
     lo = getattr(outer, "lineno", -1)
     hi = getattr(outer, "end_lineno", lo)
@@ -251,6 +302,7 @@ def main() -> int:
     except (OSError, SyntaxError) as exc:
         print(f"✗ {_FACTORY_TARGET}: ilegible/no parseable ({exc}) (fail-closed)")
         return 1
+    problems += authority_scope_problems()  # B237: barrido del árbol versionado COMPLETO (nadie más toca la autoridad)
     if problems:
         print("✗ frontera de commit violada:")
         for p in problems:

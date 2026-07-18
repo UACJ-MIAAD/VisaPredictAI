@@ -931,11 +931,12 @@ class _TxContext:
     def mark_current_certified(self, certificate: object, *, expected_campaign: str | None) -> None:
         """ÚNICO punto que declara el commit CRUZADO. B222/B231/B234: consume un CommitCertificate REAL (semántica +
         LIGADO a la campaña) Y EMITIDO por la fábrica (procedencia runtime, uso único), JAMÁS un bool ni un objeto
-        construido/copiado. Sólo desde CURRENT_CAS_STARTED."""
+        construido/copiado. Sólo desde CURRENT_CAS_STARTED. B236: la TRANSICIÓN se valida ANTES de consumir — un estado
+        inválido NO destruye el certificado (la autoridad sobrevive para un intento correcto)."""
         _validate_commit_certificate(certificate, expected_campaign=expected_campaign)  # forma/semántica/evidencia
-        _consume_issued_certificate(certificate)  # B234: procedencia de la fábrica + consumo único (no replay/copia)
-        if self.state != _S_CURRENT_CAS_STARTED:
+        if self.state != _S_CURRENT_CAS_STARTED:  # B236: valida la transición ANTES de gastar la autoridad
             raise RollbackError(f"CURRENT_CERTIFIED sólo desde CURRENT_CAS_STARTED (estado {self.state!r})")
+        _consume_issued_certificate(certificate)  # B234: procedencia de la fábrica + consumo único (no replay/copia)
         self.certificate = certificate
         self.state = _S_CURRENT_CERTIFIED
         self._committed = True
@@ -943,11 +944,15 @@ class _TxContext:
     def mark_committed_incomplete(self, certificate: object, *, expected_campaign: str | None) -> None:
         """El CAS de CURRENT CRUZÓ (reconciliado como autoridad NUEVA válida y durable) pero quedó estado post-commit
         incompleto. B221/B222/B231/B234: exige el CommitCertificate REAL de la autoridad cruzada (ligado a la campaña) Y
-        EMITIDO por la fábrica, jamás sólo 'CAS iniciado' ni un cert fabricado."""
+        EMITIDO por la fábrica, jamás sólo 'CAS iniciado' ni un cert fabricado. B236: SÓLO desde CURRENT_CAS_STARTED (el
+        cert NO se consumió en esta rama; desde CURRENT_CERTIFIED ya se habría consumido → replay); consumo TRAS validar
+        la transición."""
         _validate_commit_certificate(certificate, expected_campaign=expected_campaign)  # forma/semántica/evidencia
+        if (
+            self.state != _S_CURRENT_CAS_STARTED
+        ):  # B236: transición ANTES de consumir; CURRENT_CERTIFIED ya gastó el cert
+            raise RollbackError(f"COMMITTED_INCOMPLETE exige evidencia de CAS cruzado sin certificar (estado {self.state!r})")  # fmt: skip
         _consume_issued_certificate(certificate)  # B234: procedencia de la fábrica + consumo único
-        if self.state not in (_S_CURRENT_CAS_STARTED, _S_CURRENT_CERTIFIED):
-            raise RollbackError(f"COMMITTED_INCOMPLETE exige evidencia de CAS cruzado (estado {self.state!r})")
         self.certificate = certificate
         self.state = _S_COMMITTED_INCOMPLETE
         self._committed = True

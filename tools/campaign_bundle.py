@@ -902,29 +902,61 @@ def _validate_authority(camp_fd: int, bundle_id: str) -> None:
     _authority_manifest(camp_fd, bundle_id)
 
 
-_MAX_LINEAGE_DEPTH = (
-    100_000  # B230: tope anti-DoS del recorrido de linaje (los bundles inmutables persisten en el store)
-)
+_MAX_LINEAGE_DEPTH = 4096  # B239: tope anti-DoS OPERATIVO (una cadena real de commits mensuales no se le acerca)
 
 
-def _walk_lineage(camp_fd: int, bundle_id: str, manifest: dict) -> int:
-    """B230: recorre la cadena `previous_bundle_id` desde `bundle_id`, VALIDANDO cada bundle ancestro (existe y
-    `bundle_id == sha256(manifest)`, así un ancestro alterado o inexistente ROMPE el linaje). `visited` detecta ciclos
-    (aunque un ciclo real es un punto fijo de hash, inconstruible) y un tope de profundidad acota el trabajo (anti-DoS).
-    La campaña PUEDE cambiar entre eslabones (campañas distintas encadenan legítimamente). Devuelve la profundidad."""
-    visited = {bundle_id}
-    prev = manifest["previous_bundle_id"]
-    depth = 0
-    while prev is not None:
-        depth += 1
-        if depth > _MAX_LINEAGE_DEPTH:
-            raise BundleValidationError(f"cadena de linaje excede el tope {_MAX_LINEAGE_DEPTH} (posible DoS)")
-        if prev in visited:  # defensa explícita (un ciclo content-addressed es inconstruible)
-            raise BundleValidationError(f"ciclo de linaje detectado en {prev}")
-        visited.add(prev)
-        prev_manifest = _authority_manifest(camp_fd, prev)  # valida el ancestro (existe + bundle_id==sha(manifest))
-        prev = prev_manifest["previous_bundle_id"]
-    return depth
+def _walk_lineage(camp_fd: int, bundle_id: str, manifest: dict) -> tuple[int, str]:
+    """B230/B238/B239: recorre la cadena `previous_bundle_id` y captura un SNAPSHOT COHERENTE de todos los ancestros.
+    MANTIENE ABIERTO el fd del directorio de CADA ancestro durante el recorrido COMPLETO (nada se cierra a mitad, cerrando
+    la ventana no-atómica B238) y, al final, RE-VERIFICA que cada ancestro (a) siga ligado al MISMO inode por su nombre
+    (sin rebind) y (b) su manifiesto no cambió (mismo `bundle_id == sha`). Así una mutación in-place O un rebind por
+    rename de un ancestro DURANTE el recorrido se caza. `visited` anti-ciclo + tope anti-DoS operativo (B239). Devuelve
+    `(profundidad, lineage_evidence_digest)` — un digest canónico del snapshot ordenado (ids + inodes + digests).
+    ⚠️ LÍMITE HONESTO: los fds vivos + la re-verificación protegen frente a escritores COOPERATIVOS del mismo UID;
+    código arbitrario que comprometa el host (swap de inodes bajo el fd, agotar recursos) requiere controles del SO — NO
+    se promete atomicidad absoluta frente al compromiso completo del host."""
+    broot = _open_dir(camp_fd, _BUNDLES_DIR, mode=0o700)
+    held: list[tuple[str, int, tuple[int, int], str]] = []  # (bundle_id, dir_fd VIVO, dir_ident, manifest_digest)
+    try:
+        visited = {bundle_id}
+        prev = manifest["previous_bundle_id"]
+        depth = 0
+        while prev is not None:  # 1ª pasada: abre+valida cada ancestro y RETIENE su fd
+            depth += 1
+            if depth > _MAX_LINEAGE_DEPTH:
+                raise BundleValidationError(f"cadena de linaje excede el tope {_MAX_LINEAGE_DEPTH} (anti-DoS)")
+            if prev in visited:  # defensa explícita (un ciclo content-addressed es inconstruible)
+                raise BundleValidationError(f"ciclo de linaje detectado en {prev}")
+            visited.add(prev)
+            try:
+                bfd = _open_dir(broot, prev, mode=0o700)
+            except FileNotFoundError as exc:
+                raise BundleValidationError(f"ancestro de linaje inexistente {prev}") from exc
+            dir_ident = _ident(os.fstat(bfd))
+            prev_manifest = _validate_bundle_at(bfd, prev)  # existe + bundle_id==sha(manifest) A TRAVÉS del fd vivo
+            held.append((prev, bfd, dir_ident, hashlib.sha256(_canon(prev_manifest)).hexdigest()))
+            prev = prev_manifest["previous_bundle_id"]
+        for bid, bfd, dir_ident, mdigest in held:  # 2ª pasada B238: RE-VERIFICA el snapshot COMPLETO como una unidad
+            namefd = _open_dir(broot, bid, mode=0o700)  # el nombre debe seguir ligado al MISMO inode (sin rebind)
+            try:
+                if _ident(os.fstat(namefd)) != dir_ident:
+                    raise BundleValidationError(f"ancestro {bid} re-ligado a otro inode durante el recorrido (no atómico)")  # fmt: skip
+            finally:
+                os.close(namefd)
+            if _ident(os.fstat(bfd)) != dir_ident:  # el fd vivo no cambió de identidad
+                raise BundleValidationError(f"el fd del ancestro {bid} cambió de identidad")
+            reval = _validate_bundle_at(bfd, bid)  # el manifiesto no cambió in-place (via el fd vivo)
+            if hashlib.sha256(_canon(reval)).hexdigest() != mdigest:
+                raise BundleValidationError(f"el manifiesto del ancestro {bid} cambió durante el recorrido")
+        evidence = _canon([[bid, list(dir_ident), mdigest] for bid, _, dir_ident, mdigest in held])
+        return depth, hashlib.sha256(evidence).hexdigest()
+    finally:
+        for _, bfd, _, _ in held:
+            try:
+                os.close(bfd)
+            except OSError:
+                pass
+        os.close(broot)
 
 
 def _certify_current(camp_fd: int, prepared: _PreparedBundle, pbytes: bytes, tmp_ident: tuple[int, int], prev_id: str | None) -> CommitCertificate:  # fmt: skip
@@ -1372,9 +1404,9 @@ def validate_current_report(camp_fd: int) -> dict:
     manifiesto/CSV alterado, contrato incorrecto, symlink/FIFO en el puntero, o un ANCESTRO inexistente/alterado)."""
     with _BundleSnapshot(camp_fd) as snap:  # resuelve+valida el bundle COMPLETO a través del fd (validación fuerte)
         bundle_id, manifest, prev_id = snap.bundle_id, snap.manifest, snap.previous_bundle_id
-    lineage_depth = _walk_lineage(
+    lineage_depth, lineage_evidence_digest = _walk_lineage(
         camp_fd, bundle_id, manifest
-    )  # B230: recorre y VALIDA la cadena COMPLETA de ancestros
+    )  # B230/B238: snapshot COHERENTE
     prov = manifest["provenance"]
     return {
         "status": "valid",
@@ -1383,6 +1415,7 @@ def validate_current_report(camp_fd: int) -> dict:
         "bundle_id": bundle_id,
         "previous_bundle_id": prev_id,
         "lineage_depth": lineage_depth,  # B230: nº de ancestros validados en la cadena (0 = CAS inicial)
+        "lineage_evidence_digest": lineage_evidence_digest,  # B238: digest canónico del snapshot coherente de ancestros
         "campaign_id": manifest["campaign_id"],
         "schema_version": manifest["schema_version"],
         "manifest_digest": hashlib.sha256(_canon(manifest)).hexdigest(),

@@ -2943,3 +2943,37 @@ def test_b234_fabricated_cert_in_committed_state_error_no_commit():
     with pytest.raises(mcp.RollbackError):
         c.mark_committed_incomplete(fabricated, expected_campaign="c")
     assert not c.commit_reached  # una autoridad fabricada jamas cruza la frontera
+
+
+def _cas_started_ctx():
+    c = mcp._TxContext()
+    c.transition(mcp._S_PROJECTIONS_DURABLE)
+    c.transition(mcp._S_RECEIPT_CERTIFIED)
+    c.transition(mcp._S_CURRENT_CAS_STARTED)
+    return c
+
+
+def test_b236_invalid_state_does_not_consume_certificate():
+    # B236: si la transicion es invalida, mark_current_certified NO consume el cert -> la autoridad sobrevive para un
+    # intento CORRECTO; y un replay tras un consumo valido si falla. Ningun fallo pre-latch deja _committed=True.
+    cert = _durable_cert()  # emitido por la fabrica (registrado)
+    bad = mcp._TxContext()  # estado PREPARING (no CURRENT_CAS_STARTED)
+    with pytest.raises(mcp.RollbackError):
+        bad.mark_current_certified(cert, expected_campaign="c")
+    assert not bad.commit_reached  # nada cruza
+    ok = _cas_started_ctx()  # el MISMO cert (no consumido) se acepta desde el estado correcto
+    ok.mark_current_certified(cert, expected_campaign="c")
+    assert ok.commit_reached
+    replay = _cas_started_ctx()  # replay tras consumo valido -> rechazado, sin cruzar
+    with pytest.raises(mcp.RollbackError):
+        replay.mark_current_certified(cert, expected_campaign="c")
+    assert not replay.commit_reached
+
+
+def test_b236_committed_incomplete_only_from_cas_started():
+    # B236: mark_committed_incomplete SOLO desde CURRENT_CAS_STARTED — desde CURRENT_CERTIFIED el cert ya se gasto
+    # (intentar re-consumirlo seria un replay). La rama CURRENT_CERTIFIED se elimino.
+    c = _cas_started_ctx()
+    c.mark_current_certified(_durable_cert(), expected_campaign="c")  # -> CURRENT_CERTIFIED (cert consumido)
+    with pytest.raises(mcp.RollbackError):
+        c.mark_committed_incomplete(_durable_cert(), expected_campaign="c")  # desde CURRENT_CERTIFIED -> rechazado

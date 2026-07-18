@@ -1384,3 +1384,47 @@ def test_b230_lineage_different_campaigns_ok(tmp_path):
         assert rep["status"] == "valid" and rep["campaign_id"] == "campB" and rep["lineage_depth"] == 1
     finally:
         os.close(cfd)
+
+
+def test_b238_mid_walk_ancestor_mutation_caught(tmp_path, monkeypatch):
+    # B238: la validacion de linaje es un SNAPSHOT COHERENTE — si un ancestro se muta DURANTE el recorrido (tras
+    # validarse pero antes de emitir), la re-verificacion del snapshot completo lo caza (no-atomicidad cerrada).
+    camp, cfd = _camp(tmp_path)
+    try:
+        a = _commit(cfd, "tx.a")
+        b = _commit(cfd, "tx.b", suffix="b")
+        _commit(cfd, "tx.c", suffix="c")  # cadena C->B->A
+        man_b = camp / ".merge-bundles" / b / "manifest.json"
+        real = cb._validate_bundle_at
+        state = {"done": False}
+
+        def hooked(bfd, bid):
+            r = real(bfd, bid)
+            if bid == a and not state["done"]:  # tras validar A (mas profundo) en la 1a pasada, un tercero muta B
+                state["done"] = True
+                os.chmod(man_b, 0o600)
+                d = json.loads(man_b.read_text())
+                d["txid"] = str(d["txid"]) + "X"
+                man_b.write_text(json.dumps(d))
+            return r
+
+        monkeypatch.setattr(cb, "_validate_bundle_at", hooked)
+        with pytest.raises(cb.BundleError):  # la 2a pasada (re-verificacion) caza la mutacion de B
+            cb.validate_current_report(cfd)
+    finally:
+        os.close(cfd)
+
+
+def test_b239_lineage_depth_cap_operative(tmp_path, monkeypatch):
+    # B239: el tope anti-DoS es OPERATIVO (4096, no 100_000) y rechaza una cadena que lo excede.
+    assert cb._MAX_LINEAGE_DEPTH == 4096
+    camp, cfd = _camp(tmp_path)
+    try:
+        _commit(cfd, "tx.a")
+        _commit(cfd, "tx.b", suffix="b")
+        _commit(cfd, "tx.c", suffix="c")  # profundidad de linaje = 2
+        monkeypatch.setattr(cb, "_MAX_LINEAGE_DEPTH", 1)
+        with pytest.raises(cb.BundleValidationError):  # 2 > 1 -> rechazado, tiempo acotado
+            cb.validate_current_report(cfd)
+    finally:
+        os.close(cfd)

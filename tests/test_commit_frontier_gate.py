@@ -148,3 +148,29 @@ def test_gate_flags_registry_mutated_outside_authorized():
         1,
     )
     assert any("_ISSUED_CERTS mutado" in p for p in gate.factory_problems(bad)), "mutar el registro fuera debe fallar"
+
+
+def test_gate_b237_flags_stray_authority_use(tmp_path, monkeypatch):
+    # B237: un modulo de produccion FUERA de la fabrica/consumidor/gate que toque las primitivas de autoridad del
+    # certificado (registro/consumo/registro-global/getattr/import/construccion) debe fallar el barrido de todo el arbol.
+    stray = tmp_path / "stray.py"
+    stray.write_text(
+        "import tools.campaign_bundle as cb\n"
+        "cb._register_certificate(x)\n"
+        "cb.consume_commit_certificate(y)\n"
+        "z = getattr(cb, '_ISSUED_CERTS')\n"
+        "from tools.campaign_bundle import consume_commit_certificate\n"
+        "c = cb.CommitCertificate(a=1)\n"
+    )
+    monkeypatch.setattr(gate, "_git_tracked_py", lambda: [str(stray)])
+    probs = gate.authority_scope_problems()
+    assert any("_register_certificate" in p for p in probs), "registro fuera de la fabrica debe fallar"
+    assert any("consume_commit_certificate" in p for p in probs), "consumo fuera del consumidor debe fallar"
+    assert any("_ISSUED_CERTS" in p for p in probs), "getattr del registro debe fallar"
+    assert any("CONSTRUYE CommitCertificate" in p for p in probs), "construccion fuera de la fabrica debe fallar"
+
+
+def test_gate_b237_fail_closed_on_git_failure(monkeypatch):
+    # B237: si git ls-files no devuelve .py, es un problema (fail-closed), no un pase silencioso.
+    monkeypatch.setattr(gate, "_git_tracked_py", list)
+    assert gate.authority_scope_problems(), "git vacio debe fallar cerrado"
