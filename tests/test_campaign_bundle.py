@@ -1516,3 +1516,32 @@ def test_b246_lineage_digest_reproducible_and_policy_cap(tmp_path, monkeypatch):
             cb.validate_current_report(cfd)
     finally:
         os.close(cfd)
+
+
+def test_b248_post_cas_lock_rebind_is_committed_not_rollback(tmp_path, monkeypatch):
+    # B248 (critico): si el lock se re-liga DESPUES de que _run_commit cruzo CURRENT durable, commit_current NO debe
+    # elevar un BundleValidationError pre-CAS (que dispararia rollback) — debe RECONCILIAR y elevar CommittedStateError
+    # con el certificado real. CURRENT queda cruzado al bundle nuevo.
+    camp, cfd = _camp(tmp_path)
+    try:
+        _commit(cfd, "tx.a")  # CURRENT=A; crea el lock file
+        real = cb._run_commit
+
+        def hooked(camp_fd, quar, prepared):
+            cert = real(camp_fd, quar, prepared)  # CAS real -> CURRENT cruza a B
+            os.rename(cb._AUTHORITY_LOCK_NAME, cb._AUTHORITY_LOCK_NAME + ".x", src_dir_fd=camp_fd, dst_dir_fd=camp_fd)
+            fd = os.open(
+                cb._AUTHORITY_LOCK_NAME, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=camp_fd
+            )
+            os.close(fd)  # rebind del inode del lock DESPUES del cruce
+            return cert
+
+        monkeypatch.setattr(cb, "_run_commit", hooked)
+        prepared = cb.prepare_bundle(cfd, "tx.b", "campA", _outputs("b"), _inputs(), _prov())
+        bexp = prepared.bundle_id
+        with pytest.raises(cb.CommittedStateError) as ei:
+            cb.commit_current(prepared)
+        assert ei.value.certificate.bundle_id == bexp  # el cert de la autoridad CRUZADA
+        assert cb._read_current(cfd)[0]["bundle_id"] == bexp  # CURRENT quedo cruzado a B (sin rollback)
+    finally:
+        os.close(cfd)

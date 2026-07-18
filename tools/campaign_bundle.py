@@ -1146,11 +1146,19 @@ def commit_current(prepared: _PreparedBundle) -> CommitCertificate:
         with _authority_lock(
             camp_fd, exclusive=True
         ) as lk:  # B240: escritor — excluye lectores del linaje durante el CAS
-            lk.reverify()  # B244: checkpoint ANTES del CAS
-            cert = _run_commit(camp_fd, quar, prepared)
-            lk.reverify()  # B244: checkpoint DESPUÉS del CAS (el lock no fue re-ligado mientras cruzaba)
+            lk.reverify()  # B244: checkpoint PRE-autoridad (un fallo aquí es PRE-CAS: no cruzó)
+            cert = _run_commit(camp_fd, quar, prepared)  # cert ⇒ CURRENT cruzó DURABLE
+            lk.reverify()  # B244: checkpoint POST-CAS (el lock no fue re-ligado mientras cruzaba)
     except BaseException as exc:  # noqa: BLE001 — se re-eleva tras adjuntar los errores de cierre (B204)
         primary = exc
+    # B248: si el commit YA cruzó (`cert` durable) y un paso POSTERIOR falló (reverify/unlock/close del lock del `with`),
+    # ese fallo es POST-AUTORIDAD: se RECONCILIA CURRENT fd-bound (CommittedStateError/AuthorityIndeterminate), JAMÁS se
+    # re-eleva como un error pre-CAS que dispararía rollback de las proyecciones sobre una autoridad ya cruzada.
+    if cert is not None and primary is not None and not isinstance(primary, (CommittedStateError, AuthorityIndeterminateError, KeyboardInterrupt, SystemExit)):  # fmt: skip
+        try:
+            _reconcile_and_raise(camp_fd, prepared, prepared._ident, cert.previous_bundle_id, primary, "post-authority")
+        except BundleError as exc:  # _reconcile_and_raise SIEMPRE eleva un BundleError con el TIPO taxonómico correcto
+            primary = exc
     close_errs = quar.close()  # B193/B204: los errores de cierre NUNCA se descartan
     if primary is not None:
         if isinstance(primary, (KeyboardInterrupt, SystemExit)):  # B204: no convertir en error de dominio
