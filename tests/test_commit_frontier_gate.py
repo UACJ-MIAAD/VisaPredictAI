@@ -269,3 +269,21 @@ def test_gate_b249_alias_propagation_and_dotted(tmp_path, monkeypatch):
         f.write_text(src)
         monkeypatch.setattr(gate, "_git_tracked_py", lambda ff=f: [str(ff)])
         assert gate.authority_scope_problems(), f"evasion {name} debe fallar"
+
+
+def test_gate_b249_taint_obfuscation(tmp_path, monkeypatch):
+    # B249 (fail-closed): un destino asignado desde CUALQUIER expresion que CONTENGA una ref al modulo (list-index,
+    # tuple-unpack, dict-value) se trata como posible alias -> getattr dinamico sobre el se caza.
+    for name, src in {
+        "list_index": "import tools.campaign_bundle as cb\nx = [cb][0]\ngetattr(x, name)(z)\n",
+        "tuple_unpack": "import tools.campaign_bundle as cb\na, b = cb, 1\ngetattr(a, name)(z)\n",
+        "dict_value": "import tools.campaign_bundle as cb\nx = {'m': cb}['m']\ngetattr(x, name)(z)\n",
+    }.items():
+        f = tmp_path / f"{name}.py"
+        f.write_text(src)
+        monkeypatch.setattr(gate, "_git_tracked_py", lambda ff=f: [str(ff)])
+        assert gate.authority_scope_problems(), f"ofuscacion {name} debe fallar (fail-closed)"
+
+
+def test_gate_b249_real_code_clean():
+    assert not gate.authority_scope_problems()  # el arbol real no dispara falsos positivos del taint

@@ -308,10 +308,19 @@ def _cb_module_refs(tree: ast.AST) -> tuple[set[str], bool]:
             for a in node.names:
                 if a.name == "campaign_bundle":
                     aliases.add(a.asname or "campaign_bundle")
-    for _ in range(4):  # propaga `y = x` (x alias) → y alias; varias pasadas para cadenas
+    for _ in range(6):  # propaga alias por varias pasadas (cadenas): `y = x`, `a, b = cb, y`, y taint conservador
         for node in ast.walk(tree):
-            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Name) and node.value.id in aliases:  # fmt: skip
-                aliases.add(node.targets[0].id)
+            if not isinstance(node, ast.Assign):
+                continue
+            if len(node.targets) == 1 and isinstance(node.targets[0], (ast.Tuple, ast.List)) and isinstance(node.value, (ast.Tuple, ast.List)) and len(node.targets[0].elts) == len(node.value.elts):  # fmt: skip
+                for tgt, val in zip(node.targets[0].elts, node.value.elts, strict=True):  # desempaquetado: a, b = cb, y
+                    if isinstance(tgt, ast.Name) and _is_cb_ref(val, aliases, dotted):
+                        aliases.add(tgt.id)
+            for tgt in (t for t in node.targets if isinstance(t, ast.Name)):
+                # CONSERVADOR (fail-closed): si el VALOR contiene EN CUALQUIER PARTE una ref al módulo de autoridad, el
+                # destino PUEDE aliasarlo (`x = cb`, `x = [cb][0]`, `x = (cb,)[i]`, `x = {..: cb}[..]`) → se trata como ref.
+                if any(_is_cb_ref(n, aliases, dotted) for n in ast.walk(node.value)):
+                    aliases.add(tgt.id)
     return aliases, dotted
 
 
