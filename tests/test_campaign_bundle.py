@@ -1415,16 +1415,112 @@ def test_b238_mid_walk_ancestor_mutation_caught(tmp_path, monkeypatch):
         os.close(cfd)
 
 
-def test_b239_lineage_depth_cap_operative(tmp_path, monkeypatch):
-    # B239: el tope anti-DoS es OPERATIVO (4096, no 100_000) y rechaza una cadena que lo excede.
-    assert cb._MAX_LINEAGE_DEPTH == 4096
+def test_b239_b243_lineage_cap_budgeted(tmp_path, monkeypatch):
+    # B239/B243: el tope es EFECTIVO = min(politica 1024, soft_nofile - reserva 128), cruzado contra RLIMIT_NOFILE.
+    assert cb._POLICY_MAX_LINEAGE == 1024 and cb._FD_RESERVE == 128
+    assert 0 < cb._effective_lineage_max() <= 1024
     camp, cfd = _camp(tmp_path)
     try:
         _commit(cfd, "tx.a")
         _commit(cfd, "tx.b", suffix="b")
         _commit(cfd, "tx.c", suffix="c")  # profundidad de linaje = 2
-        monkeypatch.setattr(cb, "_MAX_LINEAGE_DEPTH", 1)
+        monkeypatch.setattr(cb, "_effective_lineage_max", lambda: 1)
         with pytest.raises(cb.BundleValidationError):  # 2 > 1 -> rechazado, tiempo acotado
             cb.validate_current_report(cfd)
+        monkeypatch.setattr(cb, "_effective_lineage_max", lambda: 0)  # sin presupuesto de fds -> aborta
+        with pytest.raises(cb.BundleValidationError):
+            cb.validate_current_report(cfd)
+    finally:
+        os.close(cfd)
+
+
+def test_b241_no_fd_leak_on_repeated_lineage_failure(tmp_path):
+    # B241: validaciones de linaje que FALLAN repetidamente NO fugan descriptores (el fd se registra al abrir).
+    camp, cfd = _camp(tmp_path)
+    try:
+        a = _commit(cfd, "tx.a")
+        _commit(cfd, "tx.b", suffix="b")  # CURRENT=B, previous=A
+        man = camp / ".merge-bundles" / a / "manifest.json"
+        os.chmod(man, 0o600)
+        d = json.loads(man.read_text())
+        d["txid"] = str(d["txid"]) + "X"
+        man.write_text(json.dumps(d))  # A alterado -> el recorrido de linaje falla
+        before = len(os.listdir("/dev/fd"))
+        for _ in range(50):
+            with pytest.raises(cb.BundleError):
+                cb.validate_current_report(cfd)
+        assert len(os.listdir("/dev/fd")) - before <= 1, "fuga de descriptores en el recorrido fallido"
+    finally:
+        os.close(cfd)
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+def test_b240_authority_lock_shared_exclusive(tmp_path):
+    # B240: el lock de autoridad da instantanea entre procesos COOPERATIVOS: EX excluye SH, dos SH coexisten.
+    import fcntl as _f
+
+    camp = tmp_path / "reports" / "campaign"
+    camp.mkdir(parents=True)
+    cfd = os.open(str(camp), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with cb._authority_lock(cfd, exclusive=False):  # crea el lock file gobernado
+            pass
+
+        def child_holds(exclusive):
+            held_r, held_w = os.pipe()
+            rel_r, rel_w = os.pipe()
+            pid = os.fork()
+            if pid == 0:  # hijo: toma el lock, senala, espera release
+                os.close(held_r)
+                os.close(rel_w)
+                f = os.open(cb._AUTHORITY_LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW, dir_fd=cfd)
+                _f.flock(f, _f.LOCK_EX if exclusive else _f.LOCK_SH)
+                os.write(held_w, b"1")
+                os.read(rel_r, 1)
+                os._exit(0)
+            os.close(held_w)
+            os.close(rel_r)
+            os.read(held_r, 1)  # espera "held"
+            return pid, rel_w, held_r
+
+        pid, rel_w, held_r = child_holds(True)  # 1. EX en el hijo excluye SH en el padre
+        f = os.open(cb._AUTHORITY_LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW, dir_fd=cfd)
+        try:
+            with pytest.raises(BlockingIOError):
+                _f.flock(f, _f.LOCK_SH | _f.LOCK_NB)
+        finally:
+            os.close(f)
+            os.write(rel_w, b"1")
+            os.close(rel_w)
+            os.close(held_r)
+            os.waitpid(pid, 0)
+
+        pid, rel_w, held_r = child_holds(False)  # 2. dos SH coexisten
+        f = os.open(cb._AUTHORITY_LOCK_NAME, os.O_RDWR | os.O_NOFOLLOW, dir_fd=cfd)
+        try:
+            _f.flock(f, _f.LOCK_SH | _f.LOCK_NB)  # sin BlockingIOError
+            _f.flock(f, _f.LOCK_UN)
+        finally:
+            os.close(f)
+            os.write(rel_w, b"1")
+            os.close(rel_w)
+            os.close(held_r)
+            os.waitpid(pid, 0)
+    finally:
+        os.close(cfd)
+
+
+def test_b240_lock_governance_fail_closed(tmp_path):
+    # B240 (robo/recreacion del inode del lock): un lock file no gobernado (modo != 0600) hace fail-closed.
+    camp = tmp_path / "reports" / "campaign"
+    camp.mkdir(parents=True)
+    cfd = os.open(str(camp), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        f = os.open(cb._AUTHORITY_LOCK_NAME, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=cfd)
+        os.close(f)
+        os.chmod(cb._AUTHORITY_LOCK_NAME, 0o666, dir_fd=cfd)  # modo ajeno -> no gobernado
+        with pytest.raises(cb.BundleValidationError):
+            with cb._authority_lock(cfd, exclusive=False):
+                pass
     finally:
         os.close(cfd)

@@ -210,8 +210,19 @@ def factory_problems(src: str) -> list[str]:
 
 _AUTHORITY_PRIMITIVES = ("_register_certificate", "_ISSUED_CERTS", "consume_commit_certificate")
 _GATE_SELF = "tools/check_commit_frontier.py"
-# Módulos con gate dedicado (no se re-escanean por el barrido global): la fábrica, el consumidor y el propio gate.
-_AUTHORITY_EXEMPT = frozenset({_FACTORY_TARGET, _TARGET, _GATE_SELF})
+# B242: allowlist POR OCURRENCIA. `{módulo: {primitiva: {funciones permitidas}}}`; `None` = nivel de módulo
+# (definición/anotación). Un uso de una primitiva FUERA de estos sitios exactos —en CUALQUIER módulo, incluidos la
+# fábrica y el consumidor— es una violación. Ya no hay módulos exentos por bloque; sólo el propio gate y `tests/`.
+_AUTHORITY_ALLOW: dict[str, dict[str, frozenset]] = {
+    _FACTORY_TARGET: {  # campaign_bundle: la fábrica registra; register/consume mutan el registro; el resto NADA
+        "_register_certificate": frozenset({"_build_certificate", "_register_certificate"}),
+        "_ISSUED_CERTS": frozenset({"_register_certificate", "consume_commit_certificate", None}),
+        "consume_commit_certificate": frozenset({"consume_commit_certificate"}),
+    },
+    _TARGET: {  # merge: SÓLO el wrapper `_consume_issued_certificate` consume
+        "consume_commit_certificate": frozenset({"_consume_issued_certificate"}),
+    },
+}
 
 
 def _git_tracked_py() -> list[str]:
@@ -224,18 +235,52 @@ def _git_tracked_py() -> list[str]:
     return [ln for ln in out.stdout.splitlines() if ln.strip()]
 
 
+def _const_str(node: ast.AST) -> str | None:
+    """B242: resuelve un nodo a un string CONSTANTE si es determinable estáticamente — literal, concatenación `a + b` de
+    constantes, o f-string SIN partes dinámicas. Cierra el bypass `getattr(x, "_reg" + "ister_certificate")`."""
+    if isinstance(node, ast.Constant):
+        return node.value if isinstance(node.value, str) else None
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        lft, rgt = _const_str(node.left), _const_str(node.right)
+        return None if lft is None or rgt is None else lft + rgt
+    if isinstance(node, ast.JoinedStr):  # f-string: constante SÓLO si TODAS sus partes lo son (incl. `{"const"}`)
+        parts = []
+        for v in node.values:
+            if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                parts.append(v.value)
+            elif isinstance(v, ast.FormattedValue):
+                inner = _const_str(v.value)
+                if inner is None or v.format_spec is not None or v.conversion not in (-1, None):
+                    return None
+                parts.append(inner)
+            else:
+                return None
+        return "".join(parts)
+    return None
+
+
+def _enclosing_fn_name(funcs: list[ast.FunctionDef], lineno: int) -> str | None:
+    best: ast.FunctionDef | None = None
+    for fn in funcs:
+        if fn.lineno <= lineno <= (fn.end_lineno or fn.lineno) and (best is None or fn.lineno > best.lineno):
+            best = fn
+    return best.name if best else None
+
+
 def authority_scope_problems() -> list[str]:
-    """B237: NINGÚN módulo de producción FUERA de la fábrica (`campaign_bundle`), el consumidor autorizado (`merge`) y
-    el propio gate toca las primitivas de autoridad del certificado — `_register_certificate`, `_ISSUED_CERTS`,
-    `consume_commit_certificate` (CUALQUIER referencia: Name/Attribute/`getattr` string/`from…import`) — ni CONSTRUYE
-    `CommitCertificate(...)`. Escanea TODOS los `.py` versionados (`git ls-files`), excluye `tests/` (con sus propias
-    pruebas adversariales). Fail-closed: si git o el parseo fallan, es un problema."""
+    """B237/B242: ninguna referencia a las primitivas de autoridad del certificado (`_register_certificate`,
+    `_ISSUED_CERTS`, `consume_commit_certificate`) ocurre fuera de su sitio EXACTO autorizado (allowlist POR OCURRENCIA,
+    `_AUTHORITY_ALLOW`) — en NINGÚN módulo, incluidos la fábrica y el consumidor (ya NO hay exención por bloque). Cubre
+    Name / Attribute / `from…import` / string CONSTANTE (literal, concatenación, f-string constante → cierra
+    `getattr("_reg"+"ister…")` y `__dict__["_ISSUED_"+"CERTS"]`). `CommitCertificate(...)` se construye SÓLO en
+    `_build_certificate`. `exec`/`eval`/`compile` PROHIBIDOS en los módulos de autoridad (resolución dinámica no
+    verificable). Escanea TODOS los `.py` versionados (excluye sólo el gate y `tests/`). Fail-closed."""
     files = _git_tracked_py()
     if not files:
         return ["git ls-files no devolvió .py (fail-closed)"]
     problems: list[str] = []
     for rel in files:
-        if rel.startswith("tests/") or rel in _AUTHORITY_EXEMPT:
+        if rel == _GATE_SELF or rel.startswith("tests/"):
             continue
         try:
             with open(rel, encoding="utf-8") as fh:
@@ -243,19 +288,35 @@ def authority_scope_problems() -> list[str]:
         except (OSError, SyntaxError) as exc:
             problems.append(f"✗ {rel}: ilegible/no parseable ({exc}) (fail-closed)")
             continue
+        funcs = [fn for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef)]
+        allow = _AUTHORITY_ALLOW.get(rel, {})  # sin entrada → NINGÚN uso permitido en este módulo
         for node in ast.walk(tree):
+            if rel in _AUTHORITY_ALLOW and isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("exec", "eval", "compile"):  # fmt: skip
+                problems.append(f"{rel}:{node.lineno} usa {node.func.id}() en un módulo de autoridad (resolución dinámica prohibida)")  # fmt: skip
+            # resuelve el/los nombre(s) de primitiva que este nodo referencia
+            hit: str | None = None
             if isinstance(node, ast.Name) and node.id in _AUTHORITY_PRIMITIVES:
-                problems.append(f"{rel}:{node.lineno} referencia la primitiva de autoridad {node.id!r} fuera de la fábrica/consumidor")  # fmt: skip
+                hit = node.id
             elif isinstance(node, ast.Attribute) and node.attr in _AUTHORITY_PRIMITIVES:
-                problems.append(f"{rel}:{node.lineno} referencia la primitiva de autoridad .{node.attr} fuera de la fábrica/consumidor")  # fmt: skip
-            elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in _AUTHORITY_PRIMITIVES:
-                problems.append(f"{rel}:{getattr(node, 'lineno', '?')} nombra la primitiva {node.value!r} como string (getattr/__dict__)")  # fmt: skip
+                hit = node.attr
             elif isinstance(node, ast.ImportFrom) and any(a.name in _AUTHORITY_PRIMITIVES for a in node.names):
                 problems.append(f"{rel}:{node.lineno} importa una primitiva de autoridad del certificado")
-            elif isinstance(node, ast.Call) and ((isinstance(node.func, ast.Name) and node.func.id == "CommitCertificate") or (isinstance(node.func, ast.Attribute) and node.func.attr == "CommitCertificate")):  # fmt: skip
-                problems.append(
-                    f"{rel}:{node.lineno} CONSTRUYE CommitCertificate fuera de la fábrica _build_certificate"
-                )
+            else:
+                cs = _const_str(node)
+                hit = cs if cs in _AUTHORITY_PRIMITIVES else None
+            if hit is not None:
+                fn = _enclosing_fn_name(funcs, getattr(node, "lineno", -1))
+                if fn == hit:  # la propia definición de la función homónima (cuerpo referenciándose)
+                    pass
+                elif fn in allow.get(hit, frozenset()):  # uso PERMITIDO por la allowlist por-ocurrencia
+                    pass
+                else:
+                    problems.append(f"{rel}:{getattr(node, 'lineno', '?')} usa la primitiva de autoridad {hit!r} fuera de sitio autorizado (fn={fn})")  # fmt: skip
+            if isinstance(node, ast.Call) and ((isinstance(node.func, ast.Name) and node.func.id == "CommitCertificate") or (isinstance(node.func, ast.Attribute) and node.func.attr == "CommitCertificate")):  # fmt: skip
+                fn = _enclosing_fn_name(funcs, node.lineno)
+                if not (rel == _FACTORY_TARGET and fn == "_build_certificate"):
+                    problems.append(f"{rel}:{node.lineno} CONSTRUYE CommitCertificate fuera de _build_certificate")
+    return problems
     return problems
 
 

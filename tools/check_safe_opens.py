@@ -34,7 +34,12 @@ _ONLINE = (
 # Registro POSITIVO: (fichero, función) donde una os.open de LECTURA (O_RDONLY) está autorizada — la fuente única.
 _READ_OPEN_ALLOWED: frozenset[tuple[str, str]] = frozenset({("tools/governed_read.py", "opened_regular_noblock_at")})
 # Registro POSITIVO de aperturas WR/RW (locks/manifiestos): (fichero, función) — NUNCA una lectura genérica.
-_RDWR_OPEN_ALLOWED: frozenset[tuple[str, str]] = frozenset({("tools/merge_campaign_pools.py", "_acquire_lock")})
+_RDWR_OPEN_ALLOWED: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("tools/merge_campaign_pools.py", "_acquire_lock"),
+        ("tools/campaign_bundle.py", "_authority_lock"),
+    }  # B240: lock gobernado
+)
 _READ_LIKE_ATTRS = frozenset({"read_text", "read_bytes"})  # Path(...).read_text() y variantes
 
 

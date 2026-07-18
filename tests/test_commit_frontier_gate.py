@@ -174,3 +174,43 @@ def test_gate_b237_fail_closed_on_git_failure(monkeypatch):
     # B237: si git ls-files no devuelve .py, es un problema (fail-closed), no un pase silencioso.
     monkeypatch.setattr(gate, "_git_tracked_py", list)
     assert gate.authority_scope_problems(), "git vacio debe fallar cerrado"
+
+
+def test_gate_b242_const_concat_bypass_detected(tmp_path, monkeypatch):
+    # B242: getattr(x, "_reg"+"ister_certificate") y __dict__["_ISSUED_"+"CERTS"] (concatenacion constante) se cazan.
+    stray = tmp_path / "stray.py"
+    stray.write_text(
+        "import tools.campaign_bundle as cb\n"
+        "getattr(cb, '_register_' + 'certificate')(x)\n"
+        "cb.__dict__['_ISSUED_' + 'CERTS']\n"
+        "getattr(cb, f'consume_{\"commit\"}_certificate')(y)\n"
+    )
+    monkeypatch.setattr(gate, "_git_tracked_py", lambda: [str(stray)])
+    probs = gate.authority_scope_problems()
+    assert any("_register_certificate" in p for p in probs), "concat en getattr debe fallar"
+    assert any("_ISSUED_CERTS" in p for p in probs), "concat en __dict__ debe fallar"
+    assert any("consume_commit_certificate" in p for p in probs), "f-string constante debe fallar"
+
+
+def test_gate_b242_authority_modules_are_scanned(tmp_path, monkeypatch):
+    # B242: los modulos de autoridad YA NO estan exentos por bloque — plantar 'registrar' o 'exec' en el consumidor
+    # (o construir/consumir en el sitio equivocado) se caza por la allowlist POR OCURRENCIA.
+    merge_like = tmp_path / "merge_like.py"
+    merge_like.write_text("def x():\n    _register_certificate(c)\n    exec('y')\n    consume_commit_certificate(z)\n")
+    monkeypatch.setattr(gate, "_git_tracked_py", lambda: [str(merge_like)])
+    monkeypatch.setitem(
+        gate._AUTHORITY_ALLOW,
+        str(merge_like),
+        {"consume_commit_certificate": frozenset({"_consume_issued_certificate"})},
+    )
+    probs = gate.authority_scope_problems()
+    assert any("_register_certificate" in p for p in probs), "registrar en el consumidor debe fallar"
+    assert any("exec()" in p for p in probs), "exec en un modulo de autoridad debe fallar"
+    assert any("consume_commit_certificate" in p and "fn=x" in p for p in probs), (
+        "consumir en fn no autorizada debe fallar"
+    )
+
+
+def test_gate_b242_real_code_clean():
+    # el codigo real (fabrica+consumidor+resto) pasa la allowlist por-ocurrencia
+    assert not gate.authority_scope_problems()
