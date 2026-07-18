@@ -2644,11 +2644,13 @@ def _durable_cert(bid: str = "a" * 64):
 
     # B226: un cert REAL durable liga al contrato CSV pineado (lo que produce _build_certificate); usar el sha pineado
     # para que la validación semántica lo acepte (los demás campos ya son semánticamente válidos).
-    return cb.CommitCertificate(
+    cert = cb.CommitCertificate(
         bundle_id=bid, previous_bundle_id=None, campaign_id="c", pointer_digest="b" * 64, pointer_inode=(1, 2),
         manifest_digest=bid, bundle_inode=(3, 4), csv_contract_sha256=cb._CSV_CONTRACT_SHA256, provenance_digest="e" * 64,
         durability_state="durable",
     )  # fmt: skip
+    cb._register_certificate(cert)  # B234: simula la EMISIÓN por la fábrica (procedencia runtime) para poder consumirlo
+    return cert
 
 
 def test_inc2_certificate_is_immutable():
@@ -2878,3 +2880,66 @@ def test_b231_dataclasses_replace_forgery_rejected():
     for over in ({"campaign_id": "evil"}, {"pointer_inode": (0, 0)}, {"bundle_inode": (0, 0)}, {"durability_state": "cas_crossed"}):  # fmt: skip
         with pytest.raises(mcp.RollbackError):
             mcp._validate_commit_certificate(dataclasses.replace(real, **over), expected_campaign="c")
+
+
+def _unregistered_cert(**over):
+    import tools.campaign_bundle as cb
+
+    base = dict(
+        bundle_id="a" * 64, previous_bundle_id=None, campaign_id="c", pointer_digest="b" * 64, pointer_inode=(1, 2),
+        manifest_digest="a" * 64, bundle_inode=(3, 4), csv_contract_sha256=cb._CSV_CONTRACT_SHA256,
+        provenance_digest="e" * 64, durability_state="durable",
+    )  # fmt: skip
+    base.update(over)
+    return cb.CommitCertificate(**base)  # NO registrado (construccion directa)
+
+
+def test_b234_certificate_provenance_and_single_use():
+    # B234: la autoridad exige PROCEDENCIA runtime de la fabrica, no solo forma. Un cert construido/copiado/reproducido
+    # NO esta registrado -> rechazado; el real se acepta una sola vez; dos hilos -> exactamente un ganador.
+    import copy
+    import dataclasses
+    import threading
+
+    import tools.campaign_bundle as cb
+
+    with pytest.raises(cb.BundleValidationError):  # 1 construccion directa
+        cb.consume_commit_certificate(_unregistered_cert())
+    real = _unregistered_cert()
+    cb._register_certificate(real)  # simula EMISION por la fabrica
+    with pytest.raises(cb.BundleValidationError):  # 2 dataclasses.replace no hereda autoridad
+        cb.consume_commit_certificate(dataclasses.replace(real, durability_state="durable"))
+    with pytest.raises(cb.BundleValidationError):  # 3 copy.copy no hereda autoridad
+        cb.consume_commit_certificate(copy.copy(real))
+    cb.consume_commit_certificate(real)  # 4 el real emitido -> aceptado
+    with pytest.raises(cb.BundleValidationError):  # 5 replay -> rechazado
+        cb.consume_commit_certificate(real)
+    real2 = _unregistered_cert()
+    cb._register_certificate(real2)  # 6 concurrencia: exactamente un ganador
+    wins: list[int] = []
+
+    def go():
+        try:
+            cb.consume_commit_certificate(real2)
+            wins.append(1)
+        except cb.BundleValidationError:
+            pass
+
+    ts = [threading.Thread(target=go) for _ in range(8)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert sum(wins) == 1
+
+
+def test_b234_fabricated_cert_in_committed_state_error_no_commit():
+    # B234 #7: un CommittedStateError con cert FABRICADO (forma valida, sin procedencia) NO activa commit_reached.
+    c = mcp._TxContext()
+    c.transition(mcp._S_PROJECTIONS_DURABLE)
+    c.transition(mcp._S_RECEIPT_CERTIFIED)
+    c.transition(mcp._S_CURRENT_CAS_STARTED)
+    fabricated = _unregistered_cert()  # semanticamente valido pero NO emitido por la fabrica
+    with pytest.raises(mcp.RollbackError):
+        c.mark_committed_incomplete(fabricated, expected_campaign="c")
+    assert not c.commit_reached  # una autoridad fabricada jamas cruza la frontera

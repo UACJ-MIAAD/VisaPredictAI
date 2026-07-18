@@ -884,6 +884,19 @@ def _validate_commit_certificate(certificate: object, *, expected_campaign: str 
         raise RollbackError(f"CommitCertificate.campaign_id ({camp!r}) != campaña fusionada ({expected_campaign!r})")
 
 
+def _consume_issued_certificate(certificate: object) -> None:
+    """B234: prueba que el cert fue EMITIDO por la fábrica del módulo bundle (procedencia runtime) y lo CONSUME (uso
+    único). Un cert construido directamente, copiado (`dataclasses.replace`/`copy`), deserializado o reproducido NO está
+    registrado → RollbackError. El validador estructural (arriba) YA no basta: la forma correcta no acredita la
+    procedencia."""
+    try:
+        _bundle.consume_commit_certificate(certificate)
+    except _bundle.BundleValidationError as exc:
+        raise RollbackError(
+            f"CommitCertificate no emitido por la fábrica o ya consumido (replay/copia): {exc}"
+        ) from exc
+
+
 class _TxContext:
     """Resultado transaccional con taxonomía ESTRUCTURADA (`issues`, R9.2R11 §6). `incomplete` es DERIVADO de
     los issues de severidad 'incomplete' — un fallo de durabilidad o una divergencia externa NO puede quedar
@@ -916,10 +929,11 @@ class _TxContext:
         self.state = new_state
 
     def mark_current_certified(self, certificate: object, *, expected_campaign: str | None) -> None:
-        """ÚNICO punto que declara el commit CRUZADO. B222/B231: consume un CommitCertificate REAL (isinstance + durable +
-        hashes + semántica + LIGADO a la campaña de ESTA transacción), JAMÁS un bool `authority_crossed`. Sólo desde
-        CURRENT_CAS_STARTED."""
-        _validate_commit_certificate(certificate, expected_campaign=expected_campaign)  # fail-closed + evidencia
+        """ÚNICO punto que declara el commit CRUZADO. B222/B231/B234: consume un CommitCertificate REAL (semántica +
+        LIGADO a la campaña) Y EMITIDO por la fábrica (procedencia runtime, uso único), JAMÁS un bool ni un objeto
+        construido/copiado. Sólo desde CURRENT_CAS_STARTED."""
+        _validate_commit_certificate(certificate, expected_campaign=expected_campaign)  # forma/semántica/evidencia
+        _consume_issued_certificate(certificate)  # B234: procedencia de la fábrica + consumo único (no replay/copia)
         if self.state != _S_CURRENT_CAS_STARTED:
             raise RollbackError(f"CURRENT_CERTIFIED sólo desde CURRENT_CAS_STARTED (estado {self.state!r})")
         self.certificate = certificate
@@ -928,9 +942,10 @@ class _TxContext:
 
     def mark_committed_incomplete(self, certificate: object, *, expected_campaign: str | None) -> None:
         """El CAS de CURRENT CRUZÓ (reconciliado como autoridad NUEVA válida y durable) pero quedó estado post-commit
-        incompleto. B221/B222/B231: exige el CommitCertificate REAL de la autoridad cruzada (ligado a la campaña de ESTA
-        transacción), jamás sólo 'CAS iniciado'."""
-        _validate_commit_certificate(certificate, expected_campaign=expected_campaign)  # cruce probado por cert durable
+        incompleto. B221/B222/B231/B234: exige el CommitCertificate REAL de la autoridad cruzada (ligado a la campaña) Y
+        EMITIDO por la fábrica, jamás sólo 'CAS iniciado' ni un cert fabricado."""
+        _validate_commit_certificate(certificate, expected_campaign=expected_campaign)  # forma/semántica/evidencia
+        _consume_issued_certificate(certificate)  # B234: procedencia de la fábrica + consumo único
         if self.state not in (_S_CURRENT_CAS_STARTED, _S_CURRENT_CERTIFIED):
             raise RollbackError(f"COMMITTED_INCOMPLETE exige evidencia de CAS cruzado (estado {self.state!r})")
         self.certificate = certificate

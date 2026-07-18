@@ -88,11 +88,14 @@ def frontier_problems(src: str) -> list[str]:
         if not any(_within(funcs.get(m), a) for m in _LATCH_METHODS):
             problems.append(f"_committed=True (línea {a.lineno}) fuera de {_LATCH_METHODS}")
 
-    # 3. mark_current_certified y mark_committed_incomplete VALIDAN el certificado (no duck typing por authority_crossed)
+    # 3. mark_current_certified y mark_committed_incomplete VALIDAN (semántica) Y CONSUMEN (procedencia de fábrica +
+    # uso único, B234) el certificado — no duck typing por authority_crossed, y la forma correcta no basta.
     for m in ("mark_current_certified", "mark_committed_incomplete"):
         fn = funcs.get(m)
         if fn is None or not _names_in(fn, ("_validate_commit_certificate",)):
             problems.append(f"{m} debe validar el cert con _validate_commit_certificate (no un bool authority_crossed)")
+        if fn is None or not _names_in(fn, ("_consume_issued_certificate",)):
+            problems.append(f"{m} debe CONSUMIR el cert con _consume_issued_certificate (B234: procedencia de fábrica + uso único)")  # fmt: skip
     vcc = funcs.get("_validate_commit_certificate")
     if vcc is None or not _names_in(vcc, ("CommitCertificate", "durability_state")):
         problems.append(
@@ -173,20 +176,35 @@ _FACTORY_FN = "_build_certificate"
 
 
 def factory_problems(src: str) -> list[str]:
-    """B231: en `campaign_bundle`, `CommitCertificate(...)` se construye SÓLO dentro de la fábrica `_build_certificate`;
-    ningún otro sitio del módulo fabrica un certificado (un cert es autoridad sólo si lo emitió la fábrica desde
-    evidencia viva)."""
+    """B231/B234: en `campaign_bundle`, `CommitCertificate(...)` se construye SÓLO dentro de la fábrica
+    `_build_certificate`; la fábrica REGISTRA el cert (`_register_certificate`) y nadie más lo llama; el registro de
+    procedencia `_ISSUED_CERTS` sólo se muta dentro de `_register_certificate` (write) y `consume_commit_certificate`
+    (del) — ningún otro sitio lo toca (un cert es autoridad sólo si lo emitió la fábrica y no se ha consumido)."""
     tree = ast.parse(src)
-    factory = next((fn for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef) and fn.name == _FACTORY_FN), None)
+    funcs = {fn.name: fn for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef)}
+    factory = funcs.get(_FACTORY_FN)
     problems: list[str] = []
     if factory is None:
         return [f"falta la fábrica {_FACTORY_FN} en {_FACTORY_TARGET}"]
+
+    def _in(fn: ast.FunctionDef | None, node: ast.AST) -> bool:
+        ln = getattr(node, "lineno", -1)
+        return fn is not None and fn.lineno <= ln <= (fn.end_lineno or fn.lineno)
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "CommitCertificate":
-            if not (factory.lineno <= node.lineno <= (factory.end_lineno or factory.lineno)):
-                problems.append(
-                    f"CommitCertificate construido FUERA de {_FACTORY_FN} en {_FACTORY_TARGET}:{node.lineno}"
-                )
+            if not _in(factory, node):
+                problems.append(f"CommitCertificate construido FUERA de {_FACTORY_FN} en {_FACTORY_TARGET}:{node.lineno}")  # fmt: skip
+        # B234: _register_certificate se LLAMA sólo desde la fábrica (registro de procedencia controlado)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_register_certificate":
+            if not _in(factory, node):
+                problems.append(f"_register_certificate llamado FUERA de {_FACTORY_FN} en {_FACTORY_TARGET}:{node.lineno}")  # fmt: skip
+        # B234: el registro _ISSUED_CERTS sólo se MUTA (subscript store / del) en _register_certificate y consume_commit_certificate
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "_ISSUED_CERTS" and isinstance(node.ctx, (ast.Store, ast.Del)):  # fmt: skip
+            if not (
+                _in(funcs.get("_register_certificate"), node) or _in(funcs.get("consume_commit_certificate"), node)
+            ):
+                problems.append(f"_ISSUED_CERTS mutado FUERA de _register_certificate/consume_commit_certificate en {_FACTORY_TARGET}:{node.lineno}")  # fmt: skip
     return problems
 
 

@@ -73,7 +73,7 @@ def test_gate_flags_missing_indeterminate_terminal():
 def test_gate_flags_missing_certificate_validation():
     # B222: mark_current_certified debe validar con _validate_commit_certificate (no aceptar cualquier objeto).
     bad = _SRC.replace(
-        "_validate_commit_certificate(certificate, expected_campaign=expected_campaign)  # fail-closed + evidencia",
+        "_validate_commit_certificate(certificate, expected_campaign=expected_campaign)  # forma/semántica/evidencia",
         "pass  # sin validar",
         1,
     )
@@ -121,3 +121,30 @@ def test_gate_flags_merge_constructing_certificate():
     assert any("construcción directa de CommitCertificate" in p for p in probs), (
         "el merge construyendo un cert debe fallar"
     )
+
+
+def test_gate_flags_mark_without_consume():
+    # B234: mark_current_certified/mark_committed_incomplete deben CONSUMIR el cert (procedencia + uso unico).
+    bad = _SRC.replace(
+        "_consume_issued_certificate(certificate)  # B234: procedencia de la fábrica + consumo único (no replay/copia)",
+        "pass  # sin consumir",
+        1,
+    )
+    assert any("_consume_issued_certificate" in p for p in gate.frontier_problems(bad)), (
+        "mark_* sin consumo debe fallar"
+    )
+
+
+def test_gate_flags_registry_mutated_outside_authorized():
+    # B234: _ISSUED_CERTS solo se muta en _register_certificate/consume_commit_certificate.
+    import pathlib
+
+    import tools.campaign_bundle as cb
+
+    cb_src = pathlib.Path(cb.__file__).read_text()
+    bad = cb_src.replace(
+        "def _validate_authority(camp_fd: int, bundle_id: str) -> None:",
+        "def _evil():\n    _ISSUED_CERTS[123] = None\n\n\ndef _validate_authority(camp_fd: int, bundle_id: str) -> None:",
+        1,
+    )
+    assert any("_ISSUED_CERTS mutado" in p for p in gate.factory_problems(bad)), "mutar el registro fuera debe fallar"

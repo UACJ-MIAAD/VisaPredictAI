@@ -40,7 +40,9 @@ import os
 import secrets
 import stat
 import sys
+import threading
 import typing
+import weakref
 
 from tools.atomic_fs import AtomicRenameError, AtomicUnsupportedError, rename_exchange, rename_noreplace
 from tools.governed_fs import GovernedQuarantine, GovernedQuarantineError, GovernedRemovalError, OwnedLease
@@ -822,7 +824,9 @@ def _pointer_matches(dir_fd: int, name: str, ident: tuple[int, int], content: by
         return False
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(
+    frozen=True, slots=True, weakref_slot=True
+)  # B234: weakref_slot → registrable en el WeakValueDict
 class CommitCertificate:
     """Prueba ESTRUCTURADA E INMUTABLE del commit (B189 + Incremento 2): CURRENT y el bundle se certificaron como UNA
     unidad. B231: la autoridad NO es un bool — el commit se declara consumiendo un CommitCertificate REAL (del TIPO
@@ -842,6 +846,37 @@ class CommitCertificate:
     durability_state: str
 
 
+# B234: registro de PROCEDENCIA runtime. La fábrica `_build_certificate` registra cada certificado por IDENTIDAD DE
+# OBJETO (`id()`, NO por igualdad de campos — un frozen dataclass compara por campos, así que dos instancias con los
+# mismos campos serían "iguales"). `consume_commit_certificate` prueba que el objeto fue EMITIDO por la fábrica y lo
+# CONSUME atómicamente (uso único). WeakValueDictionary: cuando el cert se recolecta, su entrada se retira sola (sin
+# retención indefinida ni reutilización de `id()` con un cert vivo). ⚠️ LÍMITE HONESTO: esto hace el cert "no
+# construible por la API soportada", NO "criptográficamente infalsificable ante código Python arbitrario" (un atacante
+# con acceso al proceso podría manipular el registro).
+_ISSUED_CERTS: weakref.WeakValueDictionary[int, CommitCertificate] = weakref.WeakValueDictionary()
+_ISSUED_LOCK = threading.Lock()
+
+
+def _register_certificate(cert: CommitCertificate) -> None:
+    """B234: registra `cert` por identidad de objeto, bajo lock. SÓLO `_build_certificate` (la fábrica) lo llama."""
+    with _ISSUED_LOCK:
+        _ISSUED_CERTS[id(cert)] = cert
+
+
+def consume_commit_certificate(cert: object) -> None:
+    """B234: prueba la PROCEDENCIA runtime (el objeto EXACTO fue emitido por la fábrica) y lo CONSUME atómicamente —
+    uso ÚNICO: un replay, una copia (`copy`/`dataclasses.replace`), una deserialización o una construcción directa NO
+    están registrados y se rechazan; dos hilos que compitan por consumirlo producen EXACTAMENTE un ganador (bajo lock).
+    NO valida semántica (eso lo hace el validador del consumidor). Eleva `BundleValidationError` si no procede."""
+    if not isinstance(cert, CommitCertificate):
+        raise BundleValidationError(f"no es un CommitCertificate (tipo {type(cert).__name__})")
+    with _ISSUED_LOCK:
+        registered = _ISSUED_CERTS.get(id(cert))
+        if registered is not cert:  # identidad EXACTA (is), no igualdad de campos
+            raise BundleValidationError("CommitCertificate no emitido por la fábrica, o ya consumido (replay/copia)")
+        del _ISSUED_CERTS[id(cert)]  # consumo atómico: la autoridad se gasta una sola vez
+
+
 def _quarantine_pointer(quar: GovernedQuarantine, camp_fd: int, name: str, fd: int, content: bytes) -> None:
     """MOVE-ONLY: mueve el puntero `name` (que la tx posee: `fd` vivo + `content` conocido) a la cuarantena y lo
     PRESERVA. Un objeto ajeno/mutado se preserva como FOREIGN y eleva incompleto. Nunca borra (B191/B192)."""
@@ -852,14 +887,44 @@ def _quarantine_pointer(quar: GovernedQuarantine, camp_fd: int, name: str, fd: i
         raise BundleRollbackIncompleteError(str(exc)) from exc
 
 
-def _validate_authority(camp_fd: int, bundle_id: str) -> None:
+def _authority_manifest(camp_fd: int, bundle_id: str) -> dict:
+    """Valida el bundle `bundle_id` y DEVUELVE su manifiesto (para cruzar campaña/linaje del puntero, B235)."""
     broot = _open_dir(camp_fd, _BUNDLES_DIR, mode=0o700)
     try:
-        validate_bundle(broot, bundle_id)
+        return validate_bundle(broot, bundle_id)
     except FileNotFoundError as exc:  # una autoridad que apunta a un bundle inexistente es inválida (B183)
         raise BundleValidationError(f"la autoridad apunta a un bundle inexistente {bundle_id}") from exc
     finally:
         os.close(broot)
+
+
+def _validate_authority(camp_fd: int, bundle_id: str) -> None:
+    _authority_manifest(camp_fd, bundle_id)
+
+
+_MAX_LINEAGE_DEPTH = (
+    100_000  # B230: tope anti-DoS del recorrido de linaje (los bundles inmutables persisten en el store)
+)
+
+
+def _walk_lineage(camp_fd: int, bundle_id: str, manifest: dict) -> int:
+    """B230: recorre la cadena `previous_bundle_id` desde `bundle_id`, VALIDANDO cada bundle ancestro (existe y
+    `bundle_id == sha256(manifest)`, así un ancestro alterado o inexistente ROMPE el linaje). `visited` detecta ciclos
+    (aunque un ciclo real es un punto fijo de hash, inconstruible) y un tope de profundidad acota el trabajo (anti-DoS).
+    La campaña PUEDE cambiar entre eslabones (campañas distintas encadenan legítimamente). Devuelve la profundidad."""
+    visited = {bundle_id}
+    prev = manifest["previous_bundle_id"]
+    depth = 0
+    while prev is not None:
+        depth += 1
+        if depth > _MAX_LINEAGE_DEPTH:
+            raise BundleValidationError(f"cadena de linaje excede el tope {_MAX_LINEAGE_DEPTH} (posible DoS)")
+        if prev in visited:  # defensa explícita (un ciclo content-addressed es inconstruible)
+            raise BundleValidationError(f"ciclo de linaje detectado en {prev}")
+        visited.add(prev)
+        prev_manifest = _authority_manifest(camp_fd, prev)  # valida el ancestro (existe + bundle_id==sha(manifest))
+        prev = prev_manifest["previous_bundle_id"]
+    return depth
 
 
 def _certify_current(camp_fd: int, prepared: _PreparedBundle, pbytes: bytes, tmp_ident: tuple[int, int], prev_id: str | None) -> CommitCertificate:  # fmt: skip
@@ -887,7 +952,7 @@ def _build_certificate(prepared: _PreparedBundle, pbytes: bytes, tmp_ident: tupl
     if prev_id != manifest["previous_bundle_id"]:  # B230: el predecesor observado DEBE == el sellado en el manifiesto
         raise BundleValidationError(f"predecesor observado ({prev_id!r}) diverge del sellado ({manifest['previous_bundle_id']!r})")  # fmt: skip
     prov = manifest["provenance"]
-    return CommitCertificate(
+    cert = CommitCertificate(
         bundle_id=prepared.bundle_id,
         previous_bundle_id=manifest["previous_bundle_id"],
         campaign_id=manifest["campaign_id"],
@@ -901,6 +966,8 @@ def _build_certificate(prepared: _PreparedBundle, pbytes: bytes, tmp_ident: tupl
         provenance_digest=hashlib.sha256(_canon(prov)).hexdigest(),
         durability_state=durability_state,
     )
+    _register_certificate(cert)  # B234: procedencia — SÓLO la fábrica registra; consume_commit_certificate lo gasta
+    return cert
 
 
 def _reconcile_and_raise(camp_fd: int, prepared: _PreparedBundle, tmp_ident: tuple[int, int], prev_id: str | None, primary: BaseException, failure_point: str) -> typing.NoReturn:  # fmt: skip
@@ -957,20 +1024,35 @@ def _reconcile_and_raise(camp_fd: int, prepared: _PreparedBundle, tmp_ident: tup
             ) from primary
         cert = _build_certificate(prepared, raw, ident, prev_id, "durable")
         raise CommittedStateError(f"CURRENT cruzó (reconciliado) pero {failure_point} quedó incompleto: {primary}", certificate=cert)  # fmt: skip
-    if prev_id is not None and cur_bid == prev_id:  # CURRENT == previo (compensación exitosa) → NO cruzó
+    if prev_id is not None and cur_bid == prev_id:  # CURRENT tiene el bundle_id del previo — ¿restauración EXACTA?
         try:
-            _validate_authority(camp_fd, prev_id)
-            if not _pointer_matches(camp_fd, _CURRENT_NAME, ident, raw):  # B225: el previo sigue ligado exactamente
-                raise BundleValidationError("CURRENT (previo) cambió durante la reconciliación")
-        except BundleError as exc:
+            # B235: «restaurado al previo» (NOT_CROSSED, rollback-seguro) exige que CURRENT sea EXACTAMENTE el predecesor
+            # CAPTURADO en prepare — mismos bytes E inode — no basta un puntero cualquiera con el mismo bundle_id. Un
+            # puntero con igual bundle_id pero campaign_id/linaje/bytes/inode distintos NO prueba restauración → hay que
+            # tratarlo como INDETERMINADO (no se sabe si CURRENT cruzó realmente).
+            if prepared.prev_raw is None or prepared.prev_ident is None:
+                raise BundleValidationError("no había predecesor capturado; CURRENT==bundle-previo no es restauración")
+            if raw != prepared.prev_raw or ident != prepared.prev_ident:
+                raise BundleValidationError("CURRENT lleva el bundle_id del previo pero NO es el puntero capturado (bytes/inode)")  # fmt: skip
+            prev_manifest = _authority_manifest(camp_fd, prev_id)  # valida el bundle previo y devuelve su manifiesto
+            if pointer.get("campaign_id") != prev_manifest["campaign_id"] or pointer.get("previous_bundle_id") != prev_manifest["previous_bundle_id"]:  # fmt: skip
+                raise BundleValidationError(
+                    "CURRENT (previo) diverge del manifiesto del bundle previo (campaña/linaje)"
+                )
+            os.fsync(camp_fd)  # B235: la restauración debe quedar durable antes de declarar NOT_CROSSED
+            if not _pointer_matches(
+                camp_fd, _CURRENT_NAME, prepared.prev_ident, prepared.prev_raw
+            ):  # re-verifica exacto
+                raise BundleValidationError("CURRENT dejó de ser el predecesor capturado durante la reconciliación")
+        except (BundleError, OSError) as exc:
             raise AuthorityIndeterminateError(
-                f"CURRENT==previo pero inválido/inestable tras {failure_point}: {exc}",
+                f"CURRENT==bundle-previo pero NO es el predecesor capturado exacto tras {failure_point}: {exc}",
                 expected_new=new_bid,
                 expected_previous=prev_id,
                 observed_current=cur_bid,
                 failure_point=failure_point,  # fmt: skip
             ) from primary
-        raise BundleConcurrencyError(f"CURRENT restaurado al previo tras {failure_point} (no cruzó): {primary}") from primary  # fmt: skip
+        raise BundleConcurrencyError(f"CURRENT restaurado EXACTAMENTE al predecesor capturado tras {failure_point} (no cruzó): {primary}") from primary  # fmt: skip
     raise AuthorityIndeterminateError(  # CURRENT ajeno / no coincide con nuevo ni previo
         f"CURRENT ajeno tras {failure_point} (bundle {cur_bid})",
         expected_new=new_bid,
@@ -1083,7 +1165,7 @@ def _cas_pointer(camp_fd: int, quar: GovernedQuarantine, prepared: _PreparedBund
             except GovernedRemovalError, GovernedQuarantineError, BundleError, OSError:
                 pass  # la reconciliación decide el estado REAL de CURRENT
             _reconcile_and_raise(camp_fd, prepared, tmp_ident, None, exc, "initial-cas")
-        return dataclasses.replace(cert, durability_state="durable")  # durable TRAS el fsync post-CAS
+        return _build_certificate(prepared, pbytes, tmp_ident, None, "durable")  # B234: re-emite durable (registrado)
 
     if prev_ident is None or prev_raw is None or prev_fd < 0:
         raise BundleError("estado inconsistente: puntero previo sin identidad/bytes/fd")
@@ -1105,7 +1187,9 @@ def _cas_pointer(camp_fd: int, quar: GovernedQuarantine, prepared: _PreparedBund
             except BundleError, OSError:
                 pass  # una compensación fallida NO decide el estado — la reconciliación fd-bound sí
             _reconcile_and_raise(camp_fd, prepared, tmp_ident, prev_id, exc, "exchange-certify")
-        cert = dataclasses.replace(cert, durability_state="durable")  # durable TRAS el fsync post-CAS
+        cert = _build_certificate(
+            prepared, pbytes, tmp_ident, prev_id, "durable"
+        )  # B234: re-emite durable (registrado)
         # POST-DURABLE: la autoridad YA cruzó y es durable; un fallo de limpieza es CommittedStateError CON el cert
         try:
             _quarantine_pointer_prev(quar, camp_fd, tmp_name, prev_fd, prev_raw)  # retira el previo desplazado
@@ -1280,15 +1364,17 @@ def read_current_csv(camp_fd: int, label: str, name: str) -> bytes:
 
 
 def validate_current_report(camp_fd: int) -> dict:
-    """Incremento 2: valida la AUTORIDAD CURRENT (puntero + bundle + manifiesto + inventario + contrato CSV + linaje
-    previous_bundle_id) bajo UN solo snapshot A TRAVÉS del fd (sin re-abrir por ruta) y devuelve un reporte canónico
-    machine-readable de la autoridad OBSERVADA. **NO repara nada.** Eleva `BundleError` en cualquier anomalía (puntero
-    corrupto, bundle ausente, manifiesto/CSV alterado, contrato incorrecto, symlink/FIFO en el puntero, previo
-    inválido)."""
+    """Incremento 2 + B230: valida la AUTORIDAD CURRENT (puntero + bundle + manifiesto + inventario + contrato CSV) bajo
+    UN solo snapshot A TRAVÉS del fd (sin re-abrir por ruta) y **recorre y valida la CADENA COMPLETA de linaje**
+    (`previous_bundle_id`) hasta la raíz (`None`): cada ancestro debe existir y cumplir `bundle_id == sha256(manifest)`,
+    con detección de ciclos y tope de profundidad. Devuelve un reporte canónico machine-readable (incluye
+    `lineage_depth`). **NO repara nada.** Eleva `BundleError` en cualquier anomalía (puntero corrupto, bundle ausente,
+    manifiesto/CSV alterado, contrato incorrecto, symlink/FIFO en el puntero, o un ANCESTRO inexistente/alterado)."""
     with _BundleSnapshot(camp_fd) as snap:  # resuelve+valida el bundle COMPLETO a través del fd (validación fuerte)
         bundle_id, manifest, prev_id = snap.bundle_id, snap.manifest, snap.previous_bundle_id
-    if prev_id is not None:  # el previo referenciado debe existir y validar (linaje)
-        _validate_authority(camp_fd, prev_id)
+    lineage_depth = _walk_lineage(
+        camp_fd, bundle_id, manifest
+    )  # B230: recorre y VALIDA la cadena COMPLETA de ancestros
     prov = manifest["provenance"]
     return {
         "status": "valid",
@@ -1296,6 +1382,7 @@ def validate_current_report(camp_fd: int) -> dict:
         "retry_safe": True,  # una autoridad válida y estable es segura de re-leer/re-consumir
         "bundle_id": bundle_id,
         "previous_bundle_id": prev_id,
+        "lineage_depth": lineage_depth,  # B230: nº de ancestros validados en la cadena (0 = CAS inicial)
         "campaign_id": manifest["campaign_id"],
         "schema_version": manifest["schema_version"],
         "manifest_digest": hashlib.sha256(_canon(manifest)).hexdigest(),

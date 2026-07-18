@@ -486,6 +486,10 @@ def test_b181_first_cas_race_no_residue(tmp_path, monkeypatch):
 
 
 def test_b156_race_restores_concurrent(tmp_path, monkeypatch):
+    # B235: un tercero escribe un puntero `concurrent` que comparte el bundle_id del previo pero con campaign_id
+    # DISTINTO — NO es el predecesor CAPTURADO exacto. La reconciliación lo clasifica como AuthorityIndeterminate
+    # (divergencia; requiere reconciliación humana), NUNCA como "restaurado al previo" rollback-seguro. El estado se
+    # PRESERVA (la reconciliación jamás toca CURRENT): el valor concurrente sigue ahí.
     camp, cfd = _camp(tmp_path)
     try:
         first = _commit(cfd, "tx.a")
@@ -504,10 +508,10 @@ def test_b156_race_restores_concurrent(tmp_path, monkeypatch):
                 return real_ex(sfd, s, dfd, d)
 
             monkeypatch.setattr(cb, "rename_exchange", racing)
-            with pytest.raises(cb.BundleConcurrencyError):
+            with pytest.raises(cb.AuthorityIndeterminateError):  # B235: divergencia del predecesor capturado
                 cb.commit_current(prepared)
             monkeypatch.undo()
-        assert cb._read_current(cfd)[1] == concurrent  # valor concurrente (a bundle VÁLIDO) restaurado
+        assert cb._read_current(cfd)[1] == concurrent  # el valor concurrente se PRESERVA (indeterminado no toca nada)
         assert _residue(camp) == []
     finally:
         os.close(cfd)
@@ -1302,5 +1306,81 @@ def test_b230_concurrent_predecessor_change_aborts(tmp_path):
                 cb.commit_current(prepared)
         finally:
             prepared.close()
+    finally:
+        os.close(cfd)
+
+
+def test_b235_prev_branch_requires_exact_captured_predecessor(tmp_path):
+    # B235: en la reconciliacion, la rama cur_bid==prev_id declara NOT_CROSSED (BundleConcurrencyError) SOLO si CURRENT
+    # es EXACTAMENTE el predecesor capturado. Un puntero con el mismo bundle_id pero campaign_id/bytes forjados ->
+    # AuthorityIndeterminateError (no rollback-seguro).
+    camp, cfd = _camp(tmp_path)
+    try:
+        a = _commit(cfd, "tx.a")  # CURRENT = A (predecesor)
+        prepared = cb.prepare_bundle(cfd, "tx.b", "campA", _outputs("b"), _inputs(), _prov())  # captura A
+        try:
+            # caso POSITIVO: CURRENT sigue siendo el A capturado exacto -> NOT_CROSSED
+            with pytest.raises(cb.BundleConcurrencyError):
+                cb._reconcile_and_raise(cfd, prepared, prepared._ident, a, cb.BundleValidationError("primary"), "test")
+            # caso FORJADO: mismo bundle_id A, campaign_id distinto (bytes/inode nuevos) -> INDETERMINADO
+            real = json.loads(cb._read_current(cfd)[1])
+            forged = {**real, "campaign_id": "FORGED"}
+            os.unlink(cb._CURRENT_NAME, dir_fd=cfd)
+            fd = os.open(cb._CURRENT_NAME, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=cfd)
+            os.write(fd, cb._canon(forged))
+            os.close(fd)
+            with pytest.raises(cb.AuthorityIndeterminateError):
+                cb._reconcile_and_raise(cfd, prepared, prepared._ident, a, cb.BundleValidationError("primary"), "test")
+        finally:
+            prepared.close()
+    finally:
+        os.close(cfd)
+
+
+def test_b230_lineage_chain_walk(tmp_path):
+    # B230: validate_current_report RECORRE y valida la cadena COMPLETA de ancestros (C->B->A->None). Un ancestro
+    # alterado o inexistente ROMPE la validacion; campanas distintas entre eslabones son legitimas.
+    camp, cfd = _camp(tmp_path)
+    try:
+        a = _commit(cfd, "tx.a")  # A (previous=None)
+        _commit(cfd, "tx.b", suffix="b")  # B (previous=A)
+        _commit(cfd, "tx.c", suffix="c")  # C (previous=B); CURRENT=C
+        rep = cb.validate_current_report(cfd)
+        assert rep["status"] == "valid" and rep["lineage_depth"] == 2  # dos ancestros (B, A)
+        # ancestro ALTERADO: mutar el manifiesto de A -> su bundle_id ya no == sha(manifest) -> cadena rota
+        man = camp / ".merge-bundles" / a / "manifest.json"
+        os.chmod(man, 0o600)
+        data = json.loads(man.read_text())
+        data["txid"] = str(data["txid"]) + "X"
+        man.write_text(json.dumps(data))
+        with pytest.raises(cb.BundleError):
+            cb.validate_current_report(cfd)
+    finally:
+        os.close(cfd)
+
+
+def test_b230_lineage_missing_ancestor(tmp_path):
+    # B230: un ancestro INEXISTENTE (bundle dir borrado) rompe el recorrido de linaje.
+    camp, cfd = _camp(tmp_path)
+    try:
+        a = _commit(cfd, "tx.a")
+        _commit(cfd, "tx.b", suffix="b")  # CURRENT=B, previous=A
+        import shutil as _sh
+
+        _sh.rmtree(camp / ".merge-bundles" / a)  # borra el ancestro A
+        with pytest.raises(cb.BundleError):
+            cb.validate_current_report(cfd)
+    finally:
+        os.close(cfd)
+
+
+def test_b230_lineage_different_campaigns_ok(tmp_path):
+    # B230: campanas DISTINTAS encadenan legitimamente (la campana puede cambiar entre eslabones).
+    camp, cfd = _camp(tmp_path)
+    try:
+        cb.build_and_commit(cfd, "tx.a", "campA", _outputs("a"), _inputs(), _prov())
+        cb.build_and_commit(cfd, "tx.b", "campB", _outputs("b"), _inputs(), _prov())  # campana distinta sobre campA
+        rep = cb.validate_current_report(cfd)
+        assert rep["status"] == "valid" and rep["campaign_id"] == "campB" and rep["lineage_depth"] == 1
     finally:
         os.close(cfd)
