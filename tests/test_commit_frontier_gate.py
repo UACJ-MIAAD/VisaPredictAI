@@ -234,8 +234,38 @@ def test_gate_b245_dynamic_and_string_bypasses(tmp_path, monkeypatch):
     monkeypatch.setattr(gate, "_git_tracked_py", lambda: [str(stray)])
     probs = gate.authority_scope_problems()
     assert any("_register_certificate" in p for p in probs), "join constante debe fallar"
-    assert any("getattr dinámico" in p for p in probs), "getattr dinamico del modulo debe fallar"
+    assert any("acceso dinámico" in p for p in probs), "getattr dinamico del modulo debe fallar"
     assert any("__dict__" in p for p in probs), "__dict__ debe fallar"
     assert any("import_module" in p for p in probs), "importlib de campaign_bundle debe fallar"
     assert any("sys.modules" in p for p in probs), "sys.modules debe fallar"
     assert any("consume_commit_certificate" in p for p in probs), "attrgetter constante debe fallar"
+
+
+def test_gate_b248_requires_post_authority_reconcile():
+    # B248: si commit_current pierde la reconciliacion post-autoridad (`if cert is not None ... _reconcile_and_raise`),
+    # la fabrica-gate debe fallar.
+    import pathlib
+
+    import tools.campaign_bundle as cb
+
+    cb_src = pathlib.Path(cb.__file__).read_text()
+    bad = cb_src.replace("if cert is not None and primary is not None", "if False and primary is not None", 1)
+    assert any("post-autoridad" in p or "B248" in p for p in gate.factory_problems(bad)), (
+        "commit_current sin reconciliacion post-autoridad debe fallar"
+    )
+    assert not gate.factory_problems(cb_src), "el codigo real debe pasar"
+
+
+def test_gate_b249_alias_propagation_and_dotted(tmp_path, monkeypatch):
+    # B249: seguimiento de alias (mod = cb), cadenas y dotted import (tools.campaign_bundle) para cazar acceso dinamico.
+    for name, src in {
+        "alias_prop": "import tools.campaign_bundle as cb\nmod = cb\ngetattr(mod, name)(x)\n",
+        "dotted": "import tools.campaign_bundle\ngetattr(tools.campaign_bundle, name)(x)\n",
+        "chained": "import tools.campaign_bundle as cb\na=cb\nb=a\ngetattr(b, name)(x)\n",
+        "vars": "import tools.campaign_bundle as cb\nvars(cb)\n",
+        "dotted_dict": "import tools.campaign_bundle\ntools.campaign_bundle.__dict__[name]\n",
+    }.items():
+        f = tmp_path / f"{name}.py"
+        f.write_text(src)
+        monkeypatch.setattr(gate, "_git_tracked_py", lambda ff=f: [str(ff)])
+        assert gate.authority_scope_problems(), f"evasion {name} debe fallar"

@@ -205,6 +205,21 @@ def factory_problems(src: str) -> list[str]:
                 _in(funcs.get("_register_certificate"), node) or _in(funcs.get("consume_commit_certificate"), node)
             ):
                 problems.append(f"_ISSUED_CERTS mutado FUERA de _register_certificate/consume_commit_certificate en {_FACTORY_TARGET}:{node.lineno}")  # fmt: skip
+    # B248: commit_current debe clasificar los fallos POST-autoridad reconciliando CURRENT fd-bound (jamás dejar escapar
+    # un error pre-CAS tras el cert). Estructuralmente: un `if` cuyo test menciona `cert` y cuyo cuerpo llama
+    # `_reconcile_and_raise` (reconciliación guardada por «ya hay certificado»).
+    cc = funcs.get("commit_current")
+    has_post_auth = cc is not None and any(
+        isinstance(n, ast.If)
+        and _names_in(n.test, ("cert",))
+        and any(
+            isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id == "_reconcile_and_raise"
+            for c in ast.walk(n)
+        )  # fmt: skip
+        for n in ast.walk(cc)
+    )
+    if not has_post_auth:
+        problems.append("commit_current debe RECONCILIAR los fallos post-autoridad (B248): un `if` sobre `cert` que llame _reconcile_and_raise")  # fmt: skip
     return problems
 
 
@@ -273,20 +288,38 @@ def _const_str(node: ast.AST) -> str | None:
     return None
 
 
-def _campaign_bundle_aliases(tree: ast.AST) -> set[str]:
-    """B245: nombres locales que refieren al MÓDULO `campaign_bundle` (`import tools.campaign_bundle as X`,
-    `from tools import campaign_bundle as X`), para cazar acceso DINÁMICO a su superficie de autoridad."""
+def _cb_module_refs(tree: ast.AST) -> tuple[set[str], bool]:
+    """B245/B249: `(name_aliases, dotted)` — nombres locales que refieren al MÓDULO `campaign_bundle`
+    (`import tools.campaign_bundle as X`, `from tools import campaign_bundle as X`), CON PROPAGACIÓN de asignaciones
+    `y = x` (cadenas de alias), y `dotted=True` si el módulo se accede por la ruta punteada `tools.campaign_bundle`
+    (`import tools.campaign_bundle` sin alias). Cierra los bypass `mod = cb; getattr(mod, …)` y
+    `getattr(tools.campaign_bundle, …)`."""
     aliases: set[str] = set()
+    dotted = False
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for a in node.names:
-                if a.name == "tools.campaign_bundle" and a.asname:
-                    aliases.add(a.asname)
+                if a.name == "tools.campaign_bundle":
+                    if a.asname:
+                        aliases.add(a.asname)
+                    else:
+                        dotted = True
         elif isinstance(node, ast.ImportFrom) and node.module in ("tools", None):
             for a in node.names:
                 if a.name == "campaign_bundle":
                     aliases.add(a.asname or "campaign_bundle")
-    return aliases
+    for _ in range(4):  # propaga `y = x` (x alias) → y alias; varias pasadas para cadenas
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Name) and node.value.id in aliases:  # fmt: skip
+                aliases.add(node.targets[0].id)
+    return aliases, dotted
+
+
+def _is_cb_ref(node: ast.AST, aliases: set[str], dotted: bool) -> bool:
+    """True si `node` refiere al MÓDULO campaign_bundle: un Name alias o la Attribute `tools.campaign_bundle`."""
+    if isinstance(node, ast.Name) and node.id in aliases:
+        return True
+    return dotted and isinstance(node, ast.Attribute) and node.attr == "campaign_bundle" and isinstance(node.value, ast.Name) and node.value.id == "tools"  # fmt: skip
 
 
 def _enclosing_fn_name(funcs: list[ast.FunctionDef], lineno: int) -> str | None:
@@ -320,16 +353,18 @@ def authority_scope_problems() -> list[str]:
             continue
         funcs = [fn for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef)]
         allow = _AUTHORITY_ALLOW.get(rel, {})  # sin entrada → NINGÚN uso permitido en este módulo
-        cb_aliases = _campaign_bundle_aliases(tree)  # B245: nombres que refieren al módulo campaign_bundle
+        cb_aliases, cb_dotted = _cb_module_refs(tree)  # B245/B249: refs al módulo campaign_bundle (alias + punteado)
         for node in ast.walk(tree):
             if rel in _AUTHORITY_ALLOW and isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("exec", "eval", "compile"):  # fmt: skip
                 problems.append(f"{rel}:{node.lineno} usa {node.func.id}() en un módulo de autoridad (resolución dinámica prohibida)")  # fmt: skip
-            # B245: acceso DINÁMICO a la superficie de autoridad → fail-closed
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr" and node.args and isinstance(node.args[0], ast.Name) and node.args[0].id in cb_aliases:  # fmt: skip
-                if len(node.args) < 2 or _const_str(node.args[1]) is None:  # nombre NO resoluble estáticamente
-                    problems.append(f"{rel}:{node.lineno} getattr dinámico sobre el módulo campaign_bundle (fail-closed B245)")  # fmt: skip
-            if isinstance(node, ast.Attribute) and node.attr == "__dict__" and isinstance(node.value, ast.Name) and node.value.id in cb_aliases:  # fmt: skip
-                problems.append(f"{rel}:{node.lineno} accede a campaign_bundle.__dict__ (elude el gate B245)")
+            # B245/B249: acceso DINÁMICO a la superficie de autoridad → fail-closed (alias directo, propagado o punteado)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("getattr", "vars") and node.args and _is_cb_ref(node.args[0], cb_aliases, cb_dotted):  # fmt: skip
+                if (
+                    node.func.id == "vars" or len(node.args) < 2 or _const_str(node.args[1]) is None
+                ):  # nombre no resoluble
+                    problems.append(f"{rel}:{node.lineno} acceso dinámico ({node.func.id}) sobre el módulo campaign_bundle (fail-closed B245/B249)")  # fmt: skip
+            if isinstance(node, ast.Attribute) and node.attr == "__dict__" and _is_cb_ref(node.value, cb_aliases, cb_dotted):  # fmt: skip
+                problems.append(f"{rel}:{node.lineno} accede a campaign_bundle.__dict__ (elude el gate B245/B249)")
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "import_module" and node.args and (_m := _const_str(node.args[0])) and "campaign_bundle" in _m:  # fmt: skip
                 problems.append(f"{rel}:{node.lineno} importlib.import_module de campaign_bundle (elude el gate B245)")
             if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute) and node.value.attr == "modules" and (_k := _const_str(node.slice)) and "campaign_bundle" in _k:  # fmt: skip
