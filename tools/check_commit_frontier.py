@@ -205,21 +205,46 @@ def factory_problems(src: str) -> list[str]:
                 _in(funcs.get("_register_certificate"), node) or _in(funcs.get("consume_commit_certificate"), node)
             ):
                 problems.append(f"_ISSUED_CERTS mutado FUERA de _register_certificate/consume_commit_certificate en {_FACTORY_TARGET}:{node.lineno}")  # fmt: skip
-    # B248: commit_current debe clasificar los fallos POST-autoridad reconciliando CURRENT fd-bound (jamás dejar escapar
-    # un error pre-CAS tras el cert). Estructuralmente: un `if` cuyo test menciona `cert` y cuyo cuerpo llama
-    # `_reconcile_and_raise` (reconciliación guardada por «ya hay certificado»).
+    # B248/B251: commit_current debe clasificar los fallos POST-autoridad mediante UNA función obligatoria e
+    # INCONDICIONAL: `primary = _classify_post_authority(...)` como sentencia de NIVEL DE CUERPO (no dentro de un `if`
+    # ni un decoy), ANTES de `quar.close()`, con su resultado REASIGNADO a `primary`. Un `if cert and False: …`, una
+    # llamada dentro de una función jamás invocada, o una llamada cuyo resultado se descarta NO satisfacen el contrato.
     cc = funcs.get("commit_current")
-    has_post_auth = cc is not None and any(
-        isinstance(n, ast.If)
-        and _names_in(n.test, ("cert",))
-        and any(
-            isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id == "_reconcile_and_raise"
-            for c in ast.walk(n)
-        )  # fmt: skip
-        for n in ast.walk(cc)
-    )
-    if not has_post_auth:
-        problems.append("commit_current debe RECONCILIAR los fallos post-autoridad (B248): un `if` sobre `cert` que llame _reconcile_and_raise")  # fmt: skip
+    classify_idx: int | None = None
+    close_idx: int | None = None
+    if cc is not None:
+        for i, stmt in enumerate(cc.body):  # SOLO sentencias de nivel de cuerpo (no ast.walk → excluye decoys anidados)
+            if (
+                isinstance(stmt, ast.Assign)
+                and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name)
+                and stmt.targets[0].id == "primary"
+                and isinstance(stmt.value, ast.Call)
+                and isinstance(stmt.value.func, ast.Name)
+                and stmt.value.func.id == "_classify_post_authority"
+            ):
+                classify_idx = i
+            if close_idx is None and any(
+                isinstance(c, ast.Call)
+                and isinstance(c.func, ast.Attribute)
+                and c.func.attr == "close"
+                and isinstance(c.func.value, ast.Name)
+                and c.func.value.id == "quar"
+                for c in ast.walk(stmt)
+            ):
+                close_idx = i
+    if classify_idx is None or close_idx is None or classify_idx >= close_idx:
+        problems.append("commit_current debe reasignar `primary = _classify_post_authority(...)` INCONDICIONALMENTE (nivel de cuerpo) ANTES de quar.close() (B251)")  # fmt: skip
+    elif cc is not None and any(isinstance(cc.body[i], (ast.Raise, ast.Return)) for i in range(classify_idx)):
+        # B251 (round 2): un `raise`/`return` de NIVEL DE CUERPO antes del classify lo dejaría INALCANZABLE (decoy)
+        problems.append("commit_current tiene un raise/return de nivel de cuerpo ANTES del classify (lo vuelve inalcanzable) (B251)")  # fmt: skip
+    # La función obligatoria debe existir y reconciliar CURRENT fd-bound.
+    cpa = funcs.get("_classify_post_authority")
+    if cpa is None or not any(
+        isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id == "_reconcile_and_raise"
+        for c in ast.walk(cpa)
+    ):
+        problems.append("_classify_post_authority debe existir y reconciliar CURRENT fd-bound con _reconcile_and_raise (B251)")  # fmt: skip
     return problems
 
 

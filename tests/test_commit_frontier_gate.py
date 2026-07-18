@@ -241,19 +241,62 @@ def test_gate_b245_dynamic_and_string_bypasses(tmp_path, monkeypatch):
     assert any("consume_commit_certificate" in p for p in probs), "attrgetter constante debe fallar"
 
 
-def test_gate_b248_requires_post_authority_reconcile():
-    # B248: si commit_current pierde la reconciliacion post-autoridad (`if cert is not None ... _reconcile_and_raise`),
-    # la fabrica-gate debe fallar.
+def test_gate_b251_mandatory_post_authority_classify():
+    # B251: la clasificacion post-autoridad debe ser UNA llamada obligatoria e INCONDICIONAL
+    # `primary = _classify_post_authority(...)` de nivel de cuerpo, ANTES de quar.close(). Ningun decoy (if False,
+    # llamada anidada, resultado descartado, orden invertido, funcion ausente) satisface el contrato.
     import pathlib
 
     import tools.campaign_bundle as cb
 
     cb_src = pathlib.Path(cb.__file__).read_text()
-    bad = cb_src.replace("if cert is not None and primary is not None", "if False and primary is not None", 1)
-    assert any("post-autoridad" in p or "B248" in p for p in gate.factory_problems(bad)), (
-        "commit_current sin reconciliacion post-autoridad debe fallar"
+    call = "primary = _classify_post_authority(camp_fd, prepared, cert, primary)"
+    assert call in cb_src, "fixture desincronizado: la llamada canonica cambio"
+    # 1) decoy `cert and False` (anidada en un if muerto → no es nivel de cuerpo)
+    dead = cb_src.replace(call, f"if cert is not None and False:\n        {call}", 1)
+    assert gate.factory_problems(dead), "decoy `if cert and False` no debe satisfacer el contrato (B251)"
+    # 2) resultado descartado (no reasignado a primary)
+    discard = cb_src.replace(call, "_classify_post_authority(camp_fd, prepared, cert, primary)", 1)
+    assert gate.factory_problems(discard), "llamada sin reasignar a primary debe fallar (B251)"
+    # 3) llamada DESPUES de quar.close() (orden invertido)
+    swapped = cb_src.replace(
+        f"    {call}\n    close_errs = quar.close()",
+        f"    close_errs = quar.close()\n    {call}",
+        1,
     )
+    assert swapped != cb_src and gate.factory_problems(swapped), "llamada tras quar.close() debe fallar (B251)"
+    # 4) funcion obligatoria ausente
+    gone = cb_src.replace("def _classify_post_authority(", "def _unused_classify_xx(", 1)
+    assert gate.factory_problems(gone), "sin _classify_post_authority debe fallar (B251)"
+    # 5) round 2: raise de nivel de cuerpo ANTES del classify -> lo deja inalcanzable (decoy)
+    unreachable = cb_src.replace(f"    {call}", f"    raise primary\n    {call}", 1)
+    assert any("inalcanzable" in p for p in gate.factory_problems(unreachable)), (
+        "un raise antes del classify (inalcanzable) debe fallar (B251)"
+    )
+    # el codigo real pasa
     assert not gate.factory_problems(cb_src), "el codigo real debe pasar"
+
+
+def test_classify_post_authority_reclassifies(monkeypatch):
+    # B251 (runtime): _classify_post_authority reclasifica un fallo POSTERIOR al cert como CommittedStateError; y es
+    # transparente cuando no hay cert (pre-CAS) o no hay fallo, y ante KeyboardInterrupt/SystemExit.
+    import tools.campaign_bundle as cb
+
+    class _Cert:
+        previous_bundle_id = "prev"
+
+    cert, err = _Cert(), RuntimeError("post-CAS boom")
+    # reconciliacion: monkeypatchea _reconcile_and_raise para elevar CommittedStateError (el tipo taxonomico)
+    monkeypatch.setattr(
+        cb, "_reconcile_and_raise", lambda *a, **k: (_ for _ in ()).throw(cb.CommittedStateError("x", certificate=cert))
+    )
+    prepared = type("P", (), {"_ident": "id"})()
+    out = cb._classify_post_authority(0, prepared, cert, err)
+    assert isinstance(out, cb.CommittedStateError), "fallo post-cert → CommittedStateError"
+    assert cb._classify_post_authority(0, prepared, None, err) is err, "sin cert (pre-CAS) → sin cambio"
+    assert cb._classify_post_authority(0, prepared, cert, None) is None, "sin fallo → None"
+    ki = KeyboardInterrupt()
+    assert cb._classify_post_authority(0, prepared, cert, ki) is ki, "KeyboardInterrupt no se convierte"
 
 
 def test_gate_b249_alias_propagation_and_dotted(tmp_path, monkeypatch):
