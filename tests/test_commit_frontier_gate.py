@@ -299,6 +299,58 @@ def test_classify_post_authority_reclassifies(monkeypatch):
     assert cb._classify_post_authority(0, prepared, cert, ki) is ki, "KeyboardInterrupt no se convierte"
 
 
+def test_gate_b252_reflection_evasions(tmp_path, monkeypatch):
+    # B252: alias por FIXPOINT (cadena larga), AnnAssign, walrus, alias de getattr/vars, attrgetter dinamico y
+    # __import__ sobre la superficie de autoridad → todos fail-closed.
+    # cadena de 20 alias en orden de documento INVERSO (a20=a19 … a1=cb): una sola pasada forward NO puede cascadear,
+    # así que el `for _ in range(6)` viejo se queda corto y el fixpoint (while changed) sí converge.
+    chain_lines = "\n".join(f"a{i} = a{i - 1}" for i in range(20, 0, -1)).replace("a1 = a0", "a1 = cb")
+    chain = f"import tools.campaign_bundle as cb\n{chain_lines}\ngetattr(a20, name)(x)\n"
+    cases = {
+        "annassign": "import tools.campaign_bundle as cb\nmod: object = cb\ngetattr(mod, name)(x)\n",
+        "walrus": "import tools.campaign_bundle as cb\n(mod := cb)\ngetattr(mod, name)(x)\n",
+        "getattr_alias": "import tools.campaign_bundle as cb\ng = getattr\ng(cb, name)(x)\n",
+        "vars_alias": "import tools.campaign_bundle as cb\nv = vars\nv(cb)[name]\n",
+        "attrgetter_dyn": "import tools.campaign_bundle as cb\nimport operator\noperator.attrgetter(name)(cb)\n",
+        "methodcaller_dyn": "import tools.campaign_bundle as cb\nimport operator\noperator.methodcaller(name)(cb)\n",
+        "dunder_import": "import tools.campaign_bundle as cb\n__import__('tools.campaign_bundle')\n",
+        "chain20": chain,
+        # round 2: functools.partial capturando reflexion sobre cbref (nombre dinamico)
+        "partial_form1": "import tools.campaign_bundle as cb\nimport functools\nfunctools.partial(getattr, cb)(name)\n",
+        "partial_form2": "import tools.campaign_bundle as cb\nfrom functools import partial\npartial(getattr)(cb, name)\n",
+        # round 2: attrgetter/methodcaller/getattr importados o encadenados bajo ALIAS
+        "attrgetter_as": "import tools.campaign_bundle as cb\nfrom operator import attrgetter as ag\nag(name)(cb)\n",
+        "methodcaller_as": "import tools.campaign_bundle as cb\nfrom operator import methodcaller as mc\nmc(name)(cb)\n",
+        "getattr_from_builtins_as": "import tools.campaign_bundle as cb\nfrom builtins import getattr as g\ng(cb, name)\n",
+    }
+    for name, src in cases.items():
+        f = tmp_path / f"{name}.py"
+        f.write_text(src)
+        monkeypatch.setattr(gate, "_git_tracked_py", lambda ff=f: [str(ff)])
+        assert gate.authority_scope_problems(), f"evasion {name} debe fallar (B252)"
+
+
+def test_gate_b252_no_false_positive_non_cb(tmp_path, monkeypatch):
+    # B252 (fail-open control): reflexion dinamica sobre objetos NO-cb (self/certificate/otro modulo) NO debe fallar.
+    f = tmp_path / "clean.py"
+    f.write_text(
+        "import tools.campaign_bundle as cb\n"
+        "class C:\n"
+        "    def m(self, campo):\n"
+        "        return getattr(self, campo)\n"  # getattr sobre self, no sobre cb
+        "def f(certificate, field):\n"
+        "    return getattr(certificate, field)\n"  # sobre certificate, no cb
+        "import operator\n"
+        "operator.attrgetter('x')(some_other_obj)\n"  # attrgetter sobre otro objeto
+        "from operator import attrgetter as ag\n"
+        "ag('y')(some_other_obj)\n"  # attrgetter ALIAS sobre otro objeto
+        "import functools\n"
+        "functools.partial(getattr, some_other_obj)(k)\n"  # partial(getattr) sobre otro objeto
+    )
+    monkeypatch.setattr(gate, "_git_tracked_py", lambda: [str(f)])
+    assert not gate.authority_scope_problems(), "reflexion sobre objetos no-cb no debe disparar (B252)"
+
+
 def test_gate_b249_alias_propagation_and_dotted(tmp_path, monkeypatch):
     # B249: seguimiento de alias (mod = cb), cadenas y dotted import (tools.campaign_bundle) para cazar acceso dinamico.
     for name, src in {

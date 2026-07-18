@@ -313,12 +313,31 @@ def _const_str(node: ast.AST) -> str | None:
     return None
 
 
+def _iter_bindings(tree: ast.AST):
+    """B252: itera `(target_name, value_node)` sobre TODAS las formas de ligadura de un solo nombre:
+    `x = v` (Assign), `x: T = v` (AnnAssign), `(x := v)` (NamedExpr) y el desempaquetado `a, b = v1, v2`
+    (Assign con Tuple/List balanceado). Base común del análisis de alias por FIXPOINT."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            if len(node.targets) == 1 and isinstance(node.targets[0], (ast.Tuple, ast.List)) and isinstance(node.value, (ast.Tuple, ast.List)) and len(node.targets[0].elts) == len(node.value.elts):  # fmt: skip
+                for tgt, val in zip(node.targets[0].elts, node.value.elts, strict=True):
+                    if isinstance(tgt, ast.Name):
+                        yield tgt.id, val
+            for tgt in (t for t in node.targets if isinstance(t, ast.Name)):
+                yield tgt.id, node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
+            yield node.target.id, node.value  # `mod: object = cb`
+        elif isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
+            yield node.target.id, node.value  # `(mod := cb)`
+
+
 def _cb_module_refs(tree: ast.AST) -> tuple[set[str], bool]:
-    """B245/B249: `(name_aliases, dotted)` — nombres locales que refieren al MÓDULO `campaign_bundle`
-    (`import tools.campaign_bundle as X`, `from tools import campaign_bundle as X`), CON PROPAGACIÓN de asignaciones
-    `y = x` (cadenas de alias), y `dotted=True` si el módulo se accede por la ruta punteada `tools.campaign_bundle`
-    (`import tools.campaign_bundle` sin alias). Cierra los bypass `mod = cb; getattr(mod, …)` y
-    `getattr(tools.campaign_bundle, …)`."""
+    """B245/B249/B252: `(name_aliases, dotted)` — nombres locales que refieren al MÓDULO `campaign_bundle`
+    (`import tools.campaign_bundle as X`, `from tools import campaign_bundle as X`), con PROPAGACIÓN por FIXPOINT
+    (no un número fijo de pasadas) sobre TODA forma de ligadura (Assign / AnnAssign `mod: T = cb` / walrus `mod := cb` /
+    desempaquetado) y `dotted=True` si el módulo se accede por la ruta punteada `tools.campaign_bundle`. El fixpoint
+    termina siempre: `aliases` sólo crece y está acotado por el nº finito de nombres. Cierra `mod = cb; getattr(mod, …)`,
+    `mod: object = cb`, `(mod := cb)`, cadenas de alias de cualquier longitud, y `getattr(tools.campaign_bundle, …)`."""
     aliases: set[str] = set()
     dotted = False
     for node in ast.walk(tree):
@@ -333,20 +352,46 @@ def _cb_module_refs(tree: ast.AST) -> tuple[set[str], bool]:
             for a in node.names:
                 if a.name == "campaign_bundle":
                     aliases.add(a.asname or "campaign_bundle")
-    for _ in range(6):  # propaga alias por varias pasadas (cadenas): `y = x`, `a, b = cb, y`, y taint conservador
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Assign):
+    changed = True
+    while changed:  # FIXPOINT: repite hasta que `aliases` deja de crecer (cadenas de cualquier longitud)
+        changed = False
+        for tgt_id, val in _iter_bindings(tree):
+            if tgt_id in aliases:
                 continue
-            if len(node.targets) == 1 and isinstance(node.targets[0], (ast.Tuple, ast.List)) and isinstance(node.value, (ast.Tuple, ast.List)) and len(node.targets[0].elts) == len(node.value.elts):  # fmt: skip
-                for tgt, val in zip(node.targets[0].elts, node.value.elts, strict=True):  # desempaquetado: a, b = cb, y
-                    if isinstance(tgt, ast.Name) and _is_cb_ref(val, aliases, dotted):
-                        aliases.add(tgt.id)
-            for tgt in (t for t in node.targets if isinstance(t, ast.Name)):
-                # CONSERVADOR (fail-closed): si el VALOR contiene EN CUALQUIER PARTE una ref al módulo de autoridad, el
-                # destino PUEDE aliasarlo (`x = cb`, `x = [cb][0]`, `x = (cb,)[i]`, `x = {..: cb}[..]`) → se trata como ref.
-                if any(_is_cb_ref(n, aliases, dotted) for n in ast.walk(node.value)):
-                    aliases.add(tgt.id)
+            # CONSERVADOR (fail-closed): si el VALOR contiene EN CUALQUIER PARTE una ref al módulo de autoridad, el
+            # destino PUEDE aliasarlo (`x = cb`, `x = [cb][0]`, `x = (cb,)[i]`, `x = {..: cb}[..]`) → se trata como ref.
+            if any(_is_cb_ref(n, aliases, dotted) for n in ast.walk(val)):
+                aliases.add(tgt_id)
+                changed = True
     return aliases, dotted
+
+
+_GV_SEEDS = frozenset({"getattr", "vars", "__import__"})
+_FACTORY_SEEDS = frozenset({"attrgetter", "methodcaller"})
+
+
+def _callable_aliases(tree: ast.AST, seeds: frozenset[str]) -> set[str]:
+    """B252: nombres locales ligados a uno de los primitivos `seeds` (por Name o por Attribute `mod.<seed>`), por
+    FIXPOINT sobre toda forma de ligadura — `g = getattr`, `ag: object = attrgetter`, `(g := getattr)`, y cadenas
+    `g = getattr; h = g`. Cierra `g = getattr; g(cb, name)`, `from operator import attrgetter as ag; ag(n)(cb)`, etc."""
+    aliases: set[str] = set()
+    for node in ast.walk(
+        tree
+    ):  # semilla desde imports: `from operator import attrgetter as ag`, `from builtins import getattr as g`
+        if isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                if a.name in seeds and a.asname:
+                    aliases.add(a.asname)
+    changed = True
+    while changed:
+        changed = False
+        for tgt_id, val in _iter_bindings(tree):
+            if tgt_id in aliases:
+                continue
+            if (isinstance(val, ast.Name) and (val.id in seeds or val.id in aliases)) or (isinstance(val, ast.Attribute) and val.attr in seeds):  # fmt: skip
+                aliases.add(tgt_id)
+                changed = True
+    return aliases
 
 
 def _is_cb_ref(node: ast.AST, aliases: set[str], dotted: bool) -> bool:
@@ -354,6 +399,29 @@ def _is_cb_ref(node: ast.AST, aliases: set[str], dotted: bool) -> bool:
     if isinstance(node, ast.Name) and node.id in aliases:
         return True
     return dotted and isinstance(node, ast.Attribute) and node.attr == "campaign_bundle" and isinstance(node.value, ast.Name) and node.value.id == "tools"  # fmt: skip
+
+
+def _is_getattr_vars_callee(func: ast.AST, reflect: set[str]) -> bool:
+    """B252: True si `func` invoca `getattr`/`vars` por NOMBRE directo, por ALIAS reflexivo (`g` con `g = getattr`)
+    o por ATRIBUTO (`builtins.getattr`)."""
+    if isinstance(func, ast.Name):
+        return func.id in ("getattr", "vars") or func.id in reflect
+    return isinstance(func, ast.Attribute) and func.attr in ("getattr", "vars")
+
+
+def _is_attrfactory_callee(func: ast.AST, factory_aliases: set[str]) -> bool:
+    """B252: True si `func` es `operator.attrgetter`/`methodcaller` por atributo (`operator.attrgetter`), por nombre
+    importado (`from operator import attrgetter`) o por ALIAS de ese nombre (`… as ag`)."""
+    if isinstance(func, ast.Attribute):
+        return func.attr in ("attrgetter", "methodcaller")
+    return isinstance(func, ast.Name) and (func.id in ("attrgetter", "methodcaller") or func.id in factory_aliases)
+
+
+def _is_partial_callee(func: ast.AST) -> bool:
+    """B252 (round 2): True si `func` es `functools.partial` (por atributo) o `partial` (importado)."""
+    if isinstance(func, ast.Attribute):
+        return func.attr == "partial"
+    return isinstance(func, ast.Name) and func.id == "partial"
 
 
 def _enclosing_fn_name(funcs: list[ast.FunctionDef], lineno: int) -> str | None:
@@ -388,17 +456,38 @@ def authority_scope_problems() -> list[str]:
         funcs = [fn for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef)]
         allow = _AUTHORITY_ALLOW.get(rel, {})  # sin entrada → NINGÚN uso permitido en este módulo
         cb_aliases, cb_dotted = _cb_module_refs(tree)  # B245/B249: refs al módulo campaign_bundle (alias + punteado)
+        cb_reflect = _callable_aliases(tree, _GV_SEEDS)  # B252: aliases de getattr/vars/__import__
+        cb_factory = _callable_aliases(tree, _FACTORY_SEEDS)  # B252: aliases de attrgetter/methodcaller
         for node in ast.walk(tree):
             if rel in _AUTHORITY_ALLOW and isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("exec", "eval", "compile"):  # fmt: skip
                 problems.append(f"{rel}:{node.lineno} usa {node.func.id}() en un módulo de autoridad (resolución dinámica prohibida)")  # fmt: skip
-            # B245/B249: acceso DINÁMICO a la superficie de autoridad → fail-closed (alias directo, propagado o punteado)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("getattr", "vars") and node.args and _is_cb_ref(node.args[0], cb_aliases, cb_dotted):  # fmt: skip
+            # B245/B249/B252: acceso DINÁMICO a la superficie de autoridad → fail-closed. Cubre `getattr`/`vars` por
+            # NOMBRE DIRECTO, por ALIAS reflexivo (`g = getattr; g(cb, n)`) o por ATRIBUTO (`builtins.getattr(cb, n)`);
+            # `operator.attrgetter(x)(cb)` / `methodcaller(x)(cb)`; `cb.__dict__`; y la reconstrucción del módulo por
+            # `__import__`/`import_module`/`sys.modules`. TODAS restringidas al OPERANDO cbref (o al nombre literal
+            # campaign_bundle) → cero falso positivo sobre `getattr(self, campo)` u otras reflexiones no-cb.
+            if isinstance(node, ast.Call) and _is_getattr_vars_callee(node.func, cb_reflect) and node.args and _is_cb_ref(node.args[0], cb_aliases, cb_dotted):  # fmt: skip
+                fnc = node.func
+                gv = fnc.id if isinstance(fnc, ast.Name) else fnc.attr if isinstance(fnc, ast.Attribute) else "?"
                 if (
-                    node.func.id == "vars" or len(node.args) < 2 or _const_str(node.args[1]) is None
-                ):  # nombre no resoluble
-                    problems.append(f"{rel}:{node.lineno} acceso dinámico ({node.func.id}) sobre el módulo campaign_bundle (fail-closed B245/B249)")  # fmt: skip
+                    gv == "vars" or gv in cb_reflect or len(node.args) < 2 or _const_str(node.args[1]) is None
+                ):  # nombre no resoluble / posible `vars`
+                    problems.append(f"{rel}:{node.lineno} acceso dinámico ({gv}) sobre el módulo campaign_bundle (fail-closed B245/B249/B252)")  # fmt: skip
+            # operator.attrgetter/methodcaller: la fábrica devuelve un callable que se APLICA a cbref → acceso dinámico
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Call) and _is_attrfactory_callee(node.func.func, cb_factory) and node.args and _is_cb_ref(node.args[0], cb_aliases, cb_dotted):  # fmt: skip
+                problems.append(f"{rel}:{node.lineno} attrgetter/methodcaller aplicado al módulo campaign_bundle (fail-closed B252)")  # fmt: skip
+            # functools.partial capturando reflexión sobre cbref: `partial(getattr, cb)(name)` = `getattr(cb, name)`.
+            # Forma 1 — el propio partial captura una primitiva reflexiva Y un cbref en sus argumentos.
+            if isinstance(node, ast.Call) and _is_partial_callee(node.func) and any(_is_getattr_vars_callee(a, cb_reflect) for a in node.args) and any(_is_cb_ref(a, cb_aliases, cb_dotted) for a in node.args):  # fmt: skip
+                problems.append(f"{rel}:{node.lineno} functools.partial captura reflexión sobre campaign_bundle (fail-closed B252)")  # fmt: skip
+            # Forma 2 — `partial(getattr)(cb, name)`: el partial de una primitiva reflexiva se APLICA a cbref.
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Call) and _is_partial_callee(node.func.func) and any(_is_getattr_vars_callee(a, cb_reflect) for a in node.func.args) and node.args and _is_cb_ref(node.args[0], cb_aliases, cb_dotted):  # fmt: skip
+                problems.append(f"{rel}:{node.lineno} partial de reflexión aplicado al módulo campaign_bundle (fail-closed B252)")  # fmt: skip
             if isinstance(node, ast.Attribute) and node.attr == "__dict__" and _is_cb_ref(node.value, cb_aliases, cb_dotted):  # fmt: skip
                 problems.append(f"{rel}:{node.lineno} accede a campaign_bundle.__dict__ (elude el gate B245/B249)")
+            # __import__('...campaign_bundle...') reconstruye el módulo de autoridad por nombre (builtin o alias reflexivo)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and (node.func.id == "__import__" or node.func.id in cb_reflect) and node.args and (_ci := _const_str(node.args[0])) and "campaign_bundle" in _ci:  # fmt: skip
+                problems.append(f"{rel}:{node.lineno} __import__ de campaign_bundle (elude el gate B252)")
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "import_module" and node.args and (_m := _const_str(node.args[0])) and "campaign_bundle" in _m:  # fmt: skip
                 problems.append(f"{rel}:{node.lineno} importlib.import_module de campaign_bundle (elude el gate B245)")
             if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute) and node.value.attr == "modules" and (_k := _const_str(node.slice)) and "campaign_bundle" in _k:  # fmt: skip
