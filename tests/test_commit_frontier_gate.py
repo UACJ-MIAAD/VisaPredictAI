@@ -1050,7 +1050,9 @@ def test_b293_chmod_between_validate_and_seal_rejected(monkeypatch, tmp_path):
     def _fstat_then_chmod(fd):
         st = real_fstat(fd)  # devuelve el st PRE-chmod (0755) de ESTA llamada
         if st.st_ino == tools_ino and not chmodded["x"]:
-            chmodded["x"] = True  # tras el 1º fstat del dir tools, cambia el modo a 0777 (afecta al 2º fstat en b781/0d50)
+            chmodded["x"] = (
+                True  # tras el 1º fstat del dir tools, cambia el modo a 0777 (afecta al 2º fstat en b781/0d50)
+            )
             (tmp_path / "tools").chmod(0o777)
         return st
 
