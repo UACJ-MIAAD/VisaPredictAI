@@ -222,16 +222,41 @@ def test_b275_job_if_always_and_false_rejected(monkeypatch):
 
 
 def test_b275_required_need_removal_rejected(monkeypatch):
+    # B292: quitar un need = quitar un job del conjunto DERIVADO → cae.
     for need in ("lint-and-test", "model-tests", "consistency", "supply-chain", "campaign-bundle-contract"):
         ci = _ci_gate_replace(f", {need}", "")
-        assert any("B275" in p for p in _run(monkeypatch, ci=ci)), f"quitar el need {need!r} debe fallar (B275)"
+        assert any("B292" in p for p in _run(monkeypatch, ci=ci)), f"quitar el need {need!r} debe fallar (B292)"
 
 
 def test_b275_unknown_and_duplicate_need_rejected(monkeypatch):
     add = _ci_gate_replace("p0r5-governance]", "p0r5-governance, evil-job]")
-    assert any("B275" in p for p in _run(monkeypatch, ci=add)), "un need desconocido debe fallar (B275)"
+    assert any("B292" in p for p in _run(monkeypatch, ci=add)), "un need desconocido (no-job) debe fallar (B292)"
     dup = _ci_gate_replace("p0r5-governance]", "p0r5-governance, consistency]")
     assert any("B275" in p for p in _run(monkeypatch, ci=dup)), "un need duplicado debe fallar (B275)"
+
+
+# ---------------------------------------------------------------------------
+# B292 — `ci-gate.needs` se DERIVA de todos los jobs no-gate (no una constante). RED_BASE_SHA = b781d68: un job nuevo
+# no añadido a `needs` NI a la constante `_CI_GATE_NEEDS` se aceptaba en silencio. Las pruebas usan _CI_NO_OFFLINE para
+# aislar el chequeo de needs (b781d68 acepta; aquí falla nombrando el job omitido).
+# ---------------------------------------------------------------------------
+_NEW_JOB = "  new-security-contract:\n    name: new-security-contract\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo hi\n"  # fmt: skip
+
+
+def test_b292_new_job_omitted_from_needs_rejected(monkeypatch):
+    ci = _CI_NO_OFFLINE.replace("  ci-gate:\n", _NEW_JOB + "  ci-gate:\n", 1)
+    probs = _run(monkeypatch, ci=ci)
+    assert any("B292" in p and "new-security-contract" in p for p in probs), "un job nuevo omitido de needs debe fallar nombrándolo (B292)"  # fmt: skip
+
+
+def test_b292_new_job_included_no_needs_problem(monkeypatch):
+    ci = _CI_NO_OFFLINE.replace("  ci-gate:\n", _NEW_JOB + "  ci-gate:\n", 1)
+    ci = ci.replace("p0r5-governance]", "p0r5-governance, new-security-contract]", 1)
+    assert not any("B292" in p for p in _run(monkeypatch, ci=ci)), "un job nuevo incluido en needs no debe disparar B292"
+
+
+def test_b292_all_current_jobs_required_control(monkeypatch):
+    assert _run(monkeypatch) == [], "el ci.yml real (todos los jobs no-gate en needs) debe pasar (B292)"
 
 
 def test_b275_predicate_and_exit_tampering_rejected(monkeypatch):

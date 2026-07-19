@@ -53,19 +53,10 @@ _CI_GATE_JOB_KEYS = {"name", "if", "needs", "runs-on", "timeout-minutes", "permi
 _CI_GATE_RUNNER = "ubuntu-24.04"
 _CI_GATE_TIMEOUT = 5
 _CI_GATE_PERMISSIONS: dict = {}
-_CI_GATE_NEEDS = {
-    "commit-policy",
-    "lint-and-test",
-    "model-tests",
-    "consistency",
-    "supply-chain",
-    "deep-lock-install",
-    "dvc-tool-install",
-    "environment-contract",
-    "environment-receipts",
-    "campaign-bundle-contract",
-    "p0r5-governance",
-}
+# B292: `ci-gate.needs` NO se compara contra una constante (que puede olvidar jobs nuevos): se DERIVA de TODOS los jobs
+# no-gate del workflow. Un job nuevo entra automáticamente en el conjunto requerido; omitirlo de `needs` cae. La única
+# vía de excepción es esta allowlist NOMINAL (hoy VACÍA) — una futura excepción exigiría identidad/razón/`review_by`.
+_EXPLICITLY_OPTIONAL_JOBS: frozenset[str] = frozenset()
 _CI_GATE_STEP0_NAME = "Fail if any required job was not success"
 _CI_GATE_STEP0_IF = "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}"  # fmt: skip
 # B283: el PROGRAMA COMPLETO del paso que debe fallar (no basta con que la última línea sea `exit 1`: un `exit 0` previo
@@ -182,7 +173,7 @@ def problems() -> list[str]:
             problems.append(f"jobs.{_JOB}.permissions != {_EXPECTED_PERMISSIONS} (B271)")
         problems.extend(_step_problems(job["steps"], _expected_steps(uses)))
 
-    problems.extend(_ci_gate_problems(jobs.get(_CI_GATE)))
+    problems.extend(_ci_gate_problems(jobs.get(_CI_GATE), jobs))
     return problems
 
 
@@ -215,12 +206,11 @@ def _ci_gate_step_problems(steps: object) -> list[str]:
     return problems
 
 
-def _ci_gate_problems(gate: object) -> list[str]:
-    """B275: `ci-gate` se valida por FORMA EXACTA, no por substring sobre `yaml.dump` (que un decoy `env` o comentario
-    con 'needs.*.result' satisfacía mientras `if: ${{ false }}` neutralizaba el paso que debe fallar). Claves de job
-    EXACTAS (sin env/defaults/permissions/container/services/strategy/continue-on-error/desconocidas), name/if/runs-on
-    exactos, `needs` = set EXACTO (sin ausencias/extras/duplicados; retirar un job requerido cae aunque
-    p0r5-governance siga) y los dos pasos exactos."""
+def _ci_gate_problems(gate: object, all_jobs: dict) -> list[str]:
+    """B275/B292: `ci-gate` se valida por FORMA EXACTA, no por substring sobre `yaml.dump`. Claves de job EXACTAS,
+    name/if/runs-on/timeout/permissions exactos, los dos pasos exactos (B283), y `needs` = **el conjunto DERIVADO de
+    TODOS los jobs no-gate del workflow** (B292: no una constante que olvide jobs nuevos; un job nuevo omitido de `needs`
+    cae, un job retirado que siga en `needs` cae)."""
     if not isinstance(gate, dict):
         return [f"{_WORKFLOW}: falta el job {_CI_GATE!r} o no es un mapa (B275)"]
     if set(gate.keys()) != _CI_GATE_JOB_KEYS:
@@ -239,12 +229,13 @@ def _ci_gate_problems(gate: object) -> list[str]:
     if gate["permissions"] != _CI_GATE_PERMISSIONS:  # B283: permisos VACÍOS
         problems.append(f"jobs.{_CI_GATE}.permissions != {{}} vacío (obtenido {gate['permissions']!r}) (B283)")
     needs = gate["needs"]
+    required = set(all_jobs) - {_CI_GATE} - _EXPLICITLY_OPTIONAL_JOBS  # B292: derivado de TODOS los jobs no-gate
     if not (isinstance(needs, list) and all(isinstance(n, str) for n in needs)):
         problems.append(f"jobs.{_CI_GATE}.needs no es una lista de strings (B275)")
     elif len(needs) != len(set(needs)):
         problems.append(f"jobs.{_CI_GATE}.needs tiene duplicados (B275)")
-    elif set(needs) != _CI_GATE_NEEDS:
-        problems.append(f"jobs.{_CI_GATE}.needs != el set EXACTO (falta {sorted(_CI_GATE_NEEDS - set(needs))}, sobra {sorted(set(needs) - _CI_GATE_NEEDS)}) (B275)")  # fmt: skip
+    elif set(needs) != required:
+        problems.append(f"jobs.{_CI_GATE}.needs != el conjunto DERIVADO de jobs no-gate (falta {sorted(required - set(needs))}, sobra {sorted(set(needs) - required)}) (B292)")  # fmt: skip
     problems.extend(_ci_gate_step_problems(gate["steps"]))
     return problems
 
