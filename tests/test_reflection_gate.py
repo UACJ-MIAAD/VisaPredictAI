@@ -333,3 +333,49 @@ def test_reflection_gate_catches_the_seven_evasions(tmp_path, monkeypatch):
         )
         monkeypatch.setattr(refl, "_production_files", lambda lbl=label: [f"{lbl}.py"])
         assert any("NO REGISTRADA" in p for p in refl.problems()), f"evasion {label} debe fallar (B255)"
+
+
+# ---------------------------------------------------------------------------
+# B276 — una CADENA reflexiva descartada como `Expr` puede tener EFECTO (cargar/importar/mutar) y no basta con marcar
+# sólo cuando el valor escapa. RED_BASE_SHA = 036c8f9: el retorno temprano exime todo `ast.Expr`, así que un
+# `builtins.__spec__.loader.load_module('builtins')` como statement se aceptaba (0 ocurrencias). Estas pruebas usan
+# scan_reflection (API estable en ambos SHAs): en 036c8f9 el caso descartado NO se marca (RED), aquí sí.
+# ---------------------------------------------------------------------------
+def test_b276_discarded_reflective_call_is_escape(tmp_path, monkeypatch):
+    cases = {
+        "load_module_expr": "import builtins\nbuiltins.__spec__.loader.load_module('builtins')\n",
+        "exec_module_expr": "import importlib\nimportlib.util.find_spec('x').loader.exec_module(m)\n",
+        "loader_reload_expr": "import importlib\nimportlib.__loader__.load_module('x')\n",
+        "chain_then_setattr": "import builtins\nbuiltins.__spec__.loader.load_module('os').setattr(o, n, v)\n",
+    }
+    for label, src in cases.items():
+        _mount(tmp_path, monkeypatch, {"m.py": src})
+        ops = {e["op"] for e in refl.scan_reflection(["m.py"])[0].values()}
+        assert refl._REFLECTION_MODULE_ESCAPE in ops, f"{label} (efecto descartado) debe marcarse (B276): {ops}"
+
+
+def test_b276_benign_discarded_dunder_call_not_escape(tmp_path, monkeypatch):
+    # traversa un dunder pero la llamada final NO es maquinaria/terminal y el resultado se descarta → NO escape (anti-FP).
+    for src in ("import builtins\nbuiltins.__doc__.strip()\n", "import builtins\nbuiltins.__name__.upper()\n"):
+        _mount(tmp_path, monkeypatch, {"m.py": src})
+        ops = {e["op"] for e in refl.scan_reflection(["m.py"])[0].values()}
+        assert refl._REFLECTION_MODULE_ESCAPE not in ops, f"llamada benigna descartada NO debe escapar (B276): {ops}"
+
+
+def test_b276_preserves_b270_escape_when_result_used(tmp_path, monkeypatch):
+    # regresión: el escape por valor (asignado/retornado/pasado) sigue marcándose (no romper B270).
+    for src in (
+        "import builtins\nx = builtins.__spec__.loader.load_module('builtins')\n",
+        "import builtins\ndef f():\n    return builtins.__spec__.loader.load_module('x')\n",
+    ):
+        _mount(tmp_path, monkeypatch, {"m.py": src})
+        ops = {e["op"] for e in refl.scan_reflection(["m.py"])[0].values()}
+        assert refl._REFLECTION_MODULE_ESCAPE in ops, f"escape por valor debe seguir marcándose (B276/B270): {ops}"
+
+
+def test_b276_data_sys_calls_still_not_flagged(tmp_path, monkeypatch):
+    # control: llamadas de DATOS sys.* descartadas siguen sin marcarse (no nueva regresión de falsos positivos).
+    src = "import sys\nsys.exit(1)\nsys.stderr.write('x')\nsys.version.split()[0]\n"
+    _mount(tmp_path, monkeypatch, {"m.py": src})
+    ops = {e["op"] for e in refl.scan_reflection(["m.py"])[0].values()}
+    assert refl._REFLECTION_MODULE_ESCAPE not in ops, f"llamadas de datos sys.* no deben escapar (B276): {ops}"

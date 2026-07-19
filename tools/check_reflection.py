@@ -38,7 +38,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
 _SCANNER_VERSION = (
-    4  # B265/B270: escape de módulo reflexivo + lookup dinámico de builtins + CADENAS enraizadas con llamada
+    5  # B265/B270/B276: escape de módulo + lookup dinámico builtins + cadenas enraizadas (escape O efecto descartado)
 )
 _REGISTRY_TOP_KEYS = {
     "schema_version",
@@ -246,19 +246,27 @@ def _escape_op(node: ast.AST, parents: dict[int, ast.AST], mod_aliases: dict[str
 
 # Nombres de MAQUINARIA de módulo que pueden RE-PRODUCIR/reflejar un módulo por cadena (no `version`/`argv`/`path`…).
 _CHAIN_DANGER_NAMES = frozenset({"load_module", "import_module", "find_module", "find_spec", "find_loader", "exec_module", "create_module", "reload", "get_data", "module_from_spec", "spec_from_file_location", "spec_from_loader"})  # fmt: skip
+# B276: terminales reflexivos que, LLAMADOS al final de una cadena peligrosa, tienen EFECTO aunque el resultado se
+# descarte (cargar/importar/mutar). Un `builtins.__spec__.loader.load_module('builtins')` como statement descartado ya
+# ejecutó el side-effect; no basta con marcar sólo cuando el valor escapa.
+_CHAIN_CALL_DANGER = _CHAIN_DANGER_NAMES | frozenset({"setattr", "delattr", "getattr", "exec", "eval", "__import__"})
 
 
 def _rooted_chain_escape(node: ast.AST, parents: dict[int, ast.AST], mod_aliases: dict[str, str]) -> str | None:
-    """B270: una CADENA con raíz en un módulo canónico que accede a MAQUINARIA de módulo (un atributo DUNDER
+    """B270/B276: una CADENA con raíz en un módulo canónico que accede a MAQUINARIA de módulo (un atributo DUNDER
     `__spec__`/`__loader__`/… o un método loader `load_module`/`import_module`/…), no resuelve a una operación modelada,
-    y cuyo RESULTADO ESCAPA (no es un statement descartado) → `reflection-module-escape`. Ej.
-    `b = builtins.__spec__.loader.load_module('builtins')`. `sys.version.split()[0]`, `sys.exit(1)`, `x = sys.argv`
-    (atributos de DATOS, no maquinaria) NO se marcan — evita los `sys.*` legítimos."""
+    y (a) cuyo RESULTADO ESCAPA (asignado/retornado/pasado) O (b) que EJECUTA una llamada de EFECTO a través de esa
+    maquinaria (aunque el resultado se descarte) → `reflection-module-escape`. Ej. escape:
+    `b = builtins.__spec__.loader.load_module('builtins')`; ej. efecto descartado:
+    `builtins.__spec__.loader.load_module('builtins')` como statement. `sys.version.split()[0]`, `sys.exit(1)`,
+    `x = sys.argv`, `sys.stderr.write(...)` (atributos de DATOS, no maquinaria) NO se marcan — evita los `sys.*`
+    legítimos; un `sys.__dict__.get(...)` descartado tampoco (la llamada NO es sobre un nombre de maquinaria/terminal)."""
     if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in mod_aliases):
         return None
     cur: ast.AST = node
     resolved_modeled = False
     dangerous = False
+    side_effect_call = False
     while True:
         parent = parents.get(id(cur))
         if isinstance(parent, ast.Attribute) and parent.value is cur:
@@ -271,15 +279,20 @@ def _rooted_chain_escape(node: ast.AST, parents: dict[int, ast.AST], mod_aliases
             resolved_modeled = resolved_modeled or _resolve_op(parent, mod_aliases, {}) is not None
             cur = parent
         elif isinstance(parent, ast.Call) and parent.func is cur:
+            # B276: una llamada a través de la maquinaria peligrosa (callee = método loader o terminal reflexivo) tiene
+            # EFECTO aunque el resultado se descarte.
+            if dangerous and isinstance(cur, ast.Attribute) and cur.attr in _CHAIN_CALL_DANGER:
+                side_effect_call = True
             cur = parent
         else:
             break
     if resolved_modeled or not dangerous:
         return None  # op modelada en la cadena, o cadena de DATOS (sin maquinaria de módulo) → no-escape
     top_parent = parents.get(id(cur))
-    if top_parent is None or isinstance(top_parent, ast.Expr):
-        return None  # resultado descartado (statement) → no escapa
-    return _REFLECTION_MODULE_ESCAPE
+    escapes = not (top_parent is None or isinstance(top_parent, ast.Expr))  # asignado/retornado/pasado (no descartado)
+    if escapes or side_effect_call:  # B276: escape del valor O efecto lateral de la llamada
+        return _REFLECTION_MODULE_ESCAPE
+    return None
 
 
 def scan_reflection(files: list[str]) -> tuple[dict[str, dict], list[str]]:
