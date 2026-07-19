@@ -31,6 +31,7 @@ import re
 import stat
 import subprocess
 import sys
+from dataclasses import dataclass
 
 _TARGET = "tools/merge_campaign_pools.py"
 _LATCH_METHODS = ("mark_current_certified", "mark_committed_incomplete")
@@ -601,39 +602,160 @@ def _fingerprint_contract_problems(contract: object) -> list[str]:
     return []
 
 
-def _read_regular_nofollow(rel: str) -> tuple[bytes | None, str | None]:
-    """B269: lee los BYTES de `rel` UNA sola vez, REGULAR y NO-symlink (`O_NOFOLLOW` + `fstat` `S_ISREG`)."""
+@dataclass(frozen=True)
+class _GovernedBytes:
+    """B274: bytes de un fichero versionado leídos por una cadena GOBERNADA (openat componente a componente + O_NOFOLLOW
+    + fstat regular/uid/nlink/modo exacto + snapshot pre/post + revalidación nombre↔inode). Los bytes NO se reabren por
+    ruta; el resto de la certificación (hash, JSON, AST) se hace sobre `data`."""
+
+    data: bytes
+    rel: str
+    dev: int
+    ino: int
+    size: int
+    mtime_ns: int
+    ctime_ns: int
+    mode: int
+    uid: int
+    nlink: int
+
+
+def _governed_rel_parts(rel: str) -> list[str] | None:
+    """B274: `rel` debe ser una ruta POSIX relativa SIMPLE y cerrada: sin NUL, no absoluta, sin `.`/`..`, sin componentes vacíos."""  # fmt: skip
+    if not rel or "\x00" in rel or rel.startswith("/"):
+        return None
+    parts = rel.split("/")
+    if any(p in ("", ".", "..") for p in parts):
+        return None
+    return parts
+
+
+def _read_governed_repo_file(rel: str, *, exact_mode: int = 0o644) -> tuple[_GovernedBytes | None, list[str]]:
+    """B274: lee los bytes de un fichero versionado del repo por una cadena GOBERNADA, stdlib-only, SIN importar ninguno
+    de los cinco módulos cuyos bytes certifica. Abre `_ROOT` como ancla y desciende componente a componente con
+    `O_DIRECTORY|O_NOFOLLOW` (ningún ancestro puede ser symlink); el leaf con `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` (un FIFO
+    sin escritor NO cuelga antes del `fstat`). Exige regular, uid actual, `nlink==1`, modo EXACTO y sin bits especiales;
+    lee SÓLO de ese fd (jamás reabre por ruta); toma `fstat` snapshot pre/post idéntico; revalida nombre↔inode de cada
+    componente y del leaf; un cierre fallido invalida el resultado. Frontera honesta: evita symlinks, objetos especiales,
+    rebind visible y mutación del inode DURANTE la lectura; NO es una instantánea criptográfica contra un proceso hostil
+    del mismo UID que alterne y restaure todo el árbol entre checkpoints — la autoridad final sigue siendo ruleset +
+    revisión del diff."""
+    parts = _governed_rel_parts(rel)
+    if parts is None:
+        return None, [f"{rel}: ruta relativa POSIX inválida (fail-closed B274)"]
+    dir_fds: list[int] = []
+    ancestors: list[tuple[str, int, os.stat_result]] = []  # (nombre, parent_fd, fstat) para revalidar nombre↔inode
     try:
-        fd = os.open(os.path.join(_ROOT, rel), os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError as exc:
-        return None, f"no abrible sin seguir symlink ({exc})"
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            return None, "no es un fichero regular"
-        chunks: list[bytes] = []
-        while chunk := os.read(fd, 1 << 16):
-            chunks.append(chunk)
-        return b"".join(chunks), None
+        try:
+            root_fd = os.open(_ROOT, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        except OSError as exc:
+            return None, [f"{rel}: raíz {_ROOT!r} no abrible como directorio ({exc}) (fail-closed B274)"]
+        dir_fds.append(root_fd)
+        cur = root_fd
+        for comp in parts[:-1]:
+            try:
+                nfd = os.open(comp, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=cur)
+            except OSError as exc:
+                return None, [f"{rel}: componente {comp!r} no es directorio no-symlink abrible ({exc}) (fail-closed B274)"]  # fmt: skip
+            ancestors.append((comp, cur, os.fstat(nfd)))
+            dir_fds.append(nfd)
+            cur = nfd
+        leaf = parts[-1]
+        try:
+            lfd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=cur)
+        except OSError as exc:
+            return None, [f"{rel}: leaf {leaf!r} no abrible sin seguir symlink ({exc}) (fail-closed B274)"]
+        close_problem: str | None = None
+        result: tuple[_GovernedBytes | None, list[str]] | None = None
+        try:
+            st0 = os.fstat(lfd)
+            if not stat.S_ISREG(st0.st_mode):
+                return None, [f"{rel}: no es un fichero regular (fail-closed B274)"]
+            if st0.st_mode & (stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX):
+                return None, [f"{rel}: bits especiales setuid/setgid/sticky (fail-closed B274)"]
+            if stat.S_IMODE(st0.st_mode) != exact_mode:
+                return None, [f"{rel}: modo {oct(stat.S_IMODE(st0.st_mode))} != {oct(exact_mode)} exacto (fail-closed B274)"]  # fmt: skip
+            if st0.st_uid != os.getuid():
+                return None, [f"{rel}: uid {st0.st_uid} != {os.getuid()} actual (fail-closed B274)"]
+            if st0.st_nlink != 1:
+                return None, [f"{rel}: nlink {st0.st_nlink} != 1 (hardlink) (fail-closed B274)"]
+            chunks: list[bytes] = []
+            while True:
+                try:
+                    chunk = os.read(lfd, 1 << 16)
+                except OSError as exc:
+                    return None, [f"{rel}: error de lectura ({exc}) (fail-closed B274)"]
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            data = b"".join(chunks)
+            st1 = os.fstat(lfd)
+            snap0 = (st0.st_dev, st0.st_ino, st0.st_size, st0.st_mtime_ns, st0.st_ctime_ns, st0.st_mode, st0.st_uid, st0.st_nlink)  # fmt: skip
+            snap1 = (st1.st_dev, st1.st_ino, st1.st_size, st1.st_mtime_ns, st1.st_ctime_ns, st1.st_mode, st1.st_uid, st1.st_nlink)  # fmt: skip
+            if snap0 != snap1:
+                return None, [f"{rel}: el inode del leaf cambió durante la lectura (fail-closed B274)"]
+            if len(data) != st0.st_size:
+                return None, [f"{rel}: tamaño leído {len(data)} != fstat {st0.st_size} (fail-closed B274)"]
+            result = (
+                _GovernedBytes(data=data, rel=rel, dev=st0.st_dev, ino=st0.st_ino, size=st0.st_size, mtime_ns=st0.st_mtime_ns, ctime_ns=st0.st_ctime_ns, mode=st0.st_mode, uid=st0.st_uid, nlink=st0.st_nlink),  # fmt: skip
+                [],
+            )
+        finally:
+            try:
+                os.close(lfd)
+            except OSError as exc:
+                close_problem = f"{rel}: fallo al cerrar el leaf ({exc}) (fail-closed B274)"
+        if close_problem is not None:
+            return None, [close_problem]
+        assert result is not None
+        gb, _ = result
+        for name, pfd, fst in ancestors:  # revalidar nombre↔inode de cada ancestro y del leaf
+            try:
+                by_name = os.stat(name, dir_fd=pfd, follow_symlinks=False)
+            except OSError as exc:
+                return None, [f"{rel}: ancestro {name!r} no re-stat-able ({exc}) (fail-closed B274)"]
+            if (by_name.st_dev, by_name.st_ino) != (fst.st_dev, fst.st_ino):
+                return None, [f"{rel}: el ancestro {name!r} cambió de inode durante la lectura (fail-closed B274)"]
+        try:
+            leaf_by_name = os.stat(leaf, dir_fd=cur, follow_symlinks=False)
+        except OSError as exc:
+            return None, [f"{rel}: leaf {leaf!r} no re-stat-able ({exc}) (fail-closed B274)"]
+        if (leaf_by_name.st_dev, leaf_by_name.st_ino) != (gb.dev, gb.ino):
+            return None, [f"{rel}: el leaf {leaf!r} cambió de inode durante la lectura (fail-closed B274)"]
+        return result
     finally:
-        os.close(fd)
+        for fd in reversed(dir_fds):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
 
-def _authority_files_problems(contract: dict) -> list[str]:
-    """B269: PINEA los bytes exactos del set cerrado de módulos de autoridad. Cada fichero debe estar versionado, ser
-    regular no-symlink, y su `sha256(bytes)` coincidir con el contrato. Cualquier byte nuevo (incl. un
-    `commit_current.__code__ = …`, un alias, un decorador, un callback o un efecto import-time) rompe el gate."""
+def _read_authority_files(contract: dict) -> tuple[dict[str, _GovernedBytes], list[str]]:
+    """B269/B274: lee por cadena GOBERNADA los bytes exactos del set cerrado de módulos de autoridad y verifica su
+    `sha256` contra el contrato. Devuelve `(governed, problemas)`; `governed[rel]` retiene los bytes ya certificados para
+    reusarlos sin una segunda apertura (p. ej. el AST del `_CRITICAL_SOURCE`). Cualquier byte nuevo (incl. un
+    `commit_current.__code__ = …`, alias, decorador, callback o efecto import-time) rompe el hash del fichero completo."""
     af = contract["authority_files"]
+    governed: dict[str, _GovernedBytes] = {}
     problems: list[str] = []
     for rel in _AUTHORITY_FILES:
         if not _git_tracked(rel):
             problems.append(f"{rel}: NO versionado (fail-closed B269)")
             continue
-        data, err = _read_regular_nofollow(rel)
-        if data is None:
-            problems.append(f"{rel}: {err} (fail-closed B269)")
-        elif hashlib.sha256(data).hexdigest() != af[rel]:
+        gb, gprobs = _read_governed_repo_file(rel)
+        if gb is None:
+            problems.extend(gprobs)
+            continue
+        governed[rel] = gb
+        if hashlib.sha256(gb.data).hexdigest() != af[rel]:
             problems.append(f"{rel}: los bytes cambiaron (sha != contrato) → actualizar {_FINGERPRINT_CONTRACT} + re-revisar el fichero completo y re-correr la batería (B269)")  # fmt: skip
-    return problems
+    return governed, problems
+
+
+def _authority_files_problems(contract: dict) -> list[str]:
+    """B269: envoltorio de compatibilidad — sólo los problemas de la lectura gobernada de autoridad (ver `_read_authority_files`)."""  # fmt: skip
+    return _read_authority_files(contract)[1]
 
 
 def _critical_defs_problems(tree: ast.Module) -> tuple[dict[str, ast.FunctionDef], list[str]]:
@@ -742,25 +864,34 @@ def fingerprint_problems() -> list[str]:
     B258). El esquema se valida con constantes de código (fuente/algoritmo/set de funciones); el JSON sólo aporta los
     hashes. Cualquier divergencia obliga a actualizar el hash Y re-correr la batería adversarial + los tests de
     comportamiento (que son, junto al fingerprint, el contrato). Fail-closed en cada paso."""
+    if not _git_tracked(_FINGERPRINT_CONTRACT):
+        return [f"{_FINGERPRINT_CONTRACT}: NO versionado (fail-closed B254/B274)"]
+    gov_contract, cprobs = _read_governed_repo_file(_FINGERPRINT_CONTRACT)  # B274: lectura gobernada del contrato
+    if gov_contract is None:
+        return cprobs
     try:
-        with open(os.path.join(_ROOT, _FINGERPRINT_CONTRACT), encoding="utf-8") as fh:
-            contract = json.loads(fh.read(), object_pairs_hook=_no_dup_pairs)
-    except (OSError, ValueError) as exc:
-        return [f"{_FINGERPRINT_CONTRACT}: ilegible/no-JSON/duplicado ({exc}) (fail-closed B254/B258)"]
+        contract = json.loads(gov_contract.data.decode("utf-8"), object_pairs_hook=_no_dup_pairs)
+    except (ValueError, UnicodeDecodeError) as exc:
+        return [f"{_FINGERPRINT_CONTRACT}: no-JSON/duplicado/no-utf8 ({exc}) (fail-closed B254/B258/B274)"]
     schema_probs = _fingerprint_contract_problems(contract)
     if schema_probs:
         return schema_probs
     funcs = contract["functions"]
+    # B274: lee por cadena gobernada los 5 módulos de autoridad (B269) y REUSA esos bytes para el AST del crítico —
+    # `_CRITICAL_SOURCE` es uno de ellos, así que no hay una segunda apertura por ruta.
+    governed, problems = _read_authority_files(contract)
     if not _git_tracked(_CRITICAL_SOURCE):
-        return [f"{_CRITICAL_SOURCE}: NO versionado (fail-closed B254)"]
+        return problems + [f"{_CRITICAL_SOURCE}: NO versionado (fail-closed B254)"]
+    crit_gb = governed.get(_CRITICAL_SOURCE)
+    if crit_gb is None:
+        return problems  # la lectura gobernada del crítico ya falló y está reportada
     try:
-        with open(os.path.join(_ROOT, _CRITICAL_SOURCE), encoding="utf-8") as fh:
-            tree = ast.parse(fh.read())
-    except (OSError, SyntaxError) as exc:
-        return [f"{_CRITICAL_SOURCE}: ilegible/no parseable ({exc}) (fail-closed B254)"]
-    defs, problems = _critical_defs_problems(tree)
+        tree = ast.parse(crit_gb.data)
+    except SyntaxError as exc:
+        return problems + [f"{_CRITICAL_SOURCE}: no parseable ({exc}) (fail-closed B254)"]
+    defs, dprobs = _critical_defs_problems(tree)
+    problems += dprobs
     problems += _critical_binding_problems(tree)  # B264: el binding global no puede re-ligarse/borrarse tras el def
-    problems += _authority_files_problems(contract)  # B269: los BYTES de los 5 módulos de autoridad están pineados
     for name in _CRITICAL_FUNCTIONS:
         node = defs.get(name)
         if node is None:

@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import pathlib
+import socket
 
 import pytest
 
@@ -423,6 +425,8 @@ def _run_fingerprint(monkeypatch, tmp_path, src, functions, *, raw_contract=None
     else:
         raw = raw_contract
     (tmp_path / "security" / "commit_frontier_fingerprints.json").write_text(raw)
+    for rel in (*gate._AUTHORITY_FILES, "security/commit_frontier_fingerprints.json"):
+        (tmp_path / rel).chmod(0o644)  # B274: la lectura gobernada exige modo EXACTO 0644
     monkeypatch.setattr(gate, "_ROOT", str(tmp_path))
     monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
     return gate.fingerprint_problems(), ast.parse(src)
@@ -585,6 +589,8 @@ def _run_authority(monkeypatch, tmp_path, *, tamper_bytes=b""):
     for f, b in others.items():
         (tmp_path / f).write_bytes(b)
     (tmp_path / "security" / "commit_frontier_fingerprints.json").write_text(json.dumps(contract))
+    for rel in (*gate._AUTHORITY_FILES, "security/commit_frontier_fingerprints.json"):
+        (tmp_path / rel).chmod(0o644)  # B274: la lectura gobernada exige modo EXACTO 0644
     monkeypatch.setattr(gate, "_ROOT", str(tmp_path))
     monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
     return gate.fingerprint_problems()
@@ -629,6 +635,247 @@ def test_b269_contract_schema_and_files_exact():
     old = {k: v for k, v in real.items() if k not in ("authority_files", "authority_files_algorithm")}
     old["schema_version"] = 2
     assert gate._fingerprint_contract_problems(old), "un contrato schema-2 sin authority_files debe fallar (B269)"
+
+
+# ---------------------------------------------------------------------------
+# B274 — lectura GOBERNADA del contrato y de los módulos de autoridad.
+# RED_BASE_SHA = 036c8f9 (el `_read_regular_nofollow` sólo protegía el leaf: sin O_NOFOLLOW por componente, sin exigir
+# uid/nlink/modo/no-especiales, sin O_NONBLOCK, sin snapshot pre/post, reabriendo el contrato/crítico por ruta).
+# expected_old_behavior: aceptar (rc0 / sin problema) un árbol con ancestro symlink, modo laxo, hardlink u objeto especial.
+# ---------------------------------------------------------------------------
+_GOVERN_RELS = (*gate._AUTHORITY_FILES, "security/commit_frontier_fingerprints.json")
+
+
+def _lay_governed_tree(tmp_path):
+    """Árbol sintético VÁLIDO: 5 ficheros de autoridad (campaign_bundle = _SYN_OK) + contrato schema-3, todos 0644."""
+    (tmp_path / "tools").mkdir(exist_ok=True)
+    (tmp_path / "security").mkdir(exist_ok=True)
+    cb = _SYN_OK.encode()
+    (tmp_path / "tools" / "campaign_bundle.py").write_bytes(cb)
+    afiles = {"tools/campaign_bundle.py": _sha256(cb)}
+    for f in gate._AUTHORITY_FILES:
+        if f != "tools/campaign_bundle.py":
+            (tmp_path / f).write_bytes(b"# stub\n")
+            afiles[f] = _sha256(b"# stub\n")
+    tree = ast.parse(_SYN_OK)
+    contract = {
+        "schema_version": 3, "note": "x", "source": "tools/campaign_bundle.py", "algorithm": _ALGO,
+        "functions": {n: _fp_of(tree, n) for n in _CRIT},
+        "authority_files_algorithm": gate._AUTHORITY_ALGORITHM, "authority_files": afiles,
+    }  # fmt: skip
+    (tmp_path / "security" / "commit_frontier_fingerprints.json").write_text(json.dumps(contract))
+    for rel in _GOVERN_RELS:
+        (tmp_path / rel).chmod(0o644)
+    return tmp_path
+
+
+def _govern(monkeypatch, tmp_path, rel):
+    monkeypatch.setattr(gate, "_ROOT", str(tmp_path))
+    monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
+    return gate._read_governed_repo_file(rel)
+
+
+def test_b274_happy_control_accepts_regular_0644(monkeypatch, tmp_path):
+    _lay_governed_tree(tmp_path)
+    for rel in _GOVERN_RELS:
+        gb, probs = _govern(monkeypatch, tmp_path, rel)
+        assert gb is not None and probs == [], f"{rel} 0644/uid/nlink1 debe aceptarse (B274): {probs}"
+    monkeypatch.setattr(gate, "_ROOT", str(tmp_path))
+    monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
+    assert gate.fingerprint_problems() == [], "el árbol gobernado limpio debe pasar el fingerprint (B274)"
+
+
+def test_b274_invalid_rel_paths_rejected(monkeypatch, tmp_path):
+    _lay_governed_tree(tmp_path)
+    for rel in ("/etc/passwd", "tools/../security/x.json", "tools//campaign_bundle.py", "", "tools/./x", "a\x00b"):
+        gb, probs = _govern(monkeypatch, tmp_path, rel)
+        assert gb is None and probs, f"rel inválida {rel!r} debe rechazarse (B274)"
+
+
+def test_b274_ancestor_symlink_rejected(monkeypatch, tmp_path):
+    # `tools` y `security` como symlink a otro árbol con bytes aprobados → la cadena O_NOFOLLOW por componente lo corta.
+    _lay_governed_tree(tmp_path)
+    shadow = tmp_path.parent / (tmp_path.name + "_shadow")
+    (shadow / "tools").mkdir(parents=True)
+    (shadow / "security").mkdir(parents=True)
+    (shadow / "tools" / "campaign_bundle.py").write_bytes(_SYN_OK.encode())
+    (shadow / "tools" / "campaign_bundle.py").chmod(0o644)
+    for comp, rel in (("tools", "tools/campaign_bundle.py"), ("security", "security/commit_frontier_fingerprints.json")):
+        victim = tmp_path / comp
+        backup = tmp_path / (comp + "_real")
+        victim.rename(backup)
+        victim.symlink_to(shadow / comp)
+        try:
+            gb, probs = _govern(monkeypatch, tmp_path, rel)
+            assert gb is None and any("B274" in p for p in probs), f"ancestro symlink {comp} debe rechazarse (B274)"
+        finally:
+            victim.unlink()
+            backup.rename(victim)
+
+
+def test_b274_leaf_symlink_and_broken_rejected(monkeypatch, tmp_path):
+    _lay_governed_tree(tmp_path)
+    for rel in ("tools/campaign_bundle.py", "security/commit_frontier_fingerprints.json"):
+        leaf = tmp_path / rel
+        real = leaf.with_suffix(leaf.suffix + ".real")
+        leaf.rename(real)
+        leaf.symlink_to(real)  # symlink a fichero real aprobado
+        gb, probs = _govern(monkeypatch, tmp_path, rel)
+        assert gb is None and any("B274" in p for p in probs), f"leaf symlink {rel} debe rechazarse (B274)"
+        leaf.unlink()
+        leaf.symlink_to(tmp_path / "does_not_exist")  # symlink roto
+        gb, probs = _govern(monkeypatch, tmp_path, rel)
+        assert gb is None and any("B274" in p for p in probs), f"leaf symlink roto {rel} debe rechazarse (B274)"
+        leaf.unlink()
+        real.rename(leaf)
+
+
+def test_b274_lax_modes_rejected(monkeypatch, tmp_path):
+    for mode in (0o666, 0o664, 0o600, 0o755):
+        for rel in ("tools/campaign_bundle.py", "security/commit_frontier_fingerprints.json"):
+            _lay_governed_tree(tmp_path)
+            (tmp_path / rel).chmod(mode)
+            gb, probs = _govern(monkeypatch, tmp_path, rel)
+            assert gb is None and any("modo" in p and "B274" in p for p in probs), f"modo {oct(mode)} {rel} debe rechazarse (B274)"  # fmt: skip
+
+
+def test_b274_hardlink_rejected(monkeypatch, tmp_path):
+    for rel in ("tools/campaign_bundle.py", "security/commit_frontier_fingerprints.json"):
+        _lay_governed_tree(tmp_path)
+        os.link(tmp_path / rel, tmp_path / (rel + ".hard"))  # nlink pasa a 2
+        gb, probs = _govern(monkeypatch, tmp_path, rel)
+        assert gb is None and any("nlink" in p and "B274" in p for p in probs), f"hardlink {rel} debe rechazarse (B274)"
+
+
+def test_b274_fifo_leaf_does_not_hang(monkeypatch, tmp_path):
+    # FIFO sin escritor: O_NONBLOCK evita el cuelgue. Se envuelve la lectura en un temporizador REAL killable (SIGALRM,
+    # 2 s): si faltara O_NONBLOCK, el `os.open` bloqueante sería interrumpido (PEP 475) y el test FALLA, no cuelga.
+    import signal
+
+    def _on_timeout(signum, frame):
+        raise TimeoutError("la lectura gobernada colgó en un FIFO (falta O_NONBLOCK) (B274)")
+
+    for rel in ("tools/campaign_bundle.py", "security/commit_frontier_fingerprints.json"):
+        _lay_governed_tree(tmp_path)
+        (tmp_path / rel).unlink()
+        os.mkfifo(tmp_path / rel)
+        old = signal.signal(signal.SIGALRM, _on_timeout)
+        signal.setitimer(signal.ITIMER_REAL, 2.0)
+        try:
+            gb, probs = _govern(monkeypatch, tmp_path, rel)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, old)
+            (tmp_path / rel).unlink()  # quitar el FIFO: un `write_bytes` posterior sobre él bloquearía sin lector
+        assert gb is None and probs, f"FIFO {rel} debe rechazarse sin colgar (B274)"
+
+
+def test_b274_socket_leaf_rejected(monkeypatch):
+    import shutil
+    import tempfile
+
+    short = tempfile.mkdtemp(prefix="b", dir="/tmp")  # AF_UNIX exige ruta corta (macOS ~104 chars); pytest tmp_path no cabe
+    os.mkdir(os.path.join(short, "tools"))
+    rel = "tools/campaign_bundle.py"
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        srv.bind(os.path.join(short, rel))
+        monkeypatch.setattr(gate, "_ROOT", short)
+        monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
+        gb, probs = gate._read_governed_repo_file(rel)
+        assert gb is None and probs, "un socket Unix como leaf debe rechazarse (B274)"
+    finally:
+        srv.close()
+        shutil.rmtree(short, ignore_errors=True)
+
+
+def test_b274_leaf_inode_swapped_during_read_rejected(monkeypatch, tmp_path):
+    # Reemplazo del leaf entre snapshot inicial/final: el fd retiene el inode viejo pero el NOMBRE resuelve a otro → la
+    # revalidación nombre↔inode lo caza. Se inyecta el swap justo tras el primer fstat, vía monkeypatch de os.read.
+    _lay_governed_tree(tmp_path)
+    rel = "tools/campaign_bundle.py"
+    leaf = tmp_path / rel
+    real_read = os.read
+    swapped = {"done": False}
+
+    def _read_then_swap(fd, n):
+        if not swapped["done"]:
+            swapped["done"] = True
+            leaf.unlink()
+            leaf.write_bytes(_SYN_OK.encode() + b"\n# other inode\n")
+            leaf.chmod(0o644)
+        return real_read(fd, n)
+
+    monkeypatch.setattr(os, "read", _read_then_swap)
+    gb, probs = _govern(monkeypatch, tmp_path, rel)
+    assert gb is None and any("B274" in p for p in probs), "un swap de leaf durante la lectura debe rechazarse (B274)"
+
+
+def test_b274_read_and_close_errors_fail_closed(monkeypatch, tmp_path):
+    _lay_governed_tree(tmp_path)
+    rel = "tools/campaign_bundle.py"
+    real_read = os.read
+
+    def _boom_read(fd, n):
+        raise OSError(5, "EIO inyectado")
+
+    monkeypatch.setattr(os, "read", _boom_read)
+    gb, probs = _govern(monkeypatch, tmp_path, rel)
+    assert gb is None and any("lectura" in p and "B274" in p for p in probs), "error de read debe ser fail-closed (B274)"
+    monkeypatch.setattr(os, "read", real_read)
+
+    real_close = os.close
+    tripped = {"n": 0}
+
+    def _boom_close(fd):
+        # falla SÓLO el primer close (el del leaf); los cierres de dir_fds del finally siguen reales.
+        if tripped["n"] == 0:
+            tripped["n"] = 1
+            try:
+                real_close(fd)
+            finally:
+                raise OSError(9, "EBADF inyectado")
+        return real_close(fd)
+
+    monkeypatch.setattr(os, "close", _boom_close)
+    gb, probs = _govern(monkeypatch, tmp_path, rel)
+    assert gb is None and any("cerrar" in p and "B274" in p for p in probs), "un cierre fallido debe invalidar el resultado (B274)"  # fmt: skip
+
+
+# --- RED-first conductual de B274 a través del API público estable `fingerprint_problems()` (corre en BASE y HEAD).
+# En 036c8f9 el gate lee por ruta ignorando modo/nlink/ancestro-symlink → ACEPTA (rc0) árboles comprometidos cuyos
+# BYTES siguen coincidiendo con el contrato. Estas tres pruebas FALLAN en 036c8f9 (esperan un problema y no lo hay) y
+# pasan aquí. No dependen de `_read_governed_repo_file` (API nueva), así que son RED conductuales legítimas.
+def test_b274_behavioral_lax_mode_authority_rejected_now(monkeypatch, tmp_path):
+    _lay_governed_tree(tmp_path)
+    (tmp_path / "tools" / "governed_fs.py").chmod(0o666)  # world-writable: los bytes no cambian, el modo sí
+    monkeypatch.setattr(gate, "_ROOT", str(tmp_path))
+    monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
+    assert any("B274" in p for p in gate.fingerprint_problems()), "un fichero de autoridad 0666 debe rechazarse (B274)"
+
+
+def test_b274_behavioral_hardlink_authority_rejected_now(monkeypatch, tmp_path):
+    _lay_governed_tree(tmp_path)
+    os.link(tmp_path / "tools" / "governed_fs.py", tmp_path / "tools" / "governed_fs_hard.py")  # nlink→2
+    monkeypatch.setattr(gate, "_ROOT", str(tmp_path))
+    monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
+    assert any("B274" in p for p in gate.fingerprint_problems()), "un fichero de autoridad con hardlink debe rechazarse (B274)"  # fmt: skip
+
+
+def test_b274_behavioral_ancestor_symlink_rejected_now(monkeypatch, tmp_path):
+    import shutil
+
+    _lay_governed_tree(tmp_path)
+    shadow = tmp_path.parent / (tmp_path.name + "_shadow")
+    (shadow / "tools").mkdir(parents=True)
+    for f in gate._AUTHORITY_FILES:  # el shadow lleva los MISMOS bytes aprobados → el gate viejo (que sigue el symlink) acepta
+        shutil.copy(tmp_path / f, shadow / f)
+        (shadow / f).chmod(0o644)
+    (tmp_path / "tools").rename(tmp_path / "tools_real")
+    (tmp_path / "tools").symlink_to(shadow / "tools")
+    monkeypatch.setattr(gate, "_ROOT", str(tmp_path))
+    monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
+    assert any("B274" in p for p in gate.fingerprint_problems()), "tools/ como symlink debe rechazarse aunque los bytes coincidan (B274)"  # fmt: skip
 
 
 def test_gate_b249_alias_propagation_and_dotted(tmp_path, monkeypatch):
