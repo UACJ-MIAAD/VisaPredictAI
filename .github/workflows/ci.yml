@@ -276,6 +276,21 @@ jobs:
         run: timeout 300 python tools/check_action_pins.py --online
         env:
           GH_TOKEN: ${{ github.token }}
+      # P0R.5 (B263): gates de gobernanza como PASOS NOMBRADOS explícitos — antes sólo corrían por
+      # transitividad de pytest. Cada uno visible y difícil de eliminar por accidente; sin wrapper que oculte cuál falla.
+      - name: Commit frontier contract (fingerprint + autoridad)
+        run: python tools/check_commit_frontier.py
+      - name: Positive reflection registry (identidad semántica)
+        run: python tools/check_reflection.py
+      - name: Safe opens + raw filesystem mutation gates
+        run: |
+          python tools/check_safe_opens.py
+          python tools/check_raw_fs_mutations.py
+      - name: B233 historical diagnostic contract
+        run: python -m tools.validate_b233_receipt
+      # Lista positiva: verifica que los gates de gobernanza SIGUEN cableados como pasos de este job.
+      - name: P0R.5 governance gates wired
+        run: python tools/check_p0r5_governance.py
 
   # P0R.3: gate de supply chain como CHECK DE CAMBIO (PR/push), no solo cron. Autoridad única
   # = tools/audit_python_supply_chain.py reconciliando los locks contra el JSON. Sin path
