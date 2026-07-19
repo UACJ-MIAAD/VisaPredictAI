@@ -1,5 +1,5 @@
 {
-  "command": {
+  "capture_command": {
     "argv": [
       "python",
       "-m",
@@ -12,35 +12,33 @@
       "PYTHONDONTWRITEBYTECODE": "1"
     }
   },
-  "conclusion": "The extra 'visapredictai' is REAL in the governed context (recorded as visapredictai==1.0.0). Fix = importlib.metadata inventory -> changes python_env.py -> all env_id -> R9-scope. NOT applied. Locks NOT missing hashes: dev.txt (macOS) is intentionally version-locked without hashes.",
+  "capture_freeze_sha256": "d8054abeffdae9c45bbeac9aed13be369976f04d6aa41c6dcd3b1c6d14795744",
+  "capture_head": "82f356c633dc6e7c739e51d8c223da8450f00eab",
+  "capture_kind": "local_governed_build_diagnostic",
+  "capture_platform": {
+    "machine": "arm64",
+    "python": "3.14.2",
+    "system": "Darwin"
+  },
+  "conclusion": "Evidencia hist\u00f3rica de captura local gobernada; NO es una certificaci\u00f3n del \u00e1rbol actual ni una atestaci\u00f3n externa. Los 7 ficheros gobernados son byte-id\u00e9nticos entre capture_head y el checkout validado, por lo que el diagn\u00f3stico sigue siendo APLICABLE. Para re-certificar hay que re-ejecutar tools/capture_b233_receipt.py (requiere construir el entorno dev gobernado; R9-scope).",
   "error": "python_env: inventario observado != cierre esperado -> paquetes EXTRA no permitidos: ['visapredictai']",
   "expected_inventory_size": 39,
   "extras_exact": [
     "visapredictai"
   ],
-  "git_head": "e67fa6b0e7f361635380119421697b8e740b3367",
   "governed_files": {
+    ".python-version": "sha256:a876e0b10411037a012498b9fe18d9bc1df32ed8b722a13564dc944ddcfd9135",
     "environments/python_profiles.json": "sha256:cbe5e6fa458dbedfc9ff8a1d5b226f281451393e615cb85f89e2b7fde0cbb6ab",
     "locks/dev.txt": "sha256:4270cd1ca05e1000167effe62d4399e21c2791a4d163552d769ba2cb8433263a",
     "locks/lockset.json": "sha256:f67228f26ac8d249fd9f413edc0dddd7e05c536205051ef0fff684160d9c6e73",
+    "pyproject.toml": "sha256:d0c11f00c55a84fc0dd14c5bf60cee75e69538c8da921d0ca9c643890840db88",
     "tools/lock_contracts.py": "sha256:4e4ba0c3347b96736b6d4465e5f79be5c7b29d9b498113d6240c8a17a898198f",
     "tools/python_env.py": "sha256:99514f4a064bafcbd51f4eeedaa647ce3790028174781715566329787498040f"
   },
+  "imported_into_repository_at": "6d67fd1",
   "observed_inventory_size": 40,
-  "pip_check": true,
-  "platform": {
-    "machine": "arm64",
-    "python": "3.14.2",
-    "system": "Darwin"
-  },
-  "purpose": "B233 diagnosis: governed dev-env build records the editable self-package as a '==' pin (real inventory extra)",
+  "purpose": "B233 (diagn\u00f3stico HIST\u00d3RICO, no certificaci\u00f3n del checkout actual): el build gobernado del perfil dev (python -m tools.python_env build --profile dev) inventar\u00eda el paquete editable propio como 'visapredictai==1.0.0' (un pin '==' que sobrevive al strip de '-e ') \u2192 un EXTRA real vs el cierre esperado. El fix (inventariar v\u00eda importlib.metadata) cambia python_env.py y por tanto TODOS los env_id: es R9-scope.",
   "raw_freeze": "PyYAML==6.0.3\nPygments==2.20.0\nast_serialize==0.6.0\nbeautifulsoup4==4.14.3\ncertifi==2026.6.17\ncharset-normalizer==3.4.9\ncontourpy==1.3.3\ncoverage==7.15.1\ncycler==0.12.1\nduckdb==1.5.3\nfonttools==4.63.0\nidna==3.18\niniconfig==2.3.0\nkiwisolver==1.5.0\nlibrt==0.13.0\nmatplotlib==3.10.8\nmypy==2.1.0\nmypy_extensions==1.1.0\nnumpy==2.5.1\npackaging==26.2\npandas==3.0.0\npathspec==1.1.1\npillow==12.3.0\npip==26.1.2\npluggy==1.6.0\npyparsing==3.3.2\npytest-cov==7.1.0\npytest==9.1.0\npython-dateutil==2.9.0.post0\npytz==2026.2\nrequests==2.33.0\nruff==0.15.17\nsetuptools==83.0.0\nsix==1.17.0\nsoupsieve==2.8.4\ntqdm==4.67.3\ntyping_extensions==4.16.0\nurllib3==2.7.0\nvisapredictai==1.0.0\nwheel==0.47.0\n",
-  "raw_freeze_sha256": "d8054abeffdae9c45bbeac9aed13be369976f04d6aa41c6dcd3b1c6d14795744",
   "return_code": 1,
-  "schema_version": 2,
-  "toolchain": {
-    "pip": "26.1.2",
-    "setuptools": "83.0.0",
-    "wheel": "0.47.0"
-  }
+  "schema_version": 3
 }
