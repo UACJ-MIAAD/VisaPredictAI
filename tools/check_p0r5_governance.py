@@ -14,17 +14,25 @@ lógica que exige el success de todos sus needs. Loader anti-claves-duplicadas +
 
 from __future__ import annotations
 
-import json
 import os
 import sys
+from pathlib import Path
 
 import yaml
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)  # B278: raíz del repo en sys.path para importar `tools.check_action_pins` en forma script
 _WORKFLOW = ".github/workflows/ci.yml"
 _ACTION_REGISTRY = "security/github_actions.json"
 _JOB = "p0r5-governance"
 _CI_GATE = "ci-gate"
+# B278: SHA REVISADOS de las dos acciones bootstrap del job. La biyección constante↔registro↔paso impide falsificar
+# registro y workflow a la vez: el SHA del registro positivo debe igualar EXACTAMENTE esta constante de código.
+_BOOTSTRAP_ACTIONS = {
+    "actions/checkout": "93cb6efe18208431cddfb8368fd83d5badbf9bfd",
+    "actions/setup-python": "ece7cb06caefa5fff74198d8649806c4678c61a1",
+}
 _EXPECTED_JOB_KEYS = {"name", "runs-on", "timeout-minutes", "permissions", "steps"}
 _EXPECTED_RUNNER = "ubuntu-24.04"
 _EXPECTED_TIMEOUT = 10
@@ -58,17 +66,32 @@ _NoDupLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no
 
 
 def _action_uses() -> tuple[dict[str, str], list[str]]:
-    """`{acción: 'acción@sha'}` del registro positivo de Actions (para pinear checkout/setup-python EXACTO)."""
+    """B278: deriva los pins de checkout/setup-python del registro POSITIVO validado ESTRICTAMENTE
+    (`check_action_pins.load_registry`: claves superiores exactas, `schema_version` int, entradas EXACTAS
+    `{sha, version, runtime}`, SHA 40-hex, versión no vacía, runtime `node24`, sin claves duplicadas) y EXIGE que su SHA
+    sea EXACTAMENTE el de la constante de código `_BOOTSTRAP_ACTIONS`. Falsificar el registro y el workflow a la vez ya
+    no pasa: el SHA del registro debe igualar la constante revisada. Frontera honesta: ningún gate DENTRO del job deshace
+    una acción maliciosa YA ejecutada; la prevención previa a la ejecución es el SHA revisado + el ruleset + la revisión
+    humana. Este gate detecta drift/inconsistencia, no es infalsificable."""
+    from tools import (
+        check_action_pins as action_pins,  # local: ROOT ya está en sys.path (bootstrap al cargar el módulo)
+    )
+
     try:
-        with open(os.path.join(ROOT, _ACTION_REGISTRY), encoding="utf-8") as fh:
-            reg = json.load(fh)
-    except (OSError, ValueError) as exc:
-        return {}, [f"{_ACTION_REGISTRY}: ilegible/no-JSON ({exc}) (fail-closed B271)"]
-    actions = reg.get("actions", {})
-    out = {a: f"{a}@{actions[a]['sha']}" for a in ("actions/checkout", "actions/setup-python") if isinstance(actions.get(a), dict) and isinstance(actions[a].get("sha"), str)}  # fmt: skip
-    if len(out) != 2:
-        return {}, [f"{_ACTION_REGISTRY}: faltan checkout/setup-python con sha (fail-closed B271)"]
-    return out, []
+        reg = action_pins.load_registry(Path(os.path.join(ROOT, _ACTION_REGISTRY)))
+    except SystemExit as exc:
+        return {}, [f"{_ACTION_REGISTRY}: registro inválido ({exc}) (fail-closed B278)"]
+    except OSError as exc:
+        return {}, [f"{_ACTION_REGISTRY}: ilegible ({exc}) (fail-closed B278)"]
+    out: dict[str, str] = {}
+    problems: list[str] = []
+    for name, expected_sha in _BOOTSTRAP_ACTIONS.items():
+        entry = reg.get(name)
+        if not (isinstance(entry, dict) and entry.get("sha") == expected_sha):
+            problems.append(f"{_ACTION_REGISTRY}: {name} sha != la constante _BOOTSTRAP_ACTIONS revisada ({expected_sha[:12]}…) (fail-closed B278)")  # fmt: skip
+        else:
+            out[name] = f"{name}@{expected_sha}"
+    return ({}, problems) if problems else (out, [])
 
 
 def _expected_steps(uses: dict[str, str]) -> list[dict]:
@@ -76,6 +99,8 @@ def _expected_steps(uses: dict[str, str]) -> list[dict]:
         {"uses": uses["actions/checkout"], "with": {"fetch-depth": 0}},
         {"uses": uses["actions/setup-python"], "with": {"python-version": "3.14"}},
         {"run": "pip install pyyaml==6.0.3"},
+        # B278: el propio gate de pins de Actions corre DENTRO del job mínimo (offline), antes de los demás gates.
+        {"name": "GitHub Actions positive registry (offline)", "run": "python tools/check_action_pins.py"},
         *[{"name": n, "run": c} for n, c in _GATE_STEPS],
     ]
 

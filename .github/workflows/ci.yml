@@ -296,6 +296,8 @@ jobs:
         with:
           python-version: '3.14'
       - run: pip install pyyaml==6.0.3
+      - name: GitHub Actions positive registry (offline)
+        run: python tools/check_action_pins.py
       - name: Commit frontier contract (fingerprint + autoridad)
         run: python tools/check_commit_frontier.py
       - name: Positive reflection registry (identidad semántica)
