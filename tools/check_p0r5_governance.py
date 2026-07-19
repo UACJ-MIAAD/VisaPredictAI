@@ -46,6 +46,27 @@ _GATE_STEPS = (
     ("B233 historical diagnostic contract", "python -m tools.validate_b233_receipt"),
     ("P0R.5 governance gates wired", "python tools/check_p0r5_governance.py"),
 )
+# B275: contrato EXACTO de `ci-gate` (nada de substrings sobre yaml.dump). Claves de job, runner, set COMPLETO de needs
+# y los dos pasos (el que falla + el de éxito) se comparan estructuralmente contra estas constantes revisadas.
+_CI_GATE_JOB_KEYS = {"name", "if", "needs", "runs-on", "steps"}
+_CI_GATE_RUNNER = "ubuntu-latest"
+_CI_GATE_NEEDS = {
+    "commit-policy",
+    "lint-and-test",
+    "model-tests",
+    "consistency",
+    "supply-chain",
+    "deep-lock-install",
+    "dvc-tool-install",
+    "environment-contract",
+    "environment-receipts",
+    "campaign-bundle-contract",
+    "p0r5-governance",
+}
+_CI_GATE_STEP0_NAME = "Fail if any required job was not success"
+_CI_GATE_STEP0_IF = "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}"  # fmt: skip
+_CI_GATE_STEP1_NAME = "All required jobs succeeded"
+_CI_GATE_STEP1_RUN = 'echo "ci-gate OK - todos los jobs en success"'
 
 
 class _NoDupLoader(yaml.SafeLoader):
@@ -151,18 +172,64 @@ def problems() -> list[str]:
             problems.append(f"jobs.{_JOB}.permissions != {_EXPECTED_PERMISSIONS} (B271)")
         problems.extend(_step_problems(job["steps"], _expected_steps(uses)))
 
-    gate = jobs.get(_CI_GATE)
-    if not isinstance(gate, dict):
-        problems.append(f"{_WORKFLOW}: falta el job {_CI_GATE!r} (B271)")
+    problems.extend(_ci_gate_problems(jobs.get(_CI_GATE)))
+    return problems
+
+
+def _ci_gate_step_problems(steps: object) -> list[str]:
+    """B275: DOS pasos exactos. steps[0] (el que falla) = claves {name, if, run}, `if` = predicado COMPLETO
+    failure/cancelled/skipped sobre needs.*.result, y `run` termina en `exit 1`. steps[1] (el de éxito) = claves
+    {name, run} EXACTAS (sin `if`/env/extras) con name+run exactos."""
+    if not (isinstance(steps, list) and len(steps) == 2 and all(isinstance(s, dict) for s in steps)):
+        return [f"jobs.{_CI_GATE}.steps debe ser EXACTAMENTE 2 pasos-mapa (B275)"]
+    problems: list[str] = []
+    fail, ok = steps
+    if set(fail.keys()) != {"name", "if", "run"}:
+        problems.append(f"jobs.{_CI_GATE}.steps[0]: claves != {{name, if, run}} (obtenido {sorted(fail)}) (B275)")
     else:
-        needs = gate.get("needs")
-        if not (isinstance(needs, list) and _JOB in needs):
-            problems.append(f"jobs.{_CI_GATE}.needs debe incluir {_JOB!r} (B271)")
-        gate_src = yaml.dump(gate)  # la lógica de ci-gate debe exigir success de TODOS sus needs
-        if "needs.*.result" not in gate_src:
-            problems.append(
-                f"jobs.{_CI_GATE}: la lógica no valida el success de todos los needs (needs.*.result) (B271)"
-            )
+        if fail["name"] != _CI_GATE_STEP0_NAME:
+            problems.append(f"jobs.{_CI_GATE}.steps[0].name != {_CI_GATE_STEP0_NAME!r} (B275)")
+        if fail["if"] != _CI_GATE_STEP0_IF:
+            problems.append(f"jobs.{_CI_GATE}.steps[0].if != el predicado EXACTO failure/cancelled/skipped sobre needs.*.result (obtenido {fail['if']!r}) (B275)")  # fmt: skip
+        run = fail["run"] if isinstance(fail["run"], str) else ""
+        last = run.strip().splitlines()[-1].strip() if run.strip() else ""
+        if last != "exit 1":
+            problems.append(f"jobs.{_CI_GATE}.steps[0].run no termina en `exit 1` (obtenido {last!r}) (B275)")
+    if set(ok.keys()) != {"name", "run"}:
+        problems.append(f"jobs.{_CI_GATE}.steps[1]: claves != {{name, run}} — sin `if`/env/extras (obtenido {sorted(ok)}) (B275)")  # fmt: skip
+    else:
+        if ok["name"] != _CI_GATE_STEP1_NAME:
+            problems.append(f"jobs.{_CI_GATE}.steps[1].name != {_CI_GATE_STEP1_NAME!r} (B275)")
+        if ok["run"] != _CI_GATE_STEP1_RUN:
+            problems.append(f"jobs.{_CI_GATE}.steps[1].run != {_CI_GATE_STEP1_RUN!r} (B275)")
+    return problems
+
+
+def _ci_gate_problems(gate: object) -> list[str]:
+    """B275: `ci-gate` se valida por FORMA EXACTA, no por substring sobre `yaml.dump` (que un decoy `env` o comentario
+    con 'needs.*.result' satisfacía mientras `if: ${{ false }}` neutralizaba el paso que debe fallar). Claves de job
+    EXACTAS (sin env/defaults/permissions/container/services/strategy/continue-on-error/desconocidas), name/if/runs-on
+    exactos, `needs` = set EXACTO (sin ausencias/extras/duplicados; retirar un job requerido cae aunque
+    p0r5-governance siga) y los dos pasos exactos."""
+    if not isinstance(gate, dict):
+        return [f"{_WORKFLOW}: falta el job {_CI_GATE!r} o no es un mapa (B275)"]
+    if set(gate.keys()) != _CI_GATE_JOB_KEYS:
+        return [f"jobs.{_CI_GATE}: claves != EXACTAMENTE {sorted(_CI_GATE_JOB_KEYS)} (obtenido {sorted(gate)}) — sin env/defaults/container/if-de-job-extra/etc. (B275)"]  # fmt: skip
+    problems: list[str] = []
+    if gate["name"] != _CI_GATE:
+        problems.append(f"jobs.{_CI_GATE}.name != {_CI_GATE!r} (B275)")
+    if gate["if"] != "always()":
+        problems.append(f"jobs.{_CI_GATE}.if != 'always()' exacto (obtenido {gate['if']!r}) (B275)")
+    if gate["runs-on"] != _CI_GATE_RUNNER:
+        problems.append(f"jobs.{_CI_GATE}.runs-on != {_CI_GATE_RUNNER!r} (B275)")
+    needs = gate["needs"]
+    if not (isinstance(needs, list) and all(isinstance(n, str) for n in needs)):
+        problems.append(f"jobs.{_CI_GATE}.needs no es una lista de strings (B275)")
+    elif len(needs) != len(set(needs)):
+        problems.append(f"jobs.{_CI_GATE}.needs tiene duplicados (B275)")
+    elif set(needs) != _CI_GATE_NEEDS:
+        problems.append(f"jobs.{_CI_GATE}.needs != el set EXACTO (falta {sorted(_CI_GATE_NEEDS - set(needs))}, sobra {sorted(set(needs) - _CI_GATE_NEEDS)}) (B275)")  # fmt: skip
+    problems.extend(_ci_gate_step_problems(gate["steps"]))
     return problems
 
 

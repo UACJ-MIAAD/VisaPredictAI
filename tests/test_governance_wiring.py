@@ -187,3 +187,67 @@ def test_b278_offline_actionpins_step_required_and_exact(monkeypatch):
         "run: python tools/check_action_pins.py", "run: python tools/check_action_pins.py || true", 1
     )
     assert _run(monkeypatch, ci=altered), "alterar el comando del paso offline debe fallar (B278/B271)"
+
+
+# ---------------------------------------------------------------------------
+# B275 — `ci-gate` se valida por FORMA EXACTA, no por substring sobre yaml.dump. RED_BASE_SHA = 036c8f9: el check viejo
+# sólo exigía `p0r5-governance in needs` y el substring `needs.*.result` en `yaml.dump(gate)` → un decoy `env: {DECOY:
+# needs.*.result}` con `if: ${{ false }}` en el paso que debe fallar, o retirar un job requerido distinto de
+# p0r5-governance, se ACEPTABA. Las pruebas conductuales usan _CI_NO_OFFLINE (compatible con 036c8f9) para aislar
+# ci-gate: en 036c8f9 aceptan; aquí caen por forma exacta.
+# ---------------------------------------------------------------------------
+_STEP0_IF = "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}"
+
+
+def _ci_gate_replace(old: str, new: str) -> str:
+    # muta SÓLO dentro del bloque ci-gate (es el último job → replace sobre el sufijo es seguro).
+    i = _CI_NO_OFFLINE.index("  ci-gate:\n")
+    return _CI_NO_OFFLINE[:i] + _CI_NO_OFFLINE[i:].replace(old, new, 1)
+
+
+def test_b275_decoy_env_with_neutralized_step_rejected(monkeypatch):
+    ci = _ci_gate_replace("    name: ci-gate\n", "    name: ci-gate\n    env:\n      DECOY: needs.*.result\n")
+    ci = ci.replace(_STEP0_IF, "${{ false }}", 1)  # neutraliza el paso que debe fallar
+    assert any("B275" in p for p in _run(monkeypatch, ci=ci)), "decoy env + if:false debe fallar (B275)"
+
+
+def test_b275_job_if_always_and_false_rejected(monkeypatch):
+    ci = _ci_gate_replace("    if: always()\n", "    if: ${{ always() && false }}\n")
+    assert any("B275" in p for p in _run(monkeypatch, ci=ci)), "if de job != 'always()' exacto debe fallar (B275)"
+
+
+def test_b275_required_need_removal_rejected(monkeypatch):
+    for need in ("lint-and-test", "model-tests", "consistency", "supply-chain", "campaign-bundle-contract"):
+        ci = _ci_gate_replace(f", {need}", "")
+        assert any("B275" in p for p in _run(monkeypatch, ci=ci)), f"quitar el need {need!r} debe fallar (B275)"
+
+
+def test_b275_unknown_and_duplicate_need_rejected(monkeypatch):
+    add = _ci_gate_replace("p0r5-governance]", "p0r5-governance, evil-job]")
+    assert any("B275" in p for p in _run(monkeypatch, ci=add)), "un need desconocido debe fallar (B275)"
+    dup = _ci_gate_replace("p0r5-governance]", "p0r5-governance, consistency]")
+    assert any("B275" in p for p in _run(monkeypatch, ci=dup)), "un need duplicado debe fallar (B275)"
+
+
+def test_b275_predicate_and_exit_tampering_rejected(monkeypatch):
+    drop = _ci_gate_replace(" || contains(needs.*.result, 'skipped')", "")
+    assert any("B275" in p for p in _run(monkeypatch, ci=drop)), "quitar 'skipped' del predicado debe fallar (B275)"
+    exit0 = _ci_gate_replace("          exit 1\n", "          exit 0\n")
+    assert any("B275" in p for p in _run(monkeypatch, ci=exit0)), "exit 0 en vez de exit 1 debe fallar (B275)"
+    coe = _ci_gate_replace(
+        "      - name: All required jobs succeeded\n",
+        "      - name: All required jobs succeeded\n        continue-on-error: true\n",
+    )
+    assert any("B275" in p for p in _run(monkeypatch, ci=coe)), "continue-on-error en el paso debe fallar (B275)"
+
+
+def test_b275_success_step_run_decoy_and_extra_step_rejected(monkeypatch):
+    decoy = _ci_gate_replace('echo "ci-gate OK - todos los jobs en success"', 'echo "needs.*.result decoy"')
+    assert any("B275" in p for p in _run(monkeypatch, ci=decoy)), "run alterado del paso de éxito debe fallar (B275)"
+    extra = _ci_gate_replace("    steps:\n", "    steps:\n      - run: echo sneaky\n")
+    assert any("B275" in p for p in _run(monkeypatch, ci=extra)), "un paso extra debe fallar (B275)"
+
+
+def test_b275_duplicate_yaml_key_in_ci_gate_rejected(monkeypatch):
+    dup = _ci_gate_replace("    name: ci-gate\n", "    name: ci-gate\n    name: ci-gate\n")
+    assert _run(monkeypatch, ci=dup), "clave YAML duplicada en ci-gate debe fallar cerrado (B275)"
