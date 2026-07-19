@@ -25,19 +25,35 @@ import sys
 from tools import validate_b233_receipt as vr
 
 
+def _write_all_stdout(data: bytes) -> bool:
+    """B272: escribe el `data` COMPLETO a stdout.buffer (memoryview + offset), repitiendo hasta cubrir len(data), y hace
+    flush. Devuelve True SÓLO si se escribió por completo y el flush concluyó. Una escritura corta / None / 0 / negativa
+    / mayor que lo restante, o `BrokenPipeError`/`OSError` → False (nunca se reporta éxito con un prefijo parcial)."""
+    mv = memoryview(data)
+    offset = 0
+    buf = sys.stdout.buffer
+    try:
+        while offset < len(data):
+            n = buf.write(mv[offset:])
+            if not isinstance(n, int) or n <= 0 or n > len(data) - offset:
+                return False
+            offset += n
+        buf.flush()
+    except BrokenPipeError, OSError:
+        return False
+    return offset == len(data)
+
+
 def _export() -> int:
-    """Emite el recibo canónico validado a STDOUT (bytes de la MISMA lectura gobernada). Sin fichero, sin symlink."""
+    """Emite el recibo canónico validado a STDOUT (bytes de la MISMA lectura gobernada, escritura TOTAL). Sin fichero,
+    sin symlink. Devuelve 0 SÓLO tras validar + escribir TODOS los bytes + flush; cualquier escritura parcial → 1."""
     data, problems = vr.read_and_validate_canonical()
     if data is None:
         sys.stderr.write("no se exporta: el recibo canónico no validó\n")
         for p in problems:
             sys.stderr.write(f"  - {p}\n")
         return 1
-    try:
-        sys.stdout.buffer.write(data)
-    except BrokenPipeError:  # el lector cerró la tubería; el recibo canónico NO se toca en ningún caso
-        return 1
-    return 0
+    return 0 if _write_all_stdout(data) else 1
 
 
 def main(argv: list[str]) -> int:

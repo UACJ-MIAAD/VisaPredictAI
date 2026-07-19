@@ -10,11 +10,25 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 
 import tools.capture_b233_receipt as cap
 import tools.validate_b233_receipt as v
 
 _RECEIPT = os.path.join(v.ROOT, "reports", "governance", "b233_receipt.json")
+
+
+def test_b273_validator_imports_and_runs_without_pandas():
+    # B273: el gate B233 corre en un job CI liviano SIN pandas. `governed_read` importaba pandas a nivel de módulo →
+    # `import tools.validate_b233_receipt` reventaba en un intérprete limpio (-I -S sin site-packages).
+    code = (
+        "import sys; sys.path.insert(0, sys.argv[1]); "
+        "import tools.validate_b233_receipt as v; "
+        "assert isinstance(v.validate_receipt({}), list); print('OK')"
+    )
+    out = subprocess.run([sys.executable, "-I", "-S", "-c", code, v.ROOT], capture_output=True, text=True, cwd=v.ROOT)
+    assert out.returncode == 0 and "OK" in out.stdout, f"validate_b233_receipt debe importar/correr sin pandas (B273): {out.stderr[-400:]}"  # fmt: skip
+    assert "pandas" not in out.stderr.lower(), f"no debe intentar importar pandas (B273): {out.stderr[-300:]}"
 
 
 def _base() -> dict:
@@ -221,3 +235,59 @@ def test_b261_no_schema4_written_by_capture():
 
     src = inspect.getsource(cap)
     assert "schema_version" not in src, "capture no debe emitir ningún schema (B261/B267)"
+
+
+class _Buf:
+    def __init__(self, mode):
+        self.mode = mode
+        self.written = b""
+        self.calls = 0
+
+    def write(self, b):
+        self.calls += 1
+        data = bytes(b)
+        if self.mode == "complete":
+            self.written += data
+            return len(data)
+        if self.mode == "short":  # siempre escribe la mitad (nunca converge)
+            n = len(data) // 2
+            self.written += data[:n]
+            return n
+        if self.mode == "zero":
+            return 0
+        if self.mode == "none":
+            return None
+        if self.mode == "err_after_prefix":
+            if self.calls > 1:
+                raise OSError("boom")
+            n = len(data) // 2
+            self.written += data[:n]
+            return n
+        return len(data)
+
+    def flush(self):
+        if self.mode == "flush_fail":
+            raise OSError("flush")
+
+
+def test_b272_export_requires_complete_write_and_flush(monkeypatch):
+    # B272: sólo `complete` da rc=0; escritura corta/0/None/error/flush-fallido → rc=1 (nunca éxito con prefijo parcial).
+    expect = {"complete": 0, "short": 1, "zero": 1, "none": 1, "err_after_prefix": 1, "flush_fail": 1}
+    for mode, rc in expect.items():
+        buf = _Buf(mode)
+        fake = type("FS", (), {"buffer": buf})()
+        monkeypatch.setattr(sys, "stdout", fake)
+        got = cap._export()
+        monkeypatch.undo()
+        assert got == rc, f"modo {mode}: rc esperado {rc}, obtenido {got} (B272)"
+    # el canónico nunca se toca en ningún modo
+    assert not cap.__dict__.get("_wrote_canonical"), "capture jamás escribe el canónico"
+
+
+def test_b272_write_all_stdout_helper_is_total(monkeypatch):
+    for mode, ok in (("complete", True), ("short", False), ("zero", False), ("none", False), ("flush_fail", False)):
+        buf = _Buf(mode)
+        monkeypatch.setattr(sys, "stdout", type("FS", (), {"buffer": buf})())
+        result = cap._write_all_stdout(b"hello world payload")
+        monkeypatch.undo()
+        assert result is ok, f"{mode}: _write_all_stdout debe devolver {ok} (B272)"
