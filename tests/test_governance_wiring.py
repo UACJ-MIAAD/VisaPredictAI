@@ -252,7 +252,9 @@ def test_b292_new_job_omitted_from_needs_rejected(monkeypatch):
 def test_b292_new_job_included_no_needs_problem(monkeypatch):
     ci = _CI_NO_OFFLINE.replace("  ci-gate:\n", _NEW_JOB + "  ci-gate:\n", 1)
     ci = ci.replace("p0r5-governance]", "p0r5-governance, new-security-contract]", 1)
-    assert not any("B292" in p for p in _run(monkeypatch, ci=ci)), "un job nuevo incluido en needs no debe disparar B292"
+    assert not any("B292" in p for p in _run(monkeypatch, ci=ci)), (
+        "un job nuevo incluido en needs no debe disparar B292"
+    )
 
 
 def test_b292_all_current_jobs_required_control(monkeypatch):
