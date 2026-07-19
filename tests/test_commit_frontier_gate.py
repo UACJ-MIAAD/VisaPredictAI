@@ -712,7 +712,8 @@ def test_b274_ancestor_symlink_rejected(monkeypatch, tmp_path):
         victim.symlink_to(shadow / comp)
         try:
             gb, probs = _govern(monkeypatch, tmp_path, rel)
-            assert gb is None and any("B274" in p for p in probs), f"ancestro symlink {comp} debe rechazarse (B274)"
+            # B281: la cadena absoluta O_NOFOLLOW por componente lo caza (ancestro symlink).
+            assert gb is None and any("B281" in p for p in probs), f"ancestro symlink {comp} debe rechazarse (B281)"
         finally:
             victim.unlink()
             backup.rename(victim)
@@ -848,7 +849,8 @@ def test_b274_read_and_close_errors_fail_closed(monkeypatch, tmp_path):
 
     monkeypatch.setattr(os, "close", _boom_close)
     gb, probs = _govern(monkeypatch, tmp_path, rel)
-    assert gb is None and any("cerrar" in p and "B274" in p for p in probs), "un cierre fallido debe invalidar el resultado (B274)"  # fmt: skip
+    # B282: los errores de cierre se SUPERFICIE (ya no se tragan) e invalidan el resultado.
+    assert gb is None and any("cerrar" in p and "B282" in p for p in probs), "un cierre fallido debe invalidar el resultado (B282)"  # fmt: skip
 
 
 # --- RED-first conductual de B274 a través del API público estable `fingerprint_problems()` (corre en BASE y HEAD).
@@ -886,7 +888,107 @@ def test_b274_behavioral_ancestor_symlink_rejected_now(monkeypatch, tmp_path):
     (tmp_path / "tools").symlink_to(shadow / "tools")
     monkeypatch.setattr(gate, "_ROOT", str(tmp_path))
     monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
-    assert any("B274" in p for p in gate.fingerprint_problems()), "tools/ como symlink debe rechazarse aunque los bytes coincidan (B274)"  # fmt: skip
+    assert any("B281" in p for p in gate.fingerprint_problems()), "tools/ como symlink debe rechazarse aunque los bytes coincidan (B281)"  # fmt: skip
+
+
+# ---------------------------------------------------------------------------
+# B281 — la lectura gobernada ANCLA en `/` y desciende TODA la ruta absoluta con O_NOFOLLOW; una raíz o ancestro symlink
+# se corta. B282 — invariantes de directorio (sin escritura g/o), errores de cierre SUPERFICIE, y límites de tamaño.
+# RED_BASE_SHA = b781d68: la primitiva abría `_ROOT` directo (sin O_NOFOLLOW) → raíz symlink aceptada; dirs 0777 y
+# fallos de close aceptados; sin límite de tamaño.
+# ---------------------------------------------------------------------------
+def test_b281_root_symlink_rejected(monkeypatch, tmp_path):
+    real = tmp_path / "real"
+    (real / "tools").mkdir(parents=True)
+    (real / "tools" / "campaign_bundle.py").write_bytes(_SYN_OK.encode())
+    (real / "tools" / "campaign_bundle.py").chmod(0o644)
+    (tmp_path / "root-link").symlink_to(real, target_is_directory=True)
+    monkeypatch.setattr(gate, "_ROOT", str(tmp_path / "root-link"))
+    monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
+    gb, probs = gate._read_governed_repo_file("tools/campaign_bundle.py")
+    assert gb is None and any("B281" in p for p in probs), "un _ROOT symlink debe rechazarse (B281)"
+
+
+def test_b281_absolute_ancestor_symlink_rejected(monkeypatch, tmp_path):
+    # un componente INTERMEDIO de la ruta absoluta de _ROOT es symlink → cortado por O_NOFOLLOW.
+    realmid = tmp_path / "realmid"
+    (realmid / "sub" / "tools").mkdir(parents=True)
+    (realmid / "sub" / "tools" / "campaign_bundle.py").write_bytes(_SYN_OK.encode())
+    (realmid / "sub" / "tools" / "campaign_bundle.py").chmod(0o644)
+    (tmp_path / "mid").symlink_to(realmid, target_is_directory=True)
+    monkeypatch.setattr(gate, "_ROOT", str(tmp_path / "mid" / "sub"))  # 'mid' es un ancestro symlink
+    monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
+    gb, probs = gate._read_governed_repo_file("tools/campaign_bundle.py")
+    assert gb is None and any("B281" in p for p in probs), "un ancestro absoluto symlink debe rechazarse (B281)"
+
+
+def test_b281_ancestor_inode_swap_during_read_rejected(monkeypatch, tmp_path):
+    # reemplaza el dir `tools` (por otro inode con bytes idénticos) durante la lectura → la revalidación nombre↔inode lo caza.
+    _lay_governed_tree(tmp_path)
+    real_read = os.read
+    swapped = {"done": False}
+
+    def _read_then_swap(fd, n):
+        if not swapped["done"]:
+            swapped["done"] = True
+            (tmp_path / "tools").rename(tmp_path / "tools_old")
+            (tmp_path / "tools").mkdir()
+            (tmp_path / "tools" / "campaign_bundle.py").write_bytes(_SYN_OK.encode())
+            (tmp_path / "tools" / "campaign_bundle.py").chmod(0o644)
+        return real_read(fd, n)
+
+    monkeypatch.setattr(os, "read", _read_then_swap)
+    gb, probs = _govern(monkeypatch, tmp_path, "tools/campaign_bundle.py")
+    assert gb is None and any("cambió de inode" in p for p in probs), "un swap de ancestro durante la lectura debe rechazarse (B281/B274)"  # fmt: skip
+
+
+def test_b282_group_other_writable_dir_rejected(monkeypatch, tmp_path):
+    for mode in (0o777, 0o775):
+        _lay_governed_tree(tmp_path)
+        (tmp_path / "tools").chmod(mode)
+        try:
+            gb, probs = _govern(monkeypatch, tmp_path, "tools/campaign_bundle.py")
+            assert gb is None and any("B282" in p and "escribible" in p for p in probs), f"dir {oct(mode)} debe rechazarse (B282)"  # fmt: skip
+        finally:
+            (tmp_path / "tools").chmod(0o755)
+
+
+def test_b282_oversized_rejected(monkeypatch, tmp_path):
+    _lay_governed_tree(tmp_path)
+    monkeypatch.setattr(gate, "_ROOT", str(tmp_path))
+    monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
+    gb, probs = gate._read_governed_repo_file("tools/campaign_bundle.py", max_bytes=10)
+    assert gb is None and any("B282" in p and ("máximo" in p or "excede" in p) for p in probs), "oversized debe rechazarse (B282)"  # fmt: skip
+
+
+def test_b282_dir_close_failure_surfaced(monkeypatch, tmp_path):
+    # falla el 2º cierre = un DIRECTORIO (el leaf se cierra 1º en orden reverso). B781d68 tragaba los cierres de
+    # directorio (`except OSError: pass`) → aceptaba; aquí se SUPERFICIE.
+    _lay_governed_tree(tmp_path)
+    real_close = os.close
+    state = {"n": 0}
+
+    def _boom_close(fd):
+        state["n"] += 1
+        if state["n"] == 2:
+            try:
+                real_close(fd)
+            finally:
+                raise OSError(9, "EBADF inyectado")
+        return real_close(fd)
+
+    monkeypatch.setattr(os, "close", _boom_close)
+    gb, probs = _govern(monkeypatch, tmp_path, "tools/campaign_bundle.py")
+    assert gb is None and any("cerrar" in p and "B282" in p for p in probs), "un cierre fallido de directorio debe superficie e invalidar (B282)"  # fmt: skip
+
+
+def test_b281_b282_happy_control_real_repo_accepts(monkeypatch, tmp_path):
+    # control: el árbol gobernado limpio (dirs 0755, leaf 0644) sigue pasando tras el anclado absoluto.
+    _lay_governed_tree(tmp_path)
+    assert _govern(monkeypatch, tmp_path, "tools/campaign_bundle.py")[0] is not None, "el árbol limpio debe aceptarse"
+    monkeypatch.setattr(gate, "_ROOT", str(tmp_path))
+    monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
+    assert gate.fingerprint_problems() == [], "fingerprint del árbol limpio debe pasar (B281/B282)"
 
 
 def test_gate_b249_alias_propagation_and_dotted(tmp_path, monkeypatch):

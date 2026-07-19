@@ -630,116 +630,145 @@ def _governed_rel_parts(rel: str) -> list[str] | None:
     return parts
 
 
-def _read_governed_repo_file(rel: str, *, exact_mode: int = 0o644) -> tuple[_GovernedBytes | None, list[str]]:
-    """B274: lee los bytes de un fichero versionado del repo por una cadena GOBERNADA, stdlib-only, SIN importar ninguno
-    de los cinco módulos cuyos bytes certifica. Abre `_ROOT` como ancla y desciende componente a componente con
-    `O_DIRECTORY|O_NOFOLLOW` (ningún ancestro puede ser symlink); el leaf con `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` (un FIFO
-    sin escritor NO cuelga antes del `fstat`). Exige regular, uid actual, `nlink==1`, modo EXACTO y sin bits especiales;
-    lee SÓLO de ese fd (jamás reabre por ruta); toma `fstat` snapshot pre/post idéntico; revalida nombre↔inode de cada
-    componente y del leaf; un cierre fallido invalida el resultado. Frontera honesta: evita symlinks, objetos especiales,
-    rebind visible y mutación del inode DURANTE la lectura; NO es una instantánea criptográfica contra un proceso hostil
-    del mismo UID que alterne y restaure todo el árbol entre checkpoints — la autoridad final sigue siendo ruleset +
-    revisión del diff."""
+# B282: límites de tamaño (antes de leer y durante la lectura). El total del snapshot lo acota el consumidor.
+_CONTRACT_MAX_BYTES = 1 << 20  # 1 MiB (contrato JSON)
+_AUTHORITY_MAX_BYTES = 4 << 20  # 4 MiB (módulo de autoridad)
+_SOURCE_MAX_BYTES = 4 << 20  # 4 MiB (source genérico)
+_SNAPSHOT_TOTAL_MAX_BYTES = 64 << 20  # 64 MiB (suma de todo lo leído en una pasada)
+_DIR_GO_WRITE = 0o022  # bits de escritura grupo/otros — PROHIBIDOS en directorios gobernados
+
+
+def _governed_dir_problem(comp: str, st: os.stat_result) -> str | None:
+    """B282: invariantes de un directorio de la cadena gobernada. Un `/var` symlink lo corta antes `O_NOFOLLOW`; aquí se
+    exige: directorio REAL, SIN escritura de grupo/otros (un `tools` 0777/0775 lo permitía swapear ficheros), dueño root
+    o el uid actual (nadie más pudo inyectar la ruta), y sin setuid/setgid."""
+    if not stat.S_ISDIR(st.st_mode):
+        return f"componente {comp!r} no es un directorio"
+    if st.st_mode & _DIR_GO_WRITE:
+        return f"directorio {comp!r} escribible por grupo/otros (modo {oct(stat.S_IMODE(st.st_mode))})"
+    if st.st_uid not in (0, os.getuid()):
+        return f"directorio {comp!r} con dueño uid {st.st_uid} (ni root ni el actual)"
+    if st.st_mode & (stat.S_ISUID | stat.S_ISGID):
+        return f"directorio {comp!r} con setuid/setgid"
+    return None
+
+
+def _read_governed_repo_file(rel: str, *, exact_mode: int = 0o644, max_bytes: int = _SOURCE_MAX_BYTES) -> tuple[_GovernedBytes | None, list[str]]:  # fmt: skip
+    """B274/B281/B282: lee los bytes de un fichero versionado por una cadena GOBERNADA ABSOLUTA, stdlib-only, SIN importar
+    ninguno de los módulos que certifica. **B281:** ancla en `/` (raíz del fs, no puede ser symlink) y desciende TODOS los
+    componentes de la ruta ABSOLUTA (`_ROOT` + directorios de `rel`) con `O_DIRECTORY|O_NOFOLLOW` — una raíz o ancestro
+    symlink (p. ej. `/var`, o un `_ROOT` symlink) se CORTA. **B282:** cada directorio cumple invariantes
+    (`_governed_dir_problem`: real, sin escritura g/o, dueño root/uid-actual, sin setuid/setgid); el leaf con
+    `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` exige regular/uid-actual/`nlink==1`/modo EXACTO/sin bits especiales; se aplica
+    `max_bytes` ANTES y DURANTE la lectura; snapshot `fstat` pre/post; revalida nombre↔inode de cada componente y del leaf.
+    Los fds se cierran UNA vez y los errores de cierre se SUPERFICIE (un cierre fallido invalida un éxito potencial y se
+    adjunta al error primario, no lo sustituye). Frontera honesta: evita symlinks, objetos especiales, rebind visible y
+    mutación del inode DURANTE la lectura; NO es una instantánea criptográfica contra un proceso hostil root/uid-actual que
+    alterne y restaure todo el árbol entre checkpoints — la autoridad final sigue siendo ruleset + revisión del diff."""
     parts = _governed_rel_parts(rel)
     if parts is None:
         return None, [f"{rel}: ruta relativa POSIX inválida (fail-closed B274)"]
-    dir_fds: list[int] = []
+    root_abs = os.path.abspath(_ROOT)  # absoluto y normalizado; NO resuelve symlinks (los caza O_NOFOLLOW)
+    dir_comps = [p for p in root_abs.split("/") if p] + parts[:-1]  # componentes-directorio absolutos + dirs de rel
+    leaf = parts[-1]
+    all_fds: list[int] = []
     ancestors: list[tuple[str, int, os.stat_result]] = []  # (nombre, parent_fd, fstat) para revalidar nombre↔inode
+    primary: list[str] | None = None
+    result: tuple[_GovernedBytes | None, list[str]] | None = None
     try:
         try:
-            root_fd = os.open(_ROOT, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+            root_fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)  # la raíz del fs no puede ser symlink
         except OSError as exc:
-            return None, [f"{rel}: raíz {_ROOT!r} no abrible como directorio ({exc}) (fail-closed B274)"]
-        dir_fds.append(root_fd)
+            return None, [f"{rel}: '/' no abrible como directorio ({exc}) (fail-closed B281)"]
+        all_fds.append(root_fd)
         cur = root_fd
-        for comp in parts[:-1]:
+        for comp in dir_comps:
             try:
                 nfd = os.open(comp, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=cur)
             except OSError as exc:
-                return None, [f"{rel}: componente {comp!r} no es directorio no-symlink abrible ({exc}) (fail-closed B274)"]  # fmt: skip
+                primary = [f"{rel}: componente {comp!r} no es directorio no-symlink abrible ({exc}) (fail-closed B281)"]
+                break
+            all_fds.append(nfd)  # registrado ANTES del chequeo para que el cierre lo alcance
+            dprob = _governed_dir_problem(comp, os.fstat(nfd))
+            if dprob is not None:
+                primary = [f"{rel}: {dprob} (fail-closed B282)"]
+                break
             ancestors.append((comp, cur, os.fstat(nfd)))
-            dir_fds.append(nfd)
             cur = nfd
-        leaf = parts[-1]
-        try:
-            lfd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=cur)
-        except OSError as exc:
-            return None, [f"{rel}: leaf {leaf!r} no abrible sin seguir symlink ({exc}) (fail-closed B274)"]
-        close_problem: str | None = None
-        result: tuple[_GovernedBytes | None, list[str]] | None = None
-        try:
-            st0 = os.fstat(lfd)
-            if not stat.S_ISREG(st0.st_mode):
-                return None, [f"{rel}: no es un fichero regular (fail-closed B274)"]
-            if st0.st_mode & (stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX):
-                return None, [f"{rel}: bits especiales setuid/setgid/sticky (fail-closed B274)"]
-            if stat.S_IMODE(st0.st_mode) != exact_mode:
-                return None, [f"{rel}: modo {oct(stat.S_IMODE(st0.st_mode))} != {oct(exact_mode)} exacto (fail-closed B274)"]  # fmt: skip
-            if st0.st_uid != os.getuid():
-                return None, [f"{rel}: uid {st0.st_uid} != {os.getuid()} actual (fail-closed B274)"]
-            if st0.st_nlink != 1:
-                return None, [f"{rel}: nlink {st0.st_nlink} != 1 (hardlink) (fail-closed B274)"]
-            chunks: list[bytes] = []
-            while True:
-                try:
-                    chunk = os.read(lfd, 1 << 16)
-                except OSError as exc:
-                    return None, [f"{rel}: error de lectura ({exc}) (fail-closed B274)"]
-                if not chunk:
-                    break
-                chunks.append(chunk)
-            data = b"".join(chunks)
-            st1 = os.fstat(lfd)
-            snap0 = (st0.st_dev, st0.st_ino, st0.st_size, st0.st_mtime_ns, st0.st_ctime_ns, st0.st_mode, st0.st_uid, st0.st_nlink)  # fmt: skip
-            snap1 = (st1.st_dev, st1.st_ino, st1.st_size, st1.st_mtime_ns, st1.st_ctime_ns, st1.st_mode, st1.st_uid, st1.st_nlink)  # fmt: skip
-            if snap0 != snap1:
-                return None, [f"{rel}: el inode del leaf cambió durante la lectura (fail-closed B274)"]
-            if len(data) != st0.st_size:
-                return None, [f"{rel}: tamaño leído {len(data)} != fstat {st0.st_size} (fail-closed B274)"]
-            result = (
-                _GovernedBytes(
-                    data=data,
-                    rel=rel,
-                    dev=st0.st_dev,
-                    ino=st0.st_ino,
-                    size=st0.st_size,
-                    mtime_ns=st0.st_mtime_ns,
-                    ctime_ns=st0.st_ctime_ns,
-                    mode=st0.st_mode,
-                    uid=st0.st_uid,
-                    nlink=st0.st_nlink,
-                ),  # fmt: skip
-                [],
-            )
-        finally:
+        if primary is None:
             try:
-                os.close(lfd)
+                lfd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=cur)
             except OSError as exc:
-                close_problem = f"{rel}: fallo al cerrar el leaf ({exc}) (fail-closed B274)"
-        if close_problem is not None:
-            return None, [close_problem]
-        assert result is not None
-        gb, _ = result
-        for name, pfd, fst in ancestors:  # revalidar nombre↔inode de cada ancestro y del leaf
-            try:
-                by_name = os.stat(name, dir_fd=pfd, follow_symlinks=False)
-            except OSError as exc:
-                return None, [f"{rel}: ancestro {name!r} no re-stat-able ({exc}) (fail-closed B274)"]
-            if (by_name.st_dev, by_name.st_ino) != (fst.st_dev, fst.st_ino):
-                return None, [f"{rel}: el ancestro {name!r} cambió de inode durante la lectura (fail-closed B274)"]
-        try:
-            leaf_by_name = os.stat(leaf, dir_fd=cur, follow_symlinks=False)
-        except OSError as exc:
-            return None, [f"{rel}: leaf {leaf!r} no re-stat-able ({exc}) (fail-closed B274)"]
-        if (leaf_by_name.st_dev, leaf_by_name.st_ino) != (gb.dev, gb.ino):
-            return None, [f"{rel}: el leaf {leaf!r} cambió de inode durante la lectura (fail-closed B274)"]
-        return result
+                primary = [f"{rel}: leaf {leaf!r} no abrible sin seguir symlink ({exc}) (fail-closed B274)"]
+            else:
+                all_fds.append(lfd)
+                primary, result = _govern_leaf(rel, leaf, lfd, cur, exact_mode, max_bytes, ancestors)
     finally:
-        for fd in reversed(dir_fds):
+        close_errors: list[str] = []
+        for fd in reversed(all_fds):  # cerrar TODOS los fds UNA vez, RECOGIENDO errores (B282: no tragar)
             try:
                 os.close(fd)
-            except OSError:
-                pass
+            except OSError as exc:
+                close_errors.append(str(exc))
+    if close_errors:  # un cierre fallido invalida un éxito potencial y se ADJUNTA al error primario
+        return None, (primary or []) + [f"{rel}: fallo(s) al cerrar fd(s): {'; '.join(close_errors)} (fail-closed B282)"]
+    if primary is not None:
+        return None, primary
+    return result if result is not None else (None, [f"{rel}: sin resultado (fail-closed B282)"])
+
+
+def _govern_leaf(rel: str, leaf: str, lfd: int, parent_fd: int, exact_mode: int, max_bytes: int, ancestors: list) -> tuple[list[str] | None, tuple[_GovernedBytes | None, list[str]] | None]:  # fmt: skip
+    """B274/B282: valida y lee el leaf ya abierto (`lfd`), aplica `max_bytes`, snapshot pre/post y revalida nombre↔inode.
+    Devuelve `(primary_problems_o_None, result_o_None)`; el cierre de fds lo hace el llamador."""
+    st0 = os.fstat(lfd)
+    if not stat.S_ISREG(st0.st_mode):
+        return [f"{rel}: no es un fichero regular (fail-closed B274)"], None
+    if st0.st_mode & (stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX):
+        return [f"{rel}: bits especiales setuid/setgid/sticky (fail-closed B274)"], None
+    if stat.S_IMODE(st0.st_mode) != exact_mode:
+        return [f"{rel}: modo {oct(stat.S_IMODE(st0.st_mode))} != {oct(exact_mode)} exacto (fail-closed B274)"], None
+    if st0.st_uid != os.getuid():
+        return [f"{rel}: uid {st0.st_uid} != {os.getuid()} actual (fail-closed B274)"], None
+    if st0.st_nlink != 1:
+        return [f"{rel}: nlink {st0.st_nlink} != 1 (hardlink) (fail-closed B274)"], None
+    if st0.st_size > max_bytes:  # B282: rechaza oversized ANTES de leer
+        return [f"{rel}: tamaño {st0.st_size} > máximo {max_bytes} (fail-closed B282)"], None
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        try:
+            chunk = os.read(lfd, 1 << 16)
+        except OSError as exc:
+            return [f"{rel}: error de lectura ({exc}) (fail-closed B274)"], None
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:  # B282: rechaza un fichero que CRECE durante la lectura
+            return [f"{rel}: excede el máximo {max_bytes} durante la lectura (fail-closed B282)"], None
+        chunks.append(chunk)
+    data = b"".join(chunks)
+    st1 = os.fstat(lfd)
+    snap0 = (st0.st_dev, st0.st_ino, st0.st_size, st0.st_mtime_ns, st0.st_ctime_ns, st0.st_mode, st0.st_uid, st0.st_nlink)  # fmt: skip
+    snap1 = (st1.st_dev, st1.st_ino, st1.st_size, st1.st_mtime_ns, st1.st_ctime_ns, st1.st_mode, st1.st_uid, st1.st_nlink)  # fmt: skip
+    if snap0 != snap1:
+        return [f"{rel}: el inode del leaf cambió durante la lectura (fail-closed B274)"], None
+    if len(data) != st0.st_size:
+        return [f"{rel}: tamaño leído {len(data)} != fstat {st0.st_size} (fail-closed B274)"], None
+    for name, pfd, fst in ancestors:  # revalidar nombre↔inode de cada ancestro
+        try:
+            by_name = os.stat(name, dir_fd=pfd, follow_symlinks=False)
+        except OSError as exc:
+            return [f"{rel}: ancestro {name!r} no re-stat-able ({exc}) (fail-closed B274)"], None
+        if (by_name.st_dev, by_name.st_ino) != (fst.st_dev, fst.st_ino):
+            return [f"{rel}: el ancestro {name!r} cambió de inode durante la lectura (fail-closed B274)"], None
+    try:
+        leaf_by_name = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError as exc:
+        return [f"{rel}: leaf {leaf!r} no re-stat-able ({exc}) (fail-closed B274)"], None
+    if (leaf_by_name.st_dev, leaf_by_name.st_ino) != (st0.st_dev, st0.st_ino):
+        return [f"{rel}: el leaf {leaf!r} cambió de inode durante la lectura (fail-closed B274)"], None
+    gb = _GovernedBytes(data=data, rel=rel, dev=st0.st_dev, ino=st0.st_ino, size=st0.st_size, mtime_ns=st0.st_mtime_ns, ctime_ns=st0.st_ctime_ns, mode=st0.st_mode, uid=st0.st_uid, nlink=st0.st_nlink)  # fmt: skip
+    return None, (gb, [])
 
 
 def _read_authority_files(contract: dict) -> tuple[dict[str, _GovernedBytes], list[str]]:
@@ -750,13 +779,18 @@ def _read_authority_files(contract: dict) -> tuple[dict[str, _GovernedBytes], li
     af = contract["authority_files"]
     governed: dict[str, _GovernedBytes] = {}
     problems: list[str] = []
+    total = 0  # B282: cota global del snapshot (64 MiB) además del límite por-fichero
     for rel in _AUTHORITY_FILES:
         if not _git_tracked(rel):
             problems.append(f"{rel}: NO versionado (fail-closed B269)")
             continue
-        gb, gprobs = _read_governed_repo_file(rel)
+        gb, gprobs = _read_governed_repo_file(rel, max_bytes=_AUTHORITY_MAX_BYTES)
         if gb is None:
             problems.extend(gprobs)
+            continue
+        total += gb.size
+        if total > _SNAPSHOT_TOTAL_MAX_BYTES:
+            problems.append(f"{rel}: el snapshot total excede {_SNAPSHOT_TOTAL_MAX_BYTES} (fail-closed B282)")
             continue
         governed[rel] = gb
         if hashlib.sha256(gb.data).hexdigest() != af[rel]:
@@ -877,7 +911,7 @@ def fingerprint_problems() -> list[str]:
     comportamiento (que son, junto al fingerprint, el contrato). Fail-closed en cada paso."""
     if not _git_tracked(_FINGERPRINT_CONTRACT):
         return [f"{_FINGERPRINT_CONTRACT}: NO versionado (fail-closed B254/B274)"]
-    gov_contract, cprobs = _read_governed_repo_file(_FINGERPRINT_CONTRACT)  # B274: lectura gobernada del contrato
+    gov_contract, cprobs = _read_governed_repo_file(_FINGERPRINT_CONTRACT, max_bytes=_CONTRACT_MAX_BYTES)  # B274/B282: lectura gobernada del contrato con límite  # fmt: skip
     if gov_contract is None:
         return cprobs
     try:
