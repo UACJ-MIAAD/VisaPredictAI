@@ -237,6 +237,10 @@ def test_b261_no_schema4_written_by_capture():
     assert "schema_version" not in src, "capture no debe emitir ningún schema (B261/B267)"
 
 
+class _IntSub(int):  # B277: subclase de int — `isinstance(_, int)` la acepta; `type(_) is int` no
+    pass
+
+
 class _Buf:
     def __init__(self, mode):
         self.mode = mode
@@ -246,6 +250,11 @@ class _Buf:
     def write(self, b):
         self.calls += 1
         data = bytes(b)
+        if self.mode == "bool_true":  # B277: devuelve True (bool ⊂ int) sin escribir nada
+            return True
+        if self.mode == "int_subclass":  # B277: escribe pero devuelve una subclase de int, no el entero nativo
+            self.written += data
+            return _IntSub(len(data))
         if self.mode == "complete":
             self.written += data
             return len(data)
@@ -291,3 +300,24 @@ def test_b272_write_all_stdout_helper_is_total(monkeypatch):
         result = cap._write_all_stdout(b"hello world payload")
         monkeypatch.undo()
         assert result is ok, f"{mode}: _write_all_stdout debe devolver {ok} (B272)"
+
+
+def test_b277_reject_boolean_and_int_subclass_write_counts(monkeypatch):
+    # RED_BASE_SHA = 036c8f9: `isinstance(n, int)` acepta True/subclase → un write() que devuelve True cuenta como
+    # "escrito" sin escribir nada. `type(n) is not int` (nuevo) lo rechaza. expected_old_behavior: _write_all_stdout
+    # devuelve True en 036c8f9 para bool_true (0 bytes escritos).
+    for mode in ("bool_true", "int_subclass"):
+        buf = _Buf(mode)
+        monkeypatch.setattr(sys, "stdout", type("FS", (), {"buffer": buf})())
+        result = cap._write_all_stdout(b"hello world payload")
+        monkeypatch.undo()
+        assert result is False, f"{mode}: un contador booleano/subclase NO cuenta como escritura (B277)"
+        if mode == "bool_true":
+            assert buf.written == b"", "bool_true no escribió nada; jamás debe reportar éxito (B277)"
+    # y el export completo devuelve rc 1 (nunca éxito con un contador no-int)
+    for mode in ("bool_true", "int_subclass"):
+        buf = _Buf(mode)
+        monkeypatch.setattr(sys, "stdout", type("FS", (), {"buffer": buf})())
+        got = cap._export()
+        monkeypatch.undo()
+        assert got == 1, f"{mode}: _export debe devolver 1 (B277)"

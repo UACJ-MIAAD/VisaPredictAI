@@ -35,7 +35,9 @@ def _write_all_stdout(data: bytes) -> bool:
     try:
         while offset < len(data):
             n = buf.write(mv[offset:])
-            if not isinstance(n, int) or n <= 0 or n > len(data) - offset:
+            # B277: `type(n) is not int`, NO `isinstance` — `bool` (True/False) e `IntEnum` son subclases de `int` y un
+            # `write()` que devuelva `True` contaría como "1 byte escrito" sin haber escrito. Exige el entero nativo exacto.
+            if type(n) is not int or n <= 0 or n > len(data) - offset:
                 return False
             offset += n
         buf.flush()
