@@ -1,6 +1,7 @@
 {
-  "schema_version": 1,
-  "note": "B255: registro POSITIVO de TODA operación de reflexión en el código de producción versionado. El gate tools/check_reflection.py exige que cada ocurrencia esté aquí (por id = sha256(file::function::op::AST-normalizado) y su count); una ocurrencia nueva, movida a otra función o con la llamada cambiada FALLA. En vez de perseguir aliases de campaign_bundle por taint (arms race infinito), se declara explícitamente cada reflexión con su justificación. FRONTERA HONESTA: evita reflexión NO REGISTRADA en código versionado; NO protege contra un mantenedor que cambie a la vez código y política (eso es revisión humana + rama protegida).",
+  "schema_version": 2,
+  "scanner_version": 2,
+  "note": "B255/B259/B260: registro POSITIVO de TODA operación de reflexión en el código de producción versionado, con IDENTIDAD SEMÁNTICA. El gate tools/check_reflection.py deriva el ID de cada ocurrencia de sha256(JSON canónico de {file, qualname, op, statement_ast_sha256, occurrence_index}); cambiar objeto/nombre/forma de la llamada cambia el AST del statement y por tanto el ID → exige revisión. Cubre builtins/sys/importlib/operator/functools por alias, imports relativos, qualname completo (métodos/lambda/async/anidadas) y es fail-closed ante sintaxis/lectura/JSON inválidos. FRONTERA HONESTA: evita reflexión NO REGISTRADA en código versionado; NO protege contra un mantenedor que cambie a la vez código y política (revisión humana + rama protegida).",
   "operations_controlled": [
     "__dict__",
     "__getattribute__",
@@ -24,221 +25,248 @@
     "tools/merge_campaign_pools.py"
   ],
   "entries": {
-    "f68a43f46bdaf1735623032b7ec104089d07dc0beccee7000a31bfe1dc37a306": {
+    "341f484981ccd1980a9d9a93f0caf33150a9c79891190fdb0d4457439273e06c": {
       "file": "experiments/score_forecasts.py",
-      "function": "_score_rows",
+      "qualname": "_score_rows",
       "op": "getattr",
-      "snippet": "getattr",
-      "count": 2,
+      "statement_ast_sha256": "ebae6de993f5d8ed78dd169522455c81acb03d3c11a922793d88bb8da99db8b1",
+      "occurrence_index": 0,
       "justification": "reflexión de scoring de forecasts (script de experimentos)",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     },
-    "78a110cc51d0dd74e45c326da374c65880dcb9ca6dccf980c851c2b458484c89": {
+    "57acc758ebc2dd1859f9215a451184554b691e96bd2ea6570f539996bd9fe807": {
+      "file": "experiments/score_forecasts.py",
+      "qualname": "_score_rows",
+      "op": "getattr",
+      "statement_ast_sha256": "ebae6de993f5d8ed78dd169522455c81acb03d3c11a922793d88bb8da99db8b1",
+      "occurrence_index": 1,
+      "justification": "reflexión de scoring de forecasts (script de experimentos)",
+      "review_by": "2027-07-31"
+    },
+    "55f8e486dde1ed0c5ac8d8ba7642dbfcad633b5e9dd4e6335fbb40ced36c6dd0": {
       "file": "tools/campaign_bundle.py",
-      "function": "close",
+      "qualname": "_PreparedBundle.close",
       "op": "getattr",
-      "snippet": "getattr",
-      "count": 1,
+      "statement_ast_sha256": "399d84287ad6becc966c405bdfe88bff762f50c6137141074042b6b21159c135",
+      "occurrence_index": 0,
       "justification": "getattr con default sobre self (fd de bundle), no sobre un módulo",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     },
-    "77f40384337e2a2548fd10cc46000fa9541822475afebf8b9f9ae0b6168a8835": {
+    "c1afa663ce07c6105f6871fc78d595a54c355f2e09d88a66c8d09946bc9c13af": {
       "file": "tools/check_commit_frontier.py",
-      "function": "_in",
+      "qualname": "_within",
       "op": "getattr",
-      "snippet": "getattr",
-      "count": 1,
+      "statement_ast_sha256": "4f923f07bc444b95349878faef0089b0e377533347a33afd09b94684c54a5605",
+      "occurrence_index": 0,
       "justification": "acceso defensivo a atributos de AST (lineno/end_lineno) con default en el gate estático",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     },
-    "1bf11de37df5b9662b37b5943985c176431a8c8757aa77fb04af059c8534c0aa": {
+    "95e20aed5c4e84fd5cf8c2d89e53c2676b2ac689cedecd9cc1217785f9cd8c96": {
       "file": "tools/check_commit_frontier.py",
-      "function": "_within",
+      "qualname": "_within_node",
       "op": "getattr",
-      "snippet": "getattr",
-      "count": 1,
+      "statement_ast_sha256": "2e7b773d2af1a1cb00e93e6b5c2f9ab49146cfb389b715b607d29429a342313a",
+      "occurrence_index": 0,
       "justification": "acceso defensivo a atributos de AST (lineno/end_lineno) con default en el gate estático",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     },
-    "35054ab3ecbb49ac210dc38c6d53581887343254bec38a4107d90905a9e8c977": {
+    "79e16882a87f1511e959bb849e47c6e592800e2768df615c479a12991dd33f51": {
       "file": "tools/check_commit_frontier.py",
-      "function": "_within_node",
+      "qualname": "_within_node",
       "op": "getattr",
-      "snippet": "getattr",
-      "count": 3,
+      "statement_ast_sha256": "53c08ee3fbfbbd0587fb7d3243d5e16b52132abad064191424c025c52940e60a",
+      "occurrence_index": 0,
       "justification": "acceso defensivo a atributos de AST (lineno/end_lineno) con default en el gate estático",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     },
-    "13d3fa409b6f04a4ac85fac4fa6a7ac4ac544646644388950536f4346ed7d9d7": {
+    "f3a83bca9b89e118da8d0a9629060085ced9a88d42a3618d815cc64eb0b6c1d9": {
       "file": "tools/check_commit_frontier.py",
-      "function": "authority_scope_problems",
+      "qualname": "_within_node",
       "op": "getattr",
-      "snippet": "getattr",
-      "count": 2,
+      "statement_ast_sha256": "df60690ee05aef5b15c21fff3087bcd6bf02de75edac23359150aa2bb7cc87db",
+      "occurrence_index": 0,
       "justification": "acceso defensivo a atributos de AST (lineno/end_lineno) con default en el gate estático",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     },
-    "02a9d178ada680fe33ad65a82993fafbbb0bac67f5f490a03199ff49c6765c31": {
+    "1354159ec5c567cb0014695871ba7688fa1fd60fe8eef5daaf16c85c5be6f90e": {
+      "file": "tools/check_commit_frontier.py",
+      "qualname": "authority_scope_problems",
+      "op": "getattr",
+      "statement_ast_sha256": "2a4111e3ac289324007c5775be16ca5d9c74c6fb1d8b3e144360afad80022a94",
+      "occurrence_index": 0,
+      "justification": "acceso defensivo a atributos de AST (lineno/end_lineno) con default en el gate estático",
+      "review_by": "2027-07-31"
+    },
+    "c2960826ddc6ac2ccfb084293f87f7401a7a4729234f0a0da9abb0739bef6b80": {
+      "file": "tools/check_commit_frontier.py",
+      "qualname": "authority_scope_problems",
+      "op": "getattr",
+      "statement_ast_sha256": "891a80a3eea581b5501963feeb69acaacffd11e9b684dfeada2393f6e39db180",
+      "occurrence_index": 0,
+      "justification": "acceso defensivo a atributos de AST (lineno/end_lineno) con default en el gate estático",
+      "review_by": "2027-07-31"
+    },
+    "df9be795eeae4542adaa209e67910b35db9b7f812f625c3698033e1ecb9e55d1": {
+      "file": "tools/check_commit_frontier.py",
+      "qualname": "factory_problems._in",
+      "op": "getattr",
+      "statement_ast_sha256": "6537e573630c2bb4dcbdd47eef830be0e21a628a68ae7f8f1ea9e9ed581ec649",
+      "occurrence_index": 0,
+      "justification": "acceso defensivo a atributos de AST (lineno/end_lineno) con default en el gate estático",
+      "review_by": "2027-07-31"
+    },
+    "a4f3d38f3fef0d234ea0bbe1b1c8d4401a0e84e41017781eaa10a43ff7777ffb": {
       "file": "tools/check_raw_fs_mutations.py",
-      "function": "_flag",
+      "qualname": "_Scanner._flag",
       "op": "getattr",
-      "snippet": "getattr",
-      "count": 1,
+      "statement_ast_sha256": "de894ea0941c9991c0ea7b1164aed64996d1b5acb132fe33fe1398a702367092",
+      "occurrence_index": 0,
       "justification": "acceso defensivo a atributos de AST en el gate estático",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     },
-    "782655921da85f2bacf898cbcddce5a954c6d928ec303dbb634ac88ceca5e14c": {
+    "f5e6faf0bc90ee7c33f5dd87853f2c841a7bb566ca56acb8a58f3b691546d80c": {
       "file": "tools/check_reflection.py",
-      "function": "scan_reflection",
+      "qualname": "scan_reflection",
       "op": "getattr",
-      "snippet": "getattr",
-      "count": 1,
+      "statement_ast_sha256": "6d619782aed4a2b223f27a69425854aa4bcdcdc75d5414d762c9938560db5bd3",
+      "occurrence_index": 0,
       "justification": "el propio gate de reflexión inspecciona nodos de AST (getattr lineno) — meta-reflexión de la maquinaria de enforcement",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     },
-    "8b848ef0e9f9a4bc28735617e8244f1d6182718de9cc2abfb98d4f862ecbe5c7": {
+    "7781cf5b98cbcf87a4ea2c6aa6064c0044f54a3ff0958de09a8815a8b4196cc5": {
       "file": "tools/check_safe_opens.py",
-      "function": "_flag",
+      "qualname": "_Scanner._flag",
       "op": "getattr",
-      "snippet": "getattr",
-      "count": 1,
+      "statement_ast_sha256": "de894ea0941c9991c0ea7b1164aed64996d1b5acb132fe33fe1398a702367092",
+      "occurrence_index": 0,
       "justification": "acceso defensivo a atributos de AST en el gate estático",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     },
-    "88119beebcb9db22de1d72bf211af46396335b6ccbaefac15c5a35251d619326": {
+    "215cea378f0ff679344aacf30f5978f4de12a3e10f7e1b5723b9cbc1cc1ab038": {
       "file": "tools/deep_smoke.py",
-      "function": "run",
+      "qualname": "run",
       "op": "import_module",
-      "snippet": "importlib.import_module",
-      "count": 1,
+      "statement_ast_sha256": "f001603fa154c30122702dc7e03e5dd47973857aa5e17a070cadb0128652dde1",
+      "occurrence_index": 0,
       "justification": "reflexión de smoke controlado del entorno deep",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     },
-    "98f7b66c3764a393c82ee4d71d50368ccf83ae9c0e246bbc8e1939fa755023e5": {
+    "7af8c7058f4b2d21c28228c1ab3740b80720a6c54e39d3a10d7344f4541eb37c": {
       "file": "tools/dvc_tool_smoke.py",
-      "function": "main",
+      "qualname": "main",
       "op": "__import__",
-      "snippet": "__import__",
-      "count": 1,
+      "statement_ast_sha256": "a90e99335ab0aa3f8a3f650e6bd0bb548badd080f4c05b95bf20fe69ed127181",
+      "occurrence_index": 0,
       "justification": "reflexión de smoke controlado del entorno dvc-tool",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     },
-    "03e0017031287328efdd8abb38fa8721044cda7fe172a6e65912bc78c7a1fafd": {
+    "9f88b592766ea0049eaeadb109f791b0b6ffb1aa7cad61ae00c0de2c79eafccd": {
       "file": "tools/governed_fs.py",
-      "function": "_snap",
+      "qualname": "GovernedQuarantine.close",
       "op": "getattr",
-      "snippet": "getattr",
-      "count": 1,
+      "statement_ast_sha256": "3dac5d96cb564c990b03c3475a9b8ee8a96678b16b1d156da0c5b8d741c41433",
+      "occurrence_index": 0,
       "justification": "snapshot fstat por nombre de campo (getattr sobre os.stat_result)",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     },
-    "4c2e5a4d2f94b1858cb68bbb95fa95431d27b5c8204ff5f6ad5b492bf9b76f22": {
+    "37b770a1d7c595f04d3cd1a4f8b92fe89d2745e681d158eb6f8a5535e21012a6": {
       "file": "tools/governed_fs.py",
-      "function": "close",
-      "op": "getattr",
-      "snippet": "getattr",
-      "count": 1,
-      "justification": "snapshot fstat por nombre de campo (getattr sobre os.stat_result)",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
-    },
-    "ed2f63d4ddeaa0f6eba82ee3d6131bc065277d871b8b06be31b9f6236ad85577": {
-      "file": "tools/governed_fs.py",
-      "function": "close",
+      "qualname": "GovernedQuarantine.close",
       "op": "setattr",
-      "snippet": "setattr",
-      "count": 1,
+      "statement_ast_sha256": "f8a0dca8ee3f59630c29264d55b4a1e9434968aa206325d8c4bcf2e3bbfe54ce",
+      "occurrence_index": 0,
       "justification": "snapshot fstat por nombre de campo (getattr sobre os.stat_result)",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     },
-    "8a60e4d4f29b632197ce9b8549cbfe26cb9cb4402ed5e3f9d151ee70b9da7380": {
+    "ff170b3833387fa92bf24c1572643510cc02b47e0500ef0d73166c5e011da998": {
+      "file": "tools/governed_fs.py",
+      "qualname": "_snap",
+      "op": "getattr",
+      "statement_ast_sha256": "b233d43b8ac10345c854a981c0e9c81e4130b71d5e09250713b4985ce07d1cc5",
+      "occurrence_index": 0,
+      "justification": "snapshot fstat por nombre de campo (getattr sobre os.stat_result)",
+      "review_by": "2027-07-31"
+    },
+    "753f2b361767f81ef73828e185cd2c0eb425b31ee527b4bb9a77769e5d3ef98d": {
       "file": "tools/governed_read.py",
-      "function": "_snapshot",
+      "qualname": "_snapshot",
       "op": "getattr",
-      "snippet": "getattr",
-      "count": 1,
+      "statement_ast_sha256": "c25379e065ba3806737cf5b578e2e77a8e8931b068d379487d0a5864a9473dbb",
+      "occurrence_index": 0,
       "justification": "snapshot fstat por nombre de campo (getattr sobre os.stat_result)",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     },
-    "165599f285e9424926600b5b18093a89ae96c5ba54bbc14a88fbf996ad96054f": {
+    "e5b0112b2e5cfe120da64429eec3b4fe745cd44640dfeaf1b57a2a4617c270e3": {
       "file": "tools/merge_campaign_pools.py",
-      "function": "_module_hash",
+      "qualname": "_Out.close_fds",
       "op": "getattr",
-      "snippet": "getattr",
-      "count": 1,
-      "justification": "validación de esquema del certificado por nombre de campo / provenance del módulo (getattr sobre self/certificate/mod, sys.modules.get) — NO sobre el módulo de autoridad",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "statement_ast_sha256": "3c2d940f47081823ca7502f2e6ff4f8bdc16e9aac5c26998ee7b04c432bbe057",
+      "occurrence_index": 0,
+      "justification": "validación de esquema del certificado por nombre de campo / provenance del módulo (getattr sobre self/certificate/mod; sys.modules.get) — NO sobre el módulo de autoridad",
+      "review_by": "2027-07-31"
     },
-    "8083a53eaf1d9167548d6129578ee853174654243ba32e6a1bc0f5d1ade98dd8": {
+    "7274df081f455de085b36dfd68ae9b158a78d742b263471f7b7cea35359e6f4f": {
       "file": "tools/merge_campaign_pools.py",
-      "function": "_module_hash",
-      "op": "sys.modules",
-      "snippet": "sys.modules",
-      "count": 1,
-      "justification": "validación de esquema del certificado por nombre de campo / provenance del módulo (getattr sobre self/certificate/mod, sys.modules.get) — NO sobre el módulo de autoridad",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
-    },
-    "0a79dcc9f8c6c4d8d7e323b409cc62aaf862031be41ed92678397307a354eed0": {
-      "file": "tools/merge_campaign_pools.py",
-      "function": "_validate_commit_certificate",
-      "op": "getattr",
-      "snippet": "getattr",
-      "count": 1,
-      "justification": "validación de esquema del certificado por nombre de campo / provenance del módulo (getattr sobre self/certificate/mod, sys.modules.get) — NO sobre el módulo de autoridad",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
-    },
-    "9ba5a9ccbc437d8536dc15fed44e9759d02a15169ee252e9942635f040ff0f22": {
-      "file": "tools/merge_campaign_pools.py",
-      "function": "close_fds",
-      "op": "getattr",
-      "snippet": "getattr",
-      "count": 1,
-      "justification": "validación de esquema del certificado por nombre de campo / provenance del módulo (getattr sobre self/certificate/mod, sys.modules.get) — NO sobre el módulo de autoridad",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
-    },
-    "0085c3508bf4a9eb63f2e109a525a16f7fc77087165b5f49cafd4488905dc9ce": {
-      "file": "tools/merge_campaign_pools.py",
-      "function": "close_fds",
+      "qualname": "_Out.close_fds",
       "op": "setattr",
-      "snippet": "setattr",
-      "count": 1,
-      "justification": "validación de esquema del certificado por nombre de campo / provenance del módulo (getattr sobre self/certificate/mod, sys.modules.get) — NO sobre el módulo de autoridad",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "statement_ast_sha256": "87abfbca795769654bb729d1ce22aeb4927ce1eed1c9c1fe65b4ed65c4eec9db",
+      "occurrence_index": 0,
+      "justification": "validación de esquema del certificado por nombre de campo / provenance del módulo (getattr sobre self/certificate/mod; sys.modules.get) — NO sobre el módulo de autoridad",
+      "review_by": "2027-07-31"
     },
-    "fa168dd07193fcdd3523fce171ca8f0c9c4afbfd85b43849d1e21beb1f4b5969": {
-      "file": "vp_model/config.py",
-      "function": "get_logger",
+    "331073dc593370139099e40896ab56303ce445af30a00f6e894f2ab85cac99f0": {
+      "file": "tools/merge_campaign_pools.py",
+      "qualname": "_module_hash",
       "op": "getattr",
-      "snippet": "getattr",
-      "count": 1,
+      "statement_ast_sha256": "acdf71abedd78ab93be8738479d8876a0df451ba674447fd9ae0594b1774ca75",
+      "occurrence_index": 0,
+      "justification": "validación de esquema del certificado por nombre de campo / provenance del módulo (getattr sobre self/certificate/mod; sys.modules.get) — NO sobre el módulo de autoridad",
+      "review_by": "2027-07-31"
+    },
+    "d03e86aae50e7e95c1abcf952da2a70c7aaf0b5eeeb1dfb029aad812b1e6a0ed": {
+      "file": "tools/merge_campaign_pools.py",
+      "qualname": "_module_hash",
+      "op": "sys.modules",
+      "statement_ast_sha256": "a8bfd2032968b2447c7e041693fab68b534aeaa3d88bceca2e0e7f112b88171b",
+      "occurrence_index": 0,
+      "justification": "validación de esquema del certificado por nombre de campo / provenance del módulo (getattr sobre self/certificate/mod; sys.modules.get) — NO sobre el módulo de autoridad",
+      "review_by": "2027-07-31"
+    },
+    "9ff79c8812429bd60a3caa536b447fce1d4be13452ee3b833207b0643e69f615": {
+      "file": "tools/merge_campaign_pools.py",
+      "qualname": "_validate_commit_certificate",
+      "op": "getattr",
+      "statement_ast_sha256": "94a1cf5dd7bebce2f7139e6522af6da248ff0f86376b31d494e242ea4cc2fba8",
+      "occurrence_index": 0,
+      "justification": "validación de esquema del certificado por nombre de campo / provenance del módulo (getattr sobre self/certificate/mod; sys.modules.get) — NO sobre el módulo de autoridad",
+      "review_by": "2027-07-31"
+    },
+    "07545f79d29dee05545487a17223f5670f70b3353aed71144a7bc4a9aaed8e20": {
+      "file": "vp_model/config.py",
+      "qualname": "get_logger",
+      "op": "getattr",
+      "statement_ast_sha256": "79cbc8d9495408f7d078c58d0b369ede08afa0017d6043b6ebc676071af39145",
+      "occurrence_index": 0,
       "justification": "reflexión de configuración del modelo",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     },
-    "e6693756fb84dcb3c48fd8fcfa4a2f00a1d50583f1594be93f19e95f84d255db": {
+    "635a98eeac3c4b38bcfd9104de43ca833e7b6c59857ec7655bf0a8de02e79bec": {
       "file": "vp_model/models.py",
-      "function": "<module>",
+      "qualname": "registry",
       "op": "partial",
-      "snippet": "from functools import partial",
-      "count": 1,
-      "justification": "partial de producción registrado",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "statement_ast_sha256": "bfc331a94acb7c07885e8465df1160f3abd24d6e4b96463414901b211763a595",
+      "occurrence_index": 0,
+      "justification": "functools.partial en el registro de modelos (no-autoridad)",
+      "review_by": "2027-07-31"
     },
-    "b0215fd0f5e8fac209327dd6ded821ec6ca394269dec50d2d7f739cb46f16973": {
-      "file": "vp_model/models.py",
-      "function": "registry",
-      "op": "partial",
-      "snippet": "partial",
-      "count": 1,
-      "justification": "partial de producción registrado",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
-    },
-    "5d63f3031a2d8a424d54a4bbc32cc5e63dfbd18455271b6c42a029a31bb56e17": {
+    "cab98ccd3f1c3ff92f109b9887e72297fdaeb6cc45a72487a42df79ab3b4c432": {
       "file": "vp_model/run_comparison.py",
-      "function": "main",
+      "qualname": "main",
       "op": "vars",
-      "snippet": "vars",
-      "count": 1,
+      "statement_ast_sha256": "e2e25b6d4dbcc600e46d7157801a05665aba0c3ad0b4e711589792b725ac7d3f",
+      "occurrence_index": 0,
       "justification": "reflexión de orquestación de la comparación de modelos",
-      "review": "2026-07 (registro inicial B255; revisar en cada cambio de código o política)"
+      "review_by": "2027-07-31"
     }
   }
 }
