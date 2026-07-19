@@ -261,6 +261,23 @@ def test_b292_all_current_jobs_required_control(monkeypatch):
     assert _run(monkeypatch) == [], "el ci.yml real (todos los jobs no-gate en needs) debe pasar (B292)"
 
 
+# ---------------------------------------------------------------------------
+# B295 — el escape `_EXPLICITLY_OPTIONAL_JOBS` permitía excluir un job de ci-gate.needs sin registro/razón/expiración.
+# RED_BASE_SHA = 0d50cb4: añadir el job a la allowlist lo excusaba. Se ELIMINA el mecanismo; `required = set(all_jobs) -
+# {ci-gate}` sin resta de excepción.
+# ---------------------------------------------------------------------------
+def test_b295_optional_job_symbol_removed():
+    assert not hasattr(gov, "_EXPLICITLY_OPTIONAL_JOBS"), "el símbolo del escape optional-job debe eliminarse (B295)"
+
+
+def test_b295_allowlist_cannot_excuse_omitted_job(monkeypatch):
+    # aunque se INTENTE reintroducir la allowlist por monkeypatch, el código ya no la resta → el job omitido cae.
+    ci = _CI_NO_OFFLINE.replace("  ci-gate:\n", _NEW_JOB + "  ci-gate:\n", 1)
+    monkeypatch.setattr(gov, "_EXPLICITLY_OPTIONAL_JOBS", frozenset({"new-security-contract"}), raising=False)
+    probs = _run(monkeypatch, ci=ci)
+    assert any("B292" in p and "new-security-contract" in p for p in probs), "una allowlist no debe poder excusar un job omitido (B295)"  # fmt: skip
+
+
 def test_b275_predicate_and_exit_tampering_rejected(monkeypatch):
     drop = _ci_gate_replace(" || contains(needs.*.result, 'skipped')", "")
     assert any("B275" in p for p in _run(monkeypatch, ci=drop)), "quitar 'skipped' del predicado debe fallar (B275)"

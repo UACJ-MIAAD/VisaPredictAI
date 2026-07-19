@@ -53,10 +53,10 @@ _CI_GATE_JOB_KEYS = {"name", "if", "needs", "runs-on", "timeout-minutes", "permi
 _CI_GATE_RUNNER = "ubuntu-24.04"
 _CI_GATE_TIMEOUT = 5
 _CI_GATE_PERMISSIONS: dict = {}
-# B292: `ci-gate.needs` NO se compara contra una constante (que puede olvidar jobs nuevos): se DERIVA de TODOS los jobs
-# no-gate del workflow. Un job nuevo entra automáticamente en el conjunto requerido; omitirlo de `needs` cae. La única
-# vía de excepción es esta allowlist NOMINAL (hoy VACÍA) — una futura excepción exigiría identidad/razón/`review_by`.
-_EXPLICITLY_OPTIONAL_JOBS: frozenset[str] = frozenset()
+# B292/B295: `ci-gate.needs` NO se compara contra una constante (que puede olvidar jobs nuevos): se DERIVA de TODOS los
+# jobs no-gate del workflow, SIN allowlist de excepción (B295 eliminó `_EXPLICITLY_OPTIONAL_JOBS`, que permitía excluir
+# un job sin registro/razón/expiración). Una excepción futura exigiría un diseño/registro gobernado aparte, no un
+# frozenset editable junto al gate. `required = set(all_jobs) - {"ci-gate"}`.
 _CI_GATE_STEP0_NAME = "Fail if any required job was not success"
 _CI_GATE_STEP0_IF = "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}"  # fmt: skip
 # B283: el PROGRAMA COMPLETO del paso que debe fallar (no basta con que la última línea sea `exit 1`: un `exit 0` previo
@@ -229,7 +229,7 @@ def _ci_gate_problems(gate: object, all_jobs: dict) -> list[str]:
     if gate["permissions"] != _CI_GATE_PERMISSIONS:  # B283: permisos VACÍOS
         problems.append(f"jobs.{_CI_GATE}.permissions != {{}} vacío (obtenido {gate['permissions']!r}) (B283)")
     needs = gate["needs"]
-    required = set(all_jobs) - {_CI_GATE} - _EXPLICITLY_OPTIONAL_JOBS  # B292: derivado de TODOS los jobs no-gate
+    required = set(all_jobs) - {_CI_GATE}  # B292/B295: derivado de TODOS los jobs no-gate, sin escape optional
     if not (isinstance(needs, list) and all(isinstance(n, str) for n in needs)):
         problems.append(f"jobs.{_CI_GATE}.needs no es una lista de strings (B275)")
     elif len(needs) != len(set(needs)):
