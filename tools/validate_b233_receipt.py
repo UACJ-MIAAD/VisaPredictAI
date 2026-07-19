@@ -400,6 +400,22 @@ def validate_receipt_file(path: str) -> list[str]:
     return validate_receipt(d)
 
 
+def read_and_validate_canonical() -> tuple[bytes | None, list[str]]:
+    """B267: lee el recibo canónico UNA sola vez fd-bound (openat encadenado + snapshot, sin seguir symlinks), lo
+    valida, y devuelve `(bytes_validados, problemas)`. Los bytes devueltos son EXACTAMENTE los leídos y validados — el
+    consumidor NO debe reabrir por ruta. `bytes` es None si hay cualquier problema (identidad/modo/nlink/JSON/schema/
+    derivación)."""
+    data, err = _governed_bytes(_DEFAULT_REL)
+    if data is None:
+        return None, [f"{_DEFAULT_REL}: lectura gobernada falló ({err})"]
+    try:
+        d = json.loads(data.decode("utf-8"), object_pairs_hook=_no_dup_pairs)
+    except (UnicodeDecodeError, ValueError) as exc:
+        return None, [f"{_DEFAULT_REL}: JSON inválido/duplicado ({exc})"]
+    probs = validate_receipt(d)
+    return (None, probs) if probs else (data, [])
+
+
 def main(argv: list[str]) -> int:
     if len(argv) not in (1, 2):
         sys.stderr.write("uso: python -m tools.validate_b233_receipt [ruta]\n")

@@ -152,7 +152,7 @@ def test_governed_reads_are_fd_bound_no_open_by_path():
     assert "open(os.path.join(ROOT" not in body, "no leer un fichero gobernado con open() por ruta (B257)"
 
 
-# --- B261: capture es verificador/exportador; --certify NO disponible hasta R9 ---
+# --- B261/B267: capture es verificador/exportador stdout-only; --certify NO disponible hasta R9 ---
 
 
 def test_b261_certify_refuses_and_never_writes_canonical():
@@ -167,25 +167,57 @@ def test_b261_default_verifies():
     assert cap.main(["capture_b233_receipt", "--verify"]) == 0
 
 
-def test_b261_export_is_create_only_no_symlink(tmp_path):
-    # export a un fichero NUEVO funciona
-    dest = tmp_path / "out.json"
-    assert cap._export(str(dest)) == 0
-    assert json.loads(dest.read_text())["schema_version"] == 3
-    # a un fichero EXISTENTE falla (create-only)
-    assert cap._export(str(dest)) == 1
-    # a un symlink NO se sigue (O_NOFOLLOW)
-    target = tmp_path / "t.json"
-    target.write_text("x")
-    link = tmp_path / "link.json"
-    os.symlink(str(target), str(link))
-    assert cap._export(str(link)) == 1, "export a un symlink debe fallar (no seguir)"
+def test_b267_export_is_stdout_only_no_out_argument():
+    # B267: `--out` ya NO existe (argparse lo rechaza) — no hay export a fichero.
+    with __import__("pytest").raises(SystemExit):
+        cap.main(["capture_b233_receipt", "--export", "--out", "/tmp/x"])
+    import inspect
+
+    src = inspect.getsource(cap)
+    assert "O_CREAT" not in src and "O_EXCL" not in src and 'open(dest' not in src, "capture no debe escribir ficheros (B267)"  # fmt: skip
+    assert "atómic" not in cap._export.__doc__.lower() or "no promete" in (cap.__doc__ or "").lower()
+
+
+def test_b267_export_emits_only_validated_bytes():
+    # los bytes de --export son EXACTAMENTE los del recibo canónico validado, de UNA sola lectura gobernada.
+    data, probs = v.read_and_validate_canonical()
+    assert probs == [] and data is not None
+    assert json.loads(data.decode())["schema_version"] == 3
+    assert data == open(_RECEIPT, "rb").read()
+
+
+def test_b267_export_refuses_symlink_mode_hardlink(tmp_path, monkeypatch):
+    # B267: la lectura gobernada del recibo se niega ante symlink / modo escribible g-o / hardlink → sin bytes.
+    gov = tmp_path / "reports" / "governance"
+    gov.mkdir(parents=True)
+    real = json.loads(open(_RECEIPT).read())
+    # symlink canónico -> forjado
+    forged = tmp_path / "forged.json"
+    forged.write_text('{"forged": true}')
+    link = gov / "b233_receipt.json"
+    os.symlink(str(forged), str(link))
+    monkeypatch.setattr(v, "ROOT", str(tmp_path))
+    data, probs = v.read_and_validate_canonical()
+    assert data is None and probs, "symlink canónico debe rechazarse (B267)"
+    # regular pero escribible por grupo/otros
+    os.unlink(str(link))
+    (gov / "b233_receipt.json").write_text(json.dumps(real))
+    os.chmod(str(gov / "b233_receipt.json"), 0o666)
+    data2, probs2 = v.read_and_validate_canonical()
+    assert data2 is None and probs2, "recibo 0666 debe rechazarse (B267)"
+
+
+def test_b267_export_refuses_invalid_json_or_schema(tmp_path, monkeypatch):
+    gov = tmp_path / "reports" / "governance"
+    gov.mkdir(parents=True)
+    (gov / "b233_receipt.json").write_text("{not valid json")
+    monkeypatch.setattr(v, "ROOT", str(tmp_path))
+    data, probs = v.read_and_validate_canonical()
+    assert data is None and probs, "JSON inválido debe rechazarse (B267)"
 
 
 def test_b261_no_schema4_written_by_capture():
     import inspect
 
     src = inspect.getsource(cap)
-    assert "schema_version" not in src or "4" not in src.split("schema_version")[1][:6], (
-        "capture no debe emitir un schema 4 incompleto (B261)"
-    )
+    assert "schema_version" not in src, "capture no debe emitir ningún schema (B261/B267)"
