@@ -38,7 +38,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
 _SCANNER_VERSION = (
-    5  # B265/B270/B276: escape de módulo + lookup dinámico builtins + cadenas enraizadas (escape O efecto descartado)
+    6  # B265/B270/B276/B285: escape + lookup dinámico + cadenas enraizadas + TODA llamada rooteada en módulo canónico
 )
 _REGISTRY_TOP_KEYS = {
     "schema_version",
@@ -64,7 +64,10 @@ _IMPORTABLE_PRIMS = _BUILTIN_PRIMS | frozenset(_MODULE_PRIMS)
 # desconocida). Convertir toda fuga conocida/ambigua en una ocurrencia; no se afirma resolver semántica Python arbitraria.
 _REFLECTION_MODULE_ESCAPE = "reflection-module-escape"
 _BUILTINS_DYNAMIC_LOOKUP = "builtins.dynamic-lookup"
-OPERATIONS_CONTROLLED = tuple(sorted(_BUILTIN_PRIMS | frozenset(_MODULE_PRIMS) | _ATTR_PRIMS | {"__dict__", "sys.modules", _REFLECTION_MODULE_ESCAPE, _BUILTINS_DYNAMIC_LOOKUP}))  # fmt: skip
+# B285: política POSITIVA — TODA llamada rooteada en un módulo canónico produce una ocurrencia registrable (no una lista
+# de terminales que deja invisibles a SourceFileLoader.set_data / sys.meta_path.insert / sys.path_hooks.append / …).
+_CANONICAL_ROOTED_CALL = "canonical-rooted-call"
+OPERATIONS_CONTROLLED = tuple(sorted(_BUILTIN_PRIMS | frozenset(_MODULE_PRIMS) | _ATTR_PRIMS | {"__dict__", "sys.modules", _REFLECTION_MODULE_ESCAPE, _BUILTINS_DYNAMIC_LOOKUP, _CANONICAL_ROOTED_CALL}))  # fmt: skip
 _CB_MODULE = "tools.campaign_bundle"
 # B265: en los módulos de AUTORIDAD, un escape/lookup dinámico está PROHIBIDO (no registrable).
 _AUTHORITY_MODULES = frozenset({"tools/campaign_bundle.py", "tools/merge_campaign_pools.py", "tools/governed_fs.py", "tools/governed_read.py"})  # fmt: skip
@@ -295,6 +298,22 @@ def _rooted_chain_escape(node: ast.AST, parents: dict[int, ast.AST], mod_aliases
     return None
 
 
+def _canonical_rooted_call(node: ast.AST, mod_aliases: dict[str, str]) -> str | None:
+    """B285: TODA `ast.Call` cuyo callee, al DESENVOLVER Attribute/Subscript/Call, esté rooteado en un alias canónico
+    (builtins/sys/importlib/operator/functools) produce `canonical-rooted-call` — SALVO que el mismo nodo ya tenga una op
+    más específica (lo garantiza el orden del `or` en el escaneo). Convierte la política de LISTA de terminales en una
+    política POSITIVA: `SourceFileLoader.set_data`, `sys.meta_path.insert`, `sys.path_hooks.append`,
+    `importlib.invalidate_caches`, etc. dejan de ser invisibles y quedan registradas con justificación y fecha de revisión."""  # fmt: skip
+    if not isinstance(node, ast.Call):
+        return None
+    cur: ast.AST = node.func
+    while isinstance(cur, (ast.Attribute, ast.Subscript, ast.Call)):
+        cur = cur.func if isinstance(cur, ast.Call) else cur.value
+    if isinstance(cur, ast.Name) and isinstance(cur.ctx, ast.Load) and cur.id in mod_aliases:
+        return _CANONICAL_ROOTED_CALL
+    return None
+
+
 def scan_reflection(files: list[str]) -> tuple[dict[str, dict], list[str]]:
     """Escanea `files` y devuelve `(entries, problems)`. Cada ocurrencia lleva identidad SEMÁNTICA. Fail-closed: un
     fichero ilegible/no-UTF-8/no-parseable produce un PROBLEMA (no se salta en silencio)."""
@@ -326,6 +345,7 @@ def scan_reflection(files: list[str]) -> tuple[dict[str, dict], list[str]]:
                 _resolve_op(node, mod_aliases, prim_aliases)
                 or _escape_op(node, parents, mod_aliases)
                 or _rooted_chain_escape(node, parents, mod_aliases)
+                or _canonical_rooted_call(node, mod_aliases)  # B285: última política, positiva (no lista de terminales)
             )
             if op is None:
                 continue

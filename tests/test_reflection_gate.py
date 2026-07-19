@@ -379,3 +379,41 @@ def test_b276_data_sys_calls_still_not_flagged(tmp_path, monkeypatch):
     _mount(tmp_path, monkeypatch, {"m.py": src})
     ops = {e["op"] for e in refl.scan_reflection(["m.py"])[0].values()}
     assert refl._REFLECTION_MODULE_ESCAPE not in ops, f"llamadas de datos sys.* no deben escapar (B276): {ops}"
+
+
+# ---------------------------------------------------------------------------
+# B285 — política POSITIVA: TODA llamada rooteada en un módulo canónico produce una ocurrencia registrable. RED_BASE_SHA
+# = b781d68: el scanner seguía LISTAS de terminales (_CHAIN_DANGER_NAMES/_CHAIN_CALL_DANGER), así que un terminal no
+# enumerado (SourceFileLoader.set_data, sys.meta_path.insert, sys.path_hooks.append, importlib.invalidate_caches) era
+# INVISIBLE. Las pruebas usan scan_reflection (API estable): en b781d68 esos casos dan {} (RED); aquí producen ocurrencia.
+# ---------------------------------------------------------------------------
+def test_b285_unenumerated_terminals_now_flagged(tmp_path, monkeypatch):
+    cases = {
+        "set_data": "import importlib\nimportlib.machinery.SourceFileLoader('x', 'x').set_data('/tmp/pwn', b'x')\n",
+        "meta_path_insert": "import sys\nsys.meta_path.insert(0, hook)\n",
+        "path_hooks_append": "import sys\nsys.path_hooks.append(hook)\n",
+        "invalidate_caches": "import importlib\nimportlib.invalidate_caches()\n",
+    }
+    for label, src in cases.items():
+        _mount(tmp_path, monkeypatch, {"m.py": src})
+        occ = refl.scan_reflection(["m.py"])[0]
+        assert occ, f"{label} debe producir una ocurrencia (B285); vacío en b781d68"
+
+
+def test_b285_op_is_canonical_rooted_call(tmp_path, monkeypatch):
+    _mount(tmp_path, monkeypatch, {"m.py": "import sys\nsys.meta_path.insert(0, x)\n"})
+    ops = {e["op"] for e in refl.scan_reflection(["m.py"])[0].values()}
+    assert refl._CANONICAL_ROOTED_CALL in ops, f"debe marcarse canonical-rooted-call (B285): {ops}"
+
+
+def test_b285_data_and_modeled_ops_still_specific(tmp_path, monkeypatch):
+    # una op MÁS ESPECÍFICA gana: getattr sigue siendo getattr (no canonical-rooted-call).
+    _mount(tmp_path, monkeypatch, {"m.py": "import builtins\nbuiltins.getattr(o, n)\n"})
+    ops = {e["op"] for e in refl.scan_reflection(["m.py"])[0].values()}
+    assert "getattr" in ops, f"getattr debe mantener su op específica (B285): {ops}"
+
+
+def test_b285_non_canonical_call_not_flagged(tmp_path, monkeypatch):
+    # una llamada rooteada en un módulo NO canónico (os) NO produce ocurrencia.
+    _mount(tmp_path, monkeypatch, {"m.py": "import os\nos.path.join('a', 'b')\n"})
+    assert refl.scan_reflection(["m.py"])[0] == {}, "os.path.join no debe marcarse (B285)"
