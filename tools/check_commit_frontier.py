@@ -695,11 +695,12 @@ def _read_governed_repo_file(rel: str, *, exact_mode: int = 0o644, max_bytes: in
                 primary = [f"{rel}: componente {comp!r} no es directorio no-symlink abrible ({exc}) (fail-closed B281)"]
                 break
             all_fds.append(nfd)  # registrado ANTES del chequeo para que el cierre lo alcance
-            dprob = _governed_dir_problem(comp, os.fstat(nfd))
+            st_dir = os.fstat(nfd)  # B293: UN SOLO fstat por checkpoint — se VALIDA y se SELLA el MISMO objeto (un
+            dprob = _governed_dir_problem(comp, st_dir)  # segundo fstat podía capturar un 0777 no validado y aceptarlo)
             if dprob is not None:
                 primary = [f"{rel}: {dprob} (fail-closed B282)"]
                 break
-            ancestors.append((comp, cur, nfd, os.fstat(nfd)))
+            ancestors.append((comp, cur, nfd, st_dir))
             cur = nfd
         if primary is None:
             try:

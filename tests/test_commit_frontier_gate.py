@@ -1036,6 +1036,32 @@ def test_b288_post_leaf_identity_change_rejected(monkeypatch, tmp_path):
     assert gb is None and any("B288" in p for p in probs), "cambio de modo del leaf antes de la re-stat debe rechazarse (B288)"  # fmt: skip
 
 
+# ---------------------------------------------------------------------------
+# B293 — B288 hacía DOS fstat por directorio (uno para validar, otro para sellar); un chmod a 0777 entre ambos hacía que
+# el snapshot SELLADO capturara 0777 y la revalidación final viera sellado==actual y aceptara. RED_BASE_SHA = 0d50cb4.
+# La corrección hace UN SOLO fstat: se valida y se sella el MISMO objeto.
+# ---------------------------------------------------------------------------
+def test_b293_chmod_between_validate_and_seal_rejected(monkeypatch, tmp_path):
+    _lay_governed_tree(tmp_path)
+    tools_ino = os.stat(tmp_path / "tools").st_ino
+    real_fstat = os.fstat
+    chmodded = {"x": False}
+
+    def _fstat_then_chmod(fd):
+        st = real_fstat(fd)  # devuelve el st PRE-chmod (0755) de ESTA llamada
+        if st.st_ino == tools_ino and not chmodded["x"]:
+            chmodded["x"] = True  # tras el 1º fstat del dir tools, cambia el modo a 0777 (afecta al 2º fstat en b781/0d50)
+            (tmp_path / "tools").chmod(0o777)
+        return st
+
+    monkeypatch.setattr(os, "fstat", _fstat_then_chmod)
+    try:
+        gb, probs = _govern(monkeypatch, tmp_path, "tools/campaign_bundle.py")
+        assert gb is None and probs, "un chmod entre validar y sellar el fstat del dir debe rechazarse (B293)"
+    finally:
+        (tmp_path / "tools").chmod(0o755)
+
+
 def test_gate_b249_alias_propagation_and_dotted(tmp_path, monkeypatch):
     # B249: seguimiento de alias (mod = cb), cadenas y dotted import (tools.campaign_bundle) para cazar acceso dinamico.
     for name, src in {
