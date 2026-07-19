@@ -238,7 +238,7 @@ def test_b275_predicate_and_exit_tampering_rejected(monkeypatch):
     drop = _ci_gate_replace(" || contains(needs.*.result, 'skipped')", "")
     assert any("B275" in p for p in _run(monkeypatch, ci=drop)), "quitar 'skipped' del predicado debe fallar (B275)"
     exit0 = _ci_gate_replace("          exit 1\n", "          exit 0\n")
-    assert any("B275" in p for p in _run(monkeypatch, ci=exit0)), "exit 0 en vez de exit 1 debe fallar (B275)"
+    assert any("B283" in p for p in _run(monkeypatch, ci=exit0)), "exit 0 en vez de exit 1 debe fallar (B283)"
     coe = _ci_gate_replace(
         "      - name: All required jobs succeeded\n",
         "      - name: All required jobs succeeded\n        continue-on-error: true\n",
@@ -256,6 +256,51 @@ def test_b275_success_step_run_decoy_and_extra_step_rejected(monkeypatch):
 def test_b275_duplicate_yaml_key_in_ci_gate_rejected(monkeypatch):
     dup = _ci_gate_replace("    name: ci-gate\n", "    name: ci-gate\n    name: ci-gate\n")
     assert _run(monkeypatch, ci=dup), "clave YAML duplicada en ci-gate debe fallar cerrado (B275)"
+
+
+# ---------------------------------------------------------------------------
+# B283 — `ci-gate` fija el PROGRAMA COMPLETO del paso que falla (no sólo la última línea) y sella runner/timeout/
+# permissions. RED_BASE_SHA = b781d68: _ci_gate_step_problems sólo miraba la última línea, así que un `exit 0` ANTES
+# del `exit 1` neutralizaba el gate y pasaba. Las pruebas insignia llaman a `_ci_gate_step_problems` directamente
+# (existe en ambos SHAs, misma firma) para aislar el chequeo del programa de los sellos nuevos de runner/timeout.
+# ---------------------------------------------------------------------------
+def _ci_gate_steps(run0):
+    return [
+        {"name": gov._CI_GATE_STEP0_NAME, "if": gov._CI_GATE_STEP0_IF, "run": run0},
+        {"name": gov._CI_GATE_STEP1_NAME, "run": gov._CI_GATE_STEP1_RUN},
+    ]
+
+
+def test_b283_early_exit_zero_before_exit_one_rejected():
+    # insignia: `exit 0` ANTES del `exit 1`; la última línea SIGUE siendo `exit 1` (b781d68 la aceptaba).
+    steps = _ci_gate_steps("echo attacker\nexit 0\nexit 1\n")
+    assert any("B283" in p for p in gov._ci_gate_step_problems(steps)), "un exit 0 antes de exit 1 debe fallar (B283)"
+
+
+def test_b283_run_program_variants_rejected():
+    # subshell y comando extra: la última línea sigue siendo `exit 1` (RED en b781d68); true||exit1 cambia la última.
+    for run0 in (
+        "(exit 0)\nexit 1\n",  # subshell que sale 0
+        'echo "resultados"\necho sneaky\nexit 1\n',  # comando extra
+        "true || exit 1\n",  # OR que nunca llega a exit 1
+    ):
+        assert any("B283" in p for p in gov._ci_gate_step_problems(_ci_gate_steps(run0))), f"programa {run0!r} debe fallar (B283)"  # fmt: skip
+    # control: el programa EXACTO no falla por el chequeo de programa
+    assert not any("B283" in p for p in gov._ci_gate_step_problems(_ci_gate_steps(gov._CI_GATE_STEP0_RUN)))
+
+
+def test_b283_runner_timeout_permissions_sealed(monkeypatch):
+    # sellos nuevos: runner pineado (no latest), timeout exacto, permisos vacíos (regresiones de HEAD).
+    assert any("B283" in p for p in _run(monkeypatch, ci=_ci_gate_replace("    runs-on: ubuntu-24.04\n", "    runs-on: ubuntu-latest\n"))), "runs-on latest debe fallar (B283)"  # fmt: skip
+    for tm in ("true", "5.0", "0"):
+        bad = _ci_gate_replace("    timeout-minutes: 5\n", f"    timeout-minutes: {tm}\n")
+        assert any("B283" in p for p in _run(monkeypatch, ci=bad)), f"timeout {tm} debe fallar (B283)"
+    perm = _ci_gate_replace("    permissions: {}\n", "    permissions:\n      contents: write\n")
+    assert any("B283" in p for p in _run(monkeypatch, ci=perm)), "permisos no vacíos deben fallar (B283)"
+
+
+def test_b283_ci_gate_control_passes(monkeypatch):
+    assert _run(monkeypatch) == [], "el ci-gate real (24.04/timeout5/permisos vacíos/programa exacto) debe pasar (B283)"
 
 
 # ---------------------------------------------------------------------------

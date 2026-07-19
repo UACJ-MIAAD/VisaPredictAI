@@ -46,10 +46,13 @@ _GATE_STEPS = (
     ("B233 historical diagnostic contract", "python -m tools.validate_b233_receipt"),
     ("P0R.5 governance gates wired", "python tools/check_p0r5_governance.py"),
 )
-# B275: contrato EXACTO de `ci-gate` (nada de substrings sobre yaml.dump). Claves de job, runner, set COMPLETO de needs
-# y los dos pasos (el que falla + el de éxito) se comparan estructuralmente contra estas constantes revisadas.
-_CI_GATE_JOB_KEYS = {"name", "if", "needs", "runs-on", "steps"}
-_CI_GATE_RUNNER = "ubuntu-latest"
+# B275/B283: contrato EXACTO de `ci-gate` (nada de substrings sobre yaml.dump). Claves de job, runner PINEADO, timeout,
+# permissions VACÍAS, set COMPLETO de needs y los dos pasos (con el PROGRAMA `run` COMPLETO del paso que falla, no sólo
+# su última línea) se comparan estructuralmente contra estas constantes revisadas.
+_CI_GATE_JOB_KEYS = {"name", "if", "needs", "runs-on", "timeout-minutes", "permissions", "steps"}
+_CI_GATE_RUNNER = "ubuntu-24.04"
+_CI_GATE_TIMEOUT = 5
+_CI_GATE_PERMISSIONS: dict = {}
 _CI_GATE_NEEDS = {
     "commit-policy",
     "lint-and-test",
@@ -65,6 +68,13 @@ _CI_GATE_NEEDS = {
 }
 _CI_GATE_STEP0_NAME = "Fail if any required job was not success"
 _CI_GATE_STEP0_IF = "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}"  # fmt: skip
+# B283: el PROGRAMA COMPLETO del paso que debe fallar (no basta con que la última línea sea `exit 1`: un `exit 0` previo
+# lo neutralizaba).
+_CI_GATE_STEP0_RUN = (
+    'echo "resultados: ${{ join(needs.*.result, \', \') }}"\n'
+    'echo "✗ ci-gate: al menos un job no terminó en success"\n'
+    "exit 1\n"
+)
 _CI_GATE_STEP1_NAME = "All required jobs succeeded"
 _CI_GATE_STEP1_RUN = 'echo "ci-gate OK - todos los jobs en success"'
 
@@ -191,10 +201,8 @@ def _ci_gate_step_problems(steps: object) -> list[str]:
             problems.append(f"jobs.{_CI_GATE}.steps[0].name != {_CI_GATE_STEP0_NAME!r} (B275)")
         if fail["if"] != _CI_GATE_STEP0_IF:
             problems.append(f"jobs.{_CI_GATE}.steps[0].if != el predicado EXACTO failure/cancelled/skipped sobre needs.*.result (obtenido {fail['if']!r}) (B275)")  # fmt: skip
-        run = fail["run"] if isinstance(fail["run"], str) else ""
-        last = run.strip().splitlines()[-1].strip() if run.strip() else ""
-        if last != "exit 1":
-            problems.append(f"jobs.{_CI_GATE}.steps[0].run no termina en `exit 1` (obtenido {last!r}) (B275)")
+        if fail["run"] != _CI_GATE_STEP0_RUN:  # B283: el PROGRAMA completo, no sólo la última línea (un `exit 0` previo neutralizaba)
+            problems.append(f"jobs.{_CI_GATE}.steps[0].run != el programa EXACTO que termina en `exit 1` (obtenido {fail['run']!r}) (B283)")  # fmt: skip
     if set(ok.keys()) != {"name", "run"}:
         problems.append(f"jobs.{_CI_GATE}.steps[1]: claves != {{name, run}} — sin `if`/env/extras (obtenido {sorted(ok)}) (B275)")  # fmt: skip
     else:
@@ -220,8 +228,12 @@ def _ci_gate_problems(gate: object) -> list[str]:
         problems.append(f"jobs.{_CI_GATE}.name != {_CI_GATE!r} (B275)")
     if gate["if"] != "always()":
         problems.append(f"jobs.{_CI_GATE}.if != 'always()' exacto (obtenido {gate['if']!r}) (B275)")
-    if gate["runs-on"] != _CI_GATE_RUNNER:
-        problems.append(f"jobs.{_CI_GATE}.runs-on != {_CI_GATE_RUNNER!r} (B275)")
+    if gate["runs-on"] != _CI_GATE_RUNNER:  # B283: runner PINEADO (no 'latest')
+        problems.append(f"jobs.{_CI_GATE}.runs-on != {_CI_GATE_RUNNER!r} (B283)")
+    if not (type(gate["timeout-minutes"]) is int and gate["timeout-minutes"] == _CI_GATE_TIMEOUT):  # B283: timeout exacto (bool/float/0 caen)
+        problems.append(f"jobs.{_CI_GATE}.timeout-minutes != {_CI_GATE_TIMEOUT} (B283)")
+    if gate["permissions"] != _CI_GATE_PERMISSIONS:  # B283: permisos VACÍOS
+        problems.append(f"jobs.{_CI_GATE}.permissions != {{}} vacío (obtenido {gate['permissions']!r}) (B283)")
     needs = gate["needs"]
     if not (isinstance(needs, list) and all(isinstance(n, str) for n in needs)):
         problems.append(f"jobs.{_CI_GATE}.needs no es una lista de strings (B275)")

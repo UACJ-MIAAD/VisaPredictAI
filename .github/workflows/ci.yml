@@ -543,7 +543,9 @@ jobs:
     name: ci-gate
     if: always()
     needs: [commit-policy, lint-and-test, model-tests, consistency, supply-chain, deep-lock-install, dvc-tool-install, environment-contract, environment-receipts, campaign-bundle-contract, p0r5-governance]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
     steps:
       - name: Fail if any required job was not success
         if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
