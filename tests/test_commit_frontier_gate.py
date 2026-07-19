@@ -389,10 +389,12 @@ def test_gate_b254_fingerprint_pins_critical_body(monkeypatch, tmp_path):
 
 
 def test_gate_b254_wired_into_main():
-    # B254: fingerprint_problems() esta cableado en main() (no es un chequeo huerfano).
-    import inspect
-
-    assert "fingerprint_problems" in inspect.getsource(gate.main), "fingerprint_problems debe correr en main()"
+    # B254: fingerprint_problems() esta cableado en main() (no es un chequeo huerfano). Se lee el FICHERO y se parsea
+    # con AST (inmune a linecache/bytecode stale por orden de tests: B274 desplazó la línea de main y expuso esa
+    # fragilidad de inspect.getsource en la suite completa).
+    main_fn = next(n for n in ast.parse(pathlib.Path(gate.__file__).read_text()).body if isinstance(n, ast.FunctionDef) and n.name == "main")  # fmt: skip
+    calls = {c.func.id for c in ast.walk(main_fn) if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
+    assert "fingerprint_problems" in calls, "fingerprint_problems debe correr en main() (B254)"
 
 
 # Constantes LOCALES (no de `gate`) para que los tests corran igual en beab510 (RED via stash) y en el fix.
