@@ -204,6 +204,61 @@ def test_b260_two_identical_occurrences_are_two_entries(tmp_path, monkeypatch):
     assert idxs == [0, 1], f"dos ocurrencias identicas deben ser dos entradas indexadas (B260): {idxs}"
 
 
+def test_b265_module_escapes_become_occurrences(tmp_path, monkeypatch):
+    # B265: un módulo canónico que se fuga por contenedor/argumento/retorno/subscript-dinámico se vuelve una ocurrencia
+    # (reflection-module-escape / builtins.dynamic-lookup), aunque no se conozca la operación final.
+    cases = {
+        "list_alias": "import builtins\nb = [builtins][0]\nb.getattr(o, n)\n",
+        "tuple_unpack": "import builtins\nb, = (builtins,)\nb.setattr(o, n, v)\n",
+        "nested_unpack": "import builtins\n(a, (b,)) = (1, (builtins,))\nb.getattr(o, n)\n",
+        "dict_alias": "import builtins\nb = {'k': builtins}['k']\nb.getattr(o, n)\n",
+        "dynamic_builtins": "__builtins__[dyn](o, n)\n",
+        "attr_store": "import builtins\nclass C: pass\nc = C()\nc.m = builtins\n",
+        "passed_to_fn": "import builtins\ndef take(m):\n    return m\ntake(builtins)\n",
+        "returned": "import builtins\ndef give():\n    return builtins\ngive()\n",
+        "identity_call": "import builtins\ndef ident(x):\n    return x\nb = ident(builtins)\n",
+        "sys_container": "import sys\nxs = [sys]\n",
+        "importlib_container": "import importlib as il\nxs = (il,)\n",
+        "escape_in_lambda": "import builtins\nf = lambda: [builtins]\n",
+        "escape_in_comprehension": "import builtins\nxs = [builtins for _ in range(1)]\n",
+    }
+    for label, src in cases.items():
+        _mount(tmp_path, monkeypatch, {"m.py": src})
+        ops = {e["op"] for e in refl.scan_reflection(["m.py"])[0].values()}
+        assert ops & {refl._REFLECTION_MODULE_ESCAPE, refl._BUILTINS_DYNAMIC_LOOKUP}, f"{label} debe ser un escape (B265): {ops}"  # fmt: skip
+
+
+def test_b265_no_false_positive_on_legit_module_use(tmp_path, monkeypatch):
+    _mount(tmp_path, monkeypatch, {"m.py": "import sys\nimport functools\nsys.exit(0)\nfunctools.reduce(lambda a, b: a, [])\nprint(sys.version)\n"})  # fmt: skip
+    ops = {e["op"] for e in refl.scan_reflection(["m.py"])[0].values()}
+    assert refl._REFLECTION_MODULE_ESCAPE not in ops, f"uso legítimo de módulo no debe escapar (B265): {ops}"
+
+
+def test_b265_escape_in_authority_module_is_prohibited(tmp_path, monkeypatch):
+    # un escape en un módulo de AUTORIDAD está prohibido (no registrable), incluso con un registro que lo listara.
+    _mount(tmp_path, monkeypatch, {"tools/campaign_bundle.py": "import builtins\nxs = [builtins]\n"})
+    reg = {
+        "schema_version": refl._SCHEMA_VERSION, "scanner_version": refl._SCANNER_VERSION, "note": "x",
+        "operations_controlled": list(refl.OPERATIONS_CONTROLLED), "authorized_campaign_bundle_importers": [],
+        "entries": {},
+    }  # fmt: skip
+    (tmp_path / refl._REGISTRY).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / refl._REGISTRY).write_text(json.dumps(reg))
+    assert any("PROHIBIDO" in p for p in refl.problems()), "escape en módulo de autoridad debe fallar (B265)"
+
+
+def test_b265_unregistered_escape_fails_the_gate(tmp_path, monkeypatch):
+    _mount(tmp_path, monkeypatch, {"m.py": "import builtins\nxs = [builtins]\n"})
+    reg = {
+        "schema_version": refl._SCHEMA_VERSION, "scanner_version": refl._SCANNER_VERSION, "note": "x",
+        "operations_controlled": list(refl.OPERATIONS_CONTROLLED), "authorized_campaign_bundle_importers": [],
+        "entries": {},
+    }  # fmt: skip
+    (tmp_path / refl._REGISTRY).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / refl._REGISTRY).write_text(json.dumps(reg))
+    assert any("NO REGISTRADA" in p for p in refl.problems()), "un escape no registrado (fuera de autoridad) debe fallar (B265)"  # fmt: skip
+
+
 def test_reflection_gate_catches_the_seven_evasions(tmp_path, monkeypatch):
     evasions = {
         "list_index_getattr": "g = [getattr][0]\ng(cb, name)\n",

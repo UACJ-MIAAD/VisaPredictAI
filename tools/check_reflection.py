@@ -37,7 +37,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
-_SCANNER_VERSION = 2
+_SCANNER_VERSION = 3  # B265: política conservadora de escape de módulo reflexivo + lookup dinámico de builtins
 _REGISTRY_TOP_KEYS = {
     "schema_version",
     "scanner_version",
@@ -56,8 +56,16 @@ _MODULE_PRIMS = {"attrgetter": "operator", "methodcaller": "operator", "partial"
 _ATTR_PRIMS = frozenset({"__dict__", "__getattribute__"})
 _CANONICAL_MODULES = frozenset({"builtins", "sys", "importlib", "operator", "functools"})
 _IMPORTABLE_PRIMS = _BUILTIN_PRIMS | frozenset(_MODULE_PRIMS)
-OPERATIONS_CONTROLLED = tuple(sorted(_BUILTIN_PRIMS | frozenset(_MODULE_PRIMS) | _ATTR_PRIMS | {"__dict__", "sys.modules"}))  # fmt: skip
+# B265: dos operaciones conservadoras. `reflection-module-escape` = un objeto módulo canónico se FUGA a un contenedor/
+# atributo/subscript/argumento/retorno/construcción no comprendida → ya no se puede seguir su reflexión, así que es una
+# ocurrencia. `builtins.dynamic-lookup` = subscript sobre builtins/__builtins__ con clave NO constante (op final
+# desconocida). Convertir toda fuga conocida/ambigua en una ocurrencia; no se afirma resolver semántica Python arbitraria.
+_REFLECTION_MODULE_ESCAPE = "reflection-module-escape"
+_BUILTINS_DYNAMIC_LOOKUP = "builtins.dynamic-lookup"
+OPERATIONS_CONTROLLED = tuple(sorted(_BUILTIN_PRIMS | frozenset(_MODULE_PRIMS) | _ATTR_PRIMS | {"__dict__", "sys.modules", _REFLECTION_MODULE_ESCAPE, _BUILTINS_DYNAMIC_LOOKUP}))  # fmt: skip
 _CB_MODULE = "tools.campaign_bundle"
+# B265: en los módulos de AUTORIDAD, un escape/lookup dinámico está PROHIBIDO (no registrable).
+_AUTHORITY_MODULES = frozenset({"tools/campaign_bundle.py", "tools/merge_campaign_pools.py", "tools/governed_fs.py", "tools/governed_read.py"})  # fmt: skip
 
 
 def _git_tracked_py() -> list[str]:
@@ -155,12 +163,13 @@ def _resolve_op(node: ast.AST, mod_aliases: dict[str, str], prim_aliases: dict[s
             return attr
         if attr == "modules" and recv_mod == "sys":
             return "sys.modules"
-    if isinstance(node, ast.Subscript):  # `__builtins__['getattr']` / `sys.modules['tools.campaign_bundle']`
+    if isinstance(node, ast.Subscript):  # `__builtins__['getattr']` / `__builtins__[dyn]`
         base = node.value
         base_mod = mod_aliases.get(base.id) if isinstance(base, ast.Name) else None
-        key = node.slice.value if isinstance(node.slice, ast.Constant) else None
-        if base_mod == "builtins" and isinstance(key, str) and key in _BUILTIN_PRIMS:
-            return key
+        if base_mod == "builtins":
+            if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
+                return node.slice.value if node.slice.value in _BUILTIN_PRIMS else None
+            return _BUILTINS_DYNAMIC_LOOKUP  # clave NO constante → op final desconocida (B265)
     return None
 
 
@@ -210,6 +219,29 @@ def _occurrence_id(file: str, qualname: str, op: str, stmt_sha: str, index: int)
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
+def _escape_op(node: ast.AST, parents: dict[int, ast.AST], mod_aliases: dict[str, str]) -> str | None:
+    """B265: un Name de módulo canónico (o `__builtins__`) usado en Load que ESCAPA del seguimiento — dentro de un
+    contenedor (List/Tuple/Set/Dict), pasado como argumento, retornado, comparado, o en cualquier construcción que no
+    sea `alias.attr` / `alias[...]` / `x = alias` (target Name simple, seguido por el fixpoint) — devuelve
+    `reflection-module-escape`. Conservador: si el módulo puede irse a donde no lo seguimos, es una ocurrencia."""
+    if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in mod_aliases):
+        return None
+    parent = parents.get(id(node))
+    if parent is None:
+        return None
+    if isinstance(parent, ast.Attribute) and parent.value is node:
+        return None  # `alias.attr` — acceso resuelto por _resolve_op
+    if isinstance(parent, ast.Subscript) and parent.value is node:
+        return None  # `alias[...]` — subscript resuelto por _resolve_op
+    if isinstance(parent, ast.Assign) and len(parent.targets) == 1 and isinstance(parent.targets[0], ast.Name) and parent.value is node:  # fmt: skip
+        return None  # `x = alias` — alias simple, seguido por el fixpoint
+    if isinstance(parent, ast.AnnAssign) and isinstance(parent.target, ast.Name) and parent.value is node:
+        return None
+    if isinstance(parent, ast.NamedExpr) and isinstance(parent.target, ast.Name) and parent.value is node:
+        return None
+    return _REFLECTION_MODULE_ESCAPE
+
+
 def scan_reflection(files: list[str]) -> tuple[dict[str, dict], list[str]]:
     """Escanea `files` y devuelve `(entries, problems)`. Cada ocurrencia lleva identidad SEMÁNTICA. Fail-closed: un
     fichero ilegible/no-UTF-8/no-parseable produce un PROBLEMA (no se salta en silencio)."""
@@ -234,9 +266,10 @@ def scan_reflection(files: list[str]) -> tuple[dict[str, dict], list[str]]:
         prim_aliases = _prim_aliases(tree)
         qn = _qualnames(tree)
         stmts = _enclosing_stmts(tree)
+        parents = {id(c): p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
         raw: list[tuple[str, str, str, int, ast.AST]] = []
         for node in ast.walk(tree):
-            op = _resolve_op(node, mod_aliases, prim_aliases)
+            op = _resolve_op(node, mod_aliases, prim_aliases) or _escape_op(node, parents, mod_aliases)
             if op is None:
                 continue
             qualname = qn.get(id(node), "") or "<module>"
@@ -354,6 +387,10 @@ def problems() -> list[str]:
     problems.extend(scan_probs)
     today = _today()
     for eid, occ in observed.items():
+        # B265: en los módulos de AUTORIDAD, un escape de módulo / lookup dinámico está PROHIBIDO (no registrable)
+        if occ["file"] in _AUTHORITY_MODULES and occ["op"] in (_REFLECTION_MODULE_ESCAPE, _BUILTINS_DYNAMIC_LOOKUP):
+            problems.append(f"ESCAPE/LOOKUP DINÁMICO PROHIBIDO en módulo de autoridad: {occ['op']} en {occ['file']}::{occ['qualname']} línea {occ['lineno']} (B265)")  # fmt: skip
+            continue
         want = entries.get(eid)
         if want is None:
             problems.append(f"REFLEXIÓN NO REGISTRADA: {occ['op']} en {occ['file']}::{occ['qualname']} línea {occ['lineno']} → `{occ['snippet']}` (registrar en {_REGISTRY}) (B255/B259)")  # fmt: skip
