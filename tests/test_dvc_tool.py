@@ -820,6 +820,44 @@ def test_b53_registry_rejects_extra_top_level_key(tmp_path):
         pins.load_registry(p)
 
 
+# B287 — gramática CERRADA del registro de Actions. RED_BASE_SHA = b781d68: load_registry no validaba `note`
+# (aceptaba bool/null/whitespace), aceptaba versión whitespace (isinstance+truthy) y no validaba el NOMBRE de la
+# acción (aceptaba "", whitespace, @, .., slash). Estas pruebas corren load_registry (existe en ambos SHAs).
+def _one_action_reg(**over):
+    action = {"sha": "0" * 40, "version": "v5", "runtime": "node24"}
+    action.update(over.pop("action", {}))
+    doc = {"schema_version": 1, "note": "x", "actions": {over.pop("name", "actions/checkout"): action}}
+    doc.update(over)
+    return json.dumps(doc)
+
+
+def test_b287_note_must_be_nonempty_bounded_string(tmp_path):
+    for bad in (True, None, [], "   ", "", "x" * 3000):
+        with pytest.raises(SystemExit):
+            pins.load_registry(_reg(tmp_path, _one_action_reg(note=bad)))
+
+
+def test_b287_version_grammar_rejects(tmp_path):
+    for bad in ("   ", "5", "v", "v5.", "va", "v5-beta", "latest", "v5.0.0.0"):
+        with pytest.raises(SystemExit):
+            pins.load_registry(_reg(tmp_path, _one_action_reg(action={"version": bad})))
+    for good in ("v5", "v5.0", "v5.0.3"):  # gramática válida no debe fallar
+        pins.load_registry(_reg(tmp_path, _one_action_reg(action={"version": good})))
+
+
+def test_b287_action_name_grammar_rejects(tmp_path):
+    for bad in ("", "   ", "checkout", "actions/", "/actions/checkout", "actions//checkout", "actions/../x", "actions/check out", "actions/check@out"):  # fmt: skip
+        with pytest.raises(SystemExit):
+            pins.load_registry(_reg(tmp_path, _one_action_reg(name=bad)))
+    pins.load_registry(_reg(tmp_path, _one_action_reg(name="owner/repo/sub")))  # owner/repo/path válido
+
+
+def test_b287_runtime_must_be_node24(tmp_path):  # regresión (b781d68 ya rechazaba runtime != node24)
+    for bad in (True, "node20", "", None):
+        with pytest.raises(SystemExit):
+            pins.load_registry(_reg(tmp_path, _one_action_reg(action={"runtime": bad})))
+
+
 def test_b53_check_flags_orphan_registered_action(tmp_path):
     # un root cuyos workflows usan SOLO checkout deja las otras 5 acciones registradas como huérfanas
     sha = pins.load_registry()["actions/checkout"]["sha"]

@@ -48,6 +48,21 @@ _NODE20_SHAS = {
 }
 _REG_TOP = {"schema_version", "note", "actions"}
 _ENTRY_KEYS = {"sha", "version", "runtime"}
+# B287: gramática CERRADA del registro. Nombre de acción = owner/repo[/path…], componentes no vacíos sin whitespace/@/
+# `..`/slash-inicial-final; versión = vN, vN.N o vN.N.N; note string no vacío tras strip y acotado; máximos.
+_NAME_COMPONENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_VERSION_RE = re.compile(r"^v[0-9]+(\.[0-9]+){0,2}$")
+_MAX_ACTIONS = 64
+_MAX_NOTE_LEN = 2000
+_MAX_NAME_LEN = 200
+
+
+def _valid_action_name(name: object) -> bool:
+    """B287: `owner/repo` u `owner/repo/path…`; componentes no vacíos, sin whitespace/@/`.`/`..`/slash-inicial-final."""
+    if not isinstance(name, str) or not name or len(name) > _MAX_NAME_LEN or name != name.strip():
+        return False
+    parts = name.split("/")
+    return len(parts) >= 2 and all(p not in ("", ".", "..") and _NAME_COMPONENT_RE.fullmatch(p) for p in parts)
 
 
 class _StrictLoader(yaml.SafeLoader):
@@ -83,14 +98,21 @@ def load_registry(registry: Path = REGISTRY) -> dict[str, dict[str, str]]:
         raise SystemExit(f"check_action_pins: claves superiores {sorted(doc)} != {sorted(_REG_TOP)}")
     if type(doc["schema_version"]) is not int or doc["schema_version"] != 1:  # B53: True no es 1
         raise SystemExit("check_action_pins: schema_version no es int == 1")
+    # B287: note = string no vacío tras strip y acotado (un `note` bool/null/lista se colaba)
+    if not isinstance(doc["note"], str) or not doc["note"].strip() or len(doc["note"]) > _MAX_NOTE_LEN:
+        raise SystemExit("check_action_pins: note no es string no vacío y acotado")
     if not isinstance(doc["actions"], dict) or not doc["actions"]:
         raise SystemExit("check_action_pins: `actions` no es objeto no vacío")
+    if len(doc["actions"]) > _MAX_ACTIONS:  # B287: cota de entradas
+        raise SystemExit(f"check_action_pins: > {_MAX_ACTIONS} acciones")
     for name, e in doc["actions"].items():
+        if not _valid_action_name(name):  # B287: gramática del nombre (owner/repo[/path]); antes se aceptaba "" o whitespace
+            raise SystemExit(f"check_action_pins: nombre de acción inválido {name!r}")
         if (
             not isinstance(e, dict)
             or set(e) != _ENTRY_KEYS
             or not (isinstance(e["sha"], str) and _SHA_RE.fullmatch(e["sha"]))
-            or not (isinstance(e["version"], str) and e["version"])
+            or not (isinstance(e["version"], str) and _VERSION_RE.fullmatch(e["version"]))  # B287: versión vN[.N[.N]] (un "   " se colaba)
             or e["runtime"] != "node24"
         ):
             raise SystemExit(f"check_action_pins: entrada de registro inválida para {name!r}")
