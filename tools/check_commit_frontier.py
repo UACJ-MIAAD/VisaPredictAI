@@ -28,6 +28,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 
@@ -39,9 +40,15 @@ _FINGERPRINT_CONTRACT = "security/commit_frontier_fingerprints.json"
 # de funciones, schema y algoritmo. El JSON sólo aporta los hashes; todo lo demás debe IGUALAR estas constantes.
 _CRITICAL_SOURCE = "tools/campaign_bundle.py"
 _CRITICAL_FUNCTIONS = ("commit_current", "_classify_post_authority", "_reconcile_and_raise")
-_FINGERPRINT_SCHEMA = 2
+_FINGERPRINT_SCHEMA = 3
 _FINGERPRINT_ALGORITHM = "sha256(ast.dump(top_level_FunctionDef,annotate_fields=True,include_attributes=False))"
-_FINGERPRINT_TOP_KEYS = {"schema_version", "note", "source", "algorithm", "functions"}
+# B269: además del fingerprint del AST de las 3 funciones, se PINEAN los BYTES EXACTOS del set CERRADO de módulos de
+# autoridad — un `commit_current.__code__ = evil.__code__` / alias / decorador / callback / efecto import-time cambia
+# los bytes del fichero aunque el nombre y el AST del `def` no cambien. El hash COMPLETO del fichero es la unidad de
+# revisión. Frontera honesta: código + contrato pueden cambiar en una PR; el ruleset y la revisión humana lo autorizan.
+_AUTHORITY_FILES = ("tools/campaign_bundle.py", "tools/merge_campaign_pools.py", "tools/governed_fs.py", "tools/governed_read.py", "tools/atomic_fs.py")  # fmt: skip
+_AUTHORITY_ALGORITHM = "sha256(exact_file_bytes)"
+_FINGERPRINT_TOP_KEYS = {"schema_version", "note", "source", "algorithm", "functions", "authority_files_algorithm", "authority_files"}  # fmt: skip
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -584,7 +591,49 @@ def _fingerprint_contract_problems(contract: object) -> list[str]:
         return [f"{_FINGERPRINT_CONTRACT}: functions != EXACTAMENTE {list(_CRITICAL_FUNCTIONS)} (B258)"]
     if not all(isinstance(v, str) and _HEX64.match(v) for v in funcs.values()):
         return [f"{_FINGERPRINT_CONTRACT}: algún hash no es [0-9a-f]{{64}} (B258)"]
+    if contract["authority_files_algorithm"] != _AUTHORITY_ALGORITHM:
+        return [f"{_FINGERPRINT_CONTRACT}: authority_files_algorithm != la constante de código (B269)"]
+    af = contract["authority_files"]
+    if not isinstance(af, dict) or set(af) != set(_AUTHORITY_FILES):
+        return [f"{_FINGERPRINT_CONTRACT}: authority_files != EXACTAMENTE {list(_AUTHORITY_FILES)} (B269)"]
+    if not all(isinstance(v, str) and _HEX64.match(v) for v in af.values()):
+        return [f"{_FINGERPRINT_CONTRACT}: algún hash de authority_files no es [0-9a-f]{{64}} (B269)"]
     return []
+
+
+def _read_regular_nofollow(rel: str) -> tuple[bytes | None, str | None]:
+    """B269: lee los BYTES de `rel` UNA sola vez, REGULAR y NO-symlink (`O_NOFOLLOW` + `fstat` `S_ISREG`)."""
+    try:
+        fd = os.open(os.path.join(_ROOT, rel), os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError as exc:
+        return None, f"no abrible sin seguir symlink ({exc})"
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None, "no es un fichero regular"
+        chunks: list[bytes] = []
+        while chunk := os.read(fd, 1 << 16):
+            chunks.append(chunk)
+        return b"".join(chunks), None
+    finally:
+        os.close(fd)
+
+
+def _authority_files_problems(contract: dict) -> list[str]:
+    """B269: PINEA los bytes exactos del set cerrado de módulos de autoridad. Cada fichero debe estar versionado, ser
+    regular no-symlink, y su `sha256(bytes)` coincidir con el contrato. Cualquier byte nuevo (incl. un
+    `commit_current.__code__ = …`, un alias, un decorador, un callback o un efecto import-time) rompe el gate."""
+    af = contract["authority_files"]
+    problems: list[str] = []
+    for rel in _AUTHORITY_FILES:
+        if not _git_tracked(rel):
+            problems.append(f"{rel}: NO versionado (fail-closed B269)")
+            continue
+        data, err = _read_regular_nofollow(rel)
+        if data is None:
+            problems.append(f"{rel}: {err} (fail-closed B269)")
+        elif hashlib.sha256(data).hexdigest() != af[rel]:
+            problems.append(f"{rel}: los bytes cambiaron (sha != contrato) → actualizar {_FINGERPRINT_CONTRACT} + re-revisar el fichero completo y re-correr la batería (B269)")  # fmt: skip
+    return problems
 
 
 def _critical_defs_problems(tree: ast.Module) -> tuple[dict[str, ast.FunctionDef], list[str]]:
@@ -711,6 +760,7 @@ def fingerprint_problems() -> list[str]:
         return [f"{_CRITICAL_SOURCE}: ilegible/no parseable ({exc}) (fail-closed B254)"]
     defs, problems = _critical_defs_problems(tree)
     problems += _critical_binding_problems(tree)  # B264: el binding global no puede re-ligarse/borrarse tras el def
+    problems += _authority_files_problems(contract)  # B269: los BYTES de los 5 módulos de autoridad están pineados
     for name in _CRITICAL_FUNCTIONS:
         node = defs.get(name)
         if node is None:

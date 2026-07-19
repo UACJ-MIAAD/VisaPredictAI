@@ -399,18 +399,25 @@ _ALGO = "sha256(ast.dump(top_level_FunctionDef,annotate_fields=True,include_attr
 
 
 def _run_fingerprint(monkeypatch, tmp_path, src, functions, *, raw_contract=None, **overrides):
-    # monta un arbol sintetico (tools/campaign_bundle.py + security/<contract>), apunta gate._ROOT alli y corre
-    # fingerprint_problems() sobre el. Funciona igual en beab510 (para el RED via stash) y en el fix.
+    # monta un arbol sintetico (los 5 ficheros de autoridad + security/<contract> schema-3) y corre
+    # fingerprint_problems(). El contrato base es VALIDO (schema-3 + authority_files) salvo lo que cada test override.
     (tmp_path / "tools").mkdir(exist_ok=True)
     (tmp_path / "security").mkdir(exist_ok=True)
-    (tmp_path / "tools" / "campaign_bundle.py").write_text(src)
+    (tmp_path / "tools" / "campaign_bundle.py").write_bytes(src.encode())
+    afiles = {"tools/campaign_bundle.py": _sha256(src.encode())}
+    for f in gate._AUTHORITY_FILES:
+        if f != "tools/campaign_bundle.py":
+            (tmp_path / f).write_bytes(b"# stub\n")
+            afiles[f] = _sha256(b"# stub\n")
     if raw_contract is None:
         contract = {
-            "schema_version": overrides.get("schema_version", 2),
+            "schema_version": overrides.get("schema_version", 3),
             "note": "x",
             "source": overrides.get("source", "tools/campaign_bundle.py"),
             "algorithm": overrides.get("algorithm", _ALGO),
             "functions": functions,
+            "authority_files_algorithm": gate._AUTHORITY_ALGORITHM,
+            "authority_files": afiles,
         }
         raw = json.dumps(contract)
     else:
@@ -557,6 +564,71 @@ def test_b264_dynamic_module_binding_mutation_rejected(monkeypatch, tmp_path):
 def test_b264_harmless_local_same_name_without_global_is_allowed(monkeypatch, tmp_path):
     # una variable LOCAL homónima (sin `global`) en una función no crítica NO re-liga el binding del módulo.
     assert not _run_rebind(monkeypatch, tmp_path, "\ndef unrelated():\n    commit_current = 1\n    return commit_current\n"), "local homónimo no debe fallar (B264)"  # fmt: skip
+
+
+def _run_authority(monkeypatch, tmp_path, *, tamper_bytes=b""):
+    # monta un árbol sintético con los 5 ficheros de autoridad + contrato schema-3; el contrato se computa sobre los
+    # bytes LIMPIOS y luego se AÑADE tamper_bytes a campaign_bundle → sus bytes reales difieren del hash pineado, aunque
+    # el AST del `def` NO cambie (B269: mutación del objeto función / __code__ / alias / callback import-time).
+    (tmp_path / "tools").mkdir(exist_ok=True)
+    (tmp_path / "security").mkdir(exist_ok=True)
+    cb = _SYN_OK.encode()
+    others = {f: b"# stub authority module\n" for f in gate._AUTHORITY_FILES if f != "tools/campaign_bundle.py"}
+    tree = ast.parse(_SYN_OK)
+    fns = {n: _fp_of(tree, n) for n in _CRIT}
+    afiles = {"tools/campaign_bundle.py": _sha256(cb), **{f: _sha256(b) for f, b in others.items()}}
+    contract = {
+        "schema_version": 3, "note": "x", "source": "tools/campaign_bundle.py", "algorithm": _ALGO,
+        "functions": fns, "authority_files_algorithm": gate._AUTHORITY_ALGORITHM, "authority_files": afiles,
+    }  # fmt: skip
+    (tmp_path / "tools" / "campaign_bundle.py").write_bytes(cb + tamper_bytes)
+    for f, b in others.items():
+        (tmp_path / f).write_bytes(b)
+    (tmp_path / "security" / "commit_frontier_fingerprints.json").write_text(json.dumps(contract))
+    monkeypatch.setattr(gate, "_ROOT", str(tmp_path))
+    monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
+    return gate.fingerprint_problems()
+
+
+def _sha256(b: bytes) -> str:
+    import hashlib
+
+    return hashlib.sha256(b).hexdigest()
+
+
+def test_b269_function_code_mutation_changes_authority_blob(monkeypatch, tmp_path):
+    # el AST de los 3 defs NO cambia, pero un `commit_current.__code__ = evil.__code__` altera los BYTES del fichero.
+    assert not _run_authority(monkeypatch, tmp_path), "el árbol limpio debe pasar"
+    probs = _run_authority(monkeypatch, tmp_path, tamper_bytes=b"\ndef evil(*a, **k):\n    return None\ncommit_current.__code__ = evil.__code__\n")  # fmt: skip
+    assert any("bytes cambiaron" in p or "B269" in p for p in probs), "una mutación de __code__ debe romper la autoridad (B269)"  # fmt: skip
+
+
+def test_b269_alias_and_defaults_change_authority_blob(monkeypatch, tmp_path):
+    for tamper in (b"\n_alias = commit_current\n", b"\ncommit_current.__defaults__ = ()\n"):
+        assert any("B269" in p or "bytes cambiaron" in p for p in _run_authority(monkeypatch, tmp_path, tamper_bytes=tamper)), f"{tamper!r} debe romper la autoridad (B269)"  # fmt: skip
+
+
+def test_b269_import_time_callback_changes_authority_blob(monkeypatch, tmp_path):
+    probs = _run_authority(monkeypatch, tmp_path, tamper_bytes=b"\ndef _on_import():\n    pass\n_on_import()\n")
+    assert any("B269" in p or "bytes cambiaron" in p for p in probs), "un callback import-time debe romper la autoridad (B269)"  # fmt: skip
+
+
+def test_b269_contract_schema_and_files_exact():
+    # el contrato REAL pasa; hashes/rutas mal → fail-closed.
+    import json as _json
+    import pathlib
+
+    real = _json.loads((pathlib.Path(gate._ROOT) / gate._FINGERPRINT_CONTRACT).read_text())
+    assert gate._authority_files_problems(real) == [], "el contrato real debe validar los bytes de autoridad"
+    bad = _json.loads(_json.dumps(real))
+    bad["authority_files"]["tools/governed_fs.py"] = "0" * 64
+    assert any("governed_fs" in p for p in gate._authority_files_problems(bad)), "hash gobernado a ceros debe fallar"
+    miss = _json.loads(_json.dumps(real))
+    miss["authority_files"].pop("tools/atomic_fs.py")
+    assert gate._fingerprint_contract_problems(miss), "ruta de autoridad faltante debe fallar (B269)"
+    old = {k: v for k, v in real.items() if k not in ("authority_files", "authority_files_algorithm")}
+    old["schema_version"] = 2
+    assert gate._fingerprint_contract_problems(old), "un contrato schema-2 sin authority_files debe fallar (B269)"
 
 
 def test_gate_b249_alias_propagation_and_dotted(tmp_path, monkeypatch):
