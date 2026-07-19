@@ -1261,9 +1261,9 @@ def test_b95_deep_seed_mutated_during_read_rejected(tmp_path, monkeypatch):
     for s in (1, 2, 3, 4, 5):
         _deep_seed(camp, s, [_row()])
     target = camp / "global_FAD_camp_auto_s1.csv"
-    import tools.governed_read as gr
+    import pandas  # B273: governed_read importa pandas de forma LAZY dentro de read_governed_csv → parchear el módulo
 
-    real_read_csv = gr.pd.read_csv
+    real_read_csv = pandas.read_csv
 
     def mutating(fh, *a, **k):
         df = real_read_csv(fh, *a, **k)
@@ -1271,7 +1271,7 @@ def test_b95_deep_seed_mutated_during_read_rejected(tmp_path, monkeypatch):
             extra.write(b"\n")
         return df
 
-    monkeypatch.setattr(gr.pd, "read_csv", mutating)
+    monkeypatch.setattr(pandas, "read_csv", mutating)
     monkeypatch.chdir(tmp_path)
     assert cdr.main() == 1
 

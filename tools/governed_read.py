@@ -23,8 +23,10 @@ from __future__ import annotations
 import contextlib
 import os
 import stat
+from typing import TYPE_CHECKING
 
-import pandas as pd
+if TYPE_CHECKING:  # B273: pandas SÓLO para anotaciones (import diferido) — la superficie de BYTES no lo necesita, así
+    import pandas as pd  # que `import tools.governed_read`/`validate_b233_receipt` corre sin pandas instalado.
 
 
 class GovernedOpenError(Exception):
@@ -175,6 +177,8 @@ def _governed_reader(dir_fd: int, name: str, reader):
 
 
 def read_governed_csv(dir_fd: int, name: str, **read_csv_kwargs) -> tuple[pd.DataFrame | None, str | None]:
+    import pandas as pd  # B273: import LAZY — sólo la lectura CSV depende de pandas, no la superficie de bytes.
+
     def _read(fd: int) -> pd.DataFrame:
         with os.fdopen(fd, "rb", closefd=False) as fh:
             return pd.read_csv(fh, **read_csv_kwargs)
