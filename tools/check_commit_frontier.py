@@ -697,7 +697,18 @@ def _read_governed_repo_file(rel: str, *, exact_mode: int = 0o644) -> tuple[_Gov
             if len(data) != st0.st_size:
                 return None, [f"{rel}: tamaño leído {len(data)} != fstat {st0.st_size} (fail-closed B274)"]
             result = (
-                _GovernedBytes(data=data, rel=rel, dev=st0.st_dev, ino=st0.st_ino, size=st0.st_size, mtime_ns=st0.st_mtime_ns, ctime_ns=st0.st_ctime_ns, mode=st0.st_mode, uid=st0.st_uid, nlink=st0.st_nlink),  # fmt: skip
+                _GovernedBytes(
+                    data=data,
+                    rel=rel,
+                    dev=st0.st_dev,
+                    ino=st0.st_ino,
+                    size=st0.st_size,
+                    mtime_ns=st0.st_mtime_ns,
+                    ctime_ns=st0.st_ctime_ns,
+                    mode=st0.st_mode,
+                    uid=st0.st_uid,
+                    nlink=st0.st_nlink,
+                ),  # fmt: skip
                 [],
             )
         finally:

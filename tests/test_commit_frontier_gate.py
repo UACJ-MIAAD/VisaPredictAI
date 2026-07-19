@@ -700,7 +700,10 @@ def test_b274_ancestor_symlink_rejected(monkeypatch, tmp_path):
     (shadow / "security").mkdir(parents=True)
     (shadow / "tools" / "campaign_bundle.py").write_bytes(_SYN_OK.encode())
     (shadow / "tools" / "campaign_bundle.py").chmod(0o644)
-    for comp, rel in (("tools", "tools/campaign_bundle.py"), ("security", "security/commit_frontier_fingerprints.json")):
+    for comp, rel in (
+        ("tools", "tools/campaign_bundle.py"),
+        ("security", "security/commit_frontier_fingerprints.json"),
+    ):
         victim = tmp_path / comp
         backup = tmp_path / (comp + "_real")
         victim.rename(backup)
@@ -774,7 +777,9 @@ def test_b274_socket_leaf_rejected(monkeypatch):
     import shutil
     import tempfile
 
-    short = tempfile.mkdtemp(prefix="b", dir="/tmp")  # AF_UNIX exige ruta corta (macOS ~104 chars); pytest tmp_path no cabe
+    short = tempfile.mkdtemp(
+        prefix="b", dir="/tmp"
+    )  # AF_UNIX exige ruta corta (macOS ~104 chars); pytest tmp_path no cabe
     os.mkdir(os.path.join(short, "tools"))
     rel = "tools/campaign_bundle.py"
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -821,7 +826,9 @@ def test_b274_read_and_close_errors_fail_closed(monkeypatch, tmp_path):
 
     monkeypatch.setattr(os, "read", _boom_read)
     gb, probs = _govern(monkeypatch, tmp_path, rel)
-    assert gb is None and any("lectura" in p and "B274" in p for p in probs), "error de read debe ser fail-closed (B274)"
+    assert gb is None and any("lectura" in p and "B274" in p for p in probs), (
+        "error de read debe ser fail-closed (B274)"
+    )
     monkeypatch.setattr(os, "read", real_read)
 
     real_close = os.close
@@ -868,7 +875,9 @@ def test_b274_behavioral_ancestor_symlink_rejected_now(monkeypatch, tmp_path):
     _lay_governed_tree(tmp_path)
     shadow = tmp_path.parent / (tmp_path.name + "_shadow")
     (shadow / "tools").mkdir(parents=True)
-    for f in gate._AUTHORITY_FILES:  # el shadow lleva los MISMOS bytes aprobados → el gate viejo (que sigue el symlink) acepta
+    for f in (
+        gate._AUTHORITY_FILES
+    ):  # el shadow lleva los MISMOS bytes aprobados → el gate viejo (que sigue el symlink) acepta
         shutil.copy(tmp_path / f, shadow / f)
         (shadow / f).chmod(0o644)
     (tmp_path / "tools").rename(tmp_path / "tools_real")
