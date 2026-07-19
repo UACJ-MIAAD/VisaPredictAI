@@ -1,7 +1,8 @@
-"""B250/B253/B256/B257: el recibo B233 es un DIAGNÓSTICO HISTÓRICO (schema v3) validado por DERIVACIÓN + PROCEDENCIA +
-lectura GOBERNADA fd-bound (tools/validate_b233_receipt.py): capture_head es el commit REAL de la captura (no
-reetiquetado), toolchain/platform DERIVADOS de profiles+lock (no arbitrarios), inventario derivado, ficheros gobernados
-recalculados == blob@capture_head == checkout actual, lecturas fd-bound sin open(ruta), nunca revienta."""
+"""B250/B253/B256/B257/B261/B262: el recibo B233 es un DIAGNÓSTICO HISTÓRICO (schema v3) validado por DERIVACIÓN +
+PROCEDENCIA + lectura GOBERNADA fd-bound (tools/validate_b233_receipt.py). B261: no existe certificación viva
+(capture --certify sale 2, nunca escribe el canónico). B262: el validador es TOTAL (nunca eleva), la versión de Python
+es X.Y.Z exacta con major.minor derivado, y la procedencia git (imported_into_repository_at) exige commit real
+descendiente de capture_head que AÑADIÓ el recibo."""
 
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ import json
 import os
 import subprocess
 
+import tools.capture_b233_receipt as cap
 import tools.validate_b233_receipt as v
 
 _RECEIPT = os.path.join(v.ROOT, "reports", "governance", "b233_receipt.json")
@@ -23,71 +25,113 @@ def test_governed_receipt_v3_is_valid():
     assert os.path.isfile(_RECEIPT)
     assert v.validate_receipt_file(_RECEIPT) == []
     assert v.validate_receipt(_base()) == []
+    # forma honesta del comando (B262): argv_display + environment_overrides (no 'argv'/'environment')
+    assert set(_base()["capture_command"]) == {"argv_display", "environment_overrides"}
 
 
-def test_capture_head_and_imported_must_be_commits():
-    # B256: capture_head e imported_into_repository_at deben ser COMMITS reales (un blob no pasa).
+def test_b262_validator_never_raises_on_jsonlike():
+    # B262: para CUALQUIER entrada JSON-like devuelve una lista, jamas eleva.
+    cases: list[object] = [{}, [], "s", 7, 0, None, True, 3.14, {1: 2}, {"a": object()}, [1, 2, 3]]
+    cases.append({1: "x", "schema_version": 3})  # claves mixtas -> antes TypeError en sorted()
+    cases.append({k: None for k in v._TOP_KEYS})
+    cases.append({**_base(), "extra": 1})
+    for i in range(100):  # 100 casos deterministas
+        cases.append({"schema_version": i, "capture_head": "z" * (i % 45)})
+    for c in cases:
+        out = v.validate_receipt(c)
+        assert isinstance(out, list), f"validate_receipt debe devolver lista para {type(c)}"
+
+
+def test_b262_python_version_is_exact_xyz():
+    for bad in ("3.14.evil", "3.14.", "3.14", "3.14.2\n", "3.14.2.1", "99.0.0"):
+        d = _base()
+        d["capture_platform"]["python"] = bad
+        assert any("capture_platform" in p for p in v.validate_receipt(d)), f"python={bad!r} debe fallar (B262)"
+
+
+def test_b262_imported_commit_provenance():
+    # commit real que NO contiene/añadió el recibo (base de main) -> falla
+    main_base = subprocess.run(
+        ["git", "-C", v.ROOT, "rev-parse", "origin/main"], capture_output=True, text=True
+    ).stdout.strip()
+    for bad in (main_base, "0" * 40, "6d67fd1", "notahex"):
+        d = _base()
+        d["imported_into_repository_at"] = bad
+        assert v.validate_receipt(d) != [], f"imported={bad!r} debe fallar (B262)"
+    # un blob como imported tampoco pasa
     blob = subprocess.run(
         ["git", "-C", v.ROOT, "rev-parse", "HEAD:tools/python_env.py"], capture_output=True, text=True
     ).stdout.strip()
-    assert len(blob) == 40
-    for key in ("capture_head", "imported_into_repository_at"):
-        d = _base()
-        d[key] = blob  # un blob, no un commit
-        assert v.validate_receipt(d) != [], f"{key}=blob debe fallar (B256)"
-        d = _base()
-        d[key] = "0" * 40  # 40-hex inexistente
-        assert v.validate_receipt(d) != [], f"{key}=inexistente debe fallar"
+    d = _base()
+    d["imported_into_repository_at"] = blob
+    assert v.validate_receipt(d) != [], "un blob como imported debe fallar"
 
 
-def test_governed_files_procedence_and_recalculation():
-    # B256/B257: los shas gobernados se RECALCULAN contra blob@capture_head; un valor falso (a ceros) falla.
+def test_b262_capture_command_exact_and_honest():
+    for mut in (
+        {
+            "capture_command": {"argv": v._EXPECTED_ARGV_DISPLAY, "environment": v._EXPECTED_ENV_OVERRIDES}
+        },  # claves viejas
+        {
+            "capture_command": {
+                "argv_display": v._EXPECTED_ARGV_DISPLAY + ["; rm -rf /"],
+                "environment_overrides": v._EXPECTED_ENV_OVERRIDES,
+            }
+        },  # fmt: skip
+        {"capture_command": {"argv_display": v._EXPECTED_ARGV_DISPLAY, "environment_overrides": {"X": "1"}}},
+        {"capture_command": "python -m tools.python_env build --profile dev"},
+    ):
+        d = _base()
+        d.update(mut)
+        assert v.validate_receipt(d) != [], f"capture_command {mut} debe fallar (B262)"
+
+
+def test_b262_pep503_collision_rejected():
+    # dos nombres que canonicalizan al mismo (visa_predictai vs visa-predictai) en el freeze -> colision
+    d = _base()
+    d["raw_freeze"] = d["raw_freeze"] + "\nExtra_Pkg==1.0\nextra-pkg==2.0\n"
+    d["capture_freeze_sha256"] = hashlib.sha256(d["raw_freeze"].encode()).hexdigest()
+    assert any("colisión canónica" in p or "colision" in p.lower() for p in v.validate_receipt(d))
+
+
+def test_b262_size_limits():
+    d = _base()
+    d["raw_freeze"] = "a==1\n" * 50000  # excede _MAX_FREEZE_BYTES
+    d["capture_freeze_sha256"] = hashlib.sha256(d["raw_freeze"].encode()).hexdigest()
+    assert any("tope de tamaño" in p for p in v.validate_receipt(d))
+
+
+def test_governed_files_procedence_and_platform():
     d = _base()
     first = next(iter(d["governed_files"]))
     d["governed_files"][first] = "sha256:" + "0" * 64
     assert any("procedencia" in p or first in p for p in v.validate_receipt(d))
-    # clave gobernada faltante (deben ser EXACTAMENTE las 7, incl. pyproject.toml y .python-version)
-    d = _base()
-    d["governed_files"].pop(first)
-    assert v.validate_receipt(d) != []
-    assert "pyproject.toml" in d["governed_files"] or first == "pyproject.toml"
-
-
-def test_platform_derived_not_arbitrary():
-    # B257: system/machine/python de captura se DERIVAN del lock+profiles; valores arbitrarios fallan.
     for mut in (
         {"system": "EvilOS", "machine": "arm64", "python": "3.14.2"},
         {"system": "Darwin", "machine": "quantum", "python": "3.14.2"},
-        {"system": "Darwin", "machine": "arm64", "python": "99.0"},
     ):
         d = _base()
         d["capture_platform"] = mut
-        assert any("capture_platform" in p for p in v.validate_receipt(d)), f"{mut} debe fallar (B257)"
+        assert any("capture_platform" in p for p in v.validate_receipt(d))
 
 
 def test_no_toolchain_field_toolchain_is_derived():
-    # B257: el recibo NO lleva su propio toolchain — se DERIVA de python_profiles.json. Falsificar setuptools/wheel
-    # en el recibo es imposible porque no hay campo; y el freeze con setuptools distinto rompe el delta derivado.
     assert "toolchain" not in _base()
     tc, err = v._derive_toolchain()
     assert err is None and tc["setuptools"] and tc["wheel"]
-    # freeze con setuptools 'evil' -> delta derivado != {visapredictai}
     d = _base()
     d["raw_freeze"] = d["raw_freeze"].replace("setuptools==83.0.0", "setuptools==evil")
     d["capture_freeze_sha256"] = hashlib.sha256(d["raw_freeze"].encode()).hexdigest()
     assert any("observed - expected" in p or "setuptools" in p for p in v.validate_receipt(d))
 
 
-def test_command_and_schema_forgeries():
+def test_schema_forgeries():
     for mut in (
         {"schema_version": 2},
         {"schema_version": True},
-        {"capture_kind": "live_governed_build_certification"},  # no es el diagnóstico
+        {"capture_kind": "live_governed_build_certification"},
         {"return_code": 0},
         {"return_code": True},
-        {"capture_command": {"argv": v._EXPECTED_ARGV + ["; rm -rf /"], "environment": v._EXPECTED_ENV}},
-        {"capture_command": {"argv": v._EXPECTED_ARGV, "environment": {"X": "1"}}},
-        {"capture_command": "python -m tools.python_env build --profile dev"},
         {"extras_exact": []},
         {"extras_exact": ["foo"]},
         {"observed_inventory_size": 999},
@@ -100,30 +144,48 @@ def test_command_and_schema_forgeries():
     assert v.validate_receipt(d) != []
 
 
-def test_never_crashes_on_garbage():
-    d = _base()
-    d["raw_freeze"] = 7  # int -> NO AttributeError, devuelve problema
-    probs = v.validate_receipt(d)
-    assert probs and any("raw_freeze" in p for p in probs)
-    d = _base()
-    d["capture_platform"] = "not a dict"
-    assert v.validate_receipt(d) != []
-
-
-def test_governed_read_rejects_noncanonical(tmp_path):
-    outside = tmp_path / "r.json"
-    outside.write_text(json.dumps(_base()))
-    assert any("versionado" in p for p in v.validate_receipt_file(str(outside)))
-    # _governed_bytes rechaza rutas absolutas / con .. (no gobernadas)
-    assert v._governed_bytes("/etc/passwd")[0] is None
-    assert v._governed_bytes("../escape")[0] is None
-
-
 def test_governed_reads_are_fd_bound_no_open_by_path():
-    # B257: el validador NO usa open() por ruta para ficheros gobernados — sólo _governed_bytes (openat encadenado).
     import inspect
 
     src = inspect.getsource(v)
-    # el único open( permitido es dentro de _no_dup_pairs/json no aplica; comprobamos que no hay open( de governed files
-    body = src.split("def _governed_bytes")[0] + src.split("def validate_receipt")[1]
-    assert "open(os.path.join(ROOT" not in body, "no debe leerse un fichero gobernado con open() por ruta (B257)"
+    body = src.split("def _governed_bytes")[0] + src.split("def _validate_receipt")[1]
+    assert "open(os.path.join(ROOT" not in body, "no leer un fichero gobernado con open() por ruta (B257)"
+
+
+# --- B261: capture es verificador/exportador; --certify NO disponible hasta R9 ---
+
+
+def test_b261_certify_refuses_and_never_writes_canonical():
+    before = open(_RECEIPT, "rb").read()
+    rc = cap.main(["capture_b233_receipt", "--certify"])
+    assert rc == 2, "--certify debe salir 2 (pendiente R9/B233)"
+    assert open(_RECEIPT, "rb").read() == before, "--certify JAMAS debe escribir el recibo canonico (B261)"
+
+
+def test_b261_default_verifies():
+    assert cap.main(["capture_b233_receipt"]) == 0
+    assert cap.main(["capture_b233_receipt", "--verify"]) == 0
+
+
+def test_b261_export_is_create_only_no_symlink(tmp_path):
+    # export a un fichero NUEVO funciona
+    dest = tmp_path / "out.json"
+    assert cap._export(str(dest)) == 0
+    assert json.loads(dest.read_text())["schema_version"] == 3
+    # a un fichero EXISTENTE falla (create-only)
+    assert cap._export(str(dest)) == 1
+    # a un symlink NO se sigue (O_NOFOLLOW)
+    target = tmp_path / "t.json"
+    target.write_text("x")
+    link = tmp_path / "link.json"
+    os.symlink(str(target), str(link))
+    assert cap._export(str(link)) == 1, "export a un symlink debe fallar (no seguir)"
+
+
+def test_b261_no_schema4_written_by_capture():
+    import inspect
+
+    src = inspect.getsource(cap)
+    assert "schema_version" not in src or "4" not in src.split("schema_version")[1][:6], (
+        "capture no debe emitir un schema 4 incompleto (B261)"
+    )

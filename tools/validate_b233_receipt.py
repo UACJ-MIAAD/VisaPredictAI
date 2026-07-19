@@ -59,8 +59,10 @@ _TOP_KEYS = {
     "observed_inventory_size", "expected_inventory_size", "extras_exact", "conclusion",
 }  # fmt: skip
 _EXPECTED_DELTA = {"visapredictai": "1.0.0"}
-_EXPECTED_ARGV = ["python", "-m", "tools.python_env", "build", "--profile", "dev"]
-_EXPECTED_ENV = {"PYTHONDONTWRITEBYTECODE": "1"}
+_EXPECTED_ARGV_DISPLAY = ["python", "-m", "tools.python_env", "build", "--profile", "dev"]
+_EXPECTED_ENV_OVERRIDES = {"PYTHONDONTWRITEBYTECODE": "1"}
+_MAX_FREEZE_BYTES = 1 << 16  # B262: cota de tamaño para raw_freeze (evita consumo no acotado)
+_MAX_STR = 4096  # B262: cota para strings libres del recibo
 
 
 def _no_dup_pairs(pairs: list[tuple[str, object]]) -> dict:
@@ -78,6 +80,39 @@ def _is_int(v: object) -> bool:
 
 def _is_str(v: object) -> bool:
     return isinstance(v, str)
+
+
+def _git_is_ancestor(anc: str, desc: str) -> bool:
+    """True si `anc` es ancestro (o igual) de `desc`."""
+    try:
+        return subprocess.run(["git", "-C", ROOT, "merge-base", "--is-ancestor", anc, desc], capture_output=True).returncode == 0  # fmt: skip
+    except OSError:
+        return False
+
+
+def _git_path_added_at(commit: str, rel: str) -> bool:
+    """True si `rel` fue AÑADIDO (diff-filter=A) exactamente en `commit` (el add más reciente en su historia es él)."""
+    try:
+        out = subprocess.run(["git", "-C", ROOT, "log", "-1", "--diff-filter=A", "--format=%H", commit, "--", rel], capture_output=True, text=True)  # fmt: skip
+    except OSError:
+        return False
+    return out.returncode == 0 and out.stdout.strip() == subprocess.run(["git", "-C", ROOT, "rev-parse", commit], capture_output=True, text=True).stdout.strip()  # fmt: skip
+
+
+def _imported_commit_problems(imp: object, head: str | None) -> list[str]:
+    """B262: `imported_into_repository_at` debe ser un commit REAL de 40-hex, DESCENDIENTE de capture_head, que
+    CONTIENE el recibo canónico y donde el recibo fue AÑADIDO. Un commit cualquiera (p. ej. la base de main) NO pasa."""
+    if not (isinstance(imp, str) and _HEX40.match(imp)):
+        return ["imported_into_repository_at no es 40-hex"]
+    if not _git_is_commit(imp):
+        return [f"imported_into_repository_at {imp} no es un commit del repo"]
+    if _sha_blob(imp, _DEFAULT_REL) is None:
+        return ["imported_into_repository_at: el recibo canónico no existe en ese commit"]
+    if head is not None and not _git_is_ancestor(head, imp):
+        return ["imported_into_repository_at no es descendiente de capture_head"]
+    if not _git_path_added_at(imp, _DEFAULT_REL):
+        return ["imported_into_repository_at: el recibo canónico no fue AÑADIDO en ese commit"]
+    return []
 
 
 def _git_is_commit(sha: str) -> bool:
@@ -152,7 +187,14 @@ def _sha_governed(rel: str) -> tuple[str | None, str | None]:
     return "sha256:" + hashlib.sha256(data).hexdigest(), None
 
 
+def _canon_pep503(name: str) -> str:
+    """Nombre canónico PEP 503: minúsculas y `[-_.]+` colapsado a `-`."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
 def _parse_pkgs(text: str, *, where: str) -> tuple[dict[str, str], list[str]]:
+    """Parsea un pip-freeze / lock a `{nombre_canónico_PEP503: versión}`. B262: canonicaliza los nombres antes de
+    comparar y RECHAZA colisiones (dos nombres crudos que canonicalizan al mismo)."""
     pkgs: dict[str, str] = {}
     probs: list[str] = []
     for ln in text.splitlines():
@@ -163,10 +205,11 @@ def _parse_pkgs(text: str, *, where: str) -> tuple[dict[str, str], list[str]]:
         if not m:
             probs.append(f"{where}: línea no-pkg {s!r}")
             continue
-        if m.group(1) in pkgs:
-            probs.append(f"{where}: pkg duplicado {m.group(1)!r}")
+        canon = _canon_pep503(m.group(1))
+        if canon in pkgs:
+            probs.append(f"{where}: colisión canónica PEP 503 de {m.group(1)!r} → {canon!r}")
             continue
-        pkgs[m.group(1)] = m.group(2)
+        pkgs[canon] = m.group(2)
     return pkgs, probs
 
 
@@ -209,12 +252,30 @@ def _derive_platform_expectation() -> tuple[dict[str, str] | None, str | None]:
     return {"system": system, "machine": machine, "python_minor": minor}, None
 
 
+def _safe_keys(d: object) -> str:
+    """Repr seguro de las claves de una entrada JSON-like sin ordenar tipos heterogéneos (B262: `sorted()` sobre
+    claves mixtas str/int elevaba TypeError)."""
+    if not isinstance(d, dict):
+        return f"tipo {type(d).__name__}"
+    return "{" + ", ".join(repr(k) for k in d) + "}"
+
+
 def validate_receipt(d: object) -> list[str]:
-    """Checks de ESQUEMA v3 + DERIVACIÓN + PROCEDENCIA (lee ficheros gobernados fd-bound y git para rederivar). NUNCA
-    lanza. Devuelve la lista de problemas (vacía = válido)."""
+    """FRONTERA PÚBLICA: garantiza que se DEVUELVE una lista de problemas para CUALQUIER entrada JSON-like (dicts con
+    claves mixtas, listas, escalares, objetos) — B262: nunca eleva. Un fallo inesperado del núcleo se reporta como un
+    problema estructurado (no se oculta como traceback ni se traga en silencio)."""
+    try:
+        return _validate_receipt(d)
+    except Exception as exc:  # noqa: BLE001 — frontera pública: cualquier entrada mal formada → problema, jamás traceback
+        return [f"error inesperado validando el recibo: {type(exc).__name__}: {str(exc)[:120]}"]
+
+
+def _validate_receipt(d: object) -> list[str]:
+    """Checks de ESQUEMA v3 + DERIVACIÓN + PROCEDENCIA (lee ficheros gobernados fd-bound y git para rederivar). Devuelve
+    la lista de problemas (vacía = válido). Envuelto por `validate_receipt` para la garantía de no-elevación."""
     probs: list[str] = []
     if not isinstance(d, dict) or set(d.keys()) != _TOP_KEYS:
-        return [f"esquema superior != {sorted(_TOP_KEYS)} (obtenido {sorted(d) if isinstance(d, dict) else type(d)})"]
+        return [f"esquema superior != {sorted(_TOP_KEYS)} (obtenido {_safe_keys(d)})"]
 
     if not (_is_int(d["schema_version"]) and d["schema_version"] == 3):
         probs.append("schema_version no es el entero 3")
@@ -223,6 +284,8 @@ def validate_receipt(d: object) -> list[str]:
     for key in ("purpose", "error", "conclusion"):
         if not (_is_str(d[key]) and d[key].strip()):
             probs.append(f"{key} no es un string no vacío")
+        elif len(d[key]) > _MAX_STR:
+            probs.append(f"{key} excede el tope de tamaño ({_MAX_STR}) (B262)")
     if not (_is_int(d["return_code"]) and d["return_code"] == 1):
         probs.append("return_code no es un entero == 1 (o es bool)")
 
@@ -234,9 +297,7 @@ def validate_receipt(d: object) -> list[str]:
     elif not _git_is_commit(head):
         probs.append(f"capture_head {head} no es un commit del repo")
         head = None
-    imp = d["imported_into_repository_at"]
-    if not (_is_str(imp) and re.fullmatch(r"[0-9a-f]{7,40}", imp) and _git_is_commit(imp)):
-        probs.append("imported_into_repository_at no es un commit del repo")
+    probs.extend(_imported_commit_problems(d["imported_into_repository_at"], head))
 
     # capture_platform: forma EXACTA + sistema/arquitectura/python DERIVADOS del lock+profiles (no arbitrarios, B257)
     pl = d["capture_platform"]
@@ -248,17 +309,18 @@ def validate_receipt(d: object) -> list[str]:
             probs.append(plerr or "capture_platform no derivable")
         elif pl["system"] != exp_pl["system"] or pl["machine"] != exp_pl["machine"]:
             probs.append(f"capture_platform system/machine != derivado del lock ({exp_pl['system']}-{exp_pl['machine']})")  # fmt: skip
-        elif not pl["python"].startswith(exp_pl["python_minor"] + "."):
-            probs.append(f"capture_platform.python no empieza por {exp_pl['python_minor']}. (derivado de profiles)")
-    # capture_command: EVIDENCIA de captura con forma+valores exactos (no inyectable)
+        elif not (re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", pl["python"]) and pl["python"].rsplit(".", 1)[0] == exp_pl["python_minor"]):  # fmt: skip
+            probs.append(f"capture_platform.python no es X.Y.Z con major.minor == {exp_pl['python_minor']} (B262)")
+    # capture_command: EVIDENCIA de captura. HONESTO (B262): argv_display es lo que un humano teclearía (NO el argv
+    # ejecutado con intérprete absoluto); environment_overrides son SÓLO los overrides (NO el entorno efectivo).
     cmd = d["capture_command"]
-    if not (isinstance(cmd, dict) and set(cmd.keys()) == {"argv", "environment"}):
-        probs.append("capture_command no tiene EXACTAMENTE {argv, environment}")
+    if not (isinstance(cmd, dict) and set(cmd.keys()) == {"argv_display", "environment_overrides"}):
+        probs.append("capture_command no tiene EXACTAMENTE {argv_display, environment_overrides}")
     else:
-        if cmd["argv"] != _EXPECTED_ARGV:
-            probs.append(f"capture_command.argv != {_EXPECTED_ARGV}")
-        if cmd["environment"] != _EXPECTED_ENV:
-            probs.append(f"capture_command.environment != {_EXPECTED_ENV}")
+        if cmd["argv_display"] != _EXPECTED_ARGV_DISPLAY:
+            probs.append(f"capture_command.argv_display != {_EXPECTED_ARGV_DISPLAY}")
+        if cmd["environment_overrides"] != _EXPECTED_ENV_OVERRIDES:
+            probs.append(f"capture_command.environment_overrides != {_EXPECTED_ENV_OVERRIDES}")
 
     # governed_files: sha recalculado == blob@capture_head == fichero actual gobernado (procedencia + aplicabilidad)
     gf = d["governed_files"]
@@ -286,6 +348,9 @@ def validate_receipt(d: object) -> list[str]:
     raw = d["raw_freeze"]
     if not _is_str(raw):
         probs.append("raw_freeze no es un string")
+        return probs
+    if len(raw) > _MAX_FREEZE_BYTES:
+        probs.append(f"raw_freeze excede el tope de tamaño ({_MAX_FREEZE_BYTES}) (B262)")
         return probs
     if not (_is_str(d["capture_freeze_sha256"]) and hashlib.sha256(raw.encode()).hexdigest() == d["capture_freeze_sha256"]):  # fmt: skip
         probs.append("capture_freeze_sha256 no corresponde a raw_freeze")

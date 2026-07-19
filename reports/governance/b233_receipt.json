@@ -1,6 +1,6 @@
 {
   "capture_command": {
-    "argv": [
+    "argv_display": [
       "python",
       "-m",
       "tools.python_env",
@@ -8,7 +8,7 @@
       "--profile",
       "dev"
     ],
-    "environment": {
+    "environment_overrides": {
       "PYTHONDONTWRITEBYTECODE": "1"
     }
   },
@@ -35,7 +35,7 @@
     "tools/lock_contracts.py": "sha256:4e4ba0c3347b96736b6d4465e5f79be5c7b29d9b498113d6240c8a17a898198f",
     "tools/python_env.py": "sha256:99514f4a064bafcbd51f4eeedaa647ce3790028174781715566329787498040f"
   },
-  "imported_into_repository_at": "6d67fd1",
+  "imported_into_repository_at": "6d67fd1402469e4d36be4daeab8591a0acbd1862",
   "observed_inventory_size": 40,
   "purpose": "B233 (diagn\u00f3stico HIST\u00d3RICO, no certificaci\u00f3n del checkout actual): el build gobernado del perfil dev (python -m tools.python_env build --profile dev) inventar\u00eda el paquete editable propio como 'visapredictai==1.0.0' (un pin '==' que sobrevive al strip de '-e ') \u2192 un EXTRA real vs el cierre esperado. El fix (inventariar v\u00eda importlib.metadata) cambia python_env.py y por tanto TODOS los env_id: es R9-scope.",
   "raw_freeze": "PyYAML==6.0.3\nPygments==2.20.0\nast_serialize==0.6.0\nbeautifulsoup4==4.14.3\ncertifi==2026.6.17\ncharset-normalizer==3.4.9\ncontourpy==1.3.3\ncoverage==7.15.1\ncycler==0.12.1\nduckdb==1.5.3\nfonttools==4.63.0\nidna==3.18\niniconfig==2.3.0\nkiwisolver==1.5.0\nlibrt==0.13.0\nmatplotlib==3.10.8\nmypy==2.1.0\nmypy_extensions==1.1.0\nnumpy==2.5.1\npackaging==26.2\npandas==3.0.0\npathspec==1.1.1\npillow==12.3.0\npip==26.1.2\npluggy==1.6.0\npyparsing==3.3.2\npytest-cov==7.1.0\npytest==9.1.0\npython-dateutil==2.9.0.post0\npytz==2026.2\nrequests==2.33.0\nruff==0.15.17\nsetuptools==83.0.0\nsix==1.17.0\nsoupsieve==2.8.4\ntqdm==4.67.3\ntyping_extensions==4.16.0\nurllib3==2.7.0\nvisapredictai==1.0.0\nwheel==0.47.0\n",

@@ -1,101 +1,81 @@
 #!/usr/bin/env python
-"""B256/B257: generador del recibo de diagnóstico B233 — la ÚNICA vía honesta para (re)producir la evidencia.
+"""B256/B261: verificador/exportador del recibo de diagnóstico B233 histórico (schema v3).
 
-El recibo NO debe editarse a mano. Este script CAPTURA la evidencia real y la emite. Distingue dos modos:
+NO EXISTE todavía una certificación viva. La certificación viva (schema 4: ejecutar el build gobernado y capturar
+argv/intérprete/HEAD/árbol/stdout/stderr/`pip check`/inventario `importlib.metadata`) se implementará en la fase
+R9-B233, junto con su validador schema-4, y sólo entonces podrá escribir el recibo canónico. Mientras R9 siga NO-GO,
+este script se limita a:
 
-- `--diagnostic` (por defecto): emite el DIAGNÓSTICO HISTÓRICO (schema v3) desde una captura previa (capture_head +
-  governed_files @capture_head + inventario derivado). NO ejecuta el build; es lo que se puede afirmar sin re-correr.
-- `--certify`: EJECUTA `python -m tools.python_env build --profile dev` en el entorno gobernado y captura la
-  evidencia completa en vivo — argv real, entorno efectivo, intérprete absoluto, HEAD real en el instante, árbol,
-  stdout/stderr + sha256, return code, `pip check` + sha256, `pip freeze` + sha256, y los sha de los ficheros
-  gobernados. Requiere CONSTRUIR el entorno dev gobernado (R9-scope) — por eso no se corre en cada commit.
+- `--verify` (por defecto): valida el recibo canónico con `tools.validate_b233_receipt` y devuelve su código.
+- `--export`: imprime a stdout (o escribe en un fichero NUEVO create-only, sin seguir symlinks, atómico) el contenido
+  del recibo histórico canónico, tal cual. No modifica el canónico.
+- `--certify`: sale con código 2 y el mensaje «pendiente R9/B233»; JAMÁS escribe el recibo canónico ni inventa un
+  schema 4 incompleto.
 
-Sin una ejecución `--certify`, el recibo versionado es un DIAGNÓSTICO HISTÓRICO, no una certificación viva. El
-validador (`tools/validate_b233_receipt.py`) valida el diagnóstico histórico por derivación + procedencia + lectura
-gobernada; una certificación viva añade los hashes de captura como evidencia adicional.
+Nunca escribe la ruta canónica del recibo. El recibo se (re)genera únicamente por la vía R9-B233 documentada.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
 import os
-import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_GOVERNED_PATHS = (
-    "tools/python_env.py",
-    "tools/lock_contracts.py",
-    "environments/python_profiles.json",
-    "locks/dev.txt",
-    "locks/lockset.json",
-    "pyproject.toml",
-    ".python-version",
-)
-_BUILD_ARGV = ["python", "-m", "tools.python_env", "build", "--profile", "dev"]
-_BUILD_ENV = {"PYTHONDONTWRITEBYTECODE": "1"}
+_CANONICAL = "reports/governance/b233_receipt.json"
 
 
-def _sha_hex(b: bytes) -> str:
-    return hashlib.sha256(b).hexdigest()
-
-
-def _git(*args: str) -> str:
-    return subprocess.run(["git", "-C", ROOT, *args], capture_output=True, text=True).stdout.strip()
-
-
-def _blob_sha(head: str, rel: str) -> str:
-    out = subprocess.run(["git", "-C", ROOT, "show", f"{head}:{rel}"], capture_output=True)
-    if out.returncode != 0:
-        raise SystemExit(f"blob {head}:{rel} no existe")
-    return "sha256:" + _sha_hex(out.stdout)
-
-
-def certify() -> dict:
-    """Ejecuta el build gobernado y captura la evidencia EN VIVO. Requiere el entorno dev gobernado (R9-scope)."""
-    head = _git("rev-parse", "HEAD")
-    dirty = bool(_git("status", "--porcelain"))
-    env = {**os.environ, **_BUILD_ENV}
-    build = subprocess.run(
-        [sys.executable, "-m", "tools.python_env", "build", "--profile", "dev"],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-    )
-    return {
-        "schema_version": 4,
-        "capture_kind": "live_governed_build_certification",
-        "capture_head": head,
-        "worktree_dirty": dirty,
-        "interpreter": os.path.abspath(sys.executable),
-        "capture_command": {"argv": _BUILD_ARGV, "environment": _BUILD_ENV},
-        "return_code": build.returncode,
-        "stdout_sha256": _sha_hex(build.stdout),
-        "stderr_sha256": _sha_hex(build.stderr),
-        "governed_files": {rel: _blob_sha(head, rel) for rel in _GOVERNED_PATHS},
-        "note": "certificacion viva; extender el validador para consumir stdout/stderr/return_code capturados.",
-    }
+def _export(dest: str | None) -> int:
+    """Imprime el recibo canónico a stdout, o lo escribe en `dest` NUEVO (O_CREAT|O_EXCL|O_NOFOLLOW, atómico). Nunca
+    sigue symlinks ni sobrescribe."""
+    try:
+        with open(os.path.join(ROOT, _CANONICAL), "rb") as fh:
+            data = fh.read()
+    except OSError as exc:
+        sys.stderr.write(f"no se pudo leer el recibo canónico ({exc})\n")
+        return 1
+    if dest is None:
+        sys.stdout.buffer.write(data)
+        return 0
+    try:
+        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError:
+        sys.stderr.write(f"{dest}: ya existe (export es create-only, no sobrescribe)\n")
+        return 1
+    except OSError as exc:
+        sys.stderr.write(f"{dest}: no se pudo crear ({exc})\n")
+        return 1
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+    except OSError as exc:
+        sys.stderr.write(f"{dest}: escritura falló ({exc})\n")
+        return 1
+    print(f"✓ recibo exportado a {dest}")
+    return 0
 
 
 def main(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(description="Genera/actualiza el recibo de diagnóstico B233 (no editar a mano).")
-    ap.add_argument("--certify", action="store_true", help="ejecuta el build gobernado y captura en vivo (R9-scope)")
-    ap.add_argument("--out", default=os.path.join(ROOT, "reports/governance/b233_receipt.json"))
+    ap = argparse.ArgumentParser(description="Verificador/exportador del recibo B233 histórico (no editar a mano).")
+    grp = ap.add_mutually_exclusive_group()
+    grp.add_argument("--verify", action="store_true", help="valida el recibo canónico (por defecto)")
+    grp.add_argument("--export", action="store_true", help="imprime/exporta el recibo histórico (no modifica el canónico)")  # fmt: skip
+    grp.add_argument("--certify", action="store_true", help="NO disponible hasta R9/B233 (sale 2)")
+    ap.add_argument("--out", default=None, help="con --export: fichero NUEVO create-only (sin symlink); por defecto stdout")  # fmt: skip
     args = ap.parse_args(argv[1:])
-    if not args.certify:
+    if args.certify:
         sys.stderr.write(
-            "modo --diagnostic: el recibo histórico se mantiene tal cual (capture_head + governed_files + derivación).\n"
-            "Para RE-CERTIFICAR en vivo, correr con --certify en el entorno dev gobernado (R9-scope).\n"
+            "certificación viva NO disponible: pendiente R9/B233. El diagnóstico histórico (schema v3) no se re-certifica "
+            "aquí; la certificación viva (schema 4 + su validador) se implementará en la fase R9-B233 y sólo entonces "
+            "podrá escribir el recibo canónico. Este script nunca escribe la ruta canónica.\n"
         )
-        return 0
-    receipt = certify()
-    with open(args.out, "w", encoding="utf-8") as fh:
-        json.dump(receipt, fh, indent=2, sort_keys=True)
-        fh.write("\n")
-    print(f"✓ certificación viva escrita en {args.out} (rc={receipt['return_code']})")
-    return 0
+        return 2
+    if args.export:
+        return _export(args.out)
+    # por defecto: verificar
+    from tools import validate_b233_receipt as vr
+
+    return vr.main([vr.__name__])
 
 
 if __name__ == "__main__":
