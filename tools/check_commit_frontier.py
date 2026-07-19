@@ -24,11 +24,16 @@ Escanea SÓLO el fichero versionado; si git falla o no parsea, FALLA cerrado.
 from __future__ import annotations
 
 import ast
+import hashlib
+import json
+import os
 import subprocess
 import sys
 
 _TARGET = "tools/merge_campaign_pools.py"
 _LATCH_METHODS = ("mark_current_certified", "mark_committed_incomplete")
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_FINGERPRINT_CONTRACT = "security/commit_frontier_fingerprints.json"
 
 
 def _git_tracked(rel: str) -> bool:
@@ -538,6 +543,48 @@ def _decides_by_text(handler: ast.ExceptHandler) -> bool:
     return False
 
 
+def _fn_fingerprint(node: ast.FunctionDef) -> str:
+    """B254: fingerprint del AST NORMALIZADO de una función (sin atributos de posición) — insensible a
+    formato/comentarios/whitespace, sensible a CUALQUIER cambio estructural (`if True: raise`, `while True`,
+    un return/raise que vuelva inalcanzable un paso, reordenar, cambiar una llamada)."""
+    return hashlib.sha256(ast.dump(node, annotate_fields=True, include_attributes=False).encode()).hexdigest()
+
+
+def fingerprint_problems() -> list[str]:
+    """B254: PINEA el AST del cuerpo crítico de la frontera de commit (`commit_current`, `_classify_post_authority`,
+    `_reconcile_and_raise`) contra `security/commit_frontier_fingerprints.json`. El gate NO infiere alcanzabilidad con
+    reglas parciales; exige que el AST sea EXACTAMENTE el revisado. Cualquier divergencia obliga a actualizar el hash
+    Y re-correr la batería adversarial + los tests de comportamiento (que son, junto al fingerprint, el contrato).
+    Fail-closed: contrato/fuente ilegible o función ausente → problema."""
+    problems: list[str] = []
+    try:
+        with open(os.path.join(_ROOT, _FINGERPRINT_CONTRACT), encoding="utf-8") as fh:
+            contract = json.load(fh)
+    except (OSError, ValueError) as exc:
+        return [f"{_FINGERPRINT_CONTRACT}: ilegible/no-JSON ({exc}) (fail-closed B254)"]
+    expected = contract.get("functions")
+    src_rel = contract.get("source")
+    if not isinstance(expected, dict) or not expected or not isinstance(src_rel, str):
+        return [f"{_FINGERPRINT_CONTRACT}: contrato sin 'functions'/'source' válidos (fail-closed B254)"]
+    if not _git_tracked(src_rel):
+        return [f"{src_rel}: NO versionado (fail-closed B254)"]
+    try:
+        with open(os.path.join(_ROOT, src_rel), encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+    except (OSError, SyntaxError) as exc:
+        return [f"{src_rel}: ilegible/no parseable ({exc}) (fail-closed B254)"]
+    found = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    for name, want in expected.items():
+        node = found.get(name)
+        if node is None:
+            problems.append(f"{src_rel}: falta la función crítica {name!r} del contrato de fingerprint (B254)")
+            continue
+        got = _fn_fingerprint(node)
+        if got != want:
+            problems.append(f"{src_rel}: el AST de {name!r} cambió (fingerprint {got[:12]}… != {str(want)[:12]}…); actualizar {_FINGERPRINT_CONTRACT} + re-correr la batería adversarial y los tests de comportamiento (B254)")  # fmt: skip
+    return problems
+
+
 def main() -> int:
     if not _git_tracked(_TARGET):
         print(f"✗ {_TARGET}: NO versionado o git ls-files falló (fail-closed)")
@@ -563,6 +610,7 @@ def main() -> int:
         print(f"✗ {_FACTORY_TARGET}: ilegible/no parseable ({exc}) (fail-closed)")
         return 1
     problems += authority_scope_problems()  # B237: barrido del árbol versionado COMPLETO (nadie más toca la autoridad)
+    problems += fingerprint_problems()  # B254: PIN del AST del cuerpo crítico (runtime + fingerprint = el contrato)
     if problems:
         print("✗ frontera de commit violada:")
         for p in problems:

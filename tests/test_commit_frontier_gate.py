@@ -351,6 +351,46 @@ def test_gate_b252_no_false_positive_non_cb(tmp_path, monkeypatch):
     assert not gate.authority_scope_problems(), "reflexion sobre objetos no-cb no debe disparar (B252)"
 
 
+def test_gate_b254_fingerprint_pins_critical_body(monkeypatch, tmp_path):
+    # B254: el gate ya NO infiere alcanzabilidad con reglas parciales; PINEA el AST de las 3 funciones criticas
+    # (commit_current/_classify_post_authority/_reconcile_and_raise) contra el contrato. Cualquier mutacion —incl. las
+    # que el analizador viejo no veia: `if True: raise`, `while True`, return anidado, helper con return antes de
+    # reconciliar, resultado descartado, funcion sustituta— cambia el fingerprint => el gate falla.
+    import ast
+    import json
+    import pathlib
+
+    assert gate.fingerprint_problems() == [], "el codigo real debe casar con el contrato de fingerprint"
+    contract = json.loads((pathlib.Path(gate._ROOT) / gate._FINGERPRINT_CONTRACT).read_text())["functions"]
+    src = pathlib.Path(gate._ROOT, "tools/campaign_bundle.py").read_text()
+    call = "primary = _classify_post_authority(camp_fd, prepared, cert, primary)"
+    reconcile_try = (
+        "    try:\n        _reconcile_and_raise(camp_fd, prepared, prepared._ident, "
+        'certificate.previous_bundle_id, primary, "post-authority")'
+    )
+    muts = {
+        "nested_if_true_raise": src.replace(f"    {call}", f"    if True:\n        raise primary\n    {call}", 1),
+        "while_true_before": src.replace(f"    {call}", f"    while True:\n        break\n    {call}", 1),
+        "discarded_result": src.replace(call, "_classify_post_authority(camp_fd, prepared, cert, primary)", 1),
+        "helper_early_return": src.replace(reconcile_try, f"    return primary\n{reconcile_try}", 1),
+    }
+    for label, msrc in muts.items():
+        assert msrc != src, f"{label}: la mutacion no aplico (fixture desincronizado)"
+        found = {n.name: n for n in ast.walk(ast.parse(msrc)) if isinstance(n, ast.FunctionDef)}
+        changed = [name for name, want in contract.items() if gate._fn_fingerprint(found[name]) != want]
+        assert changed, f"{label}: la mutacion NO cambio ningun fingerprint (B254)"
+    # fail-closed: contrato ausente / funcion ausente
+    monkeypatch.setattr(gate, "_FINGERPRINT_CONTRACT", "security/does_not_exist.json")
+    assert gate.fingerprint_problems(), "contrato ausente debe fallar cerrado (B254)"
+
+
+def test_gate_b254_wired_into_main():
+    # B254: fingerprint_problems() esta cableado en main() (no es un chequeo huerfano).
+    import inspect
+
+    assert "fingerprint_problems" in inspect.getsource(gate.main), "fingerprint_problems debe correr en main()"
+
+
 def test_gate_b249_alias_propagation_and_dotted(tmp_path, monkeypatch):
     # B249: seguimiento de alias (mod = cb), cadenas y dotted import (tools.campaign_bundle) para cazar acceso dinamico.
     for name, src in {
