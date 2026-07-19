@@ -3,6 +3,8 @@ de CURRENT; el recibo es evidencia. El gate lo enforce estáticamente sobre `too
 
 from __future__ import annotations
 
+import ast
+import json
 import pathlib
 
 import pytest
@@ -389,6 +391,117 @@ def test_gate_b254_wired_into_main():
     import inspect
 
     assert "fingerprint_problems" in inspect.getsource(gate.main), "fingerprint_problems debe correr en main()"
+
+
+# Constantes LOCALES (no de `gate`) para que los tests corran igual en beab510 (RED via stash) y en el fix.
+_CRIT = ("commit_current", "_classify_post_authority", "_reconcile_and_raise")
+_ALGO = "sha256(ast.dump(top_level_FunctionDef,annotate_fields=True,include_attributes=False))"
+
+
+def _run_fingerprint(monkeypatch, tmp_path, src, functions, *, raw_contract=None, **overrides):
+    # monta un arbol sintetico (tools/campaign_bundle.py + security/<contract>), apunta gate._ROOT alli y corre
+    # fingerprint_problems() sobre el. Funciona igual en beab510 (para el RED via stash) y en el fix.
+    (tmp_path / "tools").mkdir(exist_ok=True)
+    (tmp_path / "security").mkdir(exist_ok=True)
+    (tmp_path / "tools" / "campaign_bundle.py").write_text(src)
+    if raw_contract is None:
+        contract = {
+            "schema_version": overrides.get("schema_version", 2),
+            "note": "x",
+            "source": overrides.get("source", "tools/campaign_bundle.py"),
+            "algorithm": overrides.get("algorithm", _ALGO),
+            "functions": functions,
+        }
+        raw = json.dumps(contract)
+    else:
+        raw = raw_contract
+    (tmp_path / "security" / "commit_frontier_fingerprints.json").write_text(raw)
+    monkeypatch.setattr(gate, "_ROOT", str(tmp_path))
+    monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
+    return gate.fingerprint_problems(), ast.parse(src)
+
+
+def _fp_of(tree, name, *, nested_in=None):
+    if nested_in is not None:
+        outer = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == nested_in)
+        node = next(n for n in ast.walk(outer) if isinstance(n, ast.FunctionDef) and n.name == name and n is not outer)
+    else:
+        node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
+    return gate._fn_fingerprint(node)
+
+
+_SYN_OK = (
+    "def commit_current(a, b):\n    return a + b\n\n"
+    "def _classify_post_authority(a):\n    return a\n\n"
+    "def _reconcile_and_raise(a):\n    raise a\n"
+)
+
+
+def test_b258_nested_homonym_cannot_mask_global_critical_function(monkeypatch, tmp_path):
+    # B258: global commit_current MODIFICADO (raise) + decoy anidado con el AST aprobado. En beab510 el ast.walk elegia
+    # el decoy y el gate quedaba verde; ahora el nivel-global modificado se caza (o el homonimo anidado se rechaza).
+    src = (
+        'def commit_current(a, b):\n    raise RuntimeError("bypass")\n\n'
+        "def _classify_post_authority(a):\n    return a\n\n"
+        "def _reconcile_and_raise(a):\n    raise a\n\n"
+        "def decoy_container():\n    def commit_current(a, b):\n        return a + b\n    return commit_current\n"
+    )
+    tree = ast.parse(src)
+    fns = {
+        "commit_current": _fp_of(tree, "commit_current", nested_in="decoy_container"),  # hash del decoy aprobado
+        "_classify_post_authority": _fp_of(tree, "_classify_post_authority"),
+        "_reconcile_and_raise": _fp_of(tree, "_reconcile_and_raise"),
+    }
+    probs, _ = _run_fingerprint(monkeypatch, tmp_path, src, fns)
+    assert probs, "un decoy anidado homonimo NO debe enmascarar el global critico modificado (B258)"
+
+
+def test_b258_duplicate_top_level_critical_function_rejected(monkeypatch, tmp_path):
+    src = _SYN_OK + "\ndef commit_current(a, b):\n    return a + b\n"  # segunda definicion GLOBAL
+    tree = ast.parse(src)
+    fns = {n: _fp_of(tree, n) for n in _CRIT}
+    probs, _ = _run_fingerprint(monkeypatch, tmp_path, src, fns)
+    assert any("exactamente 1" in p for p in probs), "dos definiciones globales de una funcion critica deben fallar (B258)"  # fmt: skip
+
+
+def test_b258_contract_requires_exact_critical_function_set(monkeypatch, tmp_path):
+    tree = ast.parse(_SYN_OK)
+    full = {n: _fp_of(tree, n) for n in _CRIT}
+    missing = {k: v for k, v in full.items() if k != "_reconcile_and_raise"}
+    probs, _ = _run_fingerprint(monkeypatch, tmp_path, _SYN_OK, missing)
+    assert any("functions" in p for p in probs), "un set de funciones incompleto debe fallar (B258)"
+    extra = {**full, "extra_fn": "0" * 64}
+    probs2, _ = _run_fingerprint(monkeypatch, tmp_path, _SYN_OK, extra)
+    assert any("functions" in p for p in probs2), "una funcion extra en el contrato debe fallar (B258)"
+
+
+def test_b258_contract_source_is_fixed(monkeypatch, tmp_path):
+    tree = ast.parse(_SYN_OK)
+    fns = {n: _fp_of(tree, n) for n in _CRIT}
+    probs, _ = _run_fingerprint(monkeypatch, tmp_path, _SYN_OK, fns, source="tools/evil.py")
+    assert any("source" in p for p in probs), "un source distinto de la constante debe fallar (B258)"
+    probs2, _ = _run_fingerprint(monkeypatch, tmp_path, _SYN_OK, fns, algorithm="md5(x)")
+    assert any("algorithm" in p for p in probs2), "un algorithm distinto de la constante debe fallar (B258)"
+
+
+def test_b258_contract_rejects_duplicate_json_keys(monkeypatch, tmp_path):
+    raw = (
+        '{"schema_version": 2, "note": "x", "source": "tools/campaign_bundle.py", "source": "tools/evil.py",'
+        ' "algorithm": "' + _ALGO + '", "functions": {}}'
+    )
+    probs, _ = _run_fingerprint(monkeypatch, tmp_path, _SYN_OK, {}, raw_contract=raw)
+    assert any("duplicad" in p for p in probs), "claves JSON duplicadas deben fallar (B258)"
+
+
+def test_b258_contract_schema_and_hash_types_are_exact(monkeypatch, tmp_path):
+    tree = ast.parse(_SYN_OK)
+    fns = {n: _fp_of(tree, n) for n in _CRIT}
+    for bad_schema in (1, True, "2"):
+        probs, _ = _run_fingerprint(monkeypatch, tmp_path, _SYN_OK, fns, schema_version=bad_schema)
+        assert any("schema_version" in p for p in probs), f"schema_version={bad_schema!r} debe fallar (B258)"
+    bad_hash = {**fns, "commit_current": "not-64-hex"}
+    probs2, _ = _run_fingerprint(monkeypatch, tmp_path, _SYN_OK, bad_hash)
+    assert any("hash" in p or "64" in p for p in probs2), "un hash no [0-9a-f]{64} debe fallar (B258)"
 
 
 def test_gate_b249_alias_propagation_and_dotted(tmp_path, monkeypatch):

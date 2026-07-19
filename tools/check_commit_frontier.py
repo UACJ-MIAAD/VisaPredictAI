@@ -27,6 +27,7 @@ import ast
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -34,6 +35,14 @@ _TARGET = "tools/merge_campaign_pools.py"
 _LATCH_METHODS = ("mark_current_certified", "mark_committed_incomplete")
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _FINGERPRINT_CONTRACT = "security/commit_frontier_fingerprints.json"
+# B254/B258: cuerpo crítico pineado, con CONSTANTES DE CÓDIGO (no confiables desde el JSON): fuente exacta, set exacto
+# de funciones, schema y algoritmo. El JSON sólo aporta los hashes; todo lo demás debe IGUALAR estas constantes.
+_CRITICAL_SOURCE = "tools/campaign_bundle.py"
+_CRITICAL_FUNCTIONS = ("commit_current", "_classify_post_authority", "_reconcile_and_raise")
+_FINGERPRINT_SCHEMA = 2
+_FINGERPRINT_ALGORITHM = "sha256(ast.dump(top_level_FunctionDef,annotate_fields=True,include_attributes=False))"
+_FINGERPRINT_TOP_KEYS = {"schema_version", "note", "source", "algorithm", "functions"}
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _git_tracked(rel: str) -> bool:
@@ -550,38 +559,91 @@ def _fn_fingerprint(node: ast.FunctionDef) -> str:
     return hashlib.sha256(ast.dump(node, annotate_fields=True, include_attributes=False).encode()).hexdigest()
 
 
-def fingerprint_problems() -> list[str]:
-    """B254: PINEA el AST del cuerpo crítico de la frontera de commit (`commit_current`, `_classify_post_authority`,
-    `_reconcile_and_raise`) contra `security/commit_frontier_fingerprints.json`. El gate NO infiere alcanzabilidad con
-    reglas parciales; exige que el AST sea EXACTAMENTE el revisado. Cualquier divergencia obliga a actualizar el hash
-    Y re-correr la batería adversarial + los tests de comportamiento (que son, junto al fingerprint, el contrato).
-    Fail-closed: contrato/fuente ilegible o función ausente → problema."""
+def _no_dup_pairs(pairs: list[tuple[str, object]]) -> dict:
+    seen: dict[str, object] = {}
+    for k, v in pairs:
+        if k in seen:
+            raise ValueError(f"clave JSON duplicada: {k!r}")
+        seen[k] = v
+    return seen
+
+
+def _fingerprint_contract_problems(contract: object) -> list[str]:
+    """B258: valida el ESQUEMA del contrato con constantes de código (no confía nada del JSON salvo los hashes):
+    claves superiores exactas, `schema_version is 2` (bool≠int), `source`/`algorithm` == constantes, set EXACTO de las
+    3 funciones, cada hash `[0-9a-f]{64}`."""
+    if not isinstance(contract, dict) or set(contract) != _FINGERPRINT_TOP_KEYS:
+        return [f"{_FINGERPRINT_CONTRACT}: claves superiores != {sorted(_FINGERPRINT_TOP_KEYS)} (fail-closed B258)"]
+    if not (type(contract["schema_version"]) is int and contract["schema_version"] == _FINGERPRINT_SCHEMA):
+        return [f"{_FINGERPRINT_CONTRACT}: schema_version no es el entero {_FINGERPRINT_SCHEMA} (B258)"]
+    if contract["source"] != _CRITICAL_SOURCE:
+        return [f"{_FINGERPRINT_CONTRACT}: source != {_CRITICAL_SOURCE!r} (B258)"]
+    if contract["algorithm"] != _FINGERPRINT_ALGORITHM:
+        return [f"{_FINGERPRINT_CONTRACT}: algorithm != la constante de código (B258)"]
+    funcs = contract["functions"]
+    if not isinstance(funcs, dict) or set(funcs) != set(_CRITICAL_FUNCTIONS):
+        return [f"{_FINGERPRINT_CONTRACT}: functions != EXACTAMENTE {list(_CRITICAL_FUNCTIONS)} (B258)"]
+    if not all(isinstance(v, str) and _HEX64.match(v) for v in funcs.values()):
+        return [f"{_FINGERPRINT_CONTRACT}: algún hash no es [0-9a-f]{{64}} (B258)"]
+    return []
+
+
+def _critical_defs_problems(tree: ast.Module) -> tuple[dict[str, ast.FunctionDef], list[str]]:
+    """B258: selecciona las funciones críticas SÓLO a nivel GLOBAL (`tree.body`), exactamente una por nombre. Rechaza
+    toda definición homónima ANIDADA (en función/clase — posible decoy) y `async def` para estos nombres. Devuelve
+    `(defs_globales, problemas)`."""
     problems: list[str] = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.AsyncFunctionDef) and n.name in _CRITICAL_FUNCTIONS:
+            problems.append(f"{_CRITICAL_SOURCE}: {n.name} definida como `async def` (no permitido para funciones críticas) (B258)")  # fmt: skip
+        elif isinstance(n, ast.FunctionDef) and n.name in _CRITICAL_FUNCTIONS and n not in tree.body:
+            problems.append(f"{_CRITICAL_SOURCE}: {n.name} definida ANIDADA (posible decoy) — sólo se permite a nivel global (B258)")  # fmt: skip
+    top: dict[str, list[ast.FunctionDef]] = {}
+    for stmt in tree.body:
+        if isinstance(stmt, ast.FunctionDef) and stmt.name in _CRITICAL_FUNCTIONS:
+            top.setdefault(stmt.name, []).append(stmt)
+    defs: dict[str, ast.FunctionDef] = {}
+    for name in _CRITICAL_FUNCTIONS:
+        cand = top.get(name, [])
+        if len(cand) != 1:
+            problems.append(f"{_CRITICAL_SOURCE}: {name} tiene {len(cand)} definiciones GLOBALES (debe ser exactamente 1) (B258)")  # fmt: skip
+        else:
+            defs[name] = cand[0]
+    return defs, problems
+
+
+def fingerprint_problems() -> list[str]:
+    """B254/B258: PINEA el AST GLOBAL del cuerpo crítico de la frontera de commit (`commit_current`,
+    `_classify_post_authority`, `_reconcile_and_raise`) contra `security/commit_frontier_fingerprints.json`. El gate NO
+    infiere alcanzabilidad con reglas parciales; exige que el AST del `FunctionDef` de NIVEL GLOBAL sea EXACTAMENTE el
+    revisado, seleccionado SÓLO de `tree.body` (nunca `ast.walk`, que dejaba a un decoy anidado homónimo ganar la clave,
+    B258). El esquema se valida con constantes de código (fuente/algoritmo/set de funciones); el JSON sólo aporta los
+    hashes. Cualquier divergencia obliga a actualizar el hash Y re-correr la batería adversarial + los tests de
+    comportamiento (que son, junto al fingerprint, el contrato). Fail-closed en cada paso."""
     try:
         with open(os.path.join(_ROOT, _FINGERPRINT_CONTRACT), encoding="utf-8") as fh:
-            contract = json.load(fh)
+            contract = json.loads(fh.read(), object_pairs_hook=_no_dup_pairs)
     except (OSError, ValueError) as exc:
-        return [f"{_FINGERPRINT_CONTRACT}: ilegible/no-JSON ({exc}) (fail-closed B254)"]
-    expected = contract.get("functions")
-    src_rel = contract.get("source")
-    if not isinstance(expected, dict) or not expected or not isinstance(src_rel, str):
-        return [f"{_FINGERPRINT_CONTRACT}: contrato sin 'functions'/'source' válidos (fail-closed B254)"]
-    if not _git_tracked(src_rel):
-        return [f"{src_rel}: NO versionado (fail-closed B254)"]
+        return [f"{_FINGERPRINT_CONTRACT}: ilegible/no-JSON/duplicado ({exc}) (fail-closed B254/B258)"]
+    schema_probs = _fingerprint_contract_problems(contract)
+    if schema_probs:
+        return schema_probs
+    funcs = contract["functions"]
+    if not _git_tracked(_CRITICAL_SOURCE):
+        return [f"{_CRITICAL_SOURCE}: NO versionado (fail-closed B254)"]
     try:
-        with open(os.path.join(_ROOT, src_rel), encoding="utf-8") as fh:
+        with open(os.path.join(_ROOT, _CRITICAL_SOURCE), encoding="utf-8") as fh:
             tree = ast.parse(fh.read())
     except (OSError, SyntaxError) as exc:
-        return [f"{src_rel}: ilegible/no parseable ({exc}) (fail-closed B254)"]
-    found = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
-    for name, want in expected.items():
-        node = found.get(name)
+        return [f"{_CRITICAL_SOURCE}: ilegible/no parseable ({exc}) (fail-closed B254)"]
+    defs, problems = _critical_defs_problems(tree)
+    for name in _CRITICAL_FUNCTIONS:
+        node = defs.get(name)
         if node is None:
-            problems.append(f"{src_rel}: falta la función crítica {name!r} del contrato de fingerprint (B254)")
-            continue
+            continue  # ya reportado por _critical_defs_problems (0 o >1 definiciones globales)
         got = _fn_fingerprint(node)
-        if got != want:
-            problems.append(f"{src_rel}: el AST de {name!r} cambió (fingerprint {got[:12]}… != {str(want)[:12]}…); actualizar {_FINGERPRINT_CONTRACT} + re-correr la batería adversarial y los tests de comportamiento (B254)")  # fmt: skip
+        if got != funcs[name]:
+            problems.append(f"{_CRITICAL_SOURCE}: el AST GLOBAL de {name!r} cambió (fingerprint {got[:12]}… != {str(funcs[name])[:12]}…); actualizar {_FINGERPRINT_CONTRACT} + re-correr la batería adversarial y los tests de comportamiento (B254/B258)")  # fmt: skip
     return problems
 
 
