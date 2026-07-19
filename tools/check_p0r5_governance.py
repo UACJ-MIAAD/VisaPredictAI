@@ -1,23 +1,20 @@
 #!/usr/bin/env python
-"""B263/B266: lista POSITIVA ESTRUCTURAL de que los gates de gobernanza P0R.5 siguen cableados como PASOS NOMBRADOS y
-EXACTOS del job `consistency` en `.github/workflows/ci.yml`.
+"""B263/B266/B271: valida ESTRUCTURALMENTE que los gates de gobernanza P0R.5 corren en un job DEDICADO, MÍNIMO y
+SELLADO de `.github/workflows/ci.yml`, y que `ci-gate` depende de él.
 
-La v1 (B263) validaba por SUBSTRING de texto `run:` → un workflow con `echo tools/check_reflection.py`, un comentario,
-`|| true`, `if false`, un job distinto o `continue-on-error` la engañaba (B266). Ahora se parsea el YAML
-ESTRUCTURALMENTE (con loader anti-claves-duplicadas) y se exige, para cada gate:
-
-- existe un paso en `jobs.consistency.steps` con el `name` EXACTO;
-- su `run` es el comando de UNA sola línea EXACTO (tras normalizar el newline final), no por substring;
-- ese `name` aparece EXACTAMENTE una vez;
-- el paso no tiene `if` ni `continue-on-error`, ni `shell`/`working-directory`/`env` que alteren Python/PATH;
-- el job `consistency` no tiene `continue-on-error`.
-
-Fail-closed ante workflow ausente/ilegible, YAML inválido, claves duplicadas, `steps` no-lista o el propio checker
-ausente del conjunto requerido.
+Historia: B263 los cableó como pasos NOMBRADOS del job `consistency`; B266 exigió name+run exactos por YAML estructural;
+pero el CONTEXTO del job (env/defaults/container/services/pasos previos que tocan GITHUB_PATH) podía neutralizar los
+comandos exactos aunque el `run` no cambiara (B271). Ahora los gates viven en su propio job `p0r5-governance` y este
+checker exige su forma COMPLETA: claves exactas del job (sin `if`/`continue-on-error`/`env`/`defaults`/`container`/
+`services`/`strategy`/claves desconocidas), runner/timeout/permissions exactos, la SECUENCIA COMPLETA y ORDENADA de
+pasos (checkout+setup-python pineados por SHA del registro positivo, `pip install pyyaml`, los 6 gates), claves exactas
+por paso (ningún paso extra, ninguno que escriba GITHUB_PATH), y `ci-gate.needs` que incluya `p0r5-governance` con la
+lógica que exige el success de todos sus needs. Loader anti-claves-duplicadas + anchors resueltos. Fail-closed.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -25,18 +22,22 @@ import yaml
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _WORKFLOW = ".github/workflows/ci.yml"
-_JOB = "consistency"
-# name EXACTO del paso → comando `run` de una línea EXACTO.
-REQUIRED_STEPS = {
-    "Commit frontier contract (fingerprint + autoridad)": "python tools/check_commit_frontier.py",
-    "Positive reflection registry (identidad semántica)": "python tools/check_reflection.py",
-    "Safe opens contract": "python tools/check_safe_opens.py",
-    "Raw filesystem mutation contract": "python tools/check_raw_fs_mutations.py",
-    "B233 historical diagnostic contract": "python -m tools.validate_b233_receipt",
-    "P0R.5 governance gates wired": "python tools/check_p0r5_governance.py",
-}
-# claves de paso que NEUTRALIZARÍAN un gate (no permitidas en estos pasos).
-_FORBIDDEN_STEP_KEYS = ("if", "continue-on-error", "shell", "working-directory", "env")
+_ACTION_REGISTRY = "security/github_actions.json"
+_JOB = "p0r5-governance"
+_CI_GATE = "ci-gate"
+_EXPECTED_JOB_KEYS = {"name", "runs-on", "timeout-minutes", "permissions", "steps"}
+_EXPECTED_RUNNER = "ubuntu-24.04"
+_EXPECTED_TIMEOUT = 10
+_EXPECTED_PERMISSIONS = {"contents": "read"}
+# los 6 gates, en ORDEN: (name exacto, comando `run` de una línea exacto)
+_GATE_STEPS = (
+    ("Commit frontier contract (fingerprint + autoridad)", "python tools/check_commit_frontier.py"),
+    ("Positive reflection registry (identidad semántica)", "python tools/check_reflection.py"),
+    ("Safe opens contract", "python tools/check_safe_opens.py"),
+    ("Raw filesystem mutation contract", "python tools/check_raw_fs_mutations.py"),
+    ("B233 historical diagnostic contract", "python -m tools.validate_b233_receipt"),
+    ("P0R.5 governance gates wired", "python tools/check_p0r5_governance.py"),
+)
 
 
 class _NoDupLoader(yaml.SafeLoader):
@@ -56,58 +57,98 @@ def _no_dup_mapping(loader: _NoDupLoader, node: yaml.MappingNode, deep: bool = F
 _NoDupLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_dup_mapping)
 
 
-def problems() -> list[str]:
-    path = os.path.join(ROOT, _WORKFLOW)
+def _action_uses() -> tuple[dict[str, str], list[str]]:
+    """`{acción: 'acción@sha'}` del registro positivo de Actions (para pinear checkout/setup-python EXACTO)."""
     try:
-        with open(path, encoding="utf-8") as fh:
+        with open(os.path.join(ROOT, _ACTION_REGISTRY), encoding="utf-8") as fh:
+            reg = json.load(fh)
+    except (OSError, ValueError) as exc:
+        return {}, [f"{_ACTION_REGISTRY}: ilegible/no-JSON ({exc}) (fail-closed B271)"]
+    actions = reg.get("actions", {})
+    out = {a: f"{a}@{actions[a]['sha']}" for a in ("actions/checkout", "actions/setup-python") if isinstance(actions.get(a), dict) and isinstance(actions[a].get("sha"), str)}  # fmt: skip
+    if len(out) != 2:
+        return {}, [f"{_ACTION_REGISTRY}: faltan checkout/setup-python con sha (fail-closed B271)"]
+    return out, []
+
+
+def _expected_steps(uses: dict[str, str]) -> list[dict]:
+    return [
+        {"uses": uses["actions/checkout"], "with": {"fetch-depth": 0}},
+        {"uses": uses["actions/setup-python"], "with": {"python-version": "3.14"}},
+        {"run": "pip install pyyaml==6.0.3"},
+        *[{"name": n, "run": c} for n, c in _GATE_STEPS],
+    ]
+
+
+def _step_problems(observed: list, expected: list[dict]) -> list[str]:
+    problems: list[str] = []
+    if not isinstance(observed, list) or len(observed) != len(expected):
+        return [f"jobs.{_JOB}.steps debe ser una lista EXACTA de {len(expected)} pasos (obtenidos {len(observed) if isinstance(observed, list) else type(observed).__name__}) (B271)"]  # fmt: skip
+    for i, (obs, exp) in enumerate(zip(observed, expected, strict=True)):
+        if not isinstance(obs, dict):
+            problems.append(f"jobs.{_JOB}.steps[{i}] no es un mapa (B271)")
+        elif (
+            obs != exp
+        ):  # claves + valores EXACTOS (rechaza `env`/`if`/`shell`/GITHUB_PATH/comando alterado/paso extra)
+            problems.append(f"jobs.{_JOB}.steps[{i}] != el paso exacto esperado (obtenido {sorted(obs)} / {obs.get('name') or obs.get('run') or obs.get('uses')!r}) (B271)")  # fmt: skip
+    return problems
+
+
+def problems() -> list[str]:
+    try:
+        with open(os.path.join(ROOT, _WORKFLOW), encoding="utf-8") as fh:
             doc = yaml.load(fh, Loader=_NoDupLoader)  # _NoDupLoader extiende SafeLoader (seguro) + anti-duplicados
     except OSError as exc:
         return [f"{_WORKFLOW}: ilegible ({exc}) (fail-closed B263)"]
     except yaml.YAMLError as exc:
         return [f"{_WORKFLOW}: YAML inválido/duplicado ({exc}) (fail-closed B266)"]
-    if not isinstance(doc, dict):
-        return [f"{_WORKFLOW}: raíz YAML no es un mapa (fail-closed B266)"]
-    jobs = doc.get("jobs")
-    job = jobs.get(_JOB) if isinstance(jobs, dict) else None
-    if not isinstance(job, dict):
-        return [f"{_WORKFLOW}: falta el job {_JOB!r} (fail-closed B266)"]
-    if job.get("continue-on-error"):
-        return [f"{_WORKFLOW}: el job {_JOB!r} tiene continue-on-error (B266)"]
-    if "if" in job:  # un `if` a nivel de JOB saltaría el job completo (todos los gates) — ronda B
-        return [f"{_WORKFLOW}: el job {_JOB!r} tiene un `if` de nivel de job (saltaría todos los gates) (B266)"]
-    steps = job.get("steps")
-    if not isinstance(steps, list):
-        return [f"{_WORKFLOW}: jobs.{_JOB}.steps no es una lista (fail-closed B266)"]
+    if not isinstance(doc, dict) or not isinstance(doc.get("jobs"), dict):
+        return [f"{_WORKFLOW}: sin `jobs` mapa (fail-closed B271)"]
+    jobs = doc["jobs"]
+    uses, uerr = _action_uses()
+    if uerr:
+        return uerr
 
-    by_name: dict[str, list[dict]] = {}
-    for st in steps:
-        if isinstance(st, dict) and isinstance(st.get("name"), str):
-            by_name.setdefault(st["name"], []).append(st)
-
+    job = jobs.get(_JOB)
     problems: list[str] = []
-    for name, cmd in REQUIRED_STEPS.items():
-        matches = by_name.get(name, [])
-        if len(matches) != 1:
-            problems.append(f"gate de gobernanza: el paso con name {name!r} aparece {len(matches)} veces (debe ser 1) en jobs.{_JOB} (B266)")  # fmt: skip
-            continue
-        step = matches[0]
-        run = step.get("run")
-        if not isinstance(run, str) or run.strip("\n") != cmd:
-            problems.append(f"gate de gobernanza: el paso {name!r} debe correr EXACTAMENTE `{cmd}` (obtenido {run!r}) (B266)")  # fmt: skip
-        for k in _FORBIDDEN_STEP_KEYS:
-            if k in step:
-                problems.append(f"gate de gobernanza: el paso {name!r} no puede llevar `{k}` (neutralizaría el gate) (B266)")  # fmt: skip
+    if not isinstance(job, dict):
+        return [f"{_WORKFLOW}: falta el job {_JOB!r} (fail-closed B271)"]
+    if set(job.keys()) != _EXPECTED_JOB_KEYS:  # prohíbe if/continue-on-error/env/defaults/container/services/strategy
+        problems.append(f"jobs.{_JOB}: claves != EXACTAMENTE {sorted(_EXPECTED_JOB_KEYS)} (obtenido {sorted(job)}) — sin env/defaults/container/if/etc. (B271)")  # fmt: skip
+    else:
+        if job["name"] != _JOB:
+            problems.append(f"jobs.{_JOB}.name != {_JOB!r} (B271)")
+        if job["runs-on"] != _EXPECTED_RUNNER:
+            problems.append(f"jobs.{_JOB}.runs-on != {_EXPECTED_RUNNER!r} (B271)")
+        if not (type(job["timeout-minutes"]) is int and job["timeout-minutes"] == _EXPECTED_TIMEOUT):
+            problems.append(f"jobs.{_JOB}.timeout-minutes != {_EXPECTED_TIMEOUT} (B271)")
+        if job["permissions"] != _EXPECTED_PERMISSIONS:
+            problems.append(f"jobs.{_JOB}.permissions != {_EXPECTED_PERMISSIONS} (B271)")
+        problems.extend(_step_problems(job["steps"], _expected_steps(uses)))
+
+    gate = jobs.get(_CI_GATE)
+    if not isinstance(gate, dict):
+        problems.append(f"{_WORKFLOW}: falta el job {_CI_GATE!r} (B271)")
+    else:
+        needs = gate.get("needs")
+        if not (isinstance(needs, list) and _JOB in needs):
+            problems.append(f"jobs.{_CI_GATE}.needs debe incluir {_JOB!r} (B271)")
+        gate_src = yaml.dump(gate)  # la lógica de ci-gate debe exigir success de TODOS sus needs
+        if "needs.*.result" not in gate_src:
+            problems.append(
+                f"jobs.{_CI_GATE}: la lógica no valida el success de todos los needs (needs.*.result) (B271)"
+            )
     return problems
 
 
 def main() -> int:
     probs = problems()
     if probs:
-        print("✗ gobernanza P0R.5 no cableada estructuralmente en CI:")
+        print("✗ job de gobernanza P0R.5 no sellado en CI:")
         for p in probs:
             print(f"  - {p}")
         return 1
-    print(f"✓ los {len(REQUIRED_STEPS)} gates de gobernanza P0R.5 están cableados como pasos exactos de jobs.{_JOB}")
+    print(f"✓ el job {_JOB!r} está sellado (mapa/pasos/orden exactos) y {_CI_GATE} depende de él ({_WORKFLOW})")
     return 0
 
 

@@ -276,8 +276,26 @@ jobs:
         run: timeout 300 python tools/check_action_pins.py --online
         env:
           GH_TOKEN: ${{ github.token }}
-      # P0R.5 (B263): gates de gobernanza como PASOS NOMBRADOS explícitos — antes sólo corrían por
-      # transitividad de pytest. Cada uno visible y difícil de eliminar por accidente; sin wrapper que oculte cuál falla.
+
+  # P0R.5 (B271): job DEDICADO, MÍNIMO y SELLADO para los gates de gobernanza. Antes vivían como pasos del job
+  # `consistency`, cuyo contexto (env/defaults/container/pasos previos) podía neutralizar comandos exactos. Aquí el
+  # mapa del job, los pasos y su orden son EXACTOS y `tools/check_p0r5_governance.py` los valida estructuralmente.
+  # Sólo instala PyYAML (la superficie de validación es de BYTES, no de DataFrames — B273). No añadir env/defaults/
+  # container/services/strategy/if a este job ni pasos extra.
+  p0r5-governance:
+    name: p0r5-governance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.14'
+      - run: pip install pyyaml==6.0.3
       - name: Commit frontier contract (fingerprint + autoridad)
         run: python tools/check_commit_frontier.py
       - name: Positive reflection registry (identidad semántica)
@@ -288,7 +306,6 @@ jobs:
         run: python tools/check_raw_fs_mutations.py
       - name: B233 historical diagnostic contract
         run: python -m tools.validate_b233_receipt
-      # Lista positiva ESTRUCTURAL (YAML): verifica que estos gates SIGUEN cableados como pasos exactos de este job.
       - name: P0R.5 governance gates wired
         run: python tools/check_p0r5_governance.py
 
@@ -523,7 +540,7 @@ jobs:
   ci-gate:
     name: ci-gate
     if: always()
-    needs: [commit-policy, lint-and-test, model-tests, consistency, supply-chain, deep-lock-install, dvc-tool-install, environment-contract, environment-receipts, campaign-bundle-contract]
+    needs: [commit-policy, lint-and-test, model-tests, consistency, supply-chain, deep-lock-install, dvc-tool-install, environment-contract, environment-receipts, campaign-bundle-contract, p0r5-governance]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any required job was not success
