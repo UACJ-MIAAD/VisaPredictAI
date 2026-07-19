@@ -37,9 +37,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
-_SCANNER_VERSION = (
-    7  # B265/B270/B276/B285/B289: + llamadas rooteadas en submódulos/from-imports/fábricas canónicas (no sólo `import x`)
-)
+_SCANNER_VERSION = 7  # B265/B270/B276/B285/B289: + llamadas rooteadas en submódulos/from-imports/fábricas canónicas (no sólo `import x`)
 _REGISTRY_TOP_KEYS = {
     "schema_version",
     "scanner_version",
@@ -326,9 +324,9 @@ def _canonical_rooted_names(tree: ast.AST, mod_aliases: dict[str, str]) -> dict[
         for tgt, val in _name_bindings(tree):
             if tgt in out:
                 continue
-            root: str | None = None
+            bound: str | None = None
             if isinstance(val, ast.Name) and val.id in out:
-                root = out[val.id]
+                bound = out[val.id]
             elif isinstance(val, ast.Call):
                 cur: ast.AST = val.func
                 while isinstance(cur, (ast.Attribute, ast.Subscript, ast.Call)):
@@ -336,9 +334,9 @@ def _canonical_rooted_names(tree: ast.AST, mod_aliases: dict[str, str]) -> dict[
                 fn = val.func
                 callee = fn.attr if isinstance(fn, ast.Attribute) else (fn.id if isinstance(fn, ast.Name) else "")
                 if isinstance(cur, ast.Name) and cur.id in out and callee in _CANONICAL_FACTORY_NAMES:
-                    root = out[cur.id]  # `m = <canonical>.import_module(...)` → m rooteado en canonical
-            if root is not None:
-                out[tgt] = root
+                    bound = out[cur.id]  # `m = <canonical>.import_module(...)` → m rooteado en canonical
+            if bound is not None:
+                out[tgt] = bound
                 changed = True
     for name in _prim_aliases(tree):  # un nombre que YA es un primitivo específico (getattr/attrgetter/partial…) tiene
         out.pop(name, None)  # op más específica — no lo dupliques como canonical-rooted-call
