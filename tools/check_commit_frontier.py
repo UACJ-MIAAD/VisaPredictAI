@@ -530,7 +530,6 @@ def authority_scope_problems() -> list[str]:
                 if not (rel == _FACTORY_TARGET and fn == "_build_certificate"):
                     problems.append(f"{rel}:{node.lineno} CONSTRUYE CommitCertificate fuera de _build_certificate")
     return problems
-    return problems
 
 
 def _within_node(outer: ast.AST, inner: ast.AST) -> bool:
@@ -612,6 +611,80 @@ def _critical_defs_problems(tree: ast.Module) -> tuple[dict[str, ast.FunctionDef
     return defs, problems
 
 
+_MODULE_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)  # fmt: skip
+
+
+def _enclosing_scope(node: ast.AST, parents: dict[int, ast.AST]) -> ast.AST | None:
+    """Ancestro de scope más cercano (función/lambda/clase/comprehension) de `node`; None = scope de MÓDULO."""
+    cur = parents.get(id(node))
+    while cur is not None:
+        if isinstance(cur, _MODULE_SCOPES):
+            return cur
+        cur = parents.get(id(cur))
+    return None
+
+
+def _critical_binding_problems(tree: ast.Module) -> list[str]:
+    """B264: el fingerprint pinea el AST del `def`, pero Python exporta el BINDING GLOBAL — que puede re-ligarse o
+    borrarse después del `def`. Certifica que la ÚNICA escritura de cada nombre crítico a nivel módulo es su `def`:
+    rechaza cualquier otro binding/borrado de nivel módulo (Assign/AnnAssign/AugAssign/walrus/for/with/except/match/
+    Import/ImportFrom/ClassDef), `del`, `import *`, y todo `global <crítico>` (un escritor dentro de una función). La
+    mutación DINÁMICA (globals()/setattr/exec) la caza el gate de reflexión (primitivos no registrados). Fail-closed."""
+    crit = set(_CRITICAL_FUNCTIONS)
+    problems: list[str] = []
+    parents: dict[int, ast.AST] = {}
+    for n in ast.walk(tree):
+        for c in ast.iter_child_nodes(n):
+            parents[id(c)] = n
+    # funciones que declaran `global <crítico>` (podrían escribir el binding del módulo)
+    global_writers: dict[int, set[str]] = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Global):
+            gnames = set(n.names) & crit
+            if gnames:
+                fn = _enclosing_scope(n, parents)
+                while fn is not None and not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    fn = _enclosing_scope(fn, parents)
+                if fn is not None:
+                    global_writers.setdefault(id(fn), set()).update(gnames)
+                problems.append(f"{_CRITICAL_SOURCE}: `global {', '.join(sorted(gnames))}` — un escritor del binding crítico fuera del def (B264)")  # fmt: skip
+
+    def _binds_module(node: ast.AST, name: str) -> bool:
+        scope = _enclosing_scope(node, parents)
+        if scope is None:
+            return True  # scope de módulo
+        return isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)) and name in global_writers.get(id(scope), set())  # fmt: skip
+
+    for n in ast.walk(tree):
+        # Store/Del de un Name crítico (Assign/AnnAssign/AugAssign/walrus/for/with/tuple-unpack targets)
+        if isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Store, ast.Del)) and n.id in crit and _binds_module(n, n.id):  # fmt: skip
+            verb = "borra" if isinstance(n.ctx, ast.Del) else "re-liga"
+            problems.append(f"{_CRITICAL_SOURCE}: algo {verb} el binding global `{n.id}` (sólo el def puede crearlo) (B264)")  # fmt: skip
+        elif isinstance(n, ast.ClassDef) and n.name in crit and _binds_module(n, n.name):
+            problems.append(f"{_CRITICAL_SOURCE}: `class {n.name}` re-liga el nombre crítico (B264)")
+        elif isinstance(n, ast.ExceptHandler) and n.name in crit and _binds_module(n, n.name):
+            problems.append(f"{_CRITICAL_SOURCE}: `except … as {n.name}` re-liga el binding crítico (B264)")
+        elif isinstance(n, ast.MatchAs) and n.name in crit and _binds_module(n, n.name):
+            problems.append(f"{_CRITICAL_SOURCE}: pattern `as {n.name}` re-liga el binding crítico (B264)")
+        elif isinstance(n, ast.MatchStar) and n.name in crit and _binds_module(n, n.name):
+            problems.append(f"{_CRITICAL_SOURCE}: pattern `*{n.name}` re-liga el binding crítico (B264)")
+        elif isinstance(n, ast.MatchMapping) and n.rest in crit and _binds_module(n, n.rest):
+            problems.append(f"{_CRITICAL_SOURCE}: pattern `**{n.rest}` re-liga el binding crítico (B264)")
+        elif isinstance(n, ast.Import):
+            for a in n.names:
+                if (a.asname or a.name.split(".")[0]) in crit and _binds_module(n, a.asname or a.name):
+                    problems.append(f"{_CRITICAL_SOURCE}: `import` re-liga el nombre crítico (B264)")
+        elif isinstance(n, ast.ImportFrom):
+            for a in n.names:
+                if a.name == "*":
+                    problems.append(f"{_CRITICAL_SOURCE}: `import *` puede re-ligar bindings críticos (B264)")
+                elif (a.asname or a.name) in crit and _binds_module(n, a.asname or a.name):
+                    problems.append(f"{_CRITICAL_SOURCE}: `from … import … as {a.asname or a.name}` re-liga el binding crítico (B264)")  # fmt: skip
+        elif isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ("globals", "locals", "vars", "exec", "eval", "setattr"):  # fmt: skip
+            problems.append(f"{_CRITICAL_SOURCE}: `{n.func.id}(...)` puede mutar bindings del módulo — PROHIBIDO en la fuente de autoridad, no allowlisted (B264)")  # fmt: skip
+    return problems
+
+
 def fingerprint_problems() -> list[str]:
     """B254/B258: PINEA el AST GLOBAL del cuerpo crítico de la frontera de commit (`commit_current`,
     `_classify_post_authority`, `_reconcile_and_raise`) contra `security/commit_frontier_fingerprints.json`. El gate NO
@@ -637,6 +710,7 @@ def fingerprint_problems() -> list[str]:
     except (OSError, SyntaxError) as exc:
         return [f"{_CRITICAL_SOURCE}: ilegible/no parseable ({exc}) (fail-closed B254)"]
     defs, problems = _critical_defs_problems(tree)
+    problems += _critical_binding_problems(tree)  # B264: el binding global no puede re-ligarse/borrarse tras el def
     for name in _CRITICAL_FUNCTIONS:
         node = defs.get(name)
         if node is None:

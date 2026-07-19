@@ -504,6 +504,61 @@ def test_b258_contract_schema_and_hash_types_are_exact(monkeypatch, tmp_path):
     assert any("hash" in p or "64" in p for p in probs2), "un hash no [0-9a-f]{64} debe fallar (B258)"
 
 
+def _run_rebind(monkeypatch, tmp_path, extra_src):
+    # el AST APROBADO de las 3 funciones se preserva; el fallo proviene del BINDING, no del fingerprint.
+    src = _SYN_OK + extra_src
+    tree = ast.parse(src)
+    defs, _ = _critical_defs(tree)
+    fns = {n: _fp_of(tree, n) for n in _CRIT} if len(defs) == 3 else {n: "0" * 64 for n in _CRIT}
+    probs, _ = _run_fingerprint(monkeypatch, tmp_path, src, fns)
+    return probs
+
+
+def _critical_defs(tree):
+    return {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in _CRIT}, None
+
+
+def test_b264_top_level_assign_cannot_replace_critical_binding(monkeypatch, tmp_path):
+    assert _run_rebind(monkeypatch, tmp_path, "\ncommit_current = lambda *a, **k: None\n"), "rebind por Assign debe fallar (B264)"  # fmt: skip
+
+
+def test_b264_annotated_and_unpack_bindings_rejected(monkeypatch, tmp_path):
+    assert _run_rebind(monkeypatch, tmp_path, "\ncommit_current: object = None\n"), "AnnAssign debe fallar (B264)"
+    assert _run_rebind(monkeypatch, tmp_path, "\ncommit_current, x = None, 1\n"), "unpack debe fallar (B264)"
+    assert _run_rebind(monkeypatch, tmp_path, "\n(commit_current := None)\n"), (
+        "walrus a nivel módulo debe fallar (B264)"
+    )
+
+
+def test_b264_import_alias_and_star_import_rejected(monkeypatch, tmp_path):
+    assert _run_rebind(monkeypatch, tmp_path, "\nfrom os import getcwd as commit_current\n"), "import-as debe fallar (B264)"  # fmt: skip
+    assert _run_rebind(monkeypatch, tmp_path, "\nfrom os import *\n"), "import * debe fallar (B264)"
+    assert _run_rebind(monkeypatch, tmp_path, "\nclass commit_current:\n    pass\n"), "class-rebind debe fallar (B264)"
+
+
+def test_b264_del_and_control_flow_targets_rejected(monkeypatch, tmp_path):
+    assert _run_rebind(monkeypatch, tmp_path, "\ndel commit_current\n"), "del debe fallar (B264)"
+    assert _run_rebind(monkeypatch, tmp_path, "\nfor commit_current in []:\n    pass\n"), (
+        "for-target debe fallar (B264)"
+    )
+    assert _run_rebind(monkeypatch, tmp_path, "\nimport contextlib\nwith contextlib.nullcontext() as commit_current:\n    pass\n"), "with-target debe fallar (B264)"  # fmt: skip
+
+
+def test_b264_global_declaration_and_nested_write_rejected(monkeypatch, tmp_path):
+    assert _run_rebind(monkeypatch, tmp_path, "\ndef evil():\n    global commit_current\n    commit_current = None\n"), "global+write debe fallar (B264)"  # fmt: skip
+
+
+def test_b264_dynamic_module_binding_mutation_rejected(monkeypatch, tmp_path):
+    assert _run_rebind(monkeypatch, tmp_path, "\nglobals()['commit_current'] = None\n"), "globals()[...] debe fallar (B264)"  # fmt: skip
+    assert _run_rebind(monkeypatch, tmp_path, "\nimport sys\nsetattr(sys.modules[__name__], 'commit_current', None)\n"), "setattr(module) debe fallar (B264)"  # fmt: skip
+    assert _run_rebind(monkeypatch, tmp_path, "\nexec('commit_current = None')\n"), "exec debe fallar (B264)"
+
+
+def test_b264_harmless_local_same_name_without_global_is_allowed(monkeypatch, tmp_path):
+    # una variable LOCAL homónima (sin `global`) en una función no crítica NO re-liga el binding del módulo.
+    assert not _run_rebind(monkeypatch, tmp_path, "\ndef unrelated():\n    commit_current = 1\n    return commit_current\n"), "local homónimo no debe fallar (B264)"  # fmt: skip
+
+
 def test_gate_b249_alias_propagation_and_dotted(tmp_path, monkeypatch):
     # B249: seguimiento de alias (mod = cb), cadenas y dotted import (tools.campaign_bundle) para cazar acceso dinamico.
     for name, src in {
