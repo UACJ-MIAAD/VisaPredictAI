@@ -939,7 +939,7 @@ def test_b281_ancestor_inode_swap_during_read_rejected(monkeypatch, tmp_path):
 
     monkeypatch.setattr(os, "read", _read_then_swap)
     gb, probs = _govern(monkeypatch, tmp_path, "tools/campaign_bundle.py")
-    assert gb is None and any("cambió de inode" in p for p in probs), "un swap de ancestro durante la lectura debe rechazarse (B281/B274)"  # fmt: skip
+    assert gb is None and any("cambió" in p for p in probs), "un swap de ancestro durante la lectura debe rechazarse (B281/B288)"  # fmt: skip
 
 
 def test_b282_group_other_writable_dir_rejected(monkeypatch, tmp_path):
@@ -989,6 +989,51 @@ def test_b281_b282_happy_control_real_repo_accepts(monkeypatch, tmp_path):
     monkeypatch.setattr(gate, "_ROOT", str(tmp_path))
     monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
     assert gate.fingerprint_problems() == [], "fingerprint del árbol limpio debe pasar (B281/B282)"
+
+
+# ---------------------------------------------------------------------------
+# B288 — la revalidación final compara IDENTIDAD COMPLETA (dev/ino/mode/uid/nlink/ctime), no sólo dev/ino, y re-fstat-ea
+# cada directorio. RED_BASE_SHA = b781d68: un cambio de modo (0777 en dir / 0666 en leaf) sobre el MISMO inode tras el
+# chequeo inicial se aceptaba (post_dir_mode_0777_accepted / post_leaf_mode_0666_accepted).
+# ---------------------------------------------------------------------------
+def test_b288_post_dir_mode_change_rejected(monkeypatch, tmp_path):
+    # cambia el MODO del dir `tools` a 0777 DURANTE la lectura (mismo inode) → la re-fstat final del dir lo caza.
+    _lay_governed_tree(tmp_path)
+    real_read = os.read
+    done = {"x": False}
+
+    def _read_then_chmod_dir(fd, n):
+        if not done["x"]:
+            done["x"] = True
+            (tmp_path / "tools").chmod(0o777)
+        return real_read(fd, n)
+
+    monkeypatch.setattr(os, "read", _read_then_chmod_dir)
+    try:
+        gb, probs = _govern(monkeypatch, tmp_path, "tools/campaign_bundle.py")
+        assert gb is None and any("B288" in p for p in probs), "cambio de modo de dir tras el chequeo debe rechazarse (B288)"  # fmt: skip
+    finally:
+        (tmp_path / "tools").chmod(0o755)
+
+
+def test_b288_post_leaf_identity_change_rejected(monkeypatch, tmp_path):
+    # cambia el MODO del leaf a 0666 JUSTO antes de su re-stat por nombre (mismo inode) → identidad completa lo caza.
+    _lay_governed_tree(tmp_path)
+    monkeypatch.setattr(gate, "_ROOT", str(tmp_path))
+    monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
+    leaf = tmp_path / "tools" / "campaign_bundle.py"
+    real_stat = os.stat
+
+    def _stat_chmod(path, *a, **k):
+        if path == "campaign_bundle.py":  # la re-stat por nombre del leaf
+            leaf.chmod(0o666)
+            monkeypatch.setattr(os, "stat", real_stat)  # una sola vez
+        return real_stat(path, *a, **k)
+
+    monkeypatch.setattr(os, "stat", _stat_chmod)
+    gb, probs = gate._read_governed_repo_file("tools/campaign_bundle.py")
+    leaf.chmod(0o644)
+    assert gb is None and any("B288" in p for p in probs), "cambio de modo del leaf antes de la re-stat debe rechazarse (B288)"  # fmt: skip
 
 
 def test_gate_b249_alias_propagation_and_dotted(tmp_path, monkeypatch):

@@ -638,6 +638,12 @@ _SNAPSHOT_TOTAL_MAX_BYTES = 64 << 20  # 64 MiB (suma de todo lo leído en una pa
 _DIR_GO_WRITE = 0o022  # bits de escritura grupo/otros — PROHIBIDOS en directorios gobernados
 
 
+def _ident_tuple(st: os.stat_result) -> tuple:
+    """B288: identidad COMPLETA para revalidar al final (no sólo `dev/ino`): un swap de modo/uid/nlink/ctime sobre el
+    MISMO inode se detecta. Reemplazar el modo a 0777/0666 tras el chequeo inicial dejaba de verse comparando sólo dev/ino."""  # fmt: skip
+    return (st.st_dev, st.st_ino, st.st_mode, st.st_uid, st.st_nlink, st.st_ctime_ns)
+
+
 def _governed_dir_problem(comp: str, st: os.stat_result) -> str | None:
     """B282: invariantes de un directorio de la cadena gobernada. Un `/var` symlink lo corta antes `O_NOFOLLOW`; aquí se
     exige: directorio REAL, SIN escritura de grupo/otros (un `tools` 0777/0775 lo permitía swapear ficheros), dueño root
@@ -672,7 +678,7 @@ def _read_governed_repo_file(rel: str, *, exact_mode: int = 0o644, max_bytes: in
     dir_comps = [p for p in root_abs.split("/") if p] + parts[:-1]  # componentes-directorio absolutos + dirs de rel
     leaf = parts[-1]
     all_fds: list[int] = []
-    ancestors: list[tuple[str, int, os.stat_result]] = []  # (nombre, parent_fd, fstat) para revalidar nombre↔inode
+    ancestors: list[tuple[str, int, int, os.stat_result]] = []  # (nombre, parent_fd, dir_fd, fstat0) — B288: incluye el dir_fd para re-fstat al final  # fmt: skip
     primary: list[str] | None = None
     result: tuple[_GovernedBytes | None, list[str]] | None = None
     try:
@@ -693,7 +699,7 @@ def _read_governed_repo_file(rel: str, *, exact_mode: int = 0o644, max_bytes: in
             if dprob is not None:
                 primary = [f"{rel}: {dprob} (fail-closed B282)"]
                 break
-            ancestors.append((comp, cur, os.fstat(nfd)))
+            ancestors.append((comp, cur, nfd, os.fstat(nfd)))
             cur = nfd
         if primary is None:
             try:
@@ -756,19 +762,25 @@ def _govern_leaf(rel: str, leaf: str, lfd: int, parent_fd: int, exact_mode: int,
         return [f"{rel}: el inode del leaf cambió durante la lectura (fail-closed B274)"], None
     if len(data) != st0.st_size:
         return [f"{rel}: tamaño leído {len(data)} != fstat {st0.st_size} (fail-closed B274)"], None
-    for name, pfd, fst in ancestors:  # revalidar nombre↔inode de cada ancestro
+    for name, pfd, dfd, fst0 in ancestors:  # B288: revalidar IDENTIDAD COMPLETA de cada ancestro (no sólo dev/ino)
+        try:
+            dfd_now = os.fstat(dfd)  # el inode del dir no cambió modo/uid/nlink/ctime (snapshot inicial/final del dir)
+        except OSError as exc:
+            return [f"{rel}: ancestro {name!r} no re-fstat-able ({exc}) (fail-closed B288)"], None
+        if _ident_tuple(dfd_now) != _ident_tuple(fst0):
+            return [f"{rel}: el ancestro {name!r} cambió de identidad (modo/uid/nlink/ctime) durante la lectura (fail-closed B288)"], None  # fmt: skip
         try:
             by_name = os.stat(name, dir_fd=pfd, follow_symlinks=False)
         except OSError as exc:
             return [f"{rel}: ancestro {name!r} no re-stat-able ({exc}) (fail-closed B274)"], None
-        if (by_name.st_dev, by_name.st_ino) != (fst.st_dev, fst.st_ino):
-            return [f"{rel}: el ancestro {name!r} cambió de inode durante la lectura (fail-closed B274)"], None
+        if _ident_tuple(by_name) != _ident_tuple(fst0):  # nombre↔inode + identidad completa
+            return [f"{rel}: el ancestro {name!r} cambió de nombre↔identidad durante la lectura (fail-closed B288)"], None  # fmt: skip
     try:
         leaf_by_name = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
     except OSError as exc:
         return [f"{rel}: leaf {leaf!r} no re-stat-able ({exc}) (fail-closed B274)"], None
-    if (leaf_by_name.st_dev, leaf_by_name.st_ino) != (st0.st_dev, st0.st_ino):
-        return [f"{rel}: el leaf {leaf!r} cambió de inode durante la lectura (fail-closed B274)"], None
+    if _ident_tuple(leaf_by_name) != _ident_tuple(st0):  # B288: identidad COMPLETA del leaf (no sólo dev/ino)
+        return [f"{rel}: el leaf {leaf!r} cambió de identidad (modo/uid/nlink/ctime) durante la lectura (fail-closed B288)"], None  # fmt: skip
     gb = _GovernedBytes(data=data, rel=rel, dev=st0.st_dev, ino=st0.st_ino, size=st0.st_size, mtime_ns=st0.st_mtime_ns, ctime_ns=st0.st_ctime_ns, mode=st0.st_mode, uid=st0.st_uid, nlink=st0.st_nlink)  # fmt: skip
     return None, (gb, [])
 
