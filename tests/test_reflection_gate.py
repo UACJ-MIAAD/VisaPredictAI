@@ -259,6 +259,50 @@ def test_b265_unregistered_escape_fails_the_gate(tmp_path, monkeypatch):
     assert any("NO REGISTRADA" in p for p in refl.problems()), "un escape no registrado (fuera de autoridad) debe fallar (B265)"  # fmt: skip
 
 
+def test_b270_rooted_chain_reproducing_module_is_escape(tmp_path, monkeypatch):
+    # B270: una cadena con raíz en un módulo canónico que accede a MAQUINARIA de módulo (dunder/loader) y cuyo resultado
+    # escapa → reflection-module-escape, aunque `alias.attr` parezca "comprendido".
+    cases = {
+        "loader_assign": "import builtins\nb = builtins.__spec__.loader.load_module('builtins')\n",
+        "loader_return": "import builtins\ndef f():\n    return builtins.__spec__.loader.load_module('x')\n",
+        "loader_arg": "import builtins\ntake(builtins.__spec__.loader.load_module('x'))\n",
+        "find_spec_chain": "import importlib\nm = importlib.util.find_spec('x').loader.load_module('x')\n",
+        "dunder_globals": "import sys\ng = sys.modules['__main__'].__dict__\n",  # sys.modules modeled → op detectado
+    }
+    for label, src in cases.items():
+        _mount(tmp_path, monkeypatch, {"m.py": src})
+        ops = {e["op"] for e in refl.scan_reflection(["m.py"])[0].values()}
+        assert ops & {refl._REFLECTION_MODULE_ESCAPE, refl._BUILTINS_DYNAMIC_LOOKUP, "sys.modules", "__dict__"}, f"{label} debe ser una ocurrencia (B270): {ops}"  # fmt: skip
+
+
+def test_b270_data_attribute_chains_are_not_escapes(tmp_path, monkeypatch):
+    # control anti-falso-positivo: cadenas de DATOS (version/argv/path/stderr/exit) NO se marcan como escape.
+    src = (
+        "import sys\n"
+        "v = sys.version.split()[0]\n"
+        "a = sys.argv\n"
+        "sys.exit(1)\n"
+        "sys.stderr.write('x')\n"
+        "sys.path.insert(0, 'x')\n"
+        "print(sys.version, sys.platform, sys.executable)\n"
+    )
+    _mount(tmp_path, monkeypatch, {"m.py": src})
+    ops = {e["op"] for e in refl.scan_reflection(["m.py"])[0].values()}
+    assert refl._REFLECTION_MODULE_ESCAPE not in ops, f"cadenas de datos sys.* no deben escapar (B270): {ops}"
+
+
+def test_b270_chain_escape_in_authority_is_prohibited(tmp_path, monkeypatch):
+    _mount(tmp_path, monkeypatch, {"tools/campaign_bundle.py": "import builtins\nb = builtins.__spec__.loader.load_module('x')\n"})  # fmt: skip
+    reg = {
+        "schema_version": refl._SCHEMA_VERSION, "scanner_version": refl._SCANNER_VERSION, "note": "x",
+        "operations_controlled": list(refl.OPERATIONS_CONTROLLED), "authorized_campaign_bundle_importers": [],
+        "entries": {},
+    }  # fmt: skip
+    (tmp_path / refl._REGISTRY).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / refl._REGISTRY).write_text(json.dumps(reg))
+    assert any("PROHIBIDO" in p for p in refl.problems()), "cadena reflexiva en módulo de autoridad debe fallar (B270)"
+
+
 def test_reflection_gate_catches_the_seven_evasions(tmp_path, monkeypatch):
     evasions = {
         "list_index_getattr": "g = [getattr][0]\ng(cb, name)\n",

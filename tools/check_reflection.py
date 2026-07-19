@@ -37,7 +37,9 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
-_SCANNER_VERSION = 3  # B265: política conservadora de escape de módulo reflexivo + lookup dinámico de builtins
+_SCANNER_VERSION = (
+    4  # B265/B270: escape de módulo reflexivo + lookup dinámico de builtins + CADENAS enraizadas con llamada
+)
 _REGISTRY_TOP_KEYS = {
     "schema_version",
     "scanner_version",
@@ -242,6 +244,44 @@ def _escape_op(node: ast.AST, parents: dict[int, ast.AST], mod_aliases: dict[str
     return _REFLECTION_MODULE_ESCAPE
 
 
+# Nombres de MAQUINARIA de módulo que pueden RE-PRODUCIR/reflejar un módulo por cadena (no `version`/`argv`/`path`…).
+_CHAIN_DANGER_NAMES = frozenset({"load_module", "import_module", "find_module", "find_spec", "find_loader", "exec_module", "create_module", "reload", "get_data", "module_from_spec", "spec_from_file_location", "spec_from_loader"})  # fmt: skip
+
+
+def _rooted_chain_escape(node: ast.AST, parents: dict[int, ast.AST], mod_aliases: dict[str, str]) -> str | None:
+    """B270: una CADENA con raíz en un módulo canónico que accede a MAQUINARIA de módulo (un atributo DUNDER
+    `__spec__`/`__loader__`/… o un método loader `load_module`/`import_module`/…), no resuelve a una operación modelada,
+    y cuyo RESULTADO ESCAPA (no es un statement descartado) → `reflection-module-escape`. Ej.
+    `b = builtins.__spec__.loader.load_module('builtins')`. `sys.version.split()[0]`, `sys.exit(1)`, `x = sys.argv`
+    (atributos de DATOS, no maquinaria) NO se marcan — evita los `sys.*` legítimos."""
+    if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in mod_aliases):
+        return None
+    cur: ast.AST = node
+    resolved_modeled = False
+    dangerous = False
+    while True:
+        parent = parents.get(id(cur))
+        if isinstance(parent, ast.Attribute) and parent.value is cur:
+            if _resolve_op(parent, mod_aliases, {}) is not None:
+                resolved_modeled = True
+            elif (parent.attr.startswith("__") and parent.attr.endswith("__")) or parent.attr in _CHAIN_DANGER_NAMES:
+                dangerous = True
+            cur = parent
+        elif isinstance(parent, ast.Subscript) and parent.value is cur:
+            resolved_modeled = resolved_modeled or _resolve_op(parent, mod_aliases, {}) is not None
+            cur = parent
+        elif isinstance(parent, ast.Call) and parent.func is cur:
+            cur = parent
+        else:
+            break
+    if resolved_modeled or not dangerous:
+        return None  # op modelada en la cadena, o cadena de DATOS (sin maquinaria de módulo) → no-escape
+    top_parent = parents.get(id(cur))
+    if top_parent is None or isinstance(top_parent, ast.Expr):
+        return None  # resultado descartado (statement) → no escapa
+    return _REFLECTION_MODULE_ESCAPE
+
+
 def scan_reflection(files: list[str]) -> tuple[dict[str, dict], list[str]]:
     """Escanea `files` y devuelve `(entries, problems)`. Cada ocurrencia lleva identidad SEMÁNTICA. Fail-closed: un
     fichero ilegible/no-UTF-8/no-parseable produce un PROBLEMA (no se salta en silencio)."""
@@ -269,7 +309,11 @@ def scan_reflection(files: list[str]) -> tuple[dict[str, dict], list[str]]:
         parents = {id(c): p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
         raw: list[tuple[str, str, str, int, ast.AST]] = []
         for node in ast.walk(tree):
-            op = _resolve_op(node, mod_aliases, prim_aliases) or _escape_op(node, parents, mod_aliases)
+            op = (
+                _resolve_op(node, mod_aliases, prim_aliases)
+                or _escape_op(node, parents, mod_aliases)
+                or _rooted_chain_escape(node, parents, mod_aliases)
+            )
             if op is None:
                 continue
             qualname = qn.get(id(node), "") or "<module>"

@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "scanner_version": 3,
+  "scanner_version": 4,
   "note": "B255/B259/B260: registro POSITIVO de TODA operación de reflexión en el código de producción versionado, con IDENTIDAD SEMÁNTICA. El gate tools/check_reflection.py deriva el ID de cada ocurrencia de sha256(JSON canónico de {file, qualname, op, statement_ast_sha256, occurrence_index}); cambiar objeto/nombre/forma de la llamada cambia el AST del statement y por tanto el ID → exige revisión. Cubre builtins/sys/importlib/operator/functools por alias, imports relativos, qualname completo (métodos/lambda/async/anidadas) y es fail-closed ante sintaxis/lectura/JSON inválidos. FRONTERA HONESTA: evita reflexión NO REGISTRADA en código versionado; NO protege contra un mantenedor que cambie a la vez código y política (revisión humana + rama protegida).",
   "operations_controlled": [
     "__dict__",
