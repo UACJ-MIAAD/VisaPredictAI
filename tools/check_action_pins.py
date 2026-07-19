@@ -106,13 +106,17 @@ def load_registry(registry: Path = REGISTRY) -> dict[str, dict[str, str]]:
     if len(doc["actions"]) > _MAX_ACTIONS:  # B287: cota de entradas
         raise SystemExit(f"check_action_pins: > {_MAX_ACTIONS} acciones")
     for name, e in doc["actions"].items():
-        if not _valid_action_name(name):  # B287: gramática del nombre (owner/repo[/path]); antes se aceptaba "" o whitespace
+        if not _valid_action_name(
+            name
+        ):  # B287: gramática del nombre (owner/repo[/path]); antes se aceptaba "" o whitespace
             raise SystemExit(f"check_action_pins: nombre de acción inválido {name!r}")
         if (
             not isinstance(e, dict)
             or set(e) != _ENTRY_KEYS
             or not (isinstance(e["sha"], str) and _SHA_RE.fullmatch(e["sha"]))
-            or not (isinstance(e["version"], str) and _VERSION_RE.fullmatch(e["version"]))  # B287: versión vN[.N[.N]] (un "   " se colaba)
+            or not (
+                isinstance(e["version"], str) and _VERSION_RE.fullmatch(e["version"])
+            )  # B287: versión vN[.N[.N]] (un "   " se colaba)
             or e["runtime"] != "node24"
         ):
             raise SystemExit(f"check_action_pins: entrada de registro inválida para {name!r}")

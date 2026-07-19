@@ -711,7 +711,9 @@ def _read_governed_repo_file(rel: str, *, exact_mode: int = 0o644, max_bytes: in
             except OSError as exc:
                 close_errors.append(str(exc))
     if close_errors:  # un cierre fallido invalida un éxito potencial y se ADJUNTA al error primario
-        return None, (primary or []) + [f"{rel}: fallo(s) al cerrar fd(s): {'; '.join(close_errors)} (fail-closed B282)"]
+        return None, (primary or []) + [
+            f"{rel}: fallo(s) al cerrar fd(s): {'; '.join(close_errors)} (fail-closed B282)"
+        ]
     if primary is not None:
         return None, primary
     return result if result is not None else (None, [f"{rel}: sin resultado (fail-closed B282)"])

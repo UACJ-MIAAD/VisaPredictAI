@@ -71,7 +71,7 @@ _CI_GATE_STEP0_IF = "${{ contains(needs.*.result, 'failure') || contains(needs.*
 # B283: el PROGRAMA COMPLETO del paso que debe fallar (no basta con que la última línea sea `exit 1`: un `exit 0` previo
 # lo neutralizaba).
 _CI_GATE_STEP0_RUN = (
-    'echo "resultados: ${{ join(needs.*.result, \', \') }}"\n'
+    "echo \"resultados: ${{ join(needs.*.result, ', ') }}\"\n"
     'echo "✗ ci-gate: al menos un job no terminó en success"\n'
     "exit 1\n"
 )
@@ -201,7 +201,9 @@ def _ci_gate_step_problems(steps: object) -> list[str]:
             problems.append(f"jobs.{_CI_GATE}.steps[0].name != {_CI_GATE_STEP0_NAME!r} (B275)")
         if fail["if"] != _CI_GATE_STEP0_IF:
             problems.append(f"jobs.{_CI_GATE}.steps[0].if != el predicado EXACTO failure/cancelled/skipped sobre needs.*.result (obtenido {fail['if']!r}) (B275)")  # fmt: skip
-        if fail["run"] != _CI_GATE_STEP0_RUN:  # B283: el PROGRAMA completo, no sólo la última línea (un `exit 0` previo neutralizaba)
+        if (
+            fail["run"] != _CI_GATE_STEP0_RUN
+        ):  # B283: el PROGRAMA completo, no sólo la última línea (un `exit 0` previo neutralizaba)
             problems.append(f"jobs.{_CI_GATE}.steps[0].run != el programa EXACTO que termina en `exit 1` (obtenido {fail['run']!r}) (B283)")  # fmt: skip
     if set(ok.keys()) != {"name", "run"}:
         problems.append(f"jobs.{_CI_GATE}.steps[1]: claves != {{name, run}} — sin `if`/env/extras (obtenido {sorted(ok)}) (B275)")  # fmt: skip
@@ -230,7 +232,9 @@ def _ci_gate_problems(gate: object) -> list[str]:
         problems.append(f"jobs.{_CI_GATE}.if != 'always()' exacto (obtenido {gate['if']!r}) (B275)")
     if gate["runs-on"] != _CI_GATE_RUNNER:  # B283: runner PINEADO (no 'latest')
         problems.append(f"jobs.{_CI_GATE}.runs-on != {_CI_GATE_RUNNER!r} (B283)")
-    if not (type(gate["timeout-minutes"]) is int and gate["timeout-minutes"] == _CI_GATE_TIMEOUT):  # B283: timeout exacto (bool/float/0 caen)
+    if not (
+        type(gate["timeout-minutes"]) is int and gate["timeout-minutes"] == _CI_GATE_TIMEOUT
+    ):  # B283: timeout exacto (bool/float/0 caen)
         problems.append(f"jobs.{_CI_GATE}.timeout-minutes != {_CI_GATE_TIMEOUT} (B283)")
     if gate["permissions"] != _CI_GATE_PERMISSIONS:  # B283: permisos VACÍOS
         problems.append(f"jobs.{_CI_GATE}.permissions != {{}} vacío (obtenido {gate['permissions']!r}) (B283)")
