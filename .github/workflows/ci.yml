@@ -282,13 +282,13 @@ jobs:
         run: python tools/check_commit_frontier.py
       - name: Positive reflection registry (identidad semántica)
         run: python tools/check_reflection.py
-      - name: Safe opens + raw filesystem mutation gates
-        run: |
-          python tools/check_safe_opens.py
-          python tools/check_raw_fs_mutations.py
+      - name: Safe opens contract
+        run: python tools/check_safe_opens.py
+      - name: Raw filesystem mutation contract
+        run: python tools/check_raw_fs_mutations.py
       - name: B233 historical diagnostic contract
         run: python -m tools.validate_b233_receipt
-      # Lista positiva: verifica que los gates de gobernanza SIGUEN cableados como pasos de este job.
+      # Lista positiva ESTRUCTURAL (YAML): verifica que estos gates SIGUEN cableados como pasos exactos de este job.
       - name: P0R.5 governance gates wired
         run: python tools/check_p0r5_governance.py
 
