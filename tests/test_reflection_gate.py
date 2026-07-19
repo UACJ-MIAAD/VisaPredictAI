@@ -417,3 +417,41 @@ def test_b285_non_canonical_call_not_flagged(tmp_path, monkeypatch):
     # una llamada rooteada en un módulo NO canónico (os) NO produce ocurrencia.
     _mount(tmp_path, monkeypatch, {"m.py": "import os\nos.path.join('a', 'b')\n"})
     assert refl.scan_reflection(["m.py"])[0] == {}, "os.path.join no debe marcarse (B285)"
+
+
+# ---------------------------------------------------------------------------
+# B289 — el scanner ve submódulos/clases/fábricas importados DESDE importlib (no sólo `import importlib`). RED_BASE_SHA =
+# b781d68: `from importlib import machinery`, `import importlib.machinery as m`, `from importlib.machinery import
+# SourceFileLoader as L` daban entries=0, problems=[]. Las pruebas usan scan_reflection (API estable): en b781d68 dan {}
+# (RED); aquí producen ocurrencia.
+# ---------------------------------------------------------------------------
+def test_b289_importlib_submodule_and_from_imports_flagged(tmp_path, monkeypatch):
+    cases = {
+        "from_importlib_machinery": "from importlib import machinery\nmachinery.SourceFileLoader('x', 'x').set_data('/tmp/pwn', b'x')\n",  # fmt: skip
+        "import_submodule_as": "import importlib.machinery as machinery\nmachinery.SourceFileLoader('x', 'x').set_data('/tmp/pwn', b'x')\n",  # fmt: skip
+        "from_machinery_class_alias": "from importlib.machinery import SourceFileLoader as Loader\nLoader('x', 'x').set_data('/tmp/pwn', b'x')\n",  # fmt: skip
+        "factory_result_binding": "import importlib\nm = importlib.import_module('os')\nm.system('id')\n",
+        "from_metadata": "from importlib.metadata import version\nversion('pkg')\n",
+    }
+    for label, src in cases.items():
+        _mount(tmp_path, monkeypatch, {"m.py": src})
+        occ = refl.scan_reflection(["m.py"])[0]
+        assert occ, f"{label} debe producir una ocurrencia (B289); vacío en b781d68"
+
+
+def test_b289_op_is_canonical_rooted_call(tmp_path, monkeypatch):
+    _mount(tmp_path, monkeypatch, {"m.py": "from importlib.machinery import SourceFileLoader as L\nL('x', 'x').set_data('/tmp/p', b'x')\n"})  # fmt: skip
+    ops = {e["op"] for e in refl.scan_reflection(["m.py"])[0].values()}
+    assert refl._CANONICAL_ROOTED_CALL in ops, f"debe ser canonical-rooted-call (B289): {ops}"
+
+
+def test_b289_prim_from_import_keeps_specific_op(tmp_path, monkeypatch):
+    # un `from builtins import getattr as g` sigue siendo la op ESPECÍFICA getattr, NO canonical-rooted-call (anti-doble).
+    _mount(tmp_path, monkeypatch, {"m.py": "from builtins import getattr as g\ng(o, n)\n"})
+    assert {e["op"] for e in refl.scan_reflection(["m.py"])[0].values()} == {"getattr"}
+
+
+def test_b289_non_canonical_from_import_not_flagged(tmp_path, monkeypatch):
+    # un `from os.path import join` (no canónico) NO se marca.
+    _mount(tmp_path, monkeypatch, {"m.py": "from os.path import join\njoin('a', 'b')\n"})
+    assert refl.scan_reflection(["m.py"])[0] == {}, "un from-import no canónico no debe marcarse (B289)"

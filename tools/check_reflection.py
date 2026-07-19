@@ -38,7 +38,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
 _SCANNER_VERSION = (
-    6  # B265/B270/B276/B285: escape + lookup dinámico + cadenas enraizadas + TODA llamada rooteada en módulo canónico
+    7  # B265/B270/B276/B285/B289: + llamadas rooteadas en submódulos/from-imports/fábricas canónicas (no sólo `import x`)
 )
 _REGISTRY_TOP_KEYS = {
     "schema_version",
@@ -298,18 +298,65 @@ def _rooted_chain_escape(node: ast.AST, parents: dict[int, ast.AST], mod_aliases
     return None
 
 
-def _canonical_rooted_call(node: ast.AST, mod_aliases: dict[str, str]) -> str | None:
-    """B285: TODA `ast.Call` cuyo callee, al DESENVOLVER Attribute/Subscript/Call, esté rooteado en un alias canónico
-    (builtins/sys/importlib/operator/functools) produce `canonical-rooted-call` — SALVO que el mismo nodo ya tenga una op
-    más específica (lo garantiza el orden del `or` en el escaneo). Convierte la política de LISTA de terminales en una
-    política POSITIVA: `SourceFileLoader.set_data`, `sys.meta_path.insert`, `sys.path_hooks.append`,
-    `importlib.invalidate_caches`, etc. dejan de ser invisibles y quedan registradas con justificación y fecha de revisión."""  # fmt: skip
+# B289: fábricas canónicas que DEVUELVEN un módulo; un binding `m = import_module(...)`/`__import__(...)` queda rooteado.
+_CANONICAL_FACTORY_NAMES = frozenset({"import_module", "__import__"})
+
+
+def _canonical_rooted_names(tree: ast.AST, mod_aliases: dict[str, str]) -> dict[str, str]:
+    """B285/B289: nombres rooteados en un módulo canónico — más allá de `import sys`/`import builtins` (mod_aliases):
+    submódulos (`import importlib.machinery as m`), imports `from` (`from importlib import machinery`,
+    `from importlib.machinery import SourceFileLoader as L`, `from importlib.metadata import version`) y RESULTADOS de
+    fábricas canónicas (`m = importlib.import_module(...)`, `m = __import__(...)`) ligados a un binding. Por FIXPOINT.
+    Para la política POSITIVA de `_canonical_rooted_call`: una llamada rooteada en CUALQUIERA de estos nombres cuenta."""
+    out: dict[str, str] = dict(mod_aliases)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                root = a.name.split(".")[0]
+                if root in _CANONICAL_MODULES:
+                    out[a.asname or root] = root  # `import importlib.machinery` liga `importlib`; con asname, el asname
+        elif isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] in _CANONICAL_MODULES:
+            root = node.module.split(".")[0]
+            for a in node.names:
+                if a.name != "*":
+                    out[a.asname or a.name] = root
+    changed = True
+    while changed:  # FIXPOINT: alias transitivo de Name, o binding del resultado de una fábrica canónica
+        changed = False
+        for tgt, val in _name_bindings(tree):
+            if tgt in out:
+                continue
+            root: str | None = None
+            if isinstance(val, ast.Name) and val.id in out:
+                root = out[val.id]
+            elif isinstance(val, ast.Call):
+                cur: ast.AST = val.func
+                while isinstance(cur, (ast.Attribute, ast.Subscript, ast.Call)):
+                    cur = cur.func if isinstance(cur, ast.Call) else cur.value
+                fn = val.func
+                callee = fn.attr if isinstance(fn, ast.Attribute) else (fn.id if isinstance(fn, ast.Name) else "")
+                if isinstance(cur, ast.Name) and cur.id in out and callee in _CANONICAL_FACTORY_NAMES:
+                    root = out[cur.id]  # `m = <canonical>.import_module(...)` → m rooteado en canonical
+            if root is not None:
+                out[tgt] = root
+                changed = True
+    for name in _prim_aliases(tree):  # un nombre que YA es un primitivo específico (getattr/attrgetter/partial…) tiene
+        out.pop(name, None)  # op más específica — no lo dupliques como canonical-rooted-call
+    return out
+
+
+def _canonical_rooted_call(node: ast.AST, rooted_names: dict[str, str]) -> str | None:
+    """B285/B289: TODA `ast.Call` cuyo callee, al DESENVOLVER Attribute/Subscript/Call, esté rooteado en un nombre
+    canónico (`_canonical_rooted_names`: módulos, submódulos, imports `from`, resultados de fábrica) produce
+    `canonical-rooted-call` — SALVO op más específica (orden del `or`). `SourceFileLoader.set_data`,
+    `machinery.SourceFileLoader(...).set_data(...)` desde `from importlib import machinery`, `Loader(...).set_data(...)`
+    desde `from importlib.machinery import SourceFileLoader as Loader`, etc. dejan de ser invisibles (B289)."""
     if not isinstance(node, ast.Call):
         return None
     cur: ast.AST = node.func
     while isinstance(cur, (ast.Attribute, ast.Subscript, ast.Call)):
         cur = cur.func if isinstance(cur, ast.Call) else cur.value
-    if isinstance(cur, ast.Name) and isinstance(cur.ctx, ast.Load) and cur.id in mod_aliases:
+    if isinstance(cur, ast.Name) and isinstance(cur.ctx, ast.Load) and cur.id in rooted_names:
         return _CANONICAL_ROOTED_CALL
     return None
 
@@ -335,6 +382,7 @@ def scan_reflection(files: list[str]) -> tuple[dict[str, dict], list[str]]:
             problems.append(f"{rel}: SyntaxError ({exc}) (fail-closed B260)")
             continue
         mod_aliases = _module_aliases(tree)
+        rooted_names = _canonical_rooted_names(tree, mod_aliases)  # B289: incluye submódulos/from-imports/fábricas
         prim_aliases = _prim_aliases(tree)
         qn = _qualnames(tree)
         stmts = _enclosing_stmts(tree)
@@ -345,7 +393,7 @@ def scan_reflection(files: list[str]) -> tuple[dict[str, dict], list[str]]:
                 _resolve_op(node, mod_aliases, prim_aliases)
                 or _escape_op(node, parents, mod_aliases)
                 or _rooted_chain_escape(node, parents, mod_aliases)
-                or _canonical_rooted_call(node, mod_aliases)  # B285: última política, positiva (no lista de terminales)
+                or _canonical_rooted_call(node, rooted_names)  # B285/B289: política positiva sobre nombres rooteados
             )
             if op is None:
                 continue

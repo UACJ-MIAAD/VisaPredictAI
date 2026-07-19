@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "scanner_version": 6,
+  "scanner_version": 7,
   "note": "B255/B259/B260: registro POSITIVO de TODA operación de reflexión en el código de producción versionado, con IDENTIDAD SEMÁNTICA. El gate tools/check_reflection.py deriva el ID de cada ocurrencia de sha256(JSON canónico de {file, qualname, op, statement_ast_sha256, occurrence_index}); cambiar objeto/nombre/forma de la llamada cambia el AST del statement y por tanto el ID → exige revisión. Cubre builtins/sys/importlib/operator/functools por alias, imports relativos, qualname completo (métodos/lambda/async/anidadas) y es fail-closed ante sintaxis/lectura/JSON inválidos. FRONTERA HONESTA: evita reflexión NO REGISTRADA en código versionado; NO protege contra un mantenedor que cambie a la vez código y política (revisión humana + rama protegida).",
   "operations_controlled": [
     "__dict__",
@@ -836,6 +836,51 @@
       "statement_ast_sha256": "9bba376ea5e0a9f72f3f7312566bbd0df294e1206e785f546662b915c1b8b5ce",
       "occurrence_index": 0,
       "justification": "Llamada estandar `sys.path.insert(...)` sobre modulo canonico (B285); benigna, sin reflexion dinamica; revisada 2026-07-19.",
+      "review_by": "2027-07-19"
+    },
+    "395c93fae3070ccf908512e0ec39192c22bb0540a4b035a34d15899c9577f826": {
+      "file": "tools/deep_smoke.py",
+      "qualname": "run",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "e8a58fe36d49d17ddde1c841ab5a75f7814a7804dc1faae629e876e81b096b7d",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `version(...)` rooteada en modulo canonico via submodulo/from-import (B289); benigna, sin reflexion dinamica; revisada 2026-07-19.",
+      "review_by": "2027-07-19"
+    },
+    "1a182cae160b3a5bc1d6ec1d098fc23488a50912e6ad90e0ed99c2e82fa9a267": {
+      "file": "vp_data/tracking.py",
+      "qualname": "_file_sha256",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "417a399078502f8c23b549d7a99283e20c11dfc92a57c95dfcf32c3d2d71aa37",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `lru_cache(...)` rooteada en modulo canonico via submodulo/from-import (B289); benigna, sin reflexion dinamica; revisada 2026-07-19.",
+      "review_by": "2027-07-19"
+    },
+    "f2ffca1fa5007faac42cab280e136e47e0b7b1e9d385a5b83d25a36d9316097a": {
+      "file": "vp_data/tracking.py",
+      "qualname": "code_sha",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "3b8ec3f8df628e01610419d44c680e7895daeae926fe6a6b850e64b2ac8a092a",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `lru_cache(...)` rooteada en modulo canonico via submodulo/from-import (B289); benigna, sin reflexion dinamica; revisada 2026-07-19.",
+      "review_by": "2027-07-19"
+    },
+    "2da16b4feb52b72317b83f92d65ba944b7eba7a33dd7ff08cd5c78070384b1f0": {
+      "file": "vp_data/tracking.py",
+      "qualname": "env_lock_hash",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "09abaec0d967f3454c564fc6b525d604356b5a04786c6b3b0d627c57638eb18d",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `lru_cache(...)` rooteada en modulo canonico via submodulo/from-import (B289); benigna, sin reflexion dinamica; revisada 2026-07-19.",
+      "review_by": "2027-07-19"
+    },
+    "65403a4644c835a05b4a05e3580c21f2e7e27ddf0dd18a08ad71dd035c1404c4": {
+      "file": "vp_model/config.py",
+      "qualname": "run_metadata._ver",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "3d86b665053cf46f7b09d726a56c2cd2ac1e01882427a045a5efe10a6f16ca2d",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `importlib.metadata.version(...)` rooteada en modulo canonico via submodulo/from-import (B289); benigna, sin reflexion dinamica; revisada 2026-07-19.",
       "review_by": "2027-07-19"
     }
   }
