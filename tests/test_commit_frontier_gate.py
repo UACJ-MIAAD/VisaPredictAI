@@ -643,7 +643,7 @@ def test_b269_contract_schema_and_files_exact():
 # uid/nlink/modo/no-especiales, sin O_NONBLOCK, sin snapshot pre/post, reabriendo el contrato/crítico por ruta).
 # expected_old_behavior: aceptar (rc0 / sin problema) un árbol con ancestro symlink, modo laxo, hardlink u objeto especial.
 # ---------------------------------------------------------------------------
-_GOVERN_RELS = (*gate._AUTHORITY_FILES, "security/commit_frontier_fingerprints.json")
+_GOVERN_RELS = (*getattr(gate, "_AUTHORITY_FILES", ()), "security/commit_frontier_fingerprints.json")
 
 
 def _lay_governed_tree(tmp_path):
@@ -909,3 +909,55 @@ def test_gate_b249_taint_obfuscation(tmp_path, monkeypatch):
 
 def test_gate_b249_real_code_clean():
     assert not gate.authority_scope_problems()  # el arbol real no dispara falsos positivos del taint
+
+
+# ---------------------------------------------------------------------------
+# B279 — evidencia RED CONDUCTUAL (no schema-absence) para B269. `_adaptive_fingerprint` construye el contrato que el
+# módulo de ESTA era ENTIENDE (schema-2 sin authority_files en 2ce76d8; schema-3 con authority_files aquí) usando sus
+# propias constantes, así `fingerprint_problems()` corre DE VERDAD en ambos SHAs. El payload muta el OBJETO función
+# (`commit_current.__code__ = _evil.__code__`) sin tocar el AST de los tres `def`: en 2ce76d8 (sólo AST) se ACEPTA
+# (RED), aquí el hash del fichero completo lo RECHAZA. Fe de erratas: el RED previo (test schema-3 en 2ce76d8) sólo
+# probaba ausencia de maquinaria, no la conducta vulnerable.
+# ---------------------------------------------------------------------------
+_B279_TAMPER = b"\ndef _evil(a, b):\n    return 999\ncommit_current.__code__ = _evil.__code__\n"
+
+
+def _adaptive_fingerprint(tmp_path, monkeypatch, tamper=b""):
+    (tmp_path / "tools").mkdir(exist_ok=True)
+    (tmp_path / "security").mkdir(exist_ok=True)
+    clean = _SYN_OK.encode()
+    (tmp_path / "tools" / "campaign_bundle.py").write_bytes(clean + tamper)  # el FICHERO lleva el tamper
+    fns = {n: _fp_of(ast.parse(_SYN_OK), n) for n in _CRIT}  # fingerprints de los defs LIMPIOS (== defs con tamper)
+    has_auth = hasattr(gate, "_AUTHORITY_FILES")
+    contract = {
+        "schema_version": gate._FINGERPRINT_SCHEMA, "note": "x", "source": "tools/campaign_bundle.py",
+        "algorithm": _ALGO, "functions": fns,
+    }  # fmt: skip
+    chmod_rels = ["tools/campaign_bundle.py", "security/commit_frontier_fingerprints.json"]
+    if has_auth:
+        afiles = {"tools/campaign_bundle.py": _sha256(clean)}  # APROBADO sobre los bytes LIMPIOS
+        for f in gate._AUTHORITY_FILES:
+            if f != "tools/campaign_bundle.py":
+                (tmp_path / f).write_bytes(b"# stub\n")
+                afiles[f] = _sha256(b"# stub\n")
+                chmod_rels.append(f)
+        contract["authority_files_algorithm"] = gate._AUTHORITY_ALGORITHM
+        contract["authority_files"] = afiles
+    (tmp_path / "security" / "commit_frontier_fingerprints.json").write_text(json.dumps(contract))
+    for rel in chmod_rels:
+        (tmp_path / rel).chmod(0o644)
+    monkeypatch.setattr(gate, "_ROOT", str(tmp_path))
+    monkeypatch.setattr(gate, "_git_tracked", lambda r: True)
+    return gate.fingerprint_problems()
+
+
+def test_b279_b269_code_object_mutation_behavioral(monkeypatch, tmp_path):
+    # probe de runtime: el payload cambia DE VERDAD el comportamiento de commit_current (de a+b a 999).
+    ns: dict = {}
+    exec(_SYN_OK + _B279_TAMPER.decode(), ns)  # noqa: S102  (payload de prueba controlado)
+    assert ns["commit_current"](1, 2) == 999, "el payload __code__ debe cambiar el comportamiento (B279/B269)"
+    # árbol limpio: aceptado en ambas eras (control)
+    assert _adaptive_fingerprint(tmp_path, monkeypatch) == [], "el árbol limpio debe pasar (B279)"
+    # con el tamper: el AST de los 3 defs NO cambia; sólo cambian los BYTES del fichero.
+    probs = _adaptive_fingerprint(tmp_path, monkeypatch, _B279_TAMPER)
+    assert probs, "la mutación del objeto función (bytes del fichero) debe rechazarse (B279/B269)"

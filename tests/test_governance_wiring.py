@@ -16,7 +16,12 @@ import tools.check_p0r5_governance as gov
 # capturado UNA vez, antes de cualquier monkeypatch de gov.ROOT.
 _REAL_CI = open(os.path.join(gov.ROOT, gov._WORKFLOW), encoding="utf-8").read()
 _REAL_ROOT = gov.ROOT
-_REAL_REGISTRY = json.loads(open(os.path.join(gov.ROOT, gov._ACTION_REGISTRY), encoding="utf-8").read())
+# defensivo para la verificación RED en 2ce76d8 (era sin registro de Actions): {} allí, el registro real aquí.
+_REAL_REGISTRY = (
+    json.loads(open(os.path.join(gov.ROOT, gov._ACTION_REGISTRY), encoding="utf-8").read())
+    if hasattr(gov, "_ACTION_REGISTRY")
+    else {}
+)
 
 
 def _run_on(text: str, monkeypatch) -> list[str]:
@@ -251,3 +256,38 @@ def test_b275_success_step_run_decoy_and_extra_step_rejected(monkeypatch):
 def test_b275_duplicate_yaml_key_in_ci_gate_rejected(monkeypatch):
     dup = _ci_gate_replace("    name: ci-gate\n", "    name: ci-gate\n    name: ci-gate\n")
     assert _run(monkeypatch, ci=dup), "clave YAML duplicada en ci-gate debe fallar cerrado (B275)"
+
+
+# ---------------------------------------------------------------------------
+# B279 — evidencia RED CONDUCTUAL (no AttributeError) para B271. Module-adaptive: en 2ce76d8 el checker valida los
+# gates como pasos de `consistency` y NO mira env/defaults/container del JOB → un `env` neutralizador con los comandos
+# intactos se ACEPTA (RED). Aquí el job dedicado exige claves exactas y lo RECHAZA. `_run_ci_only` no escribe el
+# registro en la era vieja (que no lo usa) para no provocar un AttributeError. Fe de erratas: el RED previo daba
+# `AttributeError _ACTION_REGISTRY`, que sólo probaba ausencia de API.
+# ---------------------------------------------------------------------------
+def _run_ci_only(ci: str, monkeypatch) -> list[str]:
+    d = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d, ".github", "workflows"))
+    with open(os.path.join(d, ".github", "workflows", "ci.yml"), "w", encoding="utf-8") as fh:
+        fh.write(ci)
+    if hasattr(gov, "_ACTION_REGISTRY"):  # sólo la era nueva usa el registro positivo de Actions
+        os.makedirs(os.path.join(d, "security"))
+        shutil.copy(os.path.join(_REAL_ROOT, gov._ACTION_REGISTRY), os.path.join(d, gov._ACTION_REGISTRY))
+    monkeypatch.setattr(gov, "ROOT", d)
+    return gov.problems()
+
+
+def test_b279_b271_job_context_neutralizer_must_be_rejected(monkeypatch):
+    if getattr(gov, "_JOB", None) == "consistency" and hasattr(gov, "REQUIRED_STEPS"):
+        # era 2ce76d8: gates INTACTOS como pasos de `consistency` + un `env` de JOB (neutralizador invisible al checker).
+        steps = "".join(f"      - name: {n}\n        run: {c}\n" for n, c in gov.REQUIRED_STEPS.items())
+        ci = (
+            "jobs:\n  consistency:\n    runs-on: ubuntu-latest\n"
+            "    env:\n      PATH: /tmp/attacker-bin\n    steps:\n" + steps
+        )
+    else:
+        # era nueva: p0r5-governance con un `env` de JOB → claves de job != exactas.
+        ci = _REAL_CI.replace(
+            "  p0r5-governance:\n", "  p0r5-governance:\n    env:\n      PATH: /tmp/attacker-bin\n", 1
+        )
+    assert _run_ci_only(ci, monkeypatch), "una gobernanza neutralizada por `env` de job debe rechazarse (B279/B271)"
