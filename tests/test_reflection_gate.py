@@ -878,6 +878,11 @@ def test_b321_aliased_accessors_over_factory_module_prohibited(tmp_path, monkeyp
     }.items():
         ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
         assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"{label}: no debe sobredisparar (B321): {ops}"
+    # LÍMITE HONESTO (§7.3): un accesor via CONTENEDOR NOMBRADO (`d = {...}; g = d['k']`) no se resuelve a prohibido —
+    # misma frontera que la procedencia de módulos — pero el módulo-fábrica que fluye como ARGUMENTO produce un
+    # `reflection-module-escape` REGISTRABLE (no invisible: exige entrada de registro + revisión).
+    ops, _ = _ops_and_problems(tmp_path, monkeypatch, "import builtins\nd = {'k': getattr}\ng = d['k']\nf = g(builtins, 'x')\n")  # fmt: skip
+    assert refl._REFLECTION_MODULE_ESCAPE in ops, f"el escape del módulo-fábrica no debe quedar invisible: {ops}"
 
 
 def test_b316_b323_deep_smoke_imports_match_the_independent_contract():
