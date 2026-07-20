@@ -600,20 +600,27 @@ class GovernanceSnapshot(AbstractContextManager):
         issues: list[_ProcessIssue],
         interrupt: list[BaseException | None],
     ) -> object:
-        """B319: ejecuta UNA operación de cleanup y clasifica CUALQUIER excepción SIN allowlists parciales (un solo helper,
-        no una tupla distinta por paso). Un `Exception` se ACUMULA como `_ProcessIssue` observable (dedup); un
-        `KeyboardInterrupt`/`SystemExit` se RETIENE (el PRIMERO) en `interrupt` y el cleanup CONTINÚA (se propaga al final
-        si no había primario). NINGUNA excepción escapa antes de ejecutar los pasos restantes. Devuelve `fn()` o None."""
+        """B319/B330: ejecuta UNA operación de cleanup y clasifica CUALQUIER `BaseException` SIN allowlists parciales (un
+        solo helper). Un `Exception` normal se ACUMULA como `_ProcessIssue` observable (dedup) y NO se repropaga; un
+        `KeyboardInterrupt`/`SystemExit`/`GeneratorExit` (interrupción) se RETIENE (el PRIMERO) en `interrupt` y el cleanup
+        CONTINÚA (se repropaga al final si no había primario); cualquier OTRO `BaseException` raro se retiene como cleanup
+        incompleto y se repropaga. NINGUNA excepción escapa antes de ejecutar los pasos restantes. Devuelve `fn()` o None."""
         try:
             return fn()
-        except (KeyboardInterrupt, SystemExit) as exc:  # B319: retener el PRIMER interrupt y CONTINUAR limpiando
+        # B330: interrupción (incl. GeneratorExit) — retener el PRIMERO y CONTINUAR limpiando (se repropaga sin primario)
+        except (KeyboardInterrupt, SystemExit, GeneratorExit) as exc:
             if interrupt[0] is None:
                 interrupt[0] = exc
             cls._record_issue(issues, phase, operation, f"interrupción {type(exc).__name__} durante cleanup")
         except Exception as exc:  # noqa: BLE001
-            # B319: frontera de cleanup — CUALQUIER fallo se ACUMULA como incidencia observable; jamás escapa crudo ni
-            # reemplaza el primario. Captura amplia JUSTIFICADA (regresión de propagación KI/SE lo respalda).
+            # B319: frontera de cleanup — un fallo NORMAL se ACUMULA como incidencia; jamás escapa crudo ni reemplaza el
+            # primario, ni se repropaga. Captura amplia JUSTIFICADA (la regresión de propagación KI/SE/GE lo respalda).
             cls._record_issue(issues, phase, operation, f"{type(exc).__name__}: {exc}")
+        # B330: otro BaseException raro (no Exception/KI/SE/GE) → cleanup incompleto, se retiene y repropaga al final
+        except BaseException as exc:
+            if interrupt[0] is None:
+                interrupt[0] = exc
+            cls._record_issue(issues, phase, operation, f"cleanup incompleto: {type(exc).__name__}: {exc}")
         return None
 
     def _cleanup_process(

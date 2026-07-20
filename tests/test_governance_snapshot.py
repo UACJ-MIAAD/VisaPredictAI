@@ -1124,7 +1124,12 @@ def test_b314_b315_b318_runner_lifecycle_shape():
     assert '"stdout"' in src_clean and '"stderr"' in src_clean
     # 8. `_guarded_step` (B319): retiene el PRIMER KI/SE y ACUMULA cualquier Exception; su frontera no puede reemplazar el
     # primario del cuerpo (en `_run_bounded` el `primary` manda y el interrupt de cleanup sólo se propaga sin primario).
-    assert "except (KeyboardInterrupt, SystemExit)" in src_guard and "except Exception" in src_guard
+    # B330: `_guarded_step` retiene TODA interrupción (incl. GeneratorExit) y tiene un catch-all `except BaseException`
+    # final para cualquier otro BaseException raro (cleanup incompleto, repropagado); un Exception NORMAL sólo se acumula.
+    # (whitespace-robusto: ruff puede envolver la tupla larga con coma mágica final)
+    guard_flat = re.sub(r"\s+", "", src_guard)
+    assert "except(KeyboardInterrupt,SystemExit,GeneratorExit" in guard_flat, "B330: GeneratorExit debe retenerse"
+    assert "exceptExceptionasexc" in guard_flat and "exceptBaseExceptionasexc" in guard_flat
     assert "if primary is not None:" in src_run and "if cleanup_interrupt is not None:" in src_run
     assert src_run.index("if primary is not None:") < src_run.index("if cleanup_interrupt is not None:")
     # 9. B320: el fallo de `poll()` pasa por `_guarded_step` (no se descarta) y killpg alimenta una incidencia.
@@ -1141,6 +1146,72 @@ def test_b314_b315_b318_runner_lifecycle_shape():
     assert (
         "signal.SIGTERM" in src_fallback and "signal.SIGKILL" in src_fallback and "_GroupState.ABSENT" in src_fallback
     )
+
+
+# ---------------------------------------------------------------------------
+# B330 — `_guarded_step` sólo retenía `(KeyboardInterrupt, SystemExit)` y acumulaba `Exception`; un `GeneratorExit` (que es
+# `BaseException` pero NO `Exception`) de un paso de cleanup ESCAPABA crudo de `_cleanup_process`, saltándose los pasos
+# restantes y dejando el segundo pipe ABIERTO. Ahora GeneratorExit es una interrupción retenida: el cleanup CONTINÚA
+# (cierra AMBOS pipes) y se propaga después; cualquier otro BaseException raro cae en el catch-all y también se repropaga.
+# ---------------------------------------------------------------------------
+def test_b330_generatorexit_in_cleanup_is_retained_not_escaped(monkeypatch):
+    class _Pipe:  # pipe mínimo cerrable; el primero eleva GeneratorExit al cerrar
+        def __init__(self, boom=False):
+            self.closed = False
+            self._boom = boom
+
+        def close(self):
+            if self._boom:
+                raise GeneratorExit("ge-on-close")
+            self.closed = True
+
+    class _Proc:
+        pid = 999999
+
+        def __init__(self):
+            self.stdout = _Pipe(boom=True)  # el PRIMER pipe eleva GeneratorExit al cerrar
+            self.stderr = _Pipe(boom=False)  # el SEGUNDO debe cerrarse igual (el cleanup no puede abortar)
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+    # aísla B330 en la fase de pipes: la fase de grupo es un no-op limpio
+    monkeypatch.setattr(
+        gs.GovernanceSnapshot,
+        "_finish_process_group",
+        lambda self, proc, pgid, *, terminate, interrupt: (0, gs._GroupState.ABSENT, []),
+    )
+    snap = gs.GovernanceSnapshot(_REPO_ROOT)
+    proc = _Proc()
+    try:
+        _rc, issues, interrupt = snap._cleanup_process(None, proc, must_terminate=True)
+    except GeneratorExit:  # comportamiento INSEGURO del SHA base: el GeneratorExit ESCAPA del cleanup
+        pytest.fail("B330: GeneratorExit escapó de _cleanup_process (el 2º pipe quedó ABIERTO)")
+    assert isinstance(interrupt, GeneratorExit), interrupt  # retenido como interrupción, no escapado
+    assert proc.stderr.closed, "B330: el 2º pipe DEBE cerrarse pese al GeneratorExit del 1º"
+    assert any(i.operation == "close-stdout" for i in issues), issues
+
+
+def test_b330_generatorexit_propagates_from_runner_after_cleanup():
+    # B330 end-to-end: un GeneratorExit del cuerpo (aquí en `select`) propaga como PRIMARIO tras un cleanup TOTAL — el
+    # hijo se termina y ambos pipes se cierran. En el SHA base escapaba antes del cleanup del grupo.
+    import selectors
+
+    class _GESel(selectors.DefaultSelector):
+        def select(self, timeout=None):
+            raise GeneratorExit("primary-ge")
+
+    real = selectors.DefaultSelector
+    selectors.DefaultSelector = _GESel
+    try:
+        snap = gs.GovernanceSnapshot(_REPO_ROOT)
+        with pytest.raises(GeneratorExit):
+            snap._run_bounded(["/bin/echo", "hi"], 4096)
+    finally:
+        selectors.DefaultSelector = real
 
 
 # ---------------------------------------------------------------------------
