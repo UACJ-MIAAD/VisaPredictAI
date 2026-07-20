@@ -14,6 +14,8 @@ hostil root/uid-actual que alterne y restaure el árbol entre checkpoints — la
 
 from __future__ import annotations
 
+import contextlib
+import enum
 import hashlib
 import os
 import selectors
@@ -68,6 +70,27 @@ _CATEGORY_CAPS = {  # B296: cada categoría fija su cota superior; una categorí
 
 class GovernanceSnapshotError(Exception):
     """Fallo fail-closed de una lectura gobernada (identidad/modo/tamaño/cierre/ruta/política/ciclo de vida)."""
+
+
+class _GroupState(enum.Enum):
+    """B318: estado TRI-VALUADO del grupo de proceso. `UNKNOWN` NUNCA equivale a limpio (fail-closed)."""
+
+    ABSENT = "absent"  # el grupo ya no existe (ProcessLookupError)
+    PRESENT = "present"  # queda al menos un proceso vivo en el grupo
+    UNKNOWN = "unknown"  # no señalizable/error de sonda (PermissionError u otro OSError) → fail-closed
+
+
+@dataclass(frozen=True, slots=True)
+class _ProcessIssue:
+    """B314/B315/B318: incidencia ESTRUCTURADA de una fase del ciclo de vida del proceso gobernado. Se ACUMULA
+    (nunca reemplaza el error primario); el texto sólo se materializa al clasificar el resultado final."""
+
+    phase: str  # adquisición | terminación | reap | reconciliación | cleanup
+    operation: str  # p.ej. killpg-TERM, wait, selector-close, close-stdout
+    detail: str
+
+    def __str__(self) -> str:
+        return f"{self.phase}/{self.operation}: {self.detail}"
 
 
 @dataclass(frozen=True)
@@ -464,42 +487,45 @@ class GovernanceSnapshot(AbstractContextManager):
         return stdout
 
     def _run_bounded(self, argv: list[str], out_limit: int) -> bytes:
-        """B306/B311/B312/B313: runner TOTAL y PORTABLE. `Popen` en SESIÓN/GRUPO privado (`start_new_session=True`) con
-        stdin DEVNULL, close_fds; espera con `selectors.DefaultSelector` (epoll/kqueue, sin techo FD_SETSIZE) sobre fds
-        NO bloqueantes; deadline monotónico único; límites de stdout/stderr. Al exceder límite/timeout: termina el GRUPO
-        completo (TERM→grace→KILL, `os.killpg`) y reconcilia que no quede proceso vivo. Taxonomía TOTAL: ningún
-        ValueError/OverflowError/OSError/ProcessLookupError sale crudo; el error PRIMARIO se preserva y el cleanup se
-        ADJUNTA (nunca lo reemplaza); KeyboardInterrupt/SystemExit propagan tras limpiar."""
-        try:
-            proc = subprocess.Popen(
-                argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                env=dict(_GIT_CHILD_ENV), close_fds=True, start_new_session=True,  # B312: grupo/sesión privados
-            )  # fmt: skip
-        except OSError as exc:
-            raise GovernanceSnapshotError(f"git no ejecutable ({exc}) (fail-closed B306)") from exc
-        pgid = proc.pid  # B312: start_new_session ⇒ pgid == pid del hijo
+        """B306/B311/B312/B313/B314/B315/B318: runner TOTAL, PORTABLE y de ADQUISICIÓN/LIMPIEZA COMPLETA. El selector se
+        construye ANTES de `Popen` (B314: si falla, no hay hijo que limpiar); el ciclo entero se envuelve en una captura
+        `BaseException` cuyo ÚNICO fin es ejecutar cleanup y reelevar (B315: `KeyboardInterrupt`/`SystemExit` propagan tras
+        limpiar). `Popen` en SESIÓN/GRUPO privado (`start_new_session=True`), stdin DEVNULL, close_fds; espera con
+        `selectors.DefaultSelector` (epoll/kqueue, sin techo FD_SETSIZE) sobre fds NO bloqueantes; deadline monotónico;
+        límites de stdout/stderr. El cleanup es TOTAL (`_cleanup_process`): cada paso propio, ninguna instrucción sin guard
+        puede cortar las siguientes; toda salida anormal exige terminación del grupo; el grupo se verifica INCLUSO tras
+        `rc=0` (B315: un nieto residual se termina y falla). El error PRIMARIO se preserva y las incidencias se ADJUNTAN."""
+        sel: selectors.BaseSelector | None = None
+        proc: subprocess.Popen[bytes] | None = None
         out_chunks: list[bytes] = []
         counts = {"out": 0, "err": 0}
-        deadline = time.monotonic() + _GIT_TIMEOUT_S
         problem: str | None = None
-        cleanup_errors: list[str] = []
-        assert proc.stdout is not None and proc.stderr is not None
-        sel = selectors.DefaultSelector()
+        primary: BaseException | None = None
+        event_loop_complete = False
         try:
+            try:  # B314: adquirir el selector ANTES del proceso; su fallo NO deja hijo
+                sel = selectors.DefaultSelector()
+            except (OSError, ValueError, OverflowError) as exc:
+                raise GovernanceSnapshotError(f"selector no construible ({exc}) (fail-closed B314)") from exc
+            try:
+                proc = subprocess.Popen(
+                    argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    env=dict(_GIT_CHILD_ENV), close_fds=True, start_new_session=True,  # B312: grupo/sesión privados
+                )  # fmt: skip
+            except OSError as exc:
+                raise GovernanceSnapshotError(f"git no ejecutable ({exc}) (fail-closed B306)") from exc
+            assert proc.stdout is not None and proc.stderr is not None
             for stream, tag in ((proc.stdout, "out"), (proc.stderr, "err")):
                 os.set_blocking(stream.fileno(), False)  # B311: no bloqueante; BlockingIOError = sin datos ahora
                 sel.register(stream.fileno(), selectors.EVENT_READ, tag)
+            deadline = time.monotonic() + _GIT_TIMEOUT_S
             open_fds = 2
             while open_fds and problem is None:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     problem = "timeout"
                     break
-                try:
-                    events = sel.select(remaining)
-                except (OSError, ValueError, OverflowError) as exc:  # B311: backend total, sin excepción cruda
-                    problem = f"selector falló ({exc})"
-                    break
+                events = sel.select(remaining)
                 if not events:
                     problem = "timeout"
                     break
@@ -508,9 +534,6 @@ class GovernanceSnapshot(AbstractContextManager):
                         data = os.read(key.fd, 1 << 16)
                     except BlockingIOError:
                         continue  # B311: sin datos disponibles, no es error terminal
-                    except OSError as exc:
-                        problem = f"lectura del pipe falló ({exc})"
-                        break
                     if not data:
                         sel.unregister(key.fd)
                         open_fds -= 1
@@ -524,85 +547,156 @@ class GovernanceSnapshot(AbstractContextManager):
                     elif counts["err"] > _GIT_STDERR_MAX_BYTES:
                         problem = "stderr excede el límite"
                         break
-        except (OSError, ValueError, OverflowError) as exc:  # B311: red de seguridad total (KI/SystemExit propagan)
+            event_loop_complete = problem is None
+        except GovernanceSnapshotError as exc:  # taxonomía propia (selector/Popen) → limpiar y reelevar tal cual
+            primary = exc
+        except (
+            OSError,
+            ValueError,
+            OverflowError,
+        ) as exc:  # B311: red de seguridad total del bucle → problem (adjuntable)
             problem = f"runner falló ({exc})"
+        except BaseException as exc:  # B315: KI/SE/inesperado → limpiar y reelevar el MISMO objeto
+            primary = exc
         finally:
-            sel.close()  # B311: cerrar el selector en CUALQUIER camino
-            # B312/B313: terminar el GRUPO antes de cerrar pipes (un nieto puede conservar el extremo escritor).
-            rc, reap_errors = self._terminate_group(proc, pgid, kill=problem is not None)
-            cleanup_errors.extend(reap_errors)
-            for f in (proc.stdout, proc.stderr):
-                try:
-                    f.close()
-                except OSError as exc:
-                    cleanup_errors.append(f"close pipe: {exc}")
-        _suffix = f" | cleanup: {'; '.join(cleanup_errors)}" if cleanup_errors else ""
-        if problem is not None:  # B313: primario preservado, cleanup ADJUNTO (nunca lo reemplaza)
-            raise GovernanceSnapshotError(f"git {argv[-1]}: {problem}{_suffix} (fail-closed B306)")
-        if cleanup_errors:  # camino exitoso pero cleanup falló → fail-closed
-            raise GovernanceSnapshotError(f"git {argv[-1]}: cleanup falló: {'; '.join(cleanup_errors)} (B313)")
+            # B314/B315/B318: cleanup TOTAL. `must_terminate` NUNCA se deriva sólo de `problem`: cualquier primario,
+            # cualquier error, o un bucle incompleto exigen terminar el grupo (§5.4 del plan).
+            must_terminate = primary is not None or problem is not None or not event_loop_complete
+            rc, issues = self._cleanup_process(sel, proc, must_terminate=must_terminate)
+        suffix = f" | incidencias: {'; '.join(str(i) for i in issues)}" if issues else ""
+        if primary is not None:  # B315: el primario manda; KI/SE se reelevan intactos (con notas de incidencias)
+            for issue in issues:
+                primary.add_note(str(issue))
+            raise primary
+        if problem is not None:  # B313: primario del bucle preservado, incidencias ADJUNTAS (nunca lo reemplazan)
+            raise GovernanceSnapshotError(f"git {argv[-1]}: {problem}{suffix} (fail-closed B306)")
+        if issues:  # camino feliz pero cleanup incompleto → fail-closed
+            raise GovernanceSnapshotError(f"git {argv[-1]}: cleanup incompleto{suffix} (fail-closed B313)")
         if rc != 0:
             raise GovernanceSnapshotError(f"git {argv[-1]} rc={rc} (fail-closed B306)")
         return b"".join(out_chunks)
 
+    def _cleanup_process(
+        self, sel: selectors.BaseSelector | None, proc: subprocess.Popen[bytes] | None, *, must_terminate: bool
+    ) -> tuple[int | None, list[_ProcessIssue]]:
+        """B314/B315/B318: cleanup TOTAL del proceso gobernado. Ejecuta TODOS los pasos aunque cualquiera falle: (1)
+        terminar/reconciliar el grupo + reap del hijo; (2) desregistrar fds restantes; (3) cerrar el selector; (4) cerrar
+        stdout; (5) cerrar stderr. Cada paso tiene su propio guard y ACUMULA una `_ProcessIssue`; NINGÚN cleanup desnudo
+        puede cortar los siguientes, y NO existe `except ...: pass`. Devuelve `(rc, incidencias)`."""
+        issues: list[_ProcessIssue] = []
+        rc: int | None = None
+        if proc is not None:  # pasos 1-3 del plan §5.3: terminar grupo, reconciliar, reap del hijo directo
+            rc, _final_state, group_issues = self._finish_process_group(proc, proc.pid, terminate=must_terminate)
+            issues.extend(group_issues)
+        if sel is not None:  # paso 4: desregistrar fds vivos antes de cerrar el selector
+            try:
+                for key in list(sel.get_map().values()):
+                    try:
+                        sel.unregister(key.fd)
+                    except (KeyError, ValueError, OSError) as exc:
+                        issues.append(_ProcessIssue("cleanup", "unregister", str(exc)))
+            except (KeyError, ValueError, OSError, RuntimeError) as exc:
+                issues.append(_ProcessIssue("cleanup", "get_map", str(exc)))
+            try:  # paso 5: cerrar el selector — su fallo NO impide cerrar los pipes
+                sel.close()
+            except (OSError, ValueError) as exc:
+                issues.append(_ProcessIssue("cleanup", "selector-close", str(exc)))
+        if proc is not None:  # pasos 6-7: cerrar cada pipe de forma INDEPENDIENTE (uno no bloquea al otro)
+            for stream, tag in ((proc.stdout, "stdout"), (proc.stderr, "stderr")):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except (OSError, ValueError) as exc:
+                        issues.append(_ProcessIssue("cleanup", f"close-{tag}", str(exc)))
+        return rc, issues
+
     @staticmethod
-    def _group_alive(pgid: int) -> bool:
-        """B312: ¿queda algún proceso VIVO en el grupo? `killpg(pgid, 0)` no señala, sólo consulta existencia."""
+    def _group_state(pgid: int) -> tuple[_GroupState, _ProcessIssue | None]:
+        """B318: estado TRI-VALUADO del grupo. `killpg(pgid, 0)` no señala, sólo consulta. `ProcessLookupError`→ABSENT;
+        éxito→PRESENT; `PermissionError` u otro `OSError`→UNKNOWN + incidencia (jamás se descarta; UNKNOWN ≠ limpio)."""
         try:
             os.killpg(pgid, 0)
-            return True
         except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True  # existe pero no señalizable → conservador: vivo
+            return _GroupState.ABSENT, None
+        except (PermissionError, OSError) as exc:
+            return _GroupState.UNKNOWN, _ProcessIssue("sonda", "killpg0", str(exc))
+        return _GroupState.PRESENT, None
 
-    @classmethod
-    def _terminate_group(cls, proc: subprocess.Popen, pgid: int, *, kill: bool) -> tuple[int | None, list[str]]:
-        """B312/B313: termina el GRUPO privado completo (TERM→grace→KILL) y recolecta al hijo, con taxonomía TOTAL.
-        Nunca señala el grupo del proceso auditor (`pgid == proc.pid != os.getpgrp()`). Devuelve `(rc, errores)`."""
-        errors: list[str] = []
-        if kill:
-            if pgid == proc.pid and pgid != os.getpgrp():
-                try:
-                    os.killpg(pgid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass  # el grupo ya no existe
-                except OSError as exc:
-                    errors.append(f"killpg TERM: {exc}")
-                grace_end = time.monotonic() + 2.0
-                while time.monotonic() < grace_end and cls._group_alive(pgid):
-                    time.sleep(0.02)
-                if cls._group_alive(pgid):
-                    try:
-                        os.killpg(pgid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    except OSError as exc:
-                        errors.append(f"killpg KILL: {exc}")
+    def _finish_process_group(
+        self, proc: subprocess.Popen[bytes], pgid: int, *, terminate: bool
+    ) -> tuple[int | None, _GroupState, list[_ProcessIssue]]:
+        """B312/B315/B318: termina el GRUPO privado (TERM→grace→KILL) y recolecta al hijo con taxonomía TOTAL. Nunca
+        señala el grupo del auditor (`pgid == proc.pid != os.getpgrp()`). Verifica el grupo INCLUSO tras `rc=0`: un
+        descendiente residual se termina y se reporta como `descendientes-inesperados`. JAMÁS eleva ni usa `except: pass`;
+        toda `killpg` alimenta una incidencia/estado. Devuelve `(rc, estado_final, incidencias)`."""
+        issues: list[_ProcessIssue] = []
+        isolated = pgid == proc.pid and pgid != os.getpgrp()
+
+        def _signal(sig: int, op: str) -> None:  # killpg gobernado: ABSENT se ignora, cualquier otro error se ACUMULA
+            try:
+                os.killpg(pgid, sig)
+            except ProcessLookupError:
+                return  # el grupo ya no existe → terminación efectiva, no es un error de cleanup
+            except OSError as exc:
+                issues.append(_ProcessIssue("terminación", op, str(exc)))
+
+        def _grace_probe(deadline_s: float) -> _GroupState:  # espera activa: reap del padre + sonda del grupo
+            end = time.monotonic() + deadline_s
+            state = _GroupState.UNKNOWN
+            while time.monotonic() < end:
+                with contextlib.suppress(OSError, ValueError):
+                    proc.poll()  # reap best-effort del padre (zombie) para que el grupo pueda vaciarse; la sonda decide
+                state, issue = self._group_state(pgid)
+                if issue is not None:
+                    issues.append(issue)
+                if state == _GroupState.ABSENT:
+                    return state
+                time.sleep(0.02)
+            return state
+
+        if terminate:  # terminación PROACTIVA del grupo ante cualquier salida anormal
+            if not isolated:
+                issues.append(_ProcessIssue("terminación", "aislamiento", f"pgid {pgid} no aislado (== auditor)"))
             else:
-                errors.append(f"pgid {pgid} no aislado (== auditor) — no se señala")
-        try:  # B313: reap del hijo directo sin filtrar excepción cruda
+                _signal(signal.SIGTERM, "killpg-TERM")
+                if _grace_probe(2.0) != _GroupState.ABSENT:
+                    _signal(signal.SIGKILL, "killpg-KILL")
+        try:  # reap del hijo directo con deadline; sin excepción cruda
             rc: int | None = proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            try:
-                os.killpg(pgid, signal.SIGKILL)
-            except OSError:
-                pass
+            _signal(signal.SIGKILL, "killpg-KILL")
             try:
                 rc = proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 rc = None
-                errors.append("wait: el hijo no terminó tras SIGKILL")
+                issues.append(_ProcessIssue("reap", "wait", "el hijo no terminó tras SIGKILL"))
+            except OSError as exc:
+                rc = None
+                issues.append(_ProcessIssue("reap", "wait", str(exc)))
         except OSError as exc:
             rc = None
-            errors.append(f"wait: {exc}")
-        if kill:  # B312: reconciliación final — el grupo debe haber desaparecido (zombies reapeados por init)
-            recon_end = time.monotonic() + 1.0
-            while time.monotonic() < recon_end and cls._group_alive(pgid):
-                time.sleep(0.02)
-            if cls._group_alive(pgid):
-                errors.append("cleanup de grupo incompleto (proceso vivo en el grupo)")
-        return rc, errors
+            issues.append(_ProcessIssue("reap", "wait", str(exc)))
+        # B315: verificación/reconciliación INCLUSO en éxito — un nieto que daemoniza en el grupo no deja trabajo
+        # residual. Cualquier estado != ABSENT (PRESENT o UNKNOWN — la sonda pudo fallar) exige intento de terminación
+        # de mejor esfuerzo Y fail-closed: UNKNOWN nunca equivale a limpio.
+        final_state, issue = self._group_state(pgid)
+        if issue is not None:
+            issues.append(issue)
+        if isolated and final_state != _GroupState.ABSENT:
+            if not terminate and final_state == _GroupState.PRESENT:  # descendientes tras rc en el camino feliz
+                issues.append(
+                    _ProcessIssue("reconciliación", "descendientes-inesperados", "grupo con descendientes tras rc")
+                )
+            _signal(signal.SIGTERM, "killpg-TERM")
+            final_state = _grace_probe(1.0)
+            if final_state != _GroupState.ABSENT:
+                _signal(signal.SIGKILL, "killpg-KILL")
+                final_state = _grace_probe(1.0)
+            if final_state != _GroupState.ABSENT:  # tras TERM→KILL sigue sin desaparecer (o la sonda no resuelve)
+                issues.append(_ProcessIssue("reconciliación", "grupo", f"grupo no ausente: {final_state.value}"))
+        elif not isolated and final_state == _GroupState.UNKNOWN:  # sin aislamiento no señalamos; sólo reportamos
+            issues.append(_ProcessIssue("reconciliación", "grupo", "estado de grupo desconocido"))
+        return rc, final_state, issues
 
     def _capture_inventory(self) -> tuple[tuple[str, ...], str, tuple]:
         """B301/B303: UNA captura del inventario versionado COMPLETO (sin pathspec del caller) vía el git ABSOLUTO

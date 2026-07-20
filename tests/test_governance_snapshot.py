@@ -612,7 +612,9 @@ def test_b311_selector_error_stays_in_taxonomy(monkeypatch):
 
     monkeypatch.setattr(selectors, "DefaultSelector", _BadSel)
     snap = gs.GovernanceSnapshot(_REPO_ROOT)
-    with pytest.raises(gs.GovernanceSnapshotError, match="selector"):
+    # B314: un fallo del backend de espera se convierte a la taxonomía (`runner falló`) y termina el grupo; el
+    # ValueError crudo jamás escapa (el mensaje concreto cambió al unificar la red de seguridad del bucle).
+    with pytest.raises(gs.GovernanceSnapshotError, match="runner falló"):
         snap._run_bounded(["/bin/echo", "hi"], 4096)
 
 
@@ -693,6 +695,214 @@ def test_b313_primary_preserved_over_cleanup(monkeypatch):
     snap = gs.GovernanceSnapshot(_REPO_ROOT)
     with pytest.raises(gs.GovernanceSnapshotError, match="límite"):
         snap._run_bounded(["/bin/sh", "-c", "head -c 1000000 /dev/zero"], 1024)
+
+
+# ---------------------------------------------------------------------------
+# B314 — la adquisición/cierre del selector caían FUERA de la transacción: `Popen` precedía a
+# `selectors.DefaultSelector()` (un fallo del ctor dejaba al hijo huérfano) y `sel.close()` era la primera
+# instrucción sin guard del `finally` (su fallo cortaba `_terminate_group`/cierre de pipes). Ahora el selector se
+# construye ANTES del proceso y el cleanup es TOTAL (cada paso con su propio guard).
+# ---------------------------------------------------------------------------
+def test_b314_selector_ctor_failure_creates_no_child():
+    import selectors
+
+    class _BadCtor(selectors.DefaultSelector):
+        def __init__(self):
+            raise ValueError("selector ctor boom")
+
+    real = selectors.DefaultSelector
+    selectors.DefaultSelector = _BadCtor
+    try:
+        snap = gs.GovernanceSnapshot(_REPO_ROOT)
+        # B314: el ValueError crudo del ctor JAMÁS escapa; se convierte a la taxonomía. En el SHA base el ctor
+        # ocurría DESPUÉS de Popen y el ValueError salía crudo (con un hijo ya creado y huérfano).
+        with pytest.raises(gs.GovernanceSnapshotError, match="selector no construible"):
+            snap._run_bounded(["/bin/sh", "-c", "sleep 30"], 4096)
+    finally:
+        selectors.DefaultSelector = real
+
+
+def test_b314_selector_close_failure_stays_in_taxonomy():
+    import selectors
+
+    class _BadClose(selectors.DefaultSelector):
+        def close(self):
+            super().close()
+            raise OSError("selector close boom")
+
+    real = selectors.DefaultSelector
+    selectors.DefaultSelector = _BadClose
+    try:
+        snap = gs.GovernanceSnapshot(_REPO_ROOT)
+        # B314: el hijo (echo) se reapea y el error de cierre se ADJUNTA como incidencia; el OSError crudo no escapa.
+        # En el SHA base `sel.close()` era la primera instrucción del `finally` y su OSError cortaba el resto.
+        with pytest.raises(gs.GovernanceSnapshotError, match="cleanup incompleto|selector-close"):
+            snap._run_bounded(["/bin/echo", "hi"], 4096)
+    finally:
+        selectors.DefaultSelector = real
+
+
+# ---------------------------------------------------------------------------
+# B315 — `KeyboardInterrupt`/`SystemExit` usaban `kill=False`: si el padre ya había terminado (rc=0) un nieto quedaba
+# vivo. Además el camino feliz (rc=0) no verificaba el grupo. Ahora TODA salida anormal exige terminación y el grupo
+# se verifica incluso tras rc=0 (un descendiente residual se termina y falla).
+# ---------------------------------------------------------------------------
+def test_b315_keyboardinterrupt_kills_grandchild(tmp_path):
+    import selectors
+
+    class _KISel(selectors.DefaultSelector):
+        def select(self, timeout=None):
+            time.sleep(0.3)  # deja que el padre termine y deje el nieto en el grupo
+            raise KeyboardInterrupt
+
+    marker = tmp_path / "gcpid"
+    marker.write_text("")
+    real = selectors.DefaultSelector
+    selectors.DefaultSelector = _KISel
+    gcpid = ""
+    try:
+        snap = gs.GovernanceSnapshot(_REPO_ROOT)
+        # B315: el KeyboardInterrupt PROPAGA (mismo objeto) pero SOLO tras terminar el grupo. En el SHA base propagaba
+        # con `kill=False` y el nieto sobrevivía.
+        with pytest.raises(KeyboardInterrupt):
+            snap._run_bounded(["/bin/sh", "-c", f"sleep 30 & echo $! > {marker}; exit 0"], 4096)
+        time.sleep(0.4)
+        gcpid = marker.read_text().strip()
+        assert gcpid, "el nieto debe haber registrado su pid"
+        alive = True
+        try:
+            os.kill(int(gcpid), 0)
+        except ProcessLookupError, PermissionError:
+            alive = False
+        assert not alive, f"el nieto {gcpid} debe morir aunque el padre ya hubiera terminado (B315)"
+    finally:
+        selectors.DefaultSelector = real
+        if gcpid:  # limpieza defensiva independiente del código bajo prueba
+            with contextlib.suppress(ProcessLookupError, PermissionError, ValueError):
+                os.kill(int(gcpid), signal.SIGKILL)
+
+
+def test_b315_happy_path_residual_descendant_fails_closed(tmp_path):
+    marker = tmp_path / "gcpid"
+    marker.write_text("")
+    snap = gs.GovernanceSnapshot(_REPO_ROOT)
+    gcpid = ""
+    try:
+        # el hijo deja un nieto en el grupo y termina rc=0. B315: el grupo se verifica tras rc=0, el nieto se
+        # termina y el runner FALLA. En el SHA base `kill=False` devolvía bytes y el nieto sobrevivía. El nieto
+        # REDIRIGE sus fds a /dev/null: así el pipe del padre EOFa de inmediato y el bucle completa rc=0 de verdad
+        # (sin el redirect, el nieto retiene el pipe y el caso degenera en timeout).
+        with pytest.raises(gs.GovernanceSnapshotError, match="cleanup incompleto|descendientes"):
+            snap._run_bounded(
+                ["/bin/sh", "-c", f"sleep 30 </dev/null >/dev/null 2>&1 & echo $! > {marker}; echo hi; exit 0"], 4096
+            )
+        time.sleep(0.3)
+        gcpid = marker.read_text().strip()
+        assert gcpid, "el nieto debe haber registrado su pid"
+        alive = True
+        try:
+            os.kill(int(gcpid), 0)
+        except ProcessLookupError, PermissionError:
+            alive = False
+        assert not alive, f"el nieto {gcpid} debe morir en la reconciliación (B315)"
+    finally:
+        if gcpid:
+            with contextlib.suppress(ProcessLookupError, PermissionError, ValueError):
+                os.kill(int(gcpid), signal.SIGKILL)
+
+
+def test_b315_normal_run_with_finishing_descendant_returns(tmp_path):
+    # CONTROL benigno: un nieto que TERMINA solo (el padre lo espera) deja el grupo vacío ⇒ el runner NO fail-closes.
+    snap = gs.GovernanceSnapshot(_REPO_ROOT)
+    out = snap._run_bounded(["/bin/sh", "-c", "sleep 0.05 & echo hi; wait"], 4096)
+    assert out.strip() == b"hi"
+
+
+# ---------------------------------------------------------------------------
+# B318 — `_group_alive` sólo capturaba ProcessLookupError/PermissionError (un OSError(EIO) salía crudo) y la rama
+# TimeoutExpired descartaba errores de `killpg` con `except OSError: pass`. Ahora el estado del grupo es TRI-VALUADO
+# (UNKNOWN ≠ limpio) y toda `killpg` alimenta una incidencia.
+# ---------------------------------------------------------------------------
+def test_b318_group_state_unknown_on_oserror(monkeypatch):
+    def _eio(pgid, sig):
+        raise OSError(5, "EIO injected")
+
+    monkeypatch.setattr(gs.os, "killpg", _eio)
+    # el OSError NO escapa crudo; el estado es UNKNOWN con incidencia (jamás se descarta el error de la sonda).
+    state, issue = gs.GovernanceSnapshot._group_state(999999)
+    assert state is gs._GroupState.UNKNOWN
+    assert issue is not None and "EIO" in str(issue)
+
+
+def test_b318_group_state_absent_and_present():
+    # ProcessLookupError → ABSENT; grupo vivo (el propio, con killpg 0) → PRESENT.
+    state, issue = gs.GovernanceSnapshot._group_state(2**31 - 1)
+    assert state is gs._GroupState.ABSENT and issue is None
+
+
+def test_b318_killpg_probe_error_stays_in_taxonomy(tmp_path, monkeypatch):
+    # CONDUCTUAL: un timeout fuerza terminación; la SONDA del grupo (killpg sig 0) eleva OSError(EIO). En el SHA base
+    # `_group_alive` dejaba escapar ese OSError crudo desde el `finally`; ahora se convierte a UNKNOWN/taxonomía. Los
+    # señalamientos reales (TERM/KILL) SÍ pasan, de modo que el hijo muere.
+    real_killpg = os.killpg
+    marker = tmp_path / "cpid"
+    marker.write_text("")
+
+    def _probe_eio(pgid, sig):
+        if sig == 0:
+            raise OSError(5, "EIO injected")
+        return real_killpg(pgid, sig)
+
+    monkeypatch.setattr(gs.os, "killpg", _probe_eio)
+    snap = gs.GovernanceSnapshot(_REPO_ROOT)
+    orig = gs._GIT_TIMEOUT_S
+    gs._GIT_TIMEOUT_S = 0.25
+    cpid = ""
+    try:
+        with pytest.raises(gs.GovernanceSnapshotError):  # NO un OSError crudo
+            snap._run_bounded(["/bin/sh", "-c", f"echo $$ > {marker}; exec sleep 30"], 4096)
+        time.sleep(0.3)
+        cpid = marker.read_text().strip()
+    finally:
+        gs._GIT_TIMEOUT_S = orig
+        if cpid:  # limpieza defensiva con el killpg REAL (real_killpg no está parcheado)
+            with contextlib.suppress(ProcessLookupError, PermissionError, ValueError):
+                real_killpg(int(cpid), signal.SIGKILL)
+
+
+def test_b314_b315_b318_runner_lifecycle_shape():
+    # GATE ESTRUCTURAL POSITIVO (plan §6): la forma del runner y de sus helpers se fija por inspección de fuente, de
+    # modo que una regresión de forma (selector tras Popen, `select.select`, `proc.terminate`, un `killpg` mudo, un
+    # cleanup desnudo) rompa el contrato aunque ninguna prueba conductual la toque.
+    import inspect
+    import re
+
+    src_run = inspect.getsource(gs.GovernanceSnapshot._run_bounded)
+    src_clean = inspect.getsource(gs.GovernanceSnapshot._cleanup_process)
+    src_group = inspect.getsource(gs.GovernanceSnapshot._finish_process_group)
+    src_state = inspect.getsource(gs.GovernanceSnapshot._group_state)
+    whole = src_run + src_clean + src_group + src_state
+
+    # 1. el selector se ADQUIERE antes del proceso (B314: si falla, no hay hijo que limpiar).
+    assert src_run.index("selectors.DefaultSelector(") < src_run.index("subprocess.Popen("), "selector antes de Popen"
+    # 2. Popen endurecido: sesión/grupo privados, close_fds, stdin DEVNULL, allowlist de entorno.
+    for tok in ("start_new_session=True", "close_fds=True", "stdin=subprocess.DEVNULL", "_GIT_CHILD_ENV"):
+        assert tok in src_run, f"Popen debe fijar {tok}"
+    # 3. TODA salida anormal exige terminación: must_terminate NO deriva sólo de `problem` (B315).
+    assert "primary is not None or problem is not None or not event_loop_complete" in src_run
+    # 4. sin backend no portable ni señalización al proceso suelto (sólo al GRUPO).
+    for bad in ("select.select(", "shell=True", ".terminate(", "proc.kill("):
+        assert bad not in whole, f"prohibido {bad} en el runner"
+    # 5. cero cleanup mudo: ningún `except ...: pass` en la superficie del ciclo de vida (B314/B318).
+    assert not re.search(r"except\b[^\n]*:\s*\n\s*pass\b", whole), "ningún except silencioso en el runner"
+    # 6. el grupo se verifica INCLUSO tras el reap (B315): `_group_state` se consulta después de `proc.wait`.
+    assert src_group.index("proc.wait(") < src_group.rindex("_group_state("), "grupo verificado tras el reap"
+    # 7. selector y AMBOS pipes se cierran de forma independiente en el cleanup total.
+    assert "sel.close()" in src_clean and "stdout" in src_clean and "stderr" in src_clean
+    # 8. killpg gobernado: su rama de error alimenta una incidencia estructurada (B318, no `except: pass`).
+    assert "_ProcessIssue" in src_group and "os.killpg(pgid, sig)" in src_group
+    # 9. estado TRI-VALUADO: UNKNOWN existe y no equivale a limpio.
+    assert "_GroupState.UNKNOWN" in src_state and "_GroupState.ABSENT" in src_state
 
 
 # ---------------------------------------------------------------------------
