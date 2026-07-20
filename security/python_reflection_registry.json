@@ -884,6 +884,15 @@
       "occurrence_index": 0,
       "justification": "Llamada estandar importlib.metadata (distributions/packages_distributions) para el inventario y la identidad modulo-distribucion; benigna; B327; revisada 2026-07-20.",
       "review_by": "2027-07-20"
+    },
+    "b9c560a164f1aec56361253fb7bf7e450421f0e2f64be0d72626c7213f78a206": {
+      "file": "tools/validate_deep_receipt.py",
+      "qualname": "<module>",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "074e47688e90345660987a9e0f9ceefa8770dcacbf2b9cfcf6d61c159c3dc684",
+      "occurrence_index": 0,
+      "justification": "sys.exit(main(...)) al final del validador (entrypoint CLI); benigna; B328; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
     }
   }
 }

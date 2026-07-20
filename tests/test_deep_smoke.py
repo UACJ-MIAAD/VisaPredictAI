@@ -36,6 +36,7 @@ def _kwargs(lock_rel, **over):
         pip_check_ok=True,
         checksum=83.0,
         contract=CONTRACT,
+        commit_sha="a" * 40,  # B328: commit real de 40-hex (el verificado lo calcula run())
     )
     base.update(over)
     return base

@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -31,6 +32,9 @@ from tools import lock_contracts as lc
 
 # Autoridad INDEPENDIENTE del inventario deep — SEPARADA de este archivo (B323).
 _CONTRACT_REL = "security/deep_smoke_contract.json"
+_GIT_ABS = "/usr/bin/git"  # B328: git ABSOLUTO gobernado — NUNCA por PATH
+_PY_RE = re.compile(r"3\.14\.\d+")  # B328: Python exacto (fullmatch), no `startswith`
+_HEX40 = re.compile(r"[0-9a-f]{40}")  # B328: commit real de 40 hex
 
 
 def _sha256(p: Path) -> str:
@@ -156,12 +160,27 @@ def identity_problems(
     return probs
 
 
-def _commit_sha() -> str:
-    env = os.environ.get("GITHUB_SHA")
-    if env:
-        return env
-    out = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False)
-    return out.stdout.strip() if out.returncode == 0 else "unknown"
+def _git(*args: str) -> str | None:
+    """B328: git ABSOLUTO gobernado (`/usr/bin/git`), NUNCA por PATH. None si falla o no es un repo."""
+    try:
+        out = subprocess.run([_GIT_ABS, *args], capture_output=True, text=True, timeout=10, check=False)
+    except OSError:
+        return None
+    return out.stdout.strip() if out.returncode == 0 else None
+
+
+def verified_commit(env_sha: str | None) -> tuple[str | None, str | None]:
+    """B328: commit REAL y verificable — `HEAD` resuelto por git ABSOLUTO, exactamente 40-hex, que EXISTE como commit
+    (`cat-file -e HEAD^{commit}`); en CI `GITHUB_SHA` debe COINCIDIR con HEAD. Devuelve `(sha, problema)`; el smoke falla
+    si el problema no es None (nunca emite un recibo con `unknown`)."""
+    head = _git("rev-parse", "HEAD")
+    if head is None or not _HEX40.fullmatch(head):
+        return None, "commit HEAD no resuelto a 40-hex"
+    if _git("cat-file", "-e", f"{head}^{{commit}}") is None:
+        return None, f"commit {head} no existe como commit"
+    if env_sha is not None and env_sha != head:
+        return None, f"GITHUB_SHA {env_sha} != HEAD {head}"
+    return head, None
 
 
 def evaluate(
@@ -175,6 +194,7 @@ def evaluate(
     pip_check_ok: bool,
     checksum: float,
     contract: DeepSmokeContract,
+    commit_sha: str,
     import_identity: list[str] | tuple[str, ...] = (),
     import_records: list[dict] | tuple[dict, ...] = (),
 ) -> tuple[list[str], dict]:
@@ -196,8 +216,10 @@ def evaluate(
         probs.append(f"inventario observado con EXTRA fuera del contrato: {sorted(observed - expected)}")
     if expected - observed:
         probs.append(f"inventario observado OMITE del contrato: {sorted(expected - observed)}")
-    if not py_version.startswith("3.14."):
-        probs.append(f"Python {py_version} no es 3.14.x")
+    if not _PY_RE.fullmatch(py_version):  # B328: fullmatch exacto `3.14.Z` (no `3.14.evil` por `startswith`)
+        probs.append(f"Python {py_version} no es exactamente 3.14.Z")
+    if not _HEX40.fullmatch(commit_sha):  # B328: commit real 40-hex verificado (nunca `unknown` en el recibo)
+        probs.append(f"commit {commit_sha!r} no es un sha de 40 hex verificado")
     if system != rt["system"] or machine != rt["machine"]:
         probs.append(f"plataforma {system} {machine} != esperada {rt['system']} {rt['machine']}")
     pins = lc.pin_map((lc.ROOT / lock_rel).read_text())
@@ -217,7 +239,7 @@ def evaluate(
     if probs:  # el recibo SÓLO se emite si nada falló
         return probs, {}
     receipt = {
-        "commit_sha": _commit_sha(),
+        "commit_sha": commit_sha,
         "lock": lock_rel,
         "lock_sha256": _sha256(lc.ROOT / lock_rel),
         "manifest_sha256": _sha256(lc.ROOT / lc.MANIFEST_REL),
@@ -292,6 +314,9 @@ def run(lock_rel: str) -> tuple[list[str], dict]:
         subprocess.run([sys.executable, "-m", "pip", "check"], capture_output=True, text=True, check=False).returncode
         == 0
     )
+    commit, commit_prob = verified_commit(os.environ.get("GITHUB_SHA"))  # B328: HEAD real verificado (o falla)
+    if commit_prob is not None:
+        id_probs.append(commit_prob)
     return evaluate(
         lock_rel,
         py_version=platform.python_version(),
@@ -302,9 +327,31 @@ def run(lock_rel: str) -> tuple[list[str], dict]:
         pip_check_ok=pip_ok,
         checksum=checksum,
         contract=contract,
+        commit_sha=commit or "unknown",
         import_identity=id_probs,
         import_records=import_records,
     )
+
+
+def write_receipt_governed(path: str, data: dict) -> None:
+    """B328: escritura GOBERNADA del recibo — ruta relativa SIMPLE (sin `..`/absoluta), `O_EXCL|O_NOFOLLOW` con 0600 (no
+    sobrescribe ni sigue symlink), write-all, y `fsync` del fichero Y del directorio."""
+    if os.path.isabs(path) or os.pardir in path.split(os.sep):
+        raise ValueError(f"ruta de recibo inválida (se exige relativa simple): {path!r}")
+    payload = (json.dumps(data, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        mv = memoryview(payload)
+        while mv:  # write-all
+            mv = mv[os.write(fd, mv) :]
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    dfd = os.open(os.path.dirname(path) or ".", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
 
 
 def main(argv: list[str]) -> int:
@@ -318,7 +365,7 @@ def main(argv: list[str]) -> int:
         for p in probs:
             print(f"  - {p}")
         return 1
-    Path(ns.receipt).write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    write_receipt_governed(ns.receipt, receipt)
     print(
         f"✓ deep smoke OK ({receipt['variant_expected']}): torch {receipt['torch_observed']} · pip check ok · tensor 83.0"
     )
