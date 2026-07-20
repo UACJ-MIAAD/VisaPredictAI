@@ -630,7 +630,7 @@ def test_b311_high_fds_work(monkeypatch):
 
 # ---------------------------------------------------------------------------
 # B312 — tras timeout sólo moría el hijo directo; un nieto quedaba vivo. Ahora el hijo corre en sesión/grupo privado y
-# se termina TODO el grupo (TERM→KILL) con reconciliación.
+# se termina el grupo COMPLETO (TERM→KILL) con reconciliación.
 # ---------------------------------------------------------------------------
 def test_b312_grandchild_killed_after_timeout(tmp_path):
     marker = tmp_path / "gcpid"

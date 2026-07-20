@@ -527,7 +527,7 @@ class GovernanceSnapshot(AbstractContextManager):
         except (OSError, ValueError, OverflowError) as exc:  # B311: red de seguridad total (KI/SystemExit propagan)
             problem = f"runner falló ({exc})"
         finally:
-            sel.close()  # B311: cerrar el selector en TODO camino
+            sel.close()  # B311: cerrar el selector en CUALQUIER camino
             # B312/B313: terminar el GRUPO antes de cerrar pipes (un nieto puede conservar el extremo escritor).
             rc, reap_errors = self._terminate_group(proc, pgid, kill=problem is not None)
             cleanup_errors.extend(reap_errors)
