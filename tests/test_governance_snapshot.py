@@ -502,7 +502,7 @@ def test_b301_two_subprocess_generations_not_both_accepted(monkeypatch):
 
     def _run(cmd, *a, **k):
         if "rev-parse" in cmd:
-            return _Out(os.path.realpath(_REPO_ROOT).encode("utf-8") + b"\n")
+            return _Out(_REPO_ROOT.encode("utf-8") + b"\n")  # toplevel == ROOT exacto (B303)
         calls["n"] += 1
         return _Out(b"a.py\x00" if calls["n"] == 1 else b"b.py\x00")
 
@@ -514,25 +514,46 @@ def test_b301_two_subprocess_generations_not_both_accepted(monkeypatch):
         assert calls["n"] == 1, "ningún segundo `git ls-files` durante el consumo (B301)"
 
 
-def test_b301_env_is_sanitized():
+def test_b303_child_env_is_allowlist():
+    # B303: el entorno hijo es una ALLOWLIST fija (no filtrado de os.environ) — no hereda GIT_*/XDG/PYTHON* del proceso.
+    env = dict(gs._GIT_CHILD_ENV)
+    for k in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_CONFIG_KEY_0", "XDG_CONFIG_HOME", "PYTHONPATH"):
+        assert k not in env, f"{k} no debe estar en el entorno hijo (B303)"
+    assert env["LC_ALL"] == "C" and env["GIT_CONFIG_NOSYSTEM"] == "1" and env["GIT_CONFIG_GLOBAL"] == "/dev/null"
+    assert env["PATH"] == "/usr/bin:/bin"
+
+
+def test_b303_fake_git_via_path_ignored(monkeypatch, tmp_path):
+    # un `git` FALSO primero en PATH que forja toplevel+inventario debe IGNORARSE — se usa el /usr/bin/git ABSOLUTO.
+    fakebin = tmp_path / "fakebin"
+    fakebin.mkdir()
+    git = fakebin / "git"
+    git.write_text(f'#!/bin/bash\nif [[ "$*" == *"rev-parse"* ]]; then echo "{_REPO_ROOT}"; else printf "forged.py\\0"; fi\n')  # fmt: skip
+    git.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fakebin}:{os.environ['PATH']}")
+    with gs.GovernanceSnapshot(_REPO_ROOT) as snap:
+        result = snap.tracked(gs.TrackedQuery("exact", "forged.py"))
+        assert result == (), "un git falso en PATH NO debe forjar el inventario sellado (B303)"
+
+
+def test_b303_governed_git_identity_is_absolute_root_owned():
+    # el ejecutable gobernado es el ABSOLUTO root-owned; su identidad se captura y es estable entre dos observaciones.
     snap = gs.GovernanceSnapshot(_REPO_ROOT)
-    monkeyenv = {"GIT_DIR": "/x", "GIT_INDEX_FILE": "/y", "GIT_WORK_TREE": "/z", "GIT_CONFIG_GLOBAL": "/g", "GIT_CONFIG_KEY_0": "k"}  # fmt: skip
-    for k, v in monkeyenv.items():
-        os.environ[k] = v
-    try:
-        env = snap._git_env()
-    finally:
-        for k in monkeyenv:
-            del os.environ[k]
-    assert not any(k in env for k in monkeyenv), f"variables de redirección git deben eliminarse (B301): {[k for k in monkeyenv if k in env]}"  # fmt: skip
-    assert env["LC_ALL"] == "C" and env["GIT_CONFIG_NOSYSTEM"] == "1"
+    ident = snap._governed_git_identity()
+    assert ident == snap._governed_git_identity(), "la identidad del git gobernado debe ser estable"
+    assert ident[3] == 0, "git debe ser root-owned (uid 0) (B303)"  # st_uid
 
 
 def test_b301_reverify_detects_inventory_change(monkeypatch):
     with gs.GovernanceSnapshot(_REPO_ROOT) as snap:
         snap.tracked(gs.TrackedQuery("suffix", ".py"))  # sella
-        real = snap._capture_inventory
-        monkeypatch.setattr(snap, "_capture_inventory", lambda: real()[:-1])  # cambia el inventario en la revalidación
+        orig = snap._capture_inventory
+
+        def _changed():
+            paths, sha, ident = orig()
+            return paths[:-1], sha, ident  # inventario con una ruta menos → cambio detectado
+
+        monkeypatch.setattr(snap, "_capture_inventory", _changed)
         with pytest.raises(gs.GovernanceSnapshotError, match="B301"):
             snap.reverify()
 

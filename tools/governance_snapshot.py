@@ -27,13 +27,16 @@ _SOURCE_MAX_BYTES = 4 << 20  # 4 MiB
 _SNAPSHOT_TOTAL_MAX_BYTES = 64 << 20  # 64 MiB (suma de todo lo leído por la instancia)
 _DIR_GO_WRITE = 0o022  # bits de escritura grupo/otros — prohibidos en directorios gobernados
 _NEW, _OPEN, _CLOSED = "new", "open", "closed"  # B298: estados del ciclo de vida de un solo uso
-# B301: variables de entorno capaces de REDIRIGIR la fuente del inventario git — se eliminan del entorno hijo.
-_GIT_REDIRECT_EXACT = frozenset({
-    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_CONFIG_SYSTEM", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_COUNT", "GIT_REPLACE_REF_BASE",
-    "GIT_NAMESPACE", "GIT_CEILING_DIRECTORIES", "GIT_COMMON_DIR", "GIT_PREFIX", "GIT_INDEX_VERSION",
-})  # fmt: skip
-_GIT_REDIRECT_PREFIX = ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
+# B303: ejecutable git ABSOLUTO y gobernado — NUNCA "git" por PATH ni `shutil.which` (fake git falsificaría el inventario).
+_GIT_ABS = "/usr/bin/git"  # ruta certificada en Linux y macOS
+# B303: entorno hijo por ALLOWLIST (no filtrado subtractivo) — sólo lo mínimo determinista, sin heredar GIT_*/XDG/PYTHON*.
+_GIT_CHILD_ENV = {
+    "LC_ALL": "C",
+    "LANG": "C",
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "PATH": "/usr/bin:/bin",  # sólo para helpers internos inevitables de git, no para localizarlo
+}
 _ALLOWED_MODES = frozenset({0o644, 0o600})  # B296: conjunto cerrado de modos exactos aprobados
 _CATEGORY_CAPS = {  # B296: cada categoría fija su cota superior; una categoría estricta NUNCA se satisface con una laxa
     "contract": _CONTRACT_MAX_BYTES,
@@ -183,7 +186,8 @@ class GovernanceSnapshot(AbstractContextManager):
         self._total = 0
         self._state = _NEW  # B298: NEW -> OPEN -> CLOSED, un solo uso
         self._inventory: tuple[str, ...] | None = None  # B301: inventario git SELLADO (una captura por snapshot)
-        self._inventory_sha: str | None = None
+        self._inventory_sha: str | None = None  # B303: sha de los bytes CRUDOS de ls-files
+        self._git_ident: tuple | None = None  # B303: identidad gobernada del ejecutable ligada al sello
         self._captures = 0  # B301: contador de capturas git (una al sellar + una al revalidar; jamás una por consumer)
 
     def __enter__(self) -> GovernanceSnapshot:  # B298: sólo se entra desde NEW; una instancia CERRADA no renace
@@ -197,6 +201,7 @@ class GovernanceSnapshot(AbstractContextManager):
         self._cache.clear()
         self._inventory = None  # B301: el inventario sellado queda invalidado al cerrar el contexto
         self._inventory_sha = None
+        self._git_ident = None  # B303
 
     def _require_open(self) -> None:
         if self._state is not _OPEN:
@@ -359,51 +364,94 @@ class GovernanceSnapshot(AbstractContextManager):
         return None, GovernedEntry(rel=rel, data=data, sha256=hashlib.sha256(data).hexdigest(), stat=snap0)
 
     # -- inventario y revalidación ----------------------------------------
-    def _git_env(self) -> dict[str, str]:
-        """B301: entorno hijo SANEADO — sin variables que redirijan la fuente del inventario, locale determinista, sin
-        config de sistema. No muta `os.environ`."""
-        env = {
-            k: v
-            for k, v in os.environ.items()
-            if k not in _GIT_REDIRECT_EXACT and not k.startswith(_GIT_REDIRECT_PREFIX)
-        }
-        env["LC_ALL"] = "C"
-        env["LANG"] = "C"
-        env["GIT_CONFIG_NOSYSTEM"] = "1"
-        return env
-
-    def _capture_inventory(self) -> tuple[str, ...]:
-        """B301: UNA captura del inventario versionado COMPLETO (sin pathspec del caller) vía `git -C ROOT ls-files -z`
-        bajo entorno SANEADO, tras verificar que el toplevel coincide con ROOT. Decodificada fail-closed, cada ruta
-        validada por la gramática relativa, única y en orden canónico. Incrementa el contador de capturas."""
-        self._captures += 1
-        env = self._git_env()
+    def _governed_git_identity(self) -> tuple:
+        """B303: valida `/usr/bin/git` por descenso `openat` (dirs root-owned sin escritura g/o, leaf regular root-owned
+        ejecutable sin symlink ni bits especiales) y devuelve su identidad `(dev,ino,mode,uid,nlink,size,mtime_ns,
+        ctime_ns)`. Sin fallback a PATH: si la plataforma no lo satisface → GovernanceSnapshotError."""
+        parts = [p for p in _GIT_ABS.split("/") if p]
+        leaf, dir_comps = parts[-1], parts[:-1]
+        fds: list[int] = []
         try:
-            top = subprocess.run(
-                ["git", "-C", self._root, "rev-parse", "--show-toplevel"], capture_output=True, timeout=30, env=env
+            cur = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+            fds.append(cur)
+            for comp in dir_comps:
+                nfd = os.open(comp, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=cur)
+                fds.append(nfd)
+                st = os.fstat(nfd)
+                if st.st_uid != 0 or (st.st_mode & _DIR_GO_WRITE) or (st.st_mode & (stat.S_ISUID | stat.S_ISGID)):
+                    raise GovernanceSnapshotError(f"git: directorio {comp!r} no gobernado (root/no-g-o-write) (B303)")
+                cur = nfd
+            lfd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=cur)
+            fds.append(lfd)
+            st = os.fstat(lfd)
+            if not stat.S_ISREG(st.st_mode):
+                raise GovernanceSnapshotError(f"git {_GIT_ABS!r} no es fichero regular (B303)")
+            if st.st_uid != 0 or (st.st_mode & _DIR_GO_WRITE) or (st.st_mode & (stat.S_ISUID | stat.S_ISGID)):
+                raise GovernanceSnapshotError(f"git {_GIT_ABS!r} no root-owned / escribible g-o / setuid (B303)")
+            if not (st.st_mode & 0o100):  # ejecutable por el dueño
+                raise GovernanceSnapshotError(f"git {_GIT_ABS!r} no ejecutable (B303)")
+            byname = os.stat(leaf, dir_fd=cur, follow_symlinks=False)  # nombre↔identidad (sin nlink: git es multi-call)
+            if (byname.st_dev, byname.st_ino) != (st.st_dev, st.st_ino):
+                raise GovernanceSnapshotError(f"git {_GIT_ABS!r} cambió de nombre↔identidad (B303)")
+            return (
+                st.st_dev,
+                st.st_ino,
+                st.st_mode,
+                st.st_uid,
+                st.st_nlink,
+                st.st_size,
+                st.st_mtime_ns,
+                st.st_ctime_ns,
+            )
+        except OSError as exc:
+            raise GovernanceSnapshotError(f"git {_GIT_ABS!r} no gobernable ({exc}) (B303)") from exc
+        finally:
+            for fd in reversed(fds):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+    def _run_git(self, args: list[str]) -> bytes:
+        """B303: ejecuta el git ABSOLUTO gobernado con entorno allowlist, stdin DEVNULL, close_fds y timeout; revalida
+        la identidad del ejecutable ANTES y DESPUÉS. Devuelve stdout crudo o falla en la taxonomía."""
+        ident_before = self._governed_git_identity()
+        try:
+            proc = subprocess.run(
+                [_GIT_ABS, "-C", self._root, *args],
+                capture_output=True,
+                timeout=30,
+                env=dict(_GIT_CHILD_ENV),
+                stdin=subprocess.DEVNULL,
+                close_fds=True,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
-            raise GovernanceSnapshotError(f"git rev-parse falló ({exc}) (fail-closed B301)") from exc
-        if top.returncode != 0:
-            raise GovernanceSnapshotError(f"git rev-parse rc={top.returncode} (fail-closed B301)")
+            raise GovernanceSnapshotError(f"git {args} falló ({exc}) (fail-closed B303)") from exc
+        if self._governed_git_identity() != ident_before:  # rebind del ejecutable durante la ejecución
+            raise GovernanceSnapshotError("git cambió de identidad durante la ejecución (B303)")
+        if proc.returncode != 0:
+            raise GovernanceSnapshotError(f"git {args} rc={proc.returncode} (fail-closed B303)")
+        return proc.stdout
+
+    def _capture_inventory(self) -> tuple[tuple[str, ...], str, tuple]:
+        """B301/B303: UNA captura del inventario versionado COMPLETO (sin pathspec del caller) vía el git ABSOLUTO
+        gobernado, tras verificar toplevel == ROOT EXACTO (sin `realpath`, que equipararía un root symlink). El sello se
+        liga a `(paths, sha256(bytes CRUDOS de ls-files), identidad gobernada del ejecutable)`. Decodificada fail-closed,
+        cada ruta validada, única y en orden canónico. Incrementa el contador de capturas."""
+        self._captures += 1
+        git_ident = self._governed_git_identity()  # identidad del ejecutable ligada al sello
         try:
-            toplevel = top.stdout.decode("utf-8").strip()
+            toplevel = self._run_git(["rev-parse", "--show-toplevel"]).decode("utf-8").strip()
         except UnicodeDecodeError as exc:
             raise GovernanceSnapshotError(f"git toplevel no-UTF-8 ({exc}) (fail-closed B301)") from exc
-        if os.path.realpath(toplevel) != os.path.realpath(self._root):
-            raise GovernanceSnapshotError(f"git toplevel {toplevel!r} != ROOT {self._root!r} (fail-closed B301)")
-        try:
-            out = subprocess.run(
-                ["git", "-C", self._root, "ls-files", "-z", "--"], capture_output=True, timeout=30, env=env
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise GovernanceSnapshotError(f"git ls-files falló ({exc}) (fail-closed B286)") from exc
-        if out.returncode != 0:
-            raise GovernanceSnapshotError(f"git ls-files rc={out.returncode} (fail-closed B286)")
-        if len(out.stdout) > _SNAPSHOT_TOTAL_MAX_BYTES:  # B301: no materializar un inventario ilimitado
+        if toplevel != self._root:  # B303: EXACTO — un root symlink (toplevel resuelto) se rechaza
+            raise GovernanceSnapshotError(f"git toplevel {toplevel!r} != ROOT {self._root!r} exacto (fail-closed B303)")
+        stdout = self._run_git(["ls-files", "-z", "--"])
+        if len(stdout) > _SNAPSHOT_TOTAL_MAX_BYTES:  # B301: no materializar un inventario ilimitado
             raise GovernanceSnapshotError(f"git ls-files devolvió más de {_SNAPSHOT_TOTAL_MAX_BYTES} bytes (B301)")
+        raw_sha = hashlib.sha256(stdout).hexdigest()  # B303: sha de los BYTES CRUDOS, no del join reconstruido
         try:
-            paths = [x.decode("utf-8") for x in out.stdout.split(b"\x00") if x]
+            paths = [x.decode("utf-8") for x in stdout.split(b"\x00") if x]
         except UnicodeDecodeError as exc:  # B299: un nombre no-UTF-8 no escapa como UnicodeDecodeError cruda
             raise GovernanceSnapshotError(
                 f"git ls-files devolvió un nombre no-UTF-8 ({exc}) (fail-closed B299)"
@@ -415,15 +463,16 @@ class GovernanceSnapshot(AbstractContextManager):
             raise GovernanceSnapshotError("inventario git con rutas DUPLICADAS (fail-closed B301)")
         if list(paths) != sorted(paths):
             raise GovernanceSnapshotError("inventario git sin orden canónico (fail-closed B301)")
-        return tuple(paths)
+        return tuple(paths), raw_sha, git_ident
 
     def _sealed_inventory(self) -> tuple[str, ...]:
         """B301: SELLA el inventario en la PRIMERA consulta y lo reutiliza — toda consulta posterior deriva de la MISMA
         tuple (ningún segundo `git` durante el consumo)."""
         if self._inventory is None:
-            inv = self._capture_inventory()
+            inv, raw_sha, git_ident = self._capture_inventory()
             self._inventory = inv
-            self._inventory_sha = hashlib.sha256("\x00".join(inv).encode("utf-8")).hexdigest()
+            self._inventory_sha = raw_sha
+            self._git_ident = git_ident
         return self._inventory
 
     def tracked(self, query: TrackedQuery) -> tuple[str, ...]:
@@ -451,8 +500,11 @@ class GovernanceSnapshot(AbstractContextManager):
                 raise GovernanceSnapshotError(f"reverify {rel}: {err}")
             if fresh.sha256 != sealed.sha256 or fresh.stat.identity() != sealed.stat.identity():
                 raise GovernanceSnapshotError(f"reverify {rel}: bytes/identidad cambiaron desde el sellado (B286)")
-        if self._inventory is not None:  # B301: revalidación del inventario (una captura más, no una por consumer)
-            fresh_inv = self._capture_inventory()
-            fresh_sha = hashlib.sha256("\x00".join(fresh_inv).encode("utf-8")).hexdigest()
-            if fresh_sha != self._inventory_sha:
+        if self._inventory is not None:  # B301/B303: revalidación (una captura más) — bytes CRUDOS + identidad del git
+            fresh_inv, fresh_sha, fresh_ident = self._capture_inventory()
+            if fresh_sha != self._inventory_sha or fresh_inv != self._inventory:
                 raise GovernanceSnapshotError("reverify: el inventario git cambió desde el sellado (B301)")
+            if fresh_ident != self._git_ident:
+                raise GovernanceSnapshotError(
+                    "reverify: la identidad del ejecutable git cambió desde el sellado (B303)"
+                )
