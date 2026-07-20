@@ -572,3 +572,61 @@ def test_b297_benign_and_specific_ops_preserved(tmp_path, monkeypatch):
     assert _line_ops(tmp_path, monkeypatch, "from builtins import getattr as g\ng(o, n)\n", 2) == {"getattr"}
     ops = _line_ops(tmp_path, monkeypatch, "from importlib.metadata import version\nv = version('p')\n", 2)
     assert ops == {refl._CANONICAL_ROOTED_CALL}, f"version() sin escape duplicado (B297): {ops}"
+
+
+# ---------------------------------------------------------------------------
+# B300 — el dominio sólo tenía value/factory/none: un resultado de fábrica que atravesaba una transformación DESCONOCIDA
+# (`ident(...)`, `next(iter([...]))`) o superaba el tope de profundidad se degradaba a `none` y la terminal quedaba
+# INVISIBLE SIN MARCA (silencioso). Ahora la pérdida de precisión produce `reflection-module-escape` en el punto exacto,
+# o un PROBLEMA fail-closed en el tope; un nesting realista (61/65/100) se analiza por completo.
+# ---------------------------------------------------------------------------
+def _ops_and_problems(tmp_path, monkeypatch, src):
+    _mount(tmp_path, monkeypatch, {"m.py": src})
+    occ, probs = refl.scan_reflection(["m.py"])
+    return {o["op"] for o in occ.values()}, probs
+
+
+def test_b300_unknown_transformation_of_factory_result_escapes(tmp_path, monkeypatch):
+    # un resultado de fábrica consumido por una llamada NO rooteada / contenedor que escapa → reflection-module-escape.
+    cases = {
+        "unknown_call_arg": "def ident(x):\n    return x\nm = ident(__import__('os'))\nm.system('x')\n",
+        "next_iter_list": "m = next(iter([__import__('os')]))\nm.system('x')\n",
+        "list_escapes_to_call": "foo([__import__('os')])\n",
+        "tuple_escapes_to_call": "consume((__import__('os'),))\n",
+        "dict_value_escape": "reg = {'m': __import__('os')}\n",
+    }
+    for label, src in cases.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._REFLECTION_MODULE_ESCAPE in ops, f"{label}: la pérdida debe marcarse como escape (B300): {ops}"
+
+
+def test_b300_deep_nesting_within_cap_is_fully_tracked(tmp_path, monkeypatch):
+    # 65/100 niveles de tuple+subscript alrededor de la fábrica se analizan por completo → la terminal es rooted-call.
+    for depth in (65, 100):
+        src = "m = " + "(" * depth + "__import__('os')" + ",)[0]" * depth + "\nm.system('x')\n"
+        ops = _line_ops(tmp_path, monkeypatch, src, 2)
+        assert refl._CANONICAL_ROOTED_CALL in ops, f"nesting {depth} debe rastrearse (B300): {ops}"
+
+
+def test_b300_over_cap_is_fail_closed_problem(tmp_path, monkeypatch):
+    # superar la cota de análisis NO se degrada a `none`: es un PROBLEMA fail-closed. Cadena de atributos de 300 niveles
+    # (sin paréntesis → sin el límite del parser) que hace recursar `_expr_provenance` más allá de la cota.
+    src = "m = obj" + ".a" * 300 + "\n"
+    _, probs = _ops_and_problems(tmp_path, monkeypatch, src)
+    assert any("B300" in p for p in probs), f"el tope de análisis debe ser un problema fail-closed (B300): {probs}"
+
+
+def test_b300_no_over_fire_on_data_attributes_and_non_factory(tmp_path, monkeypatch):
+    # controles: un ATRIBUTO DE DATOS (`sys.version`) o un constructor NO-fábrica pasados a una llamada, y contenedores
+    # de escalares, NO se marcan como escape (la regla es NARROW a resultados de fábrica).
+    for src in (
+        "import sys\nprint(sys.version)\n",
+        "import sys\nsys.exit(0)\n",
+        "from importlib import machinery\nfoo(machinery.SourceFileLoader('a', 'b'))\n",
+        "xs = [1, 2, 3]\nfoo(xs)\n",
+        "foo(bar, baz)\n",
+    ):
+        ops, probs = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._REFLECTION_MODULE_ESCAPE not in ops and not probs, (
+            f"no debe sobre-disparar (B300): {src!r} → {ops}"
+        )

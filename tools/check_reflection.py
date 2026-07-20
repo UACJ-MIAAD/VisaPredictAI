@@ -38,7 +38,7 @@ from typing import NamedTuple
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
-_SCANNER_VERSION = 9  # B265/B270/B276/B285/B289/B294/B297: procedencia canónica por dominio de EXPRESIÓN (resultado de fábrica en cadenas/subscripts/condicionales/asignación múltiple)
+_SCANNER_VERSION = 10  # B265/…/B297/B300: procedencia por expresión + pérdida por transformación desconocida/profundidad = escape/problema fail-closed (nunca `none` silencioso)
 _REGISTRY_TOP_KEYS = {
     "schema_version",
     "scanner_version",
@@ -333,16 +333,21 @@ class _Provenance(NamedTuple):
 
 # B297: dominio abstracto de una expresión — 'value' evalúa a un módulo/miembro canónico (o RESULTADO de fábrica);
 # 'factory' evalúa a una fábrica aún sin llamar; 'none' no es canónico. Cota de recursión para árboles patológicos.
-_EXPR_DEPTH_CAP = 60
+_EXPR_DEPTH_CAP = 150  # B300: cota alta (nesting realista 61/65/100 se analiza); superarla es fail-closed, no `none`
+
+
+class _ProvenanceLimitError(Exception):
+    """B300: el análisis de procedencia superó su cota (profundidad/nodos). NO se degrada a `none` — `scan_reflection`
+    lo convierte en un PROBLEMA fail-closed."""
 
 
 def _expr_provenance(node: ast.AST, rooted: dict[str, str], factories: dict[str, str], depth: int = 0) -> tuple[str, str | None]:  # fmt: skip
     """B297: clasifica CUALQUIER expresión propagando por Name/Call(fábrica)/Attribute/NamedExpr/IfExp/BoolOp y subscript
     de contenedor literal conocido. Una llamada a fábrica produce `value` AUNQUE aparezca dentro de otra expresión
-    (`__import__('os').system(...)`, `(im('os'),)[0]`, `m if c else n`). Conservador: si una rama es canónica, el
-    resultado puede serlo."""
+    (`__import__('os').system(...)`, `(im('os'),)[0]`, `m if c else n`). B300: superar la cota de profundidad LEVANTA
+    `_ProvenanceLimitError` (fail-closed), nunca devuelve `none` por pérdida de precisión."""
     if depth > _EXPR_DEPTH_CAP:
-        return ("none", None)
+        raise _ProvenanceLimitError(f"profundidad > {_EXPR_DEPTH_CAP} (B300)")
     if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
         if node.id in factories:
             return ("factory", factories[node.id])
@@ -390,6 +395,58 @@ def _factory_root(fn: ast.AST, factories: dict[str, str], rooted: dict[str, str]
             cur = cur.value
         if isinstance(cur, ast.Name) and cur.id in rooted:
             return rooted[cur.id]
+    return None
+
+
+def _is_factory_value(node: ast.AST, prov: _Provenance, depth: int = 0) -> bool:
+    """B300: ¿la expresión evalúa a un RESULTADO DE FÁBRICA (un módulo importado por `__import__`/`import_module`)?
+    Es NARROW a propósito: un atributo de datos (`sys.version`) o un constructor no-fábrica (`Loader(...)`) NO cuentan,
+    para no marcar `print(sys.version)` como fuga. Un Name factory-result se cubre por `_escape_op` (no aquí)."""
+    if depth > _EXPR_DEPTH_CAP:
+        raise _ProvenanceLimitError(f"profundidad > {_EXPR_DEPTH_CAP} en _is_factory_value (B300)")
+    if isinstance(node, ast.Call):
+        return _factory_root(node.func, prov.factories, prov.rooted) is not None
+    if isinstance(node, ast.NamedExpr):
+        return _is_factory_value(node.value, prov, depth + 1)
+    if isinstance(node, (ast.IfExp, ast.BoolOp)):
+        branches = [node.body, node.orelse] if isinstance(node, ast.IfExp) else list(node.values)
+        return any(_is_factory_value(b, prov, depth + 1) for b in branches)
+    if isinstance(node, ast.Subscript):
+        container, idx = node.value, node.slice
+        if isinstance(container, (ast.Tuple, ast.List)) and isinstance(idx, ast.Constant) and isinstance(idx.value, int):  # fmt: skip
+            if -len(container.elts) <= idx.value < len(container.elts):
+                return _is_factory_value(container.elts[idx.value], prov, depth + 1)
+        if isinstance(container, ast.Dict) and isinstance(idx, ast.Constant):
+            return any(
+                isinstance(k, ast.Constant) and k.value == idx.value and _is_factory_value(v, prov, depth + 1)
+                for k, v in zip(container.keys, container.values, strict=True)
+            )
+    return False
+
+
+def _provenance_loss_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _Provenance) -> str | None:
+    """B300: un RESULTADO DE FÁBRICA que se CONSUME por una transformación no modelada pierde su procedencia — para no
+    perderla EN SILENCIO, se marca `reflection-module-escape` en el punto EXACTO de la pérdida. Dos formas:
+    (A) argumento de una llamada NO rooteada (`ident(__import__('os'))`, `next(iter([...]))` marca la lista);
+    (B) elemento de un contenedor literal que NO se indexa de inmediato (escapa hacia un consumidor desconocido)."""
+    if isinstance(node, ast.Call):  # (A) — la llamada rooteada la cubre `_canonical_rooted_call` (antes en el `or`)
+        args = list(node.args) + [k.value for k in node.keywords]
+        if any(_is_factory_value(a, prov) for a in args):
+            return _REFLECTION_MODULE_ESCAPE
+        return None
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):  # (B)
+        parent = parents.get(id(node))
+        indexed = (
+            isinstance(parent, ast.Subscript)
+            and parent.value is node
+            and isinstance(parent.slice, ast.Constant)  # `[...][0]` const-index → modelado, no escape
+        )
+        if not indexed and any(_is_factory_value(e, prov) for e in node.elts):
+            return _REFLECTION_MODULE_ESCAPE
+        return None
+    if isinstance(node, ast.Dict):
+        if any(v is not None and _is_factory_value(v, prov) for v in node.values):
+            return _REFLECTION_MODULE_ESCAPE
     return None
 
 
@@ -553,7 +610,11 @@ def scan_reflection(files: list[str]) -> tuple[dict[str, dict], list[str]]:
             problems.append(f"{rel}: SyntaxError ({exc}) (fail-closed B260)")
             continue
         mod_aliases = _module_aliases(tree)
-        prov = _canonical_provenance(tree, mod_aliases)  # B294: procedencia (calls/subscripts/escapes/fábricas)
+        try:
+            prov = _canonical_provenance(tree, mod_aliases)  # B294: procedencia (calls/subscripts/escapes/fábricas)
+        except _ProvenanceLimitError as exc:  # B300: la cota de análisis es un PROBLEMA fail-closed, no `none`
+            problems.append(f"{rel}: análisis de procedencia excedió su cota ({exc}) (fail-closed B300)")
+            continue
         prim_aliases = _prim_aliases(tree)
         qn = _qualnames(tree)
         stmts = _enclosing_stmts(tree)
@@ -564,25 +625,32 @@ def scan_reflection(files: list[str]) -> tuple[dict[str, dict], list[str]]:
                 if any(a.name == "*" for a in node.names):
                     problems.append(f"{rel}::{node.module}: `from {node.module} import *` prohibido — rompe la procedencia de reflexión (fail-closed B294)")  # fmt: skip
         raw: list[tuple[str, str, str, int, ast.AST]] = []
-        for node in ast.walk(tree):
-            op = (
-                _resolve_op(node, mod_aliases, prim_aliases)
-                or _escape_op(
-                    node, parents, prov.rooted
-                )  # B294: escape de módulo O miembro canónico (no sólo mod_aliases)
-                or _rooted_chain_escape(node, parents, mod_aliases)
-                or _canonical_rooted_call(node, prov)  # B285/B289/B297: llamada rooteada (incl. resultado de fábrica)
-                or _canonical_rooted_subscript(node, prov)  # B294: sys.modules/__dict__ importados y subscriptados
-                or _canonical_member_escape(
-                    node, parents, prov
-                )  # B294: captura no-call de un miembro `from … import …`
-            )
-            if op is None:
-                continue
-            qualname = qn.get(id(node), "") or "<module>"
-            stmt = stmts.get(id(node))
-            stmt_sha = _norm_stmt_sha(stmt) if stmt is not None else "0" * 64
-            raw.append((qualname, op, stmt_sha, getattr(node, "lineno", -1), node))
+        try:
+            for node in ast.walk(tree):
+                op = (
+                    _resolve_op(node, mod_aliases, prim_aliases)
+                    or _escape_op(node, parents, prov.rooted)  # B294: escape de módulo/miembro canónico (Name)
+                    or _rooted_chain_escape(node, parents, mod_aliases)
+                    or _canonical_rooted_call(
+                        node, prov
+                    )  # B285/B289/B297: llamada rooteada (incl. resultado de fábrica)
+                    or _canonical_rooted_subscript(node, prov)  # B294: sys.modules/__dict__ importados y subscriptados
+                    or _canonical_member_escape(
+                        node, parents, prov
+                    )  # B294: captura no-call de un miembro `from … import`
+                    or _provenance_loss_escape(
+                        node, parents, prov
+                    )  # B300: resultado de fábrica perdido en transf. desconocida
+                )
+                if op is None:
+                    continue
+                qualname = qn.get(id(node), "") or "<module>"
+                stmt = stmts.get(id(node))
+                stmt_sha = _norm_stmt_sha(stmt) if stmt is not None else "0" * 64
+                raw.append((qualname, op, stmt_sha, getattr(node, "lineno", -1), node))
+        except _ProvenanceLimitError as exc:  # B300: fail-closed, nunca `none` silencioso
+            problems.append(f"{rel}: análisis de procedencia excedió su cota ({exc}) (fail-closed B300)")
+            continue
         # occurrence_index estable: ordena por (qualname, op, stmt_sha, lineno); el índice desempata idénticos
         raw.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
         seen: dict[tuple[str, str, str], int] = {}
