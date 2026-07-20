@@ -38,7 +38,7 @@ from typing import NamedTuple
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
-_SCANNER_VERSION = 16  # B265/…/B321/B324: además, ADQUIRIR el módulo-fábrica raíz (`import builtins`/`import importlib[.x]` sin alias de submódulo) o `sys.modules[factory]` es PROHIBIDO; los submódulos con alias explícito se permiten
+_SCANNER_VERSION = 17  # B265/…/B324/B329: además, la RAÍZ-fábrica (builtins/importlib) que ESCAPA de un acceso estático es `factory-module-escape` PROHIBIDO (no registrable), no un escape registrable
 _REGISTRY_TOP_KEYS = {
     "schema_version",
     "scanner_version",
@@ -62,6 +62,11 @@ _IMPORTABLE_PRIMS = _BUILTIN_PRIMS | frozenset(_MODULE_PRIMS)
 # ocurrencia. `builtins.dynamic-lookup` = subscript sobre builtins/__builtins__ con clave NO constante (op final
 # desconocida). Convertir toda fuga conocida/ambigua en una ocurrencia; no se afirma resolver semántica Python arbitraria.
 _REFLECTION_MODULE_ESCAPE = "reflection-module-escape"
+# B329: cuando el que ESCAPA es la RAÍZ-fábrica (builtins/importlib), NO es un escape registrable sino
+# `factory-module-escape` — globalmente PROHIBIDO (no registrable), como `dynamic-import-factory-value`. Un accesor por
+# contenedor sobre ese módulo recupera `import_module`/`__import__`, así que dejar que la raíz-fábrica salga de un acceso
+# estático conocido (a contenedor/argumento/retorno/store/lambda/comprehension) es tan peligroso como la forma directa.
+_FACTORY_MODULE_ESCAPE = "factory-module-escape"
 _BUILTINS_DYNAMIC_LOOKUP = "builtins.dynamic-lookup"
 # B285: política POSITIVA — TODA llamada rooteada en un módulo canónico produce una ocurrencia registrable (no una lista
 # de terminales que deja invisibles a SourceFileLoader.set_data / sys.meta_path.insert / sys.path_hooks.append / …).
@@ -75,7 +80,7 @@ _DYNAMIC_MODULE_RESULT_ESCAPE = "dynamic-module-result-escape"
 # `<builtins|importlib>.__import__/.import_module` como Attribute, y todo lookup dinámico (getattr/vars/__dict__/
 # attrgetter/methodcaller/partial) sobre builtins/importlib con nombre LITERAL o CALCULADO.
 _DYNAMIC_IMPORT_FACTORY_VALUE = "dynamic-import-factory-value"
-OPERATIONS_CONTROLLED = tuple(sorted(_BUILTIN_PRIMS | frozenset(_MODULE_PRIMS) | _ATTR_PRIMS | {"__dict__", "sys.modules", _REFLECTION_MODULE_ESCAPE, _BUILTINS_DYNAMIC_LOOKUP, _CANONICAL_ROOTED_CALL, _DYNAMIC_MODULE_RESULT_ESCAPE, _DYNAMIC_IMPORT_FACTORY_VALUE}))  # fmt: skip
+OPERATIONS_CONTROLLED = tuple(sorted(_BUILTIN_PRIMS | frozenset(_MODULE_PRIMS) | _ATTR_PRIMS | {"__dict__", "sys.modules", _REFLECTION_MODULE_ESCAPE, _FACTORY_MODULE_ESCAPE, _BUILTINS_DYNAMIC_LOOKUP, _CANONICAL_ROOTED_CALL, _DYNAMIC_MODULE_RESULT_ESCAPE, _DYNAMIC_IMPORT_FACTORY_VALUE}))  # fmt: skip
 _CB_MODULE = "tools.campaign_bundle"
 # B265: en los módulos de AUTORIDAD, un escape/lookup dinámico está PROHIBIDO (no registrable).
 _AUTHORITY_MODULES = frozenset({"tools/campaign_bundle.py", "tools/merge_campaign_pools.py", "tools/governed_fs.py", "tools/governed_read.py"})  # fmt: skip
@@ -248,29 +253,34 @@ def _occurrence_id(file: str, qualname: str, op: str, stmt_sha: str, index: int)
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def _escape_op(node: ast.AST, parents: dict[int, ast.AST], mod_aliases: dict[str, str]) -> str | None:
-    """B265: un Name de módulo canónico (o `__builtins__`) usado en Load que ESCAPA del seguimiento — dentro de un
-    contenedor (List/Tuple/Set/Dict), pasado como argumento, retornado, comparado, o en cualquier construcción que no
-    sea `alias.attr` / `alias[...]` / `x = alias` (target Name simple, seguido por el fixpoint) — devuelve
-    `reflection-module-escape`. Conservador: si el módulo puede irse a donde no lo seguimos, es una ocurrencia."""
-    if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in mod_aliases):
-        return None
+def _name_escapes(node: ast.AST, parents: dict[int, ast.AST]) -> bool:
+    """B265/B329: True si un Name en Load ESCAPA del seguimiento — dentro de un contenedor (List/Tuple/Set/Dict), pasado
+    como ARGUMENTO, retornado, comparado, o en cualquier construcción que NO sea `alias.attr` / `alias[...]` /
+    `alias(...)` como CALLEE / `x = alias` (target Name simple, seguido por el fixpoint). Conservador: si puede irse a
+    donde no lo seguimos, escapa."""
     parent = parents.get(id(node))
     if parent is None:
-        return None
+        return False
     if isinstance(parent, ast.Attribute) and parent.value is node:
-        return None  # `alias.attr` — acceso resuelto por _resolve_op
+        return False  # `alias.attr` — acceso resuelto por _resolve_op
     if isinstance(parent, ast.Subscript) and parent.value is node:
-        return None  # `alias[...]` — subscript resuelto por _resolve_op
+        return False  # `alias[...]` — subscript resuelto por _resolve_op
     if isinstance(parent, ast.Call) and parent.func is node:
-        return None  # B294: `alias(...)` / `miembro(...)` como CALLEE — es una llamada (la cubre _canonical_rooted_call), no un escape; un módulo/miembro pasado como ARGUMENTO (func is not node) sí escapa
+        return False  # `alias(...)` como CALLEE — llamada (la cubre _canonical_rooted_call); ARGUMENTO sí escapa
     if isinstance(parent, ast.Assign) and len(parent.targets) == 1 and isinstance(parent.targets[0], ast.Name) and parent.value is node:  # fmt: skip
-        return None  # `x = alias` — alias simple, seguido por el fixpoint
+        return False  # `x = alias` — alias simple, seguido por el fixpoint
     if isinstance(parent, ast.AnnAssign) and isinstance(parent.target, ast.Name) and parent.value is node:
+        return False
+    return not (isinstance(parent, ast.NamedExpr) and isinstance(parent.target, ast.Name) and parent.value is node)
+
+
+def _escape_op(node: ast.AST, parents: dict[int, ast.AST], mod_aliases: dict[str, str]) -> str | None:
+    """B265: un Name de módulo canónico (o `__builtins__`) usado en Load que ESCAPA del seguimiento → ocurrencia
+    `reflection-module-escape` registrable (la RAÍZ-fábrica builtins/importlib la trata `_dynamic_factory_escape` con la op
+    PROHIBIDA `factory-module-escape`, que corre ANTES)."""
+    if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in mod_aliases):
         return None
-    if isinstance(parent, ast.NamedExpr) and isinstance(parent.target, ast.Name) and parent.value is node:
-        return None
-    return _REFLECTION_MODULE_ESCAPE
+    return _REFLECTION_MODULE_ESCAPE if _name_escapes(node, parents) else None
 
 
 # Nombres de MAQUINARIA de módulo que pueden RE-PRODUCIR/reflejar un módulo por cadena (no `version`/`argv`/`path`…).
@@ -518,8 +528,7 @@ def _dynamic_factory_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _P
     # (1b) B324: ligar el PAQUETE-FÁBRICA RAÍZ como nombre limpio (`import builtins`/`import importlib`, con o sin alias)
     # da acceso directo a `import_module`/`__import__` y está PROHIBIDO en producción. Un `import importlib.<submódulo>`
     # (p. ej. `importlib.metadata`) se PERMITE: la adquisición REAL de la fábrica desde el `importlib` así ligado sigue
-    # prohibida por las reglas (3)/(4) (`.import_module`, `getattr(importlib, …)`); el residuo por contenedor nombrado
-    # queda flagged como `reflection-module-escape` (honest scope §7.3).
+    # prohibida por (3)/(4) (`.import_module`, `getattr(importlib, …)`) y, si la raíz ESCAPA, por (5b) B329.
     if isinstance(node, ast.Import):
         for a in node.names:
             if a.name in _FACTORY_MODULE_ROOTS:  # exactamente `import builtins`/`import importlib` (aliased o no)
@@ -538,6 +547,11 @@ def _dynamic_factory_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _P
     # (5) lookup dinámico sobre builtins/importlib como SUBSCRIPT (`M.__dict__[·]`, `vars(M)[·]`, `__builtins__[·]`)
     if isinstance(node, ast.Subscript) and _subscript_reads_factory_module(node, prov):
         return _DYNAMIC_IMPORT_FACTORY_VALUE
+    # (5b) B329: el PAQUETE-fábrica (builtins/importlib) mismo que ESCAPA de un acceso estático conocido (a contenedor/
+    # argumento/retorno/store/lambda/comprehension/transformación) recupera la fábrica y NO es registrable → PROHIBIDO. Un
+    # MIEMBRO `from importlib import machinery` (submódulo sin `import_module`) NO cuenta (es `reflection-module-escape`).
+    if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id not in prov.members and _factory_module_root(node, prov) is not None and _name_escapes(node, parents):  # fmt: skip
+        return _FACTORY_MODULE_ESCAPE
     # (6) DENY-BY-DEFAULT: toda llamada a una fábrica (bare/aliased `__import__`, `import_module` aliased) — sin excepción
     if isinstance(node, ast.Call) and _factory_root(node.func, prov.factories, prov.rooted) is not None:
         return _DYNAMIC_MODULE_RESULT_ESCAPE
@@ -850,10 +864,10 @@ def problems() -> list[str]:
     problems.extend(scan_probs)
     today = _today()
     for eid, occ in observed.items():
-        # B308/B310: fábrica dinámica PROHIBIDA globalmente (no registrable) — ni su resultado fuera del descarte local
-        # seguro, ni la fábrica capturada como VALOR, se pueden blanquear con una entrada de registro.
-        if occ["op"] in (_DYNAMIC_MODULE_RESULT_ESCAPE, _DYNAMIC_IMPORT_FACTORY_VALUE):
-            _b = "B310" if occ["op"] == _DYNAMIC_IMPORT_FACTORY_VALUE else "B308"
+        # B308/B310/B329: fábrica dinámica PROHIBIDA globalmente (no registrable) — ni su resultado fuera del descarte
+        # local seguro, ni la fábrica capturada como VALOR, ni la RAÍZ-fábrica que ESCAPA, se blanquean con una entrada.
+        if occ["op"] in (_DYNAMIC_MODULE_RESULT_ESCAPE, _DYNAMIC_IMPORT_FACTORY_VALUE, _FACTORY_MODULE_ESCAPE):
+            _b = {_DYNAMIC_IMPORT_FACTORY_VALUE: "B310", _DYNAMIC_MODULE_RESULT_ESCAPE: "B308", _FACTORY_MODULE_ESCAPE: "B329"}[occ["op"]]  # fmt: skip
             problems.append(f"FÁBRICA DINÁMICA PROHIBIDA ({occ['op']}): {occ['file']}::{occ['qualname']} línea {occ['lineno']} → `{occ['snippet']}` ({_b})")  # fmt: skip
             continue
         # B265: en los módulos de AUTORIDAD, un escape de módulo / lookup dinámico está PROHIBIDO (no registrable)

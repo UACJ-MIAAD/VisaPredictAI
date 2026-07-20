@@ -238,8 +238,8 @@ def test_b265_no_false_positive_on_legit_module_use(tmp_path, monkeypatch):
 
 
 def test_b265_escape_in_authority_module_is_prohibited(tmp_path, monkeypatch):
-    # un escape en un módulo de AUTORIDAD está prohibido (no registrable), incluso con un registro que lo listara.
-    _mount(tmp_path, monkeypatch, {"tools/campaign_bundle.py": "import builtins\nxs = [builtins]\n"})
+    # un escape (canónico NO fábrica) en un módulo de AUTORIDAD está prohibido (no registrable), aun listado en el registro.
+    _mount(tmp_path, monkeypatch, {"tools/campaign_bundle.py": "import sys\nxs = [sys]\n"})
     reg = {
         "schema_version": refl._SCHEMA_VERSION, "scanner_version": refl._SCANNER_VERSION, "note": "x",
         "operations_controlled": list(refl.OPERATIONS_CONTROLLED), "authorized_campaign_bundle_importers": [],
@@ -251,7 +251,9 @@ def test_b265_escape_in_authority_module_is_prohibited(tmp_path, monkeypatch):
 
 
 def test_b265_unregistered_escape_fails_the_gate(tmp_path, monkeypatch):
-    _mount(tmp_path, monkeypatch, {"m.py": "import builtins\nxs = [builtins]\n"})
+    _mount(
+        tmp_path, monkeypatch, {"m.py": "import sys\nxs = [sys]\n"}
+    )  # sys = canónico NO fábrica → escape registrable
     reg = {
         "schema_version": refl._SCHEMA_VERSION, "scanner_version": refl._SCANNER_VERSION, "note": "x",
         "operations_controlled": list(refl.OPERATIONS_CONTROLLED), "authorized_campaign_bundle_importers": [],
@@ -905,6 +907,51 @@ def test_b324_factory_module_root_acquisition_prohibited(tmp_path, monkeypatch):
     }.items():
         ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
         assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"{label}: no debe sobredisparar (B324): {ops}"
+
+
+def test_b329_factory_module_escape_prohibited_not_registrable(tmp_path, monkeypatch):
+    # B329: la RAÍZ-fábrica (builtins/importlib) que ESCAPA (contenedor/argumento/return/lambda/comprehension) recupera la
+    # fábrica → `factory-module-escape` PROHIBIDO (no registrable), no un `reflection-module-escape` blanqueable.
+    for label, src in {
+        "container_getattr": "import importlib.metadata\nd = {'k': getattr}\ng = d['k']\nname = 'import' + '_module'\nf = g(importlib, name)\n",  # fmt: skip
+        "in_list": "import importlib.metadata\nxs = [importlib]\n",
+        "returned": "import importlib.metadata\ndef f():\n    return importlib\n",
+        "as_arg": "import importlib.metadata\nfoo(importlib)\n",
+        "lambda_capture": "import importlib.metadata\nf = lambda: importlib\n",
+        "comprehension": "import importlib.metadata\nxs = [importlib for _ in range(1)]\n",
+    }.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._FACTORY_MODULE_ESCAPE in ops, f"{label}: la raíz-fábrica que escapa es prohibida (B329): {ops}"
+    # controles: acceso estático a submódulos / miembros / canónico NO fábrica NO es factory-module-escape.
+    for label, src in {
+        "metadata_version": "import importlib.metadata\nv = importlib.metadata.version('p')\n",
+        "abc_loader": "import importlib.abc\nx = importlib.abc.Loader\n",
+        "from_import": "from importlib.metadata import version\nv = version('p')\n",
+        "member_escape": "from importlib import machinery\nxs = [machinery]\n",
+        "sys_escape": "import sys\nxs = [sys]\n",
+    }.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._FACTORY_MODULE_ESCAPE not in ops, f"{label}: no debe ser factory-module-escape (B329): {ops}"
+    # el registro NO puede blanquear un factory-module-escape (globalmente prohibido).
+    _mount(
+        tmp_path,
+        monkeypatch,
+        {
+            "m.py": "import importlib.metadata\nxs = [importlib]\n",
+            refl._REGISTRY: json.dumps(
+                {
+                    "schema_version": refl._SCHEMA_VERSION,
+                    "scanner_version": refl._SCANNER_VERSION,
+                    "note": "x",
+                    "operations_controlled": list(refl.OPERATIONS_CONTROLLED),
+                    "authorized_campaign_bundle_importers": [],
+                    "entries": {},
+                }
+            ),
+        },
+    )
+    monkeypatch.setattr(refl, "_production_files", lambda: ["m.py"])
+    assert any("B329" in p and "PROHIBID" in p for p in refl.problems())
 
 
 def test_b316_b323_deep_smoke_imports_match_the_independent_contract():
