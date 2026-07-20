@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import hashlib
 import os
+import select
 import stat
 import subprocess
+import time
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 
@@ -35,7 +37,25 @@ _GIT_CHILD_ENV = {
     "LANG": "C",
     "GIT_CONFIG_NOSYSTEM": "1",
     "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_OPTIONAL_LOCKS": "0",  # B306: sin locks opcionales
     "PATH": "/usr/bin:/bin",  # sólo para helpers internos inevitables de git, no para localizarlo
+}
+# B306: prefijo de config por línea de comando — PRECEDE a system/global/local/includes y neutraliza la config que
+# ejecuta programas durante `rev-parse`/`ls-files` (core.fsmonitor RCE, untrackedCache, preloadIndex).
+_GIT_CONFIG_ARGS = (
+    "--no-optional-locks",
+    "-c", "core.fsmonitor=false",
+    "-c", "core.untrackedCache=false",
+    "-c", "core.preloadIndex=false",
+    "-c", "core.hooksPath=/dev/null",
+    "-c", "core.pager=cat",
+)  # fmt: skip
+_GIT_STDERR_MAX_BYTES = 1 << 16  # 64 KiB de stderr basta para diagnóstico; más aborta
+_GIT_TIMEOUT_S = 30.0
+# B306: operaciones CERRADAS — el caller NUNCA suministra argv/subcomando/pathspec.
+_GIT_OPS = {
+    "TOPLEVEL": ("rev-parse", "--show-toplevel"),
+    "TRACKED_INVENTORY": ("ls-files", "-z", "--"),
 }
 _ALLOWED_MODES = frozenset({0o644, 0o600})  # B296: conjunto cerrado de modos exactos aprobados
 _CATEGORY_CAPS = {  # B296: cada categoría fija su cota superior; una categoría estricta NUNCA se satisface con una laxa
@@ -429,26 +449,96 @@ class GovernanceSnapshot(AbstractContextManager):
             raise GovernanceSnapshotError("git: identidad no derivada (B309)")
         return identity
 
-    def _run_git(self, args: list[str]) -> bytes:
-        """B303: ejecuta el git ABSOLUTO gobernado con entorno allowlist, stdin DEVNULL, close_fds y timeout; revalida
-        la identidad del ejecutable ANTES y DESPUÉS. Devuelve stdout crudo o falla en la taxonomía."""
+    def _run_git(self, op: str, out_limit: int) -> bytes:
+        """B303/B306: ejecuta una OPERACIÓN CERRADA (`op` ∈ `_GIT_OPS`; el caller nunca da argv/pathspec) del git ABSOLUTO
+        gobernado con prefijo de config que desactiva `core.fsmonitor`/hooks/pager, entorno allowlist, stdin DEVNULL,
+        close_fds y lectura ACOTADA con deadline. Revalida la identidad del ejecutable ANTES y DESPUÉS."""
+        if op not in _GIT_OPS:
+            raise GovernanceSnapshotError(f"operación git no permitida {op!r} (B306)")
         ident_before = self._governed_git_identity()
-        try:
-            proc = subprocess.run(
-                [_GIT_ABS, "-C", self._root, *args],
-                capture_output=True,
-                timeout=30,
-                env=dict(_GIT_CHILD_ENV),
-                stdin=subprocess.DEVNULL,
-                close_fds=True,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise GovernanceSnapshotError(f"git {args} falló ({exc}) (fail-closed B303)") from exc
+        argv = [_GIT_ABS, *_GIT_CONFIG_ARGS, "-C", self._root, *_GIT_OPS[op]]
+        stdout = self._run_bounded(argv, out_limit)
         if self._governed_git_identity() != ident_before:  # rebind del ejecutable durante la ejecución
             raise GovernanceSnapshotError("git cambió de identidad durante la ejecución (B303)")
-        if proc.returncode != 0:
-            raise GovernanceSnapshotError(f"git {args} rc={proc.returncode} (fail-closed B303)")
-        return proc.stdout
+        return stdout
+
+    def _run_bounded(self, argv: list[str], out_limit: int) -> bytes:
+        """B306: runner ACOTADO — `Popen` (stdin DEVNULL, close_fds), lectura incremental de stdout/stderr con límite y
+        deadline monotónico; al exceder límite/timeout: terminate→kill→wait, cierra pipes y falla. Cero huérfanos."""
+        try:
+            proc = subprocess.Popen(  # noqa: S603 (argv fijo, ejecutable absoluto gobernado)
+                argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                env=dict(_GIT_CHILD_ENV), close_fds=True,
+            )  # fmt: skip
+        except OSError as exc:
+            raise GovernanceSnapshotError(f"git no ejecutable ({exc}) (fail-closed B306)") from exc
+        out_chunks: list[bytes] = []
+        counts = {"out": 0, "err": 0}
+        deadline = time.monotonic() + _GIT_TIMEOUT_S
+        problem: str | None = None
+        assert proc.stdout is not None and proc.stderr is not None
+        streams = {proc.stdout.fileno(): "out", proc.stderr.fileno(): "err"}
+        open_fds = set(streams)
+        try:
+            while open_fds and problem is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    problem = "timeout"
+                    break
+                ready, _, _ = select.select(list(open_fds), [], [], remaining)
+                if not ready:
+                    problem = "timeout"
+                    break
+                for fd in ready:
+                    data = os.read(fd, 1 << 16)
+                    if not data:
+                        open_fds.discard(fd)
+                        continue
+                    which = streams[fd]
+                    counts[which] += len(data)
+                    if which == "out":
+                        if counts["out"] > out_limit:
+                            problem = "stdout excede el límite"
+                            break
+                        out_chunks.append(data)
+                    elif counts["err"] > _GIT_STDERR_MAX_BYTES:
+                        problem = "stderr excede el límite"
+                        break
+        except OSError as exc:
+            problem = f"lectura del pipe falló ({exc})"
+        finally:
+            close_errors: list[str] = []
+            for f in (proc.stdout, proc.stderr):
+                try:
+                    f.close()
+                except OSError as exc:
+                    close_errors.append(str(exc))
+            rc = self._reap(proc, kill=problem is not None)
+        if close_errors:
+            raise GovernanceSnapshotError(f"git: fallo al cerrar pipes: {'; '.join(close_errors)} (B306)")
+        if problem is not None:
+            raise GovernanceSnapshotError(f"git {argv[-1]}: {problem} (fail-closed B306)")
+        if rc != 0:
+            raise GovernanceSnapshotError(f"git {argv[-1]} rc={rc} (fail-closed B306)")
+        return b"".join(out_chunks)
+
+    @staticmethod
+    def _reap(proc: subprocess.Popen, *, kill: bool) -> int | None:
+        """B306: recolecta el hijo sin dejar zombie — terminate→kill→wait ante límite/timeout; devuelve rc o None."""
+        if kill:
+            proc.terminate()
+            try:
+                return proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                return None
+        try:
+            return proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            return None
 
     def _capture_inventory(self) -> tuple[tuple[str, ...], str, tuple]:
         """B301/B303: UNA captura del inventario versionado COMPLETO (sin pathspec del caller) vía el git ABSOLUTO
@@ -458,12 +548,12 @@ class GovernanceSnapshot(AbstractContextManager):
         self._captures += 1
         git_ident = self._governed_git_identity()  # identidad del ejecutable ligada al sello
         try:
-            toplevel = self._run_git(["rev-parse", "--show-toplevel"]).decode("utf-8").strip()
+            toplevel = self._run_git("TOPLEVEL", 1 << 12).decode("utf-8").strip()  # B306: rev-parse acotado a 4 KiB
         except UnicodeDecodeError as exc:
             raise GovernanceSnapshotError(f"git toplevel no-UTF-8 ({exc}) (fail-closed B301)") from exc
         if toplevel != self._root:  # B303: EXACTO — un root symlink (toplevel resuelto) se rechaza
             raise GovernanceSnapshotError(f"git toplevel {toplevel!r} != ROOT {self._root!r} exacto (fail-closed B303)")
-        stdout = self._run_git(["ls-files", "-z", "--"])
+        stdout = self._run_git("TRACKED_INVENTORY", _SNAPSHOT_TOTAL_MAX_BYTES + 1)  # B306: ls-files acotado
         if len(stdout) > _SNAPSHOT_TOTAL_MAX_BYTES:  # B301: no materializar un inventario ilimitado
             raise GovernanceSnapshotError(f"git ls-files devolvió más de {_SNAPSHOT_TOTAL_MAX_BYTES} bytes (B301)")
         raw_sha = hashlib.sha256(stdout).hexdigest()  # B303: sha de los BYTES CRUDOS, no del join reconstruido

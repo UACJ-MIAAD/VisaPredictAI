@@ -456,20 +456,13 @@ def test_b299_systemexit_not_converted(tmp_path, monkeypatch):
 
 
 def test_b299_tracked_non_utf8_stays_in_taxonomy(tmp_path, monkeypatch):
-    import subprocess
+    def _fake_git(op, out_limit):  # TOPLEVEL → ROOT real; TRACKED_INVENTORY → nombre no-UTF-8
+        if op == "TOPLEVEL":
+            return str(tmp_path).encode("utf-8") + b"\n"
+        return b"tools/\xff\xfe.py\x00"
 
-    class _Out:
-        def __init__(self, out):
-            self.returncode = 0
-            self.stdout = out
-
-    def _run(cmd, *a, **k):  # rev-parse → toplevel real; ls-files → nombre no-UTF-8
-        if "rev-parse" in cmd:
-            return _Out(str(tmp_path).encode("utf-8") + b"\n")
-        return _Out(b"tools/\xff\xfe.py\x00")
-
-    monkeypatch.setattr(subprocess, "run", _run)
     with _lay(tmp_path) as snap:
+        monkeypatch.setattr(snap, "_run_git", _fake_git)
         with pytest.raises(gs.GovernanceSnapshotError, match="B299"):
             snap.tracked(gs.TrackedQuery("suffix", ".py"))
 
@@ -491,23 +484,16 @@ def test_b301_inventory_sealed_one_capture(monkeypatch, tmp_path):
 
 
 def test_b301_two_subprocess_generations_not_both_accepted(monkeypatch):
-    import subprocess
-
     calls = {"n": 0}
 
-    class _Out:
-        def __init__(self, out):
-            self.returncode = 0
-            self.stdout = out
-
-    def _run(cmd, *a, **k):
-        if "rev-parse" in cmd:
-            return _Out(_REPO_ROOT.encode("utf-8") + b"\n")  # toplevel == ROOT exacto (B303)
+    def _fake_git(op, out_limit):  # sustituye la operación git cerrada; TOPLEVEL == ROOT exacto
+        if op == "TOPLEVEL":
+            return _REPO_ROOT.encode("utf-8") + b"\n"
         calls["n"] += 1
-        return _Out(b"a.py\x00" if calls["n"] == 1 else b"b.py\x00")
+        return b"a.py\x00" if calls["n"] == 1 else b"b.py\x00"
 
-    monkeypatch.setattr(subprocess, "run", _run)
     with gs.GovernanceSnapshot(_REPO_ROOT) as snap:
+        monkeypatch.setattr(snap, "_run_git", _fake_git)
         first = snap.tracked(gs.TrackedQuery("suffix", ".py"))
         second = snap.tracked(gs.TrackedQuery("suffix", ".py"))
         assert first == second == ("a.py",), "la segunda consulta debe reusar la MISMA tuple sellada (B301)"
@@ -542,6 +528,72 @@ def test_b303_governed_git_identity_is_absolute_root_owned():
     ident = snap._governed_git_identity()
     assert ident == snap._governed_git_identity(), "la identidad del git gobernado debe ser estable"
     assert ident[3] == 0, "git debe ser root-owned (uid 0) (B303)"  # st_uid
+
+
+# ---------------------------------------------------------------------------
+# B306 — pese al ejecutable absoluto y el entorno allowlist, git seguía leyendo la config LOCAL del repo y ejecutando
+# `core.fsmonitor` durante `tracked()` (RCE). Ahora un prefijo de config por línea de comando lo neutraliza, las
+# operaciones son cerradas (el caller no da argv) y el subproceso lee acotado.
+# ---------------------------------------------------------------------------
+def _make_repo_with_fsmonitor():
+    import subprocess
+
+    base = tempfile.mkdtemp(dir=os.path.expanduser("~"))
+    repo = os.path.join(base, "repo")
+    os.mkdir(repo)
+    sentinel = os.path.join(base, "SENTINEL")
+    fsmon = os.path.join(base, "fsmon.sh")
+    with open(fsmon, "w") as fh:
+        fh.write(f'#!/bin/bash\ntouch "{sentinel}"\necho ""\n')
+    os.chmod(fsmon, 0o755)
+    env = {"HOME": base, "PATH": "/usr/bin:/bin"}
+    subprocess.run(["/usr/bin/git", "init", "-q", repo], check=True, env=env)
+    with open(os.path.join(repo, "a.py"), "w") as fh:
+        fh.write("x = 1\n")
+    subprocess.run(["/usr/bin/git", "-C", repo, "add", "a.py"], check=True, env=env)
+    subprocess.run(["/usr/bin/git", "-C", repo, "config", "core.fsmonitor", fsmon], check=True, env=env)
+    return base, repo, sentinel
+
+
+def test_b306_local_fsmonitor_config_not_executed():
+    base, repo, sentinel = _make_repo_with_fsmonitor()
+    try:
+        with gs.GovernanceSnapshot(repo) as snap:
+            inv = snap.tracked(gs.TrackedQuery("suffix", ".py"))
+        assert inv == ("a.py",), f"inventario esperado (B306): {inv}"
+        assert not os.path.exists(sentinel), "core.fsmonitor NO debe ejecutarse durante tracked() (B306)"
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def test_b306_config_prefix_disables_executable_config():
+    joined = " ".join(gs._GIT_CONFIG_ARGS)
+    assert "core.fsmonitor=false" in joined and "core.hooksPath=/dev/null" in joined and "--no-optional-locks" in joined
+    assert gs._GIT_CHILD_ENV["GIT_OPTIONAL_LOCKS"] == "0"
+
+
+def test_b306_closed_ops_reject_caller_argv():
+    snap = gs.GovernanceSnapshot(_REPO_ROOT)
+    with pytest.raises(gs.GovernanceSnapshotError, match="B306"):
+        snap._run_git("EVIL-SUBCOMMAND", 4096)
+
+
+def test_b306_bounded_stdout_aborts():
+    # el runner acotado aborta si stdout excede el límite, sin materializar ilimitado.
+    snap = gs.GovernanceSnapshot(_REPO_ROOT)
+    with pytest.raises(gs.GovernanceSnapshotError, match="límite"):
+        snap._run_bounded(["/bin/sh", "-c", "head -c 1000000 /dev/zero"], 1024)
+
+
+def test_b306_bounded_timeout_reaps():
+    snap = gs.GovernanceSnapshot(_REPO_ROOT)
+    orig = gs._GIT_TIMEOUT_S
+    gs._GIT_TIMEOUT_S = 0.5
+    try:
+        with pytest.raises(gs.GovernanceSnapshotError, match="timeout"):
+            snap._run_bounded(["/bin/sh", "-c", "sleep 30"], 4096)
+    finally:
+        gs._GIT_TIMEOUT_S = orig
 
 
 # ---------------------------------------------------------------------------
@@ -616,15 +668,11 @@ def test_b301_reverify_detects_inventory_change(monkeypatch):
 
 
 def test_b301_toplevel_mismatch_rejected(monkeypatch):
-    import subprocess
+    def _fake_git(op, out_limit):
+        return b"/somewhere/else\n" if op == "TOPLEVEL" else b""
 
-    class _Out:
-        def __init__(self, rc, out):
-            self.returncode = rc
-            self.stdout = out
-
-    monkeypatch.setattr(subprocess, "run", lambda cmd, *a, **k: _Out(0, b"/somewhere/else\n") if "rev-parse" in cmd else _Out(0, b""))  # fmt: skip
     with gs.GovernanceSnapshot(_REPO_ROOT) as snap:
+        monkeypatch.setattr(snap, "_run_git", _fake_git)
         with pytest.raises(gs.GovernanceSnapshotError, match="toplevel"):
             snap.tracked(gs.TrackedQuery("suffix", ".py"))
 
