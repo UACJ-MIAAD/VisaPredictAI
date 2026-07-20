@@ -117,6 +117,45 @@ def load_contract() -> DeepSmokeContract:
     return DeepSmokeContract._from_bytes(raw)
 
 
+def _distribution_inventory() -> tuple[dict[str, str], list[str]]:
+    """B327: inventario de distribuciones instaladas SIN last-wins — un nombre normalizado DUPLICADO (dos dist-info) es un
+    PROBLEMA, no una sobrescritura silenciosa. Devuelve `({norm_name: version}, problemas)`."""
+    inv: dict[str, str] = {}
+    probs: list[str] = []
+    for d in distributions():
+        name = d.name
+        if not name:
+            continue
+        norm = lc._norm(name)
+        if norm in inv:
+            probs.append(f"distribución con nombre normalizado DUPLICADO: {norm}")
+        inv[norm] = d.version
+    return inv, probs
+
+
+def identity_problems(
+    module: str, distribution: str, *, origin: str | None, providing: list[str], sys_prefix: str, root: str
+) -> list[str]:
+    """B327: identidad de un import del stack (PURA/testeable) — el módulo debe tener un `origin` REAL bajo `sys_prefix`
+    (no un namespace/preinyectado sin origin, no un shadow bajo ROOT) y la distribución que lo PROVEE
+    (`importlib.metadata.packages_distributions`) debe ser EXACTAMENTE la esperada."""
+    probs: list[str] = []
+    if origin is None:
+        probs.append(f"{module}: sin origin certificable (namespace/preinyectado)")
+    else:
+        rp = os.path.realpath(origin)
+        prefix = os.path.realpath(sys_prefix)
+        rroot = os.path.realpath(root)
+        if not (rp == prefix or rp.startswith(prefix + os.sep)):
+            probs.append(f"{module}: origin {rp} fuera de sys.prefix")
+        if rp == rroot or rp.startswith(rroot + os.sep):
+            probs.append(f"{module}: origin bajo ROOT (shadow local)")
+    provided = sorted({lc._norm(p) for p in providing})
+    if provided != [distribution]:
+        probs.append(f"{module}: packages_distributions {provided} != [{distribution}]")
+    return probs
+
+
 def _commit_sha() -> str:
     env = os.environ.get("GITHUB_SHA")
     if env:
@@ -136,6 +175,8 @@ def evaluate(
     pip_check_ok: bool,
     checksum: float,
     contract: DeepSmokeContract,
+    import_identity: list[str] | tuple[str, ...] = (),
+    import_records: list[dict] | tuple[dict, ...] = (),
 ) -> tuple[list[str], dict]:
     """Lógica PURA del smoke (sin importar el stack deep) — testeable con valores inyectados. El inventario observado se
     exige EXACTAMENTE igual al del contrato independiente (B322): ni omisión, ni extra, ni tipo inválido. La AUTORIDAD del
@@ -169,6 +210,7 @@ def evaluate(
         probs.append(f"torch {torch_version} != esperado {rt['torch']}")
     if not pip_check_ok:
         probs.append("pip check rojo")
+    probs.extend(import_identity)  # B327: identidad módulo↔distribución↔origen (calculada por run() en el entorno real)
     # t=[[0,1,2],[3,4,5]]; t@t.T=[[5,14],[14,50]]; suma=83 (determinista en cualquier plataforma).
     if checksum != 83.0:
         probs.append(f"checksum tensorial {checksum} != 83.0 (no determinista)")
@@ -188,6 +230,7 @@ def evaluate(
         "torch_observed": torch_version,
         "pip_check": "ok" if pip_check_ok else "fail",
         "versions": {d: installed[d] for d in expected_dists},  # orden CANÓNICO del contrato
+        "imports": list(import_records),  # B327: módulo/distribución/origen relativo a sys.prefix
         "tensor_checksum": checksum,
     }
     return probs, receipt
@@ -199,10 +242,10 @@ def run(lock_rel: str) -> tuple[list[str], dict]:
     OMITE y la caza la igualdad de conjuntos de evaluate). B316: imports ESTÁTICOS, sin fábrica dinámica. B323: una
     comprobación RUNTIME (no `assert`; sobrevive `python -O`) exige que el stack importado == módulos del contrato."""
     contract = load_contract()
-    # inventario OBSERVADO por distribución instalada (`distributions()` no eleva por paquetes ausentes); una dist del
-    # contrato que NO esté instalada queda fuera del dict y la caza la igualdad de conjuntos de evaluate().
-    present = {lc._norm(d.name): d.version for d in distributions() if d.name}
-    installed = {dist: present[lc._norm(dist)] for _, dist in contract.imports if lc._norm(dist) in present}
+    # B327: inventario OBSERVADO sin last-wins (dist-info normalizada duplicada = problema); una dist del contrato NO
+    # instalada queda fuera del dict y la caza la igualdad de conjuntos de evaluate().
+    dist_inv, id_probs = _distribution_inventory()
+    installed = {dist: dist_inv[lc._norm(dist)] for _, dist in contract.imports if lc._norm(dist) in dist_inv}
     import chronos as _chronos
     import mlflow as _mlflow
     import neuralforecast as _neuralforecast
@@ -217,6 +260,29 @@ def run(lock_rel: str) -> tuple[list[str], dict]:
     expected_modules = frozenset(module for module, _ in contract.imports)
     if imported_modules != expected_modules:  # NO es `assert` (sobrevive `python -O`)
         raise RuntimeError(f"stack importado {sorted(imported_modules)} != contrato {sorted(expected_modules)}")
+
+    # B327: liga CADA módulo importado a su distribución + origen REAL (bajo sys.prefix, no ROOT/shadow/preinyectado).
+    from importlib.metadata import packages_distributions
+
+    by_name = {m.__name__.split(".")[0]: m for m in _imported}
+    pkg_dists = packages_distributions()
+    import_records: list[dict] = []
+    for module, dist in contract.imports:
+        mod = by_name.get(module)
+        spec = mod.__spec__ if mod is not None else None
+        origin = spec.origin if spec is not None else None
+        id_probs.extend(
+            identity_problems(
+                module,
+                dist,
+                origin=origin,
+                providing=list(pkg_dists.get(module, [])),
+                sys_prefix=sys.prefix,
+                root=str(lc.ROOT),
+            )  # fmt: skip
+        )
+        rel = os.path.relpath(os.path.realpath(origin), sys.prefix) if origin else "unknown"
+        import_records.append({"module": module, "distribution": dist, "origin": rel})
 
     torch.manual_seed(0)
     prod = torch.arange(6, dtype=torch.float32).reshape(2, 3) @ torch.arange(6, dtype=torch.float32).reshape(2, 3).T
@@ -236,6 +302,8 @@ def run(lock_rel: str) -> tuple[list[str], dict]:
         pip_check_ok=pip_ok,
         checksum=checksum,
         contract=contract,
+        import_identity=id_probs,
+        import_records=import_records,
     )
 
 

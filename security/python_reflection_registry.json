@@ -822,15 +822,6 @@
       "justification": "Llamada estandar `sys.stdout.buffer.write/flush(...)` rooteada en modulo canonico via alias de atributo `buf = sys.stdout.buffer` (B285/B297); benigna I/O, sin reflexion dinamica; revisada 2026-07-20.",
       "review_by": "2027-07-20"
     },
-    "17bf60edb9f78b452ab1a0f5716a11d732edcfd6b9bef5558c0b32ad83aefa5c": {
-      "file": "tools/deep_smoke.py",
-      "qualname": "run",
-      "op": "canonical-rooted-call",
-      "statement_ast_sha256": "e28af2b3e7dbdc318ad54f3b3eabad2dced23db6291f8f77af362a3fd2247301",
-      "occurrence_index": 0,
-      "justification": "Llamada estandar `distributions()` (importlib.metadata) para el inventario observado; benigna, sin reflexion dinamica; revisada 2026-07-20.",
-      "review_by": "2027-07-20"
-    },
     "c08d6d9474ac46bff8faa3ee534386a384156a7b80d224f5e9e1b02a88aed76d": {
       "file": "tools/merge_campaign_pools.py",
       "qualname": "_bundle_provenance",
@@ -874,6 +865,24 @@
       "statement_ast_sha256": "979f62cd664f4ee399ff6711fc0442f858bf0c04ba4bd8c6c7db738f4bb6e419",
       "occurrence_index": 0,
       "justification": "escape benigno de submodulo canonico NO factory (importlib.abc.Traversable shim / importlib.metadata.PackageNotFoundError en except); B324; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "9f7531a5d31a0443c7687446aaeb953557de55747bf96ce0432932a366ae2d48": {
+      "file": "tools/deep_smoke.py",
+      "qualname": "_distribution_inventory",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "a545c30d1371e6a6be7dc73205e4055c88b3a4051afea48bf0c1a77c288e16a5",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar importlib.metadata (distributions/packages_distributions) para el inventario y la identidad modulo-distribucion; benigna; B327; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "c059d2af6edef01bea1127d9716332bbfa2010271619aad8e7e80a185d917ef7": {
+      "file": "tools/deep_smoke.py",
+      "qualname": "run",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "dab65bbe4dbac0cfc2cdee58020925471453c6938df10a62ede54e1036a6e354",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar importlib.metadata (distributions/packages_distributions) para el inventario y la identidad modulo-distribucion; benigna; B327; revisada 2026-07-20.",
       "review_by": "2027-07-20"
     }
   }

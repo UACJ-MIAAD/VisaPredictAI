@@ -149,5 +149,53 @@ def test_b326_for_test_factory_revalidates():
         ds.DeepSmokeContract.for_test((("zzz", "zzz"), ("aaa", "aaa")))
 
 
+PREFIX = "/opt/pyprefix"
+REPO = "/repo/root"
+
+
+def test_b327_identity_accepts_real_origin():
+    # módulo con origin REAL bajo sys.prefix y provisto por EXACTAMENTE la distribución esperada → sin problemas.
+    assert (
+        ds.identity_problems(
+            "ray",
+            "ray",
+            origin=PREFIX + "/lib/site-packages/ray/__init__.py",
+            providing=["ray"],
+            sys_prefix=PREFIX,
+            root=REPO,
+        )
+        == []
+    )
+
+
+def test_b327_identity_rejects_fake_and_shadow_and_wrong_dist():
+    # B327: un módulo preinyectado (sin origin), un shadow local bajo ROOT, un origin fuera de sys.prefix, o una
+    # distribución que NO provee el módulo → problema. En el SHA base `run()` no cruzaba módulo↔distribución↔origen y
+    # ocho módulos falsos en `sys.modules` producían recibo verde.
+    assert any("sin origin" in p for p in ds.identity_problems("ray", "ray", origin=None, providing=["ray"], sys_prefix=PREFIX, root=REPO))  # fmt: skip
+    shadow = ds.identity_problems("ray", "ray", origin=REPO + "/ray/__init__.py", providing=["ray"], sys_prefix=PREFIX, root=REPO)  # fmt: skip
+    assert any("ROOT" in p for p in shadow) and any("fuera de sys.prefix" in p for p in shadow)
+    assert any("fuera de sys.prefix" in p for p in ds.identity_problems("ray", "ray", origin="/tmp/ray/__init__.py", providing=["ray"], sys_prefix=PREFIX, root=REPO))  # fmt: skip
+    assert any("packages_distributions" in p for p in ds.identity_problems("ray", "ray", origin=PREFIX + "/x/ray/__init__.py", providing=["evil"], sys_prefix=PREFIX, root=REPO))  # fmt: skip
+
+
+def test_b327_evaluate_surfaces_import_identity_problems():
+    # los problemas de identidad calculados en run() se propagan a evaluate() (recibo vacío).
+    probs, receipt = ds.evaluate(CPU, **{**_kwargs(CPU), "import_identity": ["ray: sin origin certificable"]})
+    assert receipt == {} and any("sin origin" in p for p in probs)
+
+
+def test_b327_distribution_inventory_flags_duplicates(monkeypatch):
+    # B327: dos dist-info con el MISMO nombre normalizado NO se sobrescriben en silencio (last-wins) — es un problema.
+    class _D:
+        def __init__(self, name, version):
+            self.name = name
+            self.version = version
+
+    monkeypatch.setattr(ds, "distributions", lambda: [_D("Ray", "1.0"), _D("ray", "2.0"), _D("pandas", "3.0")])
+    inv, probs = ds._distribution_inventory()
+    assert any("DUPLICADO" in p and "ray" in p for p in probs) and inv["pandas"] == "3.0"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
