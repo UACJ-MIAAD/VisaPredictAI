@@ -627,11 +627,20 @@ class GovernanceSnapshot(AbstractContextManager):
         issues: list[_ProcessIssue] = []
         interrupt: list[BaseException | None] = [None]
         rc: int | None = None
-        if proc is not None:  # pasos 1-3: terminar grupo, reconciliar, reap del hijo directo
-            rc, _final_state, group_issues = self._finish_process_group(
-                proc, proc.pid, terminate=must_terminate, interrupt=interrupt
+        if proc is not None:  # pasos 1-3: la FASE DE GRUPO COMPLETA va tras el ESCUDO EXTERIOR (B325): un fallo
+            # inesperado NO reemplaza el primario ni salta el cierre de selector/pipes; dispara un fallback gobernado.
+            outcome = self._guarded_step(
+                "grupo",
+                "finish",
+                lambda: self._finish_process_group(proc, proc.pid, terminate=must_terminate, interrupt=interrupt),
+                issues,
+                interrupt,
             )
-            issues.extend(group_issues)
+            if isinstance(outcome, tuple):
+                rc, _final_state, group_issues = outcome
+                issues.extend(group_issues)
+            else:  # `_finish_process_group` falló inesperadamente → fallback de terminación (no sólo cerrar fds)
+                self._fallback_terminate(proc, issues, interrupt)
         if sel is not None:  # paso 4: desregistrar fds vivos antes de cerrar el selector
             keys = self._guarded_step("cleanup", "get_map", lambda: list(sel.get_map().values()), issues, interrupt)
             fds = [key.fd for key in keys] if isinstance(keys, list) else []
@@ -647,6 +656,38 @@ class GovernanceSnapshot(AbstractContextManager):
                 if stream is not None:
                     self._guarded_step("cleanup", f"close-{tag}", stream.close, issues, interrupt)
         return rc, issues, interrupt[0]
+
+    def _fallback_terminate(
+        self, proc: subprocess.Popen[bytes], issues: list[_ProcessIssue], interrupt: list[BaseException | None]
+    ) -> None:
+        """B325: fallback cuando la fase de grupo falló INESPERADAMENTE — termina el grupo del mejor modo (TERM→KILL→wait)
+        y verifica ausencia; NO se limita a cerrar fds. Cada paso pasa por `_guarded_step`; sólo señala un grupo aislado
+        confirmado (nunca el del auditor); estado final != ABSENT = fail-closed."""
+        pid = self._guarded_step("fallback", "pid", lambda: proc.pid, issues, interrupt)
+        if type(pid) is not int:
+            self._record_issue(issues, "fallback", "pid", "sin pgid; el grupo no pudo terminarse")
+            return
+        isolated = self._guarded_step("fallback", "getpgrp", lambda: pid == proc.pid and pid != os.getpgrp(), issues, interrupt)  # fmt: skip
+        if isolated is True:
+
+            def _kill(sig: int) -> None:
+                try:
+                    os.killpg(pid, sig)
+                except ProcessLookupError:
+                    return  # el grupo ya no existe → terminación efectiva
+
+            def _killer(sig: int) -> Callable[[], object]:
+                return lambda: _kill(sig)
+
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                self._guarded_step("fallback", "killpg", _killer(sig), issues, interrupt)
+        else:  # sin aislamiento CONFIRMADO no se señala ningún grupo
+            self._record_issue(issues, "fallback", "aislamiento", "grupo no aislado confirmable; sin señalización")
+        self._guarded_step("fallback", "wait", lambda: proc.wait(timeout=5), issues, interrupt)
+        res = self._guarded_step("fallback", "group_state", lambda: self._group_state(pid), issues, interrupt)
+        state = res[0] if isinstance(res, tuple) else _GroupState.UNKNOWN
+        if state != _GroupState.ABSENT:  # UNKNOWN o PRESENT tras el fallback → fail-closed
+            self._record_issue(issues, "fallback", "grupo", f"grupo no ausente tras fallback: {state.value}")
 
     @staticmethod
     def _group_state(pgid: int) -> tuple[_GroupState, _ProcessIssue | None]:
@@ -699,15 +740,22 @@ class GovernanceSnapshot(AbstractContextManager):
             rc_val = box.get("rc")
             return (rc_val if isinstance(rc_val, int) else None), bool(box.get("timed_out", False))
 
+        def _probe() -> _GroupState:  # B325: la sonda del grupo pasa por el escudo — un fallo NO escapa, da UNKNOWN
+            res = self._guarded_step("sonda", "group_state", lambda: self._group_state(pgid), issues, interrupt)
+            if isinstance(res, tuple):
+                state, issue = res
+                if issue is not None:  # dedup: la misma sonda fallida no se repite por iteración
+                    self._record_issue(issues, issue.phase, issue.operation, issue.detail)
+                return state
+            return _GroupState.UNKNOWN  # la sonda falló (fail-closed)
+
         def _grace_probe(deadline_s: float) -> _GroupState:  # espera activa: reap del padre + sonda del grupo
             end = time.monotonic() + deadline_s
             state = _GroupState.UNKNOWN
             while time.monotonic() < end:
                 # B320: el fallo de `poll()` (reap best-effort del zombie) YA NO se descarta; se convierte en incidencia.
                 self._guarded_step("reap", "poll", proc.poll, issues, interrupt)
-                state, issue = self._group_state(pgid)
-                if issue is not None:  # dedup: la misma sonda fallida no se repite por iteración
-                    self._record_issue(issues, issue.phase, issue.operation, issue.detail)
+                state = _probe()
                 if state == _GroupState.ABSENT:
                     return state
                 time.sleep(0.02)
@@ -729,9 +777,7 @@ class GovernanceSnapshot(AbstractContextManager):
         # B315: verificación/reconciliación INCLUSO en éxito — un nieto que daemoniza en el grupo no deja trabajo
         # residual. Cualquier estado != ABSENT (PRESENT o UNKNOWN — la sonda pudo fallar) exige intento de terminación
         # de mejor esfuerzo Y fail-closed: UNKNOWN nunca equivale a limpio.
-        final_state, issue = self._group_state(pgid)
-        if issue is not None:
-            issues.append(issue)
+        final_state = _probe()
         if isolated and final_state != _GroupState.ABSENT:
             if not terminate and final_state == _GroupState.PRESENT:  # descendientes tras rc en el camino feliz
                 issues.append(

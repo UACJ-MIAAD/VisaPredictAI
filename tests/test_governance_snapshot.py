@@ -999,6 +999,94 @@ def test_b320_poll_failure_surfaces_as_issue():
         gs._GIT_TIMEOUT_S = orig
 
 
+# ---------------------------------------------------------------------------
+# B325 — `_cleanup_process` llamaba `_finish_process_group` FUERA de `_guarded_step`; una operación no guardada
+# (`_group_state`, monotonic, sleep) que elevaba escapaba y reemplazaba el primario. Ahora la sonda del grupo va
+# guardada y la fase de grupo COMPLETA está tras un escudo exterior con fallback de terminación.
+# ---------------------------------------------------------------------------
+class _FakeProc:  # proceso mínimo para ejercitar el cleanup sin lanzar uno real
+    pid = 999999
+    stdout = stderr = None
+
+    def wait(self, timeout=None):
+        return 0
+
+    def poll(self):
+        return 0
+
+
+def test_b325_group_state_error_does_not_escape_cleanup(monkeypatch):
+    # B325: `_group_state` que eleva RuntimeError ya NO escapa de `_cleanup_process`; se ACUMULA como incidencia. En el
+    # SHA base la excepción cruzaba `_cleanup_process` (y desde el `finally` de `_run_bounded` podía reemplazar el primario).
+    def _boom(pgid):
+        raise RuntimeError("group-state-injected")
+
+    monkeypatch.setattr(gs.GovernanceSnapshot, "_group_state", staticmethod(_boom))
+    snap = gs.GovernanceSnapshot(_REPO_ROOT)
+    rc, issues, interrupt = snap._cleanup_process(None, _FakeProc(), must_terminate=True)
+    assert interrupt is None
+    assert any("group_state" in i.operation or "RuntimeError" in i.detail for i in issues), issues
+
+
+def test_b325_primary_interrupt_preserved_over_group_state_error(monkeypatch):
+    import selectors
+
+    def _boom(pgid):
+        raise RuntimeError("group-state-injected")
+
+    class _KISel(selectors.DefaultSelector):
+        def select(self, timeout=None):
+            raise KeyboardInterrupt("primary-ki")
+
+    monkeypatch.setattr(gs.GovernanceSnapshot, "_group_state", staticmethod(_boom))
+    real = selectors.DefaultSelector
+    selectors.DefaultSelector = _KISel
+    try:
+        snap = gs.GovernanceSnapshot(_REPO_ROOT)
+        # B325: el KeyboardInterrupt del cuerpo se preserva pese a que la sonda del grupo falle en el cleanup.
+        with pytest.raises(KeyboardInterrupt):
+            snap._run_bounded(["/bin/echo", "hi"], 4096)
+    finally:
+        selectors.DefaultSelector = real
+
+
+def test_b325_fallback_terminates_group_on_finish_failure(monkeypatch, tmp_path):
+    # B325: si `_finish_process_group` falla INESPERADAMENTE, un fallback gobernado termina el grupo (no sólo cierra fds).
+    # En el SHA base el fallo escapaba `_cleanup_process` y el hijo quedaba vivo.
+    marker = tmp_path / "cpid"
+    marker.write_text("")
+
+    def _boom(self, proc, pgid, *, terminate, interrupt):
+        raise RuntimeError("finish-injected")
+
+    monkeypatch.setattr(gs.GovernanceSnapshot, "_finish_process_group", _boom)
+    proc = subprocess.Popen(
+        ["/bin/sh", "-c", f"echo $$ > {marker}; exec sleep 30"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    time.sleep(0.2)
+    cpid = marker.read_text().strip()
+    try:
+        snap = gs.GovernanceSnapshot(_REPO_ROOT)
+        _rc, issues, _interrupt = snap._cleanup_process(None, proc, must_terminate=True)
+        assert any(i.phase == "fallback" or i.operation == "finish" for i in issues), issues
+        time.sleep(0.3)
+        alive = True
+        try:
+            os.kill(int(cpid), 0)
+        except ProcessLookupError, PermissionError:
+            alive = False
+        assert not alive, f"el fallback debe terminar el grupo (B325); pid {cpid} vivo"
+    finally:
+        with contextlib.suppress(ProcessLookupError, PermissionError, ValueError):
+            os.kill(int(cpid), signal.SIGKILL)
+        with contextlib.suppress(Exception):
+            proc.wait(timeout=2)
+
+
 def test_b314_b315_b318_runner_lifecycle_shape():
     # GATE ESTRUCTURAL POSITIVO (plan §6): la forma del runner y de sus helpers se fija por inspección de fuente, de
     # modo que una regresión de forma (selector tras Popen, `select.select`, `proc.terminate`, un `killpg` mudo, un
@@ -1011,7 +1099,8 @@ def test_b314_b315_b318_runner_lifecycle_shape():
     src_group = inspect.getsource(gs.GovernanceSnapshot._finish_process_group)
     src_state = inspect.getsource(gs.GovernanceSnapshot._group_state)
     src_guard = inspect.getsource(gs.GovernanceSnapshot._guarded_step)
-    whole = src_run + src_clean + src_group + src_state + src_guard
+    src_fallback = inspect.getsource(gs.GovernanceSnapshot._fallback_terminate)
+    whole = src_run + src_clean + src_group + src_state + src_guard + src_fallback
 
     # 1. el selector se ADQUIERE antes del proceso (B314: si falla, no hay hijo que limpiar).
     assert src_run.index("selectors.DefaultSelector(") < src_run.index("subprocess.Popen("), "selector antes de Popen"
@@ -1027,8 +1116,8 @@ def test_b314_b315_b318_runner_lifecycle_shape():
     # vida — cada operación pasa por `_guarded_step`, que ACUMULA la excepción como incidencia.
     assert not re.search(r"except\b[^\n]*:\s*\n\s*pass\b", whole), "ningún except silencioso en el runner"
     assert "contextlib.suppress" not in whole, "B320: ninguna supresión silenciosa en el ciclo de vida"
-    # 6. el grupo se verifica INCLUSO tras el reap (B315): `_group_state` se consulta después del reap.
-    assert src_group.index("_reap(5.0)") < src_group.rindex("_group_state("), "grupo verificado tras el reap"
+    # 6. el grupo se verifica INCLUSO tras el reap (B315): la sonda guardada `_probe()` se consulta después del reap.
+    assert src_group.index("_reap(5.0)") < src_group.rindex("_probe()"), "grupo verificado tras el reap"
     # 7. cada paso de cleanup pasa por `_guarded_step` (B319): get_map, unregister, selector-close y AMBOS pipes.
     for op in ('"get_map"', '"unregister"', '"selector-close"', '"close-{tag}"'):
         assert op in src_clean, f"paso de cleanup {op} debe pasar por _guarded_step"
@@ -1042,6 +1131,16 @@ def test_b314_b315_b318_runner_lifecycle_shape():
     assert '"poll"' in src_group and '"reap"' in src_group and "_ProcessIssue" in src_group
     # 10. estado TRI-VALUADO: UNKNOWN existe y no equivale a limpio.
     assert "_GroupState.UNKNOWN" in src_state and "_GroupState.ABSENT" in src_state
+    # 11. B325: la FASE DE GRUPO completa está tras el escudo exterior — la llamada a `_finish_process_group` va DENTRO
+    # de `_guarded_step`, con `_fallback_terminate` cuando falla; la sonda del grupo va GUARDADA (dentro del lambda del
+    # `_guarded_step`), nunca asignada cruda.
+    assert "_finish_process_group" in src_clean and src_clean.index("_guarded_step") < src_clean.index("_finish_process_group")  # fmt: skip
+    assert "_fallback_terminate" in src_clean, "B325: debe existir un fallback de terminación"
+    assert "lambda: self._group_state(pgid)" in src_group and src_group.count("self._group_state(pgid)") == 1, "B325: sonda guardada"  # fmt: skip
+    # 12. B325: el fallback termina el grupo (killpg TERM+KILL, wait) y verifica ausencia — no sólo cierra fds.
+    assert (
+        "signal.SIGTERM" in src_fallback and "signal.SIGKILL" in src_fallback and "_GroupState.ABSENT" in src_fallback
+    )
 
 
 # ---------------------------------------------------------------------------
