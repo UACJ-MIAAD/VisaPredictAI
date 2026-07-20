@@ -5,11 +5,14 @@ cierre, path-traversal, independencia del cwd, `tracked()` y `reverify()`."""
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import signal
 import socket
+import subprocess
 import tempfile
+import time
 
 import pytest
 
@@ -594,6 +597,102 @@ def test_b306_bounded_timeout_reaps():
             snap._run_bounded(["/bin/sh", "-c", "sleep 30"], 4096)
     finally:
         gs._GIT_TIMEOUT_S = orig
+
+
+# ---------------------------------------------------------------------------
+# B311 — el runner usaba `select.select` (techo FD_SETSIZE) y dejaba escapar `ValueError` crudo. Ahora usa
+# `selectors.DefaultSelector` (epoll/kqueue) con taxonomía TOTAL sobre el backend de espera.
+# ---------------------------------------------------------------------------
+def test_b311_selector_error_stays_in_taxonomy(monkeypatch):
+    import selectors
+
+    class _BadSel(selectors.DefaultSelector):
+        def select(self, timeout=None):
+            raise ValueError("fd out of range")
+
+    monkeypatch.setattr(selectors, "DefaultSelector", _BadSel)
+    snap = gs.GovernanceSnapshot(_REPO_ROOT)
+    with pytest.raises(gs.GovernanceSnapshotError, match="selector"):
+        snap._run_bounded(["/bin/echo", "hi"], 4096)
+
+
+def test_b311_high_fds_work(monkeypatch):
+    # con muchos fds abiertos (stdout/stderr por encima de 1024) el runner sigue funcionando (no FD_SETSIZE).
+    held = [os.open("/dev/null", os.O_RDONLY) for _ in range(1100)]
+    try:
+        snap = gs.GovernanceSnapshot(_REPO_ROOT)
+        out = snap._run_bounded(["/bin/echo", "hola"], 4096)
+        assert out.strip() == b"hola"
+    finally:
+        for fd in held:
+            os.close(fd)
+
+
+# ---------------------------------------------------------------------------
+# B312 — tras timeout sólo moría el hijo directo; un nieto quedaba vivo. Ahora el hijo corre en sesión/grupo privado y
+# se termina TODO el grupo (TERM→KILL) con reconciliación.
+# ---------------------------------------------------------------------------
+def test_b312_grandchild_killed_after_timeout(tmp_path):
+    marker = tmp_path / "gcpid"
+    marker.write_text("")
+    snap = gs.GovernanceSnapshot(_REPO_ROOT)
+    orig = gs._GIT_TIMEOUT_S
+    gs._GIT_TIMEOUT_S = 0.25
+    try:
+        with pytest.raises(gs.GovernanceSnapshotError, match="timeout"):
+            snap._run_bounded(["/bin/sh", "-c", f"sleep 60 & echo $! > {marker}; sleep 60"], 4096)
+        time.sleep(0.5)
+        gcpid = marker.read_text().strip()
+        assert gcpid, "el nieto debe haber registrado su pid"
+        alive = True
+        try:
+            os.kill(int(gcpid), 0)
+        except ProcessLookupError, PermissionError:
+            alive = False
+        if alive:  # limpieza defensiva si el test fallara
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.kill(int(gcpid), signal.SIGKILL)
+        assert not alive, f"el nieto {gcpid} debe morir con el grupo (B312)"
+    finally:
+        gs._GIT_TIMEOUT_S = orig
+
+
+# ---------------------------------------------------------------------------
+# B313 — errores de terminate/kill/wait escapaban crudos y podían reemplazar el error primario. Ahora la taxonomía es
+# total y el primario se preserva con el cleanup adjunto.
+# ---------------------------------------------------------------------------
+def test_b313_reap_error_stays_in_taxonomy(monkeypatch):
+    real = subprocess.Popen
+
+    class _BadWait(real):
+        def wait(self, timeout=None):
+            raise ProcessLookupError("gone")
+
+    monkeypatch.setattr(gs.subprocess, "Popen", _BadWait)
+    snap = gs.GovernanceSnapshot(_REPO_ROOT)
+    orig = gs._GIT_TIMEOUT_S
+    gs._GIT_TIMEOUT_S = 0.2
+    try:
+        with pytest.raises(gs.GovernanceSnapshotError) as ei:
+            snap._run_bounded(["/bin/sh", "-c", "sleep 5"], 4096)
+        # el primario (timeout) se preserva; el error de reap se adjunta como cleanup
+        assert "timeout" in str(ei.value) and ("cleanup" in str(ei.value) or "wait" in str(ei.value))
+    finally:
+        gs._GIT_TIMEOUT_S = orig
+
+
+def test_b313_primary_preserved_over_cleanup(monkeypatch):
+    # un stdout que excede el límite (primario) + un fallo de wait (cleanup): el primario NO se reemplaza.
+    real = subprocess.Popen
+
+    class _BadWait(real):
+        def wait(self, timeout=None):
+            raise ProcessLookupError("gone")
+
+    monkeypatch.setattr(gs.subprocess, "Popen", _BadWait)
+    snap = gs.GovernanceSnapshot(_REPO_ROOT)
+    with pytest.raises(gs.GovernanceSnapshotError, match="límite"):
+        snap._run_bounded(["/bin/sh", "-c", "head -c 1000000 /dev/zero"], 1024)
 
 
 # ---------------------------------------------------------------------------
