@@ -645,8 +645,8 @@ def test_b304_subclass_and_wrong_type_query_rejected(tmp_path):
             Evil("exact", "x")  # __post_init__ ya rechaza la subclase
         with pytest.raises(gs.GovernanceSnapshotError, match="B304"):
             snap.tracked("tools/*")  # str crudo, no TrackedQuery
-        with pytest.raises(gs.GovernanceSnapshotError, match="B304"):
-            snap.tracked(object.__new__(gs.TrackedQuery))  # objeto sin validar → no es genuino... type is TrackedQuery
+        with pytest.raises(gs.GovernanceSnapshotError, match="B307"):
+            snap.tracked(object.__new__(gs.TrackedQuery))  # sin campos → revalidación de frontera (B307)
 
 
 def test_b304_root_only_exact_str(tmp_path):
@@ -661,3 +661,49 @@ def test_b304_root_only_exact_str(tmp_path):
     for bad in (5, b"/x", BytesPath(), RaisingPath(), "", "root\x00nul"):
         with pytest.raises(gs.GovernanceSnapshotError, match="B304"):
             gs.GovernanceSnapshot(bad)
+
+
+# ---------------------------------------------------------------------------
+# B307 — `tracked()` sólo revalidaba tipo/kind/no-vacío; una instancia del tipo EXACTO creada por `object.__new__` +
+# `object.__setattr__` (saltando `__post_init__`) evadía la gramática por modalidad (`.`, `../`, prefix sin `/`, suffix
+# con slash) y seleccionaba paths no autorizados. Ahora la gramática COMPLETA (`_tracked_query_problem`) se aplica en
+# AMBAS fronteras, y una query rechazada NO captura git.
+# ---------------------------------------------------------------------------
+def _forge_query(kind, value):
+    q = object.__new__(gs.TrackedQuery)
+    object.__setattr__(q, "kind", kind)
+    object.__setattr__(q, "value", value)
+    return q
+
+
+def test_b307_forged_query_gets_full_grammar_at_tracked_boundary(tmp_path, monkeypatch):
+    root = os.path.dirname(os.path.dirname(os.path.abspath(gs.__file__)))
+    monkeypatch.chdir(tmp_path)
+    with gs.GovernanceSnapshot(root) as snap:
+        for kind, value in (
+            ("prefix", "."),  # `.` no es directorio explícito
+            ("prefix", "../"),  # traversal
+            ("prefix", "/x/"),  # absoluto
+            ("prefix", "tools"),  # sin `/` final
+            ("exact", "/etc/passwd"),  # absoluto
+            ("exact", "a/../b"),  # traversal
+            ("suffix", "a/b"),  # slash
+            ("suffix", "noext"),  # sin extensión explícita
+            ("bogus", "x"),  # kind inválido
+        ):
+            before = snap._captures
+            with pytest.raises(gs.GovernanceSnapshotError, match="B307"):
+                snap.tracked(_forge_query(kind, value))
+            assert snap._captures == before, "una query rechazada NO debe capturar git (B307)"
+
+
+def test_b307_grammar_single_source_matches_constructor(tmp_path):
+    # la MISMA gramática rige el constructor y la frontera: lo que rechaza `__post_init__` lo rechaza `tracked`, y
+    # viceversa; los controles válidos pasan por ambos.
+    for kind, value in (("prefix", "tools/"), ("suffix", ".py"), ("exact", "tools/check_reflection.py")):
+        assert gs._tracked_query_problem(kind, value) is None
+        gs.TrackedQuery(kind, value)  # no eleva
+    for kind, value in (("prefix", "."), ("suffix", "x/y"), ("exact", "/abs")):
+        assert gs._tracked_query_problem(kind, value) is not None
+        with pytest.raises(gs.GovernanceSnapshotError):
+            gs.TrackedQuery(kind, value)

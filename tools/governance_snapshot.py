@@ -76,12 +76,33 @@ class ReadPolicy:
 _TRACKED_KINDS = frozenset({"prefix", "suffix", "exact"})
 
 
+def _tracked_query_problem(kind: object, value: object) -> str | None:
+    """B304/B307: ÚNICA definición TOTAL de la gramática de query. La usan `TrackedQuery.__post_init__` Y `tracked()` (no
+    una validación corta en un lado y otra larga en el otro). Toda entrada inválida → mensaje; None si es válida."""
+    if type(kind) is not str or kind not in _TRACKED_KINDS:
+        return f"kind inválido {kind!r} (B304)"
+    if type(value) is not str or not value or "\x00" in value:
+        return "value debe ser str no vacío sin NUL (B304)"
+    if kind == "exact":
+        if _rel_parts(value) is None:
+            return f"exact {value!r} no es ruta relativa POSIX (B304)"
+    elif kind == "prefix":  # B307: directorio POSIX EXPLÍCITO que termina en `/` — `.` no es selector de dotfiles
+        if not value.endswith("/"):
+            return f"prefix {value!r} debe terminar en '/' (directorio POSIX explícito) (B304)"
+        if _rel_parts(value[:-1]) is None:
+            return f"prefix {value!r} inválido (abs/traversal/vacío/`.`) (B304)"
+    else:  # suffix: sin slash, no `.`/`..`, y una extensión EXPLÍCITA (contiene un punto)
+        if "/" in value or value in (".", "..") or "." not in value:
+            return f"suffix {value!r} inválido (sin slash, no `.`/`..`, extensión explícita) (B304)"
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class TrackedQuery:
-    """B302/B304: consulta CERRADA del inventario versionado — DATOS EXACTOS `(kind, value)`, sin despacho virtual. El
-    matching lo hace una función interna (`_tracked_match`), NUNCA un método del objeto recibido; `tracked()` exige
-    `type(query) is TrackedQuery` (rechaza subclases que reescriban el matching). Se filtra en memoria — jamás un
-    pathspec del caller llega a git."""
+    """B302/B304/B307: consulta CERRADA del inventario versionado — DATOS EXACTOS `(kind, value)`, sin despacho virtual.
+    El matching lo hace una función interna (`_tracked_match`); `tracked()` exige `type(query) is TrackedQuery` Y
+    revalida la gramática COMPLETA con `_tracked_query_problem` (una instancia forjada por `object.__new__`+
+    `object.__setattr__` NO cuela). Se filtra en memoria — jamás un pathspec del caller llega a git."""
 
     kind: str
     value: str
@@ -89,20 +110,9 @@ class TrackedQuery:
     def __post_init__(self) -> None:
         if type(self) is not TrackedQuery:  # B304: sin subclases
             raise GovernanceSnapshotError("TrackedQuery no admite subclases (B304)")
-        if type(self.kind) is not str or self.kind not in _TRACKED_KINDS:
-            raise GovernanceSnapshotError(f"TrackedQuery.kind inválido {self.kind!r} (B304)")
-        if type(self.value) is not str or not self.value or "\x00" in self.value:  # B304: no vacío, sin NUL
-            raise GovernanceSnapshotError("TrackedQuery.value debe ser str no vacío sin NUL (B304)")
-        if self.kind == "exact" and _rel_parts(self.value) is None:
-            raise GovernanceSnapshotError(f"TrackedQuery exact {self.value!r} no es ruta relativa POSIX (B304)")
-        if self.kind == "prefix":  # prefijo POSIX relativo; barra final permitida como selector de directorio
-            core = self.value[:-1] if self.value.endswith("/") else self.value
-            if _rel_parts(core) is None:
-                raise GovernanceSnapshotError(
-                    f"TrackedQuery prefix {self.value!r} inválido (abs/traversal/vacío) (B304)"
-                )
-        if self.kind == "suffix" and ("/" in self.value or self.value in (".", "..")):
-            raise GovernanceSnapshotError(f"TrackedQuery suffix {self.value!r} inválido (sin slash ni `.`/`..`) (B304)")
+        prob = _tracked_query_problem(self.kind, self.value)
+        if prob is not None:
+            raise GovernanceSnapshotError(f"TrackedQuery: {prob}")
 
 
 def _tracked_match(kind: str, value: str, path: str) -> bool:
@@ -481,12 +491,13 @@ class GovernanceSnapshot(AbstractContextManager):
         self._require_open()  # B298
         if type(query) is not TrackedQuery:  # B304: `type is`, no `isinstance` — una subclase no cuela su matching
             raise GovernanceSnapshotError(f"tracked() exige un TrackedQuery exacto, no {type(query).__name__} (B304)")
-        try:  # B304: revalida los campos (defiende un `object.__new__(TrackedQuery)` que saltó `__post_init__`)
+        try:  # B307: copiar los campos UNA vez a locales inmutables
             kind, value = query.kind, query.value
         except AttributeError as exc:
-            raise GovernanceSnapshotError("TrackedQuery sin inicializar (B304)") from exc
-        if type(kind) is not str or kind not in _TRACKED_KINDS or type(value) is not str or not value:
-            raise GovernanceSnapshotError("TrackedQuery con campos inválidos (B304)")
+            raise GovernanceSnapshotError("TrackedQuery sin inicializar (B307)") from exc
+        prob = _tracked_query_problem(kind, value)  # B307: la gramática COMPLETA en la frontera, ANTES de tocar git
+        if prob is not None:
+            raise GovernanceSnapshotError(f"tracked: query forjada rechazada — {prob} (B307)")
         return tuple(p for p in self._sealed_inventory() if _tracked_match(kind, value, p))
 
     def reverify(self) -> None:
