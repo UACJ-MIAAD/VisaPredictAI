@@ -916,8 +916,8 @@ def test_b316_b323_deep_smoke_imports_match_the_independent_contract():
 
     import tools.deep_smoke as ds
 
-    contract, _sha = ds.load_contract()
-    expected_modules = {module for module, _ in contract}
+    contract = ds.load_contract()  # B326: DeepSmokeContract inmutable
+    expected_modules = {module for module, _ in contract.imports}
     src = pathlib.Path(ds.__file__).read_text()
     tree = ast.parse(src)
     # AST, no substring: la docstring MENCIONA `importlib.import_module` legítimamente; lo que se prohíbe es el ACCESO.

@@ -8,7 +8,6 @@ orígenes relativos (sin `..`/absoluta), pip_check/checksum, y rechazo de symlin
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
 
@@ -123,9 +122,9 @@ def test_b328_read_rejects_duplicate_keys(tmp_path):
         v._read_receipt_governed(str(p))
 
 
-def test_b328_producer_governed_write(tmp_path):
+def test_b328_producer_governed_write(tmp_path, monkeypatch):
     # el productor escribe con O_EXCL|O_NOFOLLOW 0600: no sobrescribe, no sigue symlink, no acepta ruta absoluta/`..`.
-    os.chdir(tmp_path)
+    monkeypatch.chdir(tmp_path)  # auto-restaura el CWD (no contamina el resto de la suite)
     ds.write_receipt_governed("r.json", {"k": "v"})
     assert (tmp_path / "r.json").exists() and oct((tmp_path / "r.json").stat().st_mode)[-3:] == "600"
     with pytest.raises(FileExistsError):  # O_EXCL: no sobrescribe
