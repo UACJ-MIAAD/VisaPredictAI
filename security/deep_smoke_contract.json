@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "imports": [
+    {"module": "chronos", "distribution": "chronos-forecasting"},
+    {"module": "mlflow", "distribution": "mlflow"},
+    {"module": "neuralforecast", "distribution": "neuralforecast"},
+    {"module": "optuna", "distribution": "optuna"},
+    {"module": "pandas", "distribution": "pandas"},
+    {"module": "ray", "distribution": "ray"},
+    {"module": "torch", "distribution": "torch"},
+    {"module": "transformers", "distribution": "transformers"}
+  ]
+}

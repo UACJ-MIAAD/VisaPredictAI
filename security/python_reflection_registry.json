@@ -813,15 +813,6 @@
       "justification": "Llamada estandar `sys.path.insert(...)` sobre modulo canonico (B285); benigna, sin reflexion dinamica; revisada 2026-07-19.",
       "review_by": "2027-07-19"
     },
-    "395c93fae3070ccf908512e0ec39192c22bb0540a4b035a34d15899c9577f826": {
-      "file": "tools/deep_smoke.py",
-      "qualname": "run",
-      "op": "canonical-rooted-call",
-      "statement_ast_sha256": "e8a58fe36d49d17ddde1c841ab5a75f7814a7804dc1faae629e876e81b096b7d",
-      "occurrence_index": 0,
-      "justification": "Llamada estandar `version(...)` rooteada en modulo canonico via submodulo/from-import (B289); benigna, sin reflexion dinamica; revisada 2026-07-19.",
-      "review_by": "2027-07-19"
-    },
     "1a182cae160b3a5bc1d6ec1d098fc23488a50912e6ad90e0ed99c2e82fa9a267": {
       "file": "vp_data/tracking.py",
       "qualname": "_file_sha256",
@@ -874,6 +865,15 @@
       "statement_ast_sha256": "b27b625d71905fa8a7de29c535e022bf631dbcdf65a2e787b6eb2962cda07001",
       "occurrence_index": 0,
       "justification": "Llamada estandar `sys.stdout.buffer.write/flush(...)` rooteada en modulo canonico via alias de atributo `buf = sys.stdout.buffer` (B285/B297); benigna I/O, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "17bf60edb9f78b452ab1a0f5716a11d732edcfd6b9bef5558c0b32ad83aefa5c": {
+      "file": "tools/deep_smoke.py",
+      "qualname": "run",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "e28af2b3e7dbdc318ad54f3b3eabad2dced23db6291f8f77af362a3fd2247301",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `distributions()` (importlib.metadata) para el inventario observado; benigna, sin reflexion dinamica; revisada 2026-07-20.",
       "review_by": "2027-07-20"
     }
   }
