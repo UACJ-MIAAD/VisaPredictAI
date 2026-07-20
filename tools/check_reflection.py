@@ -38,7 +38,7 @@ from typing import NamedTuple
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
-_SCANNER_VERSION = 10  # B265/…/B297/B300: procedencia por expresión + pérdida por transformación desconocida/profundidad = escape/problema fail-closed (nunca `none` silencioso)
+_SCANNER_VERSION = 11  # B265/…/B300/B305: pérdida por transformación desconocida/profundidad/SINK (return/yield/attr-store/subscript-store) = escape/problema fail-closed (nunca `none` silencioso)
 _REGISTRY_TOP_KEYS = {
     "schema_version",
     "scanner_version",
@@ -425,10 +425,12 @@ def _is_factory_value(node: ast.AST, prov: _Provenance, depth: int = 0) -> bool:
 
 
 def _provenance_loss_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _Provenance) -> str | None:
-    """B300: un RESULTADO DE FÁBRICA que se CONSUME por una transformación no modelada pierde su procedencia — para no
-    perderla EN SILENCIO, se marca `reflection-module-escape` en el punto EXACTO de la pérdida. Dos formas:
+    """B300/B305: un RESULTADO DE FÁBRICA DIRECTO que ABANDONA el dominio modelado pierde su procedencia — para no
+    perderla EN SILENCIO, se marca `reflection-module-escape` en el punto EXACTO de la pérdida. Formas:
     (A) argumento de una llamada NO rooteada (`ident(__import__('os'))`, `next(iter([...]))` marca la lista);
-    (B) elemento de un contenedor literal que NO se indexa de inmediato (escapa hacia un consumidor desconocido)."""
+    (B) elemento de un contenedor literal que NO se indexa de inmediato (escapa hacia un consumidor desconocido);
+    (C, B305) SINKS: `return`/`yield`/`yield from` y asignación a ATRIBUTO/SUBSCRIPT (Assign/AnnAssign/AugAssign) cuyo
+    destino no es rastreable. Un `m = factory()` a Name simple SÍ se rastrea (no escapa aquí)."""
     if isinstance(node, ast.Call):  # (A) — la llamada rooteada la cubre `_canonical_rooted_call` (antes en el `or`)
         args = list(node.args) + [k.value for k in node.keywords]
         if any(_is_factory_value(a, prov) for a in args):
@@ -446,6 +448,17 @@ def _provenance_loss_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _P
         return None
     if isinstance(node, ast.Dict):
         if any(v is not None and _is_factory_value(v, prov) for v in node.values):
+            return _REFLECTION_MODULE_ESCAPE
+        return None
+    # (C, B305) — sinks de salida de un resultado de fábrica DIRECTO
+    if isinstance(node, (ast.Return, ast.Yield, ast.YieldFrom)):
+        return _REFLECTION_MODULE_ESCAPE if node.value is not None and _is_factory_value(node.value, prov) else None
+    if isinstance(node, ast.Assign) and _is_factory_value(node.value, prov):
+        if any(isinstance(t, (ast.Attribute, ast.Subscript)) for t in node.targets):  # store a atributo/subscript
+            return _REFLECTION_MODULE_ESCAPE
+        return None
+    if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+        if node.value is not None and isinstance(node.target, (ast.Attribute, ast.Subscript)) and _is_factory_value(node.value, prov):  # fmt: skip
             return _REFLECTION_MODULE_ESCAPE
     return None
 

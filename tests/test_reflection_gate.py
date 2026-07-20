@@ -630,3 +630,41 @@ def test_b300_no_over_fire_on_data_attributes_and_non_factory(tmp_path, monkeypa
         assert refl._REFLECTION_MODULE_ESCAPE not in ops and not probs, (
             f"no debe sobre-disparar (B300): {src!r} → {ops}"
         )
+
+
+# ---------------------------------------------------------------------------
+# B305 — un resultado de fábrica que sale por `return`/`yield`/`yield from`, store a ATRIBUTO o a SUBSCRIPT, o
+# `AnnAssign`/`AugAssign` a esos destinos sólo registraba la fábrica; el punto donde el valor ABANDONA el dominio
+# modelado quedaba sin `reflection-module-escape`. Ahora cada sink emite el escape en su frontera de pérdida.
+# ---------------------------------------------------------------------------
+def test_b305_canonical_escape_recorded_at_every_sink(tmp_path, monkeypatch):
+    cases = {
+        "return_direct": "def get():\n    return __import__('os')\n",
+        "yield_direct": "def gen():\n    yield __import__('os')\n",
+        "yield_from": "def gen():\n    yield from [__import__('os')]\n",
+        "attr_store": "holder.module = __import__('os')\n",
+        "subscript_store": "holder['module'] = __import__('os')\n",
+        "annassign_attr": "holder.mod: object = __import__('os')\n",
+        "augassign_attr": "holder.mod += __import__('os')\n",
+        "return_bound_name": "def g():\n    m = __import__('os')\n    return m\n",
+        "import_module_attr_store": "from importlib import import_module\nh.m = import_module('os')\n",
+    }
+    for label, src in cases.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._REFLECTION_MODULE_ESCAPE in ops, f"{label}: el sink debe registrar un escape (B305): {ops}"
+
+
+def test_b305_benign_sinks_not_over_flagged(tmp_path, monkeypatch):
+    # controles: escalares o atributos de datos por los mismos sinks NO se marcan; un `m = factory()` a Name simple se
+    # RASTREA (no escapa aquí); un store a Name simple de escalar es benigno.
+    for src in (
+        "def g():\n    return 5\n",
+        "import sys\ndef g():\n    return sys.version\n",
+        "m = __import__('os')\n",  # target Name → rooteado y rastreado, sin escape en el binding
+        "holder.x = 5\n",
+        "d['k'] = 42\n",
+    ):
+        ops, probs = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._REFLECTION_MODULE_ESCAPE not in ops and not probs, (
+            f"no debe sobre-disparar (B305): {src!r} → {ops}"
+        )
