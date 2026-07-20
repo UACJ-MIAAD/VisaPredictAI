@@ -837,12 +837,17 @@ def test_b317b_any_factory_attribute_prohibited(tmp_path, monkeypatch):
         "identity_launder": "import builtins\ndef ident(x):\n    return x\nb = ident(builtins)\nb.__import__('os')\n",
         "arbitrary_obj_attr": "obj.import_module('os')\n",
         "call_result_attr": "make_module().__import__('os')\n",
+        # attrgetter/methodcaller que EXTRAEN la fábrica por su NOMBRE LITERAL — simétrico a `.import_module` (aunque el
+        # accesor aún no se aplique a un módulo).
+        "attrgetter_literal": "import operator\ng = operator.attrgetter('import_module')\n",
+        "methodcaller_literal": "import operator\ng = operator.methodcaller('__import__', 'os')\n",
     }.items():
         ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
         assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, f"{label}: cualquier .import_module/.__import__ es prohibido (B317): {ops}"  # fmt: skip
-    # control: un método vecino de nombre distinto (`.find_spec`, `.load`) NO es una fábrica → sigue registrable/escape.
-    ops, _ = _ops_and_problems(tmp_path, monkeypatch, "import importlib.util\ns = importlib.util.find_spec('os')\n")
-    assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"find_spec no es fábrica: {ops}"
+    # controles: un método vecino de nombre distinto (`.find_spec`) o un attrgetter de nombre normal NO es una fábrica.
+    for src in ("import importlib.util\ns = importlib.util.find_spec('os')\n", "import operator\ng = operator.attrgetter('normal')\n"):  # fmt: skip
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"no es fábrica, no debe prohibirse: {src!r} → {ops}"
 
 
 def test_b316_deep_smoke_imports_its_stack_statically():

@@ -433,10 +433,15 @@ def _accessor_prim(fn: ast.AST, prov: _Provenance) -> str | None:
 
 def _call_reads_factory_module(call: ast.Call, prov: _Provenance) -> bool:
     """B317: la llamada obtiene un atributo de builtins/importlib de forma DINÁMICA — nombre literal o CALCULADO:
-    `getattr(M,·)` · `vars(M)` · `attrgetter(·)(M)` · `methodcaller(·)(M)` · `partial(getattr|vars, M, ·)`."""
+    `getattr(M,·)` · `vars(M)` · `attrgetter(·)(M)` · `methodcaller(·)(M)` · `partial(getattr|vars, M, ·)` — o construye
+    un accesor por el NOMBRE LITERAL de una fábrica (`attrgetter('import_module')`, `methodcaller('__import__', …)`)."""
     fn = call.func
     if isinstance(fn, ast.Name) and fn.id in ("getattr", "vars") and call.args and _factory_module_root(call.args[0], prov):  # fmt: skip
         return True
+    if _accessor_prim(fn, prov) in ("attrgetter", "methodcaller") and call.args:  # attrgetter('import_module') LITERAL
+        first = call.args[0]
+        if isinstance(first, ast.Constant) and isinstance(first.value, str) and first.value in _CANONICAL_FACTORY_NAMES:
+            return True
     if isinstance(fn, ast.Call) and _accessor_prim(fn.func, prov) in ("attrgetter", "methodcaller") and call.args and _factory_module_root(call.args[0], prov):  # fmt: skip
         return True  # el accesor construido (attrgetter/methodcaller) se APLICA a un módulo de fábrica
     if _accessor_prim(fn, prov) == "partial" and call.args:  # partial(getattr|vars, M, …) liga un accesor a M
