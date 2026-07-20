@@ -763,7 +763,7 @@ def test_b316_no_safe_form_and_benign_controls(tmp_path, monkeypatch):
     for src in (
         "import sys\nx = sys.version\n",
         "from importlib.metadata import version\nv = version('p')\n",
-        "import importlib.metadata\nv = importlib.metadata.version('p')\n",
+        "import importlib.metadata as im\nv = im.version('p')\n",  # B324: alias de submódulo (no liga la raíz)
         "import functools\np = functools.partial(foo)\n",
         "import os\nx = os.getcwd()\n",
         "import os\nx = getattr(os, 'getcwd')\n",
@@ -845,7 +845,7 @@ def test_b317b_any_factory_attribute_prohibited(tmp_path, monkeypatch):
         ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
         assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, f"{label}: cualquier .import_module/.__import__ es prohibido (B317): {ops}"  # fmt: skip
     # controles: un método vecino de nombre distinto (`.find_spec`) o un attrgetter de nombre normal NO es una fábrica.
-    for src in ("import importlib.util\ns = importlib.util.find_spec('os')\n", "import operator\ng = operator.attrgetter('normal')\n"):  # fmt: skip
+    for src in ("import importlib.util as iu\ns = iu.find_spec('os')\n", "import operator\ng = operator.attrgetter('normal')\n"):  # fmt: skip
         ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
         assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"no es fábrica, no debe prohibirse: {src!r} → {ops}"
 
@@ -869,20 +869,42 @@ def test_b321_aliased_accessors_over_factory_module_prohibited(tmp_path, monkeyp
     }.items():
         ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
         assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, f"{label}: alias de accesor sobre módulo-fábrica es prohibido (B321): {ops}"  # fmt: skip
-    # controles: el MISMO accesor (o su alias) sobre objeto NO canónico sigue registrable; ramas mixtas no resuelven.
+    # controles: el MISMO accesor (o su alias) sobre objeto NO canónico sigue registrable; ramas mixtas no resuelven
+    # (sin `import builtins`, que B324 prohíbe por sí mismo).
     for label, src in {
         "getattr_os": "import os\nx = getattr(os, 'getcwd')\n",
         "aliased_getattr_noncanonical": "g = getattr\nx = g(obj, 'field')\n",
         "attrgetter_normal": "import operator\ng = operator.attrgetter('normal')\n",
-        "ifexp_mixed_prims": "import builtins\ng = getattr if flag else vars\nx = g\n",
+        "ifexp_mixed_prims": "g = getattr if flag else vars\nx = g\n",
     }.items():
         ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
         assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"{label}: no debe sobredisparar (B321): {ops}"
-    # LÍMITE HONESTO (§7.3): un accesor via CONTENEDOR NOMBRADO (`d = {...}; g = d['k']`) no se resuelve a prohibido —
-    # misma frontera que la procedencia de módulos — pero el módulo-fábrica que fluye como ARGUMENTO produce un
-    # `reflection-module-escape` REGISTRABLE (no invisible: exige entrada de registro + revisión).
-    ops, _ = _ops_and_problems(tmp_path, monkeypatch, "import builtins\nd = {'k': getattr}\ng = d['k']\nf = g(builtins, 'x')\n")  # fmt: skip
-    assert refl._REFLECTION_MODULE_ESCAPE in ops, f"el escape del módulo-fábrica no debe quedar invisible: {ops}"
+
+
+def test_b324_factory_module_root_acquisition_prohibited(tmp_path, monkeypatch):
+    # B324: ADQUIRIR el módulo-fábrica raíz es prohibido, así que el accesor por CONTENEDOR NOMBRADO ya NO puede nombrar
+    # `builtins`/`importlib` — el "límite honesto" del round anterior queda cerrado (no registrable). Los SUBMÓDULOS con
+    # alias explícito y las `from`-imports siguen permitidos.
+    for label, src in {
+        "import_builtins": "import builtins\n",
+        "import_builtins_as": "import builtins as b\n",
+        "import_importlib": "import importlib\n",
+        "import_importlib_as": "import importlib as il\n",
+        "import_importlib_metadata_noalias": "import importlib.metadata\n",  # liga la raíz `importlib`
+        "named_container_needs_builtins": "import builtins\nd = {'k': getattr}\ng = d['k']\nf = g(builtins, 'x')\n",
+        "sysmod_dynamic": "import sys\nname = 'builtins'\nm = sys.modules[name]\n",
+        "sysmod_builtins_literal": "import sys\nm = sys.modules['builtins']\n",
+    }.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, f"{label}: adquirir el módulo-fábrica raíz es prohibido (B324): {ops}"  # fmt: skip
+    for label, src in {
+        "submodule_alias": "import importlib.metadata as im\nv = im.version('p')\n",
+        "from_import_metadata": "from importlib.metadata import version\nv = version('p')\n",
+        "importlib_abc_alias": "import importlib.abc as ia\nx = ia.Loader\n",
+        "sysmod_literal_benign": "import sys\nm = sys.modules['os']\n",
+    }.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"{label}: no debe sobredisparar (B324): {ops}"
 
 
 def test_b316_b323_deep_smoke_imports_match_the_independent_contract():

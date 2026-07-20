@@ -38,7 +38,7 @@ from typing import NamedTuple
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
-_SCANNER_VERSION = 15  # B265/…/B316/B317/B321: además, CUALQUIER ALIAS de accesor (getattr/vars/attrgetter/methodcaller/partial — transitivo/from-import/contenedor/IfExp) sobre builtins/importlib recupera la fábrica y es PROHIBIDO
+_SCANNER_VERSION = 16  # B265/…/B321/B324: además, ADQUIRIR el módulo-fábrica raíz (`import builtins`/`import importlib[.x]` sin alias de submódulo) o `sys.modules[factory]` es PROHIBIDO; los submódulos con alias explícito se permiten
 _REGISTRY_TOP_KEYS = {
     "schema_version",
     "scanner_version",
@@ -487,13 +487,22 @@ def _call_reads_factory_module(call: ast.Call, prov: _Provenance) -> bool:
 
 
 def _subscript_reads_factory_module(sub: ast.Subscript, prov: _Provenance) -> bool:
-    """B317: `M.__dict__[·]` / `vars(M)[·]` / `__builtins__[·]` sobre builtins/importlib — literal o calculado."""
+    """B317/B324: `M.__dict__[·]` / `vars(M)[·]` / `__builtins__[·]` sobre builtins/importlib, y `sys.modules[·]` capaz de
+    recuperar un módulo-fábrica (clave dinámica o `'builtins'`/`'importlib'` literal) — literal o calculado."""
     base = sub.value
     if isinstance(base, ast.Attribute) and base.attr == "__dict__" and _factory_module_root(base.value, prov):
         return True
     if isinstance(base, ast.Call) and isinstance(base.func, ast.Name) and base.func.id == "vars" and base.args and _factory_module_root(base.args[0], prov):  # fmt: skip
         return True
-    return _factory_module_root(base, prov) is not None  # `__builtins__['__import__']`, `importlib[...]`, etc.
+    # B324: `sys.modules[k]` con clave NO literal (podría ser 'builtins'/'importlib') o literal de un módulo-fábrica →
+    # recupera la fábrica → prohibido. `sys.modules['os']` (literal benigno) sigue su op registrable `sys.modules`.
+    root = base.value if isinstance(base, ast.Attribute) and base.attr == "modules" else base
+    is_sysmod = (isinstance(base, ast.Attribute) and base.attr == "modules" and isinstance(root, ast.Name) and prov.rooted.get(root.id) == "sys") or (isinstance(base, ast.Name) and base.id in prov.sysmod)  # fmt: skip
+    if is_sysmod:
+        idx = sub.slice
+        if not (isinstance(idx, ast.Constant) and isinstance(idx.value, str)) or idx.value in _FACTORY_MODULE_ROOTS:
+            return True
+    return _factory_module_root(sub.value, prov) is not None  # `__builtins__['__import__']`, `importlib[...]`, etc.
 
 
 def _dynamic_factory_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _Provenance) -> str | None:
@@ -506,6 +515,13 @@ def _dynamic_factory_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _P
     # (1) `__import__` / `__builtins__` como referencia ejecutable en Load — SIEMPRE prohibido (llamado o no)
     if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in ("__import__", "__builtins__"):
         return _DYNAMIC_IMPORT_FACTORY_VALUE
+    # (1b) B324: ADQUIRIR el módulo-fábrica RAÍZ (`import builtins[.x]`/`import importlib[.x]` sin alias, o `import
+    # builtins|importlib as X`) da acceso a `import_module`/`__import__` y está PROHIBIDO en producción. Los SUBMÓDULOS
+    # con ALIAS explícito (`import importlib.metadata as X`) NO ligan la raíz y NO exponen la fábrica → permitidos.
+    if isinstance(node, ast.Import):
+        for a in node.names:
+            if a.name.split(".")[0] in _FACTORY_MODULE_ROOTS and (a.asname is None or a.name in _FACTORY_MODULE_ROOTS):
+                return _DYNAMIC_IMPORT_FACTORY_VALUE
     # (2) `from builtins|importlib import __import__|import_module` (cualquier alias) — prohibido en el ImportFrom
     if isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] in _FACTORY_MODULE_ROOTS and any(a.name in _CANONICAL_FACTORY_NAMES for a in node.names):  # fmt: skip
         return _DYNAMIC_IMPORT_FACTORY_VALUE

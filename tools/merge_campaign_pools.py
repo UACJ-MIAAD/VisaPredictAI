@@ -58,7 +58,9 @@ from typing import NoReturn
 
 import pandas as pd
 
+import tools.atomic_fs as _atomic_fs  # B324: objeto módulo para hashear su procedencia (sin `sys.modules`)
 import tools.campaign_bundle as _bundle
+import tools.governed_read as _governed_read  # B324: idem
 from tools.atomic_fs import AtomicRenameError, AtomicUnsupportedError, rename_exchange, rename_noreplace
 from tools.governed_read import (
     GovernedOpenError,
@@ -1218,8 +1220,9 @@ def _cas_restore(o: _Out, ctx: _TxContext) -> None:
     _compensate_both_sides(o, ctx, code="RESTORE_CONCURRENT_UPDATE")
 
 
-def _module_hash(mod_name: str) -> str:
-    mod = sys.modules.get(mod_name)
+def _module_hash(mod: object) -> str:
+    # B324: recibe el OBJETO módulo importado explícitamente (no lo busca por nombre en `sys.modules`, que podría
+    # recuperar un módulo-fábrica builtins/importlib). `__file__` por getattr defensivo (un builtin no lo tiene).
     path = getattr(mod, "__file__", None)
     if path is None:
         return "unknown"
@@ -1257,9 +1260,9 @@ def _provenance() -> dict:
         "python": sys.version.split()[0],
         "contract_sha256": contract,
         "modules": {
-            "merge_campaign_pools": _module_hash("tools.merge_campaign_pools"),
-            "atomic_fs": _module_hash("tools.atomic_fs"),
-            "governed_read": _module_hash("tools.governed_read"),
+            "merge_campaign_pools": _file_sha(__file__),
+            "atomic_fs": _module_hash(_atomic_fs),
+            "governed_read": _module_hash(_governed_read),
         },
     }
 
@@ -1450,8 +1453,8 @@ def _bundle_provenance(quar: _Quarantine) -> dict:
         "env_id": env_id,
         "code_sha_merge_campaign_pools": _file_sha(__file__),
         "code_sha_campaign_bundle": _file_sha(_bundle.__file__),
-        "code_sha_atomic_fs": _module_hash("tools.atomic_fs"),
-        "code_sha_governed_read": _module_hash("tools.governed_read"),
+        "code_sha_atomic_fs": _module_hash(_atomic_fs),
+        "code_sha_governed_read": _module_hash(_governed_read),
         "code_sha_execution_contract": ec,
         "csv_contract_sha256": _bundle._CSV_CONTRACT_SHA256,  # B198: liga el bundle al contrato CSV exacto
         "journal_heads": heads,

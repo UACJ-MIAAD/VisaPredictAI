@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "scanner_version": 15,
+  "scanner_version": 16,
   "note": "B255/B259/B260: registro POSITIVO de TODA operación de reflexión en el código de producción versionado, con IDENTIDAD SEMÁNTICA. El gate tools/check_reflection.py deriva el ID de cada ocurrencia de sha256(JSON canónico de {file, qualname, op, statement_ast_sha256, occurrence_index}); cambiar objeto/nombre/forma de la llamada cambia el AST del statement y por tanto el ID → exige revisión. Cubre builtins/sys/importlib/operator/functools por alias, imports relativos, qualname completo (métodos/lambda/async/anidadas) y es fail-closed ante sintaxis/lectura/JSON inválidos. FRONTERA HONESTA: evita reflexión NO REGISTRADA en código versionado; NO protege contra un mantenedor que cambie a la vez código y política (revisión humana + rama protegida).",
   "operations_controlled": [
     "__dict__",
@@ -206,15 +206,6 @@
       "qualname": "_module_hash",
       "op": "getattr",
       "statement_ast_sha256": "acdf71abedd78ab93be8738479d8876a0df451ba674447fd9ae0594b1774ca75",
-      "occurrence_index": 0,
-      "justification": "validación de esquema del certificado por nombre de campo / provenance del módulo (getattr sobre self/certificate/mod; sys.modules.get) — NO sobre el módulo de autoridad",
-      "review_by": "2027-07-31"
-    },
-    "d03e86aae50e7e95c1abcf952da2a70c7aaf0b5eeeb1dfb029aad812b1e6a0ed": {
-      "file": "tools/merge_campaign_pools.py",
-      "qualname": "_module_hash",
-      "op": "sys.modules",
-      "statement_ast_sha256": "a8bfd2032968b2447c7e041693fab68b534aeaa3d88bceca2e0e7f112b88171b",
       "occurrence_index": 0,
       "justification": "validación de esquema del certificado por nombre de campo / provenance del módulo (getattr sobre self/certificate/mod; sys.modules.get) — NO sobre el módulo de autoridad",
       "review_by": "2027-07-31"
@@ -714,33 +705,6 @@
       "justification": "Llamada estandar `sys.exit(...)` sobre modulo canonico (B285); benigna, sin reflexion dinamica; revisada 2026-07-19.",
       "review_by": "2027-07-19"
     },
-    "e5cc8125e2e45c9d11822124538a86c86c37c7be29729eac350467515bf7e69b": {
-      "file": "tools/merge_campaign_pools.py",
-      "qualname": "_bundle_provenance",
-      "op": "canonical-rooted-call",
-      "statement_ast_sha256": "878203d88b19044f6f0c214143888c436161846e6a18a5d3acd1c352e5ee6898",
-      "occurrence_index": 0,
-      "justification": "Llamada estandar `sys.version.split(...)` sobre modulo canonico (B285); benigna, sin reflexion dinamica; revisada 2026-07-19.",
-      "review_by": "2027-07-19"
-    },
-    "a7fdfb126774ba1092b97a641c3af4951e8870f6cc1c2d6806a0216def3edc02": {
-      "file": "tools/merge_campaign_pools.py",
-      "qualname": "_module_hash",
-      "op": "canonical-rooted-call",
-      "statement_ast_sha256": "a8bfd2032968b2447c7e041693fab68b534aeaa3d88bceca2e0e7f112b88171b",
-      "occurrence_index": 0,
-      "justification": "Llamada estandar `sys.modules.get(...)` sobre modulo canonico (B285); benigna, sin reflexion dinamica; revisada 2026-07-19.",
-      "review_by": "2027-07-19"
-    },
-    "f29369fd96f221eb4f0be1bfccbd6e3296239071c48ff0a60bc23ec4faaddb34": {
-      "file": "tools/merge_campaign_pools.py",
-      "qualname": "_provenance",
-      "op": "canonical-rooted-call",
-      "statement_ast_sha256": "251d1ca36d6c23bf18683541df46650e4fd5e61e0f71d1db5fc3dfce12a52bcd",
-      "occurrence_index": 0,
-      "justification": "Llamada estandar `sys.version.split(...)` sobre modulo canonico (B285); benigna, sin reflexion dinamica; revisada 2026-07-19.",
-      "review_by": "2027-07-19"
-    },
     "5865b88c71fc9e270fe8af0a505161a0137c91931e792b0f843413fe12f80114": {
       "file": "tools/print_panel_summary.py",
       "qualname": "<module>",
@@ -840,15 +804,6 @@
       "justification": "Llamada estandar `lru_cache(...)` rooteada en modulo canonico via submodulo/from-import (B289); benigna, sin reflexion dinamica; revisada 2026-07-19.",
       "review_by": "2027-07-19"
     },
-    "65403a4644c835a05b4a05e3580c21f2e7e27ddf0dd18a08ad71dd035c1404c4": {
-      "file": "vp_model/config.py",
-      "qualname": "run_metadata._ver",
-      "op": "canonical-rooted-call",
-      "statement_ast_sha256": "3d86b665053cf46f7b09d726a56c2cd2ac1e01882427a045a5efe10a6f16ca2d",
-      "occurrence_index": 0,
-      "justification": "Llamada estandar `importlib.metadata.version(...)` rooteada en modulo canonico via submodulo/from-import (B289); benigna, sin reflexion dinamica; revisada 2026-07-19.",
-      "review_by": "2027-07-19"
-    },
     "8c09184cb7db4814219953f2e30a689769c5ae978b2a34f013f4d3999f1db275": {
       "file": "tools/capture_b233_receipt.py",
       "qualname": "_write_all_stdout",
@@ -874,6 +829,51 @@
       "statement_ast_sha256": "e28af2b3e7dbdc318ad54f3b3eabad2dced23db6291f8f77af362a3fd2247301",
       "occurrence_index": 0,
       "justification": "Llamada estandar `distributions()` (importlib.metadata) para el inventario observado; benigna, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "c08d6d9474ac46bff8faa3ee534386a384156a7b80d224f5e9e1b02a88aed76d": {
+      "file": "tools/merge_campaign_pools.py",
+      "qualname": "_bundle_provenance",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "1f0020920e92b60c6374c11aef3b33179d50ba52aaa2b995dfa5a444da2d4866",
+      "occurrence_index": 0,
+      "justification": "llamada rooteada en modulo canonico (procedencia/version); benigna, sin reflexion dinamica; B324 (refactor imports); revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "a3b2b0cdf16e605ad5511a6570822f6f1c128dd05412777bfcdd7c0945ed6edb": {
+      "file": "tools/merge_campaign_pools.py",
+      "qualname": "_provenance",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "b347efa0b1e6f39c4c8c62c735b1fc925738de6917ef3a6e917f5cf637157bee",
+      "occurrence_index": 0,
+      "justification": "llamada rooteada en modulo canonico (procedencia/version); benigna, sin reflexion dinamica; B324 (refactor imports); revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "3ec5c6665d05592fe07c299ccfd7857b95be84a4852c991e2eb63ecf8aba0219": {
+      "file": "tools/mlflow_shim/sitecustomize.py",
+      "qualname": "<module>",
+      "op": "reflection-module-escape",
+      "statement_ast_sha256": "c601b87996eea6f5ad23c6f36a061b7be690e0a772e57880845f0d0878759af3",
+      "occurrence_index": 0,
+      "justification": "escape benigno de submodulo canonico NO factory (importlib.abc.Traversable shim / importlib.metadata.PackageNotFoundError en except); B324; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "40287bb391fcbab76d316a710956ca40c95724afed677298a23480bb09a4de46": {
+      "file": "vp_model/config.py",
+      "qualname": "run_metadata._ver",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "c25748b25620975418c3f011531d791d43d6777640fa560b417b342b8bd513eb",
+      "occurrence_index": 0,
+      "justification": "llamada rooteada en modulo canonico (procedencia/version); benigna, sin reflexion dinamica; B324 (refactor imports); revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "217c81b03f0bc971bc8558c234cda1637fa3c9ca5e93fb7cfa5cbc6b45fb750c": {
+      "file": "vp_model/config.py",
+      "qualname": "run_metadata._ver",
+      "op": "reflection-module-escape",
+      "statement_ast_sha256": "979f62cd664f4ee399ff6711fc0442f858bf0c04ba4bd8c6c7db738f4bb6e419",
+      "occurrence_index": 0,
+      "justification": "escape benigno de submodulo canonico NO factory (importlib.abc.Traversable shim / importlib.metadata.PackageNotFoundError en except); B324; revisada 2026-07-20.",
       "review_by": "2027-07-20"
     }
   }
