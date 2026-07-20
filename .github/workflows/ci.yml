@@ -306,6 +306,8 @@ jobs:
         run: python tools/check_safe_opens.py
       - name: Raw filesystem mutation contract
         run: python tools/check_raw_fs_mutations.py
+      - name: Deep smoke authority contract
+        run: python tools/check_deep_authority.py
       - name: B233 historical diagnostic contract
         run: python -m tools.validate_b233_receipt
       - name: P0R.5 governance gates wired

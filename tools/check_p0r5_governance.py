@@ -37,12 +37,13 @@ _EXPECTED_JOB_KEYS = {"name", "runs-on", "timeout-minutes", "permissions", "step
 _EXPECTED_RUNNER = "ubuntu-24.04"
 _EXPECTED_TIMEOUT = 10
 _EXPECTED_PERMISSIONS = {"contents": "read"}
-# los 6 gates, en ORDEN: (name exacto, comando `run` de una línea exacto)
+# los 7 gates, en ORDEN: (name exacto, comando `run` de una línea exacto)
 _GATE_STEPS = (
     ("Commit frontier contract (fingerprint + autoridad)", "python tools/check_commit_frontier.py"),
     ("Positive reflection registry (identidad semántica)", "python tools/check_reflection.py"),
     ("Safe opens contract", "python tools/check_safe_opens.py"),
     ("Raw filesystem mutation contract", "python tools/check_raw_fs_mutations.py"),
+    ("Deep smoke authority contract", "python tools/check_deep_authority.py"),
     ("B233 historical diagnostic contract", "python -m tools.validate_b233_receipt"),
     ("P0R.5 governance gates wired", "python tools/check_p0r5_governance.py"),
 )

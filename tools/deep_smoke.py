@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from importlib.metadata import distributions
 from pathlib import Path
 
+from tools import governed_import_identity as gi
 from tools import lock_contracts as lc
 
 # Autoridad INDEPENDIENTE del inventario deep — SEPARADA de este archivo (B323).
@@ -105,10 +106,30 @@ class DeepSmokeContract:
 
     @classmethod
     def for_test(cls, imports: tuple[tuple[str, str], ...]) -> DeepSmokeContract:
-        """Para tests PUROS: serializa `imports` a bytes canónicos y RE-VALIDA el mismo esquema (orden/PEP-503/únicos)."""
+        """Para tests PUROS de `evaluate` (SOLO problemas, jamás recibo): serializa `imports` a bytes canónicos y RE-VALIDA
+        el mismo esquema (orden/PEP-503/únicos). B331: `for_test` NO alcanza la ruta de certificación — `certify_observation`
+        carga el contrato canónico por su cuenta y es el ÚNICO que emite recibo; un contrato reducido no puede certificar."""
         payload = {"schema_version": 1, "imports": [{"module": m, "distribution": d} for m, d in imports]}
         raw = (json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
         return cls._from_bytes(raw)
+
+
+@dataclass(frozen=True, slots=True)
+class DeepObservation:
+    """B331: estado REAL observado del entorno deep instalado — lo produce SOLO `observe_runtime()`. `certify_observation()`
+    carga el contrato CANÓNICO por su cuenta y construye el recibo a partir de esta observación; el caller NO puede inyectar
+    un contrato/inventario reducido a la certificación (ese era el agujero de B326 que B331 cierra)."""
+
+    py_version: str
+    system: str
+    machine: str
+    installed: tuple[tuple[str, str], ...]  # inventario observado (orden canónico por distribución)
+    torch_version: str
+    pip_check_ok: bool
+    checksum: float
+    commit_sha: str
+    import_records: tuple[tuple[str, str, str, str], ...]  # (module, distribution, origin_rel, origin_sha256) — B332
+    identity_problems: tuple[str, ...]  # problemas de identidad/commit derivados del entorno REAL
 
 
 def load_contract() -> DeepSmokeContract:
@@ -135,29 +156,6 @@ def _distribution_inventory() -> tuple[dict[str, str], list[str]]:
             probs.append(f"distribución con nombre normalizado DUPLICADO: {norm}")
         inv[norm] = d.version
     return inv, probs
-
-
-def identity_problems(
-    module: str, distribution: str, *, origin: str | None, providing: list[str], sys_prefix: str, root: str
-) -> list[str]:
-    """B327: identidad de un import del stack (PURA/testeable) — el módulo debe tener un `origin` REAL bajo `sys_prefix`
-    (no un namespace/preinyectado sin origin, no un shadow bajo ROOT) y la distribución que lo PROVEE
-    (`importlib.metadata.packages_distributions`) debe ser EXACTAMENTE la esperada."""
-    probs: list[str] = []
-    if origin is None:
-        probs.append(f"{module}: sin origin certificable (namespace/preinyectado)")
-    else:
-        rp = os.path.realpath(origin)
-        prefix = os.path.realpath(sys_prefix)
-        rroot = os.path.realpath(root)
-        if not (rp == prefix or rp.startswith(prefix + os.sep)):
-            probs.append(f"{module}: origin {rp} fuera de sys.prefix")
-        if rp == rroot or rp.startswith(rroot + os.sep):
-            probs.append(f"{module}: origin bajo ROOT (shadow local)")
-    provided = sorted({lc._norm(p) for p in providing})
-    if provided != [distribution]:
-        probs.append(f"{module}: packages_distributions {provided} != [{distribution}]")
-    return probs
 
 
 def _git(*args: str) -> str | None:
@@ -196,12 +194,11 @@ def evaluate(
     contract: DeepSmokeContract,
     commit_sha: str,
     import_identity: list[str] | tuple[str, ...] = (),
-    import_records: list[dict] | tuple[dict, ...] = (),
 ) -> tuple[list[str], dict]:
-    """Lógica PURA del smoke (sin importar el stack deep) — testeable con valores inyectados. El inventario observado se
-    exige EXACTAMENTE igual al del contrato independiente (B322): ni omisión, ni extra, ni tipo inválido. La AUTORIDAD del
-    inventario es un `DeepSmokeContract` auto-consistente emitido por `load_contract`/`for_test` (B326): un caller NO puede
-    pasar una lista+sha sueltos ni forjados. El recibo SOLO se construye si `problems == []`."""
+    """Lógica PURA de PROBLEMAS del smoke (sin importar el stack deep) — testeable con valores inyectados y un contrato de
+    fixture. El inventario observado se exige EXACTAMENTE igual al del contrato (B322): ni omisión, ni extra, ni tipo
+    inválido. B331: esta función NUNCA construye un recibo (el segundo elemento es SIEMPRE `{}`) — un contrato reducido de
+    fixture jamás puede certificar; el ÚNICO emisor de recibo es `certify_observation`, que carga el contrato canónico."""
     if lock_rel not in lc.DEEP_RUNTIME:
         return [f"lock no gobernado: {lock_rel} (no está en DEEP_RUNTIME)"], {}
     if type(contract) is not DeepSmokeContract:  # B326: ni lista+sha sueltos ni subclase — sólo la fábrica gobernada
@@ -232,37 +229,69 @@ def evaluate(
         probs.append(f"torch {torch_version} != esperado {rt['torch']}")
     if not pip_check_ok:
         probs.append("pip check rojo")
-    probs.extend(import_identity)  # B327: identidad módulo↔distribución↔origen (calculada por run() en el entorno real)
+    probs.extend(
+        import_identity
+    )  # B327/B332: identidad módulo↔distribución↔origen GOBERNADA (la calcula observe_runtime)
     # t=[[0,1,2],[3,4,5]]; t@t.T=[[5,14],[14,50]]; suma=83 (determinista en cualquier plataforma).
     if checksum != 83.0:
         probs.append(f"checksum tensorial {checksum} != 83.0 (no determinista)")
-    if probs:  # el recibo SÓLO se emite si nada falló
+    return probs, {}  # B331: SIEMPRE recibo vacío — la certificación vive en certify_observation
+
+
+def certify_observation(lock_rel: str, observation: DeepObservation) -> tuple[list[str], dict]:
+    """B331: ÚNICO emisor de recibo deep. Carga el contrato CANÓNICO por su cuenta (jamás lo recibe del caller), re-evalúa
+    los problemas contra ESE contrato y SÓLO si no hay ninguno construye el recibo (única construcción del literal en todo
+    el módulo). Un `DeepObservation` sólo lo produce `observe_runtime()` sobre el entorno REAL, de modo que ni el contrato
+    ni el inventario pueden reducirse desde fuera para certificar un stack incompleto."""
+    if type(observation) is not DeepObservation:  # sólo la observación gobernada del entorno real
+        return ["observación deep inválida (se exige DeepObservation de observe_runtime)"], {}
+    contract = load_contract()  # AUTORIDAD CANÓNICA — nunca del caller (B331)
+    installed = dict(observation.installed)
+    probs, _ = evaluate(
+        lock_rel,
+        py_version=observation.py_version,
+        system=observation.system,
+        machine=observation.machine,
+        installed=installed,
+        torch_version=observation.torch_version,
+        pip_check_ok=observation.pip_check_ok,
+        checksum=observation.checksum,
+        contract=contract,
+        commit_sha=observation.commit_sha,
+        import_identity=list(observation.identity_problems),
+    )
+    if probs:  # el recibo SÓLO se emite si NADA falló
         return probs, {}
+    rt = lc.DEEP_RUNTIME[lock_rel]
+    expected_dists = [d for _, d in contract.imports]
     receipt = {
-        "commit_sha": commit_sha,
+        "commit_sha": observation.commit_sha,
         "lock": lock_rel,
         "lock_sha256": _sha256(lc.ROOT / lock_rel),
         "manifest_sha256": _sha256(lc.ROOT / lc.MANIFEST_REL),
         "deep_smoke_contract_sha256": contract.sha256,
         "variant_expected": rt["variant"],
         "platform_expected": f"{rt['system']} {rt['machine']}",
-        "platform_observed": f"{system} {machine}",
-        "python": py_version,
+        "platform_observed": f"{observation.system} {observation.machine}",
+        "python": observation.py_version,
         "torch_expected": rt["torch"],
-        "torch_observed": torch_version,
-        "pip_check": "ok" if pip_check_ok else "fail",
+        "torch_observed": observation.torch_version,
+        "pip_check": "ok" if observation.pip_check_ok else "fail",
         "versions": {d: installed[d] for d in expected_dists},  # orden CANÓNICO del contrato
-        "imports": list(import_records),  # B327: módulo/distribución/origen relativo a sys.prefix
-        "tensor_checksum": checksum,
+        "imports": [
+            {"module": m, "distribution": d, "origin": o, "origin_sha256": s}
+            for m, d, o, s in observation.import_records
+        ],  # B332: origen relativo a sys.prefix + sha256 gobernado del descriptor
+        "tensor_checksum": observation.checksum,
     }
-    return probs, receipt
+    return [], receipt
 
 
-def run(lock_rel: str) -> tuple[list[str], dict]:
-    """Recoge el estado REAL del entorno deep instalado y delega a evaluate(). El inventario esperado viene del contrato
-    INDEPENDIENTE; el observado se construye consultando `version()` por cada distribución del contrato (una ausente se
-    OMITE y la caza la igualdad de conjuntos de evaluate). B316: imports ESTÁTICOS, sin fábrica dinámica. B323: una
-    comprobación RUNTIME (no `assert`; sobrevive `python -O`) exige que el stack importado == módulos del contrato."""
+def observe_runtime(lock_rel: str) -> tuple[list[str], DeepObservation | None]:
+    """B331: recoge el estado REAL del entorno deep instalado en un `DeepObservation`. El contrato SÓLO se usa para saber
+    QUÉ observar (certify lo RECARGA como autoridad). B316: imports ESTÁTICOS, sin fábrica dinámica. B323: una comprobación
+    RUNTIME (no `assert`) exige que el stack importado == módulos del contrato. B332: cada import se liga a su distribución
+    y origen por DESCRIPTOR gobernado (`governed_import_identity`)."""
     contract = load_contract()
     # B327: inventario OBSERVADO sin last-wins (dist-info normalizada duplicada = problema); una dist del contrato NO
     # instalada queda fuera del dict y la caza la igualdad de conjuntos de evaluate().
@@ -283,28 +312,34 @@ def run(lock_rel: str) -> tuple[list[str], dict]:
     if imported_modules != expected_modules:  # NO es `assert` (sobrevive `python -O`)
         raise RuntimeError(f"stack importado {sorted(imported_modules)} != contrato {sorted(expected_modules)}")
 
-    # B327: liga CADA módulo importado a su distribución + origen REAL (bajo sys.prefix, no ROOT/shadow/preinyectado).
-    from importlib.metadata import packages_distributions
+    # B332: liga CADA módulo importado a su distribución + origen REAL por DESCRIPTOR gobernado (openat/O_NOFOLLOW, hash
+    # desde el fd, pertenencia a Distribution.files) — un `__spec__.origin` forjado/inexistente ya NO pasa por strings.
+    from importlib.metadata import PackageNotFoundError, distribution, packages_distributions
 
     by_name = {m.__name__.split(".")[0]: m for m in _imported}
     pkg_dists = packages_distributions()
-    import_records: list[dict] = []
+    records: list[tuple[str, str, str, str]] = []
     for module, dist in contract.imports:
         mod = by_name.get(module)
         spec = mod.__spec__ if mod is not None else None
         origin = spec.origin if spec is not None else None
-        id_probs.extend(
-            identity_problems(
-                module,
-                dist,
-                origin=origin,
-                providing=list(pkg_dists.get(module, [])),
-                sys_prefix=sys.prefix,
-                root=str(lc.ROOT),
-            )  # fmt: skip
+        try:
+            files: list[str] | None = [str(f.locate()) for f in (distribution(dist).files or [])]
+        except PackageNotFoundError:
+            files = None
+        iprobs, ident = gi.governed_identity(
+            module,
+            dist,
+            origin=origin,
+            providing=list(pkg_dists.get(module, [])),
+            dist_files=files,
+            sys_prefix=sys.prefix,
         )
-        rel = os.path.relpath(os.path.realpath(origin), sys.prefix) if origin else "unknown"
-        import_records.append({"module": module, "distribution": dist, "origin": rel})
+        id_probs.extend(iprobs)
+        if ident is not None:
+            records.append((ident.module, ident.distribution, ident.origin, ident.origin_sha256))
+        else:
+            records.append((module, dist, "unknown", "unknown"))
 
     torch.manual_seed(0)
     prod = torch.arange(6, dtype=torch.float32).reshape(2, 3) @ torch.arange(6, dtype=torch.float32).reshape(2, 3).T
@@ -317,20 +352,28 @@ def run(lock_rel: str) -> tuple[list[str], dict]:
     commit, commit_prob = verified_commit(os.environ.get("GITHUB_SHA"))  # B328: HEAD real verificado (o falla)
     if commit_prob is not None:
         id_probs.append(commit_prob)
-    return evaluate(
-        lock_rel,
+    observation = DeepObservation(
         py_version=platform.python_version(),
         system=platform.system(),
         machine=platform.machine(),
-        installed=installed,
+        installed=tuple(sorted(installed.items())),
         torch_version=torch.__version__,
         pip_check_ok=pip_ok,
         checksum=checksum,
-        contract=contract,
         commit_sha=commit or "unknown",
-        import_identity=id_probs,
-        import_records=import_records,
+        import_records=tuple(records),
+        identity_problems=tuple(id_probs),
     )
+    return id_probs, observation
+
+
+def run(lock_rel: str) -> tuple[list[str], dict]:
+    """B331: observa el entorno real y CERTIFICA contra el contrato canónico. La observación y la certificación están
+    separadas: `observe_runtime` no puede emitir recibo y `certify_observation` no acepta contrato del caller."""
+    _obs_probs, observation = observe_runtime(lock_rel)
+    if observation is None:  # defensivo: observe_runtime siempre construye la observación salvo excepción dura
+        return _obs_probs, {}
+    return certify_observation(lock_rel, observation)
 
 
 def write_receipt_governed(path: str, data: dict) -> None:

@@ -958,6 +958,7 @@ def test_b316_b323_deep_smoke_imports_match_the_independent_contract():
     # B316: `tools/deep_smoke.py` YA NO usa `importlib.import_module`; los imports del stack son ESTÁTICOS.
     # B323: la EXPECTATIVA proviene del contrato INDEPENDIENTE (`security/deep_smoke_contract.json`), NO de una tabla
     # dentro de deep_smoke.py — mutar sólo deep_smoke.py no puede cambiar la expectativa ni auto-confirmarse.
+    # B331: los imports del stack y el `_imported` viven ahora en `observe_runtime` (la observación del entorno real).
     import ast
     import pathlib
 
@@ -970,15 +971,15 @@ def test_b316_b323_deep_smoke_imports_match_the_independent_contract():
     # AST, no substring: la docstring MENCIONA `importlib.import_module` legítimamente; lo que se prohíbe es el ACCESO.
     dyn = [n for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr in ("import_module", "__import__")]
     assert not dyn, "deep_smoke no debe ACCEDER .import_module/.__import__ (B316)"
-    run_fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "run")
-    local_imports = {a.name for n in ast.walk(run_fn) if isinstance(n, ast.Import) for a in n.names}
-    assert local_imports == expected_modules, f"imports de run() {local_imports} != módulos del contrato {expected_modules}"  # fmt: skip
+    obs_fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "observe_runtime")
+    local_imports = {a.name for n in ast.walk(obs_fn) if isinstance(n, ast.Import) for a in n.names}
+    assert local_imports == expected_modules, f"imports de observe_runtime() {local_imports} != módulos del contrato {expected_modules}"  # fmt: skip
     # cada nombre importado se CONSUME en `_imported` (ninguna importación silenciosamente sin usar).
-    aliases = {a.asname or a.name for n in ast.walk(run_fn) if isinstance(n, ast.Import) for a in n.names}
+    aliases = {a.asname or a.name for n in ast.walk(obs_fn) if isinstance(n, ast.Import) for a in n.names}
     imported_tuple = next(
         (
             n
-            for n in ast.walk(run_fn)
+            for n in ast.walk(obs_fn)
             if isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "_imported" for t in n.targets)
         ),  # fmt: skip
         None,
@@ -987,8 +988,8 @@ def test_b316_b323_deep_smoke_imports_match_the_independent_contract():
     consumed = {e.id for e in imported_tuple.value.elts if isinstance(e, ast.Name)}
     assert consumed == aliases, f"`_imported` {consumed} != los alias importados {aliases}"
     # B323: la autoridad runtime NO es un `assert` solo (sobrevive `python -O`): existe un `raise` explícito de contraste.
-    run_src = ast.get_source_segment(src, run_fn) or ""
-    assert "raise RuntimeError" in run_src and "!= contrato" in run_src, "run() debe verificar el contrato con un raise (no assert)"  # fmt: skip
+    obs_src = ast.get_source_segment(src, obs_fn) or ""
+    assert "raise RuntimeError" in obs_src and "!= contrato" in obs_src, "observe_runtime() debe verificar el contrato con un raise (no assert)"  # fmt: skip
 
 
 def test_b310_prohibited_value_fails_the_gate(tmp_path, monkeypatch):

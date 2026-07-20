@@ -36,14 +36,36 @@ def _kwargs(lock_rel, **over):
         pip_check_ok=True,
         checksum=83.0,
         contract=CONTRACT,
-        commit_sha="a" * 40,  # B328: commit real de 40-hex (el verificado lo calcula run())
+        commit_sha="a" * 40,  # B328: commit real de 40-hex (el verificado lo calcula observe_runtime)
     )
     base.update(over)
     return base
 
 
+def _observation(lock_rel, **over):
+    """B331: `DeepObservation` sintético (inventario == contrato canónico + pines del lock) para probar la CERTIFICACIÓN sin
+    el stack deep instalado. `certify_observation` recarga el contrato canónico; esta observación no puede reducir la
+    autoridad."""
+    rt = lc.DEEP_RUNTIME[lock_rel]
+    installed = _installed(lock_rel)
+    base = dict(
+        py_version="3.14.2",
+        system=rt["system"],
+        machine=rt["machine"],
+        installed=tuple(sorted(installed.items())),
+        torch_version=rt["torch"],
+        pip_check_ok=True,
+        checksum=83.0,
+        commit_sha="a" * 40,
+        import_records=tuple((m, d, f"lib/x/{m}/__init__.py", "sha256:" + "0" * 64) for m, d in CONTRACT.imports),
+        identity_problems=(),
+    )
+    base.update(over)
+    return ds.DeepObservation(**base)
+
+
 def test_happy_path_receipt_is_lock_and_contract_bound():
-    probs, receipt = ds.evaluate(CPU, **_kwargs(CPU))
+    probs, receipt = ds.certify_observation(CPU, _observation(CPU))
     assert probs == []
     assert receipt["lock_sha256"].startswith("sha256:") and len(receipt["lock_sha256"]) == 71
     assert receipt["manifest_sha256"].startswith("sha256:")
@@ -51,6 +73,42 @@ def test_happy_path_receipt_is_lock_and_contract_bound():
     assert list(receipt["versions"]) == CONTRACT_DISTS  # orden CANÓNICO del contrato
     assert receipt["commit_sha"] and receipt["torch_observed"] == lc.DEEP_TORCH[CPU]
     assert receipt["variant_expected"] == "linux-cpu" and receipt["pip_check"] == "ok"
+    assert receipt["imports"][0].keys() == {"module", "distribution", "origin", "origin_sha256"}  # B332
+
+
+def test_b331_reduced_contract_never_certifies():
+    # B331: en el SHA base `evaluate()` construía un recibo con el contrato del CALLER — un `for_test((('torch','torch'),))`
+    # + `installed={'torch': …}` producía recibo verde reduciendo la autoridad a torch. Ahora `evaluate()` es PURO de
+    # problemas y JAMÁS devuelve recibo (siempre `{}`); la certificación vive sólo en `certify_observation`, que recarga el
+    # contrato canónico. Un contrato reducido no puede certificar por ninguna vía pública.
+    rt = lc.DEEP_RUNTIME[CPU]
+    reduced = ds.DeepSmokeContract.for_test((("torch", "torch"),))
+    probs, receipt = ds.evaluate(
+        CPU,
+        py_version="3.14.2",
+        system=rt["system"],
+        machine=rt["machine"],
+        installed={"torch": rt["torch"]},
+        torch_version=rt["torch"],
+        pip_check_ok=True,
+        checksum=83.0,
+        contract=reduced,
+        commit_sha="a" * 40,
+    )
+    assert receipt == {}, "un contrato reducido a torch JAMÁS debe certificar (B331)"
+    assert probs == []  # los checks pasan, pero evaluate no emite recibo
+
+
+def test_b331_certify_takes_no_caller_contract_and_reloads_canonical():
+    # B331: `certify_observation` NO tiene parámetros de contrato — carga el canónico por su cuenta. Sólo acepta un
+    # `DeepObservation` (producido por observe_runtime); una tupla/objeto arbitrario NO certifica.
+    import inspect
+
+    sig = inspect.signature(ds.certify_observation)
+    assert set(sig.parameters) == {"lock_rel", "observation"}, sig
+    for forged in ((), [], {"installed": {"torch": "x"}}, "obs"):
+        probs, receipt = ds.certify_observation(CPU, forged)
+        assert receipt == {} and any("observación deep inválida" in p for p in probs), (forged, probs)
 
 
 def test_non_governed_lock_blocks():
@@ -150,38 +208,9 @@ def test_b326_for_test_factory_revalidates():
         ds.DeepSmokeContract.for_test((("zzz", "zzz"), ("aaa", "aaa")))
 
 
-PREFIX = "/opt/pyprefix"
-REPO = "/repo/root"
-
-
-def test_b327_identity_accepts_real_origin():
-    # módulo con origin REAL bajo sys.prefix y provisto por EXACTAMENTE la distribución esperada → sin problemas.
-    assert (
-        ds.identity_problems(
-            "ray",
-            "ray",
-            origin=PREFIX + "/lib/site-packages/ray/__init__.py",
-            providing=["ray"],
-            sys_prefix=PREFIX,
-            root=REPO,
-        )
-        == []
-    )
-
-
-def test_b327_identity_rejects_fake_and_shadow_and_wrong_dist():
-    # B327: un módulo preinyectado (sin origin), un shadow local bajo ROOT, un origin fuera de sys.prefix, o una
-    # distribución que NO provee el módulo → problema. En el SHA base `run()` no cruzaba módulo↔distribución↔origen y
-    # ocho módulos falsos en `sys.modules` producían recibo verde.
-    assert any("sin origin" in p for p in ds.identity_problems("ray", "ray", origin=None, providing=["ray"], sys_prefix=PREFIX, root=REPO))  # fmt: skip
-    shadow = ds.identity_problems("ray", "ray", origin=REPO + "/ray/__init__.py", providing=["ray"], sys_prefix=PREFIX, root=REPO)  # fmt: skip
-    assert any("ROOT" in p for p in shadow) and any("fuera de sys.prefix" in p for p in shadow)
-    assert any("fuera de sys.prefix" in p for p in ds.identity_problems("ray", "ray", origin="/tmp/ray/__init__.py", providing=["ray"], sys_prefix=PREFIX, root=REPO))  # fmt: skip
-    assert any("packages_distributions" in p for p in ds.identity_problems("ray", "ray", origin=PREFIX + "/x/ray/__init__.py", providing=["evil"], sys_prefix=PREFIX, root=REPO))  # fmt: skip
-
-
 def test_b327_evaluate_surfaces_import_identity_problems():
-    # los problemas de identidad calculados en run() se propagan a evaluate() (recibo vacío).
+    # los problemas de identidad calculados en observe_runtime() se propagan a evaluate() (recibo vacío). La identidad por
+    # DESCRIPTOR (B332) vive en tests/test_governed_import_identity.py.
     probs, receipt = ds.evaluate(CPU, **{**_kwargs(CPU), "import_identity": ["ray: sin origin certificable"]})
     assert receipt == {} and any("sin origin" in p for p in probs)
 

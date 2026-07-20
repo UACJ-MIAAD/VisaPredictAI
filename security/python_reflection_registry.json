@@ -850,15 +850,6 @@
       "justification": "Llamada estandar importlib.metadata (distributions/packages_distributions) para el inventario y la identidad modulo-distribucion; benigna; B327; revisada 2026-07-20.",
       "review_by": "2027-07-20"
     },
-    "c059d2af6edef01bea1127d9716332bbfa2010271619aad8e7e80a185d917ef7": {
-      "file": "tools/deep_smoke.py",
-      "qualname": "run",
-      "op": "canonical-rooted-call",
-      "statement_ast_sha256": "dab65bbe4dbac0cfc2cdee58020925471453c6938df10a62ede54e1036a6e354",
-      "occurrence_index": 0,
-      "justification": "Llamada estandar importlib.metadata (distributions/packages_distributions) para el inventario y la identidad modulo-distribucion; benigna; B327; revisada 2026-07-20.",
-      "review_by": "2027-07-20"
-    },
     "b9c560a164f1aec56361253fb7bf7e450421f0e2f64be0d72626c7213f78a206": {
       "file": "tools/validate_deep_receipt.py",
       "qualname": "<module>",
@@ -875,6 +866,33 @@
       "statement_ast_sha256": "3d86b665053cf46f7b09d726a56c2cd2ac1e01882427a045a5efe10a6f16ca2d",
       "occurrence_index": 0,
       "justification": "llamada rooteada en modulo canonico (importlib.metadata/version); benigna; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "8b2e88b063974230d3fe98ada8fb8c115b6682fab93364864a684640a78c7b62": {
+      "file": "tools/deep_smoke.py",
+      "qualname": "observe_runtime",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "dab65bbe4dbac0cfc2cdee58020925471453c6938df10a62ede54e1036a6e354",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar importlib.metadata (distributions/packages_distributions/distribution) para el inventario y la identidad modulo-distribucion; benigna; B327/B332; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "643115749d701ea865b262e3c282a9d336fd2d2ec19df852afbfb569103d62fd": {
+      "file": "tools/deep_smoke.py",
+      "qualname": "observe_runtime",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "ea48ca7ccd45eb052ddd1e051c639804df6ae60f15948eddd6ef2d0a2e8b06c3",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar importlib.metadata (distributions/packages_distributions/distribution) para el inventario y la identidad modulo-distribucion; benigna; B327/B332; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "d9612ab53deb58a5dbe2e4de19574e427e1c9dca6689409e5d5ebb00aee628ce": {
+      "file": "tools/deep_smoke.py",
+      "qualname": "observe_runtime",
+      "op": "reflection-module-escape",
+      "statement_ast_sha256": "efa61ee8d52d0fb557ca84a536187a79f98ca3c9d7b0af6b05549b90bfed5633",
+      "occurrence_index": 0,
+      "justification": "Nombre `PackageNotFoundError` de importlib.metadata usado como tipo de `except` (no es la fabrica importlib); benigno; B332; revisada 2026-07-20.",
       "review_by": "2027-07-20"
     }
   }
