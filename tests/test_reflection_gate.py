@@ -830,6 +830,21 @@ def test_b317_import_transform_prohibited_at_the_source(tmp_path, monkeypatch):
         assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, f"{label}: debe prohibirse en el origen (B317): {ops}"
 
 
+def test_b317b_any_factory_attribute_prohibited(tmp_path, monkeypatch):
+    # Ronda B: §7.2 prohíbe CUALQUIER `Attribute` `.import_module`/`.__import__`, sin importar la procedencia del objeto
+    # — incluye el lavado por función identidad (`ident(builtins).__import__`) que sólo daba `reflection-module-escape`.
+    for label, src in {
+        "identity_launder": "import builtins\ndef ident(x):\n    return x\nb = ident(builtins)\nb.__import__('os')\n",
+        "arbitrary_obj_attr": "obj.import_module('os')\n",
+        "call_result_attr": "make_module().__import__('os')\n",
+    }.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, f"{label}: cualquier .import_module/.__import__ es prohibido (B317): {ops}"  # fmt: skip
+    # control: un método vecino de nombre distinto (`.find_spec`, `.load`) NO es una fábrica → sigue registrable/escape.
+    ops, _ = _ops_and_problems(tmp_path, monkeypatch, "import importlib.util\ns = importlib.util.find_spec('os')\n")
+    assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"find_spec no es fábrica: {ops}"
+
+
 def test_b316_deep_smoke_imports_its_stack_statically():
     # B316: `tools/deep_smoke.py` YA NO usa `importlib.import_module`; los imports del stack son ESTÁTICOS y el conjunto de
     # nombres importados dentro de `run()` es EXACTAMENTE `set(STACK)` (sin duplicar la lista de ocho en dos lugares).

@@ -469,9 +469,10 @@ def _dynamic_factory_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _P
     # (2) `from builtins|importlib import __import__|import_module` (cualquier alias) — prohibido en el ImportFrom
     if isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] in _FACTORY_MODULE_ROOTS and any(a.name in _CANONICAL_FACTORY_NAMES for a in node.names):  # fmt: skip
         return _DYNAMIC_IMPORT_FACTORY_VALUE
-    # (3) Attribute `.import_module`/`.__import__` sobre un módulo canónico builtins/importlib (directo, alias o rebind) —
-    # prohibido SIEMPRE (capturado, llamado o descartado): ya no hay excepción de statement descartado
-    if isinstance(node, ast.Attribute) and node.attr in _CANONICAL_FACTORY_NAMES and _factory_module_root(node.value, prov) is not None:  # fmt: skip
+    # (3) CUALQUIER Attribute `.import_module`/`.__import__` (§7.2) — prohibido SIEMPRE, sin importar la procedencia del
+    # objeto (directo `importlib.import_module`, alias, rebind, o lavado por función identidad `ident(builtins).__import__`):
+    # capturado, llamado o descartado. Los nombres de atributo de las fábricas estándar no tienen uso legítimo en producción.
+    if isinstance(node, ast.Attribute) and node.attr in _CANONICAL_FACTORY_NAMES:
         return _DYNAMIC_IMPORT_FACTORY_VALUE
     # (4) lookup dinámico sobre builtins/importlib como LLAMADA (getattr/vars/attrgetter/methodcaller/partial) — literal o calculado
     if isinstance(node, ast.Call) and _call_reads_factory_module(node, prov):

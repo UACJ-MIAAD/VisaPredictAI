@@ -554,6 +554,7 @@ class GovernanceSnapshot(AbstractContextManager):
             OSError,
             ValueError,
             OverflowError,
+            KeyError,  # B317-B: `sel.unregister(fd)` en el bucle (EOF) puede elevar KeyError/ValueError → taxonomía
         ) as exc:  # B311: red de seguridad total del bucle → problem (adjuntable)
             problem = f"runner falló ({exc})"
         except BaseException as exc:  # B315: KI/SE/inesperado → limpiar y reelevar el MISMO objeto

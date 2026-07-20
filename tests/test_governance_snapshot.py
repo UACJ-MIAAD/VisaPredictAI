@@ -870,6 +870,66 @@ def test_b318_killpg_probe_error_stays_in_taxonomy(tmp_path, monkeypatch):
                 real_killpg(int(cpid), signal.SIGKILL)
 
 
+# ---------------------------------------------------------------------------
+# Ronda B — huecos de la misma raíz cazados adversarialmente tras el cierre de B314/B315/B318.
+# ---------------------------------------------------------------------------
+def test_b317b_unregister_in_loop_stays_in_taxonomy():
+    # `sel.unregister(fd)` DENTRO del bucle (al EOF de un pipe) puede elevar KeyError/ValueError. En el SHA base ese
+    # KeyError NO estaba en la red de seguridad del bucle y escapaba CRUDO; ahora se convierte a la taxonomía.
+    import selectors
+
+    class _UnregFail(selectors.DefaultSelector):
+        def unregister(self, fileobj):
+            raise KeyError("unregister boom")
+
+    real = selectors.DefaultSelector
+    selectors.DefaultSelector = _UnregFail
+    try:
+        snap = gs.GovernanceSnapshot(_REPO_ROOT)
+        with pytest.raises(gs.GovernanceSnapshotError, match="runner falló"):
+            snap._run_bounded(["/bin/echo", "hi"], 4096)
+    finally:
+        selectors.DefaultSelector = real
+
+
+def test_b315b_two_grandchildren_one_traps_term(tmp_path):
+    # Ronda B: DOS nietos en el grupo, uno ATRAPA SIGTERM; un KeyboardInterrupt con el padre terminado debe matar a
+    # AMBOS (el que atrapa TERM muere por el SIGKILL del grupo). En el SHA base sobrevivían.
+    import selectors
+
+    class _KISel(selectors.DefaultSelector):
+        def select(self, timeout=None):
+            time.sleep(0.3)
+            raise KeyboardInterrupt
+
+    marker = tmp_path / "pids"
+    marker.write_text("")
+    real = selectors.DefaultSelector
+    selectors.DefaultSelector = _KISel
+    pids: list[str] = []
+    try:
+        snap = gs.GovernanceSnapshot(_REPO_ROOT)
+        cmd = f"(trap '' TERM; sleep 30 </dev/null >/dev/null 2>&1) & echo $! > {marker}; (sleep 30 </dev/null >/dev/null 2>&1) & echo $! >> {marker}; exit 0"  # noqa: E501
+        with pytest.raises(KeyboardInterrupt):
+            snap._run_bounded(["/bin/sh", "-c", cmd], 4096)
+        time.sleep(0.6)
+        pids = [p for p in marker.read_text().split() if p]
+        assert len(pids) == 2, "ambos nietos deben registrar su pid"
+        alive = []
+        for p in pids:
+            try:
+                os.kill(int(p), 0)
+                alive.append(p)
+            except ProcessLookupError, PermissionError:
+                pass
+        assert not alive, f"ambos nietos deben morir con el grupo (B315 ronda B): {alive}"
+    finally:
+        selectors.DefaultSelector = real
+        for p in pids:  # limpieza defensiva
+            with contextlib.suppress(ProcessLookupError, PermissionError, ValueError):
+                os.kill(int(p), signal.SIGKILL)
+
+
 def test_b314_b315_b318_runner_lifecycle_shape():
     # GATE ESTRUCTURAL POSITIVO (plan §6): la forma del runner y de sus helpers se fija por inspección de fuente, de
     # modo que una regresión de forma (selector tras Popen, `select.select`, `proc.terminate`, un `killpg` mudo, un
