@@ -38,7 +38,7 @@ from typing import NamedTuple
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
-_SCANNER_VERSION = 12  # B265/…/B305/B308: DENY-BY-DEFAULT — todo resultado de fábrica dinámica fuera del único descarte local seguro es `dynamic-module-result-escape` PROHIBIDO (sin lista de sinks)
+_SCANNER_VERSION = 13  # B265/…/B308/B310: contrato sintáctico positivo — una fábrica dinámica usada como VALOR (no la llamada directa descartada) es `dynamic-import-factory-value` PROHIBIDO
 _REGISTRY_TOP_KEYS = {
     "schema_version",
     "scanner_version",
@@ -70,7 +70,11 @@ _CANONICAL_ROOTED_CALL = "canonical-rooted-call"
 # (no registrable) salvo el ÚNICO patrón seguro: `import_module(...)` como valor COMPLETO de un `ast.Expr` (descartado).
 # Cualquier otra posición (return/yield/await/with/raise/default/store/comprensión/…) cae por default, sin enumerar sinks.
 _DYNAMIC_MODULE_RESULT_ESCAPE = "dynamic-module-result-escape"
-OPERATIONS_CONTROLLED = tuple(sorted(_BUILTIN_PRIMS | frozenset(_MODULE_PRIMS) | _ATTR_PRIMS | {"__dict__", "sys.modules", _REFLECTION_MODULE_ESCAPE, _BUILTINS_DYNAMIC_LOOKUP, _CANONICAL_ROOTED_CALL, _DYNAMIC_MODULE_RESULT_ESCAPE}))  # fmt: skip
+# B310: contrato SINTÁCTICO POSITIVO — una fábrica dinámica usada como VALOR de primera clase (`__import__` referenciado,
+# `importlib.import_module` capturado/aliased, `from importlib import import_module`) está PROHIBIDA aunque nunca se
+# llame; la única forma admisible es `importlib.import_module(expr)` como statement descartado desde `import importlib`.
+_DYNAMIC_IMPORT_FACTORY_VALUE = "dynamic-import-factory-value"
+OPERATIONS_CONTROLLED = tuple(sorted(_BUILTIN_PRIMS | frozenset(_MODULE_PRIMS) | _ATTR_PRIMS | {"__dict__", "sys.modules", _REFLECTION_MODULE_ESCAPE, _BUILTINS_DYNAMIC_LOOKUP, _CANONICAL_ROOTED_CALL, _DYNAMIC_MODULE_RESULT_ESCAPE, _DYNAMIC_IMPORT_FACTORY_VALUE}))  # fmt: skip
 _CB_MODULE = "tools.campaign_bundle"
 # B265: en los módulos de AUTORIDAD, un escape/lookup dinámico está PROHIBIDO (no registrable).
 _AUTHORITY_MODULES = frozenset({"tools/campaign_bundle.py", "tools/merge_campaign_pools.py", "tools/governed_fs.py", "tools/governed_read.py"})  # fmt: skip
@@ -402,20 +406,38 @@ def _factory_root(fn: ast.AST, factories: dict[str, str], rooted: dict[str, str]
 
 
 def _dynamic_factory_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _Provenance) -> str | None:
-    """B308: DENY-BY-DEFAULT para RESULTADOS DE FÁBRICA DINÁMICA. NO se enumera una lista de sinks (Python tiene más
-    contextos que cualquier lista manual). Toda `ast.Call` que resuelve a una fábrica (`__import__`/`import_module`,
-    directa/aliased/`<canónico>.import_module`) está PROHIBIDA (`dynamic-module-result-escape`, globalmente no
-    registrable) SALVO el ÚNICO patrón demostrablemente seguro: `import_module(...)` como valor COMPLETO de un `ast.Expr`
-    (resultado DESCARTADO). `__import__` no tiene patrón autorizado. Cualquier otro parent-edge cae por default."""
-    if not isinstance(node, ast.Call):
-        return None
-    root = _factory_root(node.func, prov.factories, prov.rooted)
-    if root is None:
-        return None  # no es una fábrica dinámica
-    parent = parents.get(id(node))
-    if root == "importlib" and isinstance(parent, ast.Expr) and parent.value is node:
-        return None  # import_module(...) descartado como statement → `_resolve_op` da la op específica registrable
-    return _DYNAMIC_MODULE_RESULT_ESCAPE
+    """B308/B310: contrato SINTÁCTICO POSITIVO para fábricas dinámicas. NO se enumera una lista de sinks ni se rastrea la
+    fábrica como valor de primera clase. PROHIBIDO (globalmente no registrable):
+    (B310) `__import__` referenciado en Load (llamado o no), `from importlib import import_module`/`__import__`, y
+      `importlib.import_module` CAPTURADO como valor (no la llamada directa descartada) → `dynamic-import-factory-value`;
+    (B308) toda otra `ast.Call` a una fábrica → `dynamic-module-result-escape`.
+    ÚNICO patrón admisible: `importlib.import_module(expr)` como valor COMPLETO de un `ast.Expr` (descartado) desde un
+    `import importlib` rooteado → deja pasar a `_resolve_op` (op `import_module` registrable)."""
+    # B310 (1): __import__ como referencia ejecutable (Load) — SIEMPRE prohibido, llamado o no
+    if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id == "__import__":
+        return _DYNAMIC_IMPORT_FACTORY_VALUE
+    # B310 (2): `from importlib import import_module|__import__` — prohibido
+    if isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] == "importlib":
+        if any(a.name in _CANONICAL_FACTORY_NAMES for a in node.names):
+            return _DYNAMIC_IMPORT_FACTORY_VALUE
+    # B310 (3): `importlib.import_module` como Attribute — sólo admisible como func de un Call descartado
+    if isinstance(node, ast.Attribute) and node.attr == "import_module" and isinstance(node.value, ast.Name) and prov.rooted.get(node.value.id) == "importlib":  # fmt: skip
+        parent = parents.get(id(node))
+        if isinstance(parent, ast.Call) and parent.func is node:
+            gp = parents.get(id(parent))
+            if isinstance(gp, ast.Expr) and gp.value is parent:
+                return None  # forma segura: `importlib.import_module(...)` descartado
+        return _DYNAMIC_IMPORT_FACTORY_VALUE  # capturado como valor / llamada no descartada
+    # B308: toda otra llamada a una fábrica dinámica (aliased __import__, etc.) — deny-by-default
+    if isinstance(node, ast.Call):
+        root = _factory_root(node.func, prov.factories, prov.rooted)
+        if root is None:
+            return None
+        parent = parents.get(id(node))
+        if root == "importlib" and isinstance(parent, ast.Expr) and parent.value is node:
+            return None  # import_module(...) descartado como statement → `_resolve_op` da la op específica
+        return _DYNAMIC_MODULE_RESULT_ESCAPE
+    return None
 
 
 def _canonical_provenance(tree: ast.AST, mod_aliases: dict[str, str]) -> _Provenance:
@@ -712,10 +734,11 @@ def problems() -> list[str]:
     problems.extend(scan_probs)
     today = _today()
     for eid, occ in observed.items():
-        # B308: `dynamic-module-result-escape` está PROHIBIDO globalmente (no registrable) — un resultado de fábrica
-        # dinámica fuera del único descarte local seguro NO se puede blanquear con una entrada de registro.
-        if occ["op"] == _DYNAMIC_MODULE_RESULT_ESCAPE:
-            problems.append(f"RESULTADO DE FÁBRICA DINÁMICA PROHIBIDO (deny-by-default): {occ['file']}::{occ['qualname']} línea {occ['lineno']} → `{occ['snippet']}` (B308)")  # fmt: skip
+        # B308/B310: fábrica dinámica PROHIBIDA globalmente (no registrable) — ni su resultado fuera del descarte local
+        # seguro, ni la fábrica capturada como VALOR, se pueden blanquear con una entrada de registro.
+        if occ["op"] in (_DYNAMIC_MODULE_RESULT_ESCAPE, _DYNAMIC_IMPORT_FACTORY_VALUE):
+            _b = "B310" if occ["op"] == _DYNAMIC_IMPORT_FACTORY_VALUE else "B308"
+            problems.append(f"FÁBRICA DINÁMICA PROHIBIDA ({occ['op']}): {occ['file']}::{occ['qualname']} línea {occ['lineno']} → `{occ['snippet']}` ({_b})")  # fmt: skip
             continue
         # B265: en los módulos de AUTORIDAD, un escape de módulo / lookup dinámico está PROHIBIDO (no registrable)
         if occ["file"] in _AUTHORITY_MODULES and occ["op"] in (_REFLECTION_MODULE_ESCAPE, _BUILTINS_DYNAMIC_LOOKUP):

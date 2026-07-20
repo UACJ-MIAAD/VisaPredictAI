@@ -332,7 +332,8 @@ def test_reflection_gate_catches_the_seven_evasions(tmp_path, monkeypatch):
             },
         )
         monkeypatch.setattr(refl, "_production_files", lambda lbl=label: [f"{lbl}.py"])
-        assert any("NO REGISTRADA" in p for p in refl.problems()), f"evasion {label} debe fallar (B255)"
+        # cada evasión falla el gate: NO REGISTRADA (registrable) o PROHIBIDA (fábrica dinámica como valor, B310)
+        assert any("NO REGISTRADA" in p or "PROHIBID" in p for p in refl.problems()), f"evasion {label} debe fallar (B255)"  # fmt: skip
 
 
 # ---------------------------------------------------------------------------
@@ -718,7 +719,72 @@ def test_b308_only_safe_pattern_is_discarded_import_module(tmp_path, monkeypatch
         },
     )
     monkeypatch.setattr(refl, "_production_files", lambda: ["m.py"])
-    assert any("B308" in p and "PROHIBIDO" in p for p in refl.problems())
+    assert any("B308" in p and "PROHIBID" in p for p in refl.problems())
+
+
+# ---------------------------------------------------------------------------
+# B310 — B308 sólo protegía la LLAMADA a la fábrica; una fábrica tratada como VALOR de primera clase (contenedor,
+# condicional, lambda, partial, alias, from-import) evadía el gate y se llamaba después de forma no reconocible. Ahora un
+# contrato SINTÁCTICO POSITIVO prohíbe la fábrica como valor: `dynamic-import-factory-value`.
+# ---------------------------------------------------------------------------
+def test_b310_factory_as_value_is_prohibited(tmp_path, monkeypatch):
+    cases = {
+        "container": "f = [__import__][0]\nm = f('os')\nm.system('x')\n",
+        "conditional": "f = __import__ if flag else __import__\nm = f('os')\n",
+        "lambda_returns": "f = (lambda: __import__)()\nm = f('os')\n",
+        "next_iter": "m = next(iter([__import__]))\n",
+        "tuple_capture": "t = (__import__, 1)\n",
+        "dict_capture": "d = {'f': __import__}\n",
+        "partial": "import functools\np = functools.partial(__import__)\n",
+        "return_value": "def g():\n    return __import__\n",
+        "default_value": "def g(f=__import__):\n    return f\n",
+        "from_import_module": "from importlib import import_module\nx = import_module\n",
+        "from_import_dunder": "from importlib import __import__ as f\n",
+        "attr_capture": "import importlib\nf = importlib.import_module\n",
+        "attr_capture_arg": "import importlib\nfoo(importlib.import_module)\n",
+    }
+    for label, src in cases.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, (
+            f"{label}: la fábrica como valor debe prohibirse (B310): {ops}"
+        )
+
+
+def test_b310_safe_form_and_benign_controls(tmp_path, monkeypatch):
+    # forma segura: `importlib.import_module(...)` DESCARTADO → op `import_module`, sin `dynamic-import-factory-value`.
+    ops, probs = _ops_and_problems(tmp_path, monkeypatch, "import importlib\nimportlib.import_module(name)\n")
+    assert "import_module" in ops and refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops and not probs, ops
+    # controles benignos: no sobredisparan.
+    for src in (
+        "import sys\nx = sys.version\n",
+        "from importlib.metadata import version\nv = version('p')\n",
+        "import functools\np = functools.partial(foo)\n",
+        "import os\nx = os.getcwd()\n",
+    ):
+        ops, probs = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"no debe sobredisparar (B310): {src!r} → {ops}"
+
+
+def test_b310_prohibited_value_fails_the_gate(tmp_path, monkeypatch):
+    _mount(
+        tmp_path,
+        monkeypatch,
+        {
+            "m.py": "f = [__import__][0]\n",
+            refl._REGISTRY: json.dumps(
+                {
+                    "schema_version": refl._SCHEMA_VERSION,
+                    "scanner_version": refl._SCANNER_VERSION,
+                    "note": "x",
+                    "operations_controlled": list(refl.OPERATIONS_CONTROLLED),
+                    "authorized_campaign_bundle_importers": [],
+                    "entries": {},
+                }
+            ),
+        },
+    )
+    monkeypatch.setattr(refl, "_production_files", lambda: ["m.py"])
+    assert any("B310" in p and "PROHIBID" in p for p in refl.problems())
 
 
 def test_b305_benign_sinks_not_over_flagged(tmp_path, monkeypatch):
