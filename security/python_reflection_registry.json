@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "scanner_version": 11,
+  "scanner_version": 12,
   "note": "B255/B259/B260: registro POSITIVO de TODA operación de reflexión en el código de producción versionado, con IDENTIDAD SEMÁNTICA. El gate tools/check_reflection.py deriva el ID de cada ocurrencia de sha256(JSON canónico de {file, qualname, op, statement_ast_sha256, occurrence_index}); cambiar objeto/nombre/forma de la llamada cambia el AST del statement y por tanto el ID → exige revisión. Cubre builtins/sys/importlib/operator/functools por alias, imports relativos, qualname completo (métodos/lambda/async/anidadas) y es fail-closed ante sintaxis/lectura/JSON inválidos. FRONTERA HONESTA: evita reflexión NO REGISTRADA en código versionado; NO protege contra un mantenedor que cambie a la vez código y política (revisión humana + rama protegida).",
   "operations_controlled": [
     "__dict__",
@@ -11,6 +11,7 @@
     "canonical-rooted-call",
     "compile",
     "delattr",
+    "dynamic-module-result-escape",
     "eval",
     "exec",
     "getattr",
@@ -152,15 +153,6 @@
       "statement_ast_sha256": "f001603fa154c30122702dc7e03e5dd47973857aa5e17a070cadb0128652dde1",
       "occurrence_index": 0,
       "justification": "reflexión de smoke controlado del entorno deep",
-      "review_by": "2027-07-31"
-    },
-    "7af8c7058f4b2d21c28228c1ab3740b80720a6c54e39d3a10d7344f4541eb37c": {
-      "file": "tools/dvc_tool_smoke.py",
-      "qualname": "main",
-      "op": "__import__",
-      "statement_ast_sha256": "a90e99335ab0aa3f8a3f650e6bd0bb548badd080f4c05b95bf20fe69ed127181",
-      "occurrence_index": 0,
-      "justification": "reflexión de smoke controlado del entorno dvc-tool",
       "review_by": "2027-07-31"
     },
     "9f88b592766ea0049eaeadb109f791b0b6ffb1aa7cad61ae00c0de2c79eafccd": {

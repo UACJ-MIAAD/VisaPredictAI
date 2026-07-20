@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
 from pathlib import Path
 
@@ -167,13 +168,11 @@ def main(argv: list[str]) -> int:
         )
     )
     if not receipt["smoke_ok"]:
-        print("✗ dvc-tool smoke FALLÓ", file=__import__("sys").stderr)
+        print("✗ dvc-tool smoke FALLÓ", file=sys.stderr)  # B308: import estático, sin fábrica dinámica
         return 1
     print(f"✓ dvc-tool smoke OK · recibo → {ns.receipt}")
     return 0
 
 
 if __name__ == "__main__":
-    import sys
-
     sys.exit(main(sys.argv))

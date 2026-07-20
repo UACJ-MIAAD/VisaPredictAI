@@ -38,7 +38,7 @@ from typing import NamedTuple
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
-_SCANNER_VERSION = 11  # B265/…/B300/B305: pérdida por transformación desconocida/profundidad/SINK (return/yield/attr-store/subscript-store) = escape/problema fail-closed (nunca `none` silencioso)
+_SCANNER_VERSION = 12  # B265/…/B305/B308: DENY-BY-DEFAULT — todo resultado de fábrica dinámica fuera del único descarte local seguro es `dynamic-module-result-escape` PROHIBIDO (sin lista de sinks)
 _REGISTRY_TOP_KEYS = {
     "schema_version",
     "scanner_version",
@@ -66,7 +66,11 @@ _BUILTINS_DYNAMIC_LOOKUP = "builtins.dynamic-lookup"
 # B285: política POSITIVA — TODA llamada rooteada en un módulo canónico produce una ocurrencia registrable (no una lista
 # de terminales que deja invisibles a SourceFileLoader.set_data / sys.meta_path.insert / sys.path_hooks.append / …).
 _CANONICAL_ROOTED_CALL = "canonical-rooted-call"
-OPERATIONS_CONTROLLED = tuple(sorted(_BUILTIN_PRIMS | frozenset(_MODULE_PRIMS) | _ATTR_PRIMS | {"__dict__", "sys.modules", _REFLECTION_MODULE_ESCAPE, _BUILTINS_DYNAMIC_LOOKUP, _CANONICAL_ROOTED_CALL}))  # fmt: skip
+# B308: DENY-BY-DEFAULT — el resultado de una fábrica DINÁMICA (`__import__`/`import_module`) está globalmente PROHIBIDO
+# (no registrable) salvo el ÚNICO patrón seguro: `import_module(...)` como valor COMPLETO de un `ast.Expr` (descartado).
+# Cualquier otra posición (return/yield/await/with/raise/default/store/comprensión/…) cae por default, sin enumerar sinks.
+_DYNAMIC_MODULE_RESULT_ESCAPE = "dynamic-module-result-escape"
+OPERATIONS_CONTROLLED = tuple(sorted(_BUILTIN_PRIMS | frozenset(_MODULE_PRIMS) | _ATTR_PRIMS | {"__dict__", "sys.modules", _REFLECTION_MODULE_ESCAPE, _BUILTINS_DYNAMIC_LOOKUP, _CANONICAL_ROOTED_CALL, _DYNAMIC_MODULE_RESULT_ESCAPE}))  # fmt: skip
 _CB_MODULE = "tools.campaign_bundle"
 # B265: en los módulos de AUTORIDAD, un escape/lookup dinámico está PROHIBIDO (no registrable).
 _AUTHORITY_MODULES = frozenset({"tools/campaign_bundle.py", "tools/merge_campaign_pools.py", "tools/governed_fs.py", "tools/governed_read.py"})  # fmt: skip
@@ -354,9 +358,8 @@ def _expr_provenance(node: ast.AST, rooted: dict[str, str], factories: dict[str,
         if node.id in rooted:
             return ("value", rooted[node.id])
         return ("none", None)
-    if isinstance(node, ast.Call):  # llamar una FÁBRICA canónica devuelve un módulo → 'value'
-        fr = _factory_root(node.func, factories, rooted)
-        return ("value", fr) if fr is not None else ("none", None)
+    if isinstance(node, ast.Call):  # B308: un RESULTADO DINÁMICO de fábrica NO se rootea (lo prohíbe
+        return ("none", None)  # `_dynamic_factory_escape` en su sitio); el lattice sólo cubre imports ESTÁTICOS
     if isinstance(node, ast.Attribute):  # atributo/submódulo de un valor canónico sigue siendo canónico
         k, r = _expr_provenance(node.value, rooted, factories, depth + 1)
         return ("value", r) if k in ("value", "factory") else ("none", None)
@@ -398,75 +401,21 @@ def _factory_root(fn: ast.AST, factories: dict[str, str], rooted: dict[str, str]
     return None
 
 
-def _is_factory_value(node: ast.AST, prov: _Provenance, depth: int = 0) -> bool:
-    """B300: ¿la expresión evalúa a un RESULTADO DE FÁBRICA (un módulo importado por `__import__`/`import_module`)?
-    Es NARROW a propósito: un atributo de datos (`sys.version`) o un constructor no-fábrica (`Loader(...)`) NO cuentan,
-    para no marcar `print(sys.version)` como fuga. Un Name factory-result se cubre por `_escape_op` (no aquí)."""
-    if depth > _EXPR_DEPTH_CAP:
-        raise _ProvenanceLimitError(f"profundidad > {_EXPR_DEPTH_CAP} en _is_factory_value (B300)")
-    if isinstance(node, ast.Call):
-        return _factory_root(node.func, prov.factories, prov.rooted) is not None
-    if isinstance(node, ast.NamedExpr):
-        return _is_factory_value(node.value, prov, depth + 1)
-    if isinstance(node, (ast.IfExp, ast.BoolOp)):
-        branches = [node.body, node.orelse] if isinstance(node, ast.IfExp) else list(node.values)
-        return any(_is_factory_value(b, prov, depth + 1) for b in branches)
-    if isinstance(node, ast.Subscript):
-        container, idx = node.value, node.slice
-        if isinstance(container, (ast.Tuple, ast.List)) and isinstance(idx, ast.Constant) and isinstance(idx.value, int):  # fmt: skip
-            if -len(container.elts) <= idx.value < len(container.elts):
-                return _is_factory_value(container.elts[idx.value], prov, depth + 1)
-        if isinstance(container, ast.Dict) and isinstance(idx, ast.Constant):
-            return any(
-                isinstance(k, ast.Constant) and k.value == idx.value and _is_factory_value(v, prov, depth + 1)
-                for k, v in zip(container.keys, container.values, strict=True)
-            )
-    return False
-
-
-def _provenance_loss_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _Provenance) -> str | None:
-    """B300/B305: un RESULTADO DE FÁBRICA DIRECTO que ABANDONA el dominio modelado pierde su procedencia — para no
-    perderla EN SILENCIO, se marca `reflection-module-escape` en el punto EXACTO de la pérdida. Formas:
-    (A) argumento de una llamada NO rooteada (`ident(__import__('os'))`, `next(iter([...]))` marca la lista);
-    (B) elemento de un contenedor literal que NO se indexa de inmediato (escapa hacia un consumidor desconocido);
-    (C, B305) SINKS: `return`/`yield`/`yield from` y asignación a ATRIBUTO/SUBSCRIPT (Assign/AnnAssign/AugAssign) cuyo
-    destino no es rastreable. Un `m = factory()` a Name simple SÍ se rastrea (no escapa aquí)."""
-    if isinstance(node, ast.Call):  # (A) — la llamada rooteada la cubre `_canonical_rooted_call` (antes en el `or`)
-        args = list(node.args) + [k.value for k in node.keywords]
-        if any(_is_factory_value(a, prov) for a in args):
-            return _REFLECTION_MODULE_ESCAPE
+def _dynamic_factory_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _Provenance) -> str | None:
+    """B308: DENY-BY-DEFAULT para RESULTADOS DE FÁBRICA DINÁMICA. NO se enumera una lista de sinks (Python tiene más
+    contextos que cualquier lista manual). Toda `ast.Call` que resuelve a una fábrica (`__import__`/`import_module`,
+    directa/aliased/`<canónico>.import_module`) está PROHIBIDA (`dynamic-module-result-escape`, globalmente no
+    registrable) SALVO el ÚNICO patrón demostrablemente seguro: `import_module(...)` como valor COMPLETO de un `ast.Expr`
+    (resultado DESCARTADO). `__import__` no tiene patrón autorizado. Cualquier otro parent-edge cae por default."""
+    if not isinstance(node, ast.Call):
         return None
-    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):  # (B)
-        parent = parents.get(id(node))
-        indexed = (
-            isinstance(parent, ast.Subscript)
-            and parent.value is node
-            and isinstance(parent.slice, ast.Constant)  # `[...][0]` const-index → modelado, no escape
-        )
-        if not indexed and any(_is_factory_value(e, prov) for e in node.elts):
-            return _REFLECTION_MODULE_ESCAPE
-        return None
-    if isinstance(node, ast.Dict):
-        if any(v is not None and _is_factory_value(v, prov) for v in node.values):
-            return _REFLECTION_MODULE_ESCAPE
-        return None
-    # (C, B305) — sinks de salida de un resultado de fábrica DIRECTO
-    if isinstance(node, (ast.Return, ast.Yield, ast.YieldFrom)):
-        return _REFLECTION_MODULE_ESCAPE if node.value is not None and _is_factory_value(node.value, prov) else None
-    if isinstance(node, ast.Assign) and _is_factory_value(node.value, prov):
-        if any(isinstance(t, (ast.Attribute, ast.Subscript)) for t in node.targets):  # store a atributo/subscript
-            return _REFLECTION_MODULE_ESCAPE
-        return None
-    if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
-        if node.value is not None and isinstance(node.target, (ast.Attribute, ast.Subscript)) and _is_factory_value(node.value, prov):  # fmt: skip
-            return _REFLECTION_MODULE_ESCAPE
-        return None
-    if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):  # B305/Ronda B: comprensión/generador
-        return _REFLECTION_MODULE_ESCAPE if _is_factory_value(node.elt, prov) else None
-    if isinstance(node, ast.DictComp):
-        if _is_factory_value(node.key, prov) or _is_factory_value(node.value, prov):
-            return _REFLECTION_MODULE_ESCAPE
-    return None
+    root = _factory_root(node.func, prov.factories, prov.rooted)
+    if root is None:
+        return None  # no es una fábrica dinámica
+    parent = parents.get(id(node))
+    if root == "importlib" and isinstance(parent, ast.Expr) and parent.value is node:
+        return None  # import_module(...) descartado como statement → `_resolve_op` da la op específica registrable
+    return _DYNAMIC_MODULE_RESULT_ESCAPE
 
 
 def _canonical_provenance(tree: ast.AST, mod_aliases: dict[str, str]) -> _Provenance:
@@ -561,33 +510,17 @@ def _canonical_member_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _
 
 
 def _canonical_rooted_call(node: ast.AST, prov: _Provenance) -> str | None:
-    """B285/B289/B297: TODA `ast.Call` cuyo callee esté ROOTEADO en un nombre canónico produce `canonical-rooted-call`
-    (SALVO op más específica; orden del `or`). El desenvolvido de `.func`/`.value` reconoce ADEMÁS una LLAMADA A FÁBRICA
-    en la cadena (`__import__('os').system(...)`, `im('os').system(...)`): su resultado es un módulo canónico, así que la
-    llamada terminal es rooteada aunque el nombre de la fábrica no esté en `rooted`. `machinery.SourceFileLoader(...)
-    .set_data(...)` (B289) y `Loader(...).set_data(...)` siguen cubiertos por el desenvolvido a la raíz Name."""
+    """B285/B289: TODA `ast.Call` cuyo callee, al DESENVOLVER `.func`/`.value`, esté ROOTEADO en un nombre canónico
+    ESTÁTICO (módulo/submódulo/miembro `from … import`) produce `canonical-rooted-call` (SALVO op más específica; orden
+    del `or`). Ej.: `machinery.SourceFileLoader(...).set_data(...)`, `Loader(...).set_data(...)`. B308: un resultado de
+    fábrica DINÁMICA en la cadena NO se rootea aquí — lo prohíbe `_dynamic_factory_escape`."""
     if not isinstance(node, ast.Call):
         return None
     cur: ast.AST = node.func
     while isinstance(cur, (ast.Attribute, ast.Subscript, ast.Call)):
-        if isinstance(cur, ast.Call):
-            if (
-                _factory_root(cur.func, prov.factories, prov.rooted) is not None
-            ):  # B297: resultado de fábrica en la cadena
-                return _CANONICAL_ROOTED_CALL
-            cur = cur.func
-        else:
-            cur = cur.value
+        cur = cur.func if isinstance(cur, ast.Call) else cur.value
     if isinstance(cur, ast.Name) and isinstance(cur.ctx, ast.Load) and cur.id in prov.rooted:
         return _CANONICAL_ROOTED_CALL
-    # (b) B297: el callee COMPUESTO evalúa a un valor/fábrica canónica por el DOMINIO DE EXPRESIÓN (walrus/IfExp/BoolOp/
-    # subscript de contenedor) cuando el desenvolvido sintáctico (a) se detiene antes (`(m := __import__('os')).system()`).
-    # Un callee Name bare NO entra aquí: la LLAMADA A FÁBRICA directa (`__import__(...)`/`im(...)`) es la op específica de
-    # `_resolve_op`, no un canonical-rooted-call (evita re-marcar la propia llamada de fábrica).
-    if not isinstance(node.func, ast.Name):
-        k, _ = _expr_provenance(node.func, prov.rooted, prov.factories)
-        if k in ("value", "factory"):
-            return _CANONICAL_ROOTED_CALL
     return None
 
 
@@ -647,19 +580,17 @@ def scan_reflection(files: list[str]) -> tuple[dict[str, dict], list[str]]:
         try:
             for node in ast.walk(tree):
                 op = (
-                    _resolve_op(node, mod_aliases, prim_aliases)
+                    _dynamic_factory_escape(
+                        node, parents, prov
+                    )  # B308: DENY-BY-DEFAULT de resultados de fábrica dinámica
+                    or _resolve_op(node, mod_aliases, prim_aliases)
                     or _escape_op(node, parents, prov.rooted)  # B294: escape de módulo/miembro canónico (Name)
                     or _rooted_chain_escape(node, parents, mod_aliases)
-                    or _canonical_rooted_call(
-                        node, prov
-                    )  # B285/B289/B297: llamada rooteada (incl. resultado de fábrica)
+                    or _canonical_rooted_call(node, prov)  # B285/B289: llamada rooteada en un canónico ESTÁTICO
                     or _canonical_rooted_subscript(node, prov)  # B294: sys.modules/__dict__ importados y subscriptados
                     or _canonical_member_escape(
                         node, parents, prov
                     )  # B294: captura no-call de un miembro `from … import`
-                    or _provenance_loss_escape(
-                        node, parents, prov
-                    )  # B300: resultado de fábrica perdido en transf. desconocida
                 )
                 if op is None:
                     continue
@@ -781,6 +712,11 @@ def problems() -> list[str]:
     problems.extend(scan_probs)
     today = _today()
     for eid, occ in observed.items():
+        # B308: `dynamic-module-result-escape` está PROHIBIDO globalmente (no registrable) — un resultado de fábrica
+        # dinámica fuera del único descarte local seguro NO se puede blanquear con una entrada de registro.
+        if occ["op"] == _DYNAMIC_MODULE_RESULT_ESCAPE:
+            problems.append(f"RESULTADO DE FÁBRICA DINÁMICA PROHIBIDO (deny-by-default): {occ['file']}::{occ['qualname']} línea {occ['lineno']} → `{occ['snippet']}` (B308)")  # fmt: skip
+            continue
         # B265: en los módulos de AUTORIDAD, un escape de módulo / lookup dinámico está PROHIBIDO (no registrable)
         if occ["file"] in _AUTHORITY_MODULES and occ["op"] in (_REFLECTION_MODULE_ESCAPE, _BUILTINS_DYNAMIC_LOOKUP):
             problems.append(f"ESCAPE/LOOKUP DINÁMICO PROHIBIDO en módulo de autoridad: {occ['op']} en {occ['file']}::{occ['qualname']} línea {occ['lineno']} (B265)")  # fmt: skip

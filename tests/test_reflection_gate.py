@@ -473,17 +473,18 @@ def _line_ops(tmp_path, monkeypatch, src: str, line: int) -> set[str]:
     return {o["op"] for o in occ.values() if o["lineno"] == line}
 
 
-def test_b294_factory_result_binding_is_rooted_call(tmp_path, monkeypatch):
-    # el RESULTADO de una fábrica canónica (bare __import__, from-import alias, attr-alias, y a 3 saltos) queda ROOTEADO
-    # → su llamada downstream es canonical-rooted-call. En 731b6d2 la línea del terminal daba {} (RED).
+def test_b294_factory_result_binding_is_prohibited(tmp_path, monkeypatch):
+    # B308: un resultado de fábrica DINÁMICA ligado a un binding (bare __import__, from-import alias, attr-alias, a 3
+    # saltos) es `dynamic-module-result-escape` PROHIBIDO (deny-by-default), no se rastrea como rooted-call.
     cases = {
-        "bare_import": ("m = __import__('os')\nr = m.system('x')\n", 2),
-        "from_import": ("from importlib import import_module as im\nm = im('os')\ny = m.getcwd()\n", 3),
-        "attr_alias": ("import importlib\nf = importlib.import_module\nm = f('os')\ny = m.getcwd()\n", 4),
-        "alias_3_hop": ("from importlib import import_module as im\na = im\nb = a\nm = b('os')\ny = m.getcwd()\n", 5),
+        "bare_import": "m = __import__('os')\nr = m.system('x')\n",
+        "from_import": "from importlib import import_module as im\nm = im('os')\ny = m.getcwd()\n",
+        "attr_alias": "import importlib\nf = importlib.import_module\nm = f('os')\ny = m.getcwd()\n",
+        "alias_3_hop": "from importlib import import_module as im\na = im\nb = a\nm = b('os')\ny = m.getcwd()\n",
     }
-    for label, (src, line) in cases.items():
-        assert refl._CANONICAL_ROOTED_CALL in _line_ops(tmp_path, monkeypatch, src, line), f"{label}: el resultado de fábrica debe rootear la llamada downstream (B294)"  # fmt: skip
+    for label, src in cases.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_MODULE_RESULT_ESCAPE in ops, f"{label}: el binding de fábrica debe estar prohibido (B308): {ops}"  # fmt: skip
 
 
 def test_b294_import_star_of_canonical_is_rejected(tmp_path, monkeypatch):
@@ -547,21 +548,24 @@ def test_b294_specific_and_noncanonical_ops_preserved(tmp_path, monkeypatch):
 # como canonical-rooted-call (RED). El dominio abstracto de expresión (`_expr_provenance`) la sigue ahora.
 # ---------------------------------------------------------------------------
 def test_b297_factory_result_through_composite_expressions(tmp_path, monkeypatch):
+    # B308: en TODAS estas formas compuestas la fábrica dinámica es `dynamic-module-result-escape` PROHIBIDO — no se
+    # rastrea el resultado (deny-by-default; el único descarte seguro es `import_module(...)` como statement).
     cases = {
-        "direct_chain": ("__import__('os').system('x')\n", 1),
-        "aliased_factory": ("f = __import__\nf('os').system('x')\n", 2),
-        "multi_assign": ("a = b = __import__('os')\na.system('x')\n", 2),
-        "tuple_subscript": ("m = (__import__('os'),)[0]\nm.system('x')\n", 2),
-        "dict_subscript": ("m = {'x': __import__('os')}['x']\nm.system('x')\n", 2),
-        "conditional": ("m = __import__('os') if flag else None\nm.system('x')\n", 2),
-        "import_module_chain": ("from importlib import import_module\nimport_module('os').system('x')\n", 2),
-        "alias_3_hop": ("f = __import__\ng = f\nh = g\nh('os').system('x')\n", 4),
-        "destructuring": ("(m, n) = (__import__('os'), 1)\nm.system('x')\n", 2),
-        "walrus_inline": ("(m := __import__('os')).system('x')\n", 1),
-        "attr_of_factory_result": ("m = __import__('os')\np = m.path\np.join('a', 'b')\n", 3),
+        "direct_chain": "__import__('os').system('x')\n",
+        "aliased_factory": "f = __import__\nf('os').system('x')\n",
+        "multi_assign": "a = b = __import__('os')\na.system('x')\n",
+        "tuple_subscript": "m = (__import__('os'),)[0]\nm.system('x')\n",
+        "dict_subscript": "m = {'x': __import__('os')}['x']\nm.system('x')\n",
+        "conditional": "m = __import__('os') if flag else None\nm.system('x')\n",
+        "import_module_chain": "from importlib import import_module\nimport_module('os').system('x')\n",
+        "alias_3_hop": "f = __import__\ng = f\nh = g\nh('os').system('x')\n",
+        "destructuring": "(m, n) = (__import__('os'), 1)\nm.system('x')\n",
+        "walrus_inline": "(m := __import__('os')).system('x')\n",
+        "attr_of_factory_result": "m = __import__('os')\np = m.path\np.join('a', 'b')\n",
     }
-    for label, (src, line) in cases.items():
-        assert refl._CANONICAL_ROOTED_CALL in _line_ops(tmp_path, monkeypatch, src, line), f"{label}: la terminal sobre el resultado de fábrica debe ser rooted-call (B297)"  # fmt: skip
+    for label, src in cases.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_MODULE_RESULT_ESCAPE in ops, f"{label}: la fábrica compuesta debe estar prohibida (B308): {ops}"  # fmt: skip
 
 
 def test_b297_benign_and_specific_ops_preserved(tmp_path, monkeypatch):
@@ -587,7 +591,7 @@ def _ops_and_problems(tmp_path, monkeypatch, src):
 
 
 def test_b300_unknown_transformation_of_factory_result_escapes(tmp_path, monkeypatch):
-    # un resultado de fábrica consumido por una llamada NO rooteada / contenedor que escapa → reflection-module-escape.
+    # B308: un resultado de fábrica consumido por una transformación desconocida → `dynamic-module-result-escape`.
     cases = {
         "unknown_call_arg": "def ident(x):\n    return x\nm = ident(__import__('os'))\nm.system('x')\n",
         "next_iter_list": "m = next(iter([__import__('os')]))\nm.system('x')\n",
@@ -597,15 +601,16 @@ def test_b300_unknown_transformation_of_factory_result_escapes(tmp_path, monkeyp
     }
     for label, src in cases.items():
         ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
-        assert refl._REFLECTION_MODULE_ESCAPE in ops, f"{label}: la pérdida debe marcarse como escape (B300): {ops}"
+        assert refl._DYNAMIC_MODULE_RESULT_ESCAPE in ops, f"{label}: la pérdida debe estar prohibida (B308): {ops}"
 
 
-def test_b300_deep_nesting_within_cap_is_fully_tracked(tmp_path, monkeypatch):
-    # 65/100 niveles de tuple+subscript alrededor de la fábrica se analizan por completo → la terminal es rooted-call.
-    for depth in (65, 100):
-        src = "m = " + "(" * depth + "__import__('os')" + ",)[0]" * depth + "\nm.system('x')\n"
-        ops = _line_ops(tmp_path, monkeypatch, src, 2)
-        assert refl._CANONICAL_ROOTED_CALL in ops, f"nesting {depth} debe rastrearse (B300): {ops}"
+def test_b300_deep_nesting_factory_still_prohibited(tmp_path, monkeypatch):
+    # B308: la profundidad ya NO es un problema — el clasificador mira el PADRE INMEDIATO de la llamada de fábrica (sin
+    # recursión), así que una fábrica dinámica anidada 65/100/300 niveles sigue siendo `dynamic-module-result-escape`.
+    for depth in (65, 100, 300):
+        src = "m = obj" + "".join(f"[{i}]" for i in range(depth)) + "\nx = __import__('os')\n"
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_MODULE_RESULT_ESCAPE in ops, f"nesting {depth}: fábrica sigue prohibida (B308): {ops}"
 
 
 def test_b300_over_cap_is_fail_closed_problem(tmp_path, monkeypatch):
@@ -651,23 +656,69 @@ def test_b305_canonical_escape_recorded_at_every_sink(tmp_path, monkeypatch):
     }
     for label, src in cases.items():
         ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
-        assert refl._REFLECTION_MODULE_ESCAPE in ops, f"{label}: el sink debe registrar un escape (B305): {ops}"
+        assert refl._DYNAMIC_MODULE_RESULT_ESCAPE in ops, f"{label}: el sink debe estar prohibido (B308): {ops}"
 
 
 def test_b305_comprehension_and_generator_sinks(tmp_path, monkeypatch):
-    # Ronda B: un resultado de fábrica dentro de una comprensión/generador también abandona el dominio modelado.
+    # B308: un resultado de fábrica dentro de una comprensión/generador cae por default-deny → prohibido.
     cases = {
         "listcomp": "xs = [__import__('os') for _ in range(1)]\n",
         "setcomp": "s = {__import__('os') for _ in range(1)}\n",
         "genexp": "g = (__import__('os') for _ in range(1))\n",
         "dictcomp_value": "d = {k: __import__('os') for k in range(1)}\n",
+        "comp_iter": "[x for x in __import__('os')]\n",
     }
     for label, src in cases.items():
         ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
-        assert refl._REFLECTION_MODULE_ESCAPE in ops, f"{label}: la comprensión/generador debe registrar el escape (B305): {ops}"  # fmt: skip
+        assert refl._DYNAMIC_MODULE_RESULT_ESCAPE in ops, f"{label}: la comprensión/generador debe estar prohibida (B308): {ops}"  # fmt: skip
     # control: comprensión de escalares no dispara
     ops, probs = _ops_and_problems(tmp_path, monkeypatch, "xs = [i for i in range(3)]\n")
-    assert refl._REFLECTION_MODULE_ESCAPE not in ops and not probs
+    assert refl._DYNAMIC_MODULE_RESULT_ESCAPE not in ops and not probs
+
+
+def test_b308_deny_by_default_covers_unenumerated_contexts(tmp_path, monkeypatch):
+    # B308: contextos que NINGUNA lista de sinks enumeraba caen automáticamente por default-deny → prohibido.
+    for label, src in {
+        "await": "async def f():\n    await __import__('os')\n",
+        "with": "with __import__('os'):\n    pass\n",
+        "raise": "raise __import__('os')\n",
+        "lambda_body": "f = lambda: __import__('os')\n",
+        "default_arg": "def f(x=__import__('os')):\n    return x\n",
+        "assert_test": "assert __import__('os')\n",
+        "fstring": "s = f'{__import__(\"os\")}'\n",
+        "starred": "foo(*[__import__('os')])\n",
+    }.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_MODULE_RESULT_ESCAPE in ops, f"{label}: default-deny debe prohibir (B308): {ops}"
+
+
+def test_b308_only_safe_pattern_is_discarded_import_module(tmp_path, monkeypatch):
+    # ÚNICO patrón autorizado: `import_module(...)` como statement DESCARTADO → op `import_module` registrable, sin escape.
+    ops, probs = _ops_and_problems(tmp_path, monkeypatch, "import importlib\nimportlib.import_module(name)\n")
+    assert "import_module" in ops and refl._DYNAMIC_MODULE_RESULT_ESCAPE not in ops and not probs, ops
+    # `__import__` NO tiene patrón autorizado: incluso descartado, es prohibido.
+    ops, _ = _ops_and_problems(tmp_path, monkeypatch, "__import__('os')\n")
+    assert refl._DYNAMIC_MODULE_RESULT_ESCAPE in ops, ops
+    # gate: una fábrica prohibida NO se puede blanquear con una entrada de registro (globalmente prohibida).
+    _mount(
+        tmp_path,
+        monkeypatch,
+        {
+            "m.py": "raise __import__('os')\n",
+            refl._REGISTRY: json.dumps(
+                {
+                    "schema_version": refl._SCHEMA_VERSION,
+                    "scanner_version": refl._SCANNER_VERSION,
+                    "note": "x",
+                    "operations_controlled": list(refl.OPERATIONS_CONTROLLED),
+                    "authorized_campaign_bundle_importers": [],
+                    "entries": {},
+                }
+            ),
+        },
+    )
+    monkeypatch.setattr(refl, "_production_files", lambda: ["m.py"])
+    assert any("B308" in p and "PROHIBIDO" in p for p in refl.problems())
 
 
 def test_b305_benign_sinks_not_over_flagged(tmp_path, monkeypatch):
