@@ -930,6 +930,75 @@ def test_b315b_two_grandchildren_one_traps_term(tmp_path):
                 os.kill(int(p), signal.SIGKILL)
 
 
+# ---------------------------------------------------------------------------
+# B319 — el cleanup sólo capturaba `(OSError, ValueError)`: un `RuntimeError` de una operación de cleanup escapaba crudo
+# y reemplazaba el error primario. B320 — `contextlib.suppress` descartaba el fallo de `poll()`. Ahora cada paso pasa por
+# `_guarded_step`: total, observable y sin reemplazar el primario.
+# ---------------------------------------------------------------------------
+def test_b319_cleanup_runtimeerror_stays_in_taxonomy():
+    import selectors
+
+    class _CloseBoom(selectors.DefaultSelector):
+        def close(self):
+            super().close()
+            raise RuntimeError("selector-close-runtimeerror")
+
+    real = selectors.DefaultSelector
+    selectors.DefaultSelector = _CloseBoom
+    try:
+        snap = gs.GovernanceSnapshot(_REPO_ROOT)
+        # B319: en el SHA base `selector-close` sólo atrapaba OSError/ValueError → el RuntimeError escapaba crudo. Ahora
+        # se ACUMULA como incidencia y el runner falla en taxonomía.
+        with pytest.raises(gs.GovernanceSnapshotError, match="cleanup incompleto|selector-close"):
+            snap._run_bounded(["/bin/echo", "hi"], 4096)
+    finally:
+        selectors.DefaultSelector = real
+
+
+def test_b319_primary_interrupt_preserved_over_cleanup_error():
+    import selectors
+
+    class _KIandBoom(selectors.DefaultSelector):
+        def select(self, timeout=None):
+            raise KeyboardInterrupt("primary-ki")
+
+        def close(self):
+            super().close()
+            raise RuntimeError("cleanup-would-mask-primary")
+
+    real = selectors.DefaultSelector
+    selectors.DefaultSelector = _KIandBoom
+    try:
+        snap = gs.GovernanceSnapshot(_REPO_ROOT)
+        # B319: el KeyboardInterrupt del cuerpo es el PRIMARIO; el RuntimeError de cleanup se ADJUNTA como nota, jamás lo
+        # reemplaza. En el SHA base el RuntimeError de close reemplazaba al KI (escapaba en su lugar).
+        with pytest.raises(KeyboardInterrupt):
+            snap._run_bounded(["/bin/echo", "hi"], 4096)
+    finally:
+        selectors.DefaultSelector = real
+
+
+def test_b320_poll_failure_surfaces_as_issue():
+    # Un TIMEOUT llama DETERMINÍSTICAMENTE `proc.poll()` en `_grace_probe` (reap best-effort durante TERM→grace). Con un
+    # `poll()` que eleva OSError, B320: el error se ACUMULA como incidencia `reap/poll` (dedup a 1) y el mensaje lo
+    # menciona. En el SHA base `contextlib.suppress` lo descartaba y `poll` NO aparecía en el mensaje.
+    class _BadPoll(subprocess.Popen):
+        def poll(self):
+            raise OSError("poll-injected")
+
+    real = gs.subprocess.Popen
+    gs.subprocess.Popen = _BadPoll
+    orig = gs._GIT_TIMEOUT_S
+    gs._GIT_TIMEOUT_S = 0.25
+    try:
+        snap = gs.GovernanceSnapshot(_REPO_ROOT)
+        with pytest.raises(gs.GovernanceSnapshotError, match="poll"):
+            snap._run_bounded(["/bin/sh", "-c", "sleep 5"], 4096)  # el TERM/KILL del grupo (killpg real) mata al hijo
+    finally:
+        gs.subprocess.Popen = real
+        gs._GIT_TIMEOUT_S = orig
+
+
 def test_b314_b315_b318_runner_lifecycle_shape():
     # GATE ESTRUCTURAL POSITIVO (plan §6): la forma del runner y de sus helpers se fija por inspección de fuente, de
     # modo que una regresión de forma (selector tras Popen, `select.select`, `proc.terminate`, un `killpg` mudo, un
@@ -941,7 +1010,8 @@ def test_b314_b315_b318_runner_lifecycle_shape():
     src_clean = inspect.getsource(gs.GovernanceSnapshot._cleanup_process)
     src_group = inspect.getsource(gs.GovernanceSnapshot._finish_process_group)
     src_state = inspect.getsource(gs.GovernanceSnapshot._group_state)
-    whole = src_run + src_clean + src_group + src_state
+    src_guard = inspect.getsource(gs.GovernanceSnapshot._guarded_step)
+    whole = src_run + src_clean + src_group + src_state + src_guard
 
     # 1. el selector se ADQUIERE antes del proceso (B314: si falla, no hay hijo que limpiar).
     assert src_run.index("selectors.DefaultSelector(") < src_run.index("subprocess.Popen("), "selector antes de Popen"
@@ -953,15 +1023,24 @@ def test_b314_b315_b318_runner_lifecycle_shape():
     # 4. sin backend no portable ni señalización al proceso suelto (sólo al GRUPO).
     for bad in ("select.select(", "shell=True", ".terminate(", "proc.kill("):
         assert bad not in whole, f"prohibido {bad} en el runner"
-    # 5. cero cleanup mudo: ningún `except ...: pass` en la superficie del ciclo de vida (B314/B318).
+    # 5. cero cleanup mudo (B319/B320): ningún `except ...: pass` NI `contextlib.suppress` en la superficie del ciclo de
+    # vida — cada operación pasa por `_guarded_step`, que ACUMULA la excepción como incidencia.
     assert not re.search(r"except\b[^\n]*:\s*\n\s*pass\b", whole), "ningún except silencioso en el runner"
-    # 6. el grupo se verifica INCLUSO tras el reap (B315): `_group_state` se consulta después de `proc.wait`.
-    assert src_group.index("proc.wait(") < src_group.rindex("_group_state("), "grupo verificado tras el reap"
-    # 7. selector y AMBOS pipes se cierran de forma independiente en el cleanup total.
-    assert "sel.close()" in src_clean and "stdout" in src_clean and "stderr" in src_clean
-    # 8. killpg gobernado: su rama de error alimenta una incidencia estructurada (B318, no `except: pass`).
-    assert "_ProcessIssue" in src_group and "os.killpg(pgid, sig)" in src_group
-    # 9. estado TRI-VALUADO: UNKNOWN existe y no equivale a limpio.
+    assert "contextlib.suppress" not in whole, "B320: ninguna supresión silenciosa en el ciclo de vida"
+    # 6. el grupo se verifica INCLUSO tras el reap (B315): `_group_state` se consulta después del reap.
+    assert src_group.index("_reap(5.0)") < src_group.rindex("_group_state("), "grupo verificado tras el reap"
+    # 7. cada paso de cleanup pasa por `_guarded_step` (B319): get_map, unregister, selector-close y AMBOS pipes.
+    for op in ('"get_map"', '"unregister"', '"selector-close"', '"close-{tag}"'):
+        assert op in src_clean, f"paso de cleanup {op} debe pasar por _guarded_step"
+    assert '"stdout"' in src_clean and '"stderr"' in src_clean
+    # 8. `_guarded_step` (B319): retiene el PRIMER KI/SE y ACUMULA cualquier Exception; su frontera no puede reemplazar el
+    # primario del cuerpo (en `_run_bounded` el `primary` manda y el interrupt de cleanup sólo se propaga sin primario).
+    assert "except (KeyboardInterrupt, SystemExit)" in src_guard and "except Exception" in src_guard
+    assert "if primary is not None:" in src_run and "if cleanup_interrupt is not None:" in src_run
+    assert src_run.index("if primary is not None:") < src_run.index("if cleanup_interrupt is not None:")
+    # 9. B320: el fallo de `poll()` pasa por `_guarded_step` (no se descarta) y killpg alimenta una incidencia.
+    assert '"poll"' in src_group and '"reap"' in src_group and "_ProcessIssue" in src_group
+    # 10. estado TRI-VALUADO: UNKNOWN existe y no equivale a limpio.
     assert "_GroupState.UNKNOWN" in src_state and "_GroupState.ABSENT" in src_state
 
 

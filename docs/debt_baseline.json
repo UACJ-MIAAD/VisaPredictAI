@@ -1,8 +1,9 @@
 {
   "_reason_2r11": "B262: validate_receipt necesita una frontera pública `except Exception` (justificada, noqa BLE001) que garantice DEVOLVER problemas para cualquier entrada JSON-like sin elevar; +1 except_exception (justificado, unjustified sigue en 9) y +1 noqa.",
-  "except_exception": 46,
+  "_reason_b319": "B319: `GovernanceSnapshot._guarded_step` necesita UNA frontera `except Exception` (justificada, noqa BLE001) para que TODA operación de cleanup del proceso gobernado ACUMULE su fallo como incidencia observable sin escapar crudo ni reemplazar el primario; +1 except_exception (justificado, unjustified sigue en 9) y +1 noqa. Respaldado por regresiones de propagación KI/SE.",
+  "except_exception": 47,
   "except_exception_unjustified": 9,
   "type_ignore": 14,
-  "noqa": 150,
+  "noqa": 151,
   "todo_class": 8
 }

@@ -14,7 +14,6 @@ hostil root/uid-actual que alterne y restaure el árbol entre checkpoints — la
 
 from __future__ import annotations
 
-import contextlib
 import enum
 import hashlib
 import os
@@ -23,6 +22,7 @@ import signal
 import stat
 import subprocess
 import time
+from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 
@@ -560,15 +560,21 @@ class GovernanceSnapshot(AbstractContextManager):
         except BaseException as exc:  # B315: KI/SE/inesperado → limpiar y reelevar el MISMO objeto
             primary = exc
         finally:
-            # B314/B315/B318: cleanup TOTAL. `must_terminate` NUNCA se deriva sólo de `problem`: cualquier primario,
-            # cualquier error, o un bucle incompleto exigen terminar el grupo (§5.4 del plan).
+            # B314/B315/B318/B319: cleanup TOTAL y OBSERVABLE. `must_terminate` NUNCA se deriva sólo de `problem`:
+            # cualquier primario, cualquier error, o un bucle incompleto exigen terminar el grupo (§5.4 del plan).
             must_terminate = primary is not None or problem is not None or not event_loop_complete
-            rc, issues = self._cleanup_process(sel, proc, must_terminate=must_terminate)
+            rc, issues, cleanup_interrupt = self._cleanup_process(sel, proc, must_terminate=must_terminate)
         suffix = f" | incidencias: {'; '.join(str(i) for i in issues)}" if issues else ""
-        if primary is not None:  # B315: el primario manda; KI/SE se reelevan intactos (con notas de incidencias)
+        if primary is not None:  # B315: el primario del CUERPO manda; issues + interrupt de cleanup se ADJUNTAN
             for issue in issues:
                 primary.add_note(str(issue))
+            if cleanup_interrupt is not None:
+                primary.add_note(f"interrupción durante cleanup: {type(cleanup_interrupt).__name__}")
             raise primary
+        if cleanup_interrupt is not None:  # B319: KI/SE durante cleanup sin primario previo → propaga el MISMO objeto
+            for issue in issues:
+                cleanup_interrupt.add_note(str(issue))
+            raise cleanup_interrupt
         if problem is not None:  # B313: primario del bucle preservado, incidencias ADJUNTAS (nunca lo reemplazan)
             raise GovernanceSnapshotError(f"git {argv[-1]}: {problem}{suffix} (fail-closed B306)")
         if issues:  # camino feliz pero cleanup incompleto → fail-closed
@@ -577,39 +583,70 @@ class GovernanceSnapshot(AbstractContextManager):
             raise GovernanceSnapshotError(f"git {argv[-1]} rc={rc} (fail-closed B306)")
         return b"".join(out_chunks)
 
+    @staticmethod
+    def _record_issue(issues: list[_ProcessIssue], phase: str, operation: str, detail: str) -> None:
+        """B319/B320: acumula UNA incidencia por `(fase, operación, detalle)`, conservando el PRIMER detalle. Evita la
+        explosión de duplicados cuando una sonda/paso falla igual en cada iteración del bucle de gracia."""
+        issue = _ProcessIssue(phase, operation, detail)
+        if issue not in issues:  # `_ProcessIssue` es frozen/slots ⇒ igualdad por valor
+            issues.append(issue)
+
+    @classmethod
+    def _guarded_step(
+        cls,
+        phase: str,
+        operation: str,
+        fn: Callable[[], object],
+        issues: list[_ProcessIssue],
+        interrupt: list[BaseException | None],
+    ) -> object:
+        """B319: ejecuta UNA operación de cleanup y clasifica CUALQUIER excepción SIN allowlists parciales (un solo helper,
+        no una tupla distinta por paso). Un `Exception` se ACUMULA como `_ProcessIssue` observable (dedup); un
+        `KeyboardInterrupt`/`SystemExit` se RETIENE (el PRIMERO) en `interrupt` y el cleanup CONTINÚA (se propaga al final
+        si no había primario). NINGUNA excepción escapa antes de ejecutar los pasos restantes. Devuelve `fn()` o None."""
+        try:
+            return fn()
+        except (KeyboardInterrupt, SystemExit) as exc:  # B319: retener el PRIMER interrupt y CONTINUAR limpiando
+            if interrupt[0] is None:
+                interrupt[0] = exc
+            cls._record_issue(issues, phase, operation, f"interrupción {type(exc).__name__} durante cleanup")
+        except Exception as exc:  # noqa: BLE001
+            # B319: frontera de cleanup — CUALQUIER fallo se ACUMULA como incidencia observable; jamás escapa crudo ni
+            # reemplaza el primario. Captura amplia JUSTIFICADA (regresión de propagación KI/SE lo respalda).
+            cls._record_issue(issues, phase, operation, f"{type(exc).__name__}: {exc}")
+        return None
+
     def _cleanup_process(
         self, sel: selectors.BaseSelector | None, proc: subprocess.Popen[bytes] | None, *, must_terminate: bool
-    ) -> tuple[int | None, list[_ProcessIssue]]:
-        """B314/B315/B318: cleanup TOTAL del proceso gobernado. Ejecuta TODOS los pasos aunque cualquiera falle: (1)
-        terminar/reconciliar el grupo + reap del hijo; (2) desregistrar fds restantes; (3) cerrar el selector; (4) cerrar
-        stdout; (5) cerrar stderr. Cada paso tiene su propio guard y ACUMULA una `_ProcessIssue`; NINGÚN cleanup desnudo
-        puede cortar los siguientes, y NO existe `except ...: pass`. Devuelve `(rc, incidencias)`."""
+    ) -> tuple[int | None, list[_ProcessIssue], BaseException | None]:
+        """B314/B315/B318/B319: cleanup TOTAL y OBSERVABLE. Ejecuta TODOS los pasos aunque cualquiera falle: (1)
+        terminar/reconciliar el grupo + reap del hijo; (2) desregistrar fds restantes; (3) cerrar el selector; (4-5)
+        cerrar stdout y stderr. Cada paso pasa por `_guarded_step`: ninguna excepción (ni `RuntimeError` ni cualquier otra)
+        escapa antes de los siguientes, y un `KeyboardInterrupt`/`SystemExit` de cleanup se RETIENE y propaga después.
+        Devuelve `(rc, incidencias, interrupt_de_cleanup)`."""
         issues: list[_ProcessIssue] = []
+        interrupt: list[BaseException | None] = [None]
         rc: int | None = None
-        if proc is not None:  # pasos 1-3 del plan §5.3: terminar grupo, reconciliar, reap del hijo directo
-            rc, _final_state, group_issues = self._finish_process_group(proc, proc.pid, terminate=must_terminate)
+        if proc is not None:  # pasos 1-3: terminar grupo, reconciliar, reap del hijo directo
+            rc, _final_state, group_issues = self._finish_process_group(
+                proc, proc.pid, terminate=must_terminate, interrupt=interrupt
+            )
             issues.extend(group_issues)
         if sel is not None:  # paso 4: desregistrar fds vivos antes de cerrar el selector
-            try:
-                for key in list(sel.get_map().values()):
-                    try:
-                        sel.unregister(key.fd)
-                    except (KeyError, ValueError, OSError) as exc:
-                        issues.append(_ProcessIssue("cleanup", "unregister", str(exc)))
-            except (KeyError, ValueError, OSError, RuntimeError) as exc:
-                issues.append(_ProcessIssue("cleanup", "get_map", str(exc)))
-            try:  # paso 5: cerrar el selector — su fallo NO impide cerrar los pipes
-                sel.close()
-            except (OSError, ValueError) as exc:
-                issues.append(_ProcessIssue("cleanup", "selector-close", str(exc)))
+            keys = self._guarded_step("cleanup", "get_map", lambda: list(sel.get_map().values()), issues, interrupt)
+            fds = [key.fd for key in keys] if isinstance(keys, list) else []
+
+            def _unreg(fd: int) -> Callable[[], object]:  # LIGA el fd (sin bug de captura de variable de bucle)
+                return lambda: sel.unregister(fd)
+
+            for fd in fds:
+                self._guarded_step("cleanup", "unregister", _unreg(fd), issues, interrupt)
+            self._guarded_step("cleanup", "selector-close", sel.close, issues, interrupt)  # paso 5
         if proc is not None:  # pasos 6-7: cerrar cada pipe de forma INDEPENDIENTE (uno no bloquea al otro)
             for stream, tag in ((proc.stdout, "stdout"), (proc.stderr, "stderr")):
                 if stream is not None:
-                    try:
-                        stream.close()
-                    except (OSError, ValueError) as exc:
-                        issues.append(_ProcessIssue("cleanup", f"close-{tag}", str(exc)))
-        return rc, issues
+                    self._guarded_step("cleanup", f"close-{tag}", stream.close, issues, interrupt)
+        return rc, issues, interrupt[0]
 
     @staticmethod
     def _group_state(pgid: int) -> tuple[_GroupState, _ProcessIssue | None]:
@@ -624,32 +661,53 @@ class GovernanceSnapshot(AbstractContextManager):
         return _GroupState.PRESENT, None
 
     def _finish_process_group(
-        self, proc: subprocess.Popen[bytes], pgid: int, *, terminate: bool
+        self, proc: subprocess.Popen[bytes], pgid: int, *, terminate: bool, interrupt: list[BaseException | None]
     ) -> tuple[int | None, _GroupState, list[_ProcessIssue]]:
-        """B312/B315/B318: termina el GRUPO privado (TERM→grace→KILL) y recolecta al hijo con taxonomía TOTAL. Nunca
-        señala el grupo del auditor (`pgid == proc.pid != os.getpgrp()`). Verifica el grupo INCLUSO tras `rc=0`: un
-        descendiente residual se termina y se reporta como `descendientes-inesperados`. JAMÁS eleva ni usa `except: pass`;
-        toda `killpg` alimenta una incidencia/estado. Devuelve `(rc, estado_final, incidencias)`."""
+        """B312/B315/B318/B319/B320: termina el GRUPO privado (TERM→grace→KILL) y recolecta al hijo, TOTAL y OBSERVABLE.
+        Nunca señala el grupo del auditor (`pgid == proc.pid != os.getpgrp()`). Verifica el grupo INCLUSO tras `rc=0`.
+        `getpgrp`, `poll`, `wait`, `killpg` y la sonda pasan por `_guarded_step` — ningún error se descarta (B320: sin
+        supresión silenciosa) ni escapa. Devuelve `(rc, estado_final, incidencias)`."""
         issues: list[_ProcessIssue] = []
-        isolated = pgid == proc.pid and pgid != os.getpgrp()
+        # B319: `getpgrp` gobernado — si fallara, `isolated=False` (jamás se señala el grupo del auditor por defecto).
+        isolated = bool(
+            self._guarded_step(
+                "terminación", "getpgrp", lambda: pgid == proc.pid and pgid != os.getpgrp(), issues, interrupt
+            )
+        )
 
-        def _signal(sig: int, op: str) -> None:  # killpg gobernado: ABSENT se ignora, cualquier otro error se ACUMULA
-            try:
-                os.killpg(pgid, sig)
-            except ProcessLookupError:
-                return  # el grupo ya no existe → terminación efectiva, no es un error de cleanup
-            except OSError as exc:
-                issues.append(_ProcessIssue("terminación", op, str(exc)))
+        def _signal(sig: int, op: str) -> None:  # killpg gobernado: ABSENT (ProcessLookupError) = éxito, no incidencia
+            def _do() -> None:
+                try:
+                    os.killpg(pgid, sig)
+                except ProcessLookupError:
+                    return  # el grupo ya no existe → terminación efectiva
+
+            self._guarded_step("terminación", op, _do, issues, interrupt)  # cualquier OTRO fallo → incidencia
+
+        def _reap(
+            timeout: float,
+        ) -> tuple[int | None, bool]:  # (rc, timed_out); TimeoutExpired = control, no incidencia
+            box: dict[str, object] = {}
+
+            def _do() -> None:
+                try:
+                    box["rc"] = proc.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    box["timed_out"] = True
+
+            self._guarded_step("reap", "wait", _do, issues, interrupt)
+            rc_val = box.get("rc")
+            return (rc_val if isinstance(rc_val, int) else None), bool(box.get("timed_out", False))
 
         def _grace_probe(deadline_s: float) -> _GroupState:  # espera activa: reap del padre + sonda del grupo
             end = time.monotonic() + deadline_s
             state = _GroupState.UNKNOWN
             while time.monotonic() < end:
-                with contextlib.suppress(OSError, ValueError):
-                    proc.poll()  # reap best-effort del padre (zombie) para que el grupo pueda vaciarse; la sonda decide
+                # B320: el fallo de `poll()` (reap best-effort del zombie) YA NO se descarta; se convierte en incidencia.
+                self._guarded_step("reap", "poll", proc.poll, issues, interrupt)
                 state, issue = self._group_state(pgid)
-                if issue is not None:
-                    issues.append(issue)
+                if issue is not None:  # dedup: la misma sonda fallida no se repite por iteración
+                    self._record_issue(issues, issue.phase, issue.operation, issue.detail)
                 if state == _GroupState.ABSENT:
                     return state
                 time.sleep(0.02)
@@ -662,21 +720,12 @@ class GovernanceSnapshot(AbstractContextManager):
                 _signal(signal.SIGTERM, "killpg-TERM")
                 if _grace_probe(2.0) != _GroupState.ABSENT:
                     _signal(signal.SIGKILL, "killpg-KILL")
-        try:  # reap del hijo directo con deadline; sin excepción cruda
-            rc: int | None = proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
+        rc, timed_out = _reap(5.0)  # reap del hijo directo con deadline
+        if timed_out:
             _signal(signal.SIGKILL, "killpg-KILL")
-            try:
-                rc = proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                rc = None
+            rc, timed_out2 = _reap(5.0)
+            if timed_out2:
                 issues.append(_ProcessIssue("reap", "wait", "el hijo no terminó tras SIGKILL"))
-            except OSError as exc:
-                rc = None
-                issues.append(_ProcessIssue("reap", "wait", str(exc)))
-        except OSError as exc:
-            rc = None
-            issues.append(_ProcessIssue("reap", "wait", str(exc)))
         # B315: verificación/reconciliación INCLUSO en éxito — un nieto que daemoniza en el grupo no deja trabajo
         # residual. Cualquier estado != ABSENT (PRESENT o UNKNOWN — la sonda pudo fallar) exige intento de terminación
         # de mejor esfuerzo Y fail-closed: UNKNOWN nunca equivale a limpio.
