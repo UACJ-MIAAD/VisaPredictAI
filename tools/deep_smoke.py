@@ -376,25 +376,13 @@ def run(lock_rel: str) -> tuple[list[str], dict]:
     return certify_observation(lock_rel, observation)
 
 
-def write_receipt_governed(path: str, data: dict) -> None:
-    """B328: escritura GOBERNADA del recibo — ruta relativa SIMPLE (sin `..`/absoluta), `O_EXCL|O_NOFOLLOW` con 0600 (no
-    sobrescribe ni sigue symlink), write-all, y `fsync` del fichero Y del directorio."""
-    if os.path.isabs(path) or os.pardir in path.split(os.sep):
-        raise ValueError(f"ruta de recibo inválida (se exige relativa simple): {path!r}")
-    payload = (json.dumps(data, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    try:
-        mv = memoryview(payload)
-        while mv:  # write-all
-            mv = mv[os.write(fd, mv) :]
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-    dfd = os.open(os.path.dirname(path) or ".", os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        os.fsync(dfd)
-    finally:
-        os.close(dfd)
+def write_receipt_governed(name: str, data: dict) -> None:
+    """B328/B334: escritura GOBERNADA del recibo. Delega a `governed_receipt_io.write_receipt`: NOMBRE SIMPLE en el
+    directorio autorizado (CWD) abierto como fd de directorio, leaf `O_CREAT|O_EXCL|O_NOFOLLOW` 0600 relativo a ese fd (sin
+    cadena de ancestros que un symlink pueda desviar), fstat + write-all + fsync de fichero y directorio."""
+    from tools.governed_receipt_io import write_receipt
+
+    write_receipt(name, data)
 
 
 def main(argv: list[str]) -> int:

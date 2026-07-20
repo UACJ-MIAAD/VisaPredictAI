@@ -367,11 +367,19 @@ jobs:
           pip install --require-hashes -r ${{ matrix.lock }}
           # deep_smoke corre `pip check` internamente + deriva plataforma/torch del contrato.
           python -m tools.deep_smoke --lock ${{ matrix.lock }} --receipt deep-receipt-${{ matrix.variant }}.json
-      - name: Validate deep receipt independently (B328 — antes del upload)
+      - name: Validate deep receipt independently (B328/B333/B334 — antes del upload)
         run: |
-          # validador INDEPENDIENTE: re-deriva commit/python/plataforma/hashes/contrato; un recibo verde con validador
-          # rojo ABORTA el job. NO acepta el auto-reporte del productor.
+          # validador INDEPENDIENTE: re-deriva commit/python/plataforma/hashes/contrato y REOBSERVA el inventario; un
+          # recibo verde con validador rojo ABORTA el job. NO acepta el auto-reporte del productor.
           python -m tools.validate_deep_receipt --receipt deep-receipt-${{ matrix.variant }}.json --lock ${{ matrix.lock }} --expected-variant ${{ matrix.variant }}
+      - name: Deep receipt negative test (B333 — recibo manipulado DEBE fallar)
+        run: |
+          # el validador debe RECHAZAR un recibo con procedencia manipulada; si lo acepta, es fail-open y aborta el job.
+          python -c "import json,pathlib; r=json.loads(pathlib.Path('deep-receipt-${{ matrix.variant }}.json').read_text()); r['commit_sha']='0'*40; pathlib.Path('tampered-${{ matrix.variant }}.json').write_text(json.dumps(r))"
+          if python -m tools.validate_deep_receipt --receipt tampered-${{ matrix.variant }}.json --lock ${{ matrix.lock }} --expected-variant ${{ matrix.variant }}; then
+            echo "✗ el validador ACEPTÓ un recibo con commit manipulado (fail-open)"; exit 1
+          fi
+          echo "✓ el validador rechazó el recibo manipulado"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: deep-install-receipt-${{ matrix.variant }}
