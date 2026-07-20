@@ -27,6 +27,13 @@ _SOURCE_MAX_BYTES = 4 << 20  # 4 MiB
 _SNAPSHOT_TOTAL_MAX_BYTES = 64 << 20  # 64 MiB (suma de todo lo leído por la instancia)
 _DIR_GO_WRITE = 0o022  # bits de escritura grupo/otros — prohibidos en directorios gobernados
 _NEW, _OPEN, _CLOSED = "new", "open", "closed"  # B298: estados del ciclo de vida de un solo uso
+# B301: variables de entorno capaces de REDIRIGIR la fuente del inventario git — se eliminan del entorno hijo.
+_GIT_REDIRECT_EXACT = frozenset({
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG_SYSTEM", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_COUNT", "GIT_REPLACE_REF_BASE",
+    "GIT_NAMESPACE", "GIT_CEILING_DIRECTORIES", "GIT_COMMON_DIR", "GIT_PREFIX", "GIT_INDEX_VERSION",
+})  # fmt: skip
+_GIT_REDIRECT_PREFIX = ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
 _ALLOWED_MODES = frozenset({0o644, 0o600})  # B296: conjunto cerrado de modos exactos aprobados
 _CATEGORY_CAPS = {  # B296: cada categoría fija su cota superior; una categoría estricta NUNCA se satisface con una laxa
     "contract": _CONTRACT_MAX_BYTES,
@@ -153,6 +160,9 @@ class GovernanceSnapshot(AbstractContextManager):
         self._cache: dict[str, tuple[ReadPolicy, GovernedEntry]] = {}  # B296: sellado por (rel → política, entrada)
         self._total = 0
         self._state = _NEW  # B298: NEW -> OPEN -> CLOSED, un solo uso
+        self._inventory: tuple[str, ...] | None = None  # B301: inventario git SELLADO (una captura por snapshot)
+        self._inventory_sha: str | None = None
+        self._captures = 0  # B301: contador de capturas git (una al sellar + una al revalidar; jamás una por consumer)
 
     def __enter__(self) -> GovernanceSnapshot:  # B298: sólo se entra desde NEW; una instancia CERRADA no renace
         if self._state is not _NEW:
@@ -161,8 +171,10 @@ class GovernanceSnapshot(AbstractContextManager):
         return self
 
     def __exit__(self, *exc: object) -> None:
-        self._state = _CLOSED  # B298: __exit__ SIEMPRE cierra, aunque el cuerpo eleve; la caché se descarta
+        self._state = _CLOSED  # B298: __exit__ SIEMPRE cierra, aunque el cuerpo eleve; caché e inventario se descartan
         self._cache.clear()
+        self._inventory = None  # B301: el inventario sellado queda invalidado al cerrar el contexto
+        self._inventory_sha = None
 
     def _require_open(self) -> None:
         if self._state is not _OPEN:
@@ -325,11 +337,43 @@ class GovernanceSnapshot(AbstractContextManager):
         return None, GovernedEntry(rel=rel, data=data, sha256=hashlib.sha256(data).hexdigest(), stat=snap0)
 
     # -- inventario y revalidación ----------------------------------------
+    def _git_env(self) -> dict[str, str]:
+        """B301: entorno hijo SANEADO — sin variables que redirijan la fuente del inventario, locale determinista, sin
+        config de sistema. No muta `os.environ`."""
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in _GIT_REDIRECT_EXACT and not k.startswith(_GIT_REDIRECT_PREFIX)
+        }
+        env["LC_ALL"] = "C"
+        env["LANG"] = "C"
+        env["GIT_CONFIG_NOSYSTEM"] = "1"
+        return env
+
     def _capture_inventory(self) -> tuple[str, ...]:
-        """B301: UNA captura del inventario versionado COMPLETO (sin pathspec del caller) vía `git -C ROOT ls-files -z`,
-        decodificada fail-closed, cada ruta validada por la gramática relativa, única y en orden canónico."""
+        """B301: UNA captura del inventario versionado COMPLETO (sin pathspec del caller) vía `git -C ROOT ls-files -z`
+        bajo entorno SANEADO, tras verificar que el toplevel coincide con ROOT. Decodificada fail-closed, cada ruta
+        validada por la gramática relativa, única y en orden canónico. Incrementa el contador de capturas."""
+        self._captures += 1
+        env = self._git_env()
         try:
-            out = subprocess.run(["git", "-C", self._root, "ls-files", "-z", "--"], capture_output=True, timeout=30)
+            top = subprocess.run(
+                ["git", "-C", self._root, "rev-parse", "--show-toplevel"], capture_output=True, timeout=30, env=env
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise GovernanceSnapshotError(f"git rev-parse falló ({exc}) (fail-closed B301)") from exc
+        if top.returncode != 0:
+            raise GovernanceSnapshotError(f"git rev-parse rc={top.returncode} (fail-closed B301)")
+        try:
+            toplevel = top.stdout.decode("utf-8").strip()
+        except UnicodeDecodeError as exc:
+            raise GovernanceSnapshotError(f"git toplevel no-UTF-8 ({exc}) (fail-closed B301)") from exc
+        if os.path.realpath(toplevel) != os.path.realpath(self._root):
+            raise GovernanceSnapshotError(f"git toplevel {toplevel!r} != ROOT {self._root!r} (fail-closed B301)")
+        try:
+            out = subprocess.run(
+                ["git", "-C", self._root, "ls-files", "-z", "--"], capture_output=True, timeout=30, env=env
+            )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise GovernanceSnapshotError(f"git ls-files falló ({exc}) (fail-closed B286)") from exc
         if out.returncode != 0:
@@ -351,17 +395,27 @@ class GovernanceSnapshot(AbstractContextManager):
             raise GovernanceSnapshotError("inventario git sin orden canónico (fail-closed B301)")
         return tuple(paths)
 
+    def _sealed_inventory(self) -> tuple[str, ...]:
+        """B301: SELLA el inventario en la PRIMERA consulta y lo reutiliza — toda consulta posterior deriva de la MISMA
+        tuple (ningún segundo `git` durante el consumo)."""
+        if self._inventory is None:
+            inv = self._capture_inventory()
+            self._inventory = inv
+            self._inventory_sha = hashlib.sha256("\x00".join(inv).encode("utf-8")).hexdigest()
+        return self._inventory
+
     def tracked(self, query: TrackedQuery) -> tuple[str, ...]:
-        """B286/B302: ficheros versionados que casan la `TrackedQuery` (gramática CERRADA), filtrados EN MEMORIA sobre el
-        inventario git — sin pasar pathspec del caller a git."""
+        """B286/B301/B302: ficheros versionados que casan la `TrackedQuery` (gramática CERRADA), filtrados EN MEMORIA
+        sobre el inventario SELLADO de la instancia (una sola captura git por snapshot; toda consulta deriva de ella)."""
         self._require_open()  # B298
         if not isinstance(query, TrackedQuery):
             raise GovernanceSnapshotError(f"tracked() exige un TrackedQuery, no {type(query).__name__} (B302)")
-        return tuple(p for p in self._capture_inventory() if query.matches(p))
+        return tuple(p for p in self._sealed_inventory() if query.matches(p))
 
     def reverify(self) -> None:
         """B286: re-lee (gobernado) cada entrada cacheada y exige identidad+bytes idénticos a lo sellado. Fail-closed.
-        B296: re-lee con EXACTAMENTE la política sellada de cada entrada (no `_SOURCE_MAX_BYTES` genérico)."""
+        B296: re-lee con EXACTAMENTE la política sellada de cada entrada (no `_SOURCE_MAX_BYTES` genérico).
+        B301: si hubo inventario sellado, lo re-captura UNA vez y exige el MISMO sha (índice/toplevel sin cambio)."""
         self._require_open()  # B298
         for rel, (policy, sealed) in list(self._cache.items()):
             fresh, err = self._read_once(rel, policy)
@@ -369,3 +423,8 @@ class GovernanceSnapshot(AbstractContextManager):
                 raise GovernanceSnapshotError(f"reverify {rel}: {err}")
             if fresh.sha256 != sealed.sha256 or fresh.stat.identity() != sealed.stat.identity():
                 raise GovernanceSnapshotError(f"reverify {rel}: bytes/identidad cambiaron desde el sellado (B286)")
+        if self._inventory is not None:  # B301: revalidación del inventario (una captura más, no una por consumer)
+            fresh_inv = self._capture_inventory()
+            fresh_sha = hashlib.sha256("\x00".join(fresh_inv).encode("utf-8")).hexdigest()
+            if fresh_sha != self._inventory_sha:
+                raise GovernanceSnapshotError("reverify: el inventario git cambió desde el sellado (B301)")

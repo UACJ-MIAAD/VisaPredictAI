@@ -459,12 +459,95 @@ def test_b299_tracked_non_utf8_stays_in_taxonomy(tmp_path, monkeypatch):
     import subprocess
 
     class _Out:
-        returncode = 0
-        stdout = b"tools/\xff\xfe.py\x00"
+        def __init__(self, out):
+            self.returncode = 0
+            self.stdout = out
 
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Out())
+    def _run(cmd, *a, **k):  # rev-parse → toplevel real; ls-files → nombre no-UTF-8
+        if "rev-parse" in cmd:
+            return _Out(str(tmp_path).encode("utf-8") + b"\n")
+        return _Out(b"tools/\xff\xfe.py\x00")
+
+    monkeypatch.setattr(subprocess, "run", _run)
     with _lay(tmp_path) as snap:
         with pytest.raises(gs.GovernanceSnapshotError, match="B299"):
+            snap.tracked(gs.TrackedQuery(suffix=".py"))
+
+
+# ---------------------------------------------------------------------------
+# B301 — `tracked()` ejecutaba `git ls-files` en CADA llamada: dos consultas podían observar inventarios DISTINTOS
+# (índices/generaciones diferentes), y el hijo heredaba `GIT_DIR`/`GIT_INDEX_FILE`/… capaces de redirigir la fuente.
+# Ahora hay UN inventario sellado por snapshot, entorno saneado, y `reverify` lo re-captura una vez.
+# ---------------------------------------------------------------------------
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(gs.__file__)))
+
+
+def test_b301_inventory_sealed_one_capture(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    with gs.GovernanceSnapshot(_REPO_ROOT) as snap:
+        a = snap.tracked(gs.TrackedQuery(suffix=".py"))
+        b = snap.tracked(gs.TrackedQuery(prefix="tools/"))
+        assert a and b and snap._captures == 1, f"dos consultas deben derivar de UNA captura (B301): {snap._captures}"
+
+
+def test_b301_two_subprocess_generations_not_both_accepted(monkeypatch):
+    import subprocess
+
+    calls = {"n": 0}
+
+    class _Out:
+        def __init__(self, out):
+            self.returncode = 0
+            self.stdout = out
+
+    def _run(cmd, *a, **k):
+        if "rev-parse" in cmd:
+            return _Out(os.path.realpath(_REPO_ROOT).encode("utf-8") + b"\n")
+        calls["n"] += 1
+        return _Out(b"a.py\x00" if calls["n"] == 1 else b"b.py\x00")
+
+    monkeypatch.setattr(subprocess, "run", _run)
+    with gs.GovernanceSnapshot(_REPO_ROOT) as snap:
+        first = snap.tracked(gs.TrackedQuery(suffix=".py"))
+        second = snap.tracked(gs.TrackedQuery(suffix=".py"))
+        assert first == second == ("a.py",), "la segunda consulta debe reusar la MISMA tuple sellada (B301)"
+        assert calls["n"] == 1, "ningún segundo `git ls-files` durante el consumo (B301)"
+
+
+def test_b301_env_is_sanitized():
+    snap = gs.GovernanceSnapshot(_REPO_ROOT)
+    monkeyenv = {"GIT_DIR": "/x", "GIT_INDEX_FILE": "/y", "GIT_WORK_TREE": "/z", "GIT_CONFIG_GLOBAL": "/g", "GIT_CONFIG_KEY_0": "k"}  # fmt: skip
+    for k, v in monkeyenv.items():
+        os.environ[k] = v
+    try:
+        env = snap._git_env()
+    finally:
+        for k in monkeyenv:
+            del os.environ[k]
+    assert not any(k in env for k in monkeyenv), f"variables de redirección git deben eliminarse (B301): {[k for k in monkeyenv if k in env]}"  # fmt: skip
+    assert env["LC_ALL"] == "C" and env["GIT_CONFIG_NOSYSTEM"] == "1"
+
+
+def test_b301_reverify_detects_inventory_change(monkeypatch):
+    with gs.GovernanceSnapshot(_REPO_ROOT) as snap:
+        snap.tracked(gs.TrackedQuery(suffix=".py"))  # sella
+        real = snap._capture_inventory
+        monkeypatch.setattr(snap, "_capture_inventory", lambda: real()[:-1])  # cambia el inventario en la revalidación
+        with pytest.raises(gs.GovernanceSnapshotError, match="B301"):
+            snap.reverify()
+
+
+def test_b301_toplevel_mismatch_rejected(monkeypatch):
+    import subprocess
+
+    class _Out:
+        def __init__(self, rc, out):
+            self.returncode = rc
+            self.stdout = out
+
+    monkeypatch.setattr(subprocess, "run", lambda cmd, *a, **k: _Out(0, b"/somewhere/else\n") if "rev-parse" in cmd else _Out(0, b""))  # fmt: skip
+    with gs.GovernanceSnapshot(_REPO_ROOT) as snap:
+        with pytest.raises(gs.GovernanceSnapshotError, match="toplevel"):
             snap.tracked(gs.TrackedQuery(suffix=".py"))
 
 
