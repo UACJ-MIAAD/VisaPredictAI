@@ -223,7 +223,7 @@ def test_tracked_and_cwd_independence(tmp_path, monkeypatch):
     root = os.path.dirname(os.path.dirname(os.path.abspath(gs.__file__)))
     monkeypatch.chdir(tmp_path)  # cwd distinto → git -C ROOT ls-files sigue funcionando
     with gs.GovernanceSnapshot(root) as snap:
-        t = snap.tracked(gs.TrackedQuery(exact="tools/check_commit_frontier.py"))
+        t = snap.tracked(gs.TrackedQuery("exact", "tools/check_commit_frontier.py"))
     assert t == ("tools/check_commit_frontier.py",)
 
 
@@ -343,7 +343,7 @@ def test_b298_tracked_and_reverify_after_exit_rejected(tmp_path):
     snap = _lay(tmp_path)
     with snap:
         snap.read("tools/campaign_bundle.py")
-    for op in (lambda: snap.tracked(gs.TrackedQuery(prefix="tools/")), snap.reverify):
+    for op in (lambda: snap.tracked(gs.TrackedQuery("prefix", "tools/")), snap.reverify):
         with pytest.raises(gs.GovernanceSnapshotError, match="B298"):
             op()
 
@@ -471,7 +471,7 @@ def test_b299_tracked_non_utf8_stays_in_taxonomy(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, "run", _run)
     with _lay(tmp_path) as snap:
         with pytest.raises(gs.GovernanceSnapshotError, match="B299"):
-            snap.tracked(gs.TrackedQuery(suffix=".py"))
+            snap.tracked(gs.TrackedQuery("suffix", ".py"))
 
 
 # ---------------------------------------------------------------------------
@@ -485,8 +485,8 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(gs.__file__)))
 def test_b301_inventory_sealed_one_capture(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     with gs.GovernanceSnapshot(_REPO_ROOT) as snap:
-        a = snap.tracked(gs.TrackedQuery(suffix=".py"))
-        b = snap.tracked(gs.TrackedQuery(prefix="tools/"))
+        a = snap.tracked(gs.TrackedQuery("suffix", ".py"))
+        b = snap.tracked(gs.TrackedQuery("prefix", "tools/"))
         assert a and b and snap._captures == 1, f"dos consultas deben derivar de UNA captura (B301): {snap._captures}"
 
 
@@ -508,8 +508,8 @@ def test_b301_two_subprocess_generations_not_both_accepted(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", _run)
     with gs.GovernanceSnapshot(_REPO_ROOT) as snap:
-        first = snap.tracked(gs.TrackedQuery(suffix=".py"))
-        second = snap.tracked(gs.TrackedQuery(suffix=".py"))
+        first = snap.tracked(gs.TrackedQuery("suffix", ".py"))
+        second = snap.tracked(gs.TrackedQuery("suffix", ".py"))
         assert first == second == ("a.py",), "la segunda consulta debe reusar la MISMA tuple sellada (B301)"
         assert calls["n"] == 1, "ningún segundo `git ls-files` durante el consumo (B301)"
 
@@ -530,7 +530,7 @@ def test_b301_env_is_sanitized():
 
 def test_b301_reverify_detects_inventory_change(monkeypatch):
     with gs.GovernanceSnapshot(_REPO_ROOT) as snap:
-        snap.tracked(gs.TrackedQuery(suffix=".py"))  # sella
+        snap.tracked(gs.TrackedQuery("suffix", ".py"))  # sella
         real = snap._capture_inventory
         monkeypatch.setattr(snap, "_capture_inventory", lambda: real()[:-1])  # cambia el inventario en la revalidación
         with pytest.raises(gs.GovernanceSnapshotError, match="B301"):
@@ -548,7 +548,7 @@ def test_b301_toplevel_mismatch_rejected(monkeypatch):
     monkeypatch.setattr(subprocess, "run", lambda cmd, *a, **k: _Out(0, b"/somewhere/else\n") if "rev-parse" in cmd else _Out(0, b""))  # fmt: skip
     with gs.GovernanceSnapshot(_REPO_ROOT) as snap:
         with pytest.raises(gs.GovernanceSnapshotError, match="toplevel"):
-            snap.tracked(gs.TrackedQuery(suffix=".py"))
+            snap.tracked(gs.TrackedQuery("suffix", ".py"))
 
 
 # ---------------------------------------------------------------------------
@@ -572,23 +572,71 @@ def test_b302_unhashable_and_wrong_type_inputs_in_taxonomy(tmp_path):
                 snap.read(**kw)
 
 
-def test_b302_tracked_query_closed_grammar(tmp_path):
-    for kw in (
-        {"prefix": "a", "suffix": "b"},  # dos modalidades
-        {},  # cero modalidades
-        {"exact": "a\x00b"},  # NUL
-        {"prefix": []},  # no str
-        {"suffix": 5},  # no str
-    ):
-        with pytest.raises(gs.GovernanceSnapshotError, match="B302"):
-            gs.TrackedQuery(**kw)
+def test_b302_read_input_types_still_closed(tmp_path):
+    # regresión B302 (read): tipos no hashables/incorrectos en taxonomía (la gramática de query/root migró a B304).
     with _lay(tmp_path) as snap:
-        with pytest.raises(gs.GovernanceSnapshotError, match="B302"):
-            snap.tracked("tools/*")  # str/pathspec crudo rechazado — sólo TrackedQuery
+        for kw in ({"rel": []}, {"rel": b"x"}, {"rel": "tools/campaign_bundle.py", "category": []}):
+            with pytest.raises(gs.GovernanceSnapshotError):
+                snap.read(**kw)
 
 
-def test_b302_root_validation(tmp_path):
-    with pytest.raises(gs.GovernanceSnapshotError, match="B302"):
-        gs.GovernanceSnapshot(5)  # ni str ni PathLike
-    with pytest.raises(gs.GovernanceSnapshotError, match="B302"):
-        gs.GovernanceSnapshot("root\x00nul")
+# ---------------------------------------------------------------------------
+# B304 — el contrato "cerrado" aún colaba: `TrackedQuery(prefix="")`/`suffix=""` seleccionaban TODO el inventario, una
+# SUBCLASE que reescribía `matches()` ignoraba la modalidad, y un `root` PathLike cuyo `__fspath__` devolvía bytes hacía
+# escapar `TypeError`. Ahora `TrackedQuery` es `(kind, value)` con valor no vacío y matching interno, `type(query) is
+# TrackedQuery`, y `root` es SÓLO `str` exacto.
+# ---------------------------------------------------------------------------
+def test_b304_tracked_query_grammar_closed():
+    bad = [
+        ("prefix", ""),  # vacío
+        ("suffix", ""),  # vacío
+        ("exact", ""),  # vacío
+        ("exact", "a\x00b"),  # NUL
+        ("exact", "/abs"),  # absoluto
+        ("exact", "a/../b"),  # traversal
+        ("prefix", "../x"),  # traversal
+        ("prefix", "/x"),  # absoluto
+        ("prefix", "a//b"),  # doble slash
+        ("prefix", "a/./b"),  # punto
+        ("suffix", "a/b"),  # slash en suffix
+        ("suffix", ".."),  # `..`
+        ("bogus", "x"),  # kind inválido
+    ]
+    for kind, value in bad:
+        with pytest.raises(gs.GovernanceSnapshotError, match="B304"):
+            gs.TrackedQuery(kind, value)
+    for kind, value in (("kind_nonstr", None), ("prefix", 5), ("prefix", [])):  # tipos no-str
+        with pytest.raises(gs.GovernanceSnapshotError, match="B304"):
+            gs.TrackedQuery(kind if isinstance(kind, str) else "prefix", value)
+    # controles válidos
+    for kind, value in (("prefix", "tools/"), ("suffix", ".py"), ("exact", "tools/check_reflection.py")):
+        assert gs.TrackedQuery(kind, value).value == value
+
+
+def test_b304_subclass_and_wrong_type_query_rejected(tmp_path):
+    # una subclase que reescribe matches() NO puede colar su lógica: `type(query) is TrackedQuery`.
+    class Evil(gs.TrackedQuery):
+        def matches(self, p):  # noqa: ARG002 (hostil a propósito)
+            return True
+
+    with _lay(tmp_path) as snap:
+        with pytest.raises(gs.GovernanceSnapshotError, match="B304"):
+            Evil("exact", "x")  # __post_init__ ya rechaza la subclase
+        with pytest.raises(gs.GovernanceSnapshotError, match="B304"):
+            snap.tracked("tools/*")  # str crudo, no TrackedQuery
+        with pytest.raises(gs.GovernanceSnapshotError, match="B304"):
+            snap.tracked(object.__new__(gs.TrackedQuery))  # objeto sin validar → no es genuino... type is TrackedQuery
+
+
+def test_b304_root_only_exact_str(tmp_path):
+    class BytesPath:
+        def __fspath__(self):
+            return b"/bytes"
+
+    class RaisingPath:
+        def __fspath__(self):
+            raise RuntimeError("hostil")
+
+    for bad in (5, b"/x", BytesPath(), RaisingPath(), "", "root\x00nul"):
+        with pytest.raises(gs.GovernanceSnapshotError, match="B304"):
+            gs.GovernanceSnapshot(bad)

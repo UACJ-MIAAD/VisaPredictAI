@@ -70,28 +70,45 @@ class ReadPolicy:
             raise GovernanceSnapshotError(f"max_bytes {self.max_bytes!r} fuera de (0, {cap}] para categoría {self.category!r} (B296)")  # fmt: skip
 
 
-@dataclass(frozen=True)
-class TrackedQuery:
-    """B302: consulta CERRADA del inventario versionado (exactamente UNA modalidad). Se filtra en memoria sobre el
-    inventario ya sellado — NUNCA se pasa un pathspec del caller a git (adiós `:(exclude)`, `:(glob)`, `!`, magic)."""
+_TRACKED_KINDS = frozenset({"prefix", "suffix", "exact"})
 
-    prefix: str | None = None
-    suffix: str | None = None
-    exact: str | None = None
+
+@dataclass(frozen=True, slots=True)
+class TrackedQuery:
+    """B302/B304: consulta CERRADA del inventario versionado — DATOS EXACTOS `(kind, value)`, sin despacho virtual. El
+    matching lo hace una función interna (`_tracked_match`), NUNCA un método del objeto recibido; `tracked()` exige
+    `type(query) is TrackedQuery` (rechaza subclases que reescriban el matching). Se filtra en memoria — jamás un
+    pathspec del caller llega a git."""
+
+    kind: str
+    value: str
 
     def __post_init__(self) -> None:
-        modes = [m for m in (self.prefix, self.suffix, self.exact) if m is not None]
-        if len(modes) != 1:
-            raise GovernanceSnapshotError("TrackedQuery exige EXACTAMENTE una modalidad (prefix|suffix|exact) (B302)")
-        if type(modes[0]) is not str or "\x00" in modes[0]:
-            raise GovernanceSnapshotError("TrackedQuery: la modalidad debe ser str sin NUL (B302)")
+        if type(self) is not TrackedQuery:  # B304: sin subclases
+            raise GovernanceSnapshotError("TrackedQuery no admite subclases (B304)")
+        if type(self.kind) is not str or self.kind not in _TRACKED_KINDS:
+            raise GovernanceSnapshotError(f"TrackedQuery.kind inválido {self.kind!r} (B304)")
+        if type(self.value) is not str or not self.value or "\x00" in self.value:  # B304: no vacío, sin NUL
+            raise GovernanceSnapshotError("TrackedQuery.value debe ser str no vacío sin NUL (B304)")
+        if self.kind == "exact" and _rel_parts(self.value) is None:
+            raise GovernanceSnapshotError(f"TrackedQuery exact {self.value!r} no es ruta relativa POSIX (B304)")
+        if self.kind == "prefix":  # prefijo POSIX relativo; barra final permitida como selector de directorio
+            core = self.value[:-1] if self.value.endswith("/") else self.value
+            if _rel_parts(core) is None:
+                raise GovernanceSnapshotError(
+                    f"TrackedQuery prefix {self.value!r} inválido (abs/traversal/vacío) (B304)"
+                )
+        if self.kind == "suffix" and ("/" in self.value or self.value in (".", "..")):
+            raise GovernanceSnapshotError(f"TrackedQuery suffix {self.value!r} inválido (sin slash ni `.`/`..`) (B304)")
 
-    def matches(self, path: str) -> bool:
-        if self.exact is not None:
-            return path == self.exact
-        if self.prefix is not None:
-            return path.startswith(self.prefix)
-        return path.endswith(self.suffix) if self.suffix is not None else False
+
+def _tracked_match(kind: str, value: str, path: str) -> bool:
+    """B304: matching INTERNO por (kind, value) validados — nunca un método virtual del objeto recibido."""
+    if kind == "exact":
+        return path == value
+    if kind == "prefix":
+        return path.startswith(value)
+    return path.endswith(value)
 
 
 @dataclass(frozen=True)
@@ -151,11 +168,16 @@ class GovernanceSnapshot(AbstractContextManager):
     `tracked()` lista ficheros versionados; `reverify()` re-lee lo cacheado y exige identidad+bytes idénticos."""
 
     def __init__(self, root: str) -> None:
-        if not isinstance(root, (str, os.PathLike)):  # B302: root normalizado UNA vez, sin NUL
-            raise GovernanceSnapshotError(f"root debe ser str|os.PathLike, no {type(root).__name__} (B302)")
-        self._root = os.path.abspath(os.fspath(root))
-        if "\x00" in self._root:
-            raise GovernanceSnapshotError("root con NUL (B302)")
+        if type(root) is not str:  # B304: SÓLO str exacto — sin bytes, PathLike, subclases ni coerción `__fspath__`
+            raise GovernanceSnapshotError(f"root debe ser str exacto, no {type(root).__name__} (B304)")
+        if not root or "\x00" in root:
+            raise GovernanceSnapshotError("root vacío o con NUL (B304)")
+        try:
+            self._root = os.path.abspath(root)  # root es str puro → no ejecuta código de caller
+        except (OSError, ValueError) as exc:
+            raise GovernanceSnapshotError(f"root no normalizable ({exc}) (B304)") from exc
+        if type(self._root) is not str or "\x00" in self._root:
+            raise GovernanceSnapshotError("root cambió de tipo o tiene NUL tras normalizar (B304)")
         self._uid = os.getuid()
         self._cache: dict[str, tuple[ReadPolicy, GovernedEntry]] = {}  # B296: sellado por (rel → política, entrada)
         self._total = 0
@@ -408,9 +430,15 @@ class GovernanceSnapshot(AbstractContextManager):
         """B286/B301/B302: ficheros versionados que casan la `TrackedQuery` (gramática CERRADA), filtrados EN MEMORIA
         sobre el inventario SELLADO de la instancia (una sola captura git por snapshot; toda consulta deriva de ella)."""
         self._require_open()  # B298
-        if not isinstance(query, TrackedQuery):
-            raise GovernanceSnapshotError(f"tracked() exige un TrackedQuery, no {type(query).__name__} (B302)")
-        return tuple(p for p in self._sealed_inventory() if query.matches(p))
+        if type(query) is not TrackedQuery:  # B304: `type is`, no `isinstance` — una subclase no cuela su matching
+            raise GovernanceSnapshotError(f"tracked() exige un TrackedQuery exacto, no {type(query).__name__} (B304)")
+        try:  # B304: revalida los campos (defiende un `object.__new__(TrackedQuery)` que saltó `__post_init__`)
+            kind, value = query.kind, query.value
+        except AttributeError as exc:
+            raise GovernanceSnapshotError("TrackedQuery sin inicializar (B304)") from exc
+        if type(kind) is not str or kind not in _TRACKED_KINDS or type(value) is not str or not value:
+            raise GovernanceSnapshotError("TrackedQuery con campos inválidos (B304)")
+        return tuple(p for p in self._sealed_inventory() if _tracked_match(kind, value, p))
 
     def reverify(self) -> None:
         """B286: re-lee (gobernado) cada entrada cacheada y exige identidad+bytes idénticos a lo sellado. Fail-closed.
