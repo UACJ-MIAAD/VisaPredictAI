@@ -33,11 +33,12 @@ import json
 import os
 import subprocess
 import sys
+from typing import NamedTuple
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
-_SCANNER_VERSION = 7  # B265/B270/B276/B285/B289: + llamadas rooteadas en submódulos/from-imports/fábricas canónicas (no sólo `import x`)
+_SCANNER_VERSION = 8  # B265/B270/B276/B285/B289/B294: procedencia canónica (factories, import*, sys.modules/__dict__ importados, escapes de miembro)
 _REGISTRY_TOP_KEYS = {
     "schema_version",
     "scanner_version",
@@ -236,6 +237,8 @@ def _escape_op(node: ast.AST, parents: dict[int, ast.AST], mod_aliases: dict[str
         return None  # `alias.attr` — acceso resuelto por _resolve_op
     if isinstance(parent, ast.Subscript) and parent.value is node:
         return None  # `alias[...]` — subscript resuelto por _resolve_op
+    if isinstance(parent, ast.Call) and parent.func is node:
+        return None  # B294: `alias(...)` / `miembro(...)` como CALLEE — es una llamada (la cubre _canonical_rooted_call), no un escape; un módulo/miembro pasado como ARGUMENTO (func is not node) sí escapa
     if isinstance(parent, ast.Assign) and len(parent.targets) == 1 and isinstance(parent.targets[0], ast.Name) and parent.value is node:  # fmt: skip
         return None  # `x = alias` — alias simple, seguido por el fixpoint
     if isinstance(parent, ast.AnnAssign) and isinstance(parent.target, ast.Name) and parent.value is node:
@@ -300,47 +303,114 @@ def _rooted_chain_escape(node: ast.AST, parents: dict[int, ast.AST], mod_aliases
 _CANONICAL_FACTORY_NAMES = frozenset({"import_module", "__import__"})
 
 
-def _canonical_rooted_names(tree: ast.AST, mod_aliases: dict[str, str]) -> dict[str, str]:
-    """B285/B289: nombres rooteados en un módulo canónico — más allá de `import sys`/`import builtins` (mod_aliases):
-    submódulos (`import importlib.machinery as m`), imports `from` (`from importlib import machinery`,
-    `from importlib.machinery import SourceFileLoader as L`, `from importlib.metadata import version`) y RESULTADOS de
-    fábricas canónicas (`m = importlib.import_module(...)`, `m = __import__(...)`) ligados a un binding. Por FIXPOINT.
-    Para la política POSITIVA de `_canonical_rooted_call`: una llamada rooteada en CUALQUIERA de estos nombres cuenta."""
-    out: dict[str, str] = dict(mod_aliases)
+class _Provenance(NamedTuple):
+    rooted: dict[str, str]  # nombre → módulo canónico raíz (módulos/submódulos/miembros/resultados de fábrica)
+    sysmod: frozenset[str]  # nombres que aliasean `sys.modules`
+    dictnames: frozenset[str]  # nombres que aliasean un `<canónico>.__dict__`
+    members: frozenset[
+        str
+    ]  # B294: nombres traídos por `from <canónico> import <miembro>` (su captura no-call se marca)
+
+
+def _factory_root(fn: ast.AST, factories: dict[str, str], rooted: dict[str, str]) -> str | None:
+    """B294: raíz canónica si `fn` es una FÁBRICA (`__import__`/`import_module`) — bare, aliased o `<canónico>.import_module`.
+    Devuelve la raíz del módulo importado (para marcar su RESULTADO como rooteado)."""
+    if isinstance(fn, ast.Name) and fn.id in factories:
+        return factories[fn.id]
+    if isinstance(fn, ast.Attribute) and fn.attr in _CANONICAL_FACTORY_NAMES:
+        cur: ast.AST = fn.value
+        while isinstance(cur, (ast.Attribute, ast.Subscript)):
+            cur = cur.value
+        if isinstance(cur, ast.Name) and cur.id in rooted:
+            return rooted[cur.id]
+    return None
+
+
+def _canonical_provenance(tree: ast.AST, mod_aliases: dict[str, str]) -> _Provenance:
+    """B294: análisis conservador de PROCEDENCIA canónica por FIXPOINT — NO otra lista de aliases. Cubre módulos,
+    submódulos, imports `from` de miembros/clases/fábricas, `__import__`/`import_module` directos o aliased y sus
+    RESULTADOS ligados a un binding, `sys.modules` y `<canónico>.__dict__` importados/aliased. Alimenta las políticas de
+    call, subscript y escape. `from <canónico> import *` lo rechaza `scan_reflection`. Excluye primitivos específicos
+    (getattr/attrgetter/partial mantienen su op)."""
+    rooted: dict[str, str] = dict(mod_aliases)
+    factories: dict[str, str] = {"__import__": "builtins"}  # `__import__` bare siempre es una fábrica (builtin)
+    sysmod: set[str] = set()
+    dictnames: set[str] = set()
+    members: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for a in node.names:
                 root = a.name.split(".")[0]
                 if root in _CANONICAL_MODULES:
-                    out[a.asname or root] = root  # `import importlib.machinery` liga `importlib`; con asname, el asname
-        elif isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] in _CANONICAL_MODULES:
-            root = node.module.split(".")[0]
-            for a in node.names:
-                if a.name != "*":
-                    out[a.asname or a.name] = root
+                    rooted[a.asname or root] = root
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            root0 = node.module.split(".")[0]
+            if root0 in _CANONICAL_MODULES:
+                for a in node.names:
+                    if a.name == "*":
+                        continue  # el rechazo lo hace scan_reflection
+                    local = a.asname or a.name
+                    rooted[local] = root0
+                    members.add(local)  # B294: miembro traído por `from <canónico> import …`
+                    if a.name in _CANONICAL_FACTORY_NAMES:
+                        factories[local] = root0  # from importlib import import_module as im → im es fábrica
+                    if root0 == "sys" and a.name == "modules":
+                        sysmod.add(local)  # from sys import modules as mods
+                    if a.name == "__dict__":
+                        dictnames.add(local)  # from builtins import __dict__ as ns
     changed = True
-    while changed:  # FIXPOINT: alias transitivo de Name, o binding del resultado de una fábrica canónica
+    while changed:  # FIXPOINT
         changed = False
         for tgt, val in _name_bindings(tree):
-            if tgt in out:
-                continue
-            bound: str | None = None
-            if isinstance(val, ast.Name) and val.id in out:
-                bound = out[val.id]
-            elif isinstance(val, ast.Call):
-                cur: ast.AST = val.func
-                while isinstance(cur, (ast.Attribute, ast.Subscript, ast.Call)):
-                    cur = cur.func if isinstance(cur, ast.Call) else cur.value
-                fn = val.func
-                callee = fn.attr if isinstance(fn, ast.Attribute) else (fn.id if isinstance(fn, ast.Name) else "")
-                if isinstance(cur, ast.Name) and cur.id in out and callee in _CANONICAL_FACTORY_NAMES:
-                    bound = out[cur.id]  # `m = <canonical>.import_module(...)` → m rooteado en canonical
-            if bound is not None:
-                out[tgt] = bound
-                changed = True
-    for name in _prim_aliases(tree):  # un nombre que YA es un primitivo específico (getattr/attrgetter/partial…) tiene
-        out.pop(name, None)  # op más específica — no lo dupliques como canonical-rooted-call
-    return out
+            # fábrica por alias de Attribute (`factory = importlib.import_module`) o transitivo (`f2 = im`)
+            if tgt not in factories:
+                fr = _factory_root(val, factories, rooted) if isinstance(val, ast.Attribute) else None
+                if fr is not None or (isinstance(val, ast.Name) and val.id in factories):
+                    factories[tgt] = fr if fr is not None else factories[val.id]
+                    changed = True
+            if tgt not in sysmod and isinstance(val, ast.Attribute) and val.attr == "modules":
+                if isinstance(val.value, ast.Name) and rooted.get(val.value.id) == "sys":
+                    sysmod.add(tgt)
+                    changed = True
+            if tgt not in dictnames and isinstance(val, ast.Attribute) and val.attr == "__dict__":
+                base: ast.AST = val.value
+                while isinstance(base, (ast.Attribute, ast.Subscript)):
+                    base = base.value
+                if isinstance(base, ast.Name) and base.id in rooted:
+                    dictnames.add(tgt)
+                    changed = True
+            if tgt not in rooted:  # alias de Name, o RESULTADO de fábrica (`m = factory(...)` / `m = __import__(...)`)
+                bound: str | None = None
+                if isinstance(val, ast.Name) and val.id in rooted:
+                    bound = rooted[val.id]
+                elif isinstance(val, ast.Call):
+                    bound = _factory_root(val.func, factories, rooted)
+                if bound is not None:
+                    rooted[tgt] = bound
+                    changed = True
+    for name in _prim_aliases(tree):  # primitivo específico (getattr/attrgetter/partial…) — no dupliques como rooted
+        rooted.pop(name, None)
+        members.discard(name)
+    return _Provenance(rooted, frozenset(sysmod), frozenset(dictnames), frozenset(members))
+
+
+def _canonical_member_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _Provenance) -> str | None:
+    """B294: un miembro canónico traído por `from <canónico> import <miembro>` que se CAPTURA como VALOR (asignado a otro
+    nombre, pasado, retornado, en un contenedor) — no accedido (`.attr`), ni subscriptado, ni llamado — es una ocurrencia
+    (`reflection-module-escape`). Ej. `from importlib import machinery; x = machinery`. Las formas call/attr/subscript
+    las cubren las otras políticas; una llamada (`version('pkg')`) NO se marca aquí (es `func` de un Call)."""
+    if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in prov.members):
+        return None
+    parent = parents.get(id(node))
+    if parent is None:
+        return None
+    if isinstance(parent, ast.Attribute) and parent.value is node:
+        return None  # `miembro.attr` — acceso resuelto
+    if isinstance(parent, ast.Subscript) and parent.value is node:
+        return None  # `miembro[...]` — subscript (cubierto por _canonical_rooted_subscript si aplica)
+    if isinstance(parent, ast.Call) and parent.func is node:
+        return None  # `miembro(...)` — llamada (cubierta por _canonical_rooted_call)
+    return _REFLECTION_MODULE_ESCAPE
 
 
 def _canonical_rooted_call(node: ast.AST, rooted_names: dict[str, str]) -> str | None:
@@ -356,6 +426,23 @@ def _canonical_rooted_call(node: ast.AST, rooted_names: dict[str, str]) -> str |
         cur = cur.func if isinstance(cur, ast.Call) else cur.value
     if isinstance(cur, ast.Name) and isinstance(cur.ctx, ast.Load) and cur.id in rooted_names:
         return _CANONICAL_ROOTED_CALL
+    return None
+
+
+def _canonical_rooted_subscript(node: ast.AST, prov: _Provenance) -> str | None:
+    """B294: un `X[...]` cuya raíz (al desenvolver Attribute/Subscript) es un alias de `sys.modules` → `sys.modules`; de
+    un `<canónico>.__dict__` → `__dict__`. Cubre `from sys import modules as mods; mods[k]` y `from builtins import
+    __dict__ as ns; ns[k]`, invisibles cuando el import trae el miembro directamente."""
+    if not isinstance(node, ast.Subscript):
+        return None
+    cur: ast.AST = node.value
+    while isinstance(cur, (ast.Attribute, ast.Subscript, ast.Call)):
+        cur = cur.func if isinstance(cur, ast.Call) else cur.value
+    if isinstance(cur, ast.Name):
+        if cur.id in prov.sysmod:
+            return "sys.modules"
+        if cur.id in prov.dictnames:
+            return "__dict__"
     return None
 
 
@@ -380,18 +467,29 @@ def scan_reflection(files: list[str]) -> tuple[dict[str, dict], list[str]]:
             problems.append(f"{rel}: SyntaxError ({exc}) (fail-closed B260)")
             continue
         mod_aliases = _module_aliases(tree)
-        rooted_names = _canonical_rooted_names(tree, mod_aliases)  # B289: incluye submódulos/from-imports/fábricas
+        prov = _canonical_provenance(tree, mod_aliases)  # B294: procedencia (calls/subscripts/escapes/fábricas)
         prim_aliases = _prim_aliases(tree)
         qn = _qualnames(tree)
         stmts = _enclosing_stmts(tree)
         parents = {id(c): p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
+        # B294: `from <canónico> import *` es un ROMPE-procedencia — no se puede seguir qué nombres quedan rooteados.
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] in _CANONICAL_MODULES:
+                if any(a.name == "*" for a in node.names):
+                    problems.append(f"{rel}::{node.module}: `from {node.module} import *` prohibido — rompe la procedencia de reflexión (fail-closed B294)")  # fmt: skip
         raw: list[tuple[str, str, str, int, ast.AST]] = []
         for node in ast.walk(tree):
             op = (
                 _resolve_op(node, mod_aliases, prim_aliases)
-                or _escape_op(node, parents, mod_aliases)
+                or _escape_op(
+                    node, parents, prov.rooted
+                )  # B294: escape de módulo O miembro canónico (no sólo mod_aliases)
                 or _rooted_chain_escape(node, parents, mod_aliases)
-                or _canonical_rooted_call(node, rooted_names)  # B285/B289: política positiva sobre nombres rooteados
+                or _canonical_rooted_call(node, prov.rooted)  # B285/B289: llamada rooteada
+                or _canonical_rooted_subscript(node, prov)  # B294: sys.modules/__dict__ importados y subscriptados
+                or _canonical_member_escape(
+                    node, parents, prov
+                )  # B294: captura no-call de un miembro `from … import …`
             )
             if op is None:
                 continue

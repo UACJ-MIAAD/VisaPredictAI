@@ -455,3 +455,86 @@ def test_b289_non_canonical_from_import_not_flagged(tmp_path, monkeypatch):
     # un `from os.path import join` (no canónico) NO se marca.
     _mount(tmp_path, monkeypatch, {"m.py": "from os.path import join\njoin('a', 'b')\n"})
     assert refl.scan_reflection(["m.py"])[0] == {}, "un from-import no canónico no debe marcarse (B289)"
+
+
+# ---------------------------------------------------------------------------
+# B294 — el modelo de raíces canónicas pasa de una lista de aliases a un LATTICE de PROCEDENCIA por fixpoint que sigue:
+# RESULTADOS de fábrica (`__import__`/`import_module` bare, aliased por from-import, o attr-alias `f =
+# importlib.import_module`, incluso a varios saltos), `from <canónico> import *` (rechazado), alias de `sys.modules` y
+# `<canónico>.__dict__` importados y SUBSCRIPTADOS, y la CAPTURA NO-CALL de un miembro `from <canónico> import <m>`.
+# RED_BASE_SHA = 731b6d2: cada terminal quedaba INVISIBLE (el binding del resultado de fábrica no se rooteaba, el import*
+# no se rechazaba, los alias subscriptados y el escape de miembro daban 0 ocurrencias). Verificado RED-conductual en el
+# worktree 731b6d2: la LÍNEA del terminal da {} allí y el op específico aquí. Las pruebas usan scan_reflection (API
+# estable en ambos SHAs) y afirman el OP ESPECÍFICO en la LÍNEA del terminal — no `assert entries` genérico.
+# ---------------------------------------------------------------------------
+def _line_ops(tmp_path, monkeypatch, src: str, line: int) -> set[str]:
+    _mount(tmp_path, monkeypatch, {"m.py": src})
+    occ = refl.scan_reflection(["m.py"])[0]
+    return {o["op"] for o in occ.values() if o["lineno"] == line}
+
+
+def test_b294_factory_result_binding_is_rooted_call(tmp_path, monkeypatch):
+    # el RESULTADO de una fábrica canónica (bare __import__, from-import alias, attr-alias, y a 3 saltos) queda ROOTEADO
+    # → su llamada downstream es canonical-rooted-call. En 731b6d2 la línea del terminal daba {} (RED).
+    cases = {
+        "bare_import": ("m = __import__('os')\nr = m.system('x')\n", 2),
+        "from_import": ("from importlib import import_module as im\nm = im('os')\ny = m.getcwd()\n", 3),
+        "attr_alias": ("import importlib\nf = importlib.import_module\nm = f('os')\ny = m.getcwd()\n", 4),
+        "alias_3_hop": ("from importlib import import_module as im\na = im\nb = a\nm = b('os')\ny = m.getcwd()\n", 5),
+    }
+    for label, (src, line) in cases.items():
+        assert refl._CANONICAL_ROOTED_CALL in _line_ops(tmp_path, monkeypatch, src, line), f"{label}: el resultado de fábrica debe rootear la llamada downstream (B294)"  # fmt: skip
+
+
+def test_b294_import_star_of_canonical_is_rejected(tmp_path, monkeypatch):
+    # `from importlib import *` ROMPE la procedencia (no se puede seguir qué queda rooteado) → problema fail-closed.
+    _mount(tmp_path, monkeypatch, {"m.py": "from importlib import *\n"})
+    probs = refl.scan_reflection(["m.py"])[1]
+    assert any("import *" in p and "B294" in p for p in probs), (
+        f"from importlib import * debe rechazarse (B294): {probs}"
+    )
+
+
+def test_b294_canonical_alias_subscripts_flagged(tmp_path, monkeypatch):
+    # `from sys import modules as mods; mods[k]` y `from builtins import __dict__ as ns; ns[k]` (miembro traído DIRECTO y
+    # subscriptado) dan su op modelada — invisibles en 731b6d2.
+    assert "sys.modules" in _line_ops(tmp_path, monkeypatch, "from sys import modules as mods\nx = mods['os']\n", 2)
+    assert "__dict__" in _line_ops(tmp_path, monkeypatch, "from builtins import __dict__ as ns\nx = ns['open']\n", 2)
+
+
+def test_b294_member_noncall_escape(tmp_path, monkeypatch):
+    # un miembro `from <canónico> import <m>` CAPTURADO como valor (bare/contenedor/default/retorno/closure) — no
+    # llamado, ni `.attr`, ni subscriptado — escapa. En 731b6d2 daban 0 ocurrencias (RED).
+    cases = {
+        "bare": ("from importlib import machinery\nx = machinery\n", 2),
+        "container": ("from importlib import machinery\nxs = [machinery]\n", 2),
+        "default_arg": ("from importlib import machinery\ndef f(x=machinery):\n    return x\n", 2),
+        "returned": ("from importlib import machinery\ndef f():\n    return machinery\n", 3),
+        "closure": (
+            "from importlib import machinery\ndef outer():\n    def inner():\n        return machinery\n    return inner\n",
+            4,
+        ),  # fmt: skip
+    }
+    for label, (src, line) in cases.items():
+        assert refl._REFLECTION_MODULE_ESCAPE in _line_ops(tmp_path, monkeypatch, src, line), f"{label}: captura no-call de miembro debe escapar (B294)"  # fmt: skip
+
+
+def test_b294_benign_member_calls_not_over_flagged(tmp_path, monkeypatch):
+    # REGRESIÓN de la sobre-detección que introdujo el lattice: un miembro canónico LLAMADO (decorador `@lru_cache(...)`,
+    # `version(...)`) es canonical-rooted-call, NUNCA reflection-module-escape — el CALLEE de un Call no es un escape,
+    # sólo un miembro pasado como ARGUMENTO o capturado como valor lo es.
+    for label, src, line in [
+        ("lru_decorator", "from functools import lru_cache\n@lru_cache(maxsize=8)\ndef f():\n    return 1\n", 2),
+        ("version_call", "from importlib.metadata import version\nv = version('pkg')\n", 2),
+    ]:
+        ops = _line_ops(tmp_path, monkeypatch, src, line)
+        assert refl._CANONICAL_ROOTED_CALL in ops, f"{label}: miembro llamado debe ser rooted-call (B294): {ops}"
+        assert refl._REFLECTION_MODULE_ESCAPE not in ops, f"{label}: miembro llamado NO debe escapar (B294): {ops}"
+
+
+def test_b294_specific_and_noncanonical_ops_preserved(tmp_path, monkeypatch):
+    # `partial` mantiene su op ESPECÍFICA (no rooted-call ni escape); un from-import NO canónico capturado como valor no
+    # se marca (anti-falso-positivo del lattice).
+    assert _line_ops(tmp_path, monkeypatch, "from functools import partial as p\np(f, 1)\n", 2) == {"partial"}
+    _mount(tmp_path, monkeypatch, {"m.py": "from os.path import join\nx = join\n"})
+    assert refl.scan_reflection(["m.py"])[0] == {}, "un from-import no canónico capturado no debe marcarse (B294)"
