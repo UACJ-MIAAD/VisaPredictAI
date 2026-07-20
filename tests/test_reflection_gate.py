@@ -654,6 +654,22 @@ def test_b305_canonical_escape_recorded_at_every_sink(tmp_path, monkeypatch):
         assert refl._REFLECTION_MODULE_ESCAPE in ops, f"{label}: el sink debe registrar un escape (B305): {ops}"
 
 
+def test_b305_comprehension_and_generator_sinks(tmp_path, monkeypatch):
+    # Ronda B: un resultado de fábrica dentro de una comprensión/generador también abandona el dominio modelado.
+    cases = {
+        "listcomp": "xs = [__import__('os') for _ in range(1)]\n",
+        "setcomp": "s = {__import__('os') for _ in range(1)}\n",
+        "genexp": "g = (__import__('os') for _ in range(1))\n",
+        "dictcomp_value": "d = {k: __import__('os') for k in range(1)}\n",
+    }
+    for label, src in cases.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._REFLECTION_MODULE_ESCAPE in ops, f"{label}: la comprensión/generador debe registrar el escape (B305): {ops}"  # fmt: skip
+    # control: comprensión de escalares no dispara
+    ops, probs = _ops_and_problems(tmp_path, monkeypatch, "xs = [i for i in range(3)]\n")
+    assert refl._REFLECTION_MODULE_ESCAPE not in ops and not probs
+
+
 def test_b305_benign_sinks_not_over_flagged(tmp_path, monkeypatch):
     # controles: escalares o atributos de datos por los mismos sinks NO se marcan; un `m = factory()` a Name simple se
     # RASTREA (no escapa aquí); un store a Name simple de escalar es benigno.

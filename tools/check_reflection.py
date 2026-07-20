@@ -460,6 +460,12 @@ def _provenance_loss_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _P
     if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
         if node.value is not None and isinstance(node.target, (ast.Attribute, ast.Subscript)) and _is_factory_value(node.value, prov):  # fmt: skip
             return _REFLECTION_MODULE_ESCAPE
+        return None
+    if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):  # B305/Ronda B: comprensión/generador
+        return _REFLECTION_MODULE_ESCAPE if _is_factory_value(node.elt, prov) else None
+    if isinstance(node, ast.DictComp):
+        if _is_factory_value(node.key, prov) or _is_factory_value(node.value, prov):
+            return _REFLECTION_MODULE_ESCAPE
     return None
 
 
