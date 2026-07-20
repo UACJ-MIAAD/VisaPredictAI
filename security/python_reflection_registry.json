@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "scanner_version": 8,
+  "scanner_version": 9,
   "note": "B255/B259/B260: registro POSITIVO de TODA operación de reflexión en el código de producción versionado, con IDENTIDAD SEMÁNTICA. El gate tools/check_reflection.py deriva el ID de cada ocurrencia de sha256(JSON canónico de {file, qualname, op, statement_ast_sha256, occurrence_index}); cambiar objeto/nombre/forma de la llamada cambia el AST del statement y por tanto el ID → exige revisión. Cubre builtins/sys/importlib/operator/functools por alias, imports relativos, qualname completo (métodos/lambda/async/anidadas) y es fail-closed ante sintaxis/lectura/JSON inválidos. FRONTERA HONESTA: evita reflexión NO REGISTRADA en código versionado; NO protege contra un mantenedor que cambie a la vez código y política (revisión humana + rama protegida).",
   "operations_controlled": [
     "__dict__",
@@ -882,6 +882,24 @@
       "occurrence_index": 0,
       "justification": "Llamada estandar `importlib.metadata.version(...)` rooteada en modulo canonico via submodulo/from-import (B289); benigna, sin reflexion dinamica; revisada 2026-07-19.",
       "review_by": "2027-07-19"
+    },
+    "8c09184cb7db4814219953f2e30a689769c5ae978b2a34f013f4d3999f1db275": {
+      "file": "tools/capture_b233_receipt.py",
+      "qualname": "_write_all_stdout",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "284ee58a0613daf6760675da02a1487bdbc49b7ac63a092f1ea2d6b493ca1fad",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.stdout.buffer.write/flush(...)` rooteada en modulo canonico via alias de atributo `buf = sys.stdout.buffer` (B285/B297); benigna I/O, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "4cbd2f5b5a5950828231c16281fdd16f1644e6ddc947fd968a88f63b14bad8e7": {
+      "file": "tools/capture_b233_receipt.py",
+      "qualname": "_write_all_stdout",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "b27b625d71905fa8a7de29c535e022bf631dbcdf65a2e787b6eb2962cda07001",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.stdout.buffer.write/flush(...)` rooteada en modulo canonico via alias de atributo `buf = sys.stdout.buffer` (B285/B297); benigna I/O, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
     }
   }
 }

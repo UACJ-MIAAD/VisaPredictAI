@@ -538,3 +538,37 @@ def test_b294_specific_and_noncanonical_ops_preserved(tmp_path, monkeypatch):
     assert _line_ops(tmp_path, monkeypatch, "from functools import partial as p\np(f, 1)\n", 2) == {"partial"}
     _mount(tmp_path, monkeypatch, {"m.py": "from os.path import join\nx = join\n"})
     assert refl.scan_reflection(["m.py"])[0] == {}, "un from-import no canónico capturado no debe marcarse (B294)"
+
+
+# ---------------------------------------------------------------------------
+# B297 — la procedencia de fábrica sólo se propagaba por bindings `Name = Name|Call` simples: el RESULTADO de una fábrica
+# usado en una EXPRESIÓN COMPUESTA (cadena directa, alias de fábrica, asignación múltiple, contenedor+subscript,
+# condicional, walrus) era invisible. En 03f8e3b la llamada terminal `.system(...)` sobre el módulo importado NO aparecía
+# como canonical-rooted-call (RED). El dominio abstracto de expresión (`_expr_provenance`) la sigue ahora.
+# ---------------------------------------------------------------------------
+def test_b297_factory_result_through_composite_expressions(tmp_path, monkeypatch):
+    cases = {
+        "direct_chain": ("__import__('os').system('x')\n", 1),
+        "aliased_factory": ("f = __import__\nf('os').system('x')\n", 2),
+        "multi_assign": ("a = b = __import__('os')\na.system('x')\n", 2),
+        "tuple_subscript": ("m = (__import__('os'),)[0]\nm.system('x')\n", 2),
+        "dict_subscript": ("m = {'x': __import__('os')}['x']\nm.system('x')\n", 2),
+        "conditional": ("m = __import__('os') if flag else None\nm.system('x')\n", 2),
+        "import_module_chain": ("from importlib import import_module\nimport_module('os').system('x')\n", 2),
+        "alias_3_hop": ("f = __import__\ng = f\nh = g\nh('os').system('x')\n", 4),
+        "destructuring": ("(m, n) = (__import__('os'), 1)\nm.system('x')\n", 2),
+        "walrus_inline": ("(m := __import__('os')).system('x')\n", 1),
+        "attr_of_factory_result": ("m = __import__('os')\np = m.path\np.join('a', 'b')\n", 3),
+    }
+    for label, (src, line) in cases.items():
+        assert refl._CANONICAL_ROOTED_CALL in _line_ops(tmp_path, monkeypatch, src, line), f"{label}: la terminal sobre el resultado de fábrica debe ser rooted-call (B297)"  # fmt: skip
+
+
+def test_b297_benign_and_specific_ops_preserved(tmp_path, monkeypatch):
+    # controles benignos del dominio de expresión: un módulo NO canónico y un escalar no se marcan; una op ESPECÍFICA
+    # (getattr) no se degrada a rooted-call; `version()`/`lru_cache()` siguen sin escape duplicado.
+    assert _line_ops(tmp_path, monkeypatch, "import os\nx = os.getcwd()\n", 2) == set()
+    assert _line_ops(tmp_path, monkeypatch, "m = 5\nm.bit_length()\n", 2) == set()
+    assert _line_ops(tmp_path, monkeypatch, "from builtins import getattr as g\ng(o, n)\n", 2) == {"getattr"}
+    ops = _line_ops(tmp_path, monkeypatch, "from importlib.metadata import version\nv = version('p')\n", 2)
+    assert ops == {refl._CANONICAL_ROOTED_CALL}, f"version() sin escape duplicado (B297): {ops}"

@@ -38,7 +38,7 @@ from typing import NamedTuple
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
-_SCANNER_VERSION = 8  # B265/B270/B276/B285/B289/B294: procedencia canónica (factories, import*, sys.modules/__dict__ importados, escapes de miembro)
+_SCANNER_VERSION = 9  # B265/B270/B276/B285/B289/B294/B297: procedencia canónica por dominio de EXPRESIÓN (resultado de fábrica en cadenas/subscripts/condicionales/asignación múltiple)
 _REGISTRY_TOP_KEYS = {
     "schema_version",
     "scanner_version",
@@ -106,11 +106,27 @@ def _module_aliases(tree: ast.AST) -> dict[str, str]:
     return out
 
 
+def _iter_targets(target: ast.AST, value: ast.AST):
+    """B297: empareja `(nombre, valor)` incluyendo asignación MÚLTIPLE y destructuring de tuple/list del MISMO largo
+    (`a = b = X` liga a ambos; `(m, n) = (X, Y)` liga m→X, n→Y; anidado). Un destructuring de largo desigual no se sigue."""
+    if isinstance(target, ast.Name):
+        yield target.id, value
+    elif (
+        isinstance(target, (ast.Tuple, ast.List))
+        and isinstance(value, (ast.Tuple, ast.List))
+        and len(target.elts) == len(value.elts)
+    ):
+        for t, v in zip(target.elts, value.elts, strict=True):  # largo verificado arriba
+            yield from _iter_targets(t, v)
+
+
 def _name_bindings(tree: ast.AST):
-    """Itera `(nombre, valor)` sobre Assign/AnnAssign/NamedExpr de un solo Name (base de los fixpoints de alias)."""
+    """Itera `(nombre, valor)` sobre Assign (uno o VARIOS targets, con destructuring)/AnnAssign/NamedExpr — base de los
+    fixpoints de alias (B297: ya no sólo un Name simple)."""
     for node in ast.walk(tree):
-        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-            yield node.targets[0].id, node.value
+        if isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                yield from _iter_targets(tgt, node.value)
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
             yield node.target.id, node.value
         elif isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
@@ -310,6 +326,57 @@ class _Provenance(NamedTuple):
     members: frozenset[
         str
     ]  # B294: nombres traídos por `from <canónico> import <miembro>` (su captura no-call se marca)
+    factories: dict[
+        str, str
+    ]  # B297: nombre → raíz canónica de una FÁBRICA (`__import__`/`import_module`) aún sin llamar
+
+
+# B297: dominio abstracto de una expresión — 'value' evalúa a un módulo/miembro canónico (o RESULTADO de fábrica);
+# 'factory' evalúa a una fábrica aún sin llamar; 'none' no es canónico. Cota de recursión para árboles patológicos.
+_EXPR_DEPTH_CAP = 60
+
+
+def _expr_provenance(node: ast.AST, rooted: dict[str, str], factories: dict[str, str], depth: int = 0) -> tuple[str, str | None]:  # fmt: skip
+    """B297: clasifica CUALQUIER expresión propagando por Name/Call(fábrica)/Attribute/NamedExpr/IfExp/BoolOp y subscript
+    de contenedor literal conocido. Una llamada a fábrica produce `value` AUNQUE aparezca dentro de otra expresión
+    (`__import__('os').system(...)`, `(im('os'),)[0]`, `m if c else n`). Conservador: si una rama es canónica, el
+    resultado puede serlo."""
+    if depth > _EXPR_DEPTH_CAP:
+        return ("none", None)
+    if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+        if node.id in factories:
+            return ("factory", factories[node.id])
+        if node.id in rooted:
+            return ("value", rooted[node.id])
+        return ("none", None)
+    if isinstance(node, ast.Call):  # llamar una FÁBRICA canónica devuelve un módulo → 'value'
+        fr = _factory_root(node.func, factories, rooted)
+        return ("value", fr) if fr is not None else ("none", None)
+    if isinstance(node, ast.Attribute):  # atributo/submódulo de un valor canónico sigue siendo canónico
+        k, r = _expr_provenance(node.value, rooted, factories, depth + 1)
+        return ("value", r) if k in ("value", "factory") else ("none", None)
+    if isinstance(node, ast.NamedExpr):  # walrus: la procedencia es la del valor
+        return _expr_provenance(node.value, rooted, factories, depth + 1)
+    if isinstance(
+        node, (ast.IfExp, ast.BoolOp)
+    ):  # conservador: si ALGUNA rama/operando es canónico, el resultado puede serlo
+        branches = [node.body, node.orelse] if isinstance(node, ast.IfExp) else list(node.values)
+        for b in branches:
+            k, r = _expr_provenance(b, rooted, factories, depth + 1)
+            if k in ("value", "factory"):
+                return (k, r)
+        return ("none", None)
+    if isinstance(node, ast.Subscript):  # subscript de un contenedor LITERAL con índice/clave constante → el elemento
+        container, idx = node.value, node.slice
+        if isinstance(container, (ast.Tuple, ast.List)) and isinstance(idx, ast.Constant) and isinstance(idx.value, int):  # fmt: skip
+            if -len(container.elts) <= idx.value < len(container.elts):
+                return _expr_provenance(container.elts[idx.value], rooted, factories, depth + 1)
+        if isinstance(container, ast.Dict) and isinstance(idx, ast.Constant):
+            for k2, v2 in zip(container.keys, container.values, strict=True):  # keys/values de ast.Dict son paralelos
+                if isinstance(k2, ast.Constant) and k2.value == idx.value:
+                    return _expr_provenance(v2, rooted, factories, depth + 1)
+        return ("none", None)
+    return ("none", None)
 
 
 def _factory_root(fn: ast.AST, factories: dict[str, str], rooted: dict[str, str]) -> str | None:
@@ -379,19 +446,23 @@ def _canonical_provenance(tree: ast.AST, mod_aliases: dict[str, str]) -> _Proven
                 if isinstance(base, ast.Name) and base.id in rooted:
                     dictnames.add(tgt)
                     changed = True
-            if tgt not in rooted:  # alias de Name, o RESULTADO de fábrica (`m = factory(...)` / `m = __import__(...)`)
-                bound: str | None = None
-                if isinstance(val, ast.Name) and val.id in rooted:
-                    bound = rooted[val.id]
-                elif isinstance(val, ast.Call):
-                    bound = _factory_root(val.func, factories, rooted)
-                if bound is not None:
-                    rooted[tgt] = bound
+            if tgt not in rooted and tgt not in factories:  # B297: RHS COMPUESTA (Name/Call-fábrica/Attribute/IfExp/
+                k, r = _expr_provenance(
+                    val, rooted, factories, 0
+                )  # BoolOp/subscript de contenedor) que evalúa a un valor
+                if (
+                    k == "value" and r is not None
+                ):  # canónico → el binding queda rooteado (resultado de fábrica incluido)
+                    rooted[tgt] = r
                     changed = True
     for name in _prim_aliases(tree):  # primitivo específico (getattr/attrgetter/partial…) — no dupliques como rooted
-        rooted.pop(name, None)
-        members.discard(name)
-    return _Provenance(rooted, frozenset(sysmod), frozenset(dictnames), frozenset(members))
+        rooted.pop(
+            name, None
+        )  # NOTA: NO se quita de `factories` — `__import__`/`import_module` son prim (op propia por
+        members.discard(
+            name
+        )  # `_resolve_op` sobre la LLAMADA) Y fábrica (su RESULTADO queda rooteado, B297); nodos distintos
+    return _Provenance(rooted, frozenset(sysmod), frozenset(dictnames), frozenset(members), factories)
 
 
 def _canonical_member_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _Provenance) -> str | None:
@@ -413,19 +484,34 @@ def _canonical_member_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _
     return _REFLECTION_MODULE_ESCAPE
 
 
-def _canonical_rooted_call(node: ast.AST, rooted_names: dict[str, str]) -> str | None:
-    """B285/B289: TODA `ast.Call` cuyo callee, al DESENVOLVER Attribute/Subscript/Call, esté rooteado en un nombre
-    canónico (`_canonical_rooted_names`: módulos, submódulos, imports `from`, resultados de fábrica) produce
-    `canonical-rooted-call` — SALVO op más específica (orden del `or`). `SourceFileLoader.set_data`,
-    `machinery.SourceFileLoader(...).set_data(...)` desde `from importlib import machinery`, `Loader(...).set_data(...)`
-    desde `from importlib.machinery import SourceFileLoader as Loader`, etc. dejan de ser invisibles (B289)."""
+def _canonical_rooted_call(node: ast.AST, prov: _Provenance) -> str | None:
+    """B285/B289/B297: TODA `ast.Call` cuyo callee esté ROOTEADO en un nombre canónico produce `canonical-rooted-call`
+    (SALVO op más específica; orden del `or`). El desenvolvido de `.func`/`.value` reconoce ADEMÁS una LLAMADA A FÁBRICA
+    en la cadena (`__import__('os').system(...)`, `im('os').system(...)`): su resultado es un módulo canónico, así que la
+    llamada terminal es rooteada aunque el nombre de la fábrica no esté en `rooted`. `machinery.SourceFileLoader(...)
+    .set_data(...)` (B289) y `Loader(...).set_data(...)` siguen cubiertos por el desenvolvido a la raíz Name."""
     if not isinstance(node, ast.Call):
         return None
     cur: ast.AST = node.func
     while isinstance(cur, (ast.Attribute, ast.Subscript, ast.Call)):
-        cur = cur.func if isinstance(cur, ast.Call) else cur.value
-    if isinstance(cur, ast.Name) and isinstance(cur.ctx, ast.Load) and cur.id in rooted_names:
+        if isinstance(cur, ast.Call):
+            if (
+                _factory_root(cur.func, prov.factories, prov.rooted) is not None
+            ):  # B297: resultado de fábrica en la cadena
+                return _CANONICAL_ROOTED_CALL
+            cur = cur.func
+        else:
+            cur = cur.value
+    if isinstance(cur, ast.Name) and isinstance(cur.ctx, ast.Load) and cur.id in prov.rooted:
         return _CANONICAL_ROOTED_CALL
+    # (b) B297: el callee COMPUESTO evalúa a un valor/fábrica canónica por el DOMINIO DE EXPRESIÓN (walrus/IfExp/BoolOp/
+    # subscript de contenedor) cuando el desenvolvido sintáctico (a) se detiene antes (`(m := __import__('os')).system()`).
+    # Un callee Name bare NO entra aquí: la LLAMADA A FÁBRICA directa (`__import__(...)`/`im(...)`) es la op específica de
+    # `_resolve_op`, no un canonical-rooted-call (evita re-marcar la propia llamada de fábrica).
+    if not isinstance(node.func, ast.Name):
+        k, _ = _expr_provenance(node.func, prov.rooted, prov.factories)
+        if k in ("value", "factory"):
+            return _CANONICAL_ROOTED_CALL
     return None
 
 
@@ -485,7 +571,7 @@ def scan_reflection(files: list[str]) -> tuple[dict[str, dict], list[str]]:
                     node, parents, prov.rooted
                 )  # B294: escape de módulo O miembro canónico (no sólo mod_aliases)
                 or _rooted_chain_escape(node, parents, mod_aliases)
-                or _canonical_rooted_call(node, prov.rooted)  # B285/B289: llamada rooteada
+                or _canonical_rooted_call(node, prov)  # B285/B289/B297: llamada rooteada (incl. resultado de fábrica)
                 or _canonical_rooted_subscript(node, prov)  # B294: sys.modules/__dict__ importados y subscriptados
                 or _canonical_member_escape(
                     node, parents, prov
