@@ -466,7 +466,7 @@ class GovernanceSnapshot(AbstractContextManager):
         """B306: runner ACOTADO — `Popen` (stdin DEVNULL, close_fds), lectura incremental de stdout/stderr con límite y
         deadline monotónico; al exceder límite/timeout: terminate→kill→wait, cierra pipes y falla. Cero huérfanos."""
         try:
-            proc = subprocess.Popen(  # noqa: S603 (argv fijo, ejecutable absoluto gobernado)
+            proc = subprocess.Popen(
                 argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 env=dict(_GIT_CHILD_ENV), close_fds=True,
             )  # fmt: skip

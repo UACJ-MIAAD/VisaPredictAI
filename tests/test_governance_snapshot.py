@@ -742,7 +742,7 @@ def test_b304_tracked_query_grammar_closed():
 def test_b304_subclass_and_wrong_type_query_rejected(tmp_path):
     # una subclase que reescribe matches() NO puede colar su lógica: `type(query) is TrackedQuery`.
     class Evil(gs.TrackedQuery):
-        def matches(self, p):  # noqa: ARG002 (hostil a propósito)
+        def matches(self, _p):  # hostil a propósito (nunca alcanzable: la subclase se rechaza)
             return True
 
     with _lay(tmp_path) as snap:
