@@ -377,10 +377,14 @@ class GovernanceSnapshot(AbstractContextManager):
     def _governed_git_identity(self) -> tuple:
         """B303: valida `/usr/bin/git` por descenso `openat` (dirs root-owned sin escritura g/o, leaf regular root-owned
         ejecutable sin symlink ni bits especiales) y devuelve su identidad `(dev,ino,mode,uid,nlink,size,mtime_ns,
-        ctime_ns)`. Sin fallback a PATH: si la plataforma no lo satisface → GovernanceSnapshotError."""
+        ctime_ns)`. B309: resultado TOTAL — NINGÚN `return` dentro del `try` con fds vivos, cierre de TODOS los fds con
+        agregación (un cierre fallido sobre un camino exitoso es fail-closed), sin `except OSError: pass`.
+        KeyboardInterrupt/SystemExit propagan."""
         parts = [p for p in _GIT_ABS.split("/") if p]
         leaf, dir_comps = parts[-1], parts[:-1]
         fds: list[int] = []
+        primary: str | None = None
+        identity: tuple | None = None
         try:
             cur = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
             fds.append(cur)
@@ -389,38 +393,41 @@ class GovernanceSnapshot(AbstractContextManager):
                 fds.append(nfd)
                 st = os.fstat(nfd)
                 if st.st_uid != 0 or (st.st_mode & _DIR_GO_WRITE) or (st.st_mode & (stat.S_ISUID | stat.S_ISGID)):
-                    raise GovernanceSnapshotError(f"git: directorio {comp!r} no gobernado (root/no-g-o-write) (B303)")
+                    primary = f"git: directorio {comp!r} no gobernado (root/no-g-o-write) (B303)"
+                    break
                 cur = nfd
-            lfd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=cur)
-            fds.append(lfd)
-            st = os.fstat(lfd)
-            if not stat.S_ISREG(st.st_mode):
-                raise GovernanceSnapshotError(f"git {_GIT_ABS!r} no es fichero regular (B303)")
-            if st.st_uid != 0 or (st.st_mode & _DIR_GO_WRITE) or (st.st_mode & (stat.S_ISUID | stat.S_ISGID)):
-                raise GovernanceSnapshotError(f"git {_GIT_ABS!r} no root-owned / escribible g-o / setuid (B303)")
-            if not (st.st_mode & 0o100):  # ejecutable por el dueño
-                raise GovernanceSnapshotError(f"git {_GIT_ABS!r} no ejecutable (B303)")
-            byname = os.stat(leaf, dir_fd=cur, follow_symlinks=False)  # nombre↔identidad (sin nlink: git es multi-call)
-            if (byname.st_dev, byname.st_ino) != (st.st_dev, st.st_ino):
-                raise GovernanceSnapshotError(f"git {_GIT_ABS!r} cambió de nombre↔identidad (B303)")
-            return (
-                st.st_dev,
-                st.st_ino,
-                st.st_mode,
-                st.st_uid,
-                st.st_nlink,
-                st.st_size,
-                st.st_mtime_ns,
-                st.st_ctime_ns,
-            )
-        except OSError as exc:
-            raise GovernanceSnapshotError(f"git {_GIT_ABS!r} no gobernable ({exc}) (B303)") from exc
+            if primary is None:
+                lfd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=cur)
+                fds.append(lfd)
+                st = os.fstat(lfd)
+                if not stat.S_ISREG(st.st_mode):
+                    primary = f"git {_GIT_ABS!r} no es fichero regular (B303)"
+                elif st.st_uid != 0 or (st.st_mode & _DIR_GO_WRITE) or (st.st_mode & (stat.S_ISUID | stat.S_ISGID)):
+                    primary = f"git {_GIT_ABS!r} no root-owned / escribible g-o / setuid (B303)"
+                elif not (st.st_mode & 0o100):  # ejecutable por el dueño
+                    primary = f"git {_GIT_ABS!r} no ejecutable (B303)"
+                else:
+                    byname = os.stat(leaf, dir_fd=cur, follow_symlinks=False)  # nombre↔identidad (git es multi-call)
+                    if (byname.st_dev, byname.st_ino) != (st.st_dev, st.st_ino):
+                        primary = f"git {_GIT_ABS!r} cambió de nombre↔identidad (B303)"
+                    else:
+                        identity = (st.st_dev, st.st_ino, st.st_mode, st.st_uid, st.st_nlink, st.st_size, st.st_mtime_ns, st.st_ctime_ns)  # fmt: skip
+        except OSError as exc:  # B309: red de seguridad; KeyboardInterrupt/SystemExit NO son OSError → propagan
+            primary = f"git {_GIT_ABS!r} no gobernable ({exc}) (B303)"
         finally:
-            for fd in reversed(fds):
+            close_errors: list[str] = []
+            for fd in reversed(fds):  # B309: cierra TODOS aunque uno falle; agrega — nunca `except OSError: pass`
                 try:
                     os.close(fd)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    close_errors.append(str(exc))
+        if primary is not None:  # B309: error primario preservado, cierres ADJUNTOS
+            raise GovernanceSnapshotError(primary + (f" | cierres: {'; '.join(close_errors)} (B309)" if close_errors else ""))  # fmt: skip
+        if close_errors:  # B309: camino exitoso pero un cierre falló → fail-closed
+            raise GovernanceSnapshotError(f"git: fallo al cerrar fd(s): {'; '.join(close_errors)} (B309)")
+        if identity is None:  # defensivo: no debería ocurrir sin primary
+            raise GovernanceSnapshotError("git: identidad no derivada (B309)")
+        return identity
 
     def _run_git(self, args: list[str]) -> bytes:
         """B303: ejecuta el git ABSOLUTO gobernado con entorno allowlist, stdin DEVNULL, close_fds y timeout; revalida

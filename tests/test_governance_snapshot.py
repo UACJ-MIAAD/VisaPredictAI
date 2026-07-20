@@ -544,6 +544,63 @@ def test_b303_governed_git_identity_is_absolute_root_owned():
     assert ident[3] == 0, "git debe ser root-owned (uid 0) (B303)"  # st_uid
 
 
+# ---------------------------------------------------------------------------
+# B309 — `_governed_git_identity()` cerraba los fds con `except OSError: pass`, así que un cierre fallido sobre un camino
+# EXITOSO se silenciaba y devolvía identidad. Ahora el resultado es TOTAL: un cierre fallido es fail-closed, los errores
+# se agregan, y KeyboardInterrupt/SystemExit propagan.
+# ---------------------------------------------------------------------------
+def test_b309_close_error_on_success_fails_closed(monkeypatch):
+    real = os.close
+    state = {"n": 0}
+
+    def boom(fd):
+        state["n"] += 1
+        if state["n"] == 1:
+            try:
+                real(fd)
+            finally:
+                raise OSError(9, "EBADF inyectado")
+        return real(fd)
+
+    monkeypatch.setattr(os, "close", boom)
+    with pytest.raises(gs.GovernanceSnapshotError, match="B309"):
+        gs.GovernanceSnapshot(_REPO_ROOT)._governed_git_identity()
+
+
+def test_b309_multiple_close_errors_aggregated(monkeypatch):
+    real = os.close
+
+    def boom(fd):
+        try:
+            real(fd)
+        finally:
+            raise OSError(9, f"EBADF-{fd}")
+
+    monkeypatch.setattr(os, "close", boom)
+    with pytest.raises(gs.GovernanceSnapshotError) as ei:
+        gs.GovernanceSnapshot(_REPO_ROOT)._governed_git_identity()
+    assert "B309" in str(ei.value) and "cerrar" in str(ei.value)
+
+
+def test_b309_keyboardinterrupt_propagates(monkeypatch):
+    def ki(fd):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(os, "close", ki)
+    with pytest.raises(KeyboardInterrupt):
+        gs.GovernanceSnapshot(_REPO_ROOT)._governed_git_identity()
+
+
+def test_b309_no_silent_except_in_git_surface():
+    # estructural: la superficie git no usa `except OSError: pass` (taxonomía total, B299/B309).
+    import inspect
+    import re
+
+    for fn in (gs.GovernanceSnapshot._governed_git_identity, gs.GovernanceSnapshot._run_git):
+        src = inspect.getsource(fn)
+        assert not re.search(r"except\s+OSError[^\n:]*:\s*\n\s*pass", src), f"{fn.__name__} no debe silenciar OSError (B309)"  # fmt: skip
+
+
 def test_b301_reverify_detects_inventory_change(monkeypatch):
     with gs.GovernanceSnapshot(_REPO_ROOT) as snap:
         snap.tracked(gs.TrackedQuery("suffix", ".py"))  # sella
