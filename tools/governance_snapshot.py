@@ -26,10 +26,40 @@ _AUTHORITY_MAX_BYTES = 4 << 20  # 4 MiB
 _SOURCE_MAX_BYTES = 4 << 20  # 4 MiB
 _SNAPSHOT_TOTAL_MAX_BYTES = 64 << 20  # 64 MiB (suma de todo lo leído por la instancia)
 _DIR_GO_WRITE = 0o022  # bits de escritura grupo/otros — prohibidos en directorios gobernados
+_ALLOWED_MODES = frozenset({0o644, 0o600})  # B296: conjunto cerrado de modos exactos aprobados
+_CATEGORY_CAPS = {  # B296: cada categoría fija su cota superior; una categoría estricta NUNCA se satisface con una laxa
+    "contract": _CONTRACT_MAX_BYTES,
+    "authority": _AUTHORITY_MAX_BYTES,
+    "source": _SOURCE_MAX_BYTES,
+}
 
 
 class GovernanceSnapshotError(Exception):
-    """Fallo fail-closed de una lectura gobernada (identidad/modo/tamaño/cierre/ruta)."""
+    """Fallo fail-closed de una lectura gobernada (identidad/modo/tamaño/cierre/ruta/política/ciclo de vida)."""
+
+
+@dataclass(frozen=True)
+class ReadPolicy:
+    """B296: política de lectura INMUTABLE y con tipos cerrados. La caché se liga a `(rel, policy)`: una relectura con
+    política distinta FALLA en vez de devolver bytes sellados bajo otra política. Sin coerciones (`bool`/`float`/`NaN`
+    rechazados por identidad de tipo)."""
+
+    exact_mode: int
+    max_bytes: int
+    category: str
+
+    def __post_init__(self) -> None:
+        if type(self.exact_mode) is not int:  # bool es subclase de int → lo rechaza `is not int`
+            raise GovernanceSnapshotError(f"exact_mode debe ser int exacto, no {type(self.exact_mode).__name__} (B296)")
+        if self.exact_mode not in _ALLOWED_MODES:
+            raise GovernanceSnapshotError(f"exact_mode {self.exact_mode!r} fuera del conjunto {sorted(_ALLOWED_MODES)} (B296)")  # fmt: skip
+        if type(self.max_bytes) is not int:  # float/NaN/bool rechazados por tipo antes de comparar
+            raise GovernanceSnapshotError(f"max_bytes debe ser int exacto, no {type(self.max_bytes).__name__} (B296)")
+        if self.category not in _CATEGORY_CAPS:
+            raise GovernanceSnapshotError(f"categoría {self.category!r} no está en {sorted(_CATEGORY_CAPS)} (B296)")
+        cap = _CATEGORY_CAPS[self.category]
+        if not (0 < self.max_bytes <= cap):
+            raise GovernanceSnapshotError(f"max_bytes {self.max_bytes!r} fuera de (0, {cap}] para categoría {self.category!r} (B296)")  # fmt: skip
 
 
 @dataclass(frozen=True)
@@ -91,26 +121,34 @@ class GovernanceSnapshot(AbstractContextManager):
     def __init__(self, root: str) -> None:
         self._root = os.path.abspath(root)
         self._uid = os.getuid()
-        self._cache: dict[str, GovernedEntry] = {}
+        self._cache: dict[str, tuple[ReadPolicy, GovernedEntry]] = {}  # B296: sellado por (rel → política, entrada)
         self._total = 0
 
     def __exit__(self, *exc: object) -> None:
         self._cache.clear()
 
     # -- lectura gobernada -------------------------------------------------
-    def read(self, rel: str, *, exact_mode: int = 0o644, max_bytes: int = _SOURCE_MAX_BYTES) -> GovernedEntry:
-        if rel in self._cache:
-            return self._cache[rel]
-        entry, err = self._read_once(rel, exact_mode=exact_mode, max_bytes=max_bytes)
+    def read(
+        self, rel: str, *, exact_mode: int = 0o644, max_bytes: int | None = None, category: str = "source"
+    ) -> GovernedEntry:
+        policy = ReadPolicy(exact_mode, _CATEGORY_CAPS.get(category, _SOURCE_MAX_BYTES) if max_bytes is None else max_bytes, category)  # fmt: skip
+        cached = self._cache.get(rel)
+        if cached is not None:  # B296: la caché se liga a la política — una relectura con política distinta FALLA
+            prev_policy, prev_entry = cached
+            if prev_policy != policy:
+                raise GovernanceSnapshotError(f"{rel}: relectura con política {policy} != la sellada {prev_policy} (B296)")  # fmt: skip
+            return prev_entry
+        entry, err = self._read_once(rel, policy)
         if entry is None:
             raise GovernanceSnapshotError(err or f"{rel}: lectura gobernada fallida")
-        self._total += entry.stat.size
-        if self._total > _SNAPSHOT_TOTAL_MAX_BYTES:
-            raise GovernanceSnapshotError(f"{rel}: el snapshot total excede {_SNAPSHOT_TOTAL_MAX_BYTES} (B282)")
-        self._cache[rel] = entry
+        new_total = self._total + entry.stat.size  # B296: calcular ANTES de mutar; un rechazo no envenena el contador
+        if new_total > _SNAPSHOT_TOTAL_MAX_BYTES:
+            raise GovernanceSnapshotError(f"{rel}: el snapshot total {new_total} excede {_SNAPSHOT_TOTAL_MAX_BYTES} (B282)")  # fmt: skip
+        self._total = new_total
+        self._cache[rel] = (policy, entry)
         return entry
 
-    def _read_once(self, rel: str, *, exact_mode: int, max_bytes: int) -> tuple[GovernedEntry | None, str | None]:
+    def _read_once(self, rel: str, policy: ReadPolicy) -> tuple[GovernedEntry | None, str | None]:
         parts = _rel_parts(rel)
         if parts is None:
             return None, f"{rel}: ruta relativa POSIX inválida (fail-closed)"
@@ -148,7 +186,7 @@ class GovernanceSnapshot(AbstractContextManager):
                     primary = f"{rel}: leaf {leaf!r} no abrible sin seguir symlink ({exc}) (B274)"
                 else:
                     all_fds.append(lfd)
-                    primary, entry = self._govern_leaf(rel, leaf, lfd, cur, exact_mode, max_bytes, ancestors)
+                    primary, entry = self._govern_leaf(rel, leaf, lfd, cur, policy, ancestors)
         finally:
             close_errors: list[str] = []
             for fd in reversed(all_fds):
@@ -163,7 +201,8 @@ class GovernanceSnapshot(AbstractContextManager):
             return None, primary
         return entry, None
 
-    def _govern_leaf(self, rel, leaf, lfd, parent_fd, exact_mode, max_bytes, ancestors):
+    def _govern_leaf(self, rel, leaf, lfd, parent_fd, policy: ReadPolicy, ancestors):
+        exact_mode, max_bytes = policy.exact_mode, policy.max_bytes
         st0 = os.fstat(lfd)  # B293: el MISMO objeto valida y (más abajo) se compara con la re-lectura
         if not stat.S_ISREG(st0.st_mode):
             return f"{rel}: no es un fichero regular (B274)", None
@@ -234,9 +273,10 @@ class GovernanceSnapshot(AbstractContextManager):
         return tuple(x.decode("utf-8") for x in out.stdout.split(b"\x00") if x)
 
     def reverify(self) -> None:
-        """B286: re-lee (gobernado) cada entrada cacheada y exige identidad+bytes idénticos a lo sellado. Fail-closed."""
-        for rel, sealed in list(self._cache.items()):
-            fresh, err = self._read_once(rel, exact_mode=stat.S_IMODE(sealed.stat.mode), max_bytes=_SOURCE_MAX_BYTES)
+        """B286: re-lee (gobernado) cada entrada cacheada y exige identidad+bytes idénticos a lo sellado. Fail-closed.
+        B296: re-lee con EXACTAMENTE la política sellada de cada entrada (no `_SOURCE_MAX_BYTES` genérico)."""
+        for rel, (policy, sealed) in list(self._cache.items()):
+            fresh, err = self._read_once(rel, policy)
             if fresh is None:
                 raise GovernanceSnapshotError(f"reverify {rel}: {err}")
             if fresh.sha256 != sealed.sha256 or fresh.stat.identity() != sealed.stat.identity():
