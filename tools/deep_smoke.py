@@ -23,6 +23,7 @@ import os
 import platform
 import subprocess
 import sys
+from dataclasses import dataclass
 from importlib.metadata import distributions
 from pathlib import Path
 
@@ -43,16 +44,10 @@ def _no_dup_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return dict(pairs)
 
 
-def load_contract() -> tuple[list[tuple[str, str]], str]:
-    """B322/B323: lee el contrato de inventario INDEPENDIENTE de forma GOBERNADA (sin symlink, modo/uid/nlink exactos,
-    snapshot pre-post) vía `GovernanceSnapshot`; JSON anti-clave-duplicada; esquema CERRADO; orden canónico por módulo;
-    nombres de distribución PEP-503; módulos y distribuciones únicos. Devuelve `([(module, distribution)], sha256)`.
-    Toda desviación LEVANTA `ValueError` (no hay recibo)."""
-    from tools.governance_snapshot import GovernanceSnapshot
-
-    with GovernanceSnapshot(str(lc.ROOT)) as snap:
-        raw = snap.read(_CONTRACT_REL, category="contract").data
-    sha = "sha256:" + hashlib.sha256(raw).hexdigest()
+def _parse_contract_bytes(raw: bytes) -> tuple[tuple[str, str], ...]:
+    """B322/B326: parser+validador ÚNICO del contrato desde BYTES canónicos — anti-clave-duplicada, esquema CERRADO,
+    orden canónico por módulo, nombres PEP-503, módulos/distribuciones únicos. Devuelve la tupla INMUTABLE
+    `((module, distribution), …)`; toda desviación LEVANTA `ValueError` (no hay recibo)."""
     obj = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_dup_keys)
     if not (isinstance(obj, dict) and set(obj) == {"schema_version", "imports"}):
         raise ValueError(f"{_CONTRACT_REL}: claves top != {{schema_version, imports}}")
@@ -68,9 +63,7 @@ def load_contract() -> tuple[list[tuple[str, str]], str]:
         m, d = e["module"], e["distribution"]
         if type(m) is not str or type(d) is not str or not m or not d:
             raise ValueError(f"{_CONTRACT_REL}: module/distribution deben ser str no vacíos: {e!r}")
-        if (
-            lc._norm(d) != d
-        ):  # forma PEP-503 canónica (una distribución no normalizada podría duplicar por normalización)
+        if lc._norm(d) != d:  # PEP-503 canónico (una distribución no normalizada podría duplicar por normalización)
             raise ValueError(f"{_CONTRACT_REL}: distribution {d!r} no está en forma PEP-503 ({lc._norm(d)})")
         imports.append((m, d))
     modules = [m for m, _ in imports]
@@ -79,7 +72,49 @@ def load_contract() -> tuple[list[tuple[str, str]], str]:
         raise ValueError(f"{_CONTRACT_REL}: imports no está en orden canónico por módulo")
     if len(set(modules)) != len(modules) or len(set(dists)) != len(dists):
         raise ValueError(f"{_CONTRACT_REL}: módulos/distribuciones deben ser únicos")
-    return imports, sha
+    return tuple(imports)
+
+
+@dataclass(frozen=True, slots=True)
+class DeepSmokeContract:
+    """B326: autoridad de inventario deep INMUTABLE y AUTO-CONSISTENTE. Sólo la producen `load_contract()` (desde bytes
+    gobernados) o `for_test()` (desde bytes canónicos re-validados). `__post_init__` CRUZA contenido↔hash↔imports, de modo
+    que un caller NO puede forjar una lista vacía con un sha real ni un sha arbitrario: cualquier objeto construido es
+    consistente con sus bytes canónicos. `evaluate()` exige `type(x) is DeepSmokeContract` (ni lista+sha sueltos, ni
+    subclase)."""
+
+    imports: tuple[tuple[str, str], ...]
+    canonical_bytes: bytes
+    sha256: str
+
+    def __post_init__(self) -> None:
+        if type(self.canonical_bytes) is not bytes or type(self.sha256) is not str:
+            raise ValueError("DeepSmokeContract: tipos inválidos (canonical_bytes/sha256)")
+        if self.sha256 != "sha256:" + hashlib.sha256(self.canonical_bytes).hexdigest():
+            raise ValueError("DeepSmokeContract: sha256 no coincide con canonical_bytes")
+        if _parse_contract_bytes(self.canonical_bytes) != self.imports:  # imports↔bytes cruzados (no forjable)
+            raise ValueError("DeepSmokeContract: imports no coincide con canonical_bytes")
+
+    @classmethod
+    def _from_bytes(cls, raw: bytes) -> DeepSmokeContract:
+        return cls(imports=_parse_contract_bytes(raw), canonical_bytes=raw, sha256="sha256:" + hashlib.sha256(raw).hexdigest())  # fmt: skip
+
+    @classmethod
+    def for_test(cls, imports: tuple[tuple[str, str], ...]) -> DeepSmokeContract:
+        """Para tests PUROS: serializa `imports` a bytes canónicos y RE-VALIDA el mismo esquema (orden/PEP-503/únicos)."""
+        payload = {"schema_version": 1, "imports": [{"module": m, "distribution": d} for m, d in imports]}
+        raw = (json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+        return cls._from_bytes(raw)
+
+
+def load_contract() -> DeepSmokeContract:
+    """B322/B323/B326: lee el contrato INDEPENDIENTE de forma GOBERNADA (sin symlink, modo/uid/nlink exactos, snapshot
+    pre-post) vía `GovernanceSnapshot` y lo emite como `DeepSmokeContract` auto-consistente. Toda desviación → `ValueError`."""
+    from tools.governance_snapshot import GovernanceSnapshot
+
+    with GovernanceSnapshot(str(lc.ROOT)) as snap:
+        raw = snap.read(_CONTRACT_REL, category="contract").data
+    return DeepSmokeContract._from_bytes(raw)
 
 
 def _commit_sha() -> str:
@@ -100,19 +135,21 @@ def evaluate(
     torch_version: str,
     pip_check_ok: bool,
     checksum: float,
-    contract_imports: list[tuple[str, str]],
-    contract_sha: str,
+    contract: DeepSmokeContract,
 ) -> tuple[list[str], dict]:
     """Lógica PURA del smoke (sin importar el stack deep) — testeable con valores inyectados. El inventario observado se
-    exige EXACTAMENTE igual al del contrato independiente (B322): ni omisión, ni extra, ni tipo inválido. El recibo SOLO
-    se construye si `problems == []`."""
+    exige EXACTAMENTE igual al del contrato independiente (B322): ni omisión, ni extra, ni tipo inválido. La AUTORIDAD del
+    inventario es un `DeepSmokeContract` auto-consistente emitido por `load_contract`/`for_test` (B326): un caller NO puede
+    pasar una lista+sha sueltos ni forjados. El recibo SOLO se construye si `problems == []`."""
     if lock_rel not in lc.DEEP_RUNTIME:
         return [f"lock no gobernado: {lock_rel} (no está en DEEP_RUNTIME)"], {}
+    if type(contract) is not DeepSmokeContract:  # B326: ni lista+sha sueltos ni subclase — sólo la fábrica gobernada
+        return ["contrato deep inválido (se exige DeepSmokeContract de load_contract/for_test)"], {}
     rt = lc.DEEP_RUNTIME[lock_rel]
     probs: list[str] = [f"[contrato] {p}" for p in lc.validate_all(lc.ROOT)]
     if type(installed) is not dict or not all(type(k) is str and type(v) is str for k, v in installed.items()):
         return [*probs, "inventario observado inválido (se exige dict[str, str] exacto)"], {}
-    expected_dists = [d for _, d in contract_imports]
+    expected_dists = [d for _, d in contract.imports]
     observed, expected = set(installed), set(expected_dists)
     if observed - expected:
         probs.append(f"inventario observado con EXTRA fuera del contrato: {sorted(observed - expected)}")
@@ -142,7 +179,7 @@ def evaluate(
         "lock": lock_rel,
         "lock_sha256": _sha256(lc.ROOT / lock_rel),
         "manifest_sha256": _sha256(lc.ROOT / lc.MANIFEST_REL),
-        "deep_smoke_contract_sha256": contract_sha,
+        "deep_smoke_contract_sha256": contract.sha256,
         "variant_expected": rt["variant"],
         "platform_expected": f"{rt['system']} {rt['machine']}",
         "platform_observed": f"{system} {machine}",
@@ -161,11 +198,11 @@ def run(lock_rel: str) -> tuple[list[str], dict]:
     INDEPENDIENTE; el observado se construye consultando `version()` por cada distribución del contrato (una ausente se
     OMITE y la caza la igualdad de conjuntos de evaluate). B316: imports ESTÁTICOS, sin fábrica dinámica. B323: una
     comprobación RUNTIME (no `assert`; sobrevive `python -O`) exige que el stack importado == módulos del contrato."""
-    contract_imports, contract_sha = load_contract()
+    contract = load_contract()
     # inventario OBSERVADO por distribución instalada (`distributions()` no eleva por paquetes ausentes); una dist del
     # contrato que NO esté instalada queda fuera del dict y la caza la igualdad de conjuntos de evaluate().
     present = {lc._norm(d.name): d.version for d in distributions() if d.name}
-    installed = {dist: present[lc._norm(dist)] for _, dist in contract_imports if lc._norm(dist) in present}
+    installed = {dist: present[lc._norm(dist)] for _, dist in contract.imports if lc._norm(dist) in present}
     import chronos as _chronos
     import mlflow as _mlflow
     import neuralforecast as _neuralforecast
@@ -177,7 +214,7 @@ def run(lock_rel: str) -> tuple[list[str], dict]:
 
     _imported = (_chronos, _mlflow, _neuralforecast, _optuna, _pandas, _ray, torch, _transformers)
     imported_modules = frozenset(m.__name__.split(".")[0] for m in _imported)
-    expected_modules = frozenset(module for module, _ in contract_imports)
+    expected_modules = frozenset(module for module, _ in contract.imports)
     if imported_modules != expected_modules:  # NO es `assert` (sobrevive `python -O`)
         raise RuntimeError(f"stack importado {sorted(imported_modules)} != contrato {sorted(expected_modules)}")
 
@@ -198,8 +235,7 @@ def run(lock_rel: str) -> tuple[list[str], dict]:
         torch_version=torch.__version__,
         pip_check_ok=pip_ok,
         checksum=checksum,
-        contract_imports=contract_imports,
-        contract_sha=contract_sha,
+        contract=contract,
     )
 
 

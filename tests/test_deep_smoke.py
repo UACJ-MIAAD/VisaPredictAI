@@ -16,8 +16,8 @@ import tools.deep_smoke as ds
 import tools.lock_contracts as lc
 
 CPU = "locks/deep-linux-x86_64-cpu.txt"
-CONTRACT, CONTRACT_SHA = ds.load_contract()  # autoridad INDEPENDIENTE del inventario (B323)
-CONTRACT_DISTS = [d for _, d in CONTRACT]
+CONTRACT = ds.load_contract()  # autoridad INDEPENDIENTE del inventario, DeepSmokeContract inmutable (B323/B326)
+CONTRACT_DISTS = [d for _, d in CONTRACT.imports]
 
 
 def _installed(lock_rel):
@@ -35,8 +35,7 @@ def _kwargs(lock_rel, **over):
         torch_version=rt["torch"],
         pip_check_ok=True,
         checksum=83.0,
-        contract_imports=CONTRACT,
-        contract_sha=CONTRACT_SHA,
+        contract=CONTRACT,
     )
     base.update(over)
     return base
@@ -47,7 +46,7 @@ def test_happy_path_receipt_is_lock_and_contract_bound():
     assert probs == []
     assert receipt["lock_sha256"].startswith("sha256:") and len(receipt["lock_sha256"]) == 71
     assert receipt["manifest_sha256"].startswith("sha256:")
-    assert receipt["deep_smoke_contract_sha256"] == CONTRACT_SHA  # B322: recibo LIGADO al contrato de inventario
+    assert receipt["deep_smoke_contract_sha256"] == CONTRACT.sha256  # B322: recibo LIGADO al contrato de inventario
     assert list(receipt["versions"]) == CONTRACT_DISTS  # orden CANÓNICO del contrato
     assert receipt["commit_sha"] and receipt["torch_observed"] == lc.DEEP_TORCH[CPU]
     assert receipt["variant_expected"] == "linux-cpu" and receipt["pip_check"] == "ok"
@@ -116,6 +115,38 @@ def test_contract_red_blocks(monkeypatch):
 def test_all_governed_locks_have_runtime():
     # los 3 locks deep del contrato tienen su expectativa de ejecución
     assert set(lc.DEEP_RUNTIME) == set(lc.DEEP_LOCKS)
+
+
+def test_b326_forged_contract_is_rejected():
+    # B326: un caller NO puede forjar el `DeepSmokeContract` — el sha debe coincidir con `canonical_bytes` y los imports
+    # deben re-parsear IGUAL (contenido↔hash↔imports cruzados). Antes `evaluate()` aceptaba lista+sha sueltos.
+    with pytest.raises(ValueError, match="sha256 no coincide"):
+        ds.DeepSmokeContract(imports=(), canonical_bytes=b"", sha256="FORGED")
+    real = ds.load_contract()
+    with pytest.raises(ValueError, match="imports no coincide"):  # sha real, pero imports mentidos
+        ds.DeepSmokeContract(imports=(("evil", "evil"),), canonical_bytes=real.canonical_bytes, sha256=real.sha256)
+
+
+def test_b326_evaluate_rejects_non_contract():
+    # B326: `evaluate()` exige `type(x) is DeepSmokeContract` — ni una lista/tupla+sha sueltos ni una subclase.
+    for forged in ([], (), CONTRACT_DISTS, "sha256:deadbeef"):
+        probs, receipt = ds.evaluate(CPU, **{**_kwargs(CPU), "contract": forged})
+        assert receipt == {} and any("contrato deep inválido" in p for p in probs), (forged, probs)
+
+    class _Sub(ds.DeepSmokeContract):
+        pass
+
+    sub = _Sub(imports=CONTRACT.imports, canonical_bytes=CONTRACT.canonical_bytes, sha256=CONTRACT.sha256)
+    probs, receipt = ds.evaluate(CPU, **{**_kwargs(CPU), "contract": sub})
+    assert receipt == {} and any("contrato deep inválido" in p for p in probs)
+
+
+def test_b326_for_test_factory_revalidates():
+    # `for_test` construye un contrato válido re-validando el mismo esquema; imports no canónicos son rechazados.
+    good = ds.DeepSmokeContract.for_test((("a", "a"), ("b", "b")))
+    assert good.imports == (("a", "a"), ("b", "b")) and good.sha256.startswith("sha256:")
+    with pytest.raises(ValueError, match="orden canónico"):
+        ds.DeepSmokeContract.for_test((("zzz", "zzz"), ("aaa", "aaa")))
 
 
 if __name__ == "__main__":
