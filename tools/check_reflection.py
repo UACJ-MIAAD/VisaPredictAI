@@ -38,7 +38,7 @@ from typing import NamedTuple
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
-_SCANNER_VERSION = 13  # B265/…/B308/B310: contrato sintáctico positivo — una fábrica dinámica usada como VALOR (no la llamada directa descartada) es `dynamic-import-factory-value` PROHIBIDO
+_SCANNER_VERSION = 14  # B265/…/B310/B316/B317: sin forma segura — CUALQUIER fábrica de import dinámico y CUALQUIER lookup dinámico sobre builtins/importlib es PROHIBIDO en el origen sintáctico (deep_smoke ya no usa import_module)
 _REGISTRY_TOP_KEYS = {
     "schema_version",
     "scanner_version",
@@ -66,13 +66,14 @@ _BUILTINS_DYNAMIC_LOOKUP = "builtins.dynamic-lookup"
 # B285: política POSITIVA — TODA llamada rooteada en un módulo canónico produce una ocurrencia registrable (no una lista
 # de terminales que deja invisibles a SourceFileLoader.set_data / sys.meta_path.insert / sys.path_hooks.append / …).
 _CANONICAL_ROOTED_CALL = "canonical-rooted-call"
-# B308: DENY-BY-DEFAULT — el resultado de una fábrica DINÁMICA (`__import__`/`import_module`) está globalmente PROHIBIDO
-# (no registrable) salvo el ÚNICO patrón seguro: `import_module(...)` como valor COMPLETO de un `ast.Expr` (descartado).
-# Cualquier otra posición (return/yield/await/with/raise/default/store/comprensión/…) cae por default, sin enumerar sinks.
+# B308/B316: DENY-BY-DEFAULT — el resultado de una fábrica DINÁMICA (`__import__`/`import_module`, bare o aliased) está
+# globalmente PROHIBIDO (no registrable) en CUALQUIER posición. Ya NO hay patrón seguro: `deep_smoke` importa su stack de
+# forma estática, así que producción no requiere ninguna llamada a una fábrica de import dinámico.
 _DYNAMIC_MODULE_RESULT_ESCAPE = "dynamic-module-result-escape"
-# B310: contrato SINTÁCTICO POSITIVO — una fábrica dinámica usada como VALOR de primera clase (`__import__` referenciado,
-# `importlib.import_module` capturado/aliased, `from importlib import import_module`) está PROHIBIDA aunque nunca se
-# llame; la única forma admisible es `importlib.import_module(expr)` como statement descartado desde `import importlib`.
+# B310/B317: contrato SINTÁCTICO POSITIVO — OBTENER una fábrica de import dinámico está PROHIBIDO en el ORIGEN, aunque
+# nunca se llame: `__import__`/`__builtins__` en Load, `from builtins|importlib import __import__|import_module`,
+# `<builtins|importlib>.__import__/.import_module` como Attribute, y todo lookup dinámico (getattr/vars/__dict__/
+# attrgetter/methodcaller/partial) sobre builtins/importlib con nombre LITERAL o CALCULADO.
 _DYNAMIC_IMPORT_FACTORY_VALUE = "dynamic-import-factory-value"
 OPERATIONS_CONTROLLED = tuple(sorted(_BUILTIN_PRIMS | frozenset(_MODULE_PRIMS) | _ATTR_PRIMS | {"__dict__", "sys.modules", _REFLECTION_MODULE_ESCAPE, _BUILTINS_DYNAMIC_LOOKUP, _CANONICAL_ROOTED_CALL, _DYNAMIC_MODULE_RESULT_ESCAPE, _DYNAMIC_IMPORT_FACTORY_VALUE}))  # fmt: skip
 _CB_MODULE = "tools.campaign_bundle"
@@ -325,6 +326,8 @@ def _rooted_chain_escape(node: ast.AST, parents: dict[int, ast.AST], mod_aliases
 
 # B289: fábricas canónicas que DEVUELVEN un módulo; un binding `m = import_module(...)`/`__import__(...)` queda rooteado.
 _CANONICAL_FACTORY_NAMES = frozenset({"import_module", "__import__"})
+# B316/B317: módulos que EXPONEN las fábricas estándar de import dinámico; todo lookup dinámico sobre ellos está prohibido.
+_FACTORY_MODULE_ROOTS = frozenset({"builtins", "importlib"})
 
 
 class _Provenance(NamedTuple):
@@ -337,7 +340,6 @@ class _Provenance(NamedTuple):
     factories: dict[
         str, str
     ]  # B297: nombre → raíz canónica de una FÁBRICA (`__import__`/`import_module`) aún sin llamar
-    clean_importlib: frozenset[str]  # B310: alias de `import importlib` NO reescritos (safe form exige binding limpio)
 
 
 # B297: dominio abstracto de una expresión — 'value' evalúa a un módulo/miembro canónico (o RESULTADO de fábrica);
@@ -406,51 +408,79 @@ def _factory_root(fn: ast.AST, factories: dict[str, str], rooted: dict[str, str]
     return None
 
 
+def _factory_module_root(node: ast.AST, prov: _Provenance) -> str | None:
+    """B316/B317: raíz ∈ {builtins, importlib} si `node` evalúa a ESE módulo canónico (o submódulo/atributo suyo). Son
+    los módulos que EXPONEN las fábricas estándar de import dinámico (`builtins.__import__`, `importlib.import_module`);
+    todo lookup dinámico sobre ellos está prohibido. `_ProvenanceLimitError` propaga (fail-closed en `scan_reflection`)."""
+    kind, root = _expr_provenance(node, prov.rooted, prov.factories, 0)
+    return root if kind == "value" and root in _FACTORY_MODULE_ROOTS else None
+
+
+def _accessor_prim(fn: ast.AST, prov: _Provenance) -> str | None:
+    """Nombre del primitivo de acceso dinámico ('getattr'/'vars'/'attrgetter'/'methodcaller'/'partial') al que resuelve
+    `fn` — builtin bare, `operator.attrgetter`/`functools.partial`, o `from operator import attrgetter` — si no None."""
+    if isinstance(fn, ast.Name):
+        if fn.id in ("getattr", "vars"):
+            return fn.id
+        if fn.id in _MODULE_PRIMS and prov.rooted.get(fn.id) == _MODULE_PRIMS[fn.id]:
+            return fn.id
+    if isinstance(fn, ast.Attribute) and fn.attr in _MODULE_PRIMS:
+        kind, r = _expr_provenance(fn.value, prov.rooted, prov.factories, 0)
+        if kind == "value" and r == _MODULE_PRIMS[fn.attr]:
+            return fn.attr
+    return None
+
+
+def _call_reads_factory_module(call: ast.Call, prov: _Provenance) -> bool:
+    """B317: la llamada obtiene un atributo de builtins/importlib de forma DINÁMICA — nombre literal o CALCULADO:
+    `getattr(M,·)` · `vars(M)` · `attrgetter(·)(M)` · `methodcaller(·)(M)` · `partial(getattr|vars, M, ·)`."""
+    fn = call.func
+    if isinstance(fn, ast.Name) and fn.id in ("getattr", "vars") and call.args and _factory_module_root(call.args[0], prov):  # fmt: skip
+        return True
+    if isinstance(fn, ast.Call) and _accessor_prim(fn.func, prov) in ("attrgetter", "methodcaller") and call.args and _factory_module_root(call.args[0], prov):  # fmt: skip
+        return True  # el accesor construido (attrgetter/methodcaller) se APLICA a un módulo de fábrica
+    if _accessor_prim(fn, prov) == "partial" and call.args:  # partial(getattr|vars, M, …) liga un accesor a M
+        first = call.args[0]
+        if isinstance(first, ast.Name) and first.id in ("getattr", "vars") and any(_factory_module_root(a, prov) for a in call.args[1:]):  # fmt: skip
+            return True
+    return False
+
+
+def _subscript_reads_factory_module(sub: ast.Subscript, prov: _Provenance) -> bool:
+    """B317: `M.__dict__[·]` / `vars(M)[·]` / `__builtins__[·]` sobre builtins/importlib — literal o calculado."""
+    base = sub.value
+    if isinstance(base, ast.Attribute) and base.attr == "__dict__" and _factory_module_root(base.value, prov):
+        return True
+    if isinstance(base, ast.Call) and isinstance(base.func, ast.Name) and base.func.id == "vars" and base.args and _factory_module_root(base.args[0], prov):  # fmt: skip
+        return True
+    return _factory_module_root(base, prov) is not None  # `__builtins__['__import__']`, `importlib[...]`, etc.
+
+
 def _dynamic_factory_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _Provenance) -> str | None:
-    """B308/B310: contrato SINTÁCTICO POSITIVO para fábricas dinámicas. NO se enumera una lista de sinks ni se rastrea la
-    fábrica como valor de primera clase. PROHIBIDO (globalmente no registrable):
-    (B310) `__import__` referenciado en Load (llamado o no), `from importlib import import_module`/`__import__`, y
-      `importlib.import_module` CAPTURADO como valor (no la llamada directa descartada) → `dynamic-import-factory-value`;
-    (B308) toda otra `ast.Call` a una fábrica → `dynamic-module-result-escape`.
-    ÚNICO patrón admisible: `importlib.import_module(expr)` como valor COMPLETO de un `ast.Expr` (descartado) desde un
-    `import importlib` rooteado → deja pasar a `_resolve_op` (op `import_module` registrable)."""
-    # B310 (1): __import__ como referencia ejecutable (Load) — SIEMPRE prohibido, llamado o no
-    if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id == "__import__":
+    """B308/B316/B317: prohibición GLOBAL, en el ORIGEN sintáctico, de toda fábrica estándar de import dinámico y de todo
+    lookup dinámico sobre los módulos que las exponen (builtins/importlib). NO existe forma segura — `deep_smoke` ya no usa
+    `importlib.import_module`, así que producción NO necesita ninguna fábrica dinámica. Prohibir en el origen sintáctico
+    (ImportFrom/Name/Attribute/lookup) hace innecesario rastrear transformaciones posteriores: el programa ya es inválido
+    donde OBTIENE la fábrica. Alcance honesto (§7.3): NO es un sandbox contra quien reimplemente un importador o ejecute
+    código por otra API — esa autoridad es B291 + revisión. Devuelve ops PROHIBIDAS (no registrables)."""
+    # (1) `__import__` / `__builtins__` como referencia ejecutable en Load — SIEMPRE prohibido (llamado o no)
+    if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in ("__import__", "__builtins__"):
         return _DYNAMIC_IMPORT_FACTORY_VALUE
-    # B310 (2): `from importlib import import_module|__import__` — prohibido
-    if isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] == "importlib":
-        if any(a.name in _CANONICAL_FACTORY_NAMES for a in node.names):
-            return _DYNAMIC_IMPORT_FACTORY_VALUE
-    # B310 (3): `importlib.import_module` como Attribute — sólo admisible como func de un Call descartado desde un
-    # `import importlib` LIMPIO (no reescrito; un rebind lo invalida).
-    if isinstance(node, ast.Attribute) and node.attr == "import_module" and isinstance(node.value, ast.Name) and node.value.id in prov.clean_importlib:  # fmt: skip
-        parent = parents.get(id(node))
-        if isinstance(parent, ast.Call) and parent.func is node:
-            gp = parents.get(id(parent))
-            if isinstance(gp, ast.Expr) and gp.value is parent:
-                return None  # forma segura: `importlib.import_module(...)` descartado
-        return _DYNAMIC_IMPORT_FACTORY_VALUE  # capturado como valor / llamada no descartada
-    # B310 (3b): `importlib.import_module` sobre un importlib REESCRITO (rooteado pero no limpio) → prohibido siempre
-    if isinstance(node, ast.Attribute) and node.attr in _CANONICAL_FACTORY_NAMES and isinstance(node.value, ast.Name) and prov.rooted.get(node.value.id) == "importlib" and node.value.id not in prov.clean_importlib:  # fmt: skip
+    # (2) `from builtins|importlib import __import__|import_module` (cualquier alias) — prohibido en el ImportFrom
+    if isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] in _FACTORY_MODULE_ROOTS and any(a.name in _CANONICAL_FACTORY_NAMES for a in node.names):  # fmt: skip
         return _DYNAMIC_IMPORT_FACTORY_VALUE
-    # B310 (4): OBTENER la fábrica por NOMBRE LITERAL — `getattr(X, '__import__')`, `vars(X)['import_module']`,
-    # `X.__dict__['__import__']` — está prohibido (no registrable), aunque el objeto exacto no sea demostrable.
-    if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in _CANONICAL_FACTORY_NAMES:
-        parent = parents.get(id(node))
-        if isinstance(parent, ast.Call) and isinstance(parent.func, ast.Name) and parent.func.id in ("getattr", "vars") and node in parent.args:  # fmt: skip
-            return _DYNAMIC_IMPORT_FACTORY_VALUE
-        if isinstance(parent, ast.Subscript) and parent.slice is node:
-            base = parent.value
-            if (isinstance(base, ast.Attribute) and base.attr == "__dict__") or (isinstance(base, ast.Call) and isinstance(base.func, ast.Name) and base.func.id == "vars"):  # fmt: skip
-                return _DYNAMIC_IMPORT_FACTORY_VALUE
-    # B308: toda otra llamada a una fábrica dinámica (aliased __import__, etc.) — deny-by-default
-    if isinstance(node, ast.Call):
-        root = _factory_root(node.func, prov.factories, prov.rooted)
-        if root is None:
-            return None
-        parent = parents.get(id(node))
-        if root == "importlib" and isinstance(parent, ast.Expr) and parent.value is node:
-            return None  # import_module(...) descartado como statement → `_resolve_op` da la op específica
+    # (3) Attribute `.import_module`/`.__import__` sobre un módulo canónico builtins/importlib (directo, alias o rebind) —
+    # prohibido SIEMPRE (capturado, llamado o descartado): ya no hay excepción de statement descartado
+    if isinstance(node, ast.Attribute) and node.attr in _CANONICAL_FACTORY_NAMES and _factory_module_root(node.value, prov) is not None:  # fmt: skip
+        return _DYNAMIC_IMPORT_FACTORY_VALUE
+    # (4) lookup dinámico sobre builtins/importlib como LLAMADA (getattr/vars/attrgetter/methodcaller/partial) — literal o calculado
+    if isinstance(node, ast.Call) and _call_reads_factory_module(node, prov):
+        return _DYNAMIC_IMPORT_FACTORY_VALUE
+    # (5) lookup dinámico sobre builtins/importlib como SUBSCRIPT (`M.__dict__[·]`, `vars(M)[·]`, `__builtins__[·]`)
+    if isinstance(node, ast.Subscript) and _subscript_reads_factory_module(node, prov):
+        return _DYNAMIC_IMPORT_FACTORY_VALUE
+    # (6) DENY-BY-DEFAULT: toda llamada a una fábrica (bare/aliased `__import__`, `import_module` aliased) — sin excepción
+    if isinstance(node, ast.Call) and _factory_root(node.func, prov.factories, prov.rooted) is not None:
         return _DYNAMIC_MODULE_RESULT_ESCAPE
     return None
 
@@ -524,11 +554,7 @@ def _canonical_provenance(tree: ast.AST, mod_aliases: dict[str, str]) -> _Proven
         members.discard(
             name
         )  # `_resolve_op` sobre la LLAMADA) Y fábrica (su RESULTADO queda rooteado, B297); nodos distintos
-    # B310: alias de `import importlib` limpios = importados y NUNCA reescritos (Store/Del) — un rebind los invalida.
-    imported_il = {a.asname or "importlib" for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names if a.name == "importlib"}  # fmt: skip
-    rebound_il = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Store, ast.Del)) and n.id in imported_il}  # fmt: skip
-    clean_importlib = imported_il - rebound_il
-    return _Provenance(rooted, frozenset(sysmod), frozenset(dictnames), frozenset(members), factories, frozenset(clean_importlib))  # fmt: skip
+    return _Provenance(rooted, frozenset(sysmod), frozenset(dictnames), frozenset(members), factories)
 
 
 def _canonical_member_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _Provenance) -> str | None:

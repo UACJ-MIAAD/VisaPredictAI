@@ -225,7 +225,10 @@ def test_b265_module_escapes_become_occurrences(tmp_path, monkeypatch):
     for label, src in cases.items():
         _mount(tmp_path, monkeypatch, {"m.py": src})
         ops = {e["op"] for e in refl.scan_reflection(["m.py"])[0].values()}
-        assert ops & {refl._REFLECTION_MODULE_ESCAPE, refl._BUILTINS_DYNAMIC_LOOKUP}, f"{label} debe ser un escape (B265): {ops}"  # fmt: skip
+        # B316/B317: `__builtins__[dyn]` es ahora un lookup dinámico sobre builtins → PROHIBIDO (aún más fuerte que una
+        # ocurrencia registrable); el resto siguen siendo escapes. En todos, el módulo canónico NO queda invisible.
+        caught = {refl._REFLECTION_MODULE_ESCAPE, refl._BUILTINS_DYNAMIC_LOOKUP, refl._DYNAMIC_IMPORT_FACTORY_VALUE}
+        assert ops & caught, f"{label} debe ser un escape/prohibido (B265/B317): {ops}"
 
 
 def test_b265_no_false_positive_on_legit_module_use(tmp_path, monkeypatch):
@@ -498,10 +501,11 @@ def test_b294_import_star_of_canonical_is_rejected(tmp_path, monkeypatch):
 
 
 def test_b294_canonical_alias_subscripts_flagged(tmp_path, monkeypatch):
-    # `from sys import modules as mods; mods[k]` y `from builtins import __dict__ as ns; ns[k]` (miembro traído DIRECTO y
-    # subscriptado) dan su op modelada — invisibles en 731b6d2.
+    # `from sys import modules as mods; mods[k]` da su op modelada `sys.modules` (registrable) — invisible en 731b6d2.
     assert "sys.modules" in _line_ops(tmp_path, monkeypatch, "from sys import modules as mods\nx = mods['os']\n", 2)
-    assert "__dict__" in _line_ops(tmp_path, monkeypatch, "from builtins import __dict__ as ns\nx = ns['open']\n", 2)
+    # B316/B317: `from builtins import __dict__ as ns; ns[k]` es un lookup dinámico sobre el namespace de builtins →
+    # PROHIBIDO (globalmente no registrable), no un `__dict__` registrable: `ns[k]` puede resolver a `__import__`.
+    assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in _line_ops(tmp_path, monkeypatch, "from builtins import __dict__ as ns\nx = ns['open']\n", 2)  # fmt: skip
 
 
 def test_b294_member_noncall_escape(tmp_path, monkeypatch):
@@ -693,13 +697,14 @@ def test_b308_deny_by_default_covers_unenumerated_contexts(tmp_path, monkeypatch
         assert refl._DYNAMIC_MODULE_RESULT_ESCAPE in ops, f"{label}: default-deny debe prohibir (B308): {ops}"
 
 
-def test_b308_only_safe_pattern_is_discarded_import_module(tmp_path, monkeypatch):
-    # ÚNICO patrón autorizado: `import_module(...)` como statement DESCARTADO → op `import_module` registrable, sin escape.
+def test_b308_b316_no_safe_pattern_exists(tmp_path, monkeypatch):
+    # B316/B317: YA NO hay patrón autorizado — `deep_smoke` importa su stack de forma estática, así que producción no
+    # requiere NINGUNA fábrica de import dinámico. Incluso `importlib.import_module(...)` DESCARTADO es prohibido ahora.
     ops, probs = _ops_and_problems(tmp_path, monkeypatch, "import importlib\nimportlib.import_module(name)\n")
-    assert "import_module" in ops and refl._DYNAMIC_MODULE_RESULT_ESCAPE not in ops and not probs, ops
-    # `__import__` NO tiene patrón autorizado: incluso descartado, es prohibido.
+    assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops and "import_module" not in ops, ops
+    # `__import__` tampoco tiene patrón autorizado: incluso descartado, es prohibido.
     ops, _ = _ops_and_problems(tmp_path, monkeypatch, "__import__('os')\n")
-    assert refl._DYNAMIC_MODULE_RESULT_ESCAPE in ops, ops
+    assert refl._DYNAMIC_MODULE_RESULT_ESCAPE in ops or refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, ops
     # gate: una fábrica prohibida NO se puede blanquear con una entrada de registro (globalmente prohibida).
     _mount(
         tmp_path,
@@ -750,41 +755,97 @@ def test_b310_factory_as_value_is_prohibited(tmp_path, monkeypatch):
         )
 
 
-def test_b310_safe_form_and_benign_controls(tmp_path, monkeypatch):
-    # forma segura: `importlib.import_module(...)` DESCARTADO → op `import_module`, sin `dynamic-import-factory-value`.
-    ops, probs = _ops_and_problems(tmp_path, monkeypatch, "import importlib\nimportlib.import_module(name)\n")
-    assert "import_module" in ops and refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops and not probs, ops
-    # controles benignos: no sobredisparan.
+def test_b316_no_safe_form_and_benign_controls(tmp_path, monkeypatch):
+    # B316/B317: `importlib.import_module(...)` DESCARTADO ya NO es forma segura → prohibido.
+    ops, _ = _ops_and_problems(tmp_path, monkeypatch, "import importlib\nimportlib.import_module(name)\n")
+    assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, ops
+    # controles benignos: no sobredisparan (incl. `importlib.metadata.version`, `getattr` sobre no-canónico).
     for src in (
         "import sys\nx = sys.version\n",
         "from importlib.metadata import version\nv = version('p')\n",
+        "import importlib.metadata\nv = importlib.metadata.version('p')\n",
         "import functools\np = functools.partial(foo)\n",
         "import os\nx = os.getcwd()\n",
+        "import os\nx = getattr(os, 'getcwd')\n",
     ):
-        ops, probs = _ops_and_problems(tmp_path, monkeypatch, src)
-        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"no debe sobredisparar (B310): {src!r} → {ops}"
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"no debe sobredisparar (B316/B317): {src!r} → {ops}"
 
 
-def test_b310_round_b_rebind_and_name_lookup_prohibited(tmp_path, monkeypatch):
-    # Ronda B: importlib reescrito invalida la forma segura; obtener la fábrica por NOMBRE LITERAL (getattr/vars/__dict__)
-    # está prohibido; controles (forma segura, literales de frozenset, getattr normal, dict normal) no sobredisparan.
+def test_b317_lookup_over_factory_module_prohibited(tmp_path, monkeypatch):
+    # B316/B317: todo lookup dinámico sobre builtins/importlib está prohibido — nombre LITERAL o CALCULADO — mientras que
+    # el mismo lookup sobre un objeto NO canónico sigue siendo un `getattr` registrable (contrato ligado al OBJETO).
     for label, src in {
         "rebind": "import importlib\nimportlib = None\nimportlib.import_module('x')\n",
         "getattr_literal": "import builtins\ng = getattr(builtins, '__import__')\n",
+        "getattr_computed": "import builtins\ng = getattr(builtins, 'import' + '_module')\n",
         "vars_literal": "import builtins\nf = vars(builtins)['__import__']\n",
+        "vars_computed": "import builtins\nname = 'x'\nf = vars(builtins)[name]\n",
         "dict_literal": "import builtins\nf = builtins.__dict__['__import__']\n",
-        "getattr_import_module": "g = getattr(m, 'import_module')\n",
+        "il_getattr_computed": "import importlib\nname = 'import' + '_module'\nf = getattr(importlib, name)\n",
+        "attrgetter_over_builtins": "import operator, builtins\nn = 'x'\nf = operator.attrgetter(n)(builtins)\n",
+        "partial_getattr_builtins": "import functools, builtins\nn = 'x'\nf = functools.partial(getattr, builtins, n)\n",
     }.items():
         ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
-        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, f"{label}: debe prohibirse (B310 ronda B): {ops}"
+        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, f"{label}: debe prohibirse (B316/B317): {ops}"
     for label, src in {
-        "safe_form": "import importlib\nimportlib.import_module(name)\n",
         "frozenset_literal": 'F = frozenset({"import_module", "__import__"})\n',
+        "getattr_noncanonical": "g = getattr(m, 'import_module')\n",  # m no es builtins/importlib → registrable
         "normal_getattr": "g = getattr(obj, 'normal_attr')\n",
+        "getattr_os": "import os\ng = getattr(os, 'getcwd')\n",  # os no expone fábricas de import dinámico
         "normal_dict": "d = {'__import__': 1}\nx = d['k']\n",
     }.items():
         ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
-        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"{label}: no debe sobredisparar (B310 ronda B): {ops}"
+        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"{label}: no debe sobredisparar (B316/B317): {ops}"
+
+
+def test_b316_shadowing_no_longer_creates_a_safe_form(tmp_path, monkeypatch):
+    # B316: en 552fe3c la forma segura confiaba en `clean_importlib` (una tabla de nombres SIN scope léxico), así que un
+    # parámetro/default/local llamado `importlib` sombreaba al módulo real y `importlib.import_module(name)` se declaraba
+    # SEGURO. Al eliminar la forma segura, `importlib.import_module` es prohibido SIEMPRE — el shadowing ya no ayuda ni
+    # crea un falso-seguro.
+    for label, src in {
+        "param_shadow": "import importlib\ndef f(importlib):\n    importlib.import_module(name)\n",
+        "default_shadow": "import importlib\ndef f(importlib=evil):\n    importlib.import_module(name)\n",
+        "local_shadow": "import importlib\ndef f():\n    importlib = None\n    return importlib.import_module(name)\n",
+        "alias_attr": "import importlib as il\nx = il.import_module\n",
+        "metadata_plus_factory": "import importlib.metadata\nx = importlib.import_module\n",
+    }.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, f"{label}: debe prohibirse (B316): {ops}"
+
+
+def test_b317_import_transform_prohibited_at_the_source(tmp_path, monkeypatch):
+    # B317: obtener la fábrica y luego TRANSFORMARLA (contenedor/identidad) evadía porque sólo se marcaba la llamada. Al
+    # prohibir en el ORIGEN sintáctico (ImportFrom/Name), la transformación posterior es irrelevante: el programa ya es
+    # inválido donde OBTIENE la fábrica, aunque nunca la llame.
+    for label, src in {
+        "from_builtins_unused": "from builtins import __import__ as f\n",
+        "from_builtins_transformed": "from builtins import __import__ as f\ng = [f][0]\nm = g('os')\n",
+        "from_importlib_unused": "from importlib import import_module as im\n",
+        "dunder_builtins_name": "x = __builtins__\n",
+        "dunder_builtins_subscript": "f = __builtins__['__import__']\n",
+    }.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, f"{label}: debe prohibirse en el origen (B317): {ops}"
+
+
+def test_b316_deep_smoke_imports_its_stack_statically():
+    # B316: `tools/deep_smoke.py` YA NO usa `importlib.import_module`; los imports del stack son ESTÁTICOS y el conjunto de
+    # nombres importados dentro de `run()` es EXACTAMENTE `set(STACK)` (sin duplicar la lista de ocho en dos lugares).
+    import ast
+    import pathlib
+
+    import tools.deep_smoke as ds
+
+    src = pathlib.Path(ds.__file__).read_text()
+    tree = ast.parse(src)
+    # AST, no substring: la docstring MENCIONA `importlib.import_module` legítimamente; lo que se prohíbe es el ACCESO.
+    dyn = [n for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr in ("import_module", "__import__")]
+    assert not dyn, "deep_smoke no debe ACCEDER .import_module/.__import__ (B316)"
+    run_fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "run")
+    local_imports = {a.name for n in ast.walk(run_fn) if isinstance(n, ast.Import) for a in n.names}
+    assert local_imports == set(ds.STACK), f"imports locales de run() {local_imports} != set(STACK) {set(ds.STACK)}"
 
 
 def test_b310_prohibited_value_fails_the_gate(tmp_path, monkeypatch):

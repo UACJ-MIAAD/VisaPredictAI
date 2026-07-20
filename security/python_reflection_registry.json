@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "scanner_version": 13,
+  "scanner_version": 14,
   "note": "B255/B259/B260: registro POSITIVO de TODA operación de reflexión en el código de producción versionado, con IDENTIDAD SEMÁNTICA. El gate tools/check_reflection.py deriva el ID de cada ocurrencia de sha256(JSON canónico de {file, qualname, op, statement_ast_sha256, occurrence_index}); cambiar objeto/nombre/forma de la llamada cambia el AST del statement y por tanto el ID → exige revisión. Cubre builtins/sys/importlib/operator/functools por alias, imports relativos, qualname completo (métodos/lambda/async/anidadas) y es fail-closed ante sintaxis/lectura/JSON inválidos. FRONTERA HONESTA: evita reflexión NO REGISTRADA en código versionado; NO protege contra un mantenedor que cambie a la vez código y política (revisión humana + rama protegida).",
   "operations_controlled": [
     "__dict__",
@@ -145,15 +145,6 @@
       "statement_ast_sha256": "de894ea0941c9991c0ea7b1164aed64996d1b5acb132fe33fe1398a702367092",
       "occurrence_index": 0,
       "justification": "acceso defensivo a atributos de AST en el gate estático",
-      "review_by": "2027-07-31"
-    },
-    "215cea378f0ff679344aacf30f5978f4de12a3e10f7e1b5723b9cbc1cc1ab038": {
-      "file": "tools/deep_smoke.py",
-      "qualname": "run",
-      "op": "import_module",
-      "statement_ast_sha256": "f001603fa154c30122702dc7e03e5dd47973857aa5e17a070cadb0128652dde1",
-      "occurrence_index": 0,
-      "justification": "reflexión de smoke controlado del entorno deep",
       "review_by": "2027-07-31"
     },
     "9f88b592766ea0049eaeadb109f791b0b6ffb1aa7cad61ae00c0de2c79eafccd": {
@@ -667,15 +658,6 @@
       "statement_ast_sha256": "074e47688e90345660987a9e0f9ceefa8770dcacbf2b9cfcf6d61c159c3dc684",
       "occurrence_index": 0,
       "justification": "Llamada estandar `sys.exit(...)` sobre modulo canonico (B285); benigna, sin reflexion dinamica; revisada 2026-07-19.",
-      "review_by": "2027-07-19"
-    },
-    "ac5f1f6393d3ee8430758742f3629e9fbc8b90e08f0a16e10c111e42fe67c8d7": {
-      "file": "tools/deep_smoke.py",
-      "qualname": "run",
-      "op": "canonical-rooted-call",
-      "statement_ast_sha256": "f001603fa154c30122702dc7e03e5dd47973857aa5e17a070cadb0128652dde1",
-      "occurrence_index": 0,
-      "justification": "Llamada estandar `importlib.import_module(...)` sobre modulo canonico (B285); benigna, sin reflexion dinamica; revisada 2026-07-19.",
       "review_by": "2027-07-19"
     },
     "1f4a63a8ef0c9b2094f616372cd78e0bc940e76243a27360fe3a4ff917cdbfcc": {

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib
 import json
 import os
 import platform
@@ -103,11 +102,22 @@ def evaluate(
 
 
 def run(lock_rel: str) -> tuple[list[str], dict]:
-    """Recoge el estado REAL del entorno deep instalado y delega a evaluate()."""
+    """Recoge el estado REAL del entorno deep instalado y delega a evaluate(). B316/B317: el stack se importa con
+    imports ESTÁTICOS y explícitos (un import fallido aborta ruidosamente), SIN `importlib.import_module` ni ninguna
+    otra fábrica dinámica. Los imports viven dentro de `run()`: importar `tools.deep_smoke` en la suite base NO exige
+    las dependencias deep. El conjunto de nombres importados == `set(STACK)` lo verifica un test AST."""
     installed = {dist: version(dist) for dist in STACK.values()}
-    for import_name in STACK:
-        importlib.import_module(import_name)  # un import fallido del stack deep aborta ruidosamente
+    import chronos as _chronos
+    import mlflow as _mlflow
+    import neuralforecast as _neuralforecast
+    import optuna as _optuna
+    import pandas as _pandas
+    import ray as _ray
     import torch
+    import transformers as _transformers
+
+    _imported = (_chronos, _mlflow, _neuralforecast, _optuna, _pandas, _ray, torch, _transformers)
+    assert len(_imported) == len(STACK)  # el stack deep completo importó de forma estática
 
     torch.manual_seed(0)
     prod = torch.arange(6, dtype=torch.float32).reshape(2, 3) @ torch.arange(6, dtype=torch.float32).reshape(2, 3).T
