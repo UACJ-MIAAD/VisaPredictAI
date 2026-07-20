@@ -176,48 +176,60 @@ class GovernanceSnapshot(AbstractContextManager):
             try:
                 root_fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)  # la raíz del fs no es symlink
             except OSError as exc:
-                return None, f"{rel}: '/' no abrible como directorio ({exc}) (B281)"
-            all_fds.append(root_fd)
-            cur = root_fd
-            for comp in dir_comps:
-                try:
-                    nfd = os.open(comp, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=cur)
-                except OSError as exc:
-                    primary = f"{rel}: componente {comp!r} no es directorio no-symlink abrible ({exc}) (B281)"
-                    break
-                all_fds.append(nfd)
-                st_dir = os.fstat(nfd)  # B293: UN SOLO fstat — se valida y sella el MISMO objeto
-                dprob = _dir_problem(comp, st_dir, self._uid)
-                if dprob is not None:
-                    primary = f"{rel}: {dprob} (B282)"
-                    break
-                ancestors.append((comp, cur, nfd, st_dir))
-                cur = nfd
-            if primary is None:
-                try:
-                    lfd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=cur)
-                except OSError as exc:
-                    primary = f"{rel}: leaf {leaf!r} no abrible sin seguir symlink ({exc}) (B274)"
-                else:
-                    all_fds.append(lfd)
-                    primary, entry = self._govern_leaf(rel, leaf, lfd, cur, policy, ancestors)
+                primary = f"{rel}: '/' no abrible como directorio ({exc}) (B281)"
+            else:
+                all_fds.append(root_fd)
+                cur = root_fd
+                for comp in dir_comps:
+                    try:
+                        nfd = os.open(comp, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=cur)
+                    except OSError as exc:
+                        primary = f"{rel}: componente {comp!r} no es directorio no-symlink abrible ({exc}) (B281)"
+                        break
+                    all_fds.append(nfd)
+                    try:
+                        st_dir = os.fstat(nfd)  # B293: UN SOLO fstat; B299: guardado (un fstat fallido no escapa crudo)
+                    except OSError as exc:
+                        primary = f"{rel}: fstat del directorio {comp!r} falló ({exc}) (B299)"
+                        break
+                    dprob = _dir_problem(comp, st_dir, self._uid)
+                    if dprob is not None:
+                        primary = f"{rel}: {dprob} (B282)"
+                        break
+                    ancestors.append((comp, cur, nfd, st_dir))
+                    cur = nfd
+                if primary is None:
+                    try:
+                        lfd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=cur)
+                    except OSError as exc:
+                        primary = f"{rel}: leaf {leaf!r} no abrible sin seguir symlink ({exc}) (B274)"
+                    else:
+                        all_fds.append(lfd)
+                        primary, entry = self._govern_leaf(rel, leaf, lfd, cur, policy, ancestors)
+        except OSError as exc:  # B299: red de seguridad — ninguna OSError operacional escapa cruda (KeyboardInterrupt/
+            primary = f"{rel}: error de sistema inesperado ({exc}) (B299)"  # SystemExit NO son OSError → propagan
         finally:
             close_errors: list[str] = []
-            for fd in reversed(all_fds):
+            for fd in reversed(all_fds):  # B299: se cierran TODOS los fds aunque uno falle; siempre se agregan
                 try:
                     os.close(fd)
                 except OSError as exc:
                     close_errors.append(str(exc))
-        if close_errors:  # B282: un cierre fallido invalida un éxito potencial y se ADJUNTA al error primario
-            joined = "; ".join(close_errors)
-            return None, ((primary + " | " if primary else "") + f"{rel}: fallo al cerrar fd(s): {joined} (B282)")
-        if primary is not None:
+        # B299: resultado TOTAL — se llega aquí SIEMPRE (la red OSError impide que una excepción salte la agregación).
+        if primary is not None:  # error primario: NO se reemplaza; los cierres fallidos se ADJUNTAN
+            if close_errors:
+                return None, f"{primary} | {rel}: además fallo al cerrar fd(s): {'; '.join(close_errors)} (B282)"
             return None, primary
+        if close_errors:  # el camino iba a tener éxito pero un cierre falló → el resultado es FALLO
+            return None, f"{rel}: fallo al cerrar fd(s): {'; '.join(close_errors)} (B282)"
         return entry, None
 
     def _govern_leaf(self, rel, leaf, lfd, parent_fd, policy: ReadPolicy, ancestors):
         exact_mode, max_bytes = policy.exact_mode, policy.max_bytes
-        st0 = os.fstat(lfd)  # B293: el MISMO objeto valida y (más abajo) se compara con la re-lectura
+        try:
+            st0 = os.fstat(lfd)  # B293: el MISMO objeto valida y (más abajo) se compara; B299: guardado
+        except OSError as exc:
+            return f"{rel}: fstat del leaf falló ({exc}) (B299)", None
         if not stat.S_ISREG(st0.st_mode):
             return f"{rel}: no es un fichero regular (B274)", None
         if st0.st_mode & (stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX):
@@ -244,7 +256,10 @@ class GovernanceSnapshot(AbstractContextManager):
                 return f"{rel}: excede el máximo {max_bytes} durante la lectura (B282)", None
             chunks.append(chunk)
         data = b"".join(chunks)
-        st1 = StatSnapshot.of(os.fstat(lfd))
+        try:
+            st1 = StatSnapshot.of(os.fstat(lfd))  # B299: el re-fstat final también guardado
+        except OSError as exc:
+            return f"{rel}: re-fstat del leaf falló ({exc}) (B299)", None
         snap0 = StatSnapshot.of(st0)
         if (snap0.dev, snap0.ino, snap0.size, snap0.mtime_ns, snap0.ctime_ns, snap0.mode, snap0.uid, snap0.nlink) != (
             st1.dev, st1.ino, st1.size, st1.mtime_ns, st1.ctime_ns, st1.mode, st1.uid, st1.nlink,
@@ -285,7 +300,12 @@ class GovernanceSnapshot(AbstractContextManager):
             raise GovernanceSnapshotError(f"git ls-files falló ({exc}) (fail-closed B286)") from exc
         if out.returncode != 0:
             raise GovernanceSnapshotError(f"git ls-files rc={out.returncode} (fail-closed B286)")
-        return tuple(x.decode("utf-8") for x in out.stdout.split(b"\x00") if x)
+        try:
+            return tuple(x.decode("utf-8") for x in out.stdout.split(b"\x00") if x)
+        except UnicodeDecodeError as exc:  # B299: un nombre no-UTF-8 no escapa como UnicodeDecodeError cruda
+            raise GovernanceSnapshotError(
+                f"git ls-files devolvió un nombre no-UTF-8 ({exc}) (fail-closed B299)"
+            ) from exc
 
     def reverify(self) -> None:
         """B286: re-lee (gobernado) cada entrada cacheada y exige identidad+bytes idénticos a lo sellado. Fail-closed.

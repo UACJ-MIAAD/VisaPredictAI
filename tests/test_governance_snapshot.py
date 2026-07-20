@@ -375,3 +375,94 @@ def test_b298_sealed_entry_stays_inspectable_after_exit(tmp_path):
     assert e.data == _SRC and e.sha256
     with pytest.raises(gs.GovernanceSnapshotError, match="B298"):
         snap.read("tools/campaign_bundle.py")
+
+
+# ---------------------------------------------------------------------------
+# B299 — varios `fstat`/`decode` internos escapaban CRUDOS (no como GovernanceSnapshotError) y, bajo una excepción
+# primaria, los errores de cierre se perdían. En 03f8e3b un OSError inyectado en el fstat de un directorio o del leaf
+# escapa como OSError (fuera de la taxonomía fail-closed). Ahora el resultado es TOTAL: toda excepción operacional
+# esperable se normaliza y los cierres se agregan; KeyboardInterrupt/SystemExit NO se convierten.
+# ---------------------------------------------------------------------------
+def _fstat_boom_on_ino(monkeypatch, target_ino):
+    real = os.fstat
+
+    def boom(fd):
+        st = real(fd)
+        if st.st_ino == target_ino:
+            raise OSError(5, "EIO fstat inyectado")
+        return st
+
+    monkeypatch.setattr(os, "fstat", boom)
+
+
+def test_b299_leaf_fstat_error_stays_in_taxonomy(tmp_path, monkeypatch):
+    snap = _lay(tmp_path)
+    _fstat_boom_on_ino(monkeypatch, (tmp_path / "tools" / "campaign_bundle.py").stat().st_ino)
+    with snap:
+        with pytest.raises(gs.GovernanceSnapshotError, match="B299"):
+            snap.read("tools/campaign_bundle.py")
+
+
+def test_b299_dir_fstat_error_stays_in_taxonomy(tmp_path, monkeypatch):
+    snap = _lay(tmp_path)
+    _fstat_boom_on_ino(monkeypatch, (tmp_path / "tools").stat().st_ino)
+    with snap:
+        with pytest.raises(gs.GovernanceSnapshotError, match="B299"):
+            snap.read("tools/campaign_bundle.py")
+
+
+def test_b299_primary_exception_and_close_error_both_reported(tmp_path, monkeypatch):
+    # un error PRIMARIO (fstat de dir) MÁS un cierre fallido: ambos deben reportarse; en 03f8e3b la excepción cruda del
+    # fstat saltaba la agregación y perdía el error de cierre.
+    snap = _lay(tmp_path)
+    _fstat_boom_on_ino(monkeypatch, (tmp_path / "tools").stat().st_ino)
+    real_close = os.close
+
+    def close_boom(fd):
+        try:
+            real_close(fd)
+        finally:
+            raise OSError(9, "EBADF close inyectado")
+
+    monkeypatch.setattr(os, "close", close_boom)
+    with snap:
+        with pytest.raises(gs.GovernanceSnapshotError) as ei:
+            snap.read("tools/campaign_bundle.py")
+    assert "B299" in str(ei.value) and "cerrar" in str(ei.value), str(ei.value)
+
+
+def test_b299_keyboardinterrupt_not_converted(tmp_path, monkeypatch):
+    _fstat_boom = None  # noqa: F841 (documenta intención)
+
+    def ki(fd):
+        raise KeyboardInterrupt
+
+    snap = _lay(tmp_path)
+    monkeypatch.setattr(os, "fstat", ki)
+    with snap:
+        with pytest.raises(KeyboardInterrupt):
+            snap.read("tools/campaign_bundle.py")
+
+
+def test_b299_systemexit_not_converted(tmp_path, monkeypatch):
+    def se(fd):
+        raise SystemExit(2)
+
+    snap = _lay(tmp_path)
+    monkeypatch.setattr(os, "fstat", se)
+    with snap:
+        with pytest.raises(SystemExit):
+            snap.read("tools/campaign_bundle.py")
+
+
+def test_b299_tracked_non_utf8_stays_in_taxonomy(tmp_path, monkeypatch):
+    import subprocess
+
+    class _Out:
+        returncode = 0
+        stdout = b"tools/\xff\xfe.py\x00"
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Out())
+    with _lay(tmp_path) as snap:
+        with pytest.raises(gs.GovernanceSnapshotError, match="B299"):
+            snap.tracked("*")
