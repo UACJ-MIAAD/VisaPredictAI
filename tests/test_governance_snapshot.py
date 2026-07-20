@@ -223,7 +223,7 @@ def test_tracked_and_cwd_independence(tmp_path, monkeypatch):
     root = os.path.dirname(os.path.dirname(os.path.abspath(gs.__file__)))
     monkeypatch.chdir(tmp_path)  # cwd distinto → git -C ROOT ls-files sigue funcionando
     with gs.GovernanceSnapshot(root) as snap:
-        t = snap.tracked("tools/check_commit_frontier.py")
+        t = snap.tracked(gs.TrackedQuery(exact="tools/check_commit_frontier.py"))
     assert t == ("tools/check_commit_frontier.py",)
 
 
@@ -343,7 +343,7 @@ def test_b298_tracked_and_reverify_after_exit_rejected(tmp_path):
     snap = _lay(tmp_path)
     with snap:
         snap.read("tools/campaign_bundle.py")
-    for op in (lambda: snap.tracked("tools/*"), snap.reverify):
+    for op in (lambda: snap.tracked(gs.TrackedQuery(prefix="tools/")), snap.reverify):
         with pytest.raises(gs.GovernanceSnapshotError, match="B298"):
             op()
 
@@ -465,4 +465,47 @@ def test_b299_tracked_non_utf8_stays_in_taxonomy(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Out())
     with _lay(tmp_path) as snap:
         with pytest.raises(gs.GovernanceSnapshotError, match="B299"):
-            snap.tracked("*")
+            snap.tracked(gs.TrackedQuery(suffix=".py"))
+
+
+# ---------------------------------------------------------------------------
+# B302 — el contrato público no era total: `_cache.get(rel)` y `_CATEGORY_CAPS.get(category)` requerían objetos
+# hashables, así que un `rel`/`category` no hashable daba TypeError CRUDO (fuera de la taxonomía). `tracked` aceptaba
+# pathspec git arbitrario. Ahora los tipos se cierran ANTES de cualquier lookup y la consulta es una gramática cerrada.
+# ---------------------------------------------------------------------------
+def test_b302_unhashable_and_wrong_type_inputs_in_taxonomy(tmp_path):
+    with _lay(tmp_path) as snap:
+        for kw in (
+            {"rel": []},  # no hashable → antes TypeError en _cache.get
+            {"rel": b"x"},  # bytes, no str
+            {"rel": 5},  # int
+            {"rel": "tools/campaign_bundle.py", "category": []},  # category no hashable → antes TypeError en .get
+            {"rel": "tools/campaign_bundle.py", "category": 3},  # category no str
+            {"rel": "tools/../etc/passwd"},  # traversal
+            {"rel": "a\x00b"},  # NUL
+            {"rel": "/abs"},  # absoluta
+        ):
+            with pytest.raises(gs.GovernanceSnapshotError):
+                snap.read(**kw)
+
+
+def test_b302_tracked_query_closed_grammar(tmp_path):
+    for kw in (
+        {"prefix": "a", "suffix": "b"},  # dos modalidades
+        {},  # cero modalidades
+        {"exact": "a\x00b"},  # NUL
+        {"prefix": []},  # no str
+        {"suffix": 5},  # no str
+    ):
+        with pytest.raises(gs.GovernanceSnapshotError, match="B302"):
+            gs.TrackedQuery(**kw)
+    with _lay(tmp_path) as snap:
+        with pytest.raises(gs.GovernanceSnapshotError, match="B302"):
+            snap.tracked("tools/*")  # str/pathspec crudo rechazado — sólo TrackedQuery
+
+
+def test_b302_root_validation(tmp_path):
+    with pytest.raises(gs.GovernanceSnapshotError, match="B302"):
+        gs.GovernanceSnapshot(5)  # ni str ni PathLike
+    with pytest.raises(gs.GovernanceSnapshotError, match="B302"):
+        gs.GovernanceSnapshot("root\x00nul")

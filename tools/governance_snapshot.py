@@ -64,6 +64,30 @@ class ReadPolicy:
 
 
 @dataclass(frozen=True)
+class TrackedQuery:
+    """B302: consulta CERRADA del inventario versionado (exactamente UNA modalidad). Se filtra en memoria sobre el
+    inventario ya sellado — NUNCA se pasa un pathspec del caller a git (adiós `:(exclude)`, `:(glob)`, `!`, magic)."""
+
+    prefix: str | None = None
+    suffix: str | None = None
+    exact: str | None = None
+
+    def __post_init__(self) -> None:
+        modes = [m for m in (self.prefix, self.suffix, self.exact) if m is not None]
+        if len(modes) != 1:
+            raise GovernanceSnapshotError("TrackedQuery exige EXACTAMENTE una modalidad (prefix|suffix|exact) (B302)")
+        if type(modes[0]) is not str or "\x00" in modes[0]:
+            raise GovernanceSnapshotError("TrackedQuery: la modalidad debe ser str sin NUL (B302)")
+
+    def matches(self, path: str) -> bool:
+        if self.exact is not None:
+            return path == self.exact
+        if self.prefix is not None:
+            return path.startswith(self.prefix)
+        return path.endswith(self.suffix) if self.suffix is not None else False
+
+
+@dataclass(frozen=True)
 class StatSnapshot:
     dev: int
     ino: int
@@ -120,7 +144,11 @@ class GovernanceSnapshot(AbstractContextManager):
     `tracked()` lista ficheros versionados; `reverify()` re-lee lo cacheado y exige identidad+bytes idénticos."""
 
     def __init__(self, root: str) -> None:
-        self._root = os.path.abspath(root)
+        if not isinstance(root, (str, os.PathLike)):  # B302: root normalizado UNA vez, sin NUL
+            raise GovernanceSnapshotError(f"root debe ser str|os.PathLike, no {type(root).__name__} (B302)")
+        self._root = os.path.abspath(os.fspath(root))
+        if "\x00" in self._root:
+            raise GovernanceSnapshotError("root con NUL (B302)")
         self._uid = os.getuid()
         self._cache: dict[str, tuple[ReadPolicy, GovernedEntry]] = {}  # B296: sellado por (rel → política, entrada)
         self._total = 0
@@ -145,6 +173,14 @@ class GovernanceSnapshot(AbstractContextManager):
         self, rel: str, *, exact_mode: int = 0o644, max_bytes: int | None = None, category: str = "source"
     ) -> GovernedEntry:
         self._require_open()  # B298: sólo se lee dentro de un contexto OPEN
+        # B302: cerrar el contrato de tipos ANTES de tocar caché/diccionarios (un `rel`/`category` no hashable daba
+        # TypeError CRUDO en `_cache.get`/`_CATEGORY_CAPS.get`). Toda entrada inválida → GovernanceSnapshotError.
+        if type(rel) is not str:
+            raise GovernanceSnapshotError(f"rel debe ser str, no {type(rel).__name__} (B302)")
+        if _rel_parts(rel) is None:
+            raise GovernanceSnapshotError(f"{rel!r}: ruta relativa POSIX inválida (B302)")
+        if type(category) is not str:
+            raise GovernanceSnapshotError(f"category debe ser str, no {type(category).__name__} (B302)")
         policy = ReadPolicy(exact_mode, _CATEGORY_CAPS.get(category, _SOURCE_MAX_BYTES) if max_bytes is None else max_bytes, category)  # fmt: skip
         cached = self._cache.get(rel)
         if cached is not None:  # B296: la caché se liga a la política — una relectura con política distinta FALLA
@@ -289,23 +325,39 @@ class GovernanceSnapshot(AbstractContextManager):
         return None, GovernedEntry(rel=rel, data=data, sha256=hashlib.sha256(data).hexdigest(), stat=snap0)
 
     # -- inventario y revalidación ----------------------------------------
-    def tracked(self, pattern: str = "*") -> tuple[str, ...]:
-        """B286: ficheros versionados que casan `pattern`, vía `git -C ROOT ls-files` (independiente del cwd)."""
-        self._require_open()  # B298
+    def _capture_inventory(self) -> tuple[str, ...]:
+        """B301: UNA captura del inventario versionado COMPLETO (sin pathspec del caller) vía `git -C ROOT ls-files -z`,
+        decodificada fail-closed, cada ruta validada por la gramática relativa, única y en orden canónico."""
         try:
-            out = subprocess.run(
-                ["git", "-C", self._root, "ls-files", "-z", "--", pattern], capture_output=True, timeout=30
-            )
+            out = subprocess.run(["git", "-C", self._root, "ls-files", "-z", "--"], capture_output=True, timeout=30)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise GovernanceSnapshotError(f"git ls-files falló ({exc}) (fail-closed B286)") from exc
         if out.returncode != 0:
             raise GovernanceSnapshotError(f"git ls-files rc={out.returncode} (fail-closed B286)")
+        if len(out.stdout) > _SNAPSHOT_TOTAL_MAX_BYTES:  # B301: no materializar un inventario ilimitado
+            raise GovernanceSnapshotError(f"git ls-files devolvió más de {_SNAPSHOT_TOTAL_MAX_BYTES} bytes (B301)")
         try:
-            return tuple(x.decode("utf-8") for x in out.stdout.split(b"\x00") if x)
+            paths = [x.decode("utf-8") for x in out.stdout.split(b"\x00") if x]
         except UnicodeDecodeError as exc:  # B299: un nombre no-UTF-8 no escapa como UnicodeDecodeError cruda
             raise GovernanceSnapshotError(
                 f"git ls-files devolvió un nombre no-UTF-8 ({exc}) (fail-closed B299)"
             ) from exc
+        for p in paths:  # B301: cada ruta debe pasar la MISMA gramática relativa que `read`
+            if _rel_parts(p) is None:
+                raise GovernanceSnapshotError(f"inventario git con ruta inválida {p!r} (fail-closed B301)")
+        if len(set(paths)) != len(paths):
+            raise GovernanceSnapshotError("inventario git con rutas DUPLICADAS (fail-closed B301)")
+        if list(paths) != sorted(paths):
+            raise GovernanceSnapshotError("inventario git sin orden canónico (fail-closed B301)")
+        return tuple(paths)
+
+    def tracked(self, query: TrackedQuery) -> tuple[str, ...]:
+        """B286/B302: ficheros versionados que casan la `TrackedQuery` (gramática CERRADA), filtrados EN MEMORIA sobre el
+        inventario git — sin pasar pathspec del caller a git."""
+        self._require_open()  # B298
+        if not isinstance(query, TrackedQuery):
+            raise GovernanceSnapshotError(f"tracked() exige un TrackedQuery, no {type(query).__name__} (B302)")
+        return tuple(p for p in self._capture_inventory() if query.matches(p))
 
     def reverify(self) -> None:
         """B286: re-lee (gobernado) cada entrada cacheada y exige identidad+bytes idénticos a lo sellado. Fail-closed.
