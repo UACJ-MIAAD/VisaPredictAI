@@ -220,9 +220,10 @@ def test_one_observation_per_read(tmp_path):
 
 
 def test_tracked_and_cwd_independence(tmp_path, monkeypatch):
-    snap = gs.GovernanceSnapshot(os.path.dirname(os.path.dirname(os.path.abspath(gs.__file__))))
+    root = os.path.dirname(os.path.dirname(os.path.abspath(gs.__file__)))
     monkeypatch.chdir(tmp_path)  # cwd distinto → git -C ROOT ls-files sigue funcionando
-    t = snap.tracked("tools/check_commit_frontier.py")
+    with gs.GovernanceSnapshot(root) as snap:
+        t = snap.tracked("tools/check_commit_frontier.py")
     assert t == ("tools/check_commit_frontier.py",)
 
 
@@ -315,3 +316,62 @@ def test_b296_reverify_uses_sealed_policy(tmp_path):
         leaf.chmod(0o644)
         with pytest.raises(gs.GovernanceSnapshotError, match="máximo 30|B282"):
             snap.reverify()
+
+
+# ---------------------------------------------------------------------------
+# B298 — `__exit__` sólo limpiaba `_cache` pero no invalidaba la instancia: tras el `with`, `read()` reabría rutas y
+# aceptaba bytes NUEVOS bajo el mismo objeto (falso verde reproducido en 03f8e3b). Ahora el ciclo de vida es NEW->OPEN->
+# CLOSED de un solo uso.
+# ---------------------------------------------------------------------------
+def test_b298_read_after_exit_rejected(tmp_path):
+    snap = _lay(tmp_path)
+    with snap:
+        snap.read("tools/campaign_bundle.py")
+    (tmp_path / "tools" / "campaign_bundle.py").write_bytes(_SRC + b"\n# NEW\n")  # reemplazo post-cierre
+    (tmp_path / "tools" / "campaign_bundle.py").chmod(0o644)
+    with pytest.raises(gs.GovernanceSnapshotError, match="B298"):
+        snap.read("tools/campaign_bundle.py")
+
+
+def test_b298_read_before_enter_rejected(tmp_path):
+    snap = _lay(tmp_path)
+    with pytest.raises(gs.GovernanceSnapshotError, match="B298"):
+        snap.read("tools/campaign_bundle.py")
+
+
+def test_b298_tracked_and_reverify_after_exit_rejected(tmp_path):
+    snap = _lay(tmp_path)
+    with snap:
+        snap.read("tools/campaign_bundle.py")
+    for op in (lambda: snap.tracked("tools/*"), snap.reverify):
+        with pytest.raises(gs.GovernanceSnapshotError, match="B298"):
+            op()
+
+
+def test_b298_reentry_rejected(tmp_path):
+    snap = _lay(tmp_path)
+    with snap:
+        pass
+    with pytest.raises(gs.GovernanceSnapshotError, match="B298"):
+        with snap:  # una instancia CERRADA no renace
+            pass
+
+
+def test_b298_exit_closes_even_when_body_raises(tmp_path):
+    snap = _lay(tmp_path)
+    with pytest.raises(ValueError):
+        with snap:
+            raise ValueError("boom")
+    # tras una excepción del cuerpo, la instancia queda CERRADA y no puede leer
+    with pytest.raises(gs.GovernanceSnapshotError, match="B298"):
+        snap.read("tools/campaign_bundle.py")
+
+
+def test_b298_sealed_entry_stays_inspectable_after_exit(tmp_path):
+    snap = _lay(tmp_path)
+    with snap:
+        e = snap.read("tools/campaign_bundle.py")
+    # la entrada sellada sigue siendo bytes inmutables inspeccionables; NO habilita nuevas lecturas
+    assert e.data == _SRC and e.sha256
+    with pytest.raises(gs.GovernanceSnapshotError, match="B298"):
+        snap.read("tools/campaign_bundle.py")

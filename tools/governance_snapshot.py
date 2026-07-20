@@ -26,6 +26,7 @@ _AUTHORITY_MAX_BYTES = 4 << 20  # 4 MiB
 _SOURCE_MAX_BYTES = 4 << 20  # 4 MiB
 _SNAPSHOT_TOTAL_MAX_BYTES = 64 << 20  # 64 MiB (suma de todo lo leído por la instancia)
 _DIR_GO_WRITE = 0o022  # bits de escritura grupo/otros — prohibidos en directorios gobernados
+_NEW, _OPEN, _CLOSED = "new", "open", "closed"  # B298: estados del ciclo de vida de un solo uso
 _ALLOWED_MODES = frozenset({0o644, 0o600})  # B296: conjunto cerrado de modos exactos aprobados
 _CATEGORY_CAPS = {  # B296: cada categoría fija su cota superior; una categoría estricta NUNCA se satisface con una laxa
     "contract": _CONTRACT_MAX_BYTES,
@@ -123,14 +124,27 @@ class GovernanceSnapshot(AbstractContextManager):
         self._uid = os.getuid()
         self._cache: dict[str, tuple[ReadPolicy, GovernedEntry]] = {}  # B296: sellado por (rel → política, entrada)
         self._total = 0
+        self._state = _NEW  # B298: NEW -> OPEN -> CLOSED, un solo uso
+
+    def __enter__(self) -> GovernanceSnapshot:  # B298: sólo se entra desde NEW; una instancia CERRADA no renace
+        if self._state is not _NEW:
+            raise GovernanceSnapshotError(f"GovernanceSnapshot no reutilizable: estado {self._state} (esperado {_NEW}) (B298)")  # fmt: skip
+        self._state = _OPEN
+        return self
 
     def __exit__(self, *exc: object) -> None:
+        self._state = _CLOSED  # B298: __exit__ SIEMPRE cierra, aunque el cuerpo eleve; la caché se descarta
         self._cache.clear()
+
+    def _require_open(self) -> None:
+        if self._state is not _OPEN:
+            raise GovernanceSnapshotError(f"operación fuera de un contexto OPEN (estado {self._state}) (B298)")
 
     # -- lectura gobernada -------------------------------------------------
     def read(
         self, rel: str, *, exact_mode: int = 0o644, max_bytes: int | None = None, category: str = "source"
     ) -> GovernedEntry:
+        self._require_open()  # B298: sólo se lee dentro de un contexto OPEN
         policy = ReadPolicy(exact_mode, _CATEGORY_CAPS.get(category, _SOURCE_MAX_BYTES) if max_bytes is None else max_bytes, category)  # fmt: skip
         cached = self._cache.get(rel)
         if cached is not None:  # B296: la caché se liga a la política — una relectura con política distinta FALLA
@@ -262,6 +276,7 @@ class GovernanceSnapshot(AbstractContextManager):
     # -- inventario y revalidación ----------------------------------------
     def tracked(self, pattern: str = "*") -> tuple[str, ...]:
         """B286: ficheros versionados que casan `pattern`, vía `git -C ROOT ls-files` (independiente del cwd)."""
+        self._require_open()  # B298
         try:
             out = subprocess.run(
                 ["git", "-C", self._root, "ls-files", "-z", "--", pattern], capture_output=True, timeout=30
@@ -275,6 +290,7 @@ class GovernanceSnapshot(AbstractContextManager):
     def reverify(self) -> None:
         """B286: re-lee (gobernado) cada entrada cacheada y exige identidad+bytes idénticos a lo sellado. Fail-closed.
         B296: re-lee con EXACTAMENTE la política sellada de cada entrada (no `_SOURCE_MAX_BYTES` genérico)."""
+        self._require_open()  # B298
         for rel, (policy, sealed) in list(self._cache.items()):
             fresh, err = self._read_once(rel, policy)
             if fresh is None:
