@@ -38,7 +38,7 @@ from typing import NamedTuple
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
-_SCANNER_VERSION = 14  # B265/…/B310/B316/B317: sin forma segura — CUALQUIER fábrica de import dinámico y CUALQUIER lookup dinámico sobre builtins/importlib es PROHIBIDO en el origen sintáctico (deep_smoke ya no usa import_module)
+_SCANNER_VERSION = 15  # B265/…/B316/B317/B321: además, CUALQUIER ALIAS de accesor (getattr/vars/attrgetter/methodcaller/partial — transitivo/from-import/contenedor/IfExp) sobre builtins/importlib recupera la fábrica y es PROHIBIDO
 _REGISTRY_TOP_KEYS = {
     "schema_version",
     "scanner_version",
@@ -340,6 +340,7 @@ class _Provenance(NamedTuple):
     factories: dict[
         str, str
     ]  # B297: nombre → raíz canónica de una FÁBRICA (`__import__`/`import_module`) aún sin llamar
+    prim_aliases: dict[str, str]  # B321: nombre → primitivo de ACCESO ('getattr'/'attrgetter'/'partial'/…) por alias
 
 
 # B297: dominio abstracto de una expresión — 'value' evalúa a un módulo/miembro canónico (o RESULTADO de fábrica);
@@ -416,19 +417,53 @@ def _factory_module_root(node: ast.AST, prov: _Provenance) -> str | None:
     return root if kind == "value" and root in _FACTORY_MODULE_ROOTS else None
 
 
-def _accessor_prim(fn: ast.AST, prov: _Provenance) -> str | None:
-    """Nombre del primitivo de acceso dinámico ('getattr'/'vars'/'attrgetter'/'methodcaller'/'partial') al que resuelve
-    `fn` — builtin bare, `operator.attrgetter`/`functools.partial`, o `from operator import attrgetter` — si no None."""
-    if isinstance(fn, ast.Name):
-        if fn.id in ("getattr", "vars"):
-            return fn.id
-        if fn.id in _MODULE_PRIMS and prov.rooted.get(fn.id) == _MODULE_PRIMS[fn.id]:
-            return fn.id
-    if isinstance(fn, ast.Attribute) and fn.attr in _MODULE_PRIMS:
-        kind, r = _expr_provenance(fn.value, prov.rooted, prov.factories, 0)
-        if kind == "value" and r == _MODULE_PRIMS[fn.attr]:
-            return fn.attr
+# B321: primitivos de ACCESO dinámico (recuperan un atributo por nombre); su alias sobre builtins/importlib recupera la
+# fábrica y es tan peligroso como la forma directa.
+_ACCESSOR_PRIMS = frozenset({"getattr", "vars", "attrgetter", "methodcaller", "partial"})
+
+
+def _accessor_of_expr(node: ast.AST, rooted: dict[str, str], acc: dict[str, str], depth: int = 0) -> str | None:
+    """B321: primitivo de acceso al que resuelve `node`, propagando por la MISMA procedencia semántica que los módulos
+    (Name/Attribute/NamedExpr/IfExp/BoolOp/subscript de contenedor literal). `IfExp`/`BoolOp` sólo resuelve si TODAS las
+    ramas dan el mismo primitivo. Superar la cota LEVANTA `_ProvenanceLimitError` (fail-closed, nunca `none`)."""
+    if depth > _EXPR_DEPTH_CAP:
+        raise _ProvenanceLimitError(f"profundidad > {_EXPR_DEPTH_CAP} (B321)")
+    if isinstance(node, ast.Name):
+        if node.id in _BUILTIN_PRIMS and node.id in _ACCESSOR_PRIMS:  # `getattr`/`vars` builtin bare
+            return node.id
+        return acc.get(node.id)  # alias (transitivo/from-import/contenedor)
+    if isinstance(node, ast.Attribute) and node.attr in _ACCESSOR_PRIMS and node.attr in _MODULE_PRIMS:
+        cur: ast.AST = node.value  # `operator.attrgetter`/`functools.partial` (con o sin alias de módulo)
+        while isinstance(cur, (ast.Attribute, ast.Subscript)):
+            cur = cur.value
+        if isinstance(cur, ast.Name) and rooted.get(cur.id) == _MODULE_PRIMS[node.attr]:
+            return node.attr
+        return None
+    if isinstance(node, ast.NamedExpr):
+        return _accessor_of_expr(node.value, rooted, acc, depth + 1)
+    if isinstance(node, (ast.IfExp, ast.BoolOp)):  # TODAS las ramas deben dar el MISMO primitivo
+        branches = [node.body, node.orelse] if isinstance(node, ast.IfExp) else list(node.values)
+        prims = {_accessor_of_expr(b, rooted, acc, depth + 1) for b in branches}
+        return prims.pop() if len(prims) == 1 and None not in prims else None
+    if isinstance(node, ast.Subscript):  # subscript de contenedor LITERAL con índice/clave constante → el elemento
+        container, idx = node.value, node.slice
+        if isinstance(container, (ast.Tuple, ast.List)) and isinstance(idx, ast.Constant) and isinstance(idx.value, int):  # fmt: skip
+            if -len(container.elts) <= idx.value < len(container.elts):
+                return _accessor_of_expr(container.elts[idx.value], rooted, acc, depth + 1)
+        if isinstance(container, ast.Dict) and isinstance(idx, ast.Constant):
+            for k2, v2 in zip(container.keys, container.values, strict=True):
+                if isinstance(k2, ast.Constant) and k2.value == idx.value:
+                    return _accessor_of_expr(v2, rooted, acc, depth + 1)
+        return None
     return None
+
+
+def _accessor_prim(fn: ast.AST, prov: _Provenance) -> str | None:
+    """B321: primitivo de acceso dinámico ('getattr'/'vars'/'attrgetter'/'methodcaller'/'partial') al que resuelve `fn`.
+    Delega en `_accessor_of_expr` (MISMA procedencia semántica) → cubre builtin bare, `operator.attrgetter`/
+    `functools.partial`, `from operator import attrgetter`, y CUALQUIER alias (transitivo/from-import/contenedor/IfExp/
+    walrus/destructuring). `_ProvenanceLimitError` propaga (fail-closed en `scan_reflection`)."""
+    return _accessor_of_expr(fn, prov.rooted, prov.prim_aliases, 0)
 
 
 def _call_reads_factory_module(call: ast.Call, prov: _Provenance) -> bool:
@@ -436,7 +471,8 @@ def _call_reads_factory_module(call: ast.Call, prov: _Provenance) -> bool:
     `getattr(M,·)` · `vars(M)` · `attrgetter(·)(M)` · `methodcaller(·)(M)` · `partial(getattr|vars, M, ·)` — o construye
     un accesor por el NOMBRE LITERAL de una fábrica (`attrgetter('import_module')`, `methodcaller('__import__', …)`)."""
     fn = call.func
-    if isinstance(fn, ast.Name) and fn.id in ("getattr", "vars") and call.args and _factory_module_root(call.args[0], prov):  # fmt: skip
+    # B321: getattr/vars — DIRECTO o por ALIAS (`g = getattr; g(M, ·)`) — aplicado a un módulo de fábrica
+    if _accessor_prim(fn, prov) in ("getattr", "vars") and call.args and _factory_module_root(call.args[0], prov):
         return True
     if _accessor_prim(fn, prov) in ("attrgetter", "methodcaller") and call.args:  # attrgetter('import_module') LITERAL
         first = call.args[0]
@@ -445,8 +481,7 @@ def _call_reads_factory_module(call: ast.Call, prov: _Provenance) -> bool:
     if isinstance(fn, ast.Call) and _accessor_prim(fn.func, prov) in ("attrgetter", "methodcaller") and call.args and _factory_module_root(call.args[0], prov):  # fmt: skip
         return True  # el accesor construido (attrgetter/methodcaller) se APLICA a un módulo de fábrica
     if _accessor_prim(fn, prov) == "partial" and call.args:  # partial(getattr|vars, M, …) liga un accesor a M
-        first = call.args[0]
-        if isinstance(first, ast.Name) and first.id in ("getattr", "vars") and any(_factory_module_root(a, prov) for a in call.args[1:]):  # fmt: skip
+        if _accessor_prim(call.args[0], prov) in ("getattr", "vars") and any(_factory_module_root(a, prov) for a in call.args[1:]):  # fmt: skip
             return True
     return False
 
@@ -560,7 +595,19 @@ def _canonical_provenance(tree: ast.AST, mod_aliases: dict[str, str]) -> _Proven
         members.discard(
             name
         )  # `_resolve_op` sobre la LLAMADA) Y fábrica (su RESULTADO queda rooteado, B297); nodos distintos
-    return _Provenance(rooted, frozenset(sysmod), frozenset(dictnames), frozenset(members), factories)
+    # B321: procedencia de ACCESO — semilla de `_prim_aliases` (Name-transitivo + from-import), extendida por FIXPOINT
+    # con `_accessor_of_expr` (Attribute de módulo, contenedor literal, IfExp/BoolOp all-same, walrus, destructuring).
+    prim_aliases = {n: op for n, op in _prim_aliases(tree).items() if op in _ACCESSOR_PRIMS}
+    changed = True
+    while changed:
+        changed = False
+        for tgt, val in _name_bindings(tree):
+            if tgt not in prim_aliases:
+                p = _accessor_of_expr(val, rooted, prim_aliases, 0)
+                if p is not None:
+                    prim_aliases[tgt] = p
+                    changed = True
+    return _Provenance(rooted, frozenset(sysmod), frozenset(dictnames), frozenset(members), factories, prim_aliases)
 
 
 def _canonical_member_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _Provenance) -> str | None:

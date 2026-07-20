@@ -850,6 +850,36 @@ def test_b317b_any_factory_attribute_prohibited(tmp_path, monkeypatch):
         assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"no es fábrica, no debe prohibirse: {src!r} → {ops}"
 
 
+def test_b321_aliased_accessors_over_factory_module_prohibited(tmp_path, monkeypatch):
+    # B321: CUALQUIER alias de un accesor dinámico (getattr/vars/attrgetter/methodcaller/partial) aplicado a
+    # builtins/importlib recupera la fábrica y es globalmente prohibido — el contrato consume la MISMA procedencia
+    # semántica que los módulos (transitivo/from-import/contenedor/IfExp/walrus/destructuring), no una tabla parcial.
+    for label, src in {
+        "alias_getattr": "import builtins\ng = getattr\nf = g(builtins, '__' + 'import__')\n",
+        "transitive": "import builtins\ng = getattr\nh = g\nf = h(builtins, 'x')\n",
+        "from_import_getattr": "from builtins import getattr as g\nf = g(__builtins__, 'x')\n",
+        "alias_vars": "import builtins\nv = vars\nf = v(builtins)['x']\n",
+        "alias_attrgetter_attr": "import operator\nag = operator.attrgetter\nf = ag('import_module')\n",
+        "alias_partial": "import functools, builtins\np = functools.partial\nf = p(getattr, builtins, 'x')\n",
+        "partial_aliased_getattr": "import functools, builtins\ng = getattr\nf = functools.partial(g, builtins, 'x')\n",
+        "container": "import builtins\ng = [getattr][0]\nf = g(builtins, 'x')\n",
+        "destructure": "import builtins\n(g,) = (getattr,)\nf = g(builtins, 'x')\n",
+        "ifexp_same": "import builtins\ng = getattr if flag else getattr\nf = g(builtins, 'x')\n",
+        "walrus": "import builtins\nf = (g := getattr)(builtins, 'x')\n",
+    }.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, f"{label}: alias de accesor sobre módulo-fábrica es prohibido (B321): {ops}"  # fmt: skip
+    # controles: el MISMO accesor (o su alias) sobre objeto NO canónico sigue registrable; ramas mixtas no resuelven.
+    for label, src in {
+        "getattr_os": "import os\nx = getattr(os, 'getcwd')\n",
+        "aliased_getattr_noncanonical": "g = getattr\nx = g(obj, 'field')\n",
+        "attrgetter_normal": "import operator\ng = operator.attrgetter('normal')\n",
+        "ifexp_mixed_prims": "import builtins\ng = getattr if flag else vars\nx = g\n",
+    }.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"{label}: no debe sobredisparar (B321): {ops}"
+
+
 def test_b316_deep_smoke_imports_its_stack_statically():
     # B316: `tools/deep_smoke.py` YA NO usa `importlib.import_module`; los imports del stack son ESTÁTICOS y el conjunto de
     # nombres importados dentro de `run()` es EXACTAMENTE `set(STACK)` (sin duplicar la lista de ocho en dos lugares).
