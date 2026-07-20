@@ -11,7 +11,7 @@
   "authority_files_algorithm": "sha256(exact_file_bytes)",
   "authority_files": {
     "tools/campaign_bundle.py": "20df819421a4202a7501fd7c7d8af72cb5c8608545c5f32106a123f655a6addf",
-    "tools/merge_campaign_pools.py": "85476283038ba60a9f76cedf3de79d0225c70c89ac998586bc5426328c44c965",
+    "tools/merge_campaign_pools.py": "ad374b84374fd98dabc70d0755b01e64aaa733d704aec97703ca024f43258f61",
     "tools/governed_fs.py": "b3252b21616839bc4a9c009b54e8c7977802542164ce008c26ebc5f6fa58b95e",
     "tools/governed_read.py": "96871a104358f8b4311ff8b7fb9a935b2db076399e9d8cc861ab12f3dc796e94",
     "tools/atomic_fs.py": "88eb80e456c44466598d2590d6c74acf0b10e27a8e74d6219dfb02995fc81b6e"

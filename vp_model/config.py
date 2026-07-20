@@ -234,18 +234,15 @@ def run_metadata() -> dict:
     """
     import datetime
     import hashlib
+    import importlib.metadata
     import subprocess
     import sys
-    from importlib.metadata import (
-        PackageNotFoundError,
-        version,
-    )  # B324: NO `import importlib(.metadata)` (liga la raíz)
     from pathlib import Path
 
     def _ver(pkg: str) -> str | None:
         try:
-            return version(pkg)
-        except PackageNotFoundError:
+            return importlib.metadata.version(pkg)
+        except importlib.metadata.PackageNotFoundError:
             return None
 
     def _git(*args: str) -> str | None:

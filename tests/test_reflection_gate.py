@@ -890,7 +890,6 @@ def test_b324_factory_module_root_acquisition_prohibited(tmp_path, monkeypatch):
         "import_builtins_as": "import builtins as b\n",
         "import_importlib": "import importlib\n",
         "import_importlib_as": "import importlib as il\n",
-        "import_importlib_metadata_noalias": "import importlib.metadata\n",  # liga la raíz `importlib`
         "named_container_needs_builtins": "import builtins\nd = {'k': getattr}\ng = d['k']\nf = g(builtins, 'x')\n",
         "sysmod_dynamic": "import sys\nname = 'builtins'\nm = sys.modules[name]\n",
         "sysmod_builtins_literal": "import sys\nm = sys.modules['builtins']\n",
@@ -898,9 +897,10 @@ def test_b324_factory_module_root_acquisition_prohibited(tmp_path, monkeypatch):
         ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
         assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, f"{label}: adquirir el módulo-fábrica raíz es prohibido (B324): {ops}"  # fmt: skip
     for label, src in {
+        "submodule_dotted": "import importlib.metadata\nv = importlib.metadata.version('p')\n",  # dotted permitido
         "submodule_alias": "import importlib.metadata as im\nv = im.version('p')\n",
         "from_import_metadata": "from importlib.metadata import version\nv = version('p')\n",
-        "importlib_abc_alias": "import importlib.abc as ia\nx = ia.Loader\n",
+        "importlib_abc_dotted": "import importlib.abc\nx = importlib.abc.Loader\n",
         "sysmod_literal_benign": "import sys\nm = sys.modules['os']\n",
     }.items():
         ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)

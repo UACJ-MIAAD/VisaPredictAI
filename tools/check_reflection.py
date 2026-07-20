@@ -515,12 +515,14 @@ def _dynamic_factory_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _P
     # (1) `__import__` / `__builtins__` como referencia ejecutable en Load — SIEMPRE prohibido (llamado o no)
     if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in ("__import__", "__builtins__"):
         return _DYNAMIC_IMPORT_FACTORY_VALUE
-    # (1b) B324: ADQUIRIR el módulo-fábrica RAÍZ (`import builtins[.x]`/`import importlib[.x]` sin alias, o `import
-    # builtins|importlib as X`) da acceso a `import_module`/`__import__` y está PROHIBIDO en producción. Los SUBMÓDULOS
-    # con ALIAS explícito (`import importlib.metadata as X`) NO ligan la raíz y NO exponen la fábrica → permitidos.
+    # (1b) B324: ligar el PAQUETE-FÁBRICA RAÍZ como nombre limpio (`import builtins`/`import importlib`, con o sin alias)
+    # da acceso directo a `import_module`/`__import__` y está PROHIBIDO en producción. Un `import importlib.<submódulo>`
+    # (p. ej. `importlib.metadata`) se PERMITE: la adquisición REAL de la fábrica desde el `importlib` así ligado sigue
+    # prohibida por las reglas (3)/(4) (`.import_module`, `getattr(importlib, …)`); el residuo por contenedor nombrado
+    # queda flagged como `reflection-module-escape` (honest scope §7.3).
     if isinstance(node, ast.Import):
         for a in node.names:
-            if a.name.split(".")[0] in _FACTORY_MODULE_ROOTS and (a.asname is None or a.name in _FACTORY_MODULE_ROOTS):
+            if a.name in _FACTORY_MODULE_ROOTS:  # exactamente `import builtins`/`import importlib` (aliased o no)
                 return _DYNAMIC_IMPORT_FACTORY_VALUE
     # (2) `from builtins|importlib import __import__|import_module` (cualquier alias) — prohibido en el ImportFrom
     if isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] in _FACTORY_MODULE_ROOTS and any(a.name in _CANONICAL_FACTORY_NAMES for a in node.names):  # fmt: skip
