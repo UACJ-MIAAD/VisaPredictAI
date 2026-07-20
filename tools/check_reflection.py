@@ -337,6 +337,7 @@ class _Provenance(NamedTuple):
     factories: dict[
         str, str
     ]  # B297: nombre → raíz canónica de una FÁBRICA (`__import__`/`import_module`) aún sin llamar
+    clean_importlib: frozenset[str]  # B310: alias de `import importlib` NO reescritos (safe form exige binding limpio)
 
 
 # B297: dominio abstracto de una expresión — 'value' evalúa a un módulo/miembro canónico (o RESULTADO de fábrica);
@@ -420,14 +421,28 @@ def _dynamic_factory_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _P
     if isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] == "importlib":
         if any(a.name in _CANONICAL_FACTORY_NAMES for a in node.names):
             return _DYNAMIC_IMPORT_FACTORY_VALUE
-    # B310 (3): `importlib.import_module` como Attribute — sólo admisible como func de un Call descartado
-    if isinstance(node, ast.Attribute) and node.attr == "import_module" and isinstance(node.value, ast.Name) and prov.rooted.get(node.value.id) == "importlib":  # fmt: skip
+    # B310 (3): `importlib.import_module` como Attribute — sólo admisible como func de un Call descartado desde un
+    # `import importlib` LIMPIO (no reescrito; un rebind lo invalida).
+    if isinstance(node, ast.Attribute) and node.attr == "import_module" and isinstance(node.value, ast.Name) and node.value.id in prov.clean_importlib:  # fmt: skip
         parent = parents.get(id(node))
         if isinstance(parent, ast.Call) and parent.func is node:
             gp = parents.get(id(parent))
             if isinstance(gp, ast.Expr) and gp.value is parent:
                 return None  # forma segura: `importlib.import_module(...)` descartado
         return _DYNAMIC_IMPORT_FACTORY_VALUE  # capturado como valor / llamada no descartada
+    # B310 (3b): `importlib.import_module` sobre un importlib REESCRITO (rooteado pero no limpio) → prohibido siempre
+    if isinstance(node, ast.Attribute) and node.attr in _CANONICAL_FACTORY_NAMES and isinstance(node.value, ast.Name) and prov.rooted.get(node.value.id) == "importlib" and node.value.id not in prov.clean_importlib:  # fmt: skip
+        return _DYNAMIC_IMPORT_FACTORY_VALUE
+    # B310 (4): OBTENER la fábrica por NOMBRE LITERAL — `getattr(X, '__import__')`, `vars(X)['import_module']`,
+    # `X.__dict__['__import__']` — está prohibido (no registrable), aunque el objeto exacto no sea demostrable.
+    if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in _CANONICAL_FACTORY_NAMES:
+        parent = parents.get(id(node))
+        if isinstance(parent, ast.Call) and isinstance(parent.func, ast.Name) and parent.func.id in ("getattr", "vars") and node in parent.args:  # fmt: skip
+            return _DYNAMIC_IMPORT_FACTORY_VALUE
+        if isinstance(parent, ast.Subscript) and parent.slice is node:
+            base = parent.value
+            if (isinstance(base, ast.Attribute) and base.attr == "__dict__") or (isinstance(base, ast.Call) and isinstance(base.func, ast.Name) and base.func.id == "vars"):  # fmt: skip
+                return _DYNAMIC_IMPORT_FACTORY_VALUE
     # B308: toda otra llamada a una fábrica dinámica (aliased __import__, etc.) — deny-by-default
     if isinstance(node, ast.Call):
         root = _factory_root(node.func, prov.factories, prov.rooted)
@@ -509,7 +524,11 @@ def _canonical_provenance(tree: ast.AST, mod_aliases: dict[str, str]) -> _Proven
         members.discard(
             name
         )  # `_resolve_op` sobre la LLAMADA) Y fábrica (su RESULTADO queda rooteado, B297); nodos distintos
-    return _Provenance(rooted, frozenset(sysmod), frozenset(dictnames), frozenset(members), factories)
+    # B310: alias de `import importlib` limpios = importados y NUNCA reescritos (Store/Del) — un rebind los invalida.
+    imported_il = {a.asname or "importlib" for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names if a.name == "importlib"}  # fmt: skip
+    rebound_il = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Store, ast.Del)) and n.id in imported_il}  # fmt: skip
+    clean_importlib = imported_il - rebound_il
+    return _Provenance(rooted, frozenset(sysmod), frozenset(dictnames), frozenset(members), factories, frozenset(clean_importlib))  # fmt: skip
 
 
 def _canonical_member_escape(node: ast.AST, parents: dict[int, ast.AST], prov: _Provenance) -> str | None:

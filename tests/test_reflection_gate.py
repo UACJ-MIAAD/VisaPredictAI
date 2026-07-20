@@ -765,6 +765,28 @@ def test_b310_safe_form_and_benign_controls(tmp_path, monkeypatch):
         assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"no debe sobredisparar (B310): {src!r} → {ops}"
 
 
+def test_b310_round_b_rebind_and_name_lookup_prohibited(tmp_path, monkeypatch):
+    # Ronda B: importlib reescrito invalida la forma segura; obtener la fábrica por NOMBRE LITERAL (getattr/vars/__dict__)
+    # está prohibido; controles (forma segura, literales de frozenset, getattr normal, dict normal) no sobredisparan.
+    for label, src in {
+        "rebind": "import importlib\nimportlib = None\nimportlib.import_module('x')\n",
+        "getattr_literal": "import builtins\ng = getattr(builtins, '__import__')\n",
+        "vars_literal": "import builtins\nf = vars(builtins)['__import__']\n",
+        "dict_literal": "import builtins\nf = builtins.__dict__['__import__']\n",
+        "getattr_import_module": "g = getattr(m, 'import_module')\n",
+    }.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE in ops, f"{label}: debe prohibirse (B310 ronda B): {ops}"
+    for label, src in {
+        "safe_form": "import importlib\nimportlib.import_module(name)\n",
+        "frozenset_literal": 'F = frozenset({"import_module", "__import__"})\n',
+        "normal_getattr": "g = getattr(obj, 'normal_attr')\n",
+        "normal_dict": "d = {'__import__': 1}\nx = d['k']\n",
+    }.items():
+        ops, _ = _ops_and_problems(tmp_path, monkeypatch, src)
+        assert refl._DYNAMIC_IMPORT_FACTORY_VALUE not in ops, f"{label}: no debe sobredisparar (B310 ronda B): {ops}"
+
+
 def test_b310_prohibited_value_fails_the_gate(tmp_path, monkeypatch):
     _mount(
         tmp_path,
