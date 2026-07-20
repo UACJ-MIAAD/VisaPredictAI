@@ -175,7 +175,6 @@ def test_b293_one_fstat_validate_equals_seal(monkeypatch, tmp_path):
 
 def test_b288_post_mode_change_dir_rejected(monkeypatch, tmp_path):
     with _lay(tmp_path) as snap:
-        tools_ino = os.stat(tmp_path / "tools").st_ino
         real_read = os.read
         done = {"x": False}
 
