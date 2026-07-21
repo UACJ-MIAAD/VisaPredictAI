@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "note": "Contrato de gobernanza del repositorio (B291): estado EXACTO que la proteccion de `main` DEBE cumplir para que la revision independiente sea efectiva. `check_repository_governance.py --offline` valida este esquema + la cobertura de CODEOWNERS sobre las rutas criticas (verde local). `--online` consulta la GitHub API y EXIGE la politica; con el estado ACTUAL (ruleset sin aprobaciones, un solo colaborador, sin revisor independiente) queda en ROJO — el bloqueo es EXTERNO (10.2), no se convierte en skip.",
+  "repository": "UACJ-MIAAD/VisaPredictAI",
+  "default_branch": "main",
+  "ruleset": {
+    "id": 18933148,
+    "name": "main-protected",
+    "enforcement": "active",
+    "target_ref": "refs/heads/main"
+  },
+  "required_status_checks": {
+    "strict": true,
+    "checks": [
+      "ci-gate"
+    ]
+  },
+  "review_policy": {
+    "required_approving_review_count": 1,
+    "dismiss_stale_reviews_on_push": true,
+    "require_last_push_approval": true,
+    "require_code_owner_review": true,
+    "reviewer_must_differ_from_author_and_pusher": true,
+    "approval_bound_to_final_sha": true
+  },
+  "bypass": {
+    "allowed_actors": []
+  },
+  "codeowners_required_paths": [
+    "/.github/workflows/",
+    "/.github/CODEOWNERS",
+    "/security/",
+    "/locks/",
+    "/environments/",
+    "/tools/check_*.py",
+    "/tools/governance_snapshot.py",
+    "/tools/python_env.py",
+    "/tools/lock_contracts.py",
+    "/tools/install_governance_bootstrap.py",
+    "/tools/validate_governance_bootstrap.py",
+    "/tools/campaign_bundle.py",
+    "/tools/merge_campaign_pools.py",
+    "/tools/governed_fs.py",
+    "/tools/governed_read.py",
+    "/tools/atomic_fs.py"
+  ],
+  "external_blocker": {
+    "open": true,
+    "reason": "Falta un revisor independiente real con write/maintain y la activacion de la proteccion (aprobacion obligatoria, dismiss-stale, last-push, code-owner). Solo `jrebull` es colaborador; el ruleset exige 0 aprobaciones. Se cierra en la accion externa 10.2 (autorizacion humana separada).",
+    "closes_in": "PLAN 10.2"
+  }
+}

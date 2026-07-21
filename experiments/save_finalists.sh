@@ -9,14 +9,17 @@
 # sin él, un cwd/venv equivocado era un no-op "exitoso" (E1).
 set -uo pipefail
 cd "$(dirname "$0")/.."
-[ -x ante/bin/python ] && [ -x ante_nf/bin/python ] || { echo "ERROR: faltan venvs ante/ y/o ante_nf/ en la raíz" >&2; exit 1; }
+# R9.4: bootstrap orquestador; la lógica corre en los entornos `deep-cpu`/`model` content-addressed.
+PYBOOT=${PYBOOT:-python3.14}
+command -v "$PYBOOT" >/dev/null 2>&1 || { echo "ERROR: falta $PYBOOT (bootstrap del orquestador)" >&2; exit 1; }
+runc() { "$PYBOOT" -m tools.python_env run-command --id "$1" -- "${@:2}"; }
 FIN_FAILS=0
 step() { local label="$1"; shift; echo ">>> $label"; "$@" || { echo "##### PASO FALLIDO (exit $?): $label :: $*"; FIN_FAILS=$((FIN_FAILS+1)); }; }
 rm -f models/manifest.jsonl   # manifiesto fresco
 echo "=== GUARDAR FINALISTAS $(date) ==="
-step "[1/4] modelos GLOBALES deep (ante_nf)" ante_nf/bin/python experiments/save_finalists_deep.py
-step "[2/4] modelos LOCALES por serie (ante)" ante/bin/python experiments/save_finalists.py
-step "[3/4] pronosticos finalistas -> CSV tidy (ante)" ante/bin/python experiments/export_forecasts.py
+step "[1/4] modelos GLOBALES deep (deep-cpu)" runc save_finalists_deep
+step "[2/4] modelos LOCALES por serie (model)" runc save_finalists
+step "[3/4] pronosticos finalistas -> CSV tidy (model)" runc export_forecasts
 echo ">>> [4/4] stage forecasts + sync LOCAL (sin push)"
 git add reports/eval/finalist_forecasts_*.csv 2>/dev/null
 step "sync_all LOCAL (sin push)" env SYNC_PUBLISH=0 bash experiments/sync_all.sh "finalistas: $(ls models -R 2>/dev/null | grep -c model) modelos + forecasts ($(date +%Y-%m-%d))"

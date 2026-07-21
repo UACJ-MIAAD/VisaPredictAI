@@ -83,7 +83,17 @@ def test_no_temporal_leakage_corrupt_future() -> None:
     raw_corrupt = raw.copy()
     raw_corrupt[raw_corrupt.index >= split] = 9.9e5  # basura en el futuro, PRE-transformación
     corrupt = models.to_timeseries(raw_corrupt)
-    assert np.allclose(sel_fc(ts), sel_fc(corrupt)), "fuga temporal: el futuro alteró la selección"
+    # B69: la basura en el futuro hace que SARIMA no converja y emita warnings de Statsmodels
+    # (ConvergenceWarning + AR no-estacionario / MA no-invertible). Se CAPTURAN expresamente con
+    # pytest.warns (documentando la intencion, sin filtro global de ignore) y se EXIGE que no aparezca
+    # ninguna otra categoria — un warning distinto rompe la prueba.
+    from statsmodels.tools.sm_exceptions import ConvergenceWarning
+
+    with pytest.warns((ConvergenceWarning, UserWarning)) as rec:
+        a, b = sel_fc(ts), sel_fc(corrupt)
+    unexpected = [str(w.message) for w in rec if not issubclass(w.category, (ConvergenceWarning, UserWarning))]
+    assert not unexpected, f"warning Statsmodels inesperado en la prueba de fuga: {unexpected}"
+    assert np.allclose(a, b), "fuga temporal: el futuro alteró la selección"
 
 
 def test_backtest_captures_fit_warnings_per_series(monkeypatch) -> None:

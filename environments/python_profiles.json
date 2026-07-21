@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "python_minor": "3.14",
+  "toolchain": {
+    "pip": "26.1.2",
+    "setuptools": "83.0.0",
+    "wheel": "0.47.0",
+    "uv": "0.11.28"
+  },
+  "profiles": {
+    "runtime": {
+      "install_mode": "auto",
+      "locks": {
+        "Darwin-arm64": "locks/runtime.txt",
+        "Linux-x86_64": "locks/runtime-linux-x86_64.txt"
+      },
+      "project_source": "editable",
+      "note": "Capa de datos del producto (scrape/panel/almacen). editable + lock."
+    },
+    "dev": {
+      "install_mode": "auto",
+      "locks": {
+        "Darwin-arm64": "locks/dev.txt",
+        "Linux-x86_64": "locks/dev-linux-x86_64.txt"
+      },
+      "project_source": "editable",
+      "note": "runtime + herramientas dev (ruff/mypy/pytest). editable + lock."
+    },
+    "model": {
+      "install_mode": {
+        "Darwin-arm64": "constraint-model",
+        "Linux-x86_64": "constraint-model-cpu-index"
+      },
+      "locks": {
+        "Darwin-arm64": "locks/model-cpu.txt",
+        "Linux-x86_64": "locks/model-cpu-linux-x86_64.txt"
+      },
+      "cpu_torch": "2.13.0+cpu",
+      "cpu_index": "https://download.pytorch.org/whl/cpu",
+      "project_source": "extra-model",
+      "note": "Modelado CPU. Constraints (-c): torch del indice CPU en Linux, PyPI en macOS."
+    },
+    "deep": {
+      "install_mode": "hash-verified",
+      "variants": {
+        "cpu": {
+          "Darwin-arm64": "locks/deep-macos-arm64.txt",
+          "Linux-x86_64": "locks/deep-linux-x86_64-cpu.txt"
+        },
+        "cu126": {
+          "Linux-x86_64": "locks/deep-linux-x86_64-cu126.txt"
+        }
+      },
+      "project_source": "none",
+      "note": "Stack deep aislado (pandas 2.x). Variante EXPLICITA cpu/cu126; cu126 solo Linux (A10G)."
+    },
+    "dvc-tool": {
+      "install_mode": "hash-verified",
+      "locks": {
+        "Darwin-arm64": "locks/dvc-tool-macos-arm64.txt",
+        "Linux-x86_64": "locks/dvc-tool-linux-x86_64.txt"
+      },
+      "console_scripts": ["dvc"],
+      "cache_guarded": true,
+      "project_source": "none",
+      "note": "DVC CLI aislado del producto (P0R.5). NUNCA compartir interprete con runtime/model/freeze."
+    }
+  }
+}

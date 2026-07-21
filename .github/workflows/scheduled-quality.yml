@@ -18,12 +18,12 @@ jobs:
   pip-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: '3.14'
       - run: pip install "pip-audit==2.10.1"   # A5: herramienta de audit pinneada
-      # P0R.3/P0R.4R (ronda 10): un ÚNICO ejecutor gobierna la supply chain. Audita los 9 locks
+      # P0R.3/P0R.4R (ronda 10): un ÚNICO ejecutor gobierna la supply chain. Audita los 11 locks
       # (runtime/dev/model-cpu × macOS+Linux + los 3 deep) con pip-audit (sin ocultar nada) y
       # reconcilia el resultado BRUTO contra security/python_advisories.json con BIYECCIÓN EXACTA
       # por perfil/lock (runtime/dev vetan; model y deep con allowlist triada). Corre PRIMERO el
@@ -37,17 +37,34 @@ jobs:
       # subía un artefacto vacío en silencio).
       - name: SBOM CycloneDX (perfil dev)
         run: pip-audit -r locks/dev.txt --no-deps --disable-pip --format cyclonedx-json -o sbom-dev.cdx.json
+      # P0R.5 R5/R6: SBOM del perfil dvc-tool (herramienta AISLADA) + gate de contenido: DEBE listar
+      # dvc 3.67.1, dvc-s3 3.3.0 y diskcache 5.6.3 (el aviso PYSEC-2026-2447 vive aquí). Sin este SBOM
+      # la herramienta gobernada quedaba fuera del inventario de componentes.
+      - name: SBOM CycloneDX (perfil dvc-tool) + gate de contenido
+        run: |
+          # pip-audit sale != 0 al hallar el aviso diskcache ACEPTADO. La AUTORIDAD de avisos es el
+          # paso `Audit supply chain` (ya verde); aquí solo generamos el SBOM, suprimiendo el aviso
+          # DERIVADO de la fuente única (no una allowlist textual nueva -> sin drift).
+          IGNORE=$(python -c "import tools.audit_python_supply_chain as m; print(' '.join('--ignore-vuln '+e['id'] for e in m.load_advisories(m.ADVISORIES) if 'dvc-tool' in e.get('profiles',[])))")
+          pip-audit -r locks/dvc-tool-linux-x86_64.txt $IGNORE --no-deps --disable-pip --format cyclonedx-json -o sbom-dvc-tool.cdx.json
+          python -c "import json; c=json.load(open('sbom-dvc-tool.cdx.json')); comps={ (x['name'].lower(), x.get('version')) for x in c.get('components',[]) }; req={('dvc','3.67.1'),('dvc-s3','3.3.0'),('diskcache','5.6.3')}; missing=req-comps; assert not missing, f'SBOM dvc-tool sin: {missing}'; print('SBOM dvc-tool OK:', sorted(req))"
       # P0R.4R: sube el RECIBO del auditor (hashes de manifiesto/locks/fuentes + normalizaciones +
       # skips autorizados + Python/plataforma), no solo el SBOM — evidencia de la corrida.
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: supply-chain-receipt
           path: reports/governance/supply_chain_receipt.json
           if-no-files-found: error
           retention-days: 30
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: sbom-dev-cyclonedx
           path: sbom-dev.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: sbom-dvc-tool-cyclonedx
+          path: sbom-dvc-tool.cdx.json
           if-no-files-found: error
           retention-days: 30

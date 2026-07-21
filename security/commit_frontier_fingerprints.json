@@ -1,0 +1,19 @@
+{
+  "schema_version": 3,
+  "note": "B254/B258/B264/B269: contrato de la FRONTERA DE AUTORIDAD. `functions` pinea el AST del FunctionDef de NIVEL GLOBAL de las 3 funciones críticas (fingerprint + tests runtime = el contrato); `authority_files` pinea los BYTES EXACTOS del set cerrado de 5 módulos de autoridad — un `__code__ = evil`, alias, decorador, callback o efecto import-time cambia los bytes aunque el AST del def no cambie; el hash COMPLETO del fichero es la unidad de revisión. schema/source/algorithm/set-de-funciones/set-de-ficheros/algoritmo-de-bytes son constantes de código en check_commit_frontier.py; el JSON sólo aporta hashes. Regenerar SÓLO por stdout (scratchpad); el gate nunca auto-modifica la política. Frontera honesta: código+contrato cambian en una PR autorizada por ruleset + revisión humana.",
+  "source": "tools/campaign_bundle.py",
+  "algorithm": "sha256(ast.dump(top_level_FunctionDef,annotate_fields=True,include_attributes=False))",
+  "functions": {
+    "commit_current": "6eacd6f4937aa750103853eef0960be2d76bcc2a9369af10121407f18944c1fb",
+    "_classify_post_authority": "5e5ce7eef694453b8a54273f2a311cc164d180b8b16e49032205cc22d1ad0d15",
+    "_reconcile_and_raise": "8837261e1f2076e0054c716cb0e0ebfba4edecfe9f3993bc32a67e5bbe56e8b8"
+  },
+  "authority_files_algorithm": "sha256(exact_file_bytes)",
+  "authority_files": {
+    "tools/campaign_bundle.py": "20df819421a4202a7501fd7c7d8af72cb5c8608545c5f32106a123f655a6addf",
+    "tools/merge_campaign_pools.py": "ad374b84374fd98dabc70d0755b01e64aaa733d704aec97703ca024f43258f61",
+    "tools/governed_fs.py": "b3252b21616839bc4a9c009b54e8c7977802542164ce008c26ebc5f6fa58b95e",
+    "tools/governed_read.py": "96871a104358f8b4311ff8b7fb9a935b2db076399e9d8cc861ab12f3dc796e94",
+    "tools/atomic_fs.py": "88eb80e456c44466598d2590d6c74acf0b10e27a8e74d6219dfb02995fc81b6e"
+  }
+}

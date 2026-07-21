@@ -1,0 +1,256 @@
+#!/usr/bin/env python
+"""Gate anti-entornos legacy (P0R.5, C4/B2). El call graph oficial debe MIGRAR de `ante/bin/*` y
+`ante_nf/bin/*` a la interfaz gobernada `python -m tools.python_env run-python --profile <P> [--variant V]`.
+Este gate es un TRINQUETE: cuenta las referencias a los intérpretes legacy por fichero y las compara con
+`docs/legacy_env_baseline.json`. Cualquier fichero que SUPERE su baseline (uso legacy NUEVO) FALLA; bajar
+el baseline (migrar) es el único cambio permitido. Los directorios físicos `ante/`/`ante_nf/` se conservan
+hasta la autorización de cutover; aquí solo se retira su AUTORIDAD en el código, de forma medible.
+
+    python -m tools.check_no_legacy_envs      # exit 1 si aparece uso legacy nuevo o el baseline quedó stale
+"""
+
+from __future__ import annotations
+
+import ast
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+_SUBPROC_ATTRS = {"run", "Popen", "check_output", "check_call", "call"}
+# B37: os.system/popen + toda la familia exec*/spawn* (que reciben la ruta como primer arg).
+_OS_ATTRS = {
+    "system",
+    "popen",
+    "execv",
+    "execve",
+    "execvp",
+    "execvpe",
+    "execl",
+    "execle",
+    "execlp",
+    "execlpe",
+    "spawnl",
+    "spawnle",
+    "spawnlp",
+    "spawnlpe",
+    "spawnv",
+    "spawnve",
+    "spawnvp",
+    "spawnvpe",
+    "posix_spawn",
+    "posix_spawnp",
+}
+
+
+class _LegacyScanError(Exception):
+    """Fail-closed: un .py del call graph que no parsea NO puede certificarse honestamente (B23)."""
+
+
+def _fold_str(node: ast.AST) -> str | None:
+    """Evalúa una expresión string CONSTANTE: literal o concatenación `+` de constantes (B37)."""
+    if isinstance(node, ast.Constant):
+        return node.value if isinstance(node.value, str) else None
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _fold_str(node.left), _fold_str(node.right)
+        return None if left is None or right is None else left + right
+    return None
+
+
+def _const_ante(node: ast.AST) -> bool:
+    s = _fold_str(node)
+    return s is not None and bool(_LEGACY.search(s))
+
+
+def _argv_ante(node: ast.AST, ante_vars: set[str], ante_strs: set[str]) -> bool:
+    """El argv (str, list/tuple, o Name) referencia una ruta ante*/bin/ — const O variable resuelta."""
+    if _const_ante(node):
+        return True
+    if isinstance(node, ast.Name):
+        return node.id in ante_vars or node.id in ante_strs
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return any(_const_ante(e) or (isinstance(e, ast.Name) and e.id in ante_strs) for e in node.elts)
+    return False
+
+
+def _py_legacy_count(text: str) -> int:
+    """Cuenta usos EJECUTABLES de ante/ante_nf en Python (subprocess/os.system/os.popen/os.exec*/spawn con
+    una ruta `ante*/bin/` en argv — literal, en variable string, o en list/tuple), vía AST. Resuelve
+    aliases de import (`from subprocess import run as r`, `from os import system as s`). NO comentarios ni
+    docstrings. B23/B31: un error de sintaxis es FAIL-CLOSED (no un 0 silencioso)."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError as exc:
+        raise _LegacyScanError(f"no parsea: {exc}") from exc
+    subp = {"subprocess"}
+    osm = {"os"}
+    subp_funcs: set[str] = set()  # `from subprocess import run as r`
+    os_funcs: set[str] = set()  # `from os import system as s`
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name == "subprocess":
+                    subp.add(a.asname or a.name)
+                elif a.name == "os":
+                    osm.add(a.asname or a.name)
+        elif isinstance(node, ast.ImportFrom) and node.module == "subprocess":
+            subp_funcs |= {a.asname or a.name for a in node.names if a.name in _SUBPROC_ATTRS}
+        elif isinstance(node, ast.ImportFrom) and node.module == "os":
+            os_funcs |= {a.asname or a.name for a in node.names if a.name in _OS_ATTRS}
+    # PASO 1: variables STRING = ruta ante (para propagación PY -> [PY] -> subprocess).
+    ante_strs: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None and _const_ante(node.value):
+            tgts = node.targets if isinstance(node, ast.Assign) else [node.target]
+            ante_strs |= {t.id for t in tgts if isinstance(t, ast.Name)}
+    # PASO 2: variables ligadas a list/tuple con const-ante O una var-string ante (2-var propagation).
+    ante_vars: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(node.value, (ast.List, ast.Tuple)):
+            if any(_const_ante(e) or (isinstance(e, ast.Name) and e.id in ante_strs) for e in node.value.elts):
+                tgts = node.targets if isinstance(node, ast.Assign) else [node.target]
+                ante_vars |= {t.id for t in tgts if isinstance(t, ast.Name)}
+    n = 0
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        is_sub = (
+            isinstance(f, ast.Attribute)
+            and f.attr in _SUBPROC_ATTRS
+            and isinstance(f.value, ast.Name)
+            and f.value.id in subp
+        ) or (isinstance(f, ast.Name) and (f.id in subp_funcs or f.id == "Popen"))
+        is_os = (
+            isinstance(f, ast.Attribute) and f.attr in _OS_ATTRS and isinstance(f.value, ast.Name) and f.value.id in osm
+        ) or (isinstance(f, ast.Name) and f.id in os_funcs)
+        if not (is_sub or is_os):
+            continue
+        # argv posicional, el kwarg `args=` o el kwarg `executable=` referencia una ruta ante.
+        argv_nodes = list(node.args)
+        argv_nodes += [k.value for k in node.keywords if k.arg in ("args", "executable")]
+        if any(_argv_ante(a, ante_vars, ante_strs) for a in argv_nodes):
+            n += 1
+    return n
+
+
+ROOT = Path(__file__).resolve().parent.parent
+BASELINE = ROOT / "docs" / "legacy_env_baseline.json"
+_LEGACY = re.compile(r"\bante(_nf)?/bin/")
+# B16: incluye .py (una `subprocess.run(["ante_nf/bin/python", …])` versionada también cuenta).
+_SCAN_EXT = (".sh", ".yml", ".yaml", ".py")
+_SCAN_BASE = ("Makefile", "dvc.yaml")
+
+
+def _tracked(root: Path) -> list[str]:
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=str(root), capture_output=True, text=True, check=True
+        ).stdout
+    except (subprocess.CalledProcessError, OSError) as exc:
+        raise SystemExit(f"check_no_legacy_envs: `git ls-files` falló ({exc}) — fail-closed") from exc
+    return [f for f in out.split("\0") if f and (f.endswith(_SCAN_EXT) or Path(f).name in _SCAN_BASE)]
+
+
+def current_counts(root: Path = ROOT) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for rel in _tracked(root):
+        try:
+            text = (root / rel).read_text()
+        except (OSError, UnicodeDecodeError) as exc:
+            raise SystemExit(f"check_no_legacy_envs: {rel} ilegible ({exc}) — fail-closed") from exc
+        # .py: solo usos EJECUTABLES (AST); shell/yaml/make: refs de línea de comando (regex).
+        try:
+            n = _py_legacy_count(text) if rel.endswith(".py") else len(_LEGACY.findall(text))
+        except _LegacyScanError as exc:
+            raise SystemExit(f"check_no_legacy_envs: {rel} {exc} — fail-closed") from exc
+        if n:
+            counts[rel] = n
+    return counts
+
+
+def _comment_index(line: str) -> int | None:
+    """Índice del primer `#` que INICIA comentario (inicio de línea o precedido por espacio) — aproximación
+    válida para .sh/.yaml/Makefile."""
+    for i, ch in enumerate(line):
+        if ch == "#" and (i == 0 or line[i - 1] in " \t"):
+            return i
+    return None
+
+
+def _shell_breakdown(text: str) -> tuple[int, int]:
+    """(ejecutables, documentales) para .sh/.yaml/Makefile: un match tras el `#` de comentario de su línea es
+    documental; el resto, ejecutable."""
+    execu = docu = 0
+    for line in text.splitlines():
+        hidx = _comment_index(line)
+        for m in _LEGACY.finditer(line):
+            if hidx is not None and m.start() >= hidx:
+                docu += 1
+            else:
+                execu += 1
+    return execu, docu
+
+
+def current_breakdown(root: Path = ROOT) -> dict[str, dict[str, int]]:
+    """B68: por fichero {'executable': N, 'documentary': M}, en el MISMO alcance que el trinquete
+    (`current_counts`): para .py solo usos EJECUTABLES por AST (los comentarios/docstrings NO cuentan, así
+    que documentary=0); para shell/yaml/make se separa `_LEGACY.findall` en fuera-de-comentario (ejecutable)
+    y en-comentario (documental). Por construcción `sum(exec+docu) == sum(current_counts)`. El objetivo 29→0
+    es del TOTAL; el reporte separa las categorías (no son 29 ejecuciones reales)."""
+    out: dict[str, dict[str, int]] = {}
+    for rel in _tracked(root):
+        text = (root / rel).read_text()
+        if rel.endswith(".py"):
+            try:
+                execu, docu = _py_legacy_count(text), 0  # el trinquete NO cuenta comentarios/docstrings .py
+            except _LegacyScanError as exc:
+                raise SystemExit(f"check_no_legacy_envs: {rel} {exc} — fail-closed") from exc
+        else:
+            execu, docu = _shell_breakdown(text)
+        if execu or docu:
+            out[rel] = {"executable": execu, "documentary": docu}
+    return out
+
+
+def check(root: Path = ROOT) -> list[str]:
+    doc = json.loads(BASELINE.read_text())
+    baseline = doc.get("max_per_file", {})
+    counts = current_counts(root)
+    probs: list[str] = []
+    # B16: el campo `total` DEBE ser exactamente la suma del baseline (sin holgura oculta).
+    if doc.get("total") != sum(baseline.values()):
+        probs.append(f"baseline.total={doc.get('total')} != sum(max_per_file)={sum(baseline.values())}")
+    for rel, n in counts.items():
+        allowed = baseline.get(rel, 0)
+        if n > allowed:
+            probs.append(f"{rel}: {n} refs a ante/ante_nf (baseline {allowed}) — migra a `python_env run-python`")
+    # baseline stale: un fichero que YA migró (bajó a 0) debe salir del baseline
+    for rel, allowed in baseline.items():
+        if allowed and counts.get(rel, 0) < allowed:
+            probs.append(
+                f"{rel}: bajó de {allowed} a {counts.get(rel, 0)} refs — ACTUALIZA docs/legacy_env_baseline.json (el trinquete no permite holgura)"
+            )
+    return probs
+
+
+def main() -> int:
+    probs = check()
+    if probs:
+        print("✗ CHECK NO-LEGACY-ENVS (trinquete C4/B2):")
+        for p in probs:
+            print(f"  - {p}")
+        return 1
+    bd = current_breakdown()
+    execu = sum(v["executable"] for v in bd.values())
+    docu = sum(v["documentary"] for v in bd.values())
+    print(
+        f"✓ Sin uso legacy nuevo: {execu + docu} refs rastreadas a ante/ante_nf "
+        f"({execu} ejecutables, {docu} documentales) en el call graph (trinquete; migración en curso)"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

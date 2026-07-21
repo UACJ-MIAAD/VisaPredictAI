@@ -45,7 +45,7 @@ def sandbox(tmp_path, monkeypatch):
 
 
 def _staged(tmp_path):
-    """Staging con los 9 locks (pins simples, pin_map-parseables)."""
+    """Staging con la matriz completa de locks (pins simples, pin_map-parseables)."""
     staged = tmp_path / "staged"
     staged.mkdir()
     for i, name in enumerate(promote_lockset.LOCK_NAMES):
@@ -53,7 +53,7 @@ def _staged(tmp_path):
     return staged
 
 
-def test_happy_path_promotes_nine_and_manifest(sandbox, tmp_path):
+def test_happy_path_promotes_matrix_and_manifest(sandbox, tmp_path):
     _root, locks = sandbox
     staged = _staged(tmp_path)
     manifest = promote_lockset.promote(staged, GEN)
@@ -61,8 +61,9 @@ def test_happy_path_promotes_nine_and_manifest(sandbox, tmp_path):
         assert (locks / name).read_text() == (staged / name).read_text()
     assert (locks / "lockset.json").exists()
     assert manifest["generator"] == GEN
-    assert len(manifest["locks"]) == 9
-    assert set(manifest["sources"]) == set(lc.SOURCES) and len(manifest["sources"]) == 7
+    # matriz completa (P0R.5: 11 locks = 9 producto/dev + 2 dvc-tool) y fuentes = contrato (8).
+    assert len(manifest["locks"]) == len(promote_lockset.LOCK_NAMES)
+    assert set(manifest["sources"]) == set(lc.SOURCES) and len(manifest["sources"]) == len(lc.SOURCES)
     for name in promote_lockset.LOCK_NAMES:
         assert manifest["locks"][f"locks/{name}"]["pins"] == 2
 

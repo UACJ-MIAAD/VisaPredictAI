@@ -81,25 +81,68 @@ def test_to_timeseries_regular_no_gaps() -> None:
     assert ts.gaps().empty  # sin huecos: los modelos pueden entrenar
 
 
+# B73/B82: warnings ESPERADOS por modelo, con categoría + prefijo de mensaje EXACTOS (no un substring
+# genérico como "converge", que aceptaría warnings ajenos). En mexico/F3/FAD solo `arima` avisa (2
+# UserWarning de Statsmodels: AR inicial no-estacionario + MA inicial no-invertible); el resto: cero.
+_EXPECTED_WARNINGS: dict[str, list[tuple[type, str]]] = {
+    "arima": [
+        (UserWarning, "Non-stationary starting autoregressive parameters"),
+        (UserWarning, "Non-invertible starting MA parameters"),
+    ],
+}
+
+
+def _warnings_match_exactly(recorded, expected: list[tuple[type, str]]) -> str | None:
+    """None si `recorded` casa EXACTAMENTE el multiset `expected` (categoría + prefijo de mensaje); si no, un
+    mensaje del desajuste. Ni acepta warnings de más ni tolera ajenos por substring."""
+    got = [(w.category, str(w.message)) for w in recorded]
+    if len(got) != len(expected):
+        return f"{len(got)} warnings, esperados {len(expected)}: {got}"
+    remaining = list(expected)
+    for cat, msg in got:
+        m = next((e for e in remaining if issubclass(cat, e[0]) and msg.startswith(e[1])), None)
+        if m is None:
+            return f"warning inesperado: {cat.__name__}: {msg}"
+        remaining.remove(m)
+    return None if not remaining else f"faltan warnings esperados: {remaining}"
+
+
 @pytest.mark.parametrize("name", FAST)
 def test_fast_model_fits_and_forecasts(name: str) -> None:
+    import warnings
+
     from vp_model.feature_builder import FeatureBuilder
 
     raw = dataset.load_series("mexico", "F3", "FAD")
     ts = models.to_timeseries(raw)
     model = models.build_model(name)
-    if name == "xgboost":
-        # F1: calendario (retardo 0) + máscaras MNAR (retardo −1) vía FeatureBuilder.
-        cov = FeatureBuilder(name).covariates(ts, raw)
-        model.fit(ts[:-12], future_covariates=cov)
-        fc = model.predict(12, future_covariates=cov)
-    else:
-        model.fit(ts[:-12])
-        fc = model.predict(12)
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        if name == "xgboost":
+            # F1: calendario (retardo 0) + máscaras MNAR (retardo −1) vía FeatureBuilder.
+            cov = FeatureBuilder(name).covariates(ts, raw)
+            model.fit(ts[:-12], future_covariates=cov)
+            fc = model.predict(12, future_covariates=cov)
+        else:
+            model.fit(ts[:-12])
+            fc = model.predict(12)
+    mismatch = _warnings_match_exactly(rec, _EXPECTED_WARNINGS.get(name, []))
+    assert mismatch is None, f"warnings de {name}: {mismatch}"
     assert len(fc) == 12
     import numpy as np
 
     assert np.isfinite(fc.values()).all()
+
+
+def test_b82_unrelated_converge_warning_is_rejected() -> None:
+    # un UserWarning ajeno que MENCIONE "converge" NO debe colarse (el substring genérico era el bug).
+    import warnings
+
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        warnings.warn("unrelated optimizer did not converge catastrophically", UserWarning, stacklevel=1)
+    assert _warnings_match_exactly(rec, _EXPECTED_WARNINGS["arima"]) is not None  # NO casa el multiset esperado
+    assert _warnings_match_exactly(rec, []) is not None  # tampoco "cero warnings"
 
 
 def test_unknown_model_rejected() -> None:

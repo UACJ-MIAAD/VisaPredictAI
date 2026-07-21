@@ -37,9 +37,11 @@
 # a sync_all con SYNC_PUBLISH=0; publicar exige `sync_all.sh --publish` humano tras validar.
 set -uo pipefail
 cd "$(dirname "$0")/.."
-ANTE=ante/bin/python
-NF=ante_nf/bin/python
-[ -x "$ANTE" ] && [ -x "$NF" ] || { echo "ERROR: faltan venvs ante/ y/o ante_nf/ en la raíz" >&2; exit 1; }
+# R9.4: bootstrap orquestador; la LÓGICA DE PRODUCTO corre en los entornos content-addressed
+# (runtime/model/deep-cpu) que abre `run-command`, jamás en el python ambiental.
+PYBOOT=${PYBOOT:-python3.14}
+command -v "$PYBOOT" >/dev/null 2>&1 || { echo "ERROR: falta $PYBOOT (bootstrap del orquestador)" >&2; exit 1; }
+runc() { "$PYBOOT" -m tools.python_env run-command --id "$1" -- "${@:2}"; }
 
 # ── Identidad fija + árbol limpio (auditoría 12-jul-2026) ────────────────────
 # La campaña DEBE arrancar sobre un árbol limpio y sella UN solo SHA + campaign_id
@@ -106,11 +108,10 @@ run()   { "$@" || { echo "##### ETAPA FALLIDA (exit $?): $*"; FAILS=$((FAILS+1))
 run_req() { "$@" || { echo "##### ETAPA OBLIGATORIA FALLIDA (exit $?): $*"; FAILS=$((FAILS+1)); REQ_FAILS=$((REQ_FAILS+1)); }; }
 
 echo "=== RE-DERIVACIÓN arranca $(date) ==="
-run $ANTE -c "import pandas as pd; p=pd.read_csv('data/processed/visa_panel_long.csv'); \
-print(f'panel: {len(p):,} filas · {p.bulletin_date.nunique()} meses · F={int((p.status==\"F\").sum()):,}')"
+run runc print_panel_summary   # R9.4/B66: extraído del `-c` (tools/print_panel_summary.py)
 
 stage 0 "almacén fresco (el modelado lee DuckDB y aborta si está desfasado)"
-run_req $ANTE -m pipeline.build_database
+run_req runc build_database
 
 stage 1 "campaña F1+F2 (pools 21 modelos + deep global multi-semilla)"
 run_req bash experiments/run_campaign.sh
@@ -125,24 +126,24 @@ stage 3 "finalistas (modelos deep+locales) + holdout_forecasts frescos"
 run_req bash experiments/save_finalists.sh
 
 stage 4 "combinadores sobre holdouts frescos (supersede el ensembles de la campaña)"
-run_req $ANTE experiments/run_ensembles.py --mlflow
-run_req $ANTE experiments/improve_conformal.py --mlflow
-run $ANTE experiments/improve_stacking.py --mlflow
-run $ANTE experiments/improve_fforma.py --mlflow
+run_req runc run_ensembles --mlflow
+run_req runc improve_conformal --mlflow
+run runc improve_stacking --mlflow
+run runc improve_fforma --mlflow
 
 stage 5 "baselines: Auto-ARIMA (AICc) · deep-PI · CRPS"
-run_req $ANTE experiments/auto_arima_baseline.py
+run_req runc auto_arima_baseline
 for t in FAD DFF; do
-  run $NF experiments/run_deep_pi.py --table "$t" --model BiTCN --max-steps 800
-  run $ANTE experiments/eval_deep_pi.py --table "$t"
+  run runc run_deep_pi --table "$t" --model BiTCN --max-steps 800
+  run runc eval_deep_pi --table "$t"
 done
-run_req $ANTE experiments/run_crps_baseline.py
+run_req runc run_crps_baseline
 
 stage 6 "tuning GBMs (Optuna persistente + confirmación en val-confirm independiente, AK)"
-run $ANTE -m vp_model.run_tuning --n-trials 150 --mlflow
-run $ANTE -m vp_model.run_tuning --rank-check --mlflow
-run $ANTE -m vp_model.run_tuning --select-by-deploy   # fix #20: re-elige por deploy-score antes de confirmar
-run_req $ANTE -m vp_model.confirm_tuning --holdout-report --mlflow
+run runc run_tuning --n-trials 150 --mlflow
+run runc run_tuning --rank-check --mlflow
+run runc run_tuning --select-by-deploy   # fix #20: re-elige por deploy-score antes de confirmar
+run_req runc confirm_tuning --holdout-report --mlflow
 
 stage 6.5 "GATE de INPUTS (pools/semillas/HPO/finalists frescos y con métricas finitas)"
 # Candado 1: si ya fallo CUALQUIER etapa obligatoria (0-6), NO correr los consumidores
@@ -153,30 +154,30 @@ if [ "$REQ_FAILS" -gt 0 ]; then
 fi
 # Candado 2: gate de inputs (ABORTA, no run_req): significancia/champion/key_facts NO deben
 # correr sobre inputs incompletos, stale, con NaN o con el conjunto de semillas equivocado.
-if ! $ANTE -m tools.check_campaign_completeness --phase inputs; then
+if ! runc check_campaign_completeness --phase inputs; then
   echo "✗ GATE DE INPUTS FALLIDO: inputs incompletos/stale/invalidos. Aborta antes de significancia." >&2
   exit 4
 fi
 
 stage 7 "significancia (Friedman-Nemenyi + MCS + DM) y champion-challenger"
-run_req $ANTE experiments/significance_tables.py
-run_req $ANTE experiments/run_champion_challenger.py --mlflow
+run_req runc significance_tables
+run_req runc run_champion_challenger --mlflow
 
 stage 8 "fuente única de verdad: key_facts + model card + drift"
-run_req $ANTE experiments/build_key_facts.py
-run_req $ANTE experiments/build_model_card.py
-run $ANTE experiments/check_drift.py
+run_req runc build_key_facts
+run_req runc build_model_card
+run runc check_drift
 
 stage 8.5 "GATE de OUTPUTS (significancia/champion/key_facts frescos + identidad)"
-run_req $ANTE -m tools.check_campaign_completeness --phase outputs
+run_req runc check_campaign_completeness --phase outputs
 
 stage 9 "figuras de resultados (las EDA no cambian: mismo panel)"
-run_req $ANTE experiments/make_result_figures.py
-run $ANTE experiments/make_hero_figures.py
+run_req runc make_result_figures
+run runc make_hero_figures
 
 stage 10 "guardián de consistencia (FALLA = hay cifras nuevas que propagar, regla #0)"
 CONSISTENCY_OK=1
-$ANTE tools/check_consistency.py || { CONSISTENCY_OK=0; echo "##### CONSISTENCIA ROTA: las cifras cambiaron — propagar a .tex/paper/web ANTES de publicar"; }
+runc check_consistency || { CONSISTENCY_OK=0; echo "##### CONSISTENCIA ROTA: las cifras cambiaron — propagar a .tex/paper/web ANTES de publicar"; }
 
 echo ""
 echo "=== RE-DERIVACIÓN termina $(date) ==="

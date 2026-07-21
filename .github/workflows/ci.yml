@@ -25,7 +25,7 @@ jobs:
   commit-policy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
         with:
           fetch-depth: 0
       - name: Commit message policy
@@ -56,7 +56,7 @@ jobs:
   lint-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
         with:
           # Ronda 3: la suite pytest ejercita el gate de contratos (test_contracts
           # llama check() sobre el repo real) y el check del sha es fail-closed en
@@ -66,10 +66,23 @@ jobs:
       - name: Validate project structure contract
         run: bash tools/validate_structure.sh
 
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: '3.14'
           cache: pip
+
+      - name: Private CI temp (0700 — pytest fuera de /tmp 01777)
+        # RC-1: en Ubuntu el `/tmp` del runner es 01777 (world-writable) y las fixtures de
+        # gobernanza que corren bajo `tmp_path` fallan en B282 (GovernanceSnapshot rechaza un
+        # ancestro escribible por grupo/otros — correcto, NO se relaja). Se aloja el basetemp de
+        # pytest en un directorio PRIVADO 0700 bajo $RUNNER_TEMP (0755 del runner, FUERA del árbol git — dentro del
+        # checkout rompería tests que exigen tmp_path fuera de un repo git). `TMPDIR` cubre cualquier temporal indirecto; `--basetemp` lo fija explícito.
+        run: |
+          umask 077
+          GOV_TMP="$(mktemp -d "$RUNNER_TEMP/.gov-${GITHUB_JOB}.XXXXXX")"
+          chmod 0700 "$GOV_TMP"
+          install -d -m 0700 "$GOV_TMP/tmp"
+          printf 'GOV_TMP=%s\nTMPDIR=%s\n' "$GOV_TMP" "$GOV_TMP/tmp" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         run: |
@@ -93,24 +106,39 @@ jobs:
         run: mypy --ignore-missing-imports --explicit-package-bases vp_data/*.py pipeline/*.py vp_model/*.py tests/*.py tools/*.py experiments/*.py
 
       - name: Tests + coverage gate (pytest)
-        run: pytest
+        run: pytest --basetemp="$GOV_TMP/pytest-lint"
+
+      - name: Cleanup private CI temp
+        if: always()
+        run: rm -rf "$GOV_TMP"
 
   # Capa de modelado: pesada (darts/torch) y requiere la BD, por eso es un job
   # aparte. Sin él, los tests de vp_model se saltan en silencio (importorskip).
   model-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
         with:
           # E1: la corrida amplia de cobertura ejecuta la suite COMPLETA (incluye
           # test_contracts, cuyo check del sha del manifiesto es fail-closed en
           # clones shallow) — mismo motivo que lint-and-test.
           fetch-depth: 0
 
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: '3.14'
           cache: pip
+
+      - name: Private CI temp (0700 — pytest fuera de /tmp 01777)
+        # RC-1: idéntico a lint-and-test — el basetemp de pytest y los artefactos temporales viven en
+        # un directorio PRIVADO 0700 bajo $RUNNER_TEMP (fuera del checkout); `TMPDIR` cubre `make test-model` (que hereda el
+        # env) y `--basetemp` fija la suite amplia. Sin esto, las fixtures de gobernanza fallan en B282.
+        run: |
+          umask 077
+          GOV_TMP="$(mktemp -d "$RUNNER_TEMP/.gov-${GITHUB_JOB}.XXXXXX")"
+          chmod 0700 "$GOV_TMP"
+          install -d -m 0700 "$GOV_TMP/tmp"
+          printf 'GOV_TMP=%s\nTMPDIR=%s\n' "$GOV_TMP" "$GOV_TMP/tmp" >> "$GITHUB_ENV"
 
       - name: Install with modeling extra
         run: |
@@ -129,6 +157,9 @@ jobs:
           # el pin CPU debe SOBREVIVIR a .[model]: sin esto, un torch CUDA silencioso pasaría el CI.
           pip check
           python -c 'import torch; assert torch.__version__ == "2.13.0+cpu", torch.__version__'
+          # P0R.5 R3: sello del inventario del PRODUCTO antes de cualquier operación DVC (prueba de
+          # no-contaminación: DVC corre en un ENV AISLADO, no en este intérprete).
+          python -m pip freeze --all | sort > "$GOV_TMP/prod_before.txt"
 
       - name: Build the panel + DuckDB warehouse (modeling reads from it)
         run: |
@@ -141,8 +172,12 @@ jobs:
         # (antes llevaba semanas desfasado y nada lo detectaba). C1: eda_facts y
         # fe_facts entraron al DAG — sus deps/outs viven en git, así que se vigilan.
         run: |
-          pip install "dvc==3.67.1"
-          out=$(dvc status --json panel bulletins key_facts eda_facts fe_facts)
+          # P0R.5 R3: DVC corre desde su ENTORNO AISLADO content-addressed (.vp_envs/dvc-tool), JAMÁS
+          # en el intérprete del producto (dvc[s3] arrastra requests/tqdm más nuevos y los degradaría).
+          # El build va en su propia línea (sus logs de pip NO deben caer en $out); el exec reusa
+          # (instantáneo) y aplica el cache guard internamente, así $out es solo el JSON de dvc.
+          python -m tools.python_env build --profile dvc-tool
+          out=$(python -m tools.python_env exec --profile dvc-tool -- dvc status --json panel bulletins key_facts eda_facts fe_facts)
           echo "$out"
           [ "$out" = "{}" ] || { echo "::error::dvc.lock desfasado del pipeline commiteado — corre make repro y commitea el lock"; exit 1; }
 
@@ -150,11 +185,23 @@ jobs:
         # The consistency job checks prose-vs-JSON; this closes the loop by checking
         # JSON-vs-DATA through the REAL dag: force-reproduce the fact stages with dvc
         # (portable `python` commands — this run is itself the clean-clone proof) and
-        # fail if any committed output drifts from the pipeline.
+        # fail if any committed output drifts from the pipeline. DVC desde el env aislado; los
+        # comandos de stage (`python -m ...`) heredan el PATH ambiente = intérprete del PRODUCTO.
         run: |
-          dvc repro --force --single-item key_facts eda_facts fe_facts
+          python -m tools.python_env exec --profile dvc-tool -- dvc repro --force --single-item key_facts eda_facts fe_facts
           git diff --exit-code reports/governance/key_facts.json reports/latex/key_facts.tex \
             reports/eda/eda_facts.json reports/fe/fe_facts.json reports/latex/fe_facts.tex
+
+      - name: No model to DVC contamination (R3 -- inventario del producto intacto)
+        # El corazón del hallazgo B1: instalar/ejecutar DVC NO debe mover una sola dep del producto.
+        # Compara el inventario ANTES/DESPUÉS de todas las operaciones DVC y reafirma los pines que
+        # dvc[s3] intentaría subir (requests 2.33.0 / tqdm 4.67.3).
+        run: |
+          python -m pip freeze --all | sort > "$GOV_TMP/prod_after.txt"
+          diff "$GOV_TMP/prod_before.txt" "$GOV_TMP/prod_after.txt" \
+            || { echo "::error::el inventario del producto cambió tras operaciones DVC (contaminación)"; exit 1; }
+          pip check
+          python -c 'import importlib.metadata as m; assert m.version("requests")=="2.33.0", m.version("requests"); assert m.version("tqdm")=="4.67.3", m.version("tqdm")'
 
       - name: Modeling tests + vp_model coverage
         run: make test-model PY=python
@@ -163,8 +210,8 @@ jobs:
       # docs/coverage_floors.json en un PR (trinquete explícito).
       - name: Per-module coverage floors (G3)
         run: |
-          coverage json --fail-under=0 -o /tmp/cov.json
-          python tools/check_coverage_floors.py /tmp/cov.json
+          coverage json --fail-under=0 -o "$GOV_TMP/cov.json"
+          python tools/check_coverage_floors.py "$GOV_TMP/cov.json"
       # E1 (plan 2026-07-12): cobertura HONESTA por capa. Instrumentación AMPLIA
       # (vp_data+pipeline+vp_model+experiments+tools) sobre la suite completa, en un
       # paso SEPARADO: no toca el gate selectivo de pyproject (fail_under=65 sobre
@@ -175,22 +222,27 @@ jobs:
       # COVERAGE_FILE separado: no pisa el .coverage de make test-model (gate G3).
       - name: Layer coverage floors (broad instrumentation — E1)
         run: |
-          COVERAGE_FILE=/tmp/.coverage.broad python -m pytest -o addopts="" -q \
+          COVERAGE_FILE="$GOV_TMP/.coverage.broad" python -m pytest -o addopts="" -q --basetemp="$GOV_TMP/pytest-broad" \
             --cov=vp_data --cov=vp_model --cov=pipeline --cov=experiments --cov=tools \
             --cov-report= --cov-fail-under=0
-          COVERAGE_FILE=/tmp/.coverage.broad coverage json --fail-under=0 -o /tmp/cov_broad.json
-          python tools/check_coverage_floors.py /tmp/cov_broad.json --layers \
-            --json-out /tmp/coverage_by_layer.json --summary "$GITHUB_STEP_SUMMARY"
+          COVERAGE_FILE="$GOV_TMP/.coverage.broad" coverage json --fail-under=0 -o "$GOV_TMP/cov_broad.json"
+          python tools/check_coverage_floors.py "$GOV_TMP/cov_broad.json" --layers \
+            --json-out "$GOV_TMP/coverage_by_layer.json" --summary "$GITHUB_STEP_SUMMARY"
       # El JSON va como ARTEFACTO de CI, no al repo: reports/governance/ está bajo
       # el manifiesto de release (escribirlo ahí rompería la coherencia manifiesto↔árbol).
       - name: Upload layer coverage artifact (E1)
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: coverage-by-layer
-          path: /tmp/coverage_by_layer.json
-          if-no-files-found: ignore
+          path: ${{ env.GOV_TMP }}/coverage_by_layer.json
+          # B70: fail-closed — el recibo de cobertura DEBE conservarse (el gate ya corrió antes; ausencia = fallo).
+          if-no-files-found: error
           retention-days: 90
+
+      - name: Cleanup private CI temp
+        if: always()
+        run: rm -rf "$GOV_TMP"
 
   # Guardián de consistencia (la máxima del proyecto): web/LaTeX/paper/README/docs deben
   # dar el MISMO número que reports/governance/key_facts.json. Lightweight: solo pyyaml + el JSON
@@ -199,25 +251,29 @@ jobs:
   consistency:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
         with:
           # Ronda 3 audit: check_contracts verifica que el git_sha del manifiesto EXISTA
           # (git cat-file -e) y es fail-closed en clones shallow -- necesita historial.
           fetch-depth: 0
       - name: Checkout the web repo (best-effort, for cross-repo claims)
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
         continue-on-error: true
         with:
           repository: UACJ-MIAAD/VisaPredictAI_WEB
           path: web_repo
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: '3.14'
-      - run: pip install pyyaml==6.0.3   # mismo pin que [dev] (E3)
+      - name: Governed PyYAML bootstrap (hashed)
+        run: |
+          GOV_ENV="$(python tools/install_governance_bootstrap.py)"
+          python tools/validate_governance_bootstrap.py "$GOV_ENV"
+          echo "GOV_ENV=$GOV_ENV" >> "$GITHUB_ENV"
       - name: Check artifact consistency
         env:
           VP_WEB_DIR: web_repo
-        run: python tools/check_consistency.py
+        run: $GOV_ENV/bin/python tools/check_consistency.py
       # B3 (plan auditoría 2026-07-11): contratos cross-repo — columnas/llaves requeridas
       # de cada artefacto publicado + corte de añada única. Cero dependencias.
       - name: Check artifact contracts
@@ -226,6 +282,13 @@ jobs:
       # TODOs) jamás suben respecto a docs/debt_baseline.json. Cero dependencias.
       - name: Check debt ratchet
         run: python tools/check_debt.py
+      # Fase 4 (P0R.5): warnings como contrato — `error` global + filtros estrechos en biyección con el registro.
+      - name: Check warnings contract
+        run: python tools/check_warnings.py
+      # B291 (P0R.5): contrato de gobernanza del repo OFFLINE (esquema + cobertura CODEOWNERS). El modo --online
+      # (protección remota) sigue ROJO por el bloqueo externo (revisor independiente + ruleset) y NO corre en CI.
+      - name: Check repository governance (offline)
+        run: python tools/check_repository_governance.py --offline
       # I2: todo entrypoint de experiments/ debe estar clasificado (producto/
       # deliverable/investigacion/diagnostico/archivo) con consumidor declarado.
       - name: Check experiments inventory
@@ -239,6 +302,68 @@ jobs:
       # es el job `supply-chain` (runner vs locks); esto solo evita deriva de docs.
       - name: Check docs ↔ advisories JSON
         run: python tools/check_supply_chain_triage.py
+      # P0R.5 (R4): cero rutas dvc fuera del wrapper `python_env exec` (git ls-files + AST).
+      - name: DVC gobernado (sin instalaciones/invocaciones sueltas)
+        run: python tools/check_no_stray_dvc.py
+      # P0R.5 (C4/B2): trinquete de migración del call graph fuera de ante/ante_nf.
+      - name: Sin uso legacy nuevo de ante/ante_nf (trinquete)
+        run: python tools/check_no_legacy_envs.py
+      # P0R.5 (R9.1): contrato gobernado de comandos — perfiles válidos, scripts versionados, módulos que
+      # resuelven, variante explícita en deep, sin modo code/stdin.
+      - name: Execution contract gobernado (R9.1)
+        run: python -m tools.execution_contract
+      # P0R.5 (Node 24, B49/B53): registro POSITIVO de Actions — biyección acción⇔registro, SHA exacto,
+      # comentario de versión, node24. Offline primero, luego verificación REMOTA (SHA existe, la versión
+      # apunta a ese SHA, action.yml declara node24) contra la GitHub API. Fail-closed, con timeout.
+      - name: Action pins (registro positivo + verificación remota Node 24)
+        run: timeout 300 $GOV_ENV/bin/python tools/check_action_pins.py --online
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # P0R.5 (B271): job DEDICADO, MÍNIMO y SELLADO para los gates de gobernanza. Antes vivían como pasos del job
+  # `consistency`, cuyo contexto (env/defaults/container/pasos previos) podía neutralizar comandos exactos. Aquí el
+  # mapa del job, los pasos y su orden son EXACTOS y `tools/check_p0r5_governance.py` los valida estructuralmente.
+  # Sólo instala PyYAML (la superficie de validación es de BYTES, no de DataFrames — B273). No añadir env/defaults/
+  # container/services/strategy/if a este job ni pasos extra.
+  p0r5-governance:
+    name: p0r5-governance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: '3.14'
+      - name: Governed PyYAML bootstrap (hashed)
+        run: |
+          GOV_ENV="$(python tools/install_governance_bootstrap.py)"
+          echo "GOV_ENV=$GOV_ENV" >> "$GITHUB_ENV"
+      - name: Validate governed bootstrap receipt
+        run: python tools/validate_governance_bootstrap.py "$GOV_ENV"
+      - name: GitHub Actions positive registry (offline)
+        run: $GOV_ENV/bin/python tools/check_action_pins.py
+      - name: Commit frontier contract (fingerprint + autoridad)
+        run: $GOV_ENV/bin/python tools/check_commit_frontier.py
+      - name: Positive reflection registry (identidad semántica)
+        run: $GOV_ENV/bin/python tools/check_reflection.py
+      - name: Safe opens contract
+        run: $GOV_ENV/bin/python tools/check_safe_opens.py
+      - name: Raw filesystem mutation contract
+        run: $GOV_ENV/bin/python tools/check_raw_fs_mutations.py
+      - name: Deep smoke authority contract
+        run: $GOV_ENV/bin/python tools/check_deep_authority.py
+      - name: B233 historical diagnostic contract
+        run: $GOV_ENV/bin/python -m tools.validate_b233_receipt
+      - name: CI install registry (positive)
+        run: $GOV_ENV/bin/python tools/check_ci_installs.py
+      - name: Governance inputs registry (positive)
+        run: $GOV_ENV/bin/python tools/check_governance_inputs.py
+      - name: P0R.5 governance gates wired
+        run: $GOV_ENV/bin/python tools/check_p0r5_governance.py
 
   # P0R.3: gate de supply chain como CHECK DE CAMBIO (PR/push), no solo cron. Autoridad única
   # = tools/audit_python_supply_chain.py reconciliando los locks contra el JSON. Sin path
@@ -246,8 +371,8 @@ jobs:
   supply-chain:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: '3.14'
       - run: pip install "pip-audit==2.10.1"
@@ -255,7 +380,7 @@ jobs:
         # -m: el auditor importa tools/lock_contracts.py (contrato estático + manifiesto primero).
         # P0R.4R2: emite el receipt también en el CI de PR (no solo en Scheduled quality).
         run: python -m tools.audit_python_supply_chain --receipt supply-chain-receipt.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: supply-chain-receipt-ci
           path: supply-chain-receipt.json
@@ -283,23 +408,216 @@ jobs:
             lock: locks/deep-macos-arm64.txt
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: '3.14'
-      - name: Install deep lock (--require-hashes) + real smoke
+      - name: Build private deep venv (0700) + install lock + real smoke
+        # RC-2: el stack deep se instala y ejecuta en un venv EFÍMERO PRIVADO 0700 bajo el workspace, NUNCA en el Python
+        # global del runner (cuyo `lib` del toolcache es 0777/0775 y hace que governed_import_identity rechace TODA
+        # identidad → orígenes 'unknown' → B335 bloquea el recibo). No se debilita `_dir_problem`. El preflight exige que
+        # sys.prefix sea el venv y que su cadena de site-packages sea gobernable; luego se instala el cierre HASHEADO y se
+        # corre deep_smoke, todo con el intérprete del venv.
         run: |
-          # toolchain PINEADO (mismo que el generador de locks); luego el cierre HASHEADO del perfil.
-          python -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
-          pip install --require-hashes -r ${{ matrix.lock }}
-          # deep_smoke corre `pip check` internamente + deriva plataforma/torch del contrato.
-          python -m tools.deep_smoke --lock ${{ matrix.lock }} --receipt deep-receipt-${{ matrix.variant }}.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+          umask 077
+          DEEP_ENV="$RUNNER_TEMP/.ci-deep-${{ matrix.variant }}"
+          export DEEP_ENV
+          python -m venv "$DEEP_ENV"
+          chmod 0700 "$DEEP_ENV"
+          echo "DEEP_ENV=$DEEP_ENV" >> "$GITHUB_ENV"
+          "$DEEP_ENV/bin/python" tools/deep_env_preflight.py
+          # toolchain PINEADO (mismo que el generador de locks); luego el cierre HASHEADO del perfil, en el venv.
+          "$DEEP_ENV/bin/python" -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
+          "$DEEP_ENV/bin/python" -m pip install --require-hashes -r ${{ matrix.lock }}
+          # deep_smoke corre `pip check` internamente + deriva plataforma/torch del contrato (con el python del venv).
+          "$DEEP_ENV/bin/python" -m tools.deep_smoke --lock ${{ matrix.lock }} --receipt deep-receipt-${{ matrix.variant }}.json
+      - name: Validate deep receipt independently (B328/B333/B334 — antes del upload)
+        run: |
+          # validador INDEPENDIENTE (con el python del venv): re-deriva commit/python/plataforma/hashes/contrato y REOBSERVA
+          # el inventario; un recibo verde con validador rojo ABORTA el job. NO acepta el auto-reporte del productor.
+          "$DEEP_ENV/bin/python" -m tools.validate_deep_receipt --receipt deep-receipt-${{ matrix.variant }}.json --lock ${{ matrix.lock }} --expected-variant ${{ matrix.variant }}
+      - name: Deep receipt negative test (B333 — recibo manipulado DEBE fallar)
+        run: |
+          # el validador debe RECHAZAR un recibo con procedencia manipulada; si lo acepta, es fail-open y aborta el job.
+          # el recibo manipulado se escribe con modo 0600 EXACTO (B337) para que el rechazo sea por el commit, no por el modo.
+          "$DEEP_ENV/bin/python" -c "import json,os,pathlib; r=json.loads(pathlib.Path('deep-receipt-${{ matrix.variant }}.json').read_text()); r['commit_sha']='0'*40; p=pathlib.Path('tampered-${{ matrix.variant }}.json'); p.write_text(json.dumps(r)); os.chmod(p,0o600)"
+          if "$DEEP_ENV/bin/python" -m tools.validate_deep_receipt --receipt tampered-${{ matrix.variant }}.json --lock ${{ matrix.lock }} --expected-variant ${{ matrix.variant }}; then
+            echo "✗ el validador ACEPTÓ un recibo con commit manipulado (fail-open)"; exit 1
+          fi
+          echo "✓ el validador rechazó el recibo manipulado"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: deep-install-receipt-${{ matrix.variant }}
           path: deep-receipt-${{ matrix.variant }}.json
           if-no-files-found: error
           retention-days: 30
+      - name: Cleanup private deep venv
+        if: always()
+        run: rm -rf "$DEEP_ENV"
+
+  # P0R.5 R6: DVC se construye en su ENTORNO CONTENT-ADDRESSED AISLADO (tools.python_env), NUNCA en el
+  # python del job, y se hace smoke por la interfaz única con recibo ligado al commit/env. Matriz
+  # Linux+macOS. Nombre de job ESTABLE (check requerible). El python del job NO recibe dvc: se verifica.
+  dvc-tool-install:
+    name: dvc-tool-install
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: linux-x86_64
+            os: ubuntu-24.04
+            plat: Linux-x86_64
+          - variant: macos-arm64
+            os: macos-15
+            plat: Darwin-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: '3.14'
+      - name: Atomic FS primitives selftest (NOREPLACE/EXCHANGE reales)  # R9.2R10 · Linux Y macOS
+        # stdlib-only (renameat2 en Linux / renameatx_np en macOS); esta matriz corre en ambos runners.
+        run: python -m tools.atomic_fs --selftest
+      - name: Build isolated dvc-tool env + governed smoke + receipt
+        env:
+          # B6: procedencia REAL — el checkout de un PR es el merge sintético; el head fuente y la base
+          # vienen del evento para que el recibo no induzca a creer que certifica el head.
+          GITHUB_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # toolchain PINEADO (mismo que el generador de locks). NO se instala dvc en ESTE python:
+          # python_env crea un venv content-addressed y ahí instala el lock hasheado.
+          python -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
+          # sello del inventario del job ANTES: python_env NO debe tocarlo (aislamiento real).
+          python -m pip freeze --all | sort > /tmp/job_before.txt
+          python -m tools.dvc_tool_smoke --receipt dvc-tool-receipt-${{ matrix.variant }}.json --sbom sbom-dvc-tool-env-${{ matrix.variant }}.json
+          python -m pip freeze --all | sort > /tmp/job_after.txt
+          diff /tmp/job_before.txt /tmp/job_after.txt \
+            || { echo "::error::construir el env dvc-tool contaminó el python del job"; exit 1; }
+          # el env aislado NO debe tener dvc en el python del JOB (prueba de que no se derramó).
+          python -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('dvc') is None else 1)" \
+            || { echo "::error::dvc quedó importable en el python del job"; exit 1; }
+          # B17/B59: validador ESTRICTO del recibo contra el repo (esquema exacto, smoke_ok, git limpio,
+          # source_head, dvc_status=0, site_cache_confined, hashes de lock/lockset/dvc.in actuales). La
+          # plataforma esperada la fija la MATRIZ (--expected-platform), no el recibo: se exige declarada ==
+          # esperada == runner real, forzando el recompute de identidad (env_id/python/platform).
+          python -m tools.validate_dvc_receipt --receipt dvc-tool-receipt-${{ matrix.variant }}.json --sbom sbom-dvc-tool-env-${{ matrix.variant }}.json --expected-platform ${{ matrix.plat }}
+          # gates R4 + C4.
+          python tools/check_no_stray_dvc.py
+          python tools/check_no_legacy_envs.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: dvc-tool-receipt-${{ matrix.variant }}
+          path: |
+            dvc-tool-receipt-${{ matrix.variant }}.json
+            sbom-dvc-tool-env-${{ matrix.variant }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  # P0R.5 R6: contrato del sistema de entornos content-addressed (determinismo del env_id, aislamiento,
+  # detección de tamper, y el gate anti-dvc-suelto). Nombre ESTABLE (check requerible).
+  environment-contract:
+    name: environment-contract
+    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: '3.14'
+          cache: pip
+      - name: Install dev toolchain
+        run: |
+          python -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
+          pip install --require-hashes -r locks/dev-linux-x86_64.txt
+          pip install -e . --no-deps
+      - name: Env-system contract + isolation + tamper + stray-dvc gate
+        run: |
+          python tools/check_no_stray_dvc.py
+          python tools/check_no_legacy_envs.py
+          # C3: TODOS los perfiles declarados computan env_id determinista (deep exige variante).
+          python -c "import tools.python_env as pe; combos=[('runtime',None),('dev',None),('model',None),('deep','cpu'),('deep','cu126'),('dvc-tool',None)]; ids={pe.env_id(p,v) for p,v in combos}; assert len(ids)==len(combos), 'env_id colisiona o falta'; print('env_id OK:', {f'{p}/{v}' if v else p: pe.env_id(p,v)[:12] for p,v in combos})"
+          python -m pytest tests/test_python_env.py tests/test_dvc_tool.py -q -p no:cacheprovider --no-cov
+      # B87/B88: el env `dev` content-addressed construye DE VERDAD y las herramientas selladas corren por
+      # la interfaz oficial `run-command` — el bootstrap verifica homónimos/versión del inventario sellado/
+      # packages_distributions/origen bajo el entorno antes de despachar (smoke obligatorio de R9.2R3).
+      - name: Build dev env + sealed installed_module smokes (lint/typecheck/test)
+        run: |
+          python -m tools.python_env build --profile dev
+          python -m tools.python_env run-command --id lint -- --version
+          python -m tools.python_env run-command --id typecheck -- --version
+          python -m tools.python_env run-command --id test -- --version
+
+  # P0R.5 R8R2 (B17): descarga los recibos dvc-tool de AMBAS plataformas y los cruza — valida cada uno
+  # contra el repo (git limpio, source_head, dvc_status=0, site_cache_confined, hashes) y exige que el
+  # DAG canónico sea IDÉNTICO Linux↔macOS. Nombre ESTABLE (check requerible).
+  environment-receipts:
+    name: environment-receipts
+    timeout-minutes: 10
+    needs: [dvc-tool-install]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: '3.14'
+      # B84: el DEP0005 upstream de download-artifact está ACEPTADO y gobernado en
+      # security/upstream_warnings.json (entrada machine-readable con fecha de revisión que
+      # tools/check_action_pins.py hace EXPIRAR). NO es Node 20.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: dvc-tool-receipt-linux-x86_64
+          path: rc-linux
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: dvc-tool-receipt-macos-arm64
+          path: rc-macos
+      - name: Cross-validate receipts + SBOMs (schema + repo + dag_hash equality)
+        env:
+          GITHUB_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          python -m tools.validate_dvc_receipt --cross \
+            rc-linux/dvc-tool-receipt-linux-x86_64.json rc-linux/sbom-dvc-tool-env-linux-x86_64.json \
+            rc-macos/dvc-tool-receipt-macos-arm64.json rc-macos/sbom-dvc-tool-env-macos-arm64.json
+
+  # Incremento 2: contrato end-to-end del bundle/CURRENT en un workspace DESECHABLE — merge #1 (sin previo) →
+  # merge #2 (EXCHANGE sobre la autoridad previa) → validate-current (rc 0) → NEGATIVO obligatorio (puntero
+  # corrupto → rc != 0). El recibo JSON liga al SHA. La autoridad es el CommitCertificate de CURRENT, no el recibo.
+  campaign-bundle-contract:
+    name: campaign-bundle-contract
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          fetch-depth: 0  # el recibo del contrato liga al SHA de git (git rev-parse HEAD)
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: '3.14'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
+          pip install --require-hashes -r locks/dev-linux-x86_64.txt
+          pip install -e . --no-deps
+      - name: Bundle/CURRENT contract (merge → exchange → validate-current → negativo)
+        run: python -m tools.campaign_bundle_contract_smoke --receipt campaign_bundle_contract_receipt.json
+      - name: Upload contract receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: campaign-bundle-contract-receipt-${{ github.sha }}
+          path: campaign_bundle_contract_receipt.json
+          if-no-files-found: error
 
   # P0R.4R2: check ESTABLE y único a exigir en branch protection. Depende de todos los jobs y falla
   # si CUALQUIERA no terminó en success (failure/cancelled/skipped incluidos). Los nombres largos del
@@ -307,8 +625,10 @@ jobs:
   ci-gate:
     name: ci-gate
     if: always()
-    needs: [commit-policy, lint-and-test, model-tests, consistency, supply-chain, deep-lock-install]
-    runs-on: ubuntu-latest
+    needs: [commit-policy, lint-and-test, model-tests, consistency, supply-chain, deep-lock-install, dvc-tool-install, environment-contract, environment-receipts, campaign-bundle-contract, p0r5-governance]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
     steps:
       - name: Fail if any required job was not success
         if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}

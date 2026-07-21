@@ -91,6 +91,17 @@ def main() -> int:
         elif cnt != n:
             probs.append(f"{name}: prosa dice {cnt} avisos, el JSON tiene {n}")
 
+    # B18: el bloque de ESTADO VIGENTE debe declarar EXACTAMENTE n avisos, y no deben sobrevivir las
+    # frases stale de la era P0R.4 (1 aviso) como afirmación vigente.
+    mv = re.search(r"ESTADO VIGENTE.*?exactamente\s+(\d+)\s+avisos", tr, flags=re.DOTALL | re.IGNORECASE)
+    if not mv:
+        probs.append("SECURITY_TRIAGE.md: falta el bloque 'ESTADO VIGENTE … exactamente N avisos'")
+    elif int(mv.group(1)) != n:
+        probs.append(f"SECURITY_TRIAGE.md estado vigente dice {mv.group(1)} avisos, el JSON tiene {n}")
+    for stale in ("El único aviso restante", "EXACTAMENTE este 1", "sigue con exactamente un aviso (pytorch"):
+        if stale in tr:
+            probs.append(f"SECURITY_TRIAGE.md: frase stale de P0R.4 como estado vigente: {stale!r}")
+
     if probs:
         print(f"✗ DOCS ↔ advisories JSON incoherentes ({len(probs)}):")
         for p in probs:

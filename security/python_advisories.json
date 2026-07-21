@@ -1,19 +1,51 @@
 {
   "schema_version": 1,
-  "_doc": "Fuente UNICA machine-readable de la allowlist de supply chain Python (P0R.3-P0R.4, ronda 10). tools/audit_python_supply_chain.py audita los 9 locks con pip-audit (sin ocultar nada primero) y reconcilia el resultado BRUTO contra este archivo con BIYECCION EXACTA por perfil/lock: todo advisory observado debe estar permitido para ese perfil, y toda excepcion permitida debe estar observada (una excepcion huerfana o expirada BLOQUEA). Cierra ademas el hueco de version local (torch +cpu/+cu126) via LOCAL_VERSION_QUERIES. Reemplaza la allowlist textual --ignore-vuln del workflow como autoridad. Al cerrar un aviso (bump via make lock deliberado), retirar su entrada aqui en el MISMO commit: P0R.4 retiro CVE-2025-3000 al subir torch 2.12.0->2.12.1 (fix publicado).",
+  "_doc": "Fuente UNICA machine-readable de la allowlist de supply chain Python (P0R.3-P0R.5, ronda 10). tools/audit_python_supply_chain.py audita los 11 locks (runtime/dev/model-cpu x macOS+Linux + 3 deep + 2 dvc-tool) con pip-audit (sin ocultar nada primero) y reconcilia el resultado BRUTO contra este archivo con BIYECCION EXACTA por perfil/lock: todo advisory observado debe estar permitido para ese perfil, y toda excepcion permitida debe estar observada (una excepcion huerfana o expirada BLOQUEA). Cierra ademas el hueco de version local (torch +cpu/+cu126) via LOCAL_VERSION_QUERIES. Reemplaza la allowlist textual --ignore-vuln del workflow como autoridad. Dos excepciones: 1 de PRODUCTO (pytorch-lightning en model/deep) + 1 de HERRAMIENTA (diskcache en dvc-tool, transitiva de dvc, sin fix). Al cerrar un aviso (bump via make lock deliberado), retirar su entrada aqui en el MISMO commit: P0R.4 retiro CVE-2025-3000 al subir torch 2.12.0->2.13.0 (fix publicado).",
   "advisories": [
     {
       "id": "PYSEC-2026-3043",
-      "aliases": ["CVE-2026-31221", "GHSA-75m9-98v2-hjpm"],
+      "aliases": [
+        "CVE-2026-31221",
+        "GHSA-75m9-98v2-hjpm"
+      ],
       "package": "pytorch-lightning",
-      "versions": ["2.5.6"],
-      "profiles": ["model", "deep"],
+      "versions": [
+        "2.5.6"
+      ],
+      "profiles": [
+        "model",
+        "deep"
+      ],
       "decision": "accept",
       "severity": "low",
       "scope": "offline-own-checkpoints",
       "owner": "Javier",
       "expires_at": "2026-08-12",
       "rationale": "load_from_checkpoint llama torch.load sin weights_only=True; F2 (perfil model y deep) carga SOLO checkpoints PROPIOS (entrenamiento local/campanas), nunca de terceros; sin superficie remota. Sin fix publicado (pytorch-lightning<2.6.0 exigido por neuralforecast 3.1.9). Observado en los 3 locks deep y los 2 model."
+    },
+    {
+      "id": "PYSEC-2026-2447",
+      "aliases": [
+        "CVE-2025-69872",
+        "GHSA-w8v5-vhqr-4h9v"
+      ],
+      "package": "diskcache",
+      "versions": [
+        "5.6.3"
+      ],
+      "profiles": [
+        "dvc-tool"
+      ],
+      "locks": [
+        "locks/dvc-tool-macos-arm64.txt",
+        "locks/dvc-tool-linux-x86_64.txt"
+      ],
+      "decision": "accept",
+      "severity": "moderate",
+      "scope": "local-single-user-dvc-cache",
+      "owner": "Javier",
+      "expires_at": "2026-08-12",
+      "rationale": "Dependencia transitiva de dvc-data usada SOLO por el CLI DVC gobernado (perfil dvc-tool aislado; ningun import desde vp_*/pipeline). DiskCache usa pickle por defecto: RCE si un atacante escribe en el dir de cache y la victima lo lee despues. Sin fix publicado (afecta hasta 5.6.3). DVC corre en workstation single-user y runners CI efimeros; La superficie REAL de DiskCache es Repo.site_cache_dir (por defecto /Library/Caches/dvc/repo en macOS o /var/tmp/dvc en Linux, con padres 0777); tools/dvc_cache_guard.py CONFINA ese path fijando DVC_SITE_CACHE_DIR=<repo>/.dvc/site-cache (sin confiar en el heredado), crea los dirs 0700, ejecuta dvc con umask 077 SOLO en el proceso hijo (sin mutar el padre), valida por lstat todo el arbol .dvc/site-cache/repo/<token> (rechaza symlink, dueno ajeno, mode & 0o022 != 0) e inspecciona las capas de config repo/global/system. No reduce el aviso, solo la superficie contextual. NO permitido en runtime, dev, model ni deep."
     }
   ]
 }

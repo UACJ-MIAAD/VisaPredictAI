@@ -8,9 +8,9 @@
 # descargable sin DVC). Los binarios derivados (duckdb/parquet) van a la cache DVC -> S3.
 #
 # C2 (plan auditoría 2026-07-11): los cmd usan `python` PORTABLE — se resuelve del
-# entorno activo, no de un venv con nombre local. Correr DENTRO del entorno del
-# proyecto: `make repro` (envuelve el dvc del venv) o `source ante/bin/activate &&
-# dvc repro`. Los stages eda_facts/fe_facts requieren el extra `.[model]`.
+# entorno activo, no de un venv con nombre local. Correr con `make repro`, que envuelve
+# el dvc del entorno content-addressed (P0R.5). Los stages eda_facts/fe_facts requieren el
+# extra `.[model]`. (R9.3 pendiente: cablear cada stage a su perfil vía run-command.)
 #
 # Frontera DAG-determinista vs runner-transaccional (C1; detalle en docs/DVC.md):
 # aquí SOLO derivaciones puras y byte-deterministas de insumos versionados. Quedan

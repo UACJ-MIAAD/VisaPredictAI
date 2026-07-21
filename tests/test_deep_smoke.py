@@ -1,9 +1,11 @@
-"""Adversarial del smoke deep (tools/deep_smoke.evaluate, P0R.4R2).
+"""Adversarial del smoke deep (tools/deep_smoke.evaluate, P0R.4R2 · B322/B323).
 
-Prueba la lógica PURA con valores inyectados (sin instalar el stack deep): la expectativa se DERIVA
-del contrato (DEEP_RUNTIME), no del llamador. Casos: lock no gobernado, plataforma/torch/versión
-incorrectas, pip check rojo, contrato de lockset rojo, checksum no determinista, y happy path con
-receipt ligado (sha del lock + del manifiesto + commit).
+Prueba la lógica PURA con valores inyectados (sin instalar el stack deep): la expectativa de plataforma/
+torch se DERIVA del contrato (DEEP_RUNTIME) y el inventario esperado de un contrato INDEPENDIENTE
+(`security/deep_smoke_contract.json`), no del llamador. Casos: lock no gobernado, plataforma/torch/versión
+incorrectas, pip check rojo, contrato de lockset rojo, checksum no determinista, inventario observado que
+OMITE/AGREGA respecto del contrato (B322), tipos inválidos, y happy path con receipt ligado (sha del lock +
+del manifiesto + del contrato de inventario + commit).
 """
 
 from __future__ import annotations
@@ -14,11 +16,13 @@ import tools.deep_smoke as ds
 import tools.lock_contracts as lc
 
 CPU = "locks/deep-linux-x86_64-cpu.txt"
+CONTRACT = ds.load_contract()  # autoridad INDEPENDIENTE del inventario, DeepSmokeContract inmutable (B323/B326)
+CONTRACT_DISTS = list(CONTRACT.expected_providers)  # RC-3: TODOS los providers (incl. mlflow-skinny/-tracing)
 
 
 def _installed(lock_rel):
     pins = lc.pin_map((lc.ROOT / lock_rel).read_text())
-    return {dist: (lc.DEEP_TORCH[lock_rel] if dist == "torch" else pins[lc._norm(dist)]) for dist in ds.STACK.values()}
+    return {dist: (lc.DEEP_TORCH[lock_rel] if dist == "torch" else pins[lc._norm(dist)]) for dist in CONTRACT_DISTS}
 
 
 def _kwargs(lock_rel, **over):
@@ -31,18 +35,113 @@ def _kwargs(lock_rel, **over):
         torch_version=rt["torch"],
         pip_check_ok=True,
         checksum=83.0,
+        contract=CONTRACT,
+        commit_sha="a" * 40,  # B328: commit real de 40-hex (el verificado lo calcula observe_runtime)
     )
     base.update(over)
     return base
 
 
-def test_happy_path_receipt_is_lock_bound():
-    probs, receipt = ds.evaluate(CPU, **_kwargs(CPU))
+def _observation(lock_rel, **over):
+    """`DeepObservation` sintético (inventario == contrato canónico + pines del lock) para probar la construcción del recibo
+    sin el stack deep instalado, monkeypatcheando `observe_runtime`. NO es un bypass: la API pública (`certify_runtime`) no
+    acepta observación del caller (B335); esto sólo ejercita la ruta feliz de la construcción del recibo."""
+    rt = lc.DEEP_RUNTIME[lock_rel]
+    installed = _installed(lock_rel)
+    base = dict(
+        py_version="3.14.2",
+        system=rt["system"],
+        machine=rt["machine"],
+        installed=tuple(sorted(installed.items())),
+        torch_version=rt["torch"],
+        pip_check_ok=True,
+        checksum=83.0,
+        commit_sha="a" * 40,
+        import_records=tuple(
+            (m, d, provs, f"lib/x/{m}/__init__.py", "sha256:" + "0" * 64, (d,)) for m, d, provs in CONTRACT.entries
+        ),
+        identity_problems=(),
+    )
+    base.update(over)
+    return ds.DeepObservation(**base)
+
+
+def test_happy_path_receipt_is_lock_and_contract_bound(monkeypatch):
+    # `certify_runtime` OBSERVA por su cuenta (B335); se monkeypatchea `observe_runtime` con una observación sintética para
+    # ejercitar la construcción del recibo sin el stack deep.
+    monkeypatch.setattr(ds, "observe_runtime", lambda lock_rel: ([], _observation(lock_rel)))
+    probs, receipt = ds.certify_runtime(CPU)
     assert probs == []
     assert receipt["lock_sha256"].startswith("sha256:") and len(receipt["lock_sha256"]) == 71
     assert receipt["manifest_sha256"].startswith("sha256:")
+    assert receipt["deep_smoke_contract_sha256"] == CONTRACT.sha256  # B322: recibo LIGADO al contrato de inventario
+    assert (
+        list(receipt["versions"]) == CONTRACT_DISTS
+    )  # orden CANÓNICO (todos los providers, incl. mlflow-skinny/-tracing)
     assert receipt["commit_sha"] and receipt["torch_observed"] == lc.DEEP_TORCH[CPU]
     assert receipt["variant_expected"] == "linux-cpu" and receipt["pip_check"] == "ok"
+    keys = receipt["imports"][0].keys()  # B332/RC-3
+    assert keys == {"module", "distribution", "providers", "origin", "origin_sha256", "origin_owners"}
+    mlflow_entry = next(e for e in receipt["imports"] if e["module"] == "mlflow")  # RC-3: multi-provider en el recibo
+    assert mlflow_entry["providers"] == ["mlflow", "mlflow-skinny", "mlflow-tracing"] and mlflow_entry["origin_owners"]
+
+
+def test_b331_reduced_contract_never_certifies():
+    # B331: en el SHA base `evaluate()` construía un recibo con el contrato del CALLER — un `for_test((('torch','torch'),))`
+    # + `installed={'torch': …}` producía recibo verde reduciendo la autoridad a torch. Ahora `evaluate()` es PURO de
+    # problemas y JAMÁS devuelve recibo (siempre `{}`); la certificación vive sólo en `certify_runtime`, que observa por su
+    # cuenta y recarga el contrato canónico. Un contrato reducido no puede certificar por ninguna vía pública.
+    rt = lc.DEEP_RUNTIME[CPU]
+    reduced = ds.DeepSmokeContract.for_test((("torch", "torch"),))
+    probs, receipt = ds.evaluate(
+        CPU,
+        py_version="3.14.2",
+        system=rt["system"],
+        machine=rt["machine"],
+        installed={"torch": rt["torch"]},
+        torch_version=rt["torch"],
+        pip_check_ok=True,
+        checksum=83.0,
+        contract=reduced,
+        commit_sha="a" * 40,
+    )
+    assert receipt == {}, "un contrato reducido a torch JAMÁS debe certificar (B331)"
+    assert probs == []  # los checks pasan, pero evaluate no emite recibo
+
+
+def test_b335_no_public_api_accepts_a_caller_observation():
+    # B335: en el SHA base `certify_observation(lock_rel, observation)` aceptaba un `DeepObservation` construible por el
+    # caller (inventario/orígenes/commit fabricados) → recibo verde. Ahora NO existe tal API: el ÚNICO emisor
+    # `certify_runtime` acepta SÓLO `lock_rel` y observa por su cuenta.
+    import inspect
+
+    assert not hasattr(ds, "certify_observation"), "certify_observation debe desaparecer (B335)"
+    assert set(inspect.signature(ds.certify_runtime).parameters) == {"lock_rel"}, inspect.signature(ds.certify_runtime)
+
+
+def test_b335_import_records_cross_checked_with_contract():
+    # B335/RC-3: antes de emitir recibo, `certify_runtime` cruza los import_records con el contrato — longitud/orden/module/
+    # dist/providers/origen relativo simple/`origin_sha256` canónico/`origin_owners` ⊆ providers. Un registro degradado
+    # BLOQUEA el recibo.
+    m0, d0, p0 = CONTRACT.entries[0]
+    good = tuple(
+        (m, d, provs, f"lib/x/{m}/__init__.py", "sha256:" + "0" * 64, (d,)) for m, d, provs in CONTRACT.entries
+    )
+    assert ds._import_records_problems(good, CONTRACT) == []
+    sha = "sha256:" + "0" * 64
+    for bad, needle in [
+        ((m0, d0, p0, "/abs/x.py", sha, (d0,)), "relativa simple"),
+        ((m0, d0, p0, "../up.py", sha, (d0,)), "relativa simple"),
+        ((m0, d0, p0, "unknown", sha, (d0,)), "relativa simple"),
+        ((m0, d0, p0, f"lib/x/{m0}/__init__.py", "notasha", (d0,)), "origin_sha256"),
+        (("evil", d0, p0, f"lib/x/{m0}/__init__.py", sha, (d0,)), "!= contrato"),
+        ((m0, d0, ("wrong",), f"lib/x/{m0}/__init__.py", sha, (d0,)), "providers"),
+        ((m0, d0, p0, f"lib/x/{m0}/__init__.py", sha, ()), "origin_owners"),
+        ((m0, d0, p0, f"lib/x/{m0}/__init__.py", sha, ("evil",)), "origin_owners"),
+    ]:
+        recs = (bad, *good[1:])
+        assert any(needle in p for p in ds._import_records_problems(recs, CONTRACT)), bad
+    assert any("import_records" in p for p in ds._import_records_problems(good[:-1], CONTRACT))
 
 
 def test_non_governed_lock_blocks():
@@ -62,9 +161,31 @@ def test_wrong_torch_blocks():
 
 def test_wrong_dist_version_blocks():
     inst = _installed(CPU)
-    inst["numpy"] = "9.9.9"
-    probs, _ = ds.evaluate(CPU, **_kwargs(CPU, installed=inst))
-    assert any("numpy" in p for p in probs)
+    inst["mlflow"] = "9.9.9"  # una distribución DEL contrato con versión que no casa el pin del lock
+    probs, receipt = ds.evaluate(CPU, **_kwargs(CPU, installed=inst))
+    assert receipt == {} and any("mlflow" in p for p in probs)
+
+
+def test_b322_missing_inventory_component_blocks():
+    # B322: omitir CUALQUIER componente del contrato ⇒ problema + recibo vacío (antes se emitía recibo verde sin ray).
+    inst = _installed(CPU)
+    del inst["ray"]
+    probs, receipt = ds.evaluate(CPU, **_kwargs(CPU, installed=inst))
+    assert receipt == {} and any("OMITE" in p and "ray" in p for p in probs)
+
+
+def test_b322_extra_inventory_component_blocks():
+    # B322: una distribución EXTRA fuera del contrato ⇒ problema + recibo vacío.
+    inst = _installed(CPU)
+    inst["evil"] = "0.0.0"
+    probs, receipt = ds.evaluate(CPU, **_kwargs(CPU, installed=inst))
+    assert receipt == {} and any("EXTRA" in p and "evil" in p for p in probs)
+
+
+def test_b322_invalid_inventory_type_blocks():
+    # tipos exactos: un inventario que no es dict[str, str] ⇒ problema + recibo vacío.
+    probs, receipt = ds.evaluate(CPU, **_kwargs(CPU, installed={"ray": 2}))
+    assert receipt == {} and any("inv" in p.lower() for p in probs)
 
 
 def test_pip_check_red_blocks():
@@ -86,6 +207,57 @@ def test_contract_red_blocks(monkeypatch):
 def test_all_governed_locks_have_runtime():
     # los 3 locks deep del contrato tienen su expectativa de ejecución
     assert set(lc.DEEP_RUNTIME) == set(lc.DEEP_LOCKS)
+
+
+def test_b326_forged_contract_is_rejected():
+    # B326: un caller NO puede forjar el `DeepSmokeContract` — el sha debe coincidir con `canonical_bytes` y los imports
+    # deben re-parsear IGUAL (contenido↔hash↔imports cruzados). Antes `evaluate()` aceptaba lista+sha sueltos.
+    with pytest.raises(ValueError, match="sha256 no coincide"):
+        ds.DeepSmokeContract(entries=(), canonical_bytes=b"", sha256="FORGED")
+    real = ds.load_contract()
+    with pytest.raises(ValueError, match="entries no coincide"):  # sha real, pero entries mentidos
+        ds.DeepSmokeContract(entries=(("evil", "evil", ("evil",)),), canonical_bytes=real.canonical_bytes, sha256=real.sha256)  # fmt: skip
+
+
+def test_b326_evaluate_rejects_non_contract():
+    # B326: `evaluate()` exige `type(x) is DeepSmokeContract` — ni una lista/tupla+sha sueltos ni una subclase.
+    for forged in ([], (), CONTRACT_DISTS, "sha256:deadbeef"):
+        probs, receipt = ds.evaluate(CPU, **{**_kwargs(CPU), "contract": forged})
+        assert receipt == {} and any("contrato deep inválido" in p for p in probs), (forged, probs)
+
+    class _Sub(ds.DeepSmokeContract):
+        pass
+
+    sub = _Sub(entries=CONTRACT.entries, canonical_bytes=CONTRACT.canonical_bytes, sha256=CONTRACT.sha256)
+    probs, receipt = ds.evaluate(CPU, **{**_kwargs(CPU), "contract": sub})
+    assert receipt == {} and any("contrato deep inválido" in p for p in probs)
+
+
+def test_b326_for_test_factory_revalidates():
+    # `for_test` construye un contrato válido re-validando el mismo esquema; imports no canónicos son rechazados.
+    good = ds.DeepSmokeContract.for_test((("a", "a"), ("b", "b")))
+    assert good.imports == (("a", "a"), ("b", "b")) and good.sha256.startswith("sha256:")
+    with pytest.raises(ValueError, match="orden canónico"):
+        ds.DeepSmokeContract.for_test((("zzz", "zzz"), ("aaa", "aaa")))
+
+
+def test_b327_evaluate_surfaces_import_identity_problems():
+    # los problemas de identidad calculados en observe_runtime() se propagan a evaluate() (recibo vacío). La identidad por
+    # DESCRIPTOR (B332) vive en tests/test_governed_import_identity.py.
+    probs, receipt = ds.evaluate(CPU, **{**_kwargs(CPU), "import_identity": ["ray: sin origin certificable"]})
+    assert receipt == {} and any("sin origin" in p for p in probs)
+
+
+def test_b327_distribution_inventory_flags_duplicates(monkeypatch):
+    # B327: dos dist-info con el MISMO nombre normalizado NO se sobrescriben en silencio (last-wins) — es un problema.
+    class _D:
+        def __init__(self, name, version):
+            self.name = name
+            self.version = version
+
+    monkeypatch.setattr(ds, "distributions", lambda: [_D("Ray", "1.0"), _D("ray", "2.0"), _D("pandas", "3.0")])
+    inv, probs = ds._distribution_inventory()
+    assert any("DUPLICADO" in p and "ray" in p for p in probs) and inv["pandas"] == "3.0"
 
 
 if __name__ == "__main__":

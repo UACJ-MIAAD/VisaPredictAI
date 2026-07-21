@@ -1,0 +1,173 @@
+#!/usr/bin/env python
+"""Contrato gobernado de comandos del call graph (P0R.5, R9.1/B78). `environments/execution_contract.json`
+fija, por `command_id`, el perfil MÍNIMO, el modo (`module`|`script`|`installed_module`), el target, el
+working_directory y la política de argumentos. La interfaz oficial es
+`python -m tools.python_env run-command --id <id> -- <args>`.
+
+Validación ESTRICTA (fail-closed): claves superiores exactas, `schema_version` int==1, rechazo de claves
+duplicadas; por comando las claves exactas; el perfil DEBE existir en `python_profiles.json`; un perfil con
+variantes (deep) EXIGE variante explícita válida y uno sin variantes EXIGE `variant==null`; `mode` ∈
+{module, script, installed_module}; un `module` debe tener nombre Python canónico Y resolver a un fichero del
+repo; un `script` debe ser GOBERNADO (relativo a ROOT, versionado, regular, sin symlink) vía
+`python_env._governed_script`; un `installed_module` (B78: pytest/ruff/mypy) es una herramienta dev INSTALADA
+en el env del perfil (dev/model) — allowlist CERRADA, NO fichero de ROOT; `working_directory` ∈ {root};
+`args_policy` ∈ {none, passthrough}. No hay modo `code`/stdin en el contrato.
+
+El sha256 de este fichero entra en `env_id`/READY.json/recibos (gobernanza en el descriptor).
+
+    python -m tools.execution_contract            # valida el contrato (exit 1 si algo no cuadra)
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+from typing import TypedDict
+
+from tools import lock_contracts as lc
+from tools import python_env as pe
+
+ROOT = lc.ROOT
+CONTRACT = ROOT / "environments" / "execution_contract.json"
+_TOP_KEYS = {"schema_version", "note", "commands"}
+_CMD_KEYS = {"profile", "variant", "mode", "target", "working_directory", "args_policy"}
+_MODES = {"module", "script", "installed_module"}
+
+
+class _InstalledTool(TypedDict):
+    distribution: str
+    profiles: tuple[str, ...]
+
+
+# B78/B88: herramientas de desarrollo INSTALADAS en el entorno (no código de producto versionado bajo ROOT),
+# corridas como `python -m <tool>` DENTRO del env content-addressed del perfil. Mapping EXACTO módulo →
+# distribución propietaria → perfiles autorizados (pytest corre la suite dev Y la de modelado; ruff/mypy solo
+# dev). La distribución debe estar PINEADA en el lock del perfil (versión esperada = inventario sellado) y el
+# bootstrap verifica en runtime versión + packages_distributions + origen bajo el entorno (B87). Allowlist
+# CERRADA: nada de módulos arbitrarios de site-packages.
+_INSTALLED_MODULES: dict[str, _InstalledTool] = {
+    "pytest": {"distribution": "pytest", "profiles": ("dev", "model")},
+    "ruff": {"distribution": "ruff", "profiles": ("dev",)},
+    "mypy": {"distribution": "mypy", "profiles": ("dev",)},
+}
+_WORKING_DIRS = {"root"}
+_ARGS_POLICIES = {"none", "passthrough"}
+_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+_MODULE_RE = re.compile(r"^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)*$")
+
+
+def _no_dup(pairs):
+    d: dict = {}
+    for k, v in pairs:
+        if k in d:
+            raise SystemExit(f"execution_contract: clave duplicada {k!r}")
+        d[k] = v
+    return d
+
+
+def _governed_module(mod: str) -> str:
+    """B71: valida un MÓDULO con el mismo rigor que un script — nombre Python canónico, EXACTAMENTE una
+    resolución (`x.py` XOR `x/__init__.py`; ambos = AMBIGUO), fichero regular, sin symlink en NINGÚN
+    componente, dentro de ROOT y VERSIONADO en git. Devuelve la ruta relativa del fichero validado (rechaza
+    namespace/ambiguos/symlink/no-versionados). `Path.is_file()` SIGUE symlinks, por eso la validación real la
+    hace `python_env._governed_script` sobre la ruta resuelta (que comprueba cada componente por symlink)."""
+    if not _MODULE_RE.fullmatch(mod):
+        raise SystemExit(f"execution_contract: módulo no canónico {mod!r}")
+    rel = mod.replace(".", "/")
+    py_present = (ROOT / f"{rel}.py").is_file()
+    init_present = (ROOT / rel / "__init__.py").is_file()
+    if py_present and init_present:
+        raise SystemExit(f"execution_contract: módulo AMBIGUO (existe {rel}.py Y {rel}/__init__.py) {mod!r}")
+    if not py_present and not init_present:
+        raise SystemExit(f"execution_contract: módulo inexistente {mod!r}")
+    target = f"{rel}.py" if py_present else f"{rel}/__init__.py"
+    return pe._governed_script(target)  # relativo a ROOT, versionado, regular, sin symlink en ningún componente
+
+
+def load_contract(path: Path = CONTRACT) -> dict:
+    doc = json.loads(path.read_text(), object_pairs_hook=_no_dup)
+    if set(doc) != _TOP_KEYS:
+        raise SystemExit(f"execution_contract: claves superiores {sorted(doc)} != {sorted(_TOP_KEYS)}")
+    if type(doc["schema_version"]) is not int or doc["schema_version"] != 1:
+        raise SystemExit("execution_contract: schema_version no es int == 1")
+    if not isinstance(doc["note"], str):
+        raise SystemExit("execution_contract: note no-string")
+    cmds = doc["commands"]
+    if not isinstance(cmds, dict) or not cmds:
+        raise SystemExit("execution_contract: `commands` no es objeto no vacío")
+    profiles = pe.load_profiles()["profiles"]
+    for cid, c in cmds.items():
+        if not _ID_RE.fullmatch(cid):
+            raise SystemExit(f"execution_contract: command_id no canónico {cid!r}")
+        if not isinstance(c, dict) or set(c) != _CMD_KEYS:
+            raise SystemExit(f"execution_contract: {cid!r} con claves {sorted(c) if isinstance(c, dict) else c}")
+        prof = c["profile"]
+        if prof not in profiles:
+            raise SystemExit(f"execution_contract: {cid!r} perfil {prof!r} inexistente en python_profiles.json")
+        var = c["variant"]
+        has_variants = "variants" in profiles[prof]
+        if has_variants:
+            if var is None or var not in profiles[prof]["variants"]:
+                raise SystemExit(f"execution_contract: {cid!r} perfil {prof!r} EXIGE variante válida (dado {var!r})")
+        elif var is not None:
+            raise SystemExit(f"execution_contract: {cid!r} perfil {prof!r} no admite variante (dado {var!r})")
+        if c["mode"] not in _MODES:
+            raise SystemExit(f"execution_contract: {cid!r} mode {c['mode']!r} ∉ {sorted(_MODES)}")
+        if c["working_directory"] not in _WORKING_DIRS:
+            raise SystemExit(f"execution_contract: {cid!r} working_directory {c['working_directory']!r} inválido")
+        if c["args_policy"] not in _ARGS_POLICIES:
+            raise SystemExit(f"execution_contract: {cid!r} args_policy {c['args_policy']!r} inválido")
+        tgt = c["target"]
+        if c["mode"] == "module":
+            if not isinstance(tgt, str):
+                raise SystemExit(f"execution_contract: {cid!r} target de módulo no-string")
+            _governed_module(tgt)  # B71: canónico + una resolución + regular + sin symlink + tracked + en ROOT
+        elif c["mode"] == "installed_module":
+            # B78/B88: herramienta dev INSTALADA (pytest/ruff/mypy). NO se gobierna como fichero de ROOT — vive
+            # en site-packages del env; el mapping CERRADO fija distribución propietaria y perfiles por
+            # herramienta, y la distribución debe estar SELLADA en el lock del perfil (versión resoluble).
+            if not isinstance(tgt, str) or not _MODULE_RE.fullmatch(tgt):
+                raise SystemExit(f"execution_contract: {cid!r} target de installed_module no canónico {tgt!r}")
+            tool = _INSTALLED_MODULES.get(tgt)
+            if tool is None:
+                raise SystemExit(
+                    f"execution_contract: {cid!r} installed_module {tgt!r} ∉ allowlist {sorted(_INSTALLED_MODULES)}"
+                )
+            if prof not in tool["profiles"]:
+                raise SystemExit(
+                    f"execution_contract: {cid!r} installed_module {tgt!r} exige perfil ∈ {tool['profiles']} "
+                    f"(dado {prof!r})"
+                )
+            if tool["distribution"] not in pe.expected_inventory(prof, None):
+                raise SystemExit(
+                    f"execution_contract: {cid!r} distribución {tool['distribution']!r} no pineada en el lock "
+                    f"del perfil {prof!r}"
+                )
+        else:
+            pe._governed_script(tgt)  # relativo a ROOT, versionado, regular, sin symlink (fail-closed)
+    return doc
+
+
+def command(cid: str, path: Path = CONTRACT) -> dict:
+    doc = load_contract(path)
+    c = doc["commands"].get(cid)
+    if c is None:
+        raise SystemExit(f"execution_contract: command_id desconocido {cid!r}")
+    return c
+
+
+def contract_sha256(path: Path = CONTRACT) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def main() -> int:
+    doc = load_contract()
+    print(f"✓ execution_contract OK: {len(doc['commands'])} comandos gobernados ({contract_sha256()[:19]}…)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

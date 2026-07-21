@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "note": "Registro de WARNINGS upstream conocidos y ACEPTADOS en superficies de CI (P0R.5, R9.2R3/B84). Cada entrada liga el warning a una accion del registro positivo (security/github_actions.json) por SHA exacto y lleva fecha de revision: tools/check_action_pins.py FALLA si la aceptacion expira (review < hoy) o si la accion/SHA ya no coinciden con el registro — un bump de la accion invalida la aceptacion y fuerza re-evaluar.",
+  "warnings": [
+    {
+      "id": "DEP0005-download-artifact",
+      "action": "actions/download-artifact",
+      "sha": "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+      "detail": "DeprecationWarning DEP0005 (Buffer() deprecated) emitido por el toolkit de Node del runner en cada invocacion de download-artifact v8.0.1; NO es la deprecacion Node 20 (runtime node24 verificado) ni un aviso de seguridad; sin release upstream con fix al 2026-07-15.",
+      "review": "2026-09-30"
+    }
+  ]
+}

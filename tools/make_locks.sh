@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Matriz de 9 locks TRANSITIVOS por perfil (P0R.4, ronda 10). Invocar con `bash` (100644):
+# Matriz de 11 locks TRANSITIVOS por perfil (P0R.4, ronda 10). Invocar con `bash` (100644):
 #
 #   bash tools/make_locks.sh          # (o: make lock)
 #
@@ -14,12 +14,16 @@
 #   locks/deep-linux-x86_64-cpu.txt    Linux CPU  torch 2.13.0+cpu   (uv, HASHEADO)
 #   locks/deep-linux-x86_64-cu126.txt  Linux CUDA torch 2.13.0+cu126 (uv, HASHEADO)
 #
+# Perfil DVC-TOOL (herramienta CLI gobernada, requirements/dvc.in — AISLADO del producto):
+#   locks/dvc-tool-macos-arm64.txt     dvc[s3] 3.67.1 + dvc-s3 3.3.0 (uv, HASHEADO)
+#   locks/dvc-tool-linux-x86_64.txt    idem Linux x86_64 (uv, HASHEADO)
+#
 # CONTRATOS P0R.4 / P0R.4R:
 #  - toolchain PINEADO (python 3.14 + pip/setuptools/wheel/uv exactos) — sin flotar al del día;
 #  - SIN fecha en los headers -> REGENERAR es repetible bajo el MISMO estado del índice (bytes
 #    idénticos); la instalación desde los locks sí es byte-reproducible. NO se promete que el
 #    resolver produzca los mismos transitivos meses después (el índice upstream cambia);
-#  - los 9 se resuelven en STAGING; la promoción a locks/ tiene ROLLBACK TRANSACCIONAL y DETECCIÓN
+#  - los 11 se resuelven en STAGING; la promoción a locks/ tiene ROLLBACK TRANSACCIONAL y DETECCIÓN
 #    DE MATRIZ PARCIAL (tools/promote_lockset.py valida el staging con tools/lock_contracts.py,
 #    escribe el manifiesto locks/lockset.json AL FINAL y se autovalida) — NO es atomicidad de bundle;
 #  - ninguna ruta temporal de staging se filtra a los locks (espejos Linux con --no-annotate);
@@ -112,6 +116,18 @@ uv pip compile -q requirements/deep-linux-cu126.in --python-version 3.14 \
   --custom-compile-command "$UV_CMD" -o "$STAGED/deep-linux-x86_64-cu126.txt"
 echo "  ✓ staged deep-linux-x86_64-cu126.txt ($(grep -c '==' "$STAGED/deep-linux-x86_64-cu126.txt") pins)"
 
+# --- 5.6 perfil dvc-tool (herramienta CLI gobernada y AISLADA): 2 cierres HASHEADOS desde
+#     requirements/dvc.in (PyPI puro, sin índice pytorch). Arrastra diskcache 5.6.3 (PYSEC-2026-2447,
+#     sin fix, aceptado SOLO en dvc-tool). Mismo staging transaccional que los otros 9.
+echo "make_locks: perfil dvc-tool (uv pip compile, HASHEADO)…"
+uv pip compile -q requirements/dvc.in --python "$PY" --generate-hashes \
+  --custom-compile-command "$UV_CMD" -o "$STAGED/dvc-tool-macos-arm64.txt"
+echo "  ✓ staged dvc-tool-macos-arm64.txt ($(grep -c '==' "$STAGED/dvc-tool-macos-arm64.txt") pins)"
+uv pip compile -q requirements/dvc.in --python-version 3.14 \
+  --python-platform x86_64-unknown-linux-gnu --generate-hashes \
+  --custom-compile-command "$UV_CMD" -o "$STAGED/dvc-tool-linux-x86_64.txt"
+echo "  ✓ staged dvc-tool-linux-x86_64.txt ($(grep -c '==' "$STAGED/dvc-tool-linux-x86_64.txt") pins)"
+
 # --- guard de secretos sobre TODO lo staged (líneas `nombre==versión` seguras por construcción;
 #     se escanea lo que NO tenga esa forma). `]` primero en la clase POSIX (BSD grep). ---------
 if grep -hv -e '^[[:space:]]*#' -e '^[][A-Za-z0-9_.-]\{1,\}==' "$STAGED"/*.txt \
@@ -126,4 +142,4 @@ fi
 "$PY" -m tools.promote_lockset --staged "$STAGED" \
   --python "$PY_FULL" --platform "$PLATFORM" --pip "$PIP_VERSION" \
   --setuptools "$SETUPTOOLS_VERSION" --wheel "$WHEEL_VERSION" --uv "$UV_VERSION"
-echo "make_locks: OK — 9 locks promovidos + manifest (contrato OK). Perfil deep en requirements/deep.in."
+echo "make_locks: OK — 11 locks promovidos + manifest (contrato OK). deep=deep.in · dvc-tool=dvc.in."

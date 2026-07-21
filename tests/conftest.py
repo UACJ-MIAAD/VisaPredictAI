@@ -10,6 +10,39 @@ se omiten de la colección (en el job de modelado sí están y se ejecutan).
 
 import importlib.util
 
+# Fase 4 (P0R.5): warnings como CONTRATO. `error` = todo warning es fallo, SIN supresión global (prohibido
+# `ignore::Warning`); las únicas excepciones son 4 warnings upstream/experimentales INEVITABLES (sklearn/optuna/scipy
+# desde vp_model/tune.py), cada uno por un filtro ESTRECHO (message-prefix + categoría) documentado con expiry en
+# security/warnings_registry.json. La biyección registro⇔estos filtros la valida tools/check_warnings.py. Va en el
+# conftest (NO en pyproject) para mantener pyproject.toml BYTE-IDÉNTICO y no tocar el manifiesto de locks (lockset.json
+# pinnea el hash de pyproject). Aplica a toda la sesión vía `pytest_configure`.
+FILTERWARNINGS = [
+    "error",
+    "ignore:X does not have valid feature names, but LGBMRegressor was fitted with feature names:UserWarning",
+    "ignore:Argument ``multivariate`` is an experimental feature:optuna.exceptions.ExperimentalWarning",
+    "ignore:Argument ``group`` is an experimental feature:optuna.exceptions.ExperimentalWarning",
+    "ignore:An input array is constant:scipy.stats.ConstantInputWarning",
+]
+
+
+def _filter_category_available(filt):
+    """Un filtro `ignore:<msg>:<categoría>` con categoría PUNTEADA de terceros (optuna/scipy) sólo se aplica si su módulo
+    raíz está INSTALADO en este job — el job base (`.[dev]`) no trae optuna/scipy y pytest CRASHEA al RESOLVER la
+    categoría (`filterwarnings=error` convierte el PytestConfigWarning en INTERNALERROR). Esos warnings sólo se emiten si
+    el módulo está presente (los tests de modelado se `collect_ignore`-an sin él), así que saltarlos es seguro. `error` y
+    las categorías builtin (sin punto) se aplican siempre. Usa `find_spec` (NO importa → no crashea)."""
+    parts = filt.split(":")
+    if len(parts) < 3 or "." not in parts[-1]:
+        return True
+    return importlib.util.find_spec(parts[-1].split(".")[0]) is not None
+
+
+def pytest_configure(config):
+    for _f in FILTERWARNINGS:
+        if _filter_category_available(_f):
+            config.addinivalue_line("filterwarnings", _f)
+
+
 _MODEL_TESTS = [
     "test_dataset.py",
     "test_eda_preprocess.py",

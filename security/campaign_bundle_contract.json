@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "encoding": "utf-8",
+  "note": "Contrato estructural EXACTO de los ocho outputs sellados en el bundle de campaña (B186). Cada output debe tener EXACTAMENTE este encabezado (mismo orden, sin renombrar/reordenar/faltar/sobrar), UTF-8 sin BOM, y todas las filas del mismo ancho. NO valida estadística del productor; solo la estructura que consumen los lectores oficiales.",
+  "columns": [
+    "run_id",
+    "model",
+    "country",
+    "category",
+    "table",
+    "sel_mase",
+    "sel_smape",
+    "sel_mae",
+    "sel_rmse",
+    "hold_mase",
+    "hold_smape",
+    "hold_mae",
+    "hold_rmse",
+    "hold_msis",
+    "hold_interval_score",
+    "hold_coverage",
+    "sel_mase1",
+    "hold_mase1",
+    "secs",
+    "source_run_id"
+  ],
+  "key_columns": ["run_id", "model", "country", "category", "table"],
+  "outputs": {
+    "campaign": [
+      "campaign_pool_FAD_family.csv",
+      "campaign_pool_FAD_employment.csv",
+      "campaign_pool_DFF_family.csv",
+      "campaign_pool_DFF_employment.csv"
+    ],
+    "eval": [
+      "model_comparison_FAD21.csv",
+      "model_comparison_EB_FAD21.csv",
+      "model_comparison_DFF21.csv",
+      "model_comparison_EB_DFF21.csv"
+    ]
+  }
+}

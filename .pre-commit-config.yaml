@@ -43,8 +43,8 @@ repos:
     hooks:
       - id: no-emdash-proyecto-i
         name: sin raya larga (—) como inciso en ProyectoI_VisaPredictAI.tex
-        # A5: `python` del PATH (venv activo), no `ante/bin/python` — portable a CI y
-        # a clones sin el venv local; activar `source ante/bin/activate` antes de commitear.
+        # A5/R9: `python` del PATH (bootstrap portable) — sin dependencia de un venv legacy;
+        # portable a CI y a clones nuevos.
         entry: python tools/check_no_emdash.py
         language: system
         pass_filenames: false
@@ -56,7 +56,7 @@ repos:
     hooks:
       - id: pipeline-tests
         name: pipeline tests (parsers + offline extraction + panel invariants)
-        # A5: `python` del PATH (venv activo) en vez de ante/bin/python — portable.
+        # A5/R9: `python` del PATH (bootstrap portable) — sin dependencia de un venv legacy.
         entry: bash -c 'python tests/test_parsers.py && python tests/test_extraction.py && python tests/test_panel_integrity.py'
         language: system
         pass_filenames: false

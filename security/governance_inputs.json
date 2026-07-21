@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "note": "Registro POSITIVO de ficheros de ENTRADA de gobernanza (B286-C): registries/contratos de security/, el workflow ci.yml y consistency_rules.yml — los ficheros que ENCODEAN politica de gobernanza (NO los artefactos de datos key_facts/fe_facts, que consume tambien el tooling de pipeline; NI el propio registro governance_inputs.json). Biyeccion EXACTA: cada security/*.{json,yml} + ci.yml + consistency_rules.yml observado esta registrado; cada input existe, es legible por GovernanceSnapshot con su categoria/modo 0644 exactos, y sus consumers declarados == los tools de produccion que referencian su path exacto/basename. Un input nuevo/huerfano/movido, un modo != 0644, un tamano excedido, o un consumer divergente -> fail-closed. Los escaneres de corpus (que recorren un DIRECTORIO) no son consumers per-fichero.",
+  "required_mode": "0644",
+  "inputs": {
+    ".github/workflows/ci.yml": {
+      "category": "source",
+      "format": "yaml",
+      "parser": "yaml.SafeLoader anti-duplicados",
+      "consumers": [
+        "tools/check_p0r5_governance.py"
+      ],
+      "operations": [
+        "read"
+      ],
+      "max_bytes": 262144,
+      "reason": "Workflow de CI: el gate de sellado (p0r5-governance) valida su forma exacta como input de decision. Los escaneres de corpus (action_pins/ci_installs) recorren el DIRECTORIO de workflows, no este input.",
+      "local_mode": "0o644"
+    },
+    "security/github_actions.json": {
+      "category": "contract",
+      "format": "json",
+      "parser": "json anti-duplicados",
+      "consumers": [
+        "tools/check_action_pins.py",
+        "tools/check_p0r5_governance.py"
+      ],
+      "operations": [
+        "read"
+      ],
+      "max_bytes": 262144,
+      "reason": "Registro positivo de GitHub Actions pineadas (SHA/version/runtime); action_pins lo valida, p0r5-governance exige su SHA de bootstrap.",
+      "local_mode": "0o644"
+    },
+    "security/python_reflection_registry.json": {
+      "category": "contract",
+      "format": "json",
+      "parser": "json anti-duplicados",
+      "consumers": [
+        "tools/check_reflection.py"
+      ],
+      "operations": [
+        "read"
+      ],
+      "max_bytes": 1048576,
+      "reason": "Registro positivo de reflexion por identidad semantica.",
+      "local_mode": "0o644"
+    },
+    "security/commit_frontier_fingerprints.json": {
+      "category": "contract",
+      "format": "json",
+      "parser": "json anti-duplicados",
+      "consumers": [
+        "tools/check_commit_frontier.py"
+      ],
+      "operations": [
+        "read"
+      ],
+      "max_bytes": 262144,
+      "reason": "Fingerprints AST del cuerpo critico + hashes del set de autoridad de la frontera de commit.",
+      "local_mode": "0o644"
+    },
+    "security/governance_snapshot_consumers.json": {
+      "category": "contract",
+      "format": "json",
+      "parser": "json anti-duplicados",
+      "consumers": [
+        "tools/check_governance_snapshot_consumers.py"
+      ],
+      "operations": [
+        "read"
+      ],
+      "max_bytes": 262144,
+      "reason": "Registro positivo de consumidores de GovernanceSnapshot (biyeccion B286-B).",
+      "local_mode": "0o644"
+    },
+    "security/ci_install_registry.json": {
+      "category": "contract",
+      "format": "json",
+      "parser": "json",
+      "consumers": [
+        "tools/check_ci_installs.py"
+      ],
+      "operations": [
+        "read"
+      ],
+      "max_bytes": 262144,
+      "reason": "Registro positivo de instalaciones pip de CI (multiconjunto B284/B290).",
+      "local_mode": "0o644"
+    },
+    "security/upstream_warnings.json": {
+      "category": "contract",
+      "format": "json",
+      "parser": "json anti-duplicados",
+      "consumers": [
+        "tools/check_action_pins.py"
+      ],
+      "operations": [
+        "read"
+      ],
+      "max_bytes": 262144,
+      "reason": "Excepciones temporales de warnings upstream de Actions (con expiry).",
+      "local_mode": "0o644"
+    },
+    "security/campaign_bundle_contract.json": {
+      "category": "contract",
+      "format": "json",
+      "parser": "json",
+      "consumers": [
+        "tools/campaign_bundle.py",
+        "tools/campaign_bundle_contract_smoke.py"
+      ],
+      "operations": [
+        "read"
+      ],
+      "max_bytes": 262144,
+      "reason": "Contrato del bundle de campaña (forma/fingerprint) que su smoke valida.",
+      "local_mode": "0o644"
+    },
+    "security/deep_smoke_contract.json": {
+      "category": "contract",
+      "format": "json",
+      "parser": "json",
+      "consumers": [
+        "tools/deep_smoke.py"
+      ],
+      "operations": [
+        "read"
+      ],
+      "max_bytes": 262144,
+      "reason": "Contrato INDEPENDIENTE del stack deep (versiones/proveedores) que deep_smoke lee gobernado.",
+      "local_mode": "0o644"
+    },
+    "security/python_advisories.json": {
+      "category": "contract",
+      "format": "json",
+      "parser": "json",
+      "consumers": [
+        "tools/audit_python_supply_chain.py",
+        "tools/check_supply_chain_triage.py"
+      ],
+      "operations": [
+        "read"
+      ],
+      "max_bytes": 262144,
+      "reason": "Lista fuente de advisories de supply-chain (audit + triage documental).",
+      "local_mode": "0o644"
+    },
+    "tools/consistency_rules.yml": {
+      "category": "source",
+      "format": "yaml",
+      "parser": "yaml.safe_load",
+      "consumers": [
+        "tools/check_consistency.py"
+      ],
+      "operations": [
+        "read"
+      ],
+      "max_bytes": 262144,
+      "reason": "Reglas (forbidden/numeric/decimal) que dirigen la decision del guardian de consistencia.",
+      "local_mode": "0o644"
+    },
+    "security/warnings_registry.json": {
+      "category": "contract",
+      "format": "json",
+      "parser": "json anti-duplicados",
+      "consumers": [
+        "tools/check_warnings.py"
+      ],
+      "operations": [
+        "read"
+      ],
+      "max_bytes": 262144,
+      "reason": "Registro POSITIVO de warnings upstream/experimentales inevitables (Fase 4); check_warnings valida su biyeccion con pyproject.",
+      "local_mode": "0o644"
+    },
+    "security/repository_governance.json": {
+      "category": "contract",
+      "format": "json",
+      "parser": "json anti-duplicados",
+      "consumers": [
+        "tools/check_repository_governance.py"
+      ],
+      "operations": [
+        "read"
+      ],
+      "max_bytes": 262144,
+      "reason": "Contrato de gobernanza del repositorio (B291): ruleset/branch/checks/review + cobertura CODEOWNERS.",
+      "local_mode": "0o644"
+    }
+  }
+}

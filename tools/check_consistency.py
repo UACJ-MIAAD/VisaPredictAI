@@ -25,8 +25,23 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))  # B286-C: raíz en sys.path para importar `tools.governance_snapshot` en forma script
 # En CI el repo web se checkouta en otra ruta; VP_WEB_DIR la reubica (default: hermano local).
 WEB_DIR = os.environ.get("VP_WEB_DIR", "../VisaPredictAI_web")
+_RULES_REL = "tools/consistency_rules.yml"
+
+
+def _read_rules_text() -> str:
+    """B286-C: lee las REGLAS (`consistency_rules.yml`, el input de política que dirige la decisión) por UNA observación
+    gobernada sellada (O_NOFOLLOW + modo/uid/nlink exactos, reverify). Los VALORES de datos (key_facts/fe_facts) y el
+    corpus escaneado (deliverable + web cross-repo) NO son inputs de política y siguen su lectura normal."""
+    from tools.governance_snapshot import GovernanceSnapshot
+
+    with GovernanceSnapshot(str(ROOT)) as snap:
+        text = snap.read(_RULES_REL, category="source").data.decode("utf-8")
+        snap.reverify()
+    return text
 
 
 def _digits(s: str) -> str:
@@ -85,7 +100,7 @@ def main() -> int:
         fs = json.loads(fe_fp.read_text()).get("feature_selection", {})
         facts.setdefault("fe_sel_in", fs.get("n_features_in"))
         facts.setdefault("fe_sel_final", fs.get("n_selected"))
-    rules = yaml.safe_load((ROOT / "tools" / "consistency_rules.yml").read_text())
+    rules = yaml.safe_load(_read_rules_text())  # B286-C: reglas por observación gobernada sellada
     sets = {name: _resolve(globs) for name, globs in rules["artifacts"].items()}
 
     # aviso si el repo web no está montado (CI del repo de datos solo, p. ej.)

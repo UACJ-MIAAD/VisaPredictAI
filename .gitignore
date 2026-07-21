@@ -102,3 +102,19 @@ reports/campaign_aq_logs/
 
 # P0R.3: receipt de supply chain (artefacto runtime del cron/audit, regenerable)
 reports/governance/supply_chain_receipt.json
+.vp_envs/
+.dvc/site-cache/
+
+# B89: lock de exclusión de merge_campaign_pools (artefacto runtime, jamás se trackea)
+reports/campaign/.merge.lock
+# B117 (R9.2R9): cuarentena de temporales/respaldos del merge (GC diferido a P2b; runtime, nunca trackear)
+reports/campaign/.merge-quarantine/
+reports/eval/.merge-quarantine/
+# B145 (R9.2R12): recibos/bundles/puntero del commit del merge (autoridad runtime, jamás trackear)
+reports/campaign/.merge-receipt.*
+reports/campaign/.merge-bundles/
+reports/campaign/.merge-staging.*
+reports/campaign/.merge-CURRENT*
+reports/campaign/.merge-aborted/
+# B179/B180 (Incremento 1R3): cuarentena gobernada por transacción del bundle (governed_fs; runtime)
+reports/campaign/.merge-quar.*
