@@ -102,7 +102,7 @@ def _gov_replace(old: str, new: str) -> str:
 
 def test_b271_action_pins_and_python_and_fetch_depth(monkeypatch):
     # SHA de acción no registrado / python distinto → fallan (paso != exacto), DENTRO del job de gobernanza.
-    bad_sha = _gov_replace("actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd", "actions/checkout@" + "0" * 40)
+    bad_sha = _gov_replace("actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09", "actions/checkout@" + "0" * 40)
     assert _run_on(bad_sha, monkeypatch), "un SHA de checkout no registrado debe fallar (B271)"
     bad_py = _gov_replace("python-version: '3.14'", "python-version: '3.12'")
     assert _run_on(bad_py, monkeypatch), "python-version distinto de 3.14 debe fallar (B271)"
@@ -138,7 +138,7 @@ def test_b271_fail_closed_missing_workflow(monkeypatch):
 # ACEPTABA. Las pruebas conductuales usan un ci.yml SIN el paso offline (compatible con 036c8f9) para que el RED sea
 # limpio: en 036c8f9 aceptan; aquí `_action_uses` devuelve el problema B278 ANTES del chequeo de pasos.
 # ---------------------------------------------------------------------------
-_CHECKOUT_SHA = "93cb6efe18208431cddfb8368fd83d5badbf9bfd"
+_CHECKOUT_SHA = "fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09"
 _CI_NO_OFFLINE = _REAL_CI.replace(
     "      - name: GitHub Actions positive registry (offline)\n        run: python tools/check_action_pins.py\n", "", 1
 )
@@ -168,6 +168,10 @@ def test_b278_permissive_registry_flaws_rejected(monkeypatch):
         "extra_top": mut(lambda r: r.__setitem__("evil", 1)),
         "node20": mut(lambda r: r["actions"]["actions/checkout"].__setitem__("runtime", "node20")),
         "empty_version": mut(lambda r: r["actions"]["actions/checkout"].__setitem__("version", "")),
+        # RC-4: un tag MAYOR/MENOR móvil (`v5`/`v5.1`) ya NO se acepta — sólo release EXACTA `vN.N.N` (un tag mayor puede
+        # reapuntar upstream, como v5 → v5.1.0, y disparar drift online).
+        "major_tag_version": mut(lambda r: r["actions"]["actions/checkout"].__setitem__("version", "v5")),
+        "minor_tag_version": mut(lambda r: r["actions"]["actions/checkout"].__setitem__("version", "v5.1")),
         "missing_top": mut(lambda r: r.pop("note")),
     }
     for name, reg in cases.items():

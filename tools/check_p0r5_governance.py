@@ -30,7 +30,7 @@ _CI_GATE = "ci-gate"
 # B278: SHA REVISADOS de las dos acciones bootstrap del job. La biyección constante↔registro↔paso impide falsificar
 # registro y workflow a la vez: el SHA del registro positivo debe igualar EXACTAMENTE esta constante de código.
 _BOOTSTRAP_ACTIONS = {
-    "actions/checkout": "93cb6efe18208431cddfb8368fd83d5badbf9bfd",
+    "actions/checkout": "fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
     "actions/setup-python": "ece7cb06caefa5fff74198d8649806c4678c61a1",
 }
 _EXPECTED_JOB_KEYS = {"name", "runs-on", "timeout-minutes", "permissions", "steps"}

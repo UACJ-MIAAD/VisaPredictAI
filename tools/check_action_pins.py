@@ -49,9 +49,13 @@ _NODE20_SHAS = {
 _REG_TOP = {"schema_version", "note", "actions"}
 _ENTRY_KEYS = {"sha", "version", "runtime"}
 # B287: gramática CERRADA del registro. Nombre de acción = owner/repo[/path…], componentes no vacíos sin whitespace/@/
-# `..`/slash-inicial-final; versión = vN, vN.N o vN.N.N; note string no vacío tras strip y acotado; máximos.
+# `..`/slash-inicial-final; note string no vacío tras strip y acotado; máximos.
 _NAME_COMPONENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
-_VERSION_RE = re.compile(r"^v[0-9]+(\.[0-9]+){0,2}$")
+# RC-4: la versión debe ser una RELEASE EXACTA `vN.N.N` — NUNCA un tag mayor/menor móvil (`v5`/`v5.1`). Un tag mayor puede
+# reapuntar upstream (v5 pasó de v5.0.1 a v5.1.0) y la verificación online lo detectaría como drift; anclando al tag exacto
+# `vN.N.N` esa clase de fallo es imposible. Una acción que legítimamente necesite un tag menos preciso debe modelarse por
+# entrada (no con tolerancia global aquí).
+_VERSION_RE = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
 _MAX_ACTIONS = 64
 _MAX_NOTE_LEN = 2000
 _MAX_NAME_LEN = 200
