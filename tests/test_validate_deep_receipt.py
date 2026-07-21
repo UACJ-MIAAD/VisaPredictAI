@@ -20,18 +20,20 @@ import tools.validate_deep_receipt as v
 CPU = "locks/deep-linux-x86_64-cpu.txt"
 CONTRACT = ds.load_contract()
 HEAD = "a" * 40
-# fuente única: (module, distribution, origin, origin_sha256) — recibo y `observed` coinciden por construcción.
-IMPORTS = [(m, d, f"lib/site-packages/{m}/__init__.py", "sha256:" + "1" * 64) for m, d in CONTRACT.imports]
+# RC-3: fuente única (module, dist, providers, origin, sha, owners) — recibo y reobservado coinciden por construcción.
+IMPORTS = [
+    (m, d, provs, f"lib/site-packages/{m}/__init__.py", "sha256:" + "1" * 64, (d,)) for m, d, provs in CONTRACT.entries
+]
 
 
 def _rt():
     return lc.DEEP_RUNTIME[CPU]
 
 
-def _versions():
+def _versions():  # RC-3: TODOS los providers (incl. mlflow-skinny/-tracing)
     rt = _rt()
     pins = lc.pin_map((lc.ROOT / CPU).read_text())
-    return {d: (rt["torch"] if d == "torch" else pins[lc._norm(d)]) for _, d in CONTRACT.imports}
+    return {d: (rt["torch"] if d == "torch" else pins[lc._norm(d)]) for d in CONTRACT.expected_providers}
 
 
 def _good():
@@ -50,14 +52,30 @@ def _good():
         "torch_observed": rt["torch"],
         "pip_check": "ok",
         "versions": _versions(),
-        "imports": [{"module": m, "distribution": d, "origin": o, "origin_sha256": s} for m, d, o, s in IMPORTS],
+        "imports": [
+            {
+                "module": m,
+                "distribution": d,
+                "providers": list(provs),
+                "origin": o,
+                "origin_sha256": s,
+                "origin_owners": list(owners),
+            }  # fmt: skip
+            for m, d, provs, o, s, owners in IMPORTS
+        ],
         "tensor_checksum": 83.0,
     }
 
 
-def _observed():
-    ver = _versions()
-    return {m: {"distribution": d, "version": ver[d], "origin": o, "origin_sha256": s} for m, d, o, s in IMPORTS}
+def _observed_versions():
+    return _versions()  # {dist: version} de todos los providers
+
+
+def _observed_imports():
+    return {
+        m: {"distribution": d, "providers": list(provs), "origin": o, "origin_sha256": s, "origin_owners": list(owners)}
+        for m, d, provs, o, s, owners in IMPORTS
+    }
 
 
 def _kw(**over):
@@ -74,7 +92,8 @@ def _kw(**over):
         real_python="3.14.2",
         real_system=rt["system"],
         real_machine=rt["machine"],
-        observed=_observed(),
+        observed_versions=_observed_versions(),
+        observed_imports=_observed_imports(),
     )
     base.update(over)
     return base
@@ -165,18 +184,35 @@ def test_b332_reobserved_origin_sha_and_version_tamper():
     r = _good()
     r["imports"] = [{**r["imports"][0], "origin_sha256": "sha256:" + "e" * 64}, *r["imports"][1:]]
     assert any("origin_sha256" in p for p in v.receipt_problems(r, **_kw()))
-    first = IMPORTS[0][0]  # module con versión reobservada distinta
-    obs = {**_observed(), first: {**_observed()[first], "version": "0.0.0-evil"}}
-    assert any("reobservada" in p for p in v.receipt_problems(_good(), **_kw(observed=obs)))
+    # versión reobservada distinta (RC-3: las versiones se cruzan contra observed_versions, dist→version)
+    dist0 = IMPORTS[0][1]
+    tampered_versions = {**_observed_versions(), dist0: "0.0.0-evil"}
+    assert any("reobservada" in p for p in v.receipt_problems(_good(), **_kw(observed_versions=tampered_versions)))
 
 
-def test_b332_import_schema_requires_origin_sha256():
+def test_b332_import_schema_requires_all_keys():
+    # RC-3: cada entrada de import debe tener EXACTAMENTE {module, distribution, providers, origin, origin_sha256,
+    # origin_owners}; una entrada reducida (esquema viejo) se rechaza.
     r = _good()
     r["imports"] = [
-        {"module": IMPORTS[0][0], "distribution": IMPORTS[0][1], "origin": IMPORTS[0][2]},
+        {"module": IMPORTS[0][0], "distribution": IMPORTS[0][1], "origin": IMPORTS[0][3]},
         *r["imports"][1:],
     ]
-    assert any("origin_sha256" in p or "module" in p for p in v.receipt_problems(r, **_kw()))
+    assert any("!=" in p and "module" in p for p in v.receipt_problems(r, **_kw()))
+
+
+def test_rc3_receipt_providers_and_owners_tamper():
+    # RC-3: providers != contrato y origin_owners vacíos/no-⊆ providers bloquean.
+    ml = next(i for i, e in enumerate(_good()["imports"]) if e["module"] == "mlflow")
+    r = _good()
+    r["imports"][ml] = {**r["imports"][ml], "providers": ["mlflow"]}  # falta skinny/tracing
+    assert any("providers" in p for p in v.receipt_problems(r, **_kw()))
+    r = _good()
+    r["imports"][ml] = {**r["imports"][ml], "origin_owners": []}
+    assert any("origin_owners" in p for p in v.receipt_problems(r, **_kw()))
+    r = _good()
+    r["imports"][ml] = {**r["imports"][ml], "origin_owners": ["evil"]}
+    assert any("origin_owners" in p for p in v.receipt_problems(r, **_kw()))
 
 
 def test_b334_read_rejects_nonsimple_names():

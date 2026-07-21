@@ -51,35 +51,50 @@ def _no_dup_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return dict(pairs)
 
 
-def _parse_contract_bytes(raw: bytes) -> tuple[tuple[str, str], ...]:
-    """B322/B326: parser+validador ÚNICO del contrato desde BYTES canónicos — anti-clave-duplicada, esquema CERRADO,
-    orden canónico por módulo, nombres PEP-503, módulos/distribuciones únicos. Devuelve la tupla INMUTABLE
-    `((module, distribution), …)`; toda desviación LEVANTA `ValueError` (no hay recibo)."""
+_CONTRACT_MAX_ENTRIES = 64  # cota explícita del número de imports (B335/RC-3)
+_CONTRACT_MAX_PROVIDERS = 16  # cota explícita de providers por módulo
+
+
+def _parse_contract_bytes(raw: bytes) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
+    """B322/B326/RC-3: parser+validador ÚNICO del contrato desde BYTES canónicos (ESQUEMA 2) — anti-clave-duplicada,
+    esquema CERRADO, orden canónico por módulo, nombres PEP-503, módulos/distribuciones PRIMARIAS únicas, y una lista de
+    `providers` por módulo (no vacía, PEP-503, ordenada, única, con la distribución primaria DENTRO). Modela que un módulo
+    de import puede estar provisto por VARIAS distribuciones (p.ej. `mlflow` ← mlflow / mlflow-skinny / mlflow-tracing).
+    Devuelve la tupla INMUTABLE `((module, distribution, (providers…)), …)`; toda desviación LEVANTA `ValueError`."""
     obj = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_dup_keys)
     if not (isinstance(obj, dict) and set(obj) == {"schema_version", "imports"}):
         raise ValueError(f"{_CONTRACT_REL}: claves top != {{schema_version, imports}}")
-    if type(obj["schema_version"]) is not int or obj["schema_version"] != 1:  # bool no cuela (is not int)
-        raise ValueError(f"{_CONTRACT_REL}: schema_version debe ser 1 (int exacto)")
-    entries = obj["imports"]
-    if not isinstance(entries, list) or not entries:
-        raise ValueError(f"{_CONTRACT_REL}: imports debe ser lista no vacía")
-    imports: list[tuple[str, str]] = []
-    for e in entries:
-        if not (isinstance(e, dict) and set(e) == {"module", "distribution"}):
-            raise ValueError(f"{_CONTRACT_REL}: entrada != {{module, distribution}}: {e!r}")
-        m, d = e["module"], e["distribution"]
+    if type(obj["schema_version"]) is not int or obj["schema_version"] != 2:  # bool no cuela (is not int)
+        raise ValueError(f"{_CONTRACT_REL}: schema_version debe ser 2 (int exacto)")
+    raw_entries = obj["imports"]
+    if not isinstance(raw_entries, list) or not (0 < len(raw_entries) <= _CONTRACT_MAX_ENTRIES):
+        raise ValueError(f"{_CONTRACT_REL}: imports debe ser lista no vacía de a lo sumo {_CONTRACT_MAX_ENTRIES}")
+    entries: list[tuple[str, str, tuple[str, ...]]] = []
+    for e in raw_entries:
+        if not (isinstance(e, dict) and set(e) == {"module", "distribution", "providers"}):
+            raise ValueError(f"{_CONTRACT_REL}: entrada != {{module, distribution, providers}}: {e!r}")
+        m, d, provs = e["module"], e["distribution"], e["providers"]
         if type(m) is not str or type(d) is not str or not m or not d:
             raise ValueError(f"{_CONTRACT_REL}: module/distribution deben ser str no vacíos: {e!r}")
         if lc._norm(d) != d:  # PEP-503 canónico (una distribución no normalizada podría duplicar por normalización)
             raise ValueError(f"{_CONTRACT_REL}: distribution {d!r} no está en forma PEP-503 ({lc._norm(d)})")
-        imports.append((m, d))
-    modules = [m for m, _ in imports]
-    dists = [d for _, d in imports]
+        if not isinstance(provs, list) or not (0 < len(provs) <= _CONTRACT_MAX_PROVIDERS):
+            raise ValueError(f"{_CONTRACT_REL}: providers de {m!r} debe ser lista no vacía de a lo sumo {_CONTRACT_MAX_PROVIDERS}")  # fmt: skip
+        for p in provs:
+            if type(p) is not str or not p or lc._norm(p) != p:
+                raise ValueError(f"{_CONTRACT_REL}: provider {p!r} de {m!r} debe ser str PEP-503 no vacío")
+        if list(provs) != sorted(provs) or len(set(provs)) != len(provs):
+            raise ValueError(f"{_CONTRACT_REL}: providers de {m!r} deben estar ordenados y ser únicos")
+        if d not in provs:
+            raise ValueError(f"{_CONTRACT_REL}: la distribución primaria {d!r} debe estar en providers de {m!r}")
+        entries.append((m, d, tuple(provs)))
+    modules = [m for m, _, _ in entries]
+    dists = [d for _, d, _ in entries]
     if modules != sorted(modules):
         raise ValueError(f"{_CONTRACT_REL}: imports no está en orden canónico por módulo")
     if len(set(modules)) != len(modules) or len(set(dists)) != len(dists):
-        raise ValueError(f"{_CONTRACT_REL}: módulos/distribuciones deben ser únicos")
-    return tuple(imports)
+        raise ValueError(f"{_CONTRACT_REL}: módulos/distribuciones primarias deben ser únicos")
+    return tuple(entries)
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +105,7 @@ class DeepSmokeContract:
     consistente con sus bytes canónicos. `evaluate()` exige `type(x) is DeepSmokeContract` (ni lista+sha sueltos, ni
     subclase)."""
 
-    imports: tuple[tuple[str, str], ...]
+    entries: tuple[tuple[str, str, tuple[str, ...]], ...]  # (module, primary_distribution, providers) — RC-3
     canonical_bytes: bytes
     sha256: str
 
@@ -99,20 +114,42 @@ class DeepSmokeContract:
             raise ValueError("DeepSmokeContract: tipos inválidos (canonical_bytes/sha256)")
         if self.sha256 != "sha256:" + hashlib.sha256(self.canonical_bytes).hexdigest():
             raise ValueError("DeepSmokeContract: sha256 no coincide con canonical_bytes")
-        if _parse_contract_bytes(self.canonical_bytes) != self.imports:  # imports↔bytes cruzados (no forjable)
-            raise ValueError("DeepSmokeContract: imports no coincide con canonical_bytes")
+        if _parse_contract_bytes(self.canonical_bytes) != self.entries:  # entries↔bytes cruzados (no forjable)
+            raise ValueError("DeepSmokeContract: entries no coincide con canonical_bytes")
+
+    @property
+    def imports(self) -> tuple[tuple[str, str], ...]:
+        """Vista `(module, primary_distribution)` — compatibilidad con los consumidores que no necesitan providers."""
+        return tuple((m, d) for m, d, _ in self.entries)
+
+    def providers_of(self, module: str) -> tuple[str, ...]:
+        """Providers declarados para `module` (lista PEP-503 ordenada); la distribución primaria está incluida."""
+        for m, _d, provs in self.entries:
+            if m == module:
+                return provs
+        raise KeyError(module)
+
+    @property
+    def expected_providers(self) -> tuple[str, ...]:
+        """Unión ORDENADA de TODAS las distribuciones que deben estar instaladas (todos los providers de todos los módulos).
+        Con mlflow multi-provider, este conjunto es mayor que las distribuciones primarias."""
+        return tuple(sorted({p for _m, _d, provs in self.entries for p in provs}))
 
     @classmethod
     def _from_bytes(cls, raw: bytes) -> DeepSmokeContract:
-        return cls(imports=_parse_contract_bytes(raw), canonical_bytes=raw, sha256="sha256:" + hashlib.sha256(raw).hexdigest())  # fmt: skip
+        return cls(entries=_parse_contract_bytes(raw), canonical_bytes=raw, sha256="sha256:" + hashlib.sha256(raw).hexdigest())  # fmt: skip
 
     @classmethod
-    def for_test(cls, imports: tuple[tuple[str, str], ...]) -> DeepSmokeContract:
-        """Para tests PUROS de `evaluate` (SOLO problemas, jamás recibo): serializa `imports` a bytes canónicos y RE-VALIDA
-        el mismo esquema (orden/PEP-503/únicos). B331/B335: `for_test` NO alcanza la ruta de certificación — `certify_runtime`
-        observa el entorno real y carga el contrato canónico por su cuenta; es el ÚNICO que emite recibo, y ningún caller
-        suministra observación ni contrato. Un contrato reducido de fixture no puede certificar."""
-        payload = {"schema_version": 1, "imports": [{"module": m, "distribution": d} for m, d in imports]}
+    def for_test(cls, imports: tuple[tuple[str, str], ...], *, providers: dict[str, tuple[str, ...]] | None = None) -> DeepSmokeContract:  # fmt: skip
+        """Para tests PUROS de `evaluate` (SOLO problemas, jamás recibo): serializa a bytes canónicos ESQUEMA 2 y RE-VALIDA.
+        Por defecto `providers` de cada módulo es el singleton `[distribution]`; pásalo explícito para modelar multi-provider
+        (mlflow). B331/B335: `for_test` NO alcanza la ruta de certificación — `certify_runtime` observa el entorno real y
+        carga el contrato canónico por su cuenta; es el ÚNICO que emite recibo. Un contrato de fixture no puede certificar."""
+        provs = providers or {}
+        payload = {
+            "schema_version": 2,
+            "imports": [{"module": m, "distribution": d, "providers": list(provs.get(m, (d,)))} for m, d in imports],
+        }
         raw = (json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
         return cls._from_bytes(raw)
 
@@ -132,7 +169,8 @@ class DeepObservation:
     pip_check_ok: bool
     checksum: float
     commit_sha: str
-    import_records: tuple[tuple[str, str, str, str], ...]  # (module, distribution, origin_rel, origin_sha256) — B332
+    # (module, distribution, providers, origin_rel, origin_sha256, origin_owners) — B332/RC-3
+    import_records: tuple[tuple[str, str, tuple[str, ...], str, str, tuple[str, ...]], ...]
     identity_problems: tuple[str, ...]  # problemas de identidad/commit derivados del entorno REAL
 
 
@@ -205,7 +243,7 @@ def evaluate(
     probs: list[str] = [f"[contrato] {p}" for p in lc.validate_all(lc.ROOT)]
     if type(installed) is not dict or not all(type(k) is str and type(v) is str for k, v in installed.items()):
         return [*probs, "inventario observado inválido (se exige dict[str, str] exacto)"], {}
-    expected_dists = [d for _, d in contract.imports]
+    expected_dists = list(contract.expected_providers)  # RC-3: TODOS los providers (incl. mlflow-skinny/-tracing)
     observed, expected = set(installed), set(expected_dists)
     if observed - expected:
         probs.append(f"inventario observado con EXTRA fuera del contrato: {sorted(observed - expected)}")
@@ -236,21 +274,29 @@ def evaluate(
     return probs, {}  # B331: SIEMPRE recibo vacío — la certificación vive en certify_runtime
 
 
-def _import_records_problems(records: tuple[tuple[str, str, str, str], ...], contract: DeepSmokeContract) -> list[str]:
-    """B335: cruza los `import_records` de la observación EXACTAMENTE con el contrato ANTES de emitir recibo — longitud,
-    orden, module/dist, origen relativo simple (ni absoluto ni `..` ni `unknown`) y `origin_sha256` con forma
-    `sha256:<64hex>`. Defensa en profundidad: un registro degradado bloquea el recibo aunque la identidad gobernada haya
-    fallado silenciosamente."""
-    if len(records) != len(contract.imports):
-        return [f"import_records {len(records)} != {len(contract.imports)} entradas del contrato"]
+def _import_records_problems(records: tuple, contract: DeepSmokeContract) -> list[str]:
+    """B335/RC-3: cruza los `import_records` de la observación EXACTAMENTE con el contrato ANTES de emitir recibo —
+    longitud, orden, module/dist, `providers` EXACTOS del contrato, origen relativo simple (ni absoluto ni `..` ni
+    `unknown`), `origin_sha256` con forma `sha256:<64hex>`, y `origin_owners` NO vacíos y SUBCONJUNTO de los providers.
+    Defensa en profundidad: un registro degradado bloquea el recibo aunque la identidad gobernada haya fallado."""
+    if len(records) != len(contract.entries):
+        return [f"import_records {len(records)} != {len(contract.entries)} entradas del contrato"]
     probs: list[str] = []
-    for (m, d, o, s), (cm, cd) in zip(records, contract.imports, strict=True):
+    for rec, (cm, cd, cprovs) in zip(records, contract.entries, strict=True):
+        if not (isinstance(rec, tuple) and len(rec) == 6):
+            probs.append(f"import_record {rec!r} no tiene forma (module, dist, providers, origin, sha, owners)")
+            continue
+        m, d, provs, o, s, owners = rec
         if m != cm or d != cd:
             probs.append(f"import_record {m!r}/{d!r} != contrato {cm!r}/{cd!r}")
+        if tuple(provs) != cprovs:
+            probs.append(f"providers de {m!r} {tuple(provs)!r} != contrato {cprovs!r}")
         if type(o) is not str or not o or os.path.isabs(o) or o == "unknown" or os.pardir in o.split("/"):
             probs.append(f"origin {o!r} no es una ruta relativa simple bajo sys.prefix")
         if type(s) is not str or not _SHA256_RE.fullmatch(s):
             probs.append(f"origin_sha256 {s!r} no tiene forma sha256:<64hex>")
+        if not owners or not set(owners) <= set(cprovs):
+            probs.append(f"origin_owners de {m!r} {tuple(owners)!r} vacíos o no subconjunto de providers {cprovs!r}")
     return probs
 
 
@@ -282,7 +328,7 @@ def certify_runtime(lock_rel: str) -> tuple[list[str], dict]:
     if probs:  # el recibo SÓLO se emite si NADA falló
         return probs, {}
     rt = lc.DEEP_RUNTIME[lock_rel]
-    expected_dists = [d for _, d in contract.imports]
+    expected_dists = list(contract.expected_providers)  # RC-3: TODAS las distribuciones (incl. mlflow-skinny/-tracing)
     receipt = {
         "commit_sha": observation.commit_sha,
         "lock": lock_rel,
@@ -296,11 +342,18 @@ def certify_runtime(lock_rel: str) -> tuple[list[str], dict]:
         "torch_expected": rt["torch"],
         "torch_observed": observation.torch_version,
         "pip_check": "ok" if observation.pip_check_ok else "fail",
-        "versions": {d: installed[d] for d in expected_dists},  # orden CANÓNICO del contrato
+        "versions": {d: installed[d] for d in expected_dists},  # orden CANÓNICO (todos los providers)
         "imports": [
-            {"module": m, "distribution": d, "origin": o, "origin_sha256": s}
-            for m, d, o, s in observation.import_records
-        ],  # B332: origen relativo a sys.prefix + sha256 gobernado del descriptor
+            {
+                "module": m,
+                "distribution": d,
+                "providers": list(provs),
+                "origin": o,
+                "origin_sha256": s,
+                "origin_owners": list(owners),
+            }
+            for m, d, provs, o, s, owners in observation.import_records
+        ],  # B332/RC-3: origen relativo a sys.prefix + sha256 gobernado + providers + dueños del RECORD del origen
         "tensor_checksum": observation.checksum,
     }
     return [], receipt
@@ -312,10 +365,11 @@ def observe_runtime(lock_rel: str) -> tuple[list[str], DeepObservation | None]:
     RUNTIME (no `assert`) exige que el stack importado == módulos del contrato. B332: cada import se liga a su distribución
     y origen por DESCRIPTOR gobernado (`governed_import_identity`)."""
     contract = load_contract()
-    # B327: inventario OBSERVADO sin last-wins (dist-info normalizada duplicada = problema); una dist del contrato NO
-    # instalada queda fuera del dict y la caza la igualdad de conjuntos de evaluate().
+    # B327/RC-3: inventario OBSERVADO sin last-wins (dist-info normalizada duplicada = problema); se observan TODAS las
+    # distribuciones providers (mlflow multi-provider incluido). Una que NO esté instalada queda fuera y la caza la
+    # igualdad de conjuntos de evaluate() (contra contract.expected_providers).
     dist_inv, id_probs = _distribution_inventory()
-    installed = {dist: dist_inv[lc._norm(dist)] for _, dist in contract.imports if lc._norm(dist) in dist_inv}
+    installed = {p: dist_inv[lc._norm(p)] for p in contract.expected_providers if lc._norm(p) in dist_inv}
     import chronos as _chronos
     import mlflow as _mlflow
     import neuralforecast as _neuralforecast
@@ -337,28 +391,32 @@ def observe_runtime(lock_rel: str) -> tuple[list[str], DeepObservation | None]:
 
     by_name = {m.__name__.split(".")[0]: m for m in _imported}
     pkg_dists = packages_distributions()
-    records: list[tuple[str, str, str, str]] = []
-    for module, dist in contract.imports:
+    records: list[tuple[str, str, tuple[str, ...], str, str, tuple[str, ...]]] = []
+    for module, dist, provs in contract.entries:
         mod = by_name.get(module)
         spec = mod.__spec__ if mod is not None else None
         origin = spec.origin if spec is not None else None
-        try:
-            files: list[str] | None = [str(f.locate()) for f in (distribution(dist).files or [])]
-        except PackageNotFoundError:
-            files = None
+        # RC-3: RECORD de CADA provider (None si la distribución no declara ficheros) para probar pertenencia del origen.
+        provider_files: dict[str, list[str] | None] = {}
+        for p in provs:
+            try:
+                provider_files[p] = [str(f.locate()) for f in (distribution(p).files or [])]
+            except PackageNotFoundError:
+                provider_files[p] = None
         iprobs, ident = gi.governed_identity(
             module,
-            dist,
+            providers=list(provs),
+            primary=dist,
             origin=origin,
             providing=list(pkg_dists.get(module, [])),
-            dist_files=files,
+            provider_files=provider_files,
             sys_prefix=sys.prefix,
         )
         id_probs.extend(iprobs)
         if ident is not None:
-            records.append((ident.module, ident.distribution, ident.origin, ident.origin_sha256))
+            records.append((ident.module, ident.distribution, ident.providers, ident.origin, ident.origin_sha256, ident.origin_owners))  # fmt: skip
         else:
-            records.append((module, dist, "unknown", "unknown"))
+            records.append((module, dist, provs, "unknown", "unknown", ()))
 
     torch.manual_seed(0)
     prod = torch.arange(6, dtype=torch.float32).reshape(2, 3) @ torch.arange(6, dtype=torch.float32).reshape(2, 3).T

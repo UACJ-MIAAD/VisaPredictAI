@@ -47,7 +47,8 @@ _RECEIPT_KEYS = {
     "imports",
     "tensor_checksum",
 }
-_IMPORT_KEYS = {"module", "distribution", "origin", "origin_sha256"}  # B332: el origen lleva su sha256 gobernado
+# B332/RC-3: el origen lleva su sha256 gobernado + providers múltiples + los dueños del RECORD del origen
+_IMPORT_KEYS = {"module", "distribution", "providers", "origin", "origin_sha256", "origin_owners"}
 _HEX40 = re.compile(r"[0-9a-f]{40}")
 _PY_RE = re.compile(r"3\.14\.\d+")
 
@@ -66,11 +67,13 @@ def receipt_problems(
     real_python: str,
     real_system: str,
     real_machine: str,
-    observed: dict[str, dict[str, str | None]],
+    observed_versions: dict[str, str],
+    observed_imports: dict[str, dict],
 ) -> list[str]:
-    """B328/B333: núcleo PURO/testeable — todo re-derivado o REOBSERVADO se inyecta; jamás se confía en el recibo. `git_head`
-    es el HEAD resuelto por git (None ⇒ ROJO, B333); `pins` proviene de los MISMOS bytes gobernados del lock; `real_*` es la
-    plataforma reobservada; `observed` es el inventario reobservado `{module: {distribution, version, origin, origin_sha256}}`."""
+    """B328/B333/RC-3: núcleo PURO/testeable — todo re-derivado o REOBSERVADO se inyecta; jamás se confía en el recibo.
+    `git_head` es el HEAD resuelto por git (None ⇒ ROJO, B333); `pins` de los MISMOS bytes gobernados del lock; `real_*` la
+    plataforma reobservada; `observed_versions` = `{dist: version}` (todos los providers) y `observed_imports` =
+    `{module: {distribution, providers, origin, origin_sha256, origin_owners}}` del entorno REOBSERVADO."""
     if type(receipt) is not dict:
         return ["recibo no es un objeto JSON"]
     if set(receipt) != _RECEIPT_KEYS:
@@ -114,20 +117,19 @@ def receipt_problems(
         probs.append(f"pip_check {receipt['pip_check']!r} != ok")
     if type(receipt["tensor_checksum"]) is bool or receipt["tensor_checksum"] != 83.0:
         probs.append(f"tensor_checksum {receipt['tensor_checksum']!r} != 83.0")
-    probs.extend(_version_problems(receipt["versions"], contract, rt, pins, observed))
-    probs.extend(_import_problems(receipt["imports"], contract, observed))
+    probs.extend(_version_problems(receipt["versions"], contract, rt, pins, observed_versions))
+    probs.extend(_import_problems(receipt["imports"], contract, observed_imports))
     return probs
 
 
 def _version_problems(
-    versions: object, contract: ds.DeepSmokeContract, rt: dict, pins: dict[str, str], observed: dict[str, dict]
+    versions: object, contract: ds.DeepSmokeContract, rt: dict, pins: dict[str, str], observed_versions: dict[str, str]
 ) -> list[str]:
-    expected_dists = [d for _, d in contract.imports]
+    expected_dists = list(contract.expected_providers)  # RC-3: TODOS los providers, orden canónico
     if type(versions) is not dict or list(versions) != expected_dists:
         return [
             f"versions {list(versions) if isinstance(versions, dict) else versions!r} != orden canónico del contrato"
         ]
-    obs_ver = {rec["distribution"]: rec["version"] for rec in observed.values()}  # dist → versión reobservada
     probs: list[str] = []
     for dist, v in versions.items():
         if type(v) is not str:
@@ -138,25 +140,31 @@ def _version_problems(
                 probs.append(f"torch en versions {v!r} != {rt['torch']!r}")
         elif pins.get(lc._norm(dist)) != v:
             probs.append(f"{dist} {v!r} != pin del lock {pins.get(lc._norm(dist))!r}")
-        if obs_ver.get(dist) != v:  # §10.6: cruce contra el inventario REOBSERVADO
-            probs.append(f"{dist} {v!r} != versión reobservada {obs_ver.get(dist)!r}")
+        if observed_versions.get(dist) != v:  # §10.6: cruce contra el inventario REOBSERVADO
+            probs.append(f"{dist} {v!r} != versión reobservada {observed_versions.get(dist)!r}")
     return probs
 
 
-def _import_problems(records: object, contract: ds.DeepSmokeContract, observed: dict[str, dict]) -> list[str]:
-    if type(records) is not list or len(records) != len(contract.imports):
-        return [f"imports del recibo != {len(contract.imports)} entradas del contrato"]
+def _import_problems(records: object, contract: ds.DeepSmokeContract, observed_imports: dict[str, dict]) -> list[str]:
+    if type(records) is not list or len(records) != len(contract.entries):
+        return [f"imports del recibo != {len(contract.entries)} entradas del contrato"]
     probs: list[str] = []
-    for rec, (module, dist) in zip(records, contract.imports, strict=True):
+    for rec, (module, dist, provs) in zip(records, contract.entries, strict=True):
         if type(rec) is not dict or set(rec) != _IMPORT_KEYS:
             probs.append(f"entrada de import {rec!r} != {sorted(_IMPORT_KEYS)}")
             continue
         if rec["module"] != module or rec["distribution"] != dist:
             probs.append(f"import {rec['module']!r}/{rec['distribution']!r} != contrato {module!r}/{dist!r}")
+        if tuple(rec["providers"]) != provs:  # RC-3: providers EXACTOS del contrato
+            probs.append(f"providers de {module} {tuple(rec['providers'])!r} != contrato {provs!r}")
         origin = rec["origin"]
         if type(origin) is not str or os.path.isabs(origin) or os.pardir in origin.split("/") or origin == "unknown":
             probs.append(f"origin {origin!r} no es una ruta relativa simple bajo sys.prefix")
-        obs = observed.get(module)  # §10.6: cruce contra la identidad REOBSERVADA por descriptor
+        if not rec["origin_owners"] or not set(rec["origin_owners"]) <= set(
+            provs
+        ):  # RC-3: dueños ⊆ providers, no vacíos
+            probs.append(f"origin_owners de {module} {tuple(rec['origin_owners'])!r} vacíos o no ⊆ providers {provs!r}")
+        obs = observed_imports.get(module)  # §10.6: cruce contra la identidad REOBSERVADA por descriptor
         if obs is None:
             probs.append(f"import {module!r} ausente del inventario reobservado")
             continue
@@ -164,6 +172,8 @@ def _import_problems(records: object, contract: ds.DeepSmokeContract, observed: 
             probs.append(f"origin de {module} {origin!r} != reobservado {obs['origin']!r}")
         if rec["origin_sha256"] != obs["origin_sha256"] or type(rec["origin_sha256"]) is not str:
             probs.append(f"origin_sha256 de {module} != reobservado (recibo manipulado o desincronizado)")
+        if sorted(rec["origin_owners"]) != sorted(obs["origin_owners"]):  # RC-3: dueños reobservados
+            probs.append(f"origin_owners de {module} != reobservados")
     return probs
 
 
@@ -187,18 +197,25 @@ def _governed_bytes(rel: str) -> bytes:
         return snap.read(rel, category="source").data
 
 
-def _reobserve(lock_rel: str) -> tuple[list[str], dict[str, dict[str, str | None]], str, str, str]:
-    """§10.6/§10.8: REOBSERVA el entorno real (importa el stack, identidad por descriptor) vía `deep_smoke.observe_runtime`.
-    Devuelve `(problemas, observed, real_python, real_system, real_machine)`. Cualquier falla es ROJA (nunca skip)."""
+def _reobserve(lock_rel: str) -> tuple[list[str], dict[str, str], dict[str, dict], str, str, str]:
+    """§10.6/§10.8/RC-3: REOBSERVA el entorno real (importa el stack, identidad por descriptor) vía
+    `deep_smoke.observe_runtime`. Devuelve `(problemas, observed_versions, observed_imports, real_python, real_system,
+    real_machine)`. Cualquier falla es ROJA (nunca skip)."""
     obs_probs, observation = ds.observe_runtime(lock_rel)
     if observation is None:
-        return ["reobservación no produjo observación (fail-closed)"], {}, "", "", ""
-    inst = dict(observation.installed)
-    observed = {
-        module: {"distribution": dist, "version": inst.get(dist), "origin": origin, "origin_sha256": sha}
-        for module, dist, origin, sha in observation.import_records
+        return ["reobservación no produjo observación (fail-closed)"], {}, {}, "", "", ""
+    observed_versions = dict(observation.installed)  # dist → versión (todos los providers)
+    observed_imports = {
+        module: {
+            "distribution": dist,
+            "providers": list(provs),
+            "origin": origin,
+            "origin_sha256": sha,
+            "origin_owners": list(owners),
+        }  # fmt: skip
+        for module, dist, provs, origin, sha, owners in observation.import_records
     }
-    return list(obs_probs), observed, observation.py_version, observation.system, observation.machine
+    return list(obs_probs), observed_versions, observed_imports, observation.py_version, observation.system, observation.machine  # fmt: skip
 
 
 def main(argv: list[str]) -> int:
@@ -225,7 +242,7 @@ def main(argv: list[str]) -> int:
         return 1
     try:  # §10.6: REOBSERVAR el entorno real; §10.8: cualquier falla de import/plataforma es ROJA (una excepción exótica
         # no capturada PROPAGA y también aborta el proceso — nunca un skip verde)
-        reobs_probs, observed, real_python, real_system, real_machine = _reobserve(ns.lock)
+        reobs_probs, observed_versions, observed_imports, real_python, real_system, real_machine = _reobserve(ns.lock)
     except (ImportError, RuntimeError, OSError, ValueError, GovernanceSnapshotError) as exc:
         print(f"✗ reobservación del entorno falló: {exc}")
         return 1
@@ -247,7 +264,8 @@ def main(argv: list[str]) -> int:
         real_python=real_python,
         real_system=real_system,
         real_machine=real_machine,
-        observed=observed,
+        observed_versions=observed_versions,
+        observed_imports=observed_imports,
     )
     if probs:
         print(f"✗ VALIDADOR DE RECIBO DEEP ({ns.receipt}) falló ({len(probs)}):")

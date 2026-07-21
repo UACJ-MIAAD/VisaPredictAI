@@ -17,7 +17,7 @@ import tools.lock_contracts as lc
 
 CPU = "locks/deep-linux-x86_64-cpu.txt"
 CONTRACT = ds.load_contract()  # autoridad INDEPENDIENTE del inventario, DeepSmokeContract inmutable (B323/B326)
-CONTRACT_DISTS = [d for _, d in CONTRACT.imports]
+CONTRACT_DISTS = list(CONTRACT.expected_providers)  # RC-3: TODOS los providers (incl. mlflow-skinny/-tracing)
 
 
 def _installed(lock_rel):
@@ -57,7 +57,9 @@ def _observation(lock_rel, **over):
         pip_check_ok=True,
         checksum=83.0,
         commit_sha="a" * 40,
-        import_records=tuple((m, d, f"lib/x/{m}/__init__.py", "sha256:" + "0" * 64) for m, d in CONTRACT.imports),
+        import_records=tuple(
+            (m, d, provs, f"lib/x/{m}/__init__.py", "sha256:" + "0" * 64, (d,)) for m, d, provs in CONTRACT.entries
+        ),
         identity_problems=(),
     )
     base.update(over)
@@ -73,10 +75,15 @@ def test_happy_path_receipt_is_lock_and_contract_bound(monkeypatch):
     assert receipt["lock_sha256"].startswith("sha256:") and len(receipt["lock_sha256"]) == 71
     assert receipt["manifest_sha256"].startswith("sha256:")
     assert receipt["deep_smoke_contract_sha256"] == CONTRACT.sha256  # B322: recibo LIGADO al contrato de inventario
-    assert list(receipt["versions"]) == CONTRACT_DISTS  # orden CANÓNICO del contrato
+    assert (
+        list(receipt["versions"]) == CONTRACT_DISTS
+    )  # orden CANÓNICO (todos los providers, incl. mlflow-skinny/-tracing)
     assert receipt["commit_sha"] and receipt["torch_observed"] == lc.DEEP_TORCH[CPU]
     assert receipt["variant_expected"] == "linux-cpu" and receipt["pip_check"] == "ok"
-    assert receipt["imports"][0].keys() == {"module", "distribution", "origin", "origin_sha256"}  # B332
+    keys = receipt["imports"][0].keys()  # B332/RC-3
+    assert keys == {"module", "distribution", "providers", "origin", "origin_sha256", "origin_owners"}
+    mlflow_entry = next(e for e in receipt["imports"] if e["module"] == "mlflow")  # RC-3: multi-provider en el recibo
+    assert mlflow_entry["providers"] == ["mlflow", "mlflow-skinny", "mlflow-tracing"] and mlflow_entry["origin_owners"]
 
 
 def test_b331_reduced_contract_never_certifies():
@@ -113,17 +120,24 @@ def test_b335_no_public_api_accepts_a_caller_observation():
 
 
 def test_b335_import_records_cross_checked_with_contract():
-    # B335: antes de emitir recibo, `certify_runtime` cruza los import_records con el contrato — longitud/orden/module/dist/
-    # origen relativo simple/`origin_sha256` canónico. Un registro degradado BLOQUEA el recibo.
-    m0, d0 = CONTRACT.imports[0]
-    good = tuple((m, d, f"lib/x/{m}/__init__.py", "sha256:" + "0" * 64) for m, d in CONTRACT.imports)
+    # B335/RC-3: antes de emitir recibo, `certify_runtime` cruza los import_records con el contrato — longitud/orden/module/
+    # dist/providers/origen relativo simple/`origin_sha256` canónico/`origin_owners` ⊆ providers. Un registro degradado
+    # BLOQUEA el recibo.
+    m0, d0, p0 = CONTRACT.entries[0]
+    good = tuple(
+        (m, d, provs, f"lib/x/{m}/__init__.py", "sha256:" + "0" * 64, (d,)) for m, d, provs in CONTRACT.entries
+    )
     assert ds._import_records_problems(good, CONTRACT) == []
+    sha = "sha256:" + "0" * 64
     for bad, needle in [
-        ((m0, d0, "/abs/x.py", "sha256:" + "0" * 64), "relativa simple"),
-        ((m0, d0, "../up.py", "sha256:" + "0" * 64), "relativa simple"),
-        ((m0, d0, "unknown", "sha256:" + "0" * 64), "relativa simple"),
-        ((m0, d0, f"lib/x/{m0}/__init__.py", "notasha"), "origin_sha256"),
-        (("evil", d0, f"lib/x/{m0}/__init__.py", "sha256:" + "0" * 64), "!= contrato"),
+        ((m0, d0, p0, "/abs/x.py", sha, (d0,)), "relativa simple"),
+        ((m0, d0, p0, "../up.py", sha, (d0,)), "relativa simple"),
+        ((m0, d0, p0, "unknown", sha, (d0,)), "relativa simple"),
+        ((m0, d0, p0, f"lib/x/{m0}/__init__.py", "notasha", (d0,)), "origin_sha256"),
+        (("evil", d0, p0, f"lib/x/{m0}/__init__.py", sha, (d0,)), "!= contrato"),
+        ((m0, d0, ("wrong",), f"lib/x/{m0}/__init__.py", sha, (d0,)), "providers"),
+        ((m0, d0, p0, f"lib/x/{m0}/__init__.py", sha, ()), "origin_owners"),
+        ((m0, d0, p0, f"lib/x/{m0}/__init__.py", sha, ("evil",)), "origin_owners"),
     ]:
         recs = (bad, *good[1:])
         assert any(needle in p for p in ds._import_records_problems(recs, CONTRACT)), bad
@@ -199,10 +213,10 @@ def test_b326_forged_contract_is_rejected():
     # B326: un caller NO puede forjar el `DeepSmokeContract` — el sha debe coincidir con `canonical_bytes` y los imports
     # deben re-parsear IGUAL (contenido↔hash↔imports cruzados). Antes `evaluate()` aceptaba lista+sha sueltos.
     with pytest.raises(ValueError, match="sha256 no coincide"):
-        ds.DeepSmokeContract(imports=(), canonical_bytes=b"", sha256="FORGED")
+        ds.DeepSmokeContract(entries=(), canonical_bytes=b"", sha256="FORGED")
     real = ds.load_contract()
-    with pytest.raises(ValueError, match="imports no coincide"):  # sha real, pero imports mentidos
-        ds.DeepSmokeContract(imports=(("evil", "evil"),), canonical_bytes=real.canonical_bytes, sha256=real.sha256)
+    with pytest.raises(ValueError, match="entries no coincide"):  # sha real, pero entries mentidos
+        ds.DeepSmokeContract(entries=(("evil", "evil", ("evil",)),), canonical_bytes=real.canonical_bytes, sha256=real.sha256)  # fmt: skip
 
 
 def test_b326_evaluate_rejects_non_contract():
@@ -214,7 +228,7 @@ def test_b326_evaluate_rejects_non_contract():
     class _Sub(ds.DeepSmokeContract):
         pass
 
-    sub = _Sub(imports=CONTRACT.imports, canonical_bytes=CONTRACT.canonical_bytes, sha256=CONTRACT.sha256)
+    sub = _Sub(entries=CONTRACT.entries, canonical_bytes=CONTRACT.canonical_bytes, sha256=CONTRACT.sha256)
     probs, receipt = ds.evaluate(CPU, **{**_kwargs(CPU), "contract": sub})
     assert receipt == {} and any("contrato deep inválido" in p for p in probs)
 

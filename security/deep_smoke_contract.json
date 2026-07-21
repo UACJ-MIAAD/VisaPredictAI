@@ -1,13 +1,13 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "imports": [
-    {"module": "chronos", "distribution": "chronos-forecasting"},
-    {"module": "mlflow", "distribution": "mlflow"},
-    {"module": "neuralforecast", "distribution": "neuralforecast"},
-    {"module": "optuna", "distribution": "optuna"},
-    {"module": "pandas", "distribution": "pandas"},
-    {"module": "ray", "distribution": "ray"},
-    {"module": "torch", "distribution": "torch"},
-    {"module": "transformers", "distribution": "transformers"}
+    {"module": "chronos", "distribution": "chronos-forecasting", "providers": ["chronos-forecasting"]},
+    {"module": "mlflow", "distribution": "mlflow", "providers": ["mlflow", "mlflow-skinny", "mlflow-tracing"]},
+    {"module": "neuralforecast", "distribution": "neuralforecast", "providers": ["neuralforecast"]},
+    {"module": "optuna", "distribution": "optuna", "providers": ["optuna"]},
+    {"module": "pandas", "distribution": "pandas", "providers": ["pandas"]},
+    {"module": "ray", "distribution": "ray", "providers": ["ray"]},
+    {"module": "torch", "distribution": "torch", "providers": ["torch"]},
+    {"module": "transformers", "distribution": "transformers", "providers": ["transformers"]}
   ]
 }

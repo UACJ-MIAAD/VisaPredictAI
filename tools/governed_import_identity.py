@@ -30,12 +30,15 @@ _READ_CHUNK = 1 << 16
 
 @dataclass(frozen=True, slots=True)
 class ImportIdentity:
-    """Identidad CERTIFICADA de un import del stack (orden canónico de campos)."""
+    """Identidad CERTIFICADA de un import del stack (orden canónico de campos). RC-3: un módulo puede estar provisto por
+    VARIAS distribuciones (`providers`); `origin_owners` son los providers cuyo RECORD contiene el origen (no vacío)."""
 
     module: str
-    distribution: str
+    distribution: str  # distribución PRIMARIA
+    providers: tuple[str, ...]  # todas las distribuciones que proveen el módulo (PEP-503, ordenadas)
     origin: str  # relativo a sys.prefix, POSIX
     origin_sha256: str
+    origin_owners: tuple[str, ...]  # providers cuyo RECORD contiene el origen (subconjunto no vacío de providers)
 
 
 def _hash_leaf(lfd: int, uid: int) -> tuple[str | None, str | None]:
@@ -139,24 +142,28 @@ def _governed_read_under_prefix(sys_prefix: str, rel: str, uid: int) -> tuple[st
 
 def governed_identity(
     module: str,
-    distribution: str,
     *,
+    providers: list[str],
+    primary: str,
     origin: str | None,
     providing: list[str],
-    dist_files: list[str] | None,
+    provider_files: dict[str, list[str] | None],
     sys_prefix: str,
     uid: int | None = None,
 ) -> tuple[list[str], ImportIdentity | None]:
-    """Certifica la identidad de `module` (que debería proveer `distribution`) por DESCRIPTOR. `origin` es
-    `__spec__.origin` (None para namespace/built-in/frozen). `providing` es `packages_distributions().get(module, [])`.
-    `dist_files` es la lista de rutas ABSOLUTAS que la distribución declara (`Distribution.files`→`locate_file`), o None si
-    no declara RECORD. Devuelve `(problemas, ImportIdentity | None)`; la identidad SOLO se construye si no hubo problema."""
+    """RC-3: certifica la identidad de `module` por DESCRIPTOR, modelando MÚLTIPLES `providers` (p.ej. mlflow ← mlflow /
+    mlflow-skinny / mlflow-tracing). Exige que `packages_distributions().get(module)` (`providing`) sea EXACTAMENTE el
+    conjunto de `providers`. `origin` es `__spec__.origin` (None para namespace/built-in/frozen). `provider_files` mapea
+    cada provider a las rutas ABSOLUTAS de su RECORD (o None si no declara). El origen debe abrirse gobernado bajo
+    `sys.prefix` (openat/O_NOFOLLOW, hash del fd) y PERTENECER al RECORD de AL MENOS UN provider (`origin_owners`, no vacío).
+    `primary` es la distribución primaria del recibo. Devuelve `(problemas, ImportIdentity | None)`."""
     probs: list[str] = []
     if uid is None:
         uid = os.getuid()
+    want = sorted({_norm(p) for p in providers})
     provided = sorted({_norm(p) for p in providing})  # cruce EXACTO con packages_distributions
-    if provided != [distribution]:
-        probs.append(f"{module}: packages_distributions {provided} != [{distribution}]")
+    if provided != want:
+        probs.append(f"{module}: packages_distributions {provided} != providers {want}")
     if origin is None:  # namespace / built-in / frozen — sin origin certificable
         probs.append(f"{module}: sin origin certificable (namespace/built-in/frozen)")
         return probs, None
@@ -174,12 +181,24 @@ def governed_identity(
     if gprob is not None:
         probs.append(f"{module}: {gprob}")
         return probs, None
-    if dist_files is None:  # sin RECORD no se puede probar pertenencia
-        probs.append(f"{module}: la distribución {distribution} no declara ficheros (RECORD ausente)")
-    else:  # pertenencia REAL: el origin debe estar entre los ficheros que la distribución declara
-        members = {os.path.realpath(f) for f in dist_files}
-        if os.path.realpath(origin) not in members:
-            probs.append(f"{module}: origin no pertenece a los ficheros de {distribution}")
+    # pertenencia REAL: el origin debe estar en el RECORD de AL MENOS UN provider (owners = quiénes lo declaran).
+    origin_real = os.path.realpath(origin)
+    owners: list[str] = []
+    for p in providers:
+        files = provider_files.get(p)
+        if files is None:
+            continue  # sin RECORD: ese provider no puede reclamar el origen (no es fatal si otro sí lo hace)
+        if origin_real in {os.path.realpath(f) for f in files}:
+            owners.append(_norm(p))
+    if not owners:
+        probs.append(f"{module}: origin no pertenece al RECORD de ningún provider {want}")
     if probs or sha is None:
         return probs, None
-    return probs, ImportIdentity(module=module, distribution=distribution, origin=rel_posix, origin_sha256=sha)
+    return probs, ImportIdentity(
+        module=module,
+        distribution=primary,
+        providers=tuple(want),
+        origin=rel_posix,
+        origin_sha256=sha,
+        origin_owners=tuple(sorted(owners)),
+    )

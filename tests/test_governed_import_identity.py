@@ -30,7 +30,7 @@ def pkg(tmp_path):
 
 def test_valid_module_certifies_with_sha(pkg):
     prefix, origin, files = pkg
-    probs, ident = gi.governed_identity("pkgx", "pkgx", origin=origin, providing=["pkgx"], dist_files=files, sys_prefix=prefix)  # fmt: skip
+    probs, ident = gi.governed_identity("pkgx", providers=["pkgx"], primary="pkgx", origin=origin, providing=["pkgx"], provider_files={"pkgx": files}, sys_prefix=prefix)  # fmt: skip
     assert probs == [], probs
     assert ident is not None and ident.module == "pkgx" and ident.distribution == "pkgx"
     assert ident.origin == "lib/pkgx/__init__.py" and ident.origin_sha256.startswith("sha256:")
@@ -40,7 +40,7 @@ def test_forged_nonexistent_origin_is_rejected(pkg):
     # EL AGUJERO DE B332: un origin bajo el prefijo pero INEXISTENTE. En el string-only pasaba; aquí no abre → problema.
     prefix, origin, files = pkg
     forged = os.path.join(prefix, "lib", "pkgx", "__FORGED__.py")
-    probs, ident = gi.governed_identity("pkgx", "pkgx", origin=forged, providing=["pkgx"], dist_files=files, sys_prefix=prefix)  # fmt: skip
+    probs, ident = gi.governed_identity("pkgx", providers=["pkgx"], primary="pkgx", origin=forged, providing=["pkgx"], provider_files={"pkgx": files}, sys_prefix=prefix)  # fmt: skip
     assert ident is None and any("no abrible" in p for p in probs), probs
 
 
@@ -50,7 +50,7 @@ def test_leaf_symlink_is_rejected(pkg, tmp_path):
     target.write_text("x\n")
     link = os.path.join(prefix, "lib", "pkgx", "evil.py")
     os.symlink(str(target), link)
-    probs, ident = gi.governed_identity("pkgx", "pkgx", origin=link, providing=["pkgx"], dist_files=[link], sys_prefix=prefix)  # fmt: skip
+    probs, ident = gi.governed_identity("pkgx", providers=["pkgx"], primary="pkgx", origin=link, providing=["pkgx"], provider_files={"pkgx": [link]}, sys_prefix=prefix)  # fmt: skip
     assert ident is None and any("no abrible sin seguir symlink" in p for p in probs), probs
 
 
@@ -58,7 +58,7 @@ def test_component_symlink_is_rejected(pkg, tmp_path):
     prefix, origin, files = pkg
     os.symlink(os.path.join(prefix, "lib"), os.path.join(prefix, "liblink"))  # liblink -> lib
     via_link = os.path.join(prefix, "liblink", "pkgx", "__init__.py")
-    probs, ident = gi.governed_identity("pkgx", "pkgx", origin=via_link, providing=["pkgx"], dist_files=files, sys_prefix=prefix)  # fmt: skip
+    probs, ident = gi.governed_identity("pkgx", providers=["pkgx"], primary="pkgx", origin=via_link, providing=["pkgx"], provider_files={"pkgx": files}, sys_prefix=prefix)  # fmt: skip
     assert ident is None and any("no-symlink" in p for p in probs), probs
 
 
@@ -66,50 +66,91 @@ def test_hardlink_is_rejected(pkg):
     prefix, origin, _files = pkg
     hard = os.path.join(prefix, "lib", "pkgx", "hard.py")
     os.link(origin, hard)  # nlink del inode == 2
-    probs, ident = gi.governed_identity("pkgx", "pkgx", origin=hard, providing=["pkgx"], dist_files=[hard], sys_prefix=prefix)  # fmt: skip
+    probs, ident = gi.governed_identity("pkgx", providers=["pkgx"], primary="pkgx", origin=hard, providing=["pkgx"], provider_files={"pkgx": [hard]}, sys_prefix=prefix)  # fmt: skip
     assert ident is None and any("nlink" in p for p in probs), probs
 
 
 def test_group_other_writable_is_rejected(pkg):
     prefix, origin, files = pkg
     os.chmod(origin, 0o666)
-    probs, ident = gi.governed_identity("pkgx", "pkgx", origin=origin, providing=["pkgx"], dist_files=files, sys_prefix=prefix)  # fmt: skip
+    probs, ident = gi.governed_identity("pkgx", providers=["pkgx"], primary="pkgx", origin=origin, providing=["pkgx"], provider_files={"pkgx": files}, sys_prefix=prefix)  # fmt: skip
     assert ident is None and any("escribible por grupo/otros" in p for p in probs), probs
 
 
 def test_foreign_origin_outside_prefix_is_rejected(pkg):
     prefix, _origin, _files = pkg
-    probs, ident = gi.governed_identity("pkgx", "pkgx", origin="/etc/hosts", providing=["pkgx"], dist_files=["/etc/hosts"], sys_prefix=prefix)  # fmt: skip
+    probs, ident = gi.governed_identity("pkgx", providers=["pkgx"], primary="pkgx", origin="/etc/hosts", providing=["pkgx"], provider_files={"pkgx": ["/etc/hosts"]}, sys_prefix=prefix)  # fmt: skip
     assert ident is None and any("fuera de sys.prefix" in p for p in probs), probs
 
 
 def test_wrong_provider_is_rejected(pkg):
     prefix, origin, files = pkg
-    probs, ident = gi.governed_identity("pkgx", "pkgx", origin=origin, providing=["evil"], dist_files=files, sys_prefix=prefix)  # fmt: skip
+    probs, ident = gi.governed_identity("pkgx", providers=["pkgx"], primary="pkgx", origin=origin, providing=["evil"], provider_files={"pkgx": files}, sys_prefix=prefix)  # fmt: skip
     assert ident is None and any("packages_distributions" in p for p in probs), probs
 
 
 def test_missing_record_is_rejected(pkg):
     prefix, origin, _files = pkg
-    probs, ident = gi.governed_identity("pkgx", "pkgx", origin=origin, providing=["pkgx"], dist_files=None, sys_prefix=prefix)  # fmt: skip
-    assert ident is None and any("RECORD ausente" in p for p in probs), probs
+    probs, ident = gi.governed_identity("pkgx", providers=["pkgx"], primary="pkgx", origin=origin, providing=["pkgx"], provider_files={"pkgx": None}, sys_prefix=prefix)  # fmt: skip
+    assert ident is None and any("ningún provider" in p for p in probs), probs
 
 
 def test_origin_not_in_distribution_files_is_rejected(pkg, tmp_path):
     prefix, origin, _files = pkg
     other = tmp_path / "other.py"
     other.write_text("y\n")
-    probs, ident = gi.governed_identity("pkgx", "pkgx", origin=origin, providing=["pkgx"], dist_files=[str(other)], sys_prefix=prefix)  # fmt: skip
-    assert ident is None and any("no pertenece a los ficheros" in p for p in probs), probs
+    probs, ident = gi.governed_identity("pkgx", providers=["pkgx"], primary="pkgx", origin=origin, providing=["pkgx"], provider_files={"pkgx": [str(other)]}, sys_prefix=prefix)  # fmt: skip
+    assert ident is None and any("ningún provider" in p for p in probs), probs
 
 
 def test_namespace_origin_none_is_rejected(pkg):
     prefix, _origin, files = pkg
-    probs, ident = gi.governed_identity("pkgx", "pkgx", origin=None, providing=["pkgx"], dist_files=files, sys_prefix=prefix)  # fmt: skip
+    probs, ident = gi.governed_identity("pkgx", providers=["pkgx"], primary="pkgx", origin=None, providing=["pkgx"], provider_files={"pkgx": files}, sys_prefix=prefix)  # fmt: skip
     assert ident is None and any("sin origin certificable" in p for p in probs), probs
 
 
 def test_relative_origin_is_rejected(pkg):
     prefix, _origin, files = pkg
-    probs, ident = gi.governed_identity("pkgx", "pkgx", origin="lib/pkgx/__init__.py", providing=["pkgx"], dist_files=files, sys_prefix=prefix)  # fmt: skip
+    probs, ident = gi.governed_identity("pkgx", providers=["pkgx"], primary="pkgx", origin="lib/pkgx/__init__.py", providing=["pkgx"], provider_files={"pkgx": files}, sys_prefix=prefix)  # fmt: skip
     assert ident is None and any("no es una ruta absoluta" in p for p in probs), probs
+
+
+# RC-3: mlflow multi-provider — un módulo provisto por VARIAS distribuciones. Se exige igualdad EXACTA de providers vs
+# packages_distributions y que el origen pertenezca al RECORD de AL MENOS UN provider (origin_owners no vacío ⊆ providers).
+@pytest.fixture
+def mlpkg(tmp_path):
+    prefix = tmp_path / "prefix"
+    d = prefix / "lib" / "mlflow"
+    d.mkdir(parents=True)
+    origin = d / "__init__.py"
+    origin.write_text("# mlflow\n")
+    origin.chmod(0o644)
+    return str(prefix), str(origin)
+
+
+PROVS = ["mlflow", "mlflow-skinny", "mlflow-tracing"]
+
+
+def test_rc3_triple_provider_certifies_with_owners(mlpkg):
+    prefix, origin = mlpkg
+    # el origen lo declara SÓLO el RECORD de 'mlflow'; skinny/tracing existen pero no lo listan
+    pf = {"mlflow": [origin], "mlflow-skinny": [], "mlflow-tracing": []}
+    probs, ident = gi.governed_identity("mlflow", providers=PROVS, primary="mlflow", origin=origin, providing=PROVS, provider_files=pf, sys_prefix=prefix)  # fmt: skip
+    assert probs == [], probs
+    assert ident.providers == tuple(PROVS) and ident.distribution == "mlflow"
+    assert ident.origin_owners == ("mlflow",)
+
+
+def test_rc3_provider_set_must_match_exactly(mlpkg):
+    prefix, origin = mlpkg
+    pf = {"mlflow": [origin], "mlflow-skinny": [], "mlflow-tracing": []}
+    for providing in (["mlflow", "mlflow-skinny"], ["mlflow", "mlflow-skinny", "mlflow-tracing", "evil"], ["mlflow"]):
+        probs, ident = gi.governed_identity("mlflow", providers=PROVS, primary="mlflow", origin=origin, providing=providing, provider_files=pf, sys_prefix=prefix)  # fmt: skip
+        assert ident is None and any("packages_distributions" in p for p in probs), (providing, probs)
+
+
+def test_rc3_origin_must_belong_to_some_provider_record(mlpkg):
+    prefix, origin = mlpkg
+    pf = {"mlflow": [], "mlflow-skinny": [], "mlflow-tracing": []}  # ningún RECORD reclama el origen
+    probs, ident = gi.governed_identity("mlflow", providers=PROVS, primary="mlflow", origin=origin, providing=PROVS, provider_files=pf, sys_prefix=prefix)  # fmt: skip
+    assert ident is None and any("ningún provider" in p for p in probs), probs

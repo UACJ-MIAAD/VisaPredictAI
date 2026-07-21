@@ -877,24 +877,6 @@
       "justification": "Llamada estandar importlib.metadata (distributions/packages_distributions/distribution) para el inventario y la identidad modulo-distribucion; benigna; B327/B332; revisada 2026-07-20.",
       "review_by": "2027-07-20"
     },
-    "643115749d701ea865b262e3c282a9d336fd2d2ec19df852afbfb569103d62fd": {
-      "file": "tools/deep_smoke.py",
-      "qualname": "observe_runtime",
-      "op": "canonical-rooted-call",
-      "statement_ast_sha256": "ea48ca7ccd45eb052ddd1e051c639804df6ae60f15948eddd6ef2d0a2e8b06c3",
-      "occurrence_index": 0,
-      "justification": "Llamada estandar importlib.metadata (distributions/packages_distributions/distribution) para el inventario y la identidad modulo-distribucion; benigna; B327/B332; revisada 2026-07-20.",
-      "review_by": "2027-07-20"
-    },
-    "d9612ab53deb58a5dbe2e4de19574e427e1c9dca6689409e5d5ebb00aee628ce": {
-      "file": "tools/deep_smoke.py",
-      "qualname": "observe_runtime",
-      "op": "reflection-module-escape",
-      "statement_ast_sha256": "efa61ee8d52d0fb557ca84a536187a79f98ca3c9d7b0af6b05549b90bfed5633",
-      "occurrence_index": 0,
-      "justification": "Nombre `PackageNotFoundError` de importlib.metadata usado como tipo de `except` (no es la fabrica importlib); benigno; B332; revisada 2026-07-20.",
-      "review_by": "2027-07-20"
-    },
     "7e71b99b61c6881588fe3814731f6263f3882afc0ad5702095591b37e9278553": {
       "file": "tools/check_deep_authority.py",
       "qualname": "<module>",
@@ -902,6 +884,24 @@
       "statement_ast_sha256": "d7eb638c2b534f2d5ea4fbf60d8b574371bd042ae870e22b116a9c408fb4f3f0",
       "occurrence_index": 0,
       "justification": "Llamada estandar `sys.exit(main())` sobre el gate AST de autoridad del smoke deep; benigna; B331; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "2bd64940a33a0409457c9e579fff5ba67ec3ea9ae42656a6d774645eac3b804f": {
+      "file": "tools/deep_smoke.py",
+      "qualname": "observe_runtime",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "9d9ed654a3163f8f3f6c4ef9b44a1eecea3f1c571f17451918ff227ac2920a55",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar importlib.metadata (distributions/packages_distributions/distribution) para el inventario y la identidad modulo-distribucion; benigna; B327/B332/RC-3; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "2ce135130280dbb9abc202c25f675144d56426a5c4edc1f458d9ab1198efd208": {
+      "file": "tools/deep_smoke.py",
+      "qualname": "observe_runtime",
+      "op": "reflection-module-escape",
+      "statement_ast_sha256": "bf1ad99428058cd99ffdea518a1207ab55d553b9557af6a3f2a44d76d235ce2d",
+      "occurrence_index": 0,
+      "justification": "Nombre `PackageNotFoundError` de importlib.metadata usado como tipo de `except` (no es la fabrica importlib); benigno; B332/RC-3; revisada 2026-07-20.",
       "review_by": "2027-07-20"
     }
   }

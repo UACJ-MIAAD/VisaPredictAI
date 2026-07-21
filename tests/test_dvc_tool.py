@@ -824,7 +824,7 @@ def test_b53_registry_rejects_extra_top_level_key(tmp_path):
 # (aceptaba bool/null/whitespace), aceptaba versión whitespace (isinstance+truthy) y no validaba el NOMBRE de la
 # acción (aceptaba "", whitespace, @, .., slash). Estas pruebas corren load_registry (existe en ambos SHAs).
 def _one_action_reg(**over):
-    action = {"sha": "0" * 40, "version": "v5", "runtime": "node24"}
+    action = {"sha": "0" * 40, "version": "v5.1.0", "runtime": "node24"}  # RC-4: release EXACTA vN.N.N
     action.update(over.pop("action", {}))
     doc = {"schema_version": 1, "note": "x", "actions": {over.pop("name", "actions/checkout"): action}}
     doc.update(over)
@@ -838,10 +838,11 @@ def test_b287_note_must_be_nonempty_bounded_string(tmp_path):
 
 
 def test_b287_version_grammar_rejects(tmp_path):
-    for bad in ("   ", "5", "v", "v5.", "va", "v5-beta", "latest", "v5.0.0.0"):
+    # RC-4: sólo release EXACTA `vN.N.N`; los tags mayores/menores móviles (`v5`/`v5.0`) YA NO valen (pueden reapuntar).
+    for bad in ("   ", "5", "v", "v5.", "va", "v5-beta", "latest", "v5.0.0.0", "v5", "v5.0", "v5.1"):
         with pytest.raises(SystemExit):
             pins.load_registry(_reg(tmp_path, _one_action_reg(action={"version": bad})))
-    for good in ("v5", "v5.0", "v5.0.3"):  # gramática válida no debe fallar
+    for good in ("v5.0.3", "v6.3.0", "v10.0.1"):  # release exacta vN.N.N no debe fallar
         pins.load_registry(_reg(tmp_path, _one_action_reg(action={"version": good})))
 
 
@@ -877,7 +878,7 @@ def test_b53_verify_remote_catches_bad_sha(tmp_path, monkeypatch):
     p = _reg(
         tmp_path,
         '{"schema_version": 1, "note": "x", "actions": {"actions/checkout": '
-        '{"sha": "' + ("a" * 40) + '", "version": "v5", "runtime": "node24"}}}',
+        '{"sha": "' + ("a" * 40) + '", "version": "v5.1.0", "runtime": "node24"}}}',
     )
 
     def fake_gh(*args):
@@ -971,7 +972,7 @@ def test_b57_runtime_must_come_from_runs_using(tmp_path, monkeypatch):
     p = _reg(
         tmp_path,
         '{"schema_version": 1, "note": "x", "actions": {"actions/checkout": '
-        '{"sha": "' + ("a" * 40) + '", "version": "v5", "runtime": "node24"}}}',
+        '{"sha": "' + ("a" * 40) + '", "version": "v5.1.0", "runtime": "node24"}}}',
     )
 
     def fake_gh(*args):
@@ -997,7 +998,7 @@ def test_b57_node24_in_comment_or_description_does_not_count(tmp_path, monkeypat
     p = _reg(
         tmp_path,
         '{"schema_version": 1, "note": "x", "actions": {"actions/checkout": '
-        '{"sha": "' + ("b" * 40) + '", "version": "v5", "runtime": "node24"}}}',
+        '{"sha": "' + ("b" * 40) + '", "version": "v5.1.0", "runtime": "node24"}}}',
     )
 
     def fake_gh(*args):
