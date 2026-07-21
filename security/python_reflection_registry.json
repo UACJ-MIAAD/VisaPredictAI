@@ -1011,6 +1011,24 @@
       "occurrence_index": 0,
       "justification": "Llamada estandar `sys.exit(...)` sobre modulo canonico (B285); patron de entrypoint del gate de inputs de gobernanza (B286-C); benigna, sin reflexion dinamica; revisada 2026-07-20.",
       "review_by": "2027-07-20"
+    },
+    "31a11b3709194af05e5ab4ff3a7535533287d2e2d05f347c82cd4b2c50ff4767": {
+      "file": "tools/check_action_pins.py",
+      "qualname": "<module>",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "50cd25071267bb6926ee81d8e06ab52f6e370efebeeb045f28224622c6c42fdf",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.path.insert(...)` sobre modulo canonico (B285); bootstrap del repo en sys.path para importar tools.governance_snapshot en forma script (B286-C migracion de consumer); benigna, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "4a63766d11566d665f5b86535f955802bc91ea1423a3bea321d745e42e3985f7": {
+      "file": "tools/check_consistency.py",
+      "qualname": "<module>",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "50cd25071267bb6926ee81d8e06ab52f6e370efebeeb045f28224622c6c42fdf",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.path.insert(...)` sobre modulo canonico (B285); bootstrap del repo en sys.path para importar tools.governance_snapshot en forma script (B286-C migracion de consumer); benigna, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
     }
   }
 }

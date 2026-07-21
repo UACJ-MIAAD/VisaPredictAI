@@ -14,8 +14,8 @@ límite de tamaño, formato/parser, consumers exactos y operaciones. Este gate e
 - `format` ∈ {json, yaml}, `operations` ⊆ {read}, `reason` no vacía.
 
 Un input nuevo/huérfano/movido, un modo != 0644, un tamaño excedido, o una divergencia de consumers → PROBLEMA
-(fail-closed). Sólo stdlib + `GovernanceSnapshot` (lee TODO por UNA observación sellada). NO usa `open()` ad hoc sobre los
-inputs ni `git ls-files` directo."""
+(fail-closed). Sólo stdlib + `GovernanceSnapshot` (lee cada input por UNA observación sellada). NO usa `open()` ad hoc
+sobre los inputs ni `git ls-files` directo."""
 
 from __future__ import annotations
 
@@ -110,7 +110,7 @@ def problems() -> list[str]:
                 )
 
             # cache de fuentes .py para la comprobación de consumers
-            src_cache: dict[str, ast.AST] = {}
+            src_cache: dict[str, ast.AST | None] = {}
 
             def _tree(rel_py: str) -> ast.AST | None:
                 if rel_py not in src_cache:
@@ -118,7 +118,7 @@ def problems() -> list[str]:
                         src_cache[rel_py] = ast.parse(snap.read(rel_py, category="source").data, filename=rel_py)
                     except (GovernanceSnapshotError, SyntaxError) as exc:
                         problems.append(f"{rel_py}: no analizable para consumers ({exc}) (fail-closed)")
-                        src_cache[rel_py] = None  # type: ignore[assignment]
+                        src_cache[rel_py] = None
                 return src_cache[rel_py]
 
             for rel in sorted(observed & set(declared)):

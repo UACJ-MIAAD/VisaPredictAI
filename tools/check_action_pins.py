@@ -31,6 +31,8 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))  # B286-C: raíz en sys.path para importar `tools.governance_snapshot` en forma script
 REGISTRY = ROOT / "security" / "github_actions.json"
 WARNINGS = ROOT / "security" / "upstream_warnings.json"
 _WARN_TOP = {"schema_version", "note", "warnings"}
@@ -96,8 +98,11 @@ def _no_dup(pairs):
     return d
 
 
-def load_registry(registry: Path = REGISTRY) -> dict[str, dict[str, str]]:
-    doc = json.loads(registry.read_text(), object_pairs_hook=_no_dup)  # B53: rechaza claves duplicadas
+def load_registry(registry: Path = REGISTRY, *, text: str | None = None) -> dict[str, dict[str, str]]:
+    # B286-C: con `text` (bytes ya leídos por una `GovernanceSnapshot` sellada) se parsea esa fuente y NO se abre la ruta;
+    # por defecto lee `registry.read_text()` (compat con tests/tooling).
+    raw = registry.read_text() if text is None else text
+    doc = json.loads(raw, object_pairs_hook=_no_dup)  # B53: rechaza claves duplicadas
     if set(doc) != _REG_TOP:
         raise SystemExit(f"check_action_pins: claves superiores {sorted(doc)} != {sorted(_REG_TOP)}")
     if type(doc["schema_version"]) is not int or doc["schema_version"] != 1:  # B53: True no es 1
@@ -157,18 +162,25 @@ def _comment_on_line(line: str) -> str | None:
 
 
 def validate_upstream_warnings(
-    reg: dict[str, dict[str, str]], path: Path = WARNINGS, today: datetime.date | None = None
+    reg: dict[str, dict[str, str]],
+    path: Path = WARNINGS,
+    today: datetime.date | None = None,
+    *,
+    text: str | None = None,
 ) -> list[str]:
     """B84: registro machine-readable de warnings upstream ACEPTADOS (deuda con fecha de revisión), no
     comentarios de workflow. Fail-closed: esquema exacto, id único, la acción debe existir en el registro
     positivo con el MISMO SHA (un bump de la acción invalida la aceptación y fuerza re-evaluar) y
     `review >= hoy` — la aceptación EXPIRA y pone el gate en rojo hasta re-evaluar o retirar la entrada.
-    Archivo ausente = cero warnings aceptados (válido)."""
-    if not path.exists():
+    Archivo ausente = cero warnings aceptados (válido). B286-C: con `text` (bytes gobernados por snapshot) NO abre la
+    ruta; `text=''` significa AUSENTE (cero warnings)."""
+    if text is None and not path.exists():
+        return []
+    if text == "":
         return []
     probs: list[str] = []
     try:
-        doc = json.loads(path.read_text(), object_pairs_hook=_no_dup)
+        doc = json.loads(path.read_text() if text is None else text, object_pairs_hook=_no_dup)
     except (json.JSONDecodeError, SystemExit) as exc:
         return [f"upstream_warnings: JSON inválido o con clave duplicada ({exc})"]
     if not isinstance(doc, dict) or set(doc) != _WARN_TOP:
@@ -210,8 +222,10 @@ def validate_upstream_warnings(
     return probs
 
 
-def check(root: Path = ROOT) -> list[str]:
-    reg = load_registry()  # el registro autoritativo vive SIEMPRE en el repo real
+def check(root: Path = ROOT, *, registry_text: str | None = None, warnings_text: str | None = None) -> list[str]:
+    # B286-C: con `registry_text`/`warnings_text` (bytes gobernados por UNA snapshot sellada) la decisión no abre esas
+    # rutas; por defecto lee los ficheros reales (compat con los tests que llaman `check()`/`check(tmp_path)`).
+    reg = load_registry(text=registry_text)  # el registro autoritativo vive SIEMPRE en el repo real
     probs: list[str] = []
     used: set[str] = set()
     for f in _workflows(root):
@@ -263,7 +277,7 @@ def check(root: Path = ROOT) -> list[str]:
     for orphan in sorted(set(reg) - used):
         probs.append(f"registro: {orphan} está autorizado pero NO se usa en ningún workflow (huérfano)")
     # B84: los warnings upstream aceptados viven en security/upstream_warnings.json con fecha de revisión.
-    probs.extend(validate_upstream_warnings(reg))
+    probs.extend(validate_upstream_warnings(reg, text=warnings_text))
     return probs
 
 
@@ -335,7 +349,25 @@ def verify_remote(registry: Path = REGISTRY) -> list[str]:
 
 def main() -> int:
     online = "--online" in sys.argv[1:]
-    probs = check()
+    # B286-C: los inputs de gobernanza (github_actions.json + upstream_warnings.json) se leen por UNA observación
+    # gobernada sellada (O_NOFOLLOW + modo/uid/nlink), `reverify()` antes de decidir. El corpus de workflows sigue su
+    # escaneo (es el sujeto validado, no un input de política). La verificación --online (red) queda fuera del snapshot.
+    from tools.governance_snapshot import GovernanceSnapshot, GovernanceSnapshotError, TrackedQuery
+
+    _reg_rel, _warn_rel = "security/github_actions.json", "security/upstream_warnings.json"
+    try:
+        with GovernanceSnapshot(str(ROOT)) as snap:
+            registry_text = snap.read(_reg_rel, category="contract").data.decode("utf-8")
+            warnings_text = (
+                snap.read(_warn_rel, category="contract").data.decode("utf-8")
+                if snap.tracked(TrackedQuery("exact", _warn_rel))
+                else ""  # ausente = cero warnings aceptados
+            )
+            probs = check(registry_text=registry_text, warnings_text=warnings_text)
+            snap.reverify()
+    except (GovernanceSnapshotError, OSError) as exc:
+        print(f"✗ check-action-pins fail-closed: {exc}")
+        return 1
     if online:
         probs = probs + verify_remote()
     if probs:
@@ -343,7 +375,7 @@ def main() -> int:
         for p in probs:
             print(f"  - {p}")
         return 1
-    reg = load_registry()
+    reg = load_registry(text=registry_text)  # reusa los bytes gobernados (sin segunda apertura)
     n = sum(len(_iter_uses_nodes(yaml.compose(f.read_text(), Loader=yaml.SafeLoader))) for f in _workflows(ROOT))
     tail = " + SHA/versión/runtime remoto verificados" if online else ""
     print(f"✓ {n} usos de Actions, biyección con {len(reg)} acciones registradas (node24, SHA+versión){tail}")

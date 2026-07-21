@@ -37,19 +37,20 @@ _EXPECTED_JOB_KEYS = {"name", "runs-on", "timeout-minutes", "permissions", "step
 _EXPECTED_RUNNER = "ubuntu-24.04"
 _EXPECTED_TIMEOUT = 10
 _EXPECTED_PERMISSIONS = {"contents": "read"}
-# B284/B290: el paso `pip install pyyaml==6.0.3` (SIN hashes) se reemplazó por el bootstrap GOBERNADO — instala PyYAML con
-# `--require-hashes` en un venv efímero 0700 bajo $RUNNER_TEMP, lo VALIDA independientemente y exporta `$GOV_ENV`; todos los
-# gates corren con el intérprete de ESE venv (`$GOV_ENV/bin/python`), no con el Python global del runner.
+# B284/B290/B286-C: el `pip install pyyaml` (SIN hashes) se reemplazó por el bootstrap GOBERNADO, ahora en DOS pasos —
+# instala PyYAML con `--require-hashes` en un venv efímero 0700 bajo $RUNNER_TEMP y exporta `$GOV_ENV`, luego lo VALIDA
+# independientemente; todos los gates corren con el intérprete de ESE venv (`$GOV_ENV/bin/python`).
 _GOV_ENV_PY = "$GOV_ENV/bin/python"
-_BOOTSTRAP_STEP = {
+_BOOTSTRAP_INSTALL_STEP = {
     "name": "Governed PyYAML bootstrap (hashed)",
-    "run": (
-        'GOV_ENV="$(python tools/install_governance_bootstrap.py)"\n'
-        'python tools/validate_governance_bootstrap.py "$GOV_ENV"\n'
-        'echo "GOV_ENV=$GOV_ENV" >> "$GITHUB_ENV"\n'
-    ),
+    "run": ('GOV_ENV="$(python tools/install_governance_bootstrap.py)"\necho "GOV_ENV=$GOV_ENV" >> "$GITHUB_ENV"\n'),
 }
-# los 7 gates, en ORDEN: (name exacto, comando `run` de una línea exacto, con el intérprete del venv del bootstrap)
+_BOOTSTRAP_VALIDATE_STEP = {
+    "name": "Validate governed bootstrap receipt",
+    "run": 'python tools/validate_governance_bootstrap.py "$GOV_ENV"',
+}
+# B286-C: la SECUENCIA EXACTA de pasos-gate tras el bootstrap+action-pins: 6 gates de la observación sellada, luego el
+# checker de instalaciones (B284/B290), el checker de inputs (B286-C) y por último el checker de wiring (este módulo).
 _GATE_STEPS = (
     ("Commit frontier contract (fingerprint + autoridad)", f"{_GOV_ENV_PY} tools/check_commit_frontier.py"),
     ("Positive reflection registry (identidad semántica)", f"{_GOV_ENV_PY} tools/check_reflection.py"),
@@ -57,6 +58,8 @@ _GATE_STEPS = (
     ("Raw filesystem mutation contract", f"{_GOV_ENV_PY} tools/check_raw_fs_mutations.py"),
     ("Deep smoke authority contract", f"{_GOV_ENV_PY} tools/check_deep_authority.py"),
     ("B233 historical diagnostic contract", f"{_GOV_ENV_PY} -m tools.validate_b233_receipt"),
+    ("CI install registry (positive)", f"{_GOV_ENV_PY} tools/check_ci_installs.py"),
+    ("Governance inputs registry (positive)", f"{_GOV_ENV_PY} tools/check_governance_inputs.py"),
     ("P0R.5 governance gates wired", f"{_GOV_ENV_PY} tools/check_p0r5_governance.py"),
 )
 # B275/B283: contrato EXACTO de `ci-gate` (nada de substrings sobre yaml.dump). Claves de job, runner PINEADO, timeout,
@@ -100,7 +103,7 @@ def _no_dup_mapping(loader: _NoDupLoader, node: yaml.MappingNode, deep: bool = F
 _NoDupLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_dup_mapping)
 
 
-def _action_uses() -> tuple[dict[str, str], list[str]]:
+def _action_uses(registry_text: str | None = None) -> tuple[dict[str, str], list[str]]:
     """B278: deriva los pins de checkout/setup-python del registro POSITIVO validado ESTRICTAMENTE
     (`check_action_pins.load_registry`: claves superiores exactas, `schema_version` int, entradas EXACTAS
     `{sha, version, runtime}`, SHA 40-hex, versión no vacía, runtime `node24`, sin claves duplicadas) y EXIGE que su SHA
@@ -113,7 +116,7 @@ def _action_uses() -> tuple[dict[str, str], list[str]]:
     )
 
     try:
-        reg = action_pins.load_registry(Path(os.path.join(ROOT, _ACTION_REGISTRY)))
+        reg = action_pins.load_registry(Path(os.path.join(ROOT, _ACTION_REGISTRY)), text=registry_text)
     except SystemExit as exc:
         return {}, [f"{_ACTION_REGISTRY}: registro inválido ({exc}) (fail-closed B278)"]
     except OSError as exc:
@@ -133,7 +136,8 @@ def _expected_steps(uses: dict[str, str]) -> list[dict]:
     return [
         {"uses": uses["actions/checkout"], "with": {"fetch-depth": 0}},
         {"uses": uses["actions/setup-python"], "with": {"python-version": "3.14"}},
-        _BOOTSTRAP_STEP,  # B284: bootstrap gobernado de PyYAML (hashed) + validación + export de $GOV_ENV
+        _BOOTSTRAP_INSTALL_STEP,  # B284: bootstrap gobernado de PyYAML (hashed) + export de $GOV_ENV
+        _BOOTSTRAP_VALIDATE_STEP,  # B286-C: validación INDEPENDIENTE del recibo del bootstrap (paso propio)
         # B278: el propio gate de pins de Actions corre DENTRO del job mínimo (offline), antes de los demás gates.
         {"name": "GitHub Actions positive registry (offline)", "run": f"{_GOV_ENV_PY} tools/check_action_pins.py"},
         *[{"name": n, "run": c} for n, c in _GATE_STEPS],
@@ -154,10 +158,15 @@ def _step_problems(observed: list, expected: list[dict]) -> list[str]:
     return problems
 
 
-def problems() -> list[str]:
+def problems(*, workflow_text: str | None = None, registry_text: str | None = None) -> list[str]:
+    # B286-C: con `workflow_text`/`registry_text` (bytes ya leídos por UNA `GovernanceSnapshot` sellada), la decisión NO
+    # abre rutas; por defecto lee `ci.yml`/`github_actions.json` con open (compat con los tests que monkeypatchean ROOT).
     try:
-        with open(os.path.join(ROOT, _WORKFLOW), encoding="utf-8") as fh:
-            doc = yaml.load(fh, Loader=_NoDupLoader)  # _NoDupLoader extiende SafeLoader (seguro) + anti-duplicados
+        if workflow_text is None:
+            with open(os.path.join(ROOT, _WORKFLOW), encoding="utf-8") as fh:
+                doc = yaml.load(fh, Loader=_NoDupLoader)  # _NoDupLoader extiende SafeLoader (seguro) + anti-duplicados
+        else:
+            doc = yaml.load(workflow_text, Loader=_NoDupLoader)
     except OSError as exc:
         return [f"{_WORKFLOW}: ilegible ({exc}) (fail-closed B263)"]
     except yaml.YAMLError as exc:
@@ -165,7 +174,7 @@ def problems() -> list[str]:
     if not isinstance(doc, dict) or not isinstance(doc.get("jobs"), dict):
         return [f"{_WORKFLOW}: sin `jobs` mapa (fail-closed B271)"]
     jobs = doc["jobs"]
-    uses, uerr = _action_uses()
+    uses, uerr = _action_uses(registry_text)
     if uerr:
         return uerr
 
@@ -254,7 +263,19 @@ def _ci_gate_problems(gate: object, all_jobs: dict) -> list[str]:
 
 
 def main() -> int:
-    probs = problems()
+    # B286-C: la ejecución del gate lee ci.yml + github_actions.json por UNA observación gobernada sellada
+    # (O_NOFOLLOW + modo/uid/nlink), `reverify()` antes del éxito y cierre único. Fallo de lectura/verificación → ROJO.
+    from tools.governance_snapshot import GovernanceSnapshot, GovernanceSnapshotError
+
+    try:
+        with GovernanceSnapshot(ROOT) as snap:
+            workflow_text = snap.read(_WORKFLOW, category="source").data.decode("utf-8")
+            registry_text = snap.read(_ACTION_REGISTRY, category="contract").data.decode("utf-8")
+            probs = problems(workflow_text=workflow_text, registry_text=registry_text)
+            snap.reverify()
+    except (GovernanceSnapshotError, OSError) as exc:
+        print(f"✗ gate de sellado P0R.5 fail-closed: {exc}")
+        return 1
     if probs:
         print("✗ job de gobernanza P0R.5 no sellado en CI:")
         for p in probs:

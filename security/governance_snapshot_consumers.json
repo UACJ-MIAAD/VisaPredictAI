@@ -194,6 +194,61 @@
       "reason": "Gate de inputs de gobernanza: lee el registro + cada input (security/*.json + ci.yml + consistency_rules.yml) y el arbol .py por UNA observacion sellada (B286-C).",
       "owner": "seguridad-P0R5",
       "review_by": null
+    },
+    "tools/check_p0r5_governance.py": {
+      "imports": [
+        "GovernanceSnapshot",
+        "GovernanceSnapshotError"
+      ],
+      "operations": [
+        "read",
+        "reverify"
+      ],
+      "categories": [
+        "contract",
+        "source"
+      ],
+      "query_kinds": [],
+      "reason": "Gate de sellado del job p0r5-governance: lee ci.yml + github_actions.json por UNA observacion sellada (B286-C).",
+      "owner": "seguridad-P0R5",
+      "review_by": null
+    },
+    "tools/check_action_pins.py": {
+      "imports": [
+        "GovernanceSnapshot",
+        "GovernanceSnapshotError",
+        "TrackedQuery"
+      ],
+      "operations": [
+        "read",
+        "reverify",
+        "tracked"
+      ],
+      "categories": [
+        "contract"
+      ],
+      "query_kinds": [
+        "exact"
+      ],
+      "reason": "Gate de pins de Actions: lee github_actions.json + upstream_warnings.json por UNA observacion sellada; el corpus de workflows se escanea aparte (B286-C).",
+      "owner": "seguridad-P0R5",
+      "review_by": null
+    },
+    "tools/check_consistency.py": {
+      "imports": [
+        "GovernanceSnapshot"
+      ],
+      "operations": [
+        "read",
+        "reverify"
+      ],
+      "categories": [
+        "source"
+      ],
+      "query_kinds": [],
+      "reason": "Guardian de consistencia: lee consistency_rules.yml (reglas de decision) por UNA observacion sellada; valores de datos y corpus se leen aparte (B286-C).",
+      "owner": "seguridad-P0R5",
+      "review_by": null
     }
   }
 }
