@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "note": "Registro POSITIVO de consumidores de tools/governance_snapshot (B286-B). Biyeccion EXACTA con el arbol .py de produccion versionado (excluye tests/ y el propio modulo): exactamente estos modulos importan `from tools.governance_snapshot import <nombres>` en forma estatica (SIN alias, SIN `import tools.governance_snapshot`, SIN import dinamico); los nombres importados == imports; las categorias y query-kinds usadas == las declaradas; las operaciones invocadas sobre una instancia GovernanceSnapshot == operations. Un consumidor nuevo, un alias, un import dinamico, una categoria/kind/operacion no declarada o una entrada obsoleta -> fail-closed. review_by no-nulo es una excepcion temporal y no puede estar expirada.",
+  "consumers": {
+    "tools/check_commit_frontier.py": {
+      "imports": [
+        "GovernanceSnapshot",
+        "GovernanceSnapshotError",
+        "TrackedQuery"
+      ],
+      "operations": [
+        "read",
+        "reverify",
+        "tracked"
+      ],
+      "categories": [
+        "contract",
+        "source"
+      ],
+      "query_kinds": [
+        "exact",
+        "suffix"
+      ],
+      "reason": "Gate de la frontera de commit: lee objetivo/fabrica/contrato/modulos de autoridad y barre el arbol .py por UNA observacion gobernada sellada (B286-B).",
+      "owner": "seguridad-P0R5",
+      "review_by": null
+    },
+    "tools/check_raw_fs_mutations.py": {
+      "imports": [
+        "GovernanceSnapshot",
+        "GovernanceSnapshotError",
+        "TrackedQuery"
+      ],
+      "operations": [
+        "read",
+        "reverify",
+        "tracked"
+      ],
+      "categories": [
+        "source"
+      ],
+      "query_kinds": [
+        "suffix"
+      ],
+      "reason": "Gate AST de mutaciones destructivas: lee la ruta online del bundle por una observacion gobernada sellada (B286-B).",
+      "owner": "seguridad-P0R5",
+      "review_by": null
+    },
+    "tools/check_reflection.py": {
+      "imports": [
+        "GovernanceSnapshot",
+        "GovernanceSnapshotError",
+        "TrackedQuery"
+      ],
+      "operations": [
+        "read",
+        "reverify",
+        "tracked"
+      ],
+      "categories": [
+        "source"
+      ],
+      "query_kinds": [
+        "suffix"
+      ],
+      "reason": "Gate de reflexion por registro positivo: lee el arbol .py de produccion y el registro por una observacion gobernada sellada (B286-B).",
+      "owner": "seguridad-P0R5",
+      "review_by": null
+    },
+    "tools/check_safe_opens.py": {
+      "imports": [
+        "GovernanceSnapshot",
+        "GovernanceSnapshotError",
+        "TrackedQuery"
+      ],
+      "operations": [
+        "read",
+        "reverify",
+        "tracked"
+      ],
+      "categories": [
+        "source"
+      ],
+      "query_kinds": [
+        "suffix"
+      ],
+      "reason": "Gate de aperturas seguras: lee la ruta online y el inventario tools/ por una observacion gobernada sellada (B286-B).",
+      "owner": "seguridad-P0R5",
+      "review_by": null
+    },
+    "tools/deep_smoke.py": {
+      "imports": [
+        "GovernanceSnapshot",
+        "GovernanceSnapshotError"
+      ],
+      "operations": [
+        "head_commit",
+        "read"
+      ],
+      "categories": [
+        "contract"
+      ],
+      "query_kinds": [],
+      "reason": "Smoke del stack deep: lee el contrato independiente (categoria contract) y el HEAD git de forma gobernada (B322/B328/B336).",
+      "owner": "seguridad-P0R5",
+      "review_by": null
+    },
+    "tools/governed_import_identity.py": {
+      "imports": [
+        "StatSnapshot",
+        "_dir_problem",
+        "_rel_parts"
+      ],
+      "operations": [],
+      "categories": [],
+      "query_kinds": [],
+      "reason": "Reutiliza las primitivas de descenso gobernado (StatSnapshot/_dir_problem/_rel_parts) para verificar identidad de import; NO instancia la snapshot ni llama sus operaciones.",
+      "owner": "seguridad-P0R5",
+      "review_by": null
+    },
+    "tools/validate_deep_receipt.py": {
+      "imports": [
+        "GovernanceSnapshot",
+        "GovernanceSnapshotError"
+      ],
+      "operations": [
+        "head_commit",
+        "read"
+      ],
+      "categories": [
+        "source"
+      ],
+      "query_kinds": [],
+      "reason": "Valida el recibo deep: hashea lock/manifiesto/contrato desde bytes gobernados (categoria source) y verifica el HEAD git (B336).",
+      "owner": "seguridad-P0R5",
+      "review_by": null
+    }
+  }
+}

@@ -903,6 +903,51 @@
       "occurrence_index": 0,
       "justification": "Nombre `PackageNotFoundError` de importlib.metadata usado como tipo de `except` (no es la fabrica importlib); benigno; B332/RC-3; revisada 2026-07-20.",
       "review_by": "2027-07-20"
+    },
+    "6a2a6520a13c4a1629798090b823493cea15f6a9e8d2ff1368895f8e1bc3bced": {
+      "file": "tools/check_commit_frontier.py",
+      "qualname": "<module>",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "62d62ad076b9b449e1321c75f008850513ff9a107d082b58d350024b7cfc32bb",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.path.insert(...)` sobre modulo canonico (B285); bootstrap del repo en sys.path para importar tools.governance_snapshot en forma script (B286-B); benigna, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "800978ec662f84a68ccc95fc3114535a595d1eba264bf36e390bf979621d2721": {
+      "file": "tools/check_raw_fs_mutations.py",
+      "qualname": "<module>",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "62d62ad076b9b449e1321c75f008850513ff9a107d082b58d350024b7cfc32bb",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.path.insert(...)` sobre modulo canonico (B285); bootstrap del repo en sys.path para importar tools.governance_snapshot en forma script (B286-B); benigna, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "bc5b3223a269472fbdd1bfdd31d52519fe9542371fb3f29ed2b932a8940bfd9b": {
+      "file": "tools/check_reflection.py",
+      "qualname": "<module>",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "47053ad2d349838e19432b8677f447cf693c7464910228b185b7ab109d3f140d",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.path.insert(...)` sobre modulo canonico (B285); bootstrap del repo en sys.path para importar tools.governance_snapshot en forma script (B286-B); benigna, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "c020540f6d4dcedbd779185efb564ad04245e445391db2021adbde7066b244a8": {
+      "file": "tools/check_safe_opens.py",
+      "qualname": "<module>",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "62d62ad076b9b449e1321c75f008850513ff9a107d082b58d350024b7cfc32bb",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.path.insert(...)` sobre modulo canonico (B285); bootstrap del repo en sys.path para importar tools.governance_snapshot en forma script (B286-B); benigna, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "44bdfc359e52c3c7b1018b6fe1d20a453eadf53909fceb6cf6697e5cafaf86b7": {
+      "file": "tools/check_governance_snapshot_consumers.py",
+      "qualname": "<module>",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "d7eb638c2b534f2d5ea4fbf60d8b574371bd042ae870e22b116a9c408fb4f3f0",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.exit(...)` sobre modulo canonico (B285); patron de entrypoint del gate de consumidores de governance_snapshot (B286-B); benigna, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
     }
   }
 }

@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import ast
 import os
-import subprocess
 import sys
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)  # B286-B: raíz del repo en sys.path para importar `tools.governance_snapshot` como script
 # Ficheros de la ruta online del bundle: NINGUNA primitiva destructiva/de ejecución permitida.
 _GUARDED = ("tools/campaign_bundle.py", "tools/governed_fs.py")
 
@@ -25,11 +26,6 @@ _OS_FORBIDDEN_PREFIX = ("exec", "spawn", "popen")  # os.exec*, os.spawn*, os.pop
 _PATH_FORBIDDEN = frozenset({"unlink", "rmdir", "rename", "replace", "hardlink_to", "symlink_to"})
 _SHUTIL_FORBIDDEN = frozenset({"rmtree", "move", "copytree", "copy", "copy2"})
 _NAME_FORBIDDEN = frozenset(_OS_FORBIDDEN | _PATH_FORBIDDEN | _SHUTIL_FORBIDDEN | {"rmtree"})
-
-
-def _git_tracked(rel: str) -> bool:
-    r = subprocess.run(["git", "-C", _ROOT, "ls-files", "--error-unmatch", rel], capture_output=True)
-    return r.returncode == 0
 
 
 class _Scanner(ast.NodeVisitor):
@@ -146,11 +142,9 @@ class _Scanner(ast.NodeVisitor):
         return None
 
 
-def _scan(rel: str) -> list[str]:
-    if not _git_tracked(rel):
-        raise SystemExit(f"gate fail-closed: {rel} no está trackeado por git")
-    with open(os.path.join(_ROOT, rel), "rb") as fh:
-        tree = ast.parse(fh.read(), filename=rel)
+def _analyze(rel: str, data: bytes) -> list[str]:
+    """Núcleo PURO: parsea `data` (bytes de un fichero gobernado) y corre el scanner. Sin I/O."""
+    tree = ast.parse(data, filename=rel)
     sc = _Scanner(rel)
     sc.prescan(tree)
     sc.visit(tree)
@@ -158,9 +152,22 @@ def _scan(rel: str) -> list[str]:
 
 
 def main() -> int:
+    # B286-B: los ficheros se leen por UNA sola observación gobernada (`GovernanceSnapshot`): un único inventario Git
+    # sellado + lecturas `snap.read()` (sin `git ls-files` ni `open()` ad hoc), `reverify()` antes de emitir éxito y
+    # cierre único. Cualquier error de lectura/inventario/parseo/cierre es ROJO (fail-closed), nunca skip.
+    from tools.governance_snapshot import GovernanceSnapshot, GovernanceSnapshotError, TrackedQuery
+
     try:
-        problems = [p for rel in _GUARDED for p in _scan(rel)]
-    except (OSError, SyntaxError, SystemExit) as exc:
+        with GovernanceSnapshot(_ROOT) as snap:
+            tracked = set(snap.tracked(TrackedQuery("suffix", ".py")))  # inventario SELLADO, una sola captura Git
+            problems: list[str] = []
+            for rel in _GUARDED:
+                if rel not in tracked:
+                    problems.append(f"{rel}: NO versionado en el inventario sellado (fail-closed)")
+                    continue
+                problems.extend(_analyze(rel, snap.read(rel, category="source").data))
+            snap.reverify()  # re-sella la observación tras la última lectura y antes del éxito
+    except (GovernanceSnapshotError, OSError, SyntaxError) as exc:
         print(f"✗ gate AST fail-closed: {exc}", file=sys.stderr)
         return 1
     if problems:
@@ -171,14 +178,10 @@ def main() -> int:
     return 0
 
 
-# Compatibilidad con el test existente que llama `_violations(path)` sobre un fichero suelto.
+# Compatibilidad con el test existente que llama `_violations(path)` sobre un fichero suelto (fixtures fuera del repo).
 def _violations(path: str) -> list[str]:
     with open(path, "rb") as fh:
-        tree = ast.parse(fh.read(), filename=path)
-    sc = _Scanner(path)
-    sc.prescan(tree)
-    sc.visit(tree)
-    return sc.problems
+        return _analyze(path, fh.read())
 
 
 if __name__ == "__main__":

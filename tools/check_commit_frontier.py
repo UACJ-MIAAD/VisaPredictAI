@@ -32,10 +32,27 @@ import stat
 import subprocess
 import sys
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from tools.governance_snapshot import GovernanceSnapshot
+
+
+class _HasData(Protocol):
+    """Bytes gobernados leídos por la cadena bespoke (`_GovernedBytes`) o por `GovernanceSnapshot` (`GovernedEntry`);
+    el consumidor sólo necesita `.data` de sólo lectura (ambas son dataclasses frozen) (B286-B)."""
+
+    @property
+    def data(self) -> bytes: ...
+
 
 _TARGET = "tools/merge_campaign_pools.py"
 _LATCH_METHODS = ("mark_current_certified", "mark_committed_incomplete")
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(
+        0, _ROOT
+    )  # B286-B: raíz del repo en sys.path para importar `tools.governance_snapshot` en forma script
 _FINGERPRINT_CONTRACT = "security/commit_frontier_fingerprints.json"
 # B254/B258: cuerpo crítico pineado, con CONSTANTES DE CÓDIGO (no confiables desde el JSON): fuente exacta, set exacto
 # de funciones, schema y algoritmo. El JSON sólo aporta los hashes; todo lo demás debe IGUALAR estas constantes.
@@ -454,15 +471,34 @@ def _enclosing_fn_name(funcs: list[ast.FunctionDef], lineno: int) -> str | None:
     return best.name if best else None
 
 
-def authority_scope_problems() -> list[str]:
+def authority_scope_problems(*, snapshot: GovernanceSnapshot | None = None) -> list[str]:
     """B237/B242: ninguna referencia a las primitivas de autoridad del certificado (`_register_certificate`,
     `_ISSUED_CERTS`, `consume_commit_certificate`) ocurre fuera de su sitio EXACTO autorizado (allowlist POR OCURRENCIA,
     `_AUTHORITY_ALLOW`) — en NINGÚN módulo, incluidos la fábrica y el consumidor (ya NO hay exención por bloque). Cubre
     Name / Attribute / `from…import` / string CONSTANTE (literal, concatenación, f-string constante → cierra
     `getattr("_reg"+"ister…")` y `__dict__["_ISSUED_"+"CERTS"]`). `CommitCertificate(...)` se construye SÓLO en
     `_build_certificate`. `exec`/`eval`/`compile` PROHIBIDOS en los módulos de autoridad (resolución dinámica no
-    verificable). Escanea TODOS los `.py` versionados (excluye sólo el gate y `tests/`). Fail-closed."""
-    files = _git_tracked_py()
+    verificable). Escanea TODOS los `.py` versionados (excluye sólo el gate y `tests/`). Fail-closed.
+
+    B286-B: con `snapshot` (una `GovernanceSnapshot` sellada) el inventario y los bytes vienen de la observación
+    gobernada (`snap.tracked`/`snap.read`); sin él, ruta de compat git+open que usan los tests."""
+    if snapshot is not None:
+        from tools.governance_snapshot import GovernanceSnapshotError, TrackedQuery
+
+        files = list(snapshot.tracked(TrackedQuery("suffix", ".py")))
+
+        def _src(rel: str) -> bytes:
+            try:
+                return snapshot.read(rel, category="source").data
+            except GovernanceSnapshotError as exc:
+                raise OSError(f"lectura gobernada fail-closed: {exc}") from exc
+    else:
+        files = _git_tracked_py()
+
+        def _src(rel: str) -> bytes:
+            with open(rel, "rb") as fh:
+                return fh.read()
+
     if not files:
         return ["git ls-files no devolvió .py (fail-closed)"]
     problems: list[str] = []
@@ -470,8 +506,7 @@ def authority_scope_problems() -> list[str]:
         if rel == _GATE_SELF or rel.startswith("tests/"):
             continue
         try:
-            with open(rel, encoding="utf-8") as fh:
-                tree = ast.parse(fh.read())
+            tree = ast.parse(_src(rel))
         except (OSError, SyntaxError) as exc:
             problems.append(f"✗ {rel}: ilegible/no parseable ({exc}) (fail-closed)")
             continue
@@ -786,15 +821,42 @@ def _govern_leaf(rel: str, leaf: str, lfd: int, parent_fd: int, exact_mode: int,
     return None, (gb, [])
 
 
-def _read_authority_files(contract: dict) -> tuple[dict[str, _GovernedBytes], list[str]]:
+def _read_authority_files(contract: dict, *, snapshot: GovernanceSnapshot | None = None) -> tuple[dict[str, _HasData], list[str]]:  # fmt: skip
     """B269/B274: lee por cadena GOBERNADA los bytes exactos del set cerrado de módulos de autoridad y verifica su
     `sha256` contra el contrato. Devuelve `(governed, problemas)`; `governed[rel]` retiene los bytes ya certificados para
     reusarlos sin una segunda apertura (p. ej. el AST del `_CRITICAL_SOURCE`). Cualquier byte nuevo (incl. un
-    `commit_current.__code__ = …`, alias, decorador, callback o efecto import-time) rompe el hash del fichero completo."""
+    `commit_current.__code__ = …`, alias, decorador, callback o efecto import-time) rompe el hash del fichero completo.
+
+    B286-B: con `snapshot`, los bytes vienen de la MISMA observación sellada (`snap.read(..., category="authority")`);
+    sin él, la cadena gobernada bespoke (`_read_governed_repo_file`) que ejercitan los tests directos."""
     af = contract["authority_files"]
-    governed: dict[str, _GovernedBytes] = {}
+    governed: dict[str, _HasData] = {}
     problems: list[str] = []
     total = 0  # B282: cota global del snapshot (64 MiB) además del límite por-fichero
+    if snapshot is not None:
+        from tools.governance_snapshot import GovernanceSnapshotError, TrackedQuery
+
+        tracked = set(snapshot.tracked(TrackedQuery("suffix", ".py")))
+        for rel in _AUTHORITY_FILES:
+            if rel not in tracked:
+                problems.append(f"{rel}: NO versionado (fail-closed B269)")
+                continue
+            try:
+                # B296: en la observación sellada estos .py ya se leen como `source` por el barrido de `authority_scope`;
+                # una sola política por ruta. El cap source==authority (4 MiB) y la garantía B269 es el hash de `.data`,
+                # idéntico bajo cualquier etiqueta — la categoría no relaja ninguna verificación de gobernanza.
+                entry = snapshot.read(rel, category="source")
+            except GovernanceSnapshotError as exc:
+                problems.append(f"{rel}: lectura gobernada fail-closed ({exc}) (B269/B274)")
+                continue
+            total += len(entry.data)
+            if total > _SNAPSHOT_TOTAL_MAX_BYTES:
+                problems.append(f"{rel}: el snapshot total excede {_SNAPSHOT_TOTAL_MAX_BYTES} (fail-closed B282)")
+                continue
+            governed[rel] = entry  # `GovernedEntry` con `.data` — reusado para el AST del crítico
+            if hashlib.sha256(entry.data).hexdigest() != af[rel]:
+                problems.append(f"{rel}: los bytes cambiaron (sha != contrato) → actualizar {_FINGERPRINT_CONTRACT} + re-revisar el fichero completo y re-correr la batería (B269)")  # fmt: skip
+        return governed, problems
     for rel in _AUTHORITY_FILES:
         if not _git_tracked(rel):
             problems.append(f"{rel}: NO versionado (fail-closed B269)")
@@ -916,21 +978,44 @@ def _critical_binding_problems(tree: ast.Module) -> list[str]:
     return problems
 
 
-def fingerprint_problems() -> list[str]:
+def fingerprint_problems(*, snapshot: GovernanceSnapshot | None = None) -> list[str]:
     """B254/B258: PINEA el AST GLOBAL del cuerpo crítico de la frontera de commit (`commit_current`,
     `_classify_post_authority`, `_reconcile_and_raise`) contra `security/commit_frontier_fingerprints.json`. El gate NO
     infiere alcanzabilidad con reglas parciales; exige que el AST del `FunctionDef` de NIVEL GLOBAL sea EXACTAMENTE el
     revisado, seleccionado SÓLO de `tree.body` (nunca `ast.walk`, que dejaba a un decoy anidado homónimo ganar la clave,
     B258). El esquema se valida con constantes de código (fuente/algoritmo/set de funciones); el JSON sólo aporta los
     hashes. Cualquier divergencia obliga a actualizar el hash Y re-correr la batería adversarial + los tests de
-    comportamiento (que son, junto al fingerprint, el contrato). Fail-closed en cada paso."""
-    if not _git_tracked(_FINGERPRINT_CONTRACT):
+    comportamiento (que son, junto al fingerprint, el contrato). Fail-closed en cada paso.
+
+    B286-B: con `snapshot`, el contrato y los módulos de autoridad se leen por la MISMA observación sellada; sin él, la
+    cadena gobernada bespoke + `_git_tracked` que ejercitan los tests directos."""
+    if snapshot is not None:
+        from tools.governance_snapshot import GovernanceSnapshotError, TrackedQuery
+
+        def _tracked(rel: str) -> bool:
+            return bool(snapshot.tracked(TrackedQuery("exact", rel)))
+
+        def _read_contract() -> tuple[bytes | None, list[str]]:
+            try:
+                return snapshot.read(_FINGERPRINT_CONTRACT, category="contract").data, []
+            except GovernanceSnapshotError as exc:
+                return None, [f"{_FINGERPRINT_CONTRACT}: lectura gobernada fail-closed ({exc}) (B254/B274)"]
+    else:
+
+        def _tracked(rel: str) -> bool:
+            return _git_tracked(rel)
+
+        def _read_contract() -> tuple[bytes | None, list[str]]:
+            gov, cprobs = _read_governed_repo_file(_FINGERPRINT_CONTRACT, max_bytes=_CONTRACT_MAX_BYTES)  # B274/B282: límite  # fmt: skip
+            return (gov.data if gov is not None else None), cprobs
+
+    if not _tracked(_FINGERPRINT_CONTRACT):
         return [f"{_FINGERPRINT_CONTRACT}: NO versionado (fail-closed B254/B274)"]
-    gov_contract, cprobs = _read_governed_repo_file(_FINGERPRINT_CONTRACT, max_bytes=_CONTRACT_MAX_BYTES)  # B274/B282: lectura gobernada del contrato con límite  # fmt: skip
-    if gov_contract is None:
+    contract_bytes, cprobs = _read_contract()
+    if contract_bytes is None:
         return cprobs
     try:
-        contract = json.loads(gov_contract.data.decode("utf-8"), object_pairs_hook=_no_dup_pairs)
+        contract = json.loads(contract_bytes.decode("utf-8"), object_pairs_hook=_no_dup_pairs)
     except (ValueError, UnicodeDecodeError) as exc:
         return [f"{_FINGERPRINT_CONTRACT}: no-JSON/duplicado/no-utf8 ({exc}) (fail-closed B254/B258/B274)"]
     schema_probs = _fingerprint_contract_problems(contract)
@@ -939,8 +1024,8 @@ def fingerprint_problems() -> list[str]:
     funcs = contract["functions"]
     # B274: lee por cadena gobernada los 5 módulos de autoridad (B269) y REUSA esos bytes para el AST del crítico —
     # `_CRITICAL_SOURCE` es uno de ellos, así que no hay una segunda apertura por ruta.
-    governed, problems = _read_authority_files(contract)
-    if not _git_tracked(_CRITICAL_SOURCE):
+    governed, problems = _read_authority_files(contract, snapshot=snapshot)
+    if not _tracked(_CRITICAL_SOURCE):
         return problems + [f"{_CRITICAL_SOURCE}: NO versionado (fail-closed B254)"]
     crit_gb = governed.get(_CRITICAL_SOURCE)
     if crit_gb is None:
@@ -963,31 +1048,26 @@ def fingerprint_problems() -> list[str]:
 
 
 def main() -> int:
-    if not _git_tracked(_TARGET):
-        print(f"✗ {_TARGET}: NO versionado o git ls-files falló (fail-closed)")
-        return 1
+    # B286-B: la ejecución del gate lee TODO por UNA observación gobernada sellada (inventario Git único + `snap.read()`
+    # con O_NOFOLLOW y verificación de modo/uid/nlink), `reverify()` antes del éxito y cierre único. Un fallo de
+    # inventario/lectura/parseo/verificación/cierre es ROJO (fail-closed), nunca skip.
+    from tools.governance_snapshot import GovernanceSnapshot, GovernanceSnapshotError, TrackedQuery
+
     try:
-        with open(_TARGET, encoding="utf-8") as fh:
-            src = fh.read()
-    except OSError as exc:
-        print(f"✗ {_TARGET}: ilegible ({exc}) (fail-closed)")
+        with GovernanceSnapshot(_ROOT) as snap:
+            tracked = set(snap.tracked(TrackedQuery("suffix", ".py")))
+            problems: list[str] = []
+            for tgt, analyze in ((_TARGET, frontier_problems), (_FACTORY_TARGET, factory_problems)):  # B231: fábrica también fail-closed  # fmt: skip
+                if tgt not in tracked:
+                    problems.append(f"{tgt}: NO versionado en el inventario sellado (fail-closed)")
+                    continue
+                problems.extend(analyze(snap.read(tgt, category="source").data.decode("utf-8")))
+            problems += authority_scope_problems(snapshot=snap)  # B237: barrido del árbol versionado COMPLETO
+            problems += fingerprint_problems(snapshot=snap)  # B254: PIN del AST del cuerpo crítico
+            snap.reverify()  # re-sella la observación tras la última lectura y antes del éxito
+    except (GovernanceSnapshotError, OSError, SyntaxError, ValueError) as exc:
+        print(f"✗ frontera de commit fail-closed: {exc}")
         return 1
-    try:
-        problems = frontier_problems(src)
-    except SyntaxError as exc:
-        print(f"✗ {_TARGET}: no parseable ({exc}) (fail-closed)")
-        return 1
-    if not _git_tracked(_FACTORY_TARGET):  # B231: la fábrica del certificado también fail-closed
-        print(f"✗ {_FACTORY_TARGET}: NO versionado o git ls-files falló (fail-closed)")
-        return 1
-    try:
-        with open(_FACTORY_TARGET, encoding="utf-8") as fh:
-            problems += factory_problems(fh.read())
-    except (OSError, SyntaxError) as exc:
-        print(f"✗ {_FACTORY_TARGET}: ilegible/no parseable ({exc}) (fail-closed)")
-        return 1
-    problems += authority_scope_problems()  # B237: barrido del árbol versionado COMPLETO (nadie más toca la autoridad)
-    problems += fingerprint_problems()  # B254: PIN del AST del cuerpo crítico (runtime + fingerprint = el contrato)
     if problems:
         print("✗ frontera de commit violada:")
         for p in problems:

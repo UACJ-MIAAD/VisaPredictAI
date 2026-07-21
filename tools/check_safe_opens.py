@@ -22,9 +22,12 @@ Escanea SÓLO ficheros versionados (`git ls-files`); si git falla o un fichero n
 from __future__ import annotations
 
 import ast
-import subprocess
+import os
 import sys
 
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)  # B286-B: raíz del repo en sys.path para importar `tools.governance_snapshot` como script
 _ONLINE = (
     "tools/governed_read.py",
     "tools/governed_fs.py",
@@ -43,22 +46,13 @@ _RDWR_OPEN_ALLOWED: frozenset[tuple[str, str]] = frozenset(
 _READ_LIKE_ATTRS = frozenset({"read_text", "read_bytes"})  # Path(...).read_text() y variantes
 
 
-def _git_ls(pattern: str) -> tuple[list[str], bool]:
-    try:
-        out = subprocess.run(["git", "ls-files", pattern], capture_output=True, text=True)
-    except OSError:
-        return [], False
-    if out.returncode != 0:
-        return [], False
-    return [ln for ln in out.stdout.splitlines() if ln], True
-
-
-def _git_tracked(rel: str) -> bool:
-    try:
-        out = subprocess.run(["git", "ls-files", "--error-unmatch", rel], capture_output=True, text=True)
-    except OSError:
-        return False
-    return out.returncode == 0
+def _analyze_source(rel: str, data: bytes) -> list[str]:
+    """Núcleo PURO del scanner de aperturas: parsea `data` (bytes gobernados) y devuelve problemas. Sin I/O."""
+    tree = ast.parse(data, filename=rel)
+    sc = _Scanner(rel)
+    sc.prescan(tree)
+    sc.visit(tree)
+    return sc.problems
 
 
 class _Scanner(ast.NodeVisitor):
@@ -204,27 +198,9 @@ class _Scanner(ast.NodeVisitor):
 
 
 def _violations(path: str) -> list[str]:
-    """Escanea un fichero ARBITRARIO (para tests) sin exigir que esté versionado."""
+    """Escanea un fichero ARBITRARIO (para tests, fixtures fuera del repo) sin exigir que esté versionado."""
     with open(path, encoding="utf-8") as fh:
-        tree = ast.parse(fh.read(), filename=path)
-    sc = _Scanner(path)
-    sc.prescan(tree)
-    sc.visit(tree)
-    return sc.problems
-
-
-def _scan(rel: str) -> list[str]:
-    if not _git_tracked(rel):
-        return [f"{rel}: NO versionado o git ls-files falló (fail-closed)"]
-    try:
-        with open(rel, encoding="utf-8") as fh:
-            tree = ast.parse(fh.read(), filename=rel)
-    except (OSError, SyntaxError) as exc:
-        return [f"{rel}: no parseable ({exc}) (fail-closed)"]
-    sc = _Scanner(rel)
-    sc.prescan(tree)
-    sc.visit(tree)
-    return sc.problems
+        return _analyze_source(path, fh.read().encode("utf-8"))
 
 
 def _online_import_problems(rel: str, tree: ast.AST) -> list[str]:
@@ -242,34 +218,32 @@ def _online_import_problems(rel: str, tree: ast.AST) -> list[str]:
     return problems
 
 
-def _inventory_problems() -> list[str]:
-    """Fail-closed: cualquier `tools/*.py` (no test, no este gate) que importe la maquinaria online sin estar en el
-    inventario `_ONLINE` es un módulo online sin gobernar."""
-    files, ok = _git_ls("tools/*.py")
-    if not ok:
-        return ["inventario: git ls-files tools/*.py falló (fail-closed)"]
-    problems: list[str] = []
-    self_name = "tools/check_safe_opens.py"
-    for rel in files:
-        if rel in _ONLINE or rel == self_name:
-            continue
-        try:
-            with open(rel, encoding="utf-8") as fh:
-                src = fh.read()
-        except OSError as exc:
-            problems.append(f"{rel}: ilegible ({exc}) (fail-closed)")
-            continue
-        try:
-            tree = ast.parse(src, filename=rel)
-        except SyntaxError as exc:
-            problems.append(f"{rel}: no parseable ({exc}) (fail-closed)")
-            continue
-        problems.extend(_online_import_problems(rel, tree))
-    return problems
+_SELF = "tools/check_safe_opens.py"
 
 
 def main() -> int:
-    problems = [p for rel in _ONLINE for p in _scan(rel)] + _inventory_problems()
+    # B286-B: una sola observación gobernada (`GovernanceSnapshot`): inventario Git SELLADO una vez + `snap.read()` (sin
+    # `git ls-files` ni `open()` ad hoc), `reverify()` antes del éxito, cierre único. Cualquier error de lectura/inventario/
+    # parseo/cierre es ROJO (fail-closed).
+    from tools.governance_snapshot import GovernanceSnapshot, GovernanceSnapshotError, TrackedQuery
+
+    try:
+        with GovernanceSnapshot(_ROOT) as snap:
+            tracked = set(snap.tracked(TrackedQuery("suffix", ".py")))  # inventario SELLADO, una sola captura Git
+            problems: list[str] = []
+            for rel in _ONLINE:  # ruta online: cada apertura debe pasar por la fuente única y no colgar
+                if rel not in tracked:
+                    problems.append(f"{rel}: NO versionado en el inventario sellado (fail-closed)")
+                    continue
+                problems.extend(_analyze_source(rel, snap.read(rel, category="source").data))
+            # INVENTARIO: todo `tools/*.py` (no _ONLINE, no este gate) que importe la maquinaria online sin gobernar
+            for rel in sorted(r for r in tracked if r.startswith("tools/") and r != _SELF and r not in _ONLINE):
+                data = snap.read(rel, category="source").data
+                problems.extend(_online_import_problems(rel, ast.parse(data, filename=rel)))
+            snap.reverify()  # re-sella la observación tras la última lectura y antes del éxito
+    except (GovernanceSnapshotError, OSError, SyntaxError) as exc:
+        print(f"✗ gate fail-closed (aperturas seguras / inventario online): {exc}")
+        return 1
     if problems:
         print("✗ aperturas inseguras / inventario online:")
         for p in problems:

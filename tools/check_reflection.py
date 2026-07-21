@@ -33,9 +33,17 @@ import json
 import os
 import subprocess
 import sys
-from typing import NamedTuple
+from collections.abc import Callable
+from typing import TYPE_CHECKING, NamedTuple
+
+if TYPE_CHECKING:
+    from tools.governance_snapshot import GovernanceSnapshot
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(
+        0, ROOT
+    )  # B286-B: raíz del repo en sys.path para importar `tools.governance_snapshot` en forma script
 _REGISTRY = "security/python_reflection_registry.json"
 _SCHEMA_VERSION = 2
 _SCANNER_VERSION = 17  # B265/…/B324/B329: además, la RAÍZ-fábrica (builtins/importlib) que ESCAPA de un acceso estático es `factory-module-escape` PROHIBIDO (no registrable), no un escape registrable
@@ -97,6 +105,13 @@ def _git_tracked_py() -> list[str]:
 def _production_files() -> list[str]:
     """Ficheros .py de PRODUCCIÓN versionados: excluye `tests/` (los tests EJERCEN reflexión adversarial a propósito)."""
     return [f for f in _git_tracked_py() if not f.startswith("tests/")]
+
+
+def _read_text(rel: str) -> str:
+    """Lector por defecto (NO gobernado): abre `ROOT/rel` como UTF-8. Respeta un `ROOT` monkeypatcheado por los tests.
+    El gate real inyecta en su lugar el lector de la observación gobernada sellada (B286-B)."""
+    with open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
+        return fh.read()
 
 
 def _module_aliases(tree: ast.AST) -> dict[str, str]:
@@ -693,15 +708,16 @@ def _canonical_rooted_subscript(node: ast.AST, prov: _Provenance) -> str | None:
     return None
 
 
-def scan_reflection(files: list[str]) -> tuple[dict[str, dict], list[str]]:
+def scan_reflection(files: list[str], *, read: Callable[[str], str] | None = None) -> tuple[dict[str, dict], list[str]]:
     """Escanea `files` y devuelve `(entries, problems)`. Cada ocurrencia lleva identidad SEMÁNTICA. Fail-closed: un
-    fichero ilegible/no-UTF-8/no-parseable produce un PROBLEMA (no se salta en silencio)."""
+    fichero ilegible/no-UTF-8/no-parseable produce un PROBLEMA (no se salta en silencio). `read` inyecta el lector de
+    la observación gobernada del gate (B286-B); por defecto abre `ROOT/rel` (compat con tests/tooling)."""
+    reader = read or _read_text
     entries: dict[str, dict] = {}
     problems: list[str] = []
     for rel in files:
         try:
-            with open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
-                text = fh.read()
+            text = reader(rel)
         except OSError as exc:
             problems.append(f"{rel}: ilegible ({exc}) (fail-closed B260)")
             continue
@@ -789,15 +805,15 @@ def _resolve_relative(rel: str, level: int, module: str | None) -> str | None:
     return ".".join([*base, module]) if module else ".".join(base)
 
 
-def scan_cb_importers(files: list[str]) -> tuple[set[str], list[str]]:
+def scan_cb_importers(files: list[str], *, read: Callable[[str], str] | None = None) -> tuple[set[str], list[str]]:
     """Ficheros de producción que IMPORTAN `tools.campaign_bundle` en cualquier forma (absoluta o RELATIVA). Fail-closed
-    ante ilegible/no-parseable."""
+    ante ilegible/no-parseable. `read` inyecta el lector gobernado del gate (B286-B); por defecto abre `ROOT/rel`."""
+    reader = read or _read_text
     importers: set[str] = set()
     problems: list[str] = []
     for rel in files:
         try:
-            with open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
-                tree = ast.parse(fh.read())
+            tree = ast.parse(reader(rel))
         except (OSError, UnicodeDecodeError, SyntaxError) as exc:
             problems.append(f"{rel}: no escaneable para importadores ({exc}) (fail-closed B260)")
             continue
@@ -813,10 +829,10 @@ def scan_cb_importers(files: list[str]) -> tuple[set[str], list[str]]:
     return importers, problems
 
 
-def _load_registry() -> tuple[dict, list[str]]:
+def _load_registry(*, read: Callable[[str], str] | None = None) -> tuple[dict, list[str]]:
+    reader = read or _read_text
     try:
-        with open(os.path.join(ROOT, _REGISTRY), encoding="utf-8") as fh:
-            return json.loads(fh.read(), object_pairs_hook=_no_dup_pairs), []
+        return json.loads(reader(_REGISTRY), object_pairs_hook=_no_dup_pairs), []
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         return {}, [f"{_REGISTRY}: ilegible/no-JSON/duplicado ({exc}) (fail-closed B255/B260)"]
 
@@ -834,12 +850,26 @@ def _today() -> datetime.date:
     return datetime.date.today()
 
 
-def problems() -> list[str]:
+def problems(*, snapshot: GovernanceSnapshot | None = None) -> list[str]:
     """Gate fail-closed: esquema del registro exacto; cada ocurrencia de reflexión de producción declarada por su ID
     SEMÁNTICO con metadatos coincidentes y `review_by` no expirado; ningún importador de `tools.campaign_bundle` fuera
     de la lista positiva. Cualquier ocurrencia nueva/cambiada, entrada obsoleta, metadato divergente, error de
-    lectura/parseo, o importador no autorizado → problema estructurado."""
-    reg, errs = _load_registry()
+    lectura/parseo, o importador no autorizado → problema estructurado.
+
+    B286-B: con `snapshot` (una `GovernanceSnapshot` sellada) TODO se lee por la observación gobernada — inventario Git
+    único + `snap.read()` con O_NOFOLLOW y verificación de modo/uid/nlink; sin él, ruta de compat open/git para los tests."""
+    _reader: Callable[[str], str] | None = None
+    if snapshot is not None:
+        from tools.governance_snapshot import GovernanceSnapshotError
+
+        def _gov_reader(rel: str) -> str:
+            try:
+                return snapshot.read(rel, category="source").data.decode("utf-8")
+            except GovernanceSnapshotError as exc:  # re-envuelto para que scan_*/_load_registry lo traten fail-closed
+                raise OSError(f"lectura gobernada fail-closed: {exc}") from exc
+
+        _reader = _gov_reader
+    reg, errs = _load_registry(read=_reader)
     if errs:
         return errs
     if not isinstance(reg, dict) or set(reg) != _REGISTRY_TOP_KEYS:
@@ -855,12 +885,17 @@ def problems() -> list[str]:
     if not isinstance(entries, dict) or not isinstance(authorized, list):
         return [f"{_REGISTRY}: 'entries'/'authorized_campaign_bundle_importers' con tipo inválido"]
 
-    files = _production_files()
+    if snapshot is not None:
+        from tools.governance_snapshot import TrackedQuery
+
+        files = [r for r in snapshot.tracked(TrackedQuery("suffix", ".py")) if not r.startswith("tests/")]
+    else:
+        files = _production_files()
     if not files:
-        return ["git ls-files no devolvió .py de producción (fail-closed B255)"]
+        return ["el inventario no devolvió .py de producción (fail-closed B255)"]
     problems: list[str] = []
 
-    observed, scan_probs = scan_reflection(files)
+    observed, scan_probs = scan_reflection(files, read=_reader)
     problems.extend(scan_probs)
     today = _today()
     for eid, occ in observed.items():
@@ -900,7 +935,7 @@ def problems() -> list[str]:
             w = entries.get(eid, {})
             problems.append(f"entrada de reflexión OBSOLETA ({w.get('op')} en {w.get('file')}::{w.get('qualname')}) — ya no existe (B255)")  # fmt: skip
 
-    observed_imp, imp_probs = scan_cb_importers(files)
+    observed_imp, imp_probs = scan_cb_importers(files, read=_reader)
     problems.extend(imp_probs)
     auth_set = set(authorized)
     for imp in sorted(observed_imp - auth_set):
@@ -911,7 +946,17 @@ def problems() -> list[str]:
 
 
 def main() -> int:
-    probs = problems()
+    # B286-B: la ejecución del gate lee TODO por UNA observación gobernada sellada (inventario Git único + `snap.read()`),
+    # `reverify()` antes del éxito y cierre único. Error de inventario/lectura/verificación/cierre → ROJO (fail-closed).
+    from tools.governance_snapshot import GovernanceSnapshot, GovernanceSnapshotError
+
+    try:
+        with GovernanceSnapshot(ROOT) as snap:
+            probs = problems(snapshot=snap)
+            snap.reverify()
+    except (GovernanceSnapshotError, OSError) as exc:
+        print(f"✗ gate de reflexión fail-closed: {exc}")
+        return 1
     if probs:
         print("✗ registro de reflexión violado:")
         for p in probs:
