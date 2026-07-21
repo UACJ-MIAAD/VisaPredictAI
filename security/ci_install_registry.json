@@ -1,0 +1,240 @@
+{
+  "schema_version": 1,
+  "note": "Registro POSITIVO de TODA instalacion pip de CI (B284/B290). Biyeccion de multiconjunto (workflow,job,comando,conteo) con los 5 workflows; categorias CERRADAS; temporary-deferred exige expires no expirado; un install oculto en eval/bash -c/heredoc/backtick/$() es rojo. Generado con `check_ci_installs.py --generate` y categorizado a mano.",
+  "categories": [
+    "hashed-lock",
+    "editable-after-lock-no-deps",
+    "governance-bootstrap",
+    "auditor-tool",
+    "pinned-toolchain",
+    "constrained-editable-lock",
+    "temporary-deferred"
+  ],
+  "installs": [
+    {
+      "workflow": "ci.yml",
+      "job": "campaign-bundle-contract",
+      "command": "pip install --require-hashes -r locks/dev-linux-x86_64.txt",
+      "count": 1,
+      "category": "hashed-lock",
+      "reason": "Instalacion con --require-hashes desde un lock versionado (supply-chain: bytes fijados por hash).",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "campaign-bundle-contract",
+      "command": "pip install -e . --no-deps",
+      "count": 1,
+      "category": "editable-after-lock-no-deps",
+      "reason": "Editable del propio paquete tras el lock hasheado, con --no-deps (no resuelve nada nuevo).",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "campaign-bundle-contract",
+      "command": "python -m pip install \"pip==26.1.2\" \"setuptools==83.0.0\" \"wheel==0.47.0\"",
+      "count": 1,
+      "category": "pinned-toolchain",
+      "reason": "Toolchain de build pip/setuptools/wheel pineado por version exacta (prefacio estandar de --require-hashes).",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "consistency",
+      "command": "GOV_ENV=\"$(python tools/install_governance_bootstrap.py)\"",
+      "count": 1,
+      "category": "governance-bootstrap",
+      "reason": "Bootstrap GOBERNADO de PyYAML (install_governance_bootstrap.py): venv 0700 + --require-hashes + validacion independiente.",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "deep-lock-install",
+      "command": "\"$DEEP_ENV/bin/python\" -m pip install \"pip==26.1.2\" \"setuptools==83.0.0\" \"wheel==0.47.0\"",
+      "count": 1,
+      "category": "pinned-toolchain",
+      "reason": "Toolchain de build pip/setuptools/wheel pineado por version exacta (prefacio estandar de --require-hashes).",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "deep-lock-install",
+      "command": "\"$DEEP_ENV/bin/python\" -m pip install --require-hashes -r ${{ matrix.lock }}",
+      "count": 1,
+      "category": "hashed-lock",
+      "reason": "Instalacion con --require-hashes desde un lock versionado (supply-chain: bytes fijados por hash).",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "dvc-tool-install",
+      "command": "python -m pip install \"pip==26.1.2\" \"setuptools==83.0.0\" \"wheel==0.47.0\"",
+      "count": 1,
+      "category": "pinned-toolchain",
+      "reason": "Toolchain de build pip/setuptools/wheel pineado por version exacta (prefacio estandar de --require-hashes).",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "environment-contract",
+      "command": "pip install --require-hashes -r locks/dev-linux-x86_64.txt",
+      "count": 1,
+      "category": "hashed-lock",
+      "reason": "Instalacion con --require-hashes desde un lock versionado (supply-chain: bytes fijados por hash).",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "environment-contract",
+      "command": "pip install -e . --no-deps",
+      "count": 1,
+      "category": "editable-after-lock-no-deps",
+      "reason": "Editable del propio paquete tras el lock hasheado, con --no-deps (no resuelve nada nuevo).",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "environment-contract",
+      "command": "python -m pip install \"pip==26.1.2\" \"setuptools==83.0.0\" \"wheel==0.47.0\"",
+      "count": 1,
+      "category": "pinned-toolchain",
+      "reason": "Toolchain de build pip/setuptools/wheel pineado por version exacta (prefacio estandar de --require-hashes).",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "lint-and-test",
+      "command": "pip install --require-hashes -r locks/dev-linux-x86_64.txt",
+      "count": 1,
+      "category": "hashed-lock",
+      "reason": "Instalacion con --require-hashes desde un lock versionado (supply-chain: bytes fijados por hash).",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "lint-and-test",
+      "command": "pip install -e . --no-deps",
+      "count": 1,
+      "category": "editable-after-lock-no-deps",
+      "reason": "Editable del propio paquete tras el lock hasheado, con --no-deps (no resuelve nada nuevo).",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "lint-and-test",
+      "command": "python -m pip install \"pip==26.1.2\" \"setuptools==83.0.0\" \"wheel==0.47.0\"",
+      "count": 1,
+      "category": "pinned-toolchain",
+      "reason": "Toolchain de build pip/setuptools/wheel pineado por version exacta (prefacio estandar de --require-hashes).",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "model-tests",
+      "command": "pip install -e \".[dev,model]\" -c locks/model-cpu-linux-x86_64.txt",
+      "count": 1,
+      "category": "constrained-editable-lock",
+      "reason": "Editable con extras del paquete, restringido por -c a un lock de version versionado (modelo).",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "model-tests",
+      "command": "pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu",
+      "count": 1,
+      "category": "temporary-deferred",
+      "reason": "torch cpu pineado desde el indice oficial de PyTorch; aun sin lock hasheado de torch — pendiente de hardening.",
+      "expires": "2027-01-31"
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "model-tests",
+      "command": "python -m pip install \"pip==26.1.2\" \"setuptools==83.0.0\" \"wheel==0.47.0\"",
+      "count": 1,
+      "category": "pinned-toolchain",
+      "reason": "Toolchain de build pip/setuptools/wheel pineado por version exacta (prefacio estandar de --require-hashes).",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "p0r5-governance",
+      "command": "GOV_ENV=\"$(python tools/install_governance_bootstrap.py)\"",
+      "count": 1,
+      "category": "governance-bootstrap",
+      "reason": "Bootstrap GOBERNADO de PyYAML (install_governance_bootstrap.py): venv 0700 + --require-hashes + validacion independiente.",
+      "expires": null
+    },
+    {
+      "workflow": "ci.yml",
+      "job": "supply-chain",
+      "command": "pip install \"pip-audit==2.10.1\"",
+      "count": 1,
+      "category": "auditor-tool",
+      "reason": "Herramienta de auditoria de seguridad (pip-audit) pineada por version exacta.",
+      "expires": null
+    },
+    {
+      "workflow": "freeze_and_rebuild.yml",
+      "job": "update",
+      "command": "pip install --require-hashes -r locks/dev-linux-x86_64.txt",
+      "count": 2,
+      "category": "hashed-lock",
+      "reason": "Instalacion con --require-hashes desde un lock versionado (supply-chain: bytes fijados por hash).",
+      "expires": null
+    },
+    {
+      "workflow": "freeze_and_rebuild.yml",
+      "job": "update",
+      "command": "pip install --require-hashes -r locks/runtime-linux-x86_64.txt",
+      "count": 1,
+      "category": "hashed-lock",
+      "reason": "Instalacion con --require-hashes desde un lock versionado (supply-chain: bytes fijados por hash).",
+      "expires": null
+    },
+    {
+      "workflow": "freeze_and_rebuild.yml",
+      "job": "update",
+      "command": "pip install -e \".[model]\" -c locks/model-cpu-linux-x86_64.txt",
+      "count": 1,
+      "category": "constrained-editable-lock",
+      "reason": "Editable con extras del paquete, restringido por -c a un lock de version versionado (modelo).",
+      "expires": null
+    },
+    {
+      "workflow": "freeze_and_rebuild.yml",
+      "job": "update",
+      "command": "pip install -e . --no-deps",
+      "count": 3,
+      "category": "editable-after-lock-no-deps",
+      "reason": "Editable del propio paquete tras el lock hasheado, con --no-deps (no resuelve nada nuevo).",
+      "expires": null
+    },
+    {
+      "workflow": "freeze_and_rebuild.yml",
+      "job": "update",
+      "command": "pip install torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu",
+      "count": 1,
+      "category": "temporary-deferred",
+      "reason": "torch cpu pineado desde el indice oficial de PyTorch; aun sin lock hasheado de torch — pendiente de hardening.",
+      "expires": "2027-01-31"
+    },
+    {
+      "workflow": "freeze_and_rebuild.yml",
+      "job": "update",
+      "command": "python -m pip install \"pip==26.1.2\" \"setuptools==83.0.0\" \"wheel==0.47.0\"",
+      "count": 1,
+      "category": "pinned-toolchain",
+      "reason": "Toolchain de build pip/setuptools/wheel pineado por version exacta (prefacio estandar de --require-hashes).",
+      "expires": null
+    },
+    {
+      "workflow": "scheduled-quality.yml",
+      "job": "pip-audit",
+      "command": "pip install \"pip-audit==2.10.1\"",
+      "count": 1,
+      "category": "auditor-tool",
+      "reason": "Herramienta de auditoria de seguridad (pip-audit) pineada por version exacta.",
+      "expires": null
+    }
+  ]
+}

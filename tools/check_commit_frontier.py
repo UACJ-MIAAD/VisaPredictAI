@@ -1048,7 +1048,7 @@ def fingerprint_problems(*, snapshot: GovernanceSnapshot | None = None) -> list[
 
 
 def main() -> int:
-    # B286-B: la ejecución del gate lee TODO por UNA observación gobernada sellada (inventario Git único + `snap.read()`
+    # B286-B: la ejecución del gate lee cada entrada por UNA observación gobernada sellada (inventario Git único + `snap.read()`
     # con O_NOFOLLOW y verificación de modo/uid/nlink), `reverify()` antes del éxito y cierre único. Un fallo de
     # inventario/lectura/parseo/verificación/cierre es ROJO (fail-closed), nunca skip.
     from tools.governance_snapshot import GovernanceSnapshot, GovernanceSnapshotError, TrackedQuery

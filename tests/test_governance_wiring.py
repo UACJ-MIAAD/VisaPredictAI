@@ -71,7 +71,9 @@ def test_b271_job_context_neutralizers_fail(monkeypatch):
 def test_b271_altered_run_and_extra_step_fail(monkeypatch):
     for suffix in (" || true", "; exit 0"):
         bad = _REAL_CI.replace(
-            "        run: python tools/check_reflection.py", f"        run: python tools/check_reflection.py{suffix}", 1
+            "        run: $GOV_ENV/bin/python tools/check_reflection.py",
+            f"        run: $GOV_ENV/bin/python tools/check_reflection.py{suffix}",
+            1,
         )
         assert _run_on(bad, monkeypatch), f"`{suffix}` en un gate debe fallar (B271)"
     # paso extra (incl. uno que escribe GITHUB_PATH) rompe la secuencia exacta
@@ -140,7 +142,9 @@ def test_b271_fail_closed_missing_workflow(monkeypatch):
 # ---------------------------------------------------------------------------
 _CHECKOUT_SHA = "fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09"
 _CI_NO_OFFLINE = _REAL_CI.replace(
-    "      - name: GitHub Actions positive registry (offline)\n        run: python tools/check_action_pins.py\n", "", 1
+    "      - name: GitHub Actions positive registry (offline)\n        run: $GOV_ENV/bin/python tools/check_action_pins.py\n",
+    "",
+    1,
 )
 
 
@@ -193,7 +197,9 @@ def test_b278_offline_actionpins_step_required_and_exact(monkeypatch):
     # el paso offline de action-pins debe estar presente, en orden y con el comando EXACTO dentro del job mínimo.
     assert _run(monkeypatch, ci=_CI_NO_OFFLINE), "quitar el paso offline de action-pins debe fallar (B278/B271)"
     altered = _REAL_CI.replace(
-        "run: python tools/check_action_pins.py", "run: python tools/check_action_pins.py || true", 1
+        "run: $GOV_ENV/bin/python tools/check_action_pins.py",
+        "run: $GOV_ENV/bin/python tools/check_action_pins.py || true",
+        1,
     )
     assert _run(monkeypatch, ci=altered), "alterar el comando del paso offline debe fallar (B278/B271)"
 

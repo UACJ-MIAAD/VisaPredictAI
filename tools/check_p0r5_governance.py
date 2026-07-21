@@ -37,15 +37,27 @@ _EXPECTED_JOB_KEYS = {"name", "runs-on", "timeout-minutes", "permissions", "step
 _EXPECTED_RUNNER = "ubuntu-24.04"
 _EXPECTED_TIMEOUT = 10
 _EXPECTED_PERMISSIONS = {"contents": "read"}
-# los 7 gates, en ORDEN: (name exacto, comando `run` de una línea exacto)
+# B284/B290: el paso `pip install pyyaml==6.0.3` (SIN hashes) se reemplazó por el bootstrap GOBERNADO — instala PyYAML con
+# `--require-hashes` en un venv efímero 0700 bajo $RUNNER_TEMP, lo VALIDA independientemente y exporta `$GOV_ENV`; todos los
+# gates corren con el intérprete de ESE venv (`$GOV_ENV/bin/python`), no con el Python global del runner.
+_GOV_ENV_PY = "$GOV_ENV/bin/python"
+_BOOTSTRAP_STEP = {
+    "name": "Governed PyYAML bootstrap (hashed)",
+    "run": (
+        'GOV_ENV="$(python tools/install_governance_bootstrap.py)"\n'
+        'python tools/validate_governance_bootstrap.py "$GOV_ENV"\n'
+        'echo "GOV_ENV=$GOV_ENV" >> "$GITHUB_ENV"\n'
+    ),
+}
+# los 7 gates, en ORDEN: (name exacto, comando `run` de una línea exacto, con el intérprete del venv del bootstrap)
 _GATE_STEPS = (
-    ("Commit frontier contract (fingerprint + autoridad)", "python tools/check_commit_frontier.py"),
-    ("Positive reflection registry (identidad semántica)", "python tools/check_reflection.py"),
-    ("Safe opens contract", "python tools/check_safe_opens.py"),
-    ("Raw filesystem mutation contract", "python tools/check_raw_fs_mutations.py"),
-    ("Deep smoke authority contract", "python tools/check_deep_authority.py"),
-    ("B233 historical diagnostic contract", "python -m tools.validate_b233_receipt"),
-    ("P0R.5 governance gates wired", "python tools/check_p0r5_governance.py"),
+    ("Commit frontier contract (fingerprint + autoridad)", f"{_GOV_ENV_PY} tools/check_commit_frontier.py"),
+    ("Positive reflection registry (identidad semántica)", f"{_GOV_ENV_PY} tools/check_reflection.py"),
+    ("Safe opens contract", f"{_GOV_ENV_PY} tools/check_safe_opens.py"),
+    ("Raw filesystem mutation contract", f"{_GOV_ENV_PY} tools/check_raw_fs_mutations.py"),
+    ("Deep smoke authority contract", f"{_GOV_ENV_PY} tools/check_deep_authority.py"),
+    ("B233 historical diagnostic contract", f"{_GOV_ENV_PY} -m tools.validate_b233_receipt"),
+    ("P0R.5 governance gates wired", f"{_GOV_ENV_PY} tools/check_p0r5_governance.py"),
 )
 # B275/B283: contrato EXACTO de `ci-gate` (nada de substrings sobre yaml.dump). Claves de job, runner PINEADO, timeout,
 # permissions VACÍAS, set COMPLETO de needs y los dos pasos (con el PROGRAMA `run` COMPLETO del paso que falla, no sólo
@@ -121,9 +133,9 @@ def _expected_steps(uses: dict[str, str]) -> list[dict]:
     return [
         {"uses": uses["actions/checkout"], "with": {"fetch-depth": 0}},
         {"uses": uses["actions/setup-python"], "with": {"python-version": "3.14"}},
-        {"run": "pip install pyyaml==6.0.3"},
+        _BOOTSTRAP_STEP,  # B284: bootstrap gobernado de PyYAML (hashed) + validación + export de $GOV_ENV
         # B278: el propio gate de pins de Actions corre DENTRO del job mínimo (offline), antes de los demás gates.
-        {"name": "GitHub Actions positive registry (offline)", "run": "python tools/check_action_pins.py"},
+        {"name": "GitHub Actions positive registry (offline)", "run": f"{_GOV_ENV_PY} tools/check_action_pins.py"},
         *[{"name": n, "run": c} for n, c in _GATE_STEPS],
     ]
 

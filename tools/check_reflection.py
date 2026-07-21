@@ -856,7 +856,7 @@ def problems(*, snapshot: GovernanceSnapshot | None = None) -> list[str]:
     de la lista positiva. Cualquier ocurrencia nueva/cambiada, entrada obsoleta, metadato divergente, error de
     lectura/parseo, o importador no autorizado → problema estructurado.
 
-    B286-B: con `snapshot` (una `GovernanceSnapshot` sellada) TODO se lee por la observación gobernada — inventario Git
+    B286-B: con `snapshot` (una `GovernanceSnapshot` sellada) cada entrada se lee por la observación gobernada — inventario Git
     único + `snap.read()` con O_NOFOLLOW y verificación de modo/uid/nlink; sin él, ruta de compat open/git para los tests."""
     _reader: Callable[[str], str] | None = None
     if snapshot is not None:
@@ -946,7 +946,7 @@ def problems(*, snapshot: GovernanceSnapshot | None = None) -> list[str]:
 
 
 def main() -> int:
-    # B286-B: la ejecución del gate lee TODO por UNA observación gobernada sellada (inventario Git único + `snap.read()`),
+    # B286-B: la ejecución del gate lee cada entrada por UNA observación gobernada sellada (inventario Git único + `snap.read()`),
     # `reverify()` antes del éxito y cierre único. Error de inventario/lectura/verificación/cierre → ROJO (fail-closed).
     from tools.governance_snapshot import GovernanceSnapshot, GovernanceSnapshotError
 

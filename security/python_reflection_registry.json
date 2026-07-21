@@ -948,6 +948,51 @@
       "occurrence_index": 0,
       "justification": "Llamada estandar `sys.exit(...)` sobre modulo canonico (B285); patron de entrypoint del gate de consumidores de governance_snapshot (B286-B); benigna, sin reflexion dinamica; revisada 2026-07-20.",
       "review_by": "2027-07-20"
+    },
+    "741a9a565770234cc93c91787ddd8ae6f61a829d002de4c24655c611e3f3cfaa": {
+      "file": "tools/install_governance_bootstrap.py",
+      "qualname": "<module>",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "62d62ad076b9b449e1321c75f008850513ff9a107d082b58d350024b7cfc32bb",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.path.insert(...)` sobre modulo canonico (B285); bootstrap del repo en sys.path para importar tools.governance_snapshot en forma script (B284); benigna, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "8f51a277a9bd14760ec329a1c8af4d8a27d47cc7ecb85eb25ce3f10e34860010": {
+      "file": "tools/install_governance_bootstrap.py",
+      "qualname": "<module>",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "d7eb638c2b534f2d5ea4fbf60d8b574371bd042ae870e22b116a9c408fb4f3f0",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.exit(...)` sobre modulo canonico (B285); patron de entrypoint del tooling de bootstrap/registro de CI (B284/B290); benigna, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "d8b668af75b7b39f54d986e5c76643762795cabe024971bf23d6471ff7df7662": {
+      "file": "tools/validate_governance_bootstrap.py",
+      "qualname": "<module>",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "62d62ad076b9b449e1321c75f008850513ff9a107d082b58d350024b7cfc32bb",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.path.insert(...)` sobre modulo canonico (B285); bootstrap del repo en sys.path para importar tools.governance_snapshot en forma script (B284); benigna, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "e670fc4f827f0d996afb03e435174053dd79073ee41c98e31cc26cc76b0e63bb": {
+      "file": "tools/validate_governance_bootstrap.py",
+      "qualname": "<module>",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "d7eb638c2b534f2d5ea4fbf60d8b574371bd042ae870e22b116a9c408fb4f3f0",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.exit(...)` sobre modulo canonico (B285); patron de entrypoint del tooling de bootstrap/registro de CI (B284/B290); benigna, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "36981c689a2a7675590247a5b9212b6f6a87087d246f6d4da8bdf5b946bd10d4": {
+      "file": "tools/check_ci_installs.py",
+      "qualname": "<module>",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "d7eb638c2b534f2d5ea4fbf60d8b574371bd042ae870e22b116a9c408fb4f3f0",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.exit(...)` sobre modulo canonico (B285); patron de entrypoint del tooling de bootstrap/registro de CI (B284/B290); benigna, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
     }
   }
 }

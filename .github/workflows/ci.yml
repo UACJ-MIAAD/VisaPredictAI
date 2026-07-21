@@ -265,11 +265,18 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: '3.14'
-      - run: pip install pyyaml==6.0.3   # mismo pin que [dev] (E3)
+      - name: Governed PyYAML bootstrap (hashed)
+        run: |
+          GOV_ENV="$(python tools/install_governance_bootstrap.py)"
+          python tools/validate_governance_bootstrap.py "$GOV_ENV"
+          echo "GOV_ENV=$GOV_ENV" >> "$GITHUB_ENV"
       - name: Check artifact consistency
         env:
           VP_WEB_DIR: web_repo
-        run: python tools/check_consistency.py
+        run: $GOV_ENV/bin/python tools/check_consistency.py
+      # B284/B290: registro POSITIVO de TODA instalación pip de CI (biyección de multiconjunto + categorías cerradas).
+      - name: CI install registry (positive)
+        run: $GOV_ENV/bin/python tools/check_ci_installs.py
       # B3 (plan auditoría 2026-07-11): contratos cross-repo — columnas/llaves requeridas
       # de cada artefacto publicado + corte de añada única. Cero dependencias.
       - name: Check artifact contracts
@@ -305,7 +312,7 @@ jobs:
       # comentario de versión, node24. Offline primero, luego verificación REMOTA (SHA existe, la versión
       # apunta a ese SHA, action.yml declara node24) contra la GitHub API. Fail-closed, con timeout.
       - name: Action pins (registro positivo + verificación remota Node 24)
-        run: timeout 300 python tools/check_action_pins.py --online
+        run: timeout 300 $GOV_ENV/bin/python tools/check_action_pins.py --online
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -327,23 +334,27 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: '3.14'
-      - run: pip install pyyaml==6.0.3
+      - name: Governed PyYAML bootstrap (hashed)
+        run: |
+          GOV_ENV="$(python tools/install_governance_bootstrap.py)"
+          python tools/validate_governance_bootstrap.py "$GOV_ENV"
+          echo "GOV_ENV=$GOV_ENV" >> "$GITHUB_ENV"
       - name: GitHub Actions positive registry (offline)
-        run: python tools/check_action_pins.py
+        run: $GOV_ENV/bin/python tools/check_action_pins.py
       - name: Commit frontier contract (fingerprint + autoridad)
-        run: python tools/check_commit_frontier.py
+        run: $GOV_ENV/bin/python tools/check_commit_frontier.py
       - name: Positive reflection registry (identidad semántica)
-        run: python tools/check_reflection.py
+        run: $GOV_ENV/bin/python tools/check_reflection.py
       - name: Safe opens contract
-        run: python tools/check_safe_opens.py
+        run: $GOV_ENV/bin/python tools/check_safe_opens.py
       - name: Raw filesystem mutation contract
-        run: python tools/check_raw_fs_mutations.py
+        run: $GOV_ENV/bin/python tools/check_raw_fs_mutations.py
       - name: Deep smoke authority contract
-        run: python tools/check_deep_authority.py
+        run: $GOV_ENV/bin/python tools/check_deep_authority.py
       - name: B233 historical diagnostic contract
-        run: python -m tools.validate_b233_receipt
+        run: $GOV_ENV/bin/python -m tools.validate_b233_receipt
       - name: P0R.5 governance gates wired
-        run: python tools/check_p0r5_governance.py
+        run: $GOV_ENV/bin/python tools/check_p0r5_governance.py
 
   # P0R.3: gate de supply chain como CHECK DE CAMBIO (PR/push), no solo cron. Autoridad única
   # = tools/audit_python_supply_chain.py reconciliando los locks contra el JSON. Sin path

@@ -134,6 +134,42 @@
       "reason": "Valida el recibo deep: hashea lock/manifiesto/contrato desde bytes gobernados (categoria source) y verifica el HEAD git (B336).",
       "owner": "seguridad-P0R5",
       "review_by": null
+    },
+    "tools/install_governance_bootstrap.py": {
+      "imports": [
+        "GovernanceSnapshot",
+        "GovernanceSnapshotError"
+      ],
+      "operations": [
+        "head_commit",
+        "read",
+        "reverify"
+      ],
+      "categories": [
+        "source"
+      ],
+      "query_kinds": [],
+      "reason": "Bootstrap gobernado de PyYAML: lee pyproject/lock (source) por una observacion sellada y el HEAD git para el recibo (B284/B290).",
+      "owner": "seguridad-P0R5",
+      "review_by": null
+    },
+    "tools/validate_governance_bootstrap.py": {
+      "imports": [
+        "GovernanceSnapshot",
+        "GovernanceSnapshotError"
+      ],
+      "operations": [
+        "head_commit",
+        "read",
+        "reverify"
+      ],
+      "categories": [
+        "source"
+      ],
+      "query_kinds": [],
+      "reason": "Validador independiente del bootstrap: RE-lee pyproject/lock (source) por observacion sellada y el HEAD para verificar el recibo (B284/B290).",
+      "owner": "seguridad-P0R5",
+      "review_by": null
     }
   }
 }
