@@ -118,3 +118,6 @@ reports/campaign/.merge-CURRENT*
 reports/campaign/.merge-aborted/
 # B179/B180 (Incremento 1R3): cuarentena gobernada por transacción del bundle (governed_fs; runtime)
 reports/campaign/.merge-quar.*
+
+# RC-1: directorio temporal privado 0700 de CI (pytest basetemp fuera de /tmp 01777)
+.ci-private-*/

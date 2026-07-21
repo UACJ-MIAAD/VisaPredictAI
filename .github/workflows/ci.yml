@@ -71,6 +71,19 @@ jobs:
           python-version: '3.14'
           cache: pip
 
+      - name: Private CI temp (0700 — pytest fuera de /tmp 01777)
+        # RC-1: en Ubuntu el `/tmp` del runner es 01777 (world-writable) y las fixtures de
+        # gobernanza que corren bajo `tmp_path` fallan en B282 (GovernanceSnapshot rechaza un
+        # ancestro escribible por grupo/otros — correcto, NO se relaja). Se aloja el basetemp de
+        # pytest en un directorio PRIVADO 0700 bajo el workspace (cuyos ancestros son 0755 del
+        # runner). `TMPDIR` cubre cualquier temporal indirecto; `--basetemp` lo fija explícito.
+        run: |
+          umask 077
+          GOV_TMP="$(mktemp -d "$GITHUB_WORKSPACE/.ci-private-${GITHUB_JOB}.XXXXXX")"
+          chmod 0700 "$GOV_TMP"
+          install -d -m 0700 "$GOV_TMP/tmp"
+          printf 'GOV_TMP=%s\nTMPDIR=%s\n' "$GOV_TMP" "$GOV_TMP/tmp" >> "$GITHUB_ENV"
+
       - name: Install dependencies
         run: |
           # A5: toolchain de instalación PINNEADO (pip/setuptools/wheel) — mismo pip que
@@ -93,7 +106,11 @@ jobs:
         run: mypy --ignore-missing-imports --explicit-package-bases vp_data/*.py pipeline/*.py vp_model/*.py tests/*.py tools/*.py experiments/*.py
 
       - name: Tests + coverage gate (pytest)
-        run: pytest
+        run: pytest --basetemp="$GOV_TMP/pytest-lint"
+
+      - name: Cleanup private CI temp
+        if: always()
+        run: rm -rf "$GOV_TMP"
 
   # Capa de modelado: pesada (darts/torch) y requiere la BD, por eso es un job
   # aparte. Sin él, los tests de vp_model se saltan en silencio (importorskip).
@@ -111,6 +128,17 @@ jobs:
         with:
           python-version: '3.14'
           cache: pip
+
+      - name: Private CI temp (0700 — pytest fuera de /tmp 01777)
+        # RC-1: idéntico a lint-and-test — el basetemp de pytest y los artefactos temporales viven en
+        # un directorio PRIVADO 0700 bajo el workspace; `TMPDIR` cubre `make test-model` (que hereda el
+        # env) y `--basetemp` fija la suite amplia. Sin esto, las fixtures de gobernanza fallan en B282.
+        run: |
+          umask 077
+          GOV_TMP="$(mktemp -d "$GITHUB_WORKSPACE/.ci-private-${GITHUB_JOB}.XXXXXX")"
+          chmod 0700 "$GOV_TMP"
+          install -d -m 0700 "$GOV_TMP/tmp"
+          printf 'GOV_TMP=%s\nTMPDIR=%s\n' "$GOV_TMP" "$GOV_TMP/tmp" >> "$GITHUB_ENV"
 
       - name: Install with modeling extra
         run: |
@@ -131,7 +159,7 @@ jobs:
           python -c 'import torch; assert torch.__version__ == "2.13.0+cpu", torch.__version__'
           # P0R.5 R3: sello del inventario del PRODUCTO antes de cualquier operación DVC (prueba de
           # no-contaminación: DVC corre en un ENV AISLADO, no en este intérprete).
-          python -m pip freeze --all | sort > /tmp/prod_before.txt
+          python -m pip freeze --all | sort > "$GOV_TMP/prod_before.txt"
 
       - name: Build the panel + DuckDB warehouse (modeling reads from it)
         run: |
@@ -169,8 +197,8 @@ jobs:
         # Compara el inventario ANTES/DESPUÉS de todas las operaciones DVC y reafirma los pines que
         # dvc[s3] intentaría subir (requests 2.33.0 / tqdm 4.67.3).
         run: |
-          python -m pip freeze --all | sort > /tmp/prod_after.txt
-          diff /tmp/prod_before.txt /tmp/prod_after.txt \
+          python -m pip freeze --all | sort > "$GOV_TMP/prod_after.txt"
+          diff "$GOV_TMP/prod_before.txt" "$GOV_TMP/prod_after.txt" \
             || { echo "::error::el inventario del producto cambió tras operaciones DVC (contaminación)"; exit 1; }
           pip check
           python -c 'import importlib.metadata as m; assert m.version("requests")=="2.33.0", m.version("requests"); assert m.version("tqdm")=="4.67.3", m.version("tqdm")'
@@ -182,8 +210,8 @@ jobs:
       # docs/coverage_floors.json en un PR (trinquete explícito).
       - name: Per-module coverage floors (G3)
         run: |
-          coverage json --fail-under=0 -o /tmp/cov.json
-          python tools/check_coverage_floors.py /tmp/cov.json
+          coverage json --fail-under=0 -o "$GOV_TMP/cov.json"
+          python tools/check_coverage_floors.py "$GOV_TMP/cov.json"
       # E1 (plan 2026-07-12): cobertura HONESTA por capa. Instrumentación AMPLIA
       # (vp_data+pipeline+vp_model+experiments+tools) sobre la suite completa, en un
       # paso SEPARADO: no toca el gate selectivo de pyproject (fail_under=65 sobre
@@ -194,12 +222,12 @@ jobs:
       # COVERAGE_FILE separado: no pisa el .coverage de make test-model (gate G3).
       - name: Layer coverage floors (broad instrumentation — E1)
         run: |
-          COVERAGE_FILE=/tmp/.coverage.broad python -m pytest -o addopts="" -q \
+          COVERAGE_FILE="$GOV_TMP/.coverage.broad" python -m pytest -o addopts="" -q --basetemp="$GOV_TMP/pytest-broad" \
             --cov=vp_data --cov=vp_model --cov=pipeline --cov=experiments --cov=tools \
             --cov-report= --cov-fail-under=0
-          COVERAGE_FILE=/tmp/.coverage.broad coverage json --fail-under=0 -o /tmp/cov_broad.json
-          python tools/check_coverage_floors.py /tmp/cov_broad.json --layers \
-            --json-out /tmp/coverage_by_layer.json --summary "$GITHUB_STEP_SUMMARY"
+          COVERAGE_FILE="$GOV_TMP/.coverage.broad" coverage json --fail-under=0 -o "$GOV_TMP/cov_broad.json"
+          python tools/check_coverage_floors.py "$GOV_TMP/cov_broad.json" --layers \
+            --json-out "$GOV_TMP/coverage_by_layer.json" --summary "$GITHUB_STEP_SUMMARY"
       # El JSON va como ARTEFACTO de CI, no al repo: reports/governance/ está bajo
       # el manifiesto de release (escribirlo ahí rompería la coherencia manifiesto↔árbol).
       - name: Upload layer coverage artifact (E1)
@@ -207,10 +235,14 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: coverage-by-layer
-          path: /tmp/coverage_by_layer.json
+          path: ${{ env.GOV_TMP }}/coverage_by_layer.json
           # B70: fail-closed — el recibo de cobertura DEBE conservarse (el gate ya corrió antes; ausencia = fallo).
           if-no-files-found: error
           retention-days: 90
+
+      - name: Cleanup private CI temp
+        if: always()
+        run: rm -rf "$GOV_TMP"
 
   # Guardián de consistencia (la máxima del proyecto): web/LaTeX/paper/README/docs deben
   # dar el MISMO número que reports/governance/key_facts.json. Lightweight: solo pyyaml + el JSON
