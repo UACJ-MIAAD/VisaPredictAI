@@ -75,11 +75,11 @@ jobs:
         # RC-1: en Ubuntu el `/tmp` del runner es 01777 (world-writable) y las fixtures de
         # gobernanza que corren bajo `tmp_path` fallan en B282 (GovernanceSnapshot rechaza un
         # ancestro escribible por grupo/otros — correcto, NO se relaja). Se aloja el basetemp de
-        # pytest en un directorio PRIVADO 0700 bajo el workspace (cuyos ancestros son 0755 del
-        # runner). `TMPDIR` cubre cualquier temporal indirecto; `--basetemp` lo fija explícito.
+        # pytest en un directorio PRIVADO 0700 bajo $RUNNER_TEMP (0755 del runner, FUERA del árbol git — dentro del
+        # checkout rompería tests que exigen tmp_path fuera de un repo git). `TMPDIR` cubre cualquier temporal indirecto; `--basetemp` lo fija explícito.
         run: |
           umask 077
-          GOV_TMP="$(mktemp -d "$GITHUB_WORKSPACE/.ci-private-${GITHUB_JOB}.XXXXXX")"
+          GOV_TMP="$(mktemp -d "$RUNNER_TEMP/.gov-${GITHUB_JOB}.XXXXXX")"
           chmod 0700 "$GOV_TMP"
           install -d -m 0700 "$GOV_TMP/tmp"
           printf 'GOV_TMP=%s\nTMPDIR=%s\n' "$GOV_TMP" "$GOV_TMP/tmp" >> "$GITHUB_ENV"
@@ -131,11 +131,11 @@ jobs:
 
       - name: Private CI temp (0700 — pytest fuera de /tmp 01777)
         # RC-1: idéntico a lint-and-test — el basetemp de pytest y los artefactos temporales viven en
-        # un directorio PRIVADO 0700 bajo el workspace; `TMPDIR` cubre `make test-model` (que hereda el
+        # un directorio PRIVADO 0700 bajo $RUNNER_TEMP (fuera del checkout); `TMPDIR` cubre `make test-model` (que hereda el
         # env) y `--basetemp` fija la suite amplia. Sin esto, las fixtures de gobernanza fallan en B282.
         run: |
           umask 077
-          GOV_TMP="$(mktemp -d "$GITHUB_WORKSPACE/.ci-private-${GITHUB_JOB}.XXXXXX")"
+          GOV_TMP="$(mktemp -d "$RUNNER_TEMP/.gov-${GITHUB_JOB}.XXXXXX")"
           chmod 0700 "$GOV_TMP"
           install -d -m 0700 "$GOV_TMP/tmp"
           printf 'GOV_TMP=%s\nTMPDIR=%s\n' "$GOV_TMP" "$GOV_TMP/tmp" >> "$GITHUB_ENV"
@@ -400,7 +400,8 @@ jobs:
         # corre deep_smoke, todo con el intérprete del venv.
         run: |
           umask 077
-          DEEP_ENV="$GITHUB_WORKSPACE/.ci-deep-${{ matrix.variant }}"
+          DEEP_ENV="$RUNNER_TEMP/.ci-deep-${{ matrix.variant }}"
+          export DEEP_ENV
           python -m venv "$DEEP_ENV"
           chmod 0700 "$DEEP_ENV"
           echo "DEEP_ENV=$DEEP_ENV" >> "$GITHUB_ENV"

@@ -1,7 +1,7 @@
 """RC-1: gate ESTRUCTURAL del temporal privado de CI. En Ubuntu el `/tmp` del runner es 01777 (world-writable) y las
 fixtures de gobernanza bajo `tmp_path` fallan en B282 (GovernanceSnapshot rechaza un ancestro escribible por grupo/otros —
 correcto, NO se relaja). `lint-and-test` y `model-tests` deben alojar el basetemp de pytest y sus artefactos temporales en
-un directorio PRIVADO 0700 bajo el workspace, con `TMPDIR` en `GITHUB_ENV`, `--basetemp` explícito, cleanup `if: always()`
+un directorio PRIVADO 0700 bajo $RUNNER_TEMP (fuera del checkout — dentro rompe tests que exigen tmp_path fuera de un repo git), con `TMPDIR` en `GITHUB_ENV`, `--basetemp` explícito, cleanup `if: always()`
 y CERO rutas `/tmp/` sueltas en sus pasos. Este test falla sobre el SHA base `01df0c7` (que no prepara el temporal)."""
 
 from __future__ import annotations
@@ -30,9 +30,14 @@ def test_private_temp_prepared_0700_with_tmpdir(job):
     prep = [s for s in steps if isinstance(s, dict) and "Private CI temp" in str(s.get("name", ""))]
     assert len(prep) == 1, f"{job}: falta el paso 'Private CI temp' (RC-1)"
     run = prep[0]["run"]
-    assert 'mktemp -d "$GITHUB_WORKSPACE/.ci-private-' in run, f"{job}: el temporal debe crearse bajo el workspace"
+    assert 'mktemp -d "$RUNNER_TEMP/.gov-' in run, (
+        f"{job}: el temporal debe crearse bajo $RUNNER_TEMP (fuera del checkout)"
+    )
     assert "chmod 0700" in run and 'install -d -m 0700 "$GOV_TMP/tmp"' in run, f"{job}: debe ser 0700"
     assert "TMPDIR=%s" in run and '>> "$GITHUB_ENV"' in run, f"{job}: TMPDIR debe exportarse a GITHUB_ENV"
+    # regresión: NUNCA bajo el checkout — dentro del árbol git rompe tests que exigen tmp_path fuera de un repo
+    # (test_sha_gate_no_git_repo / test_b19_receipt_outside_workspace / test_provenance_fallbacks).
+    assert "$GITHUB_WORKSPACE" not in run, f"{job}: el temporal NO puede vivir dentro del checkout"
 
 
 @pytest.mark.parametrize("job", JOBS)
@@ -72,7 +77,9 @@ def test_rc2_deep_lock_install_uses_a_private_venv():
     assert build, "falta el paso que construye el venv deep privado (RC-2)"
     b = build[0]["run"]
     assert 'python -m venv "$DEEP_ENV"' in b and "chmod 0700" in b, "el venv deep debe ser 0700"
-    assert 'DEEP_ENV="$GITHUB_WORKSPACE/.ci-deep-' in b, "el venv debe vivir bajo el workspace"
+    assert 'DEEP_ENV="$RUNNER_TEMP/.ci-deep-' in b, "el venv debe vivir bajo $RUNNER_TEMP (fuera del checkout)"
+    assert "$GITHUB_WORKSPACE" not in b, "el venv deep NO puede vivir dentro del checkout"
+    assert "export DEEP_ENV" in b, "DEEP_ENV debe EXPORTARSE (el preflight del MISMO paso lo lee de os.environ)"
     assert '"$DEEP_ENV/bin/python" tools/deep_env_preflight.py' in b, "debe correr el preflight con el python del venv"
     # install del lock + smoke + validador + negativo: SIEMPRE con el intérprete del venv
     assert '"$DEEP_ENV/bin/python" -m pip install --require-hashes -r' in runs, "el lock deep se instala en el venv"
