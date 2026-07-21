@@ -277,6 +277,9 @@ jobs:
       # B284/B290: registro POSITIVO de TODA instalación pip de CI (biyección de multiconjunto + categorías cerradas).
       - name: CI install registry (positive)
         run: $GOV_ENV/bin/python tools/check_ci_installs.py
+      # B286-C: registro POSITIVO de inputs de gobernanza (biyección security/*.json + ci.yml + consistency_rules.yml).
+      - name: Governance inputs registry (positive)
+        run: $GOV_ENV/bin/python tools/check_governance_inputs.py
       # B3 (plan auditoría 2026-07-11): contratos cross-repo — columnas/llaves requeridas
       # de cada artefacto publicado + corte de añada única. Cero dependencias.
       - name: Check artifact contracts

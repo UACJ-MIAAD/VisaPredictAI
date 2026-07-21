@@ -993,6 +993,24 @@
       "occurrence_index": 0,
       "justification": "Llamada estandar `sys.exit(...)` sobre modulo canonico (B285); patron de entrypoint del tooling de bootstrap/registro de CI (B284/B290); benigna, sin reflexion dinamica; revisada 2026-07-20.",
       "review_by": "2027-07-20"
+    },
+    "de89dbeb3c95b40830cfeb7d0a26aabc5e202d90f8032392316ff0fb6a6d4855": {
+      "file": "tools/check_governance_inputs.py",
+      "qualname": "<module>",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "62d62ad076b9b449e1321c75f008850513ff9a107d082b58d350024b7cfc32bb",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.path.insert(...)` sobre modulo canonico (B285); bootstrap del repo en sys.path para importar tools.governance_snapshot en forma script (B286-C); benigna, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
+    },
+    "786480d6aa4c61ce1bdcde6462c80669fae869270a9a6900fd76000a07b5a8bd": {
+      "file": "tools/check_governance_inputs.py",
+      "qualname": "<module>",
+      "op": "canonical-rooted-call",
+      "statement_ast_sha256": "d7eb638c2b534f2d5ea4fbf60d8b574371bd042ae870e22b116a9c408fb4f3f0",
+      "occurrence_index": 0,
+      "justification": "Llamada estandar `sys.exit(...)` sobre modulo canonico (B285); patron de entrypoint del gate de inputs de gobernanza (B286-C); benigna, sin reflexion dinamica; revisada 2026-07-20.",
+      "review_by": "2027-07-20"
     }
   }
 }

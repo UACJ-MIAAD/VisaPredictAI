@@ -170,6 +170,30 @@
       "reason": "Validador independiente del bootstrap: RE-lee pyproject/lock (source) por observacion sellada y el HEAD para verificar el recibo (B284/B290).",
       "owner": "seguridad-P0R5",
       "review_by": null
+    },
+    "tools/check_governance_inputs.py": {
+      "imports": [
+        "GovernanceSnapshot",
+        "GovernanceSnapshotError",
+        "TrackedQuery"
+      ],
+      "operations": [
+        "read",
+        "reverify",
+        "tracked"
+      ],
+      "categories": [
+        "contract",
+        "source"
+      ],
+      "query_kinds": [
+        "exact",
+        "prefix",
+        "suffix"
+      ],
+      "reason": "Gate de inputs de gobernanza: lee el registro + cada input (security/*.json + ci.yml + consistency_rules.yml) y el arbol .py por UNA observacion sellada (B286-C).",
+      "owner": "seguridad-P0R5",
+      "review_by": null
     }
   }
 }
