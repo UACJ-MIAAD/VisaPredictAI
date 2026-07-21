@@ -182,3 +182,58 @@ def test_online_fully_provisioned_still_red_by_external_blocker(monkeypatch):
 
 def test_external_blocker_is_open_in_real_contract():
     assert _GOOD["external_blocker"]["open"] is True, "B291 debe seguir ABIERTO hasta la acción externa 10.2"
+
+
+# --------------------------------------------------------------------------- Ronda B: coerciones de tipo / actor duplicado
+
+
+def _prot_perfect():
+    return {
+        "required_pull_request_reviews": {
+            "required_approving_review_count": 1,
+            "dismiss_stale_reviews": True,
+            "require_last_push_approval": True,
+            "require_code_owner_reviews": True,
+        },
+        "required_status_checks": {"strict": True},
+    }
+
+
+def test_online_bool_count_coercion_rejected(monkeypatch):
+    # `required_approving_review_count: True` (bool) NO cuela como "1 aprobación" (True<1 es False → fail-open viejo)
+    monkeypatch.setenv("GH_TOKEN", "t")
+    ruleset = [{"id": _GOOD["ruleset"]["id"], "enforcement": "active"}]
+    prot = _prot_perfect()
+    prot["required_pull_request_reviews"]["required_approving_review_count"] = True
+    monkeypatch.setattr(rg, "_gh_get", _mock_gh({"/rulesets": (ruleset, None), "/protection": (prot, None), "/collaborators": ([{"login": "a"}, {"login": "b"}], None)}))  # fmt: skip
+    assert any("aprobaciones" in p or "no es int" in p for p in rg.online_problems(_GOOD)), rg.online_problems(_GOOD)
+
+
+def test_online_string_flag_coercion_rejected(monkeypatch):
+    # `dismiss_stale_reviews: "false"` (string truthy) NO cuela como activo
+    monkeypatch.setenv("GH_TOKEN", "t")
+    ruleset = [{"id": _GOOD["ruleset"]["id"], "enforcement": "active"}]
+    prot = _prot_perfect()
+    prot["required_pull_request_reviews"]["dismiss_stale_reviews"] = "false"
+    monkeypatch.setattr(rg, "_gh_get", _mock_gh({"/rulesets": (ruleset, None), "/protection": (prot, None), "/collaborators": ([{"login": "a"}, {"login": "b"}], None)}))  # fmt: skip
+    assert any("dismiss stale" in p and "coercionado" in p for p in rg.online_problems(_GOOD)), rg.online_problems(
+        _GOOD
+    )
+
+
+def test_online_strict_coercion_rejected(monkeypatch):
+    # `required_status_checks.strict: 1` (int truthy) NO cuela como strict
+    monkeypatch.setenv("GH_TOKEN", "t")
+    ruleset = [{"id": _GOOD["ruleset"]["id"], "enforcement": "active"}]
+    prot = _prot_perfect()
+    prot["required_status_checks"]["strict"] = 1
+    monkeypatch.setattr(rg, "_gh_get", _mock_gh({"/rulesets": (ruleset, None), "/protection": (prot, None), "/collaborators": ([{"login": "a"}, {"login": "b"}], None)}))  # fmt: skip
+    assert any("strict" in p for p in rg.online_problems(_GOOD)), rg.online_problems(_GOOD)
+
+
+def test_online_duplicate_collaborator_rejected(monkeypatch):
+    # el MISMO login duplicado NO crea un segundo revisor independiente
+    monkeypatch.setenv("GH_TOKEN", "t")
+    ruleset = [{"id": _GOOD["ruleset"]["id"], "enforcement": "active"}]
+    monkeypatch.setattr(rg, "_gh_get", _mock_gh({"/rulesets": (ruleset, None), "/protection": (_prot_perfect(), None), "/collaborators": ([{"login": "jrebull"}, {"login": "jrebull"}], None)}))  # fmt: skip
+    assert any("DISTINTOS" in p for p in rg.online_problems(_GOOD)), rg.online_problems(_GOOD)

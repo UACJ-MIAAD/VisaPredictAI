@@ -158,24 +158,34 @@ def online_problems(doc: dict) -> list[str]:
     if perr is not None or not isinstance(prot, dict):
         problems.append(f"--online: sin protección legible sobre {doc['default_branch']} ({perr}) (B291)")
     else:
-        pr = prot.get("required_pull_request_reviews") or {}
+        pr = prot.get("required_pull_request_reviews")
         rp = doc["review_policy"]
-        if (pr.get("required_approving_review_count") or 0) < rp["required_approving_review_count"]:
-            problems.append("--online: la protección exige menos aprobaciones que la política (B291)")
-        if not pr.get("dismiss_stale_reviews"):
-            problems.append("--online: dismiss stale reviews NO activo (B291)")
-        if not pr.get("require_last_push_approval"):
-            problems.append("--online: require last-push approval NO activo (B291)")
-        if not pr.get("require_code_owner_reviews"):
-            problems.append("--online: require code-owner reviews NO activo (B291)")
-        if not (prot.get("required_status_checks") or {}).get("strict"):
-            problems.append("--online: required status checks NO es strict (B291)")
+        if not isinstance(pr, dict):
+            problems.append("--online: required_pull_request_reviews ausente/malformado (B291)")
+            pr = {}
+        # Ronda B: rechaza COERCIONES de tipo — el conteo debe ser un int EXACTO (no bool, no string; `True<1` colaba),
+        # y cada flag debe ser EXACTAMENTE `True` (no un truthy como la cadena "false" o un int 1).
+        cnt = pr.get("required_approving_review_count")
+        if not (type(cnt) is int and cnt >= rp["required_approving_review_count"]):
+            problems.append("--online: la protección exige menos aprobaciones que la política, o el conteo no es int (B291)")  # fmt: skip
+        if pr.get("dismiss_stale_reviews") is not True:
+            problems.append("--online: dismiss stale reviews NO activo (o coercionado) (B291)")
+        if pr.get("require_last_push_approval") is not True:
+            problems.append("--online: require last-push approval NO activo (o coercionado) (B291)")
+        if pr.get("require_code_owner_reviews") is not True:
+            problems.append("--online: require code-owner reviews NO activo (o coercionado) (B291)")
+        rscheck = prot.get("required_status_checks")
+        if not (isinstance(rscheck, dict) and rscheck.get("strict") is True):
+            problems.append("--online: required status checks NO es strict (o coercionado) (B291)")
     # 3) colaboradores: debe existir al menos un revisor con write/maintain/admin DISTINTO del autor
     collabs, cerr = _gh_get(f"/repos/{repo}/collaborators?permission=push", token)
     if cerr is not None or not isinstance(collabs, list):
         problems.append(f"--online: no se pudo enumerar colaboradores con push ({cerr}) (B291)")
-    elif len([c for c in collabs if isinstance(c, dict)]) < 2:
-        problems.append("--online: menos de 2 colaboradores con push — no hay revisor independiente posible (B291)")
+    else:
+        # Ronda B: cuenta LOGINS DISTINTOS (un actor duplicado en la respuesta no crea un segundo revisor real)
+        logins = {c["login"] for c in collabs if isinstance(c, dict) and isinstance(c.get("login"), str)}
+        if len(logins) < 2:
+            problems.append("--online: menos de 2 colaboradores DISTINTOS con push — no hay revisor independiente posible (B291)")  # fmt: skip
     if not problems:
         # incluso si la API dijera OK, el contrato marca el bloqueo externo abierto: exigir su cierre explícito.
         if doc["external_blocker"].get("open") is True:
