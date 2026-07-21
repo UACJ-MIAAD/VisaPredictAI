@@ -6,9 +6,11 @@ adversariales inyectan fuente MANIPULADA que reintroduce los agujeros de B331/B3
 
 from __future__ import annotations
 
+import pathlib
+
 import tools.check_deep_authority as g
 
-REAL = open("tools/deep_smoke.py", encoding="utf-8").read()  # noqa: SIM115
+REAL = pathlib.Path("tools/deep_smoke.py").read_text(encoding="utf-8")
 
 
 def test_real_deep_smoke_passes_authority_gate():

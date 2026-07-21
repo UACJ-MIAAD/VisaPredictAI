@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import subprocess
 
 import tools.check_governance_inputs as gi
@@ -141,7 +142,7 @@ def test_bad_required_mode_fails(tmp_path, monkeypatch):
 
 def test_p0r5_and_action_pins_and_consistency_are_registered_consumers():
     # las migraciones de §8.2 declaran estos tres como consumidores de GovernanceSnapshot (biyección B286-B lo exige)
-    reg = json.loads(open("security/governance_snapshot_consumers.json", encoding="utf-8").read())
+    reg = json.loads(pathlib.Path("security/governance_snapshot_consumers.json").read_text(encoding="utf-8"))
     for c in ("tools/check_p0r5_governance.py", "tools/check_action_pins.py", "tools/check_consistency.py"):
         assert c in reg["consumers"], c
         assert "read" in reg["consumers"][c]["operations"], c
@@ -149,17 +150,17 @@ def test_p0r5_and_action_pins_and_consistency_are_registered_consumers():
 
 def test_p0r5_main_reads_workflow_through_snapshot():
     # regresión estructural: main() abre una GovernanceSnapshot y llama problems() con el texto gobernado + reverify
-    src = open("tools/check_p0r5_governance.py", encoding="utf-8").read()
+    src = pathlib.Path("tools/check_p0r5_governance.py").read_text(encoding="utf-8")
     assert "with GovernanceSnapshot(ROOT) as snap:" in src
     assert "snap.read(_WORKFLOW" in src and "snap.reverify()" in src
 
 
 def test_action_pins_main_reads_inputs_through_snapshot():
-    src = open("tools/check_action_pins.py", encoding="utf-8").read()
+    src = pathlib.Path("tools/check_action_pins.py").read_text(encoding="utf-8")
     assert "with GovernanceSnapshot(str(ROOT)) as snap:" in src
     assert 'snap.read(_reg_rel, category="contract")' in src and "snap.reverify()" in src
 
 
 def test_consistency_reads_rules_through_snapshot():
-    src = open("tools/check_consistency.py", encoding="utf-8").read()
+    src = pathlib.Path("tools/check_consistency.py").read_text(encoding="utf-8")
     assert "_read_rules_text()" in src and "GovernanceSnapshot" in src

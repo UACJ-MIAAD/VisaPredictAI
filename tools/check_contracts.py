@@ -66,7 +66,8 @@ def check(root: Path = ROOT, contracts_dir: Path = CONTRACTS_DIR) -> list[str]:
             problems.append(f"{c['artifact']}: artefacto ausente")
             continue
         if c["kind"] == "csv":
-            header = art.open().readline().strip().split(",")
+            with art.open() as _fh:  # cerrar el fichero (evita ResourceWarning bajo -W error)
+                header = _fh.readline().strip().split(",")
             missing = [col for col in c["required_columns"] if col not in header]
             if missing:
                 problems.append(f"{c['artifact']}: columnas requeridas ausentes {missing}")

@@ -1,0 +1,38 @@
+# CODEOWNERS — P0R.5 (B291). Rutas críticas de gobernanza cuya revisión DEBE aprobar un code-owner cuando el fichero es
+# efectivo en la rama base. La superficie: workflows de CI, contratos/registries de seguridad, locks/supply-chain, los
+# gates de gobernanza, la maquinaria de autoridad transaccional y este propio fichero + su contrato.
+#
+# NOTA: la EFECTIVIDAD de estas reglas requiere que la protección de rama de `main` exija "Require review from Code
+# Owners" (acción externa, aún NO activada — B291 sigue abierto). El contrato `security/repository_governance.json` y
+# `tools/check_repository_governance.py --online` reportan ese bloqueo en ROJO hasta que se active con un revisor real.
+
+# Workflows de CI (el cron, el gate, LaTeX, watchdog, scheduled-quality)
+/.github/workflows/                     @jrebull
+/.github/CODEOWNERS                      @jrebull
+
+# Contratos y registries de seguridad (Actions, reflexión, frontera de commit, consumidores/inputs de snapshot,
+# instalaciones CI, warnings, advisories, contratos de bundle/deep, gobernanza del repo)
+/security/                               @jrebull
+
+# Locks por perfil + supply-chain
+/locks/                                  @jrebull
+/environments/                           @jrebull
+
+# Gates de gobernanza + contratos de entorno/lock (todo `tools/check_*` y la maquinaria P0R.5)
+/tools/check_*.py                        @jrebull
+/tools/lock_contracts.py                 @jrebull
+/tools/python_env.py                     @jrebull
+/tools/governance_snapshot.py            @jrebull
+/tools/governed_import_identity.py       @jrebull
+/tools/install_governance_bootstrap.py   @jrebull
+/tools/validate_governance_bootstrap.py  @jrebull
+/tools/validate_b233_receipt.py          @jrebull
+/tools/validate_deep_receipt.py          @jrebull
+/tools/deep_smoke.py                     @jrebull
+
+# Maquinaria de AUTORIDAD transaccional (frontera de commit): su AST/bytes están pineados por fingerprint
+/tools/campaign_bundle.py                @jrebull
+/tools/merge_campaign_pools.py           @jrebull
+/tools/governed_fs.py                    @jrebull
+/tools/governed_read.py                  @jrebull
+/tools/atomic_fs.py                      @jrebull

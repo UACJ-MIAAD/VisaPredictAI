@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import pathlib
 import subprocess
 import sys
 import time
@@ -2460,7 +2461,7 @@ def test_b164_manifest_provenance_carries_module_hashes_and_journal_heads(tmp_pa
     finally:
         os.close(cfd)
     prov = manifest["provenance"]
-    real = hashlib.sha256(open(cb.__file__, "rb").read()).hexdigest()
+    real = hashlib.sha256(pathlib.Path(cb.__file__).read_bytes()).hexdigest()
     assert prov["code_sha_campaign_bundle"] == real, "provenance no lleva el hash real de campaign_bundle.py"
     assert set(prov.keys()) == set(cb._REQUIRED_PROVENANCE)
     assert isinstance(prov["journal_heads"], dict)

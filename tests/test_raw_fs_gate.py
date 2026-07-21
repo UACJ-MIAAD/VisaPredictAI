@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import tempfile
 
 import pytest
@@ -53,7 +54,7 @@ def test_gate_allows_nondestructive_os():
 
 def test_csv_contract_is_well_formed():
     root = os.path.dirname(os.path.dirname(os.path.abspath(gate.__file__)))
-    contract = json.load(open(os.path.join(root, "security", "campaign_bundle_contract.json")))
+    contract = json.loads(pathlib.Path(os.path.join(root, "security", "campaign_bundle_contract.json")).read_text())
     assert contract["encoding"] == "utf-8"
     assert isinstance(contract["columns"], list) and len(contract["columns"]) == 20
     assert contract["columns"][0] == "run_id" and contract["columns"][-1] == "source_run_id"

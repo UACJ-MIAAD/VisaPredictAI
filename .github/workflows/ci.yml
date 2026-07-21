@@ -282,6 +282,13 @@ jobs:
       # TODOs) jamás suben respecto a docs/debt_baseline.json. Cero dependencias.
       - name: Check debt ratchet
         run: python tools/check_debt.py
+      # Fase 4 (P0R.5): warnings como contrato — `error` global + filtros estrechos en biyección con el registro.
+      - name: Check warnings contract
+        run: python tools/check_warnings.py
+      # B291 (P0R.5): contrato de gobernanza del repo OFFLINE (esquema + cobertura CODEOWNERS). El modo --online
+      # (protección remota) sigue ROJO por el bloqueo externo (revisor independiente + ruleset) y NO corre en CI.
+      - name: Check repository governance (offline)
+        run: python tools/check_repository_governance.py --offline
       # I2: todo entrypoint de experiments/ debe estar clasificado (producto/
       # deliverable/investigacion/diagnostico/archivo) con consumidor declarado.
       - name: Check experiments inventory

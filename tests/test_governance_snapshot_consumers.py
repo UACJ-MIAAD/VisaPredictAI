@@ -11,6 +11,7 @@ pasan."""
 from __future__ import annotations
 
 import json
+import pathlib
 
 import tools.check_governance_snapshot_consumers as gate
 
@@ -165,7 +166,9 @@ def test_ops_only_attributed_to_snapshot_instances(monkeypatch, tmp_path):
     _setup(
         monkeypatch,
         tmp_path,
-        {"tools/x.py": "from tools.governance_snapshot import StatSnapshot\n_ = StatSnapshot\nopen('f').read()\n"},
+        {
+            "tools/x.py": "from tools.governance_snapshot import StatSnapshot\n_ = StatSnapshot\npathlib.Path('f').read_text()\n"
+        },
         {"tools/x.py": _entry(imports=["StatSnapshot"], operations=[])},
     )
     assert gate.problems() == [], gate.problems()
@@ -217,7 +220,7 @@ def test_duplicate_json_keys_fail(monkeypatch, tmp_path):
 def test_the_four_migrated_gates_use_read_tracked_reverify():
     # wiring: los 4 gates migrados declaran (y por biyección USAN) read+tracked+reverify sobre la snapshot; una regresión
     # a `git ls-files`/`open()` en su `main()` bajaría la operación observada y el gate de consumidores la marcaría.
-    reg = json.loads(open("security/governance_snapshot_consumers.json", encoding="utf-8").read())
+    reg = json.loads(pathlib.Path("security/governance_snapshot_consumers.json").read_text(encoding="utf-8"))
     for g in (
         "tools/check_commit_frontier.py",
         "tools/check_reflection.py",

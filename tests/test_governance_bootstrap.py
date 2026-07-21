@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 
 import pytest
 
@@ -43,7 +44,7 @@ def test_pin_from_pyproject_exact_or_fail():
 
 def test_installer_uses_require_hashes_no_deps_isolated():
     # el instalador SIEMPRE instala con --no-deps --require-hashes y verifica bajo -I (regresión estructural)
-    src = open(boot.__file__, encoding="utf-8").read()
+    src = pathlib.Path(boot.__file__).read_text(encoding="utf-8")
     assert '"--no-deps", "--require-hashes"' in src
     assert '"-I", "-c", _VERIFY_SRC' in src
 
@@ -106,7 +107,8 @@ def test_validator_rejects_missing_receipt_keys(tmp_path, monkeypatch):
     venv.mkdir()
     os.chmod(venv, 0o700)
     (venv / val._RECEIPT_NAME).write_text('{"schema_version": 1}')  # claves faltantes
-    monkeypatch.setenv("GOV_ENV", str(venv))
+    # invocación CI: `validate_governance_bootstrap.py "$GOV_ENV"` (argv[1] = venv); fijar argv para no leer el de pytest
+    monkeypatch.setattr("sys.argv", ["validate_governance_bootstrap.py", str(venv)])
     assert val.main() == 1
 
 
@@ -119,12 +121,12 @@ def test_validator_does_not_trust_receipt_alone(tmp_path, monkeypatch):
     receipt = {k: "x" for k in val._RECEIPT_KEYS}
     receipt["venv_prefix"] = str(venv)
     (venv / val._RECEIPT_NAME).write_text(json.dumps(receipt))
-    monkeypatch.setenv("GOV_ENV", str(venv))
+    monkeypatch.setattr("sys.argv", ["validate_governance_bootstrap.py", str(venv)])
     assert val.main() == 1
 
 
 def test_validator_reobserves_via_isolated_subprocess():
-    src = open(val.__file__, encoding="utf-8").read()
+    src = pathlib.Path(val.__file__).read_text(encoding="utf-8")
     assert 'subprocess.run([py, "-I", "-c", _VERIFY_SRC]' in src  # re-ejecuta la verificación, no confía en el recibo
     assert 'hashlib.sha256(lock).hexdigest() != receipt["lock_sha256"]' in src  # re-lee el lock gobernado
 
@@ -178,7 +180,7 @@ def test_ci_installs_biyection_detects_count_divergence(monkeypatch):
 
 
 def test_ci_installs_registry_rejects_out_of_set_category_and_expired(monkeypatch):
-    good = json.loads(open(os.path.join(ci._ROOT, ci._REGISTRY), encoding="utf-8").read())
+    good = json.loads(pathlib.Path(os.path.join(ci._ROOT, ci._REGISTRY)).read_text(encoding="utf-8"))
     bad_cat = json.loads(json.dumps(good))
     bad_cat["installs"][0]["category"] = "made-up"
     monkeypatch.setattr(ci, "_load_registry", lambda: (bad_cat, []))

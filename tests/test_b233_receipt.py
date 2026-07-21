@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import pathlib
 import subprocess
 import sys
 
@@ -32,7 +33,7 @@ def test_b273_validator_imports_and_runs_without_pandas():
 
 
 def _base() -> dict:
-    return json.load(open(_RECEIPT))
+    return json.loads(pathlib.Path(_RECEIPT).read_text())
 
 
 def test_governed_receipt_v3_is_valid():
@@ -170,10 +171,10 @@ def test_governed_reads_are_fd_bound_no_open_by_path():
 
 
 def test_b261_certify_refuses_and_never_writes_canonical():
-    before = open(_RECEIPT, "rb").read()
+    before = pathlib.Path(_RECEIPT).read_bytes()
     rc = cap.main(["capture_b233_receipt", "--certify"])
     assert rc == 2, "--certify debe salir 2 (pendiente R9/B233)"
-    assert open(_RECEIPT, "rb").read() == before, "--certify JAMAS debe escribir el recibo canonico (B261)"
+    assert pathlib.Path(_RECEIPT).read_bytes() == before, "--certify JAMAS debe escribir el recibo canonico (B261)"
 
 
 def test_b261_default_verifies():
@@ -197,14 +198,14 @@ def test_b267_export_emits_only_validated_bytes():
     data, probs = v.read_and_validate_canonical()
     assert probs == [] and data is not None
     assert json.loads(data.decode())["schema_version"] == 3
-    assert data == open(_RECEIPT, "rb").read()
+    assert data == pathlib.Path(_RECEIPT).read_bytes()
 
 
 def test_b267_export_refuses_symlink_mode_hardlink(tmp_path, monkeypatch):
     # B267: la lectura gobernada del recibo se niega ante symlink / modo escribible g-o / hardlink → sin bytes.
     gov = tmp_path / "reports" / "governance"
     gov.mkdir(parents=True)
-    real = json.loads(open(_RECEIPT).read())
+    real = json.loads(pathlib.Path(_RECEIPT).read_text())
     # symlink canónico -> forjado
     forged = tmp_path / "forged.json"
     forged.write_text('{"forged": true}')

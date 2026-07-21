@@ -8,17 +8,18 @@ from __future__ import annotations
 import copy
 import json
 import os
+import pathlib
 import shutil
 import tempfile
 
 import tools.check_p0r5_governance as gov
 
 # capturado UNA vez, antes de cualquier monkeypatch de gov.ROOT.
-_REAL_CI = open(os.path.join(gov.ROOT, gov._WORKFLOW), encoding="utf-8").read()
+_REAL_CI = pathlib.Path(os.path.join(gov.ROOT, gov._WORKFLOW)).read_text(encoding="utf-8")
 _REAL_ROOT = gov.ROOT
 # defensivo para la verificación RED en 2ce76d8 (era sin registro de Actions): {} allí, el registro real aquí.
 _REAL_REGISTRY = (
-    json.loads(open(os.path.join(gov.ROOT, gov._ACTION_REGISTRY), encoding="utf-8").read())
+    json.loads(pathlib.Path(os.path.join(gov.ROOT, gov._ACTION_REGISTRY)).read_text(encoding="utf-8"))
     if hasattr(gov, "_ACTION_REGISTRY")
     else {}
 )

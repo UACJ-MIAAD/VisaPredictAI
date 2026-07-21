@@ -159,6 +159,34 @@
       "max_bytes": 262144,
       "reason": "Reglas (forbidden/numeric/decimal) que dirigen la decision del guardian de consistencia.",
       "local_mode": "0o644"
+    },
+    "security/warnings_registry.json": {
+      "category": "contract",
+      "format": "json",
+      "parser": "json anti-duplicados",
+      "consumers": [
+        "tools/check_warnings.py"
+      ],
+      "operations": [
+        "read"
+      ],
+      "max_bytes": 262144,
+      "reason": "Registro POSITIVO de warnings upstream/experimentales inevitables (Fase 4); check_warnings valida su biyeccion con pyproject.",
+      "local_mode": "0o644"
+    },
+    "security/repository_governance.json": {
+      "category": "contract",
+      "format": "json",
+      "parser": "json anti-duplicados",
+      "consumers": [
+        "tools/check_repository_governance.py"
+      ],
+      "operations": [
+        "read"
+      ],
+      "max_bytes": 262144,
+      "reason": "Contrato de gobernanza del repositorio (B291): ruleset/branch/checks/review + cobertura CODEOWNERS.",
+      "local_mode": "0o644"
     }
   }
 }

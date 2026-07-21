@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import pathlib
 
 import pytest
 
@@ -15,7 +16,9 @@ import tools.campaign_bundle as cb
 import tools.governed_fs as gf
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(cb.__file__)))
-_COLS = json.load(open(os.path.join(_ROOT, "security", "campaign_bundle_contract.json")))["columns"]
+_COLS = json.loads(pathlib.Path(os.path.join(_ROOT, "security", "campaign_bundle_contract.json")).read_text())[
+    "columns"
+]
 _HDR = ",".join(_COLS)
 _INPUTS = [f"aq_pool_{k}_{t}_{b}.csv" for k in ("nongbm", "gbm") for t in ("FAD", "DFF") for b in ("family", "employment")]  # fmt: skip
 _CAMP = [f"campaign_pool_{t}_{b}.csv" for t in ("FAD", "DFF") for b in ("family", "employment")]
@@ -617,7 +620,9 @@ def test_b192_b207_same_inode_mutation_restored_to_official():
             with pytest.raises(gf.GovernedRemovalError):
                 q.quarantine(cfd, "obj", lease)
         assert "obj" in os.listdir(cfd)  # RESTAURADO a su ruta oficial (source-CAS)
-        assert open(os.path.join(d, "obj"), "rb").read() == b"MUTATED-concurrent"  # la actualización se conserva
+        assert (
+            pathlib.Path(os.path.join(d, "obj")).read_bytes() == b"MUTATED-concurrent"
+        )  # la actualización se conserva
     finally:
         os.close(cfd)
 
@@ -782,8 +787,8 @@ def test_b200_quarantine_journal_tamper_detected(tmp_path):
         q = gf.GovernedQuarantine(cfd, "tx.j01")
         q.quarantine(cfd, "o", lease)
         jpath = os.path.join(d, q.name, "MANIFEST.jsonl")
-        data = open(jpath, "rb").read().replace(b'"MOVED"', b'"HACKED"')
-        open(jpath, "wb").write(data)
+        data = pathlib.Path(jpath).read_bytes().replace(b'"MOVED"', b'"HACKED"')
+        pathlib.Path(jpath).write_bytes(data)
         with pytest.raises(gf.GovernedQuarantineError):
             q._reread_and_validate()
         q.close()
@@ -809,7 +814,9 @@ def test_b202_journal_name_substitution_detected():
         q.quarantine(cfd, "o", lease)  # crea el journal
         jdir = os.path.join(d, q.name)
         os.rename(os.path.join(jdir, "MANIFEST.jsonl"), os.path.join(jdir, "orphan"))
-        open(os.path.join(jdir, "MANIFEST.jsonl"), "wb").write(b"FORGED\n")  # nombre re-ligado a un fichero ajeno
+        pathlib.Path(os.path.join(jdir, "MANIFEST.jsonl")).write_bytes(
+            b"FORGED\n"
+        )  # nombre re-ligado a un fichero ajeno
         fd2 = os.open("o2", os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600, dir_fd=cfd)
         os.write(fd2, b"z")
         l2 = gf.OwnedLease(fd2, is_dir=False)
@@ -971,7 +978,7 @@ def test_b215_journal_state_machine_rejects_bad_records():
             rec(seq=1, record="MOVED", oid="0" * 16),  # terminal sin INTENT
             rec(seq=1, record="WEIRD", oid="0" * 16),  # record desconocido
         ):
-            open(jpath, "wb").write(bad)
+            pathlib.Path(jpath).write_bytes(bad)
             with pytest.raises(gf.GovernedQuarantineError):
                 q._reread_and_validate()
         q.close()
@@ -1150,7 +1157,7 @@ def _journal_ops(quar_dir):
     """Lee MANIFEST.jsonl y agrupa por operation_id → {oid: [records...]}."""
     man = os.path.join(quar_dir, "MANIFEST.jsonl")
     by_op: dict = {}
-    for line in open(man).read().splitlines():
+    for line in pathlib.Path(man).read_text().splitlines():
         rec = json.loads(line)
         by_op.setdefault(rec["operation_id"], []).append(rec["record"])
     return by_op

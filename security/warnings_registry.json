@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "note": "Registro POSITIVO machine-readable de warnings UPSTREAM/experimentales INEVITABLES (Fase 4). La suite corre con `filterwarnings=[error, ...]`: TODO warning nuevo es ERROR salvo estos 4, ignorados por un filtro ESTRECHO (message-prefix + categoria). Sin supresion global: prohibido `ignore::Warning` o `ignore` sin mensaje. Cada aceptacion EXPIRA (`review`). Los warnings de codigo PROPIO se corrigen (no se registran). `tools/check_warnings.py` valida esquema+expiry y la BIYECCION registro<->filterwarnings de pyproject.",
+  "warnings": [
+    {
+      "id": "sklearn-lgbm-feature-names",
+      "package": "scikit-learn",
+      "version": "1.9.0",
+      "category": "UserWarning",
+      "message_prefix": "X does not have valid feature names, but LGBMRegressor was fitted with feature names",
+      "origin": "vp_model/tune.py",
+      "reason": "LightGBM se entrena con nombres de columna y se predice sobre un ndarray sin nombres; comportamiento benigno y estable de sklearn/LightGBM.",
+      "issue": "upstream sklearn/LightGBM: predecir con ndarray tras fit con DataFrame",
+      "review": "2027-01-31"
+    },
+    {
+      "id": "optuna-multivariate-experimental",
+      "package": "optuna",
+      "version": "4.9.0",
+      "category": "optuna.exceptions.ExperimentalWarning",
+      "message_prefix": "Argument ``multivariate`` is an experimental feature",
+      "origin": "vp_model/tune.py:346",
+      "reason": "El TPESampler usa `multivariate=True` (API experimental deliberada) para el muestreo conjunto de hiperparametros.",
+      "issue": "optuna experimental API multivariate",
+      "review": "2027-01-31"
+    },
+    {
+      "id": "optuna-group-experimental",
+      "package": "optuna",
+      "version": "4.9.0",
+      "category": "optuna.exceptions.ExperimentalWarning",
+      "message_prefix": "Argument ``group`` is an experimental feature",
+      "origin": "vp_model/tune.py:346",
+      "reason": "El TPESampler usa `group=True` (API experimental deliberada) para respetar la estructura de grupos del espacio.",
+      "issue": "optuna experimental API group",
+      "review": "2027-01-31"
+    },
+    {
+      "id": "scipy-constant-input-corr",
+      "package": "scipy",
+      "version": "1.17.1",
+      "category": "scipy.stats.ConstantInputWarning",
+      "message_prefix": "An input array is constant",
+      "origin": "vp_model/tune.py:430",
+      "reason": "Una serie puede ser constante en una ventana; la correlacion no esta definida y se maneja aguas abajo. Benigno.",
+      "issue": "scipy constant-input correlation",
+      "review": "2027-01-31"
+    }
+  ]
+}
