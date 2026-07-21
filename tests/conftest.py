@@ -25,9 +25,22 @@ FILTERWARNINGS = [
 ]
 
 
+def _filter_category_available(filt):
+    """Un filtro `ignore:<msg>:<categoría>` con categoría PUNTEADA de terceros (optuna/scipy) sólo se aplica si su módulo
+    raíz está INSTALADO en este job — el job base (`.[dev]`) no trae optuna/scipy y pytest CRASHEA al RESOLVER la
+    categoría (`filterwarnings=error` convierte el PytestConfigWarning en INTERNALERROR). Esos warnings sólo se emiten si
+    el módulo está presente (los tests de modelado se `collect_ignore`-an sin él), así que saltarlos es seguro. `error` y
+    las categorías builtin (sin punto) se aplican siempre. Usa `find_spec` (NO importa → no crashea)."""
+    parts = filt.split(":")
+    if len(parts) < 3 or "." not in parts[-1]:
+        return True
+    return importlib.util.find_spec(parts[-1].split(".")[0]) is not None
+
+
 def pytest_configure(config):
     for _f in FILTERWARNINGS:
-        config.addinivalue_line("filterwarnings", _f)
+        if _filter_category_available(_f):
+            config.addinivalue_line("filterwarnings", _f)
 
 
 _MODEL_TESTS = [

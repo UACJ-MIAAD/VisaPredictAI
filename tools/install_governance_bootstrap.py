@@ -163,7 +163,11 @@ def _venv_python(venv: str) -> str:
 
 def _install_and_verify(venv: str, req_path: str, env: dict[str, str], version: str) -> dict:
     py = _venv_python(venv)
-    subprocess.run([py, "-m", "pip", "install", "--no-deps", "--require-hashes", "-r", req_path], check=True, env=env)
+    # CAPTURA la salida de pip: STDOUT del instalador es SÓLO la ruta del venv (el paso de CI la captura con `$(...)`);
+    # dejar que pip escriba a stdout la contaminaba ("Downloading pyyaml…") y rompía `echo GOV_ENV >> $GITHUB_ENV`.
+    pip = subprocess.run([py, "-m", "pip", "install", "--no-deps", "--require-hashes", "-r", req_path], env=env, capture_output=True, text=True)  # fmt: skip
+    if pip.returncode != 0:
+        raise _BootstrapError(f"pip install falló (rc={pip.returncode}):\n{pip.stdout}\n{pip.stderr}")
     proc = subprocess.run([py, "-I", "-c", _VERIFY_SRC], check=True, capture_output=True, text=True, env=env)
     try:
         info = json.loads(proc.stdout.strip().splitlines()[-1])
