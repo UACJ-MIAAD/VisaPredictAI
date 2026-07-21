@@ -294,8 +294,9 @@ def test_wired_in_ci_with_negative_test_between_smoke_and_upload():
     ci = (lc.ROOT / ".github" / "workflows" / "ci.yml").read_text()
     assert "deep-lock-install" in ci
     job = ci.split("deep-lock-install", 1)[1].split("dvc-tool-install", 1)[0]
-    smoke = job.index("python -m tools.deep_smoke")
-    validate = job.index("python -m tools.validate_deep_receipt")
+    # RC-2: cada herramienta deep corre con el intérprete del venv privado (`"$DEEP_ENV/bin/python" -m tools.*`).
+    smoke = job.index("bin/python" + '" -m tools.deep_smoke')
+    validate = job.index("bin/python" + '" -m tools.validate_deep_receipt')
     negative = job.index("recibo manipulado DEBE fallar")
     upload = job.index("upload-artifact", smoke)
     assert smoke < validate < negative < upload, "orden smoke < validador < negativo < upload"

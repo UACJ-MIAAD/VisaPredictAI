@@ -63,6 +63,51 @@ def test_lint_pytest_gate_uses_basetemp():
     assert 'pytest --basetemp="$GOV_TMP/pytest-lint"' in runs
 
 
+def test_rc2_deep_lock_install_uses_a_private_venv():
+    # RC-2: el stack deep se instala y ejecuta en un venv EFÍMERO PRIVADO 0700, NUNCA en el Python global del runner (cuyo
+    # `lib` del toolcache es 0777/0775 → governed_import_identity rechaza toda identidad). Este test falla sobre `01df0c7`.
+    steps = _job_steps("deep-lock-install")
+    runs = _runs(steps)
+    build = [s for s in steps if isinstance(s, dict) and "private deep venv" in str(s.get("name", "")).lower()]
+    assert build, "falta el paso que construye el venv deep privado (RC-2)"
+    b = build[0]["run"]
+    assert 'python -m venv "$DEEP_ENV"' in b and "chmod 0700" in b, "el venv deep debe ser 0700"
+    assert 'DEEP_ENV="$GITHUB_WORKSPACE/.ci-deep-' in b, "el venv debe vivir bajo el workspace"
+    assert '"$DEEP_ENV/bin/python" tools/deep_env_preflight.py' in b, "debe correr el preflight con el python del venv"
+    # install del lock + smoke + validador + negativo: SIEMPRE con el intérprete del venv
+    assert '"$DEEP_ENV/bin/python" -m pip install --require-hashes -r' in runs, "el lock deep se instala en el venv"
+    for tool in ("tools.deep_smoke", "tools.validate_deep_receipt"):
+        assert f'"$DEEP_ENV/bin/python" -m {tool}' in runs, f"{tool} debe correr con el python del venv"
+    # NUNCA una instalación/ejecución del stack deep con el `python` global
+    assert (
+        "\n          pip install --require-hashes -r" not in runs
+        and "python -m tools.deep_smoke" not in runs.replace('"$DEEP_ENV/bin/python" -m tools.deep_smoke', "")
+    ), "el stack deep no puede instalarse/ejecutarse con el python global del runner"
+    cleanup = [s for s in steps if isinstance(s, dict) and "Cleanup private deep venv" in str(s.get("name", ""))]
+    assert cleanup and cleanup[0].get("if") == "always()" and 'rm -rf "$DEEP_ENV"' in cleanup[0]["run"]
+
+
+def test_rc2_preflight_fails_closed():
+    # RC-2: el preflight es fail-closed — sin DEEP_ENV o con sys.prefix != DEEP_ENV (p.ej. el Python GLOBAL del runner)
+    # sale != 0, así que el stack deep no puede correr fuera del venv privado.
+    import os
+    import subprocess
+    import sys
+
+    root = str(pathlib.Path(__file__).resolve().parent.parent)
+    no_env = {k: val for k, val in os.environ.items() if k != "DEEP_ENV"}
+    r = subprocess.run([sys.executable, "tools/deep_env_preflight.py"], capture_output=True, text=True, cwd=root, env=no_env)  # fmt: skip
+    assert r.returncode == 1 and "DEEP_ENV no está" in r.stdout, r.stdout
+    r2 = subprocess.run(
+        [sys.executable, "tools/deep_env_preflight.py"],
+        capture_output=True,
+        text=True,
+        cwd=root,
+        env={**os.environ, "DEEP_ENV": "/nonexistent-prefix"},
+    )
+    assert r2.returncode == 1 and "sys.prefix" in r2.stdout, r2.stdout
+
+
 def test_governed_read_under_world_writable_ancestor_still_rejected(tmp_path):
     # RC-1 (decisión): NO se relaja B282. Un árbol gobernado alojado bajo un ancestro 01777 (como el `/tmp` de Linux)
     # SIGUE rechazado — la solución es mover el basetemp a un 0700 privado, no aceptar el mundo-escribible.

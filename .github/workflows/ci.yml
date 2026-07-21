@@ -392,24 +392,35 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: '3.14'
-      - name: Install deep lock (--require-hashes) + real smoke
+      - name: Build private deep venv (0700) + install lock + real smoke
+        # RC-2: el stack deep se instala y ejecuta en un venv EFÍMERO PRIVADO 0700 bajo el workspace, NUNCA en el Python
+        # global del runner (cuyo `lib` del toolcache es 0777/0775 y hace que governed_import_identity rechace TODA
+        # identidad → orígenes 'unknown' → B335 bloquea el recibo). No se debilita `_dir_problem`. El preflight exige que
+        # sys.prefix sea el venv y que su cadena de site-packages sea gobernable; luego se instala el cierre HASHEADO y se
+        # corre deep_smoke, todo con el intérprete del venv.
         run: |
-          # toolchain PINEADO (mismo que el generador de locks); luego el cierre HASHEADO del perfil.
-          python -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
-          pip install --require-hashes -r ${{ matrix.lock }}
-          # deep_smoke corre `pip check` internamente + deriva plataforma/torch del contrato.
-          python -m tools.deep_smoke --lock ${{ matrix.lock }} --receipt deep-receipt-${{ matrix.variant }}.json
+          umask 077
+          DEEP_ENV="$GITHUB_WORKSPACE/.ci-deep-${{ matrix.variant }}"
+          python -m venv "$DEEP_ENV"
+          chmod 0700 "$DEEP_ENV"
+          echo "DEEP_ENV=$DEEP_ENV" >> "$GITHUB_ENV"
+          "$DEEP_ENV/bin/python" tools/deep_env_preflight.py
+          # toolchain PINEADO (mismo que el generador de locks); luego el cierre HASHEADO del perfil, en el venv.
+          "$DEEP_ENV/bin/python" -m pip install "pip==26.1.2" "setuptools==83.0.0" "wheel==0.47.0"
+          "$DEEP_ENV/bin/python" -m pip install --require-hashes -r ${{ matrix.lock }}
+          # deep_smoke corre `pip check` internamente + deriva plataforma/torch del contrato (con el python del venv).
+          "$DEEP_ENV/bin/python" -m tools.deep_smoke --lock ${{ matrix.lock }} --receipt deep-receipt-${{ matrix.variant }}.json
       - name: Validate deep receipt independently (B328/B333/B334 — antes del upload)
         run: |
-          # validador INDEPENDIENTE: re-deriva commit/python/plataforma/hashes/contrato y REOBSERVA el inventario; un
-          # recibo verde con validador rojo ABORTA el job. NO acepta el auto-reporte del productor.
-          python -m tools.validate_deep_receipt --receipt deep-receipt-${{ matrix.variant }}.json --lock ${{ matrix.lock }} --expected-variant ${{ matrix.variant }}
+          # validador INDEPENDIENTE (con el python del venv): re-deriva commit/python/plataforma/hashes/contrato y REOBSERVA
+          # el inventario; un recibo verde con validador rojo ABORTA el job. NO acepta el auto-reporte del productor.
+          "$DEEP_ENV/bin/python" -m tools.validate_deep_receipt --receipt deep-receipt-${{ matrix.variant }}.json --lock ${{ matrix.lock }} --expected-variant ${{ matrix.variant }}
       - name: Deep receipt negative test (B333 — recibo manipulado DEBE fallar)
         run: |
           # el validador debe RECHAZAR un recibo con procedencia manipulada; si lo acepta, es fail-open y aborta el job.
           # el recibo manipulado se escribe con modo 0600 EXACTO (B337) para que el rechazo sea por el commit, no por el modo.
-          python -c "import json,os,pathlib; r=json.loads(pathlib.Path('deep-receipt-${{ matrix.variant }}.json').read_text()); r['commit_sha']='0'*40; p=pathlib.Path('tampered-${{ matrix.variant }}.json'); p.write_text(json.dumps(r)); os.chmod(p,0o600)"
-          if python -m tools.validate_deep_receipt --receipt tampered-${{ matrix.variant }}.json --lock ${{ matrix.lock }} --expected-variant ${{ matrix.variant }}; then
+          "$DEEP_ENV/bin/python" -c "import json,os,pathlib; r=json.loads(pathlib.Path('deep-receipt-${{ matrix.variant }}.json').read_text()); r['commit_sha']='0'*40; p=pathlib.Path('tampered-${{ matrix.variant }}.json'); p.write_text(json.dumps(r)); os.chmod(p,0o600)"
+          if "$DEEP_ENV/bin/python" -m tools.validate_deep_receipt --receipt tampered-${{ matrix.variant }}.json --lock ${{ matrix.lock }} --expected-variant ${{ matrix.variant }}; then
             echo "✗ el validador ACEPTÓ un recibo con commit manipulado (fail-open)"; exit 1
           fi
           echo "✓ el validador rechazó el recibo manipulado"
@@ -419,6 +430,9 @@ jobs:
           path: deep-receipt-${{ matrix.variant }}.json
           if-no-files-found: error
           retention-days: 30
+      - name: Cleanup private deep venv
+        if: always()
+        run: rm -rf "$DEEP_ENV"
 
   # P0R.5 R6: DVC se construye en su ENTORNO CONTENT-ADDRESSED AISLADO (tools.python_env), NUNCA en el
   # python del job, y se hace smoke por la interfaz única con recibo ligado al commit/env. Matriz
