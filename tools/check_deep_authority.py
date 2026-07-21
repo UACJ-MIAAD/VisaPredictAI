@@ -1,15 +1,17 @@
 #!/usr/bin/env python
-"""B331: gate AST POSITIVO de la AUTORIDAD del smoke deep (`tools/deep_smoke.py`).
+"""B331/B335: gate AST POSITIVO de la AUTORIDAD del smoke deep (`tools/deep_smoke.py`).
 
-En el SHA base `evaluate()` construía el recibo a partir de un `DeepSmokeContract` suministrado por el CALLER, así que un
-`for_test((('torch','torch'),))` reducía la autoridad a torch y emitía recibo verde. Este gate FAIL-CLOSED fija por
-estructura que:
+`evaluate()` construía el recibo con un `DeepSmokeContract` del CALLER (B331) y `certify_observation(lock_rel, observation)`
+lo aceptaba de un `DeepObservation` construible directamente por el caller (B335) — inventario/orígenes/commit fabricados
+producían recibo verde. Este gate FAIL-CLOSED fija por estructura que:
 
-1. Existe EXACTAMENTE UNA construcción del literal del recibo (identificada por sus claves marcadoras) y vive DENTRO de la
-   función emisora `certify_observation` — ninguna otra función lo construye.
-2. `certify_observation` NO acepta parámetros de contrato del caller (`contract` / `contract_sha` / `contract_imports`).
-3. `certify_observation` carga el contrato CANÓNICO por su cuenta (`load_contract()` en su cuerpo).
-4. La función PURA `evaluate` NO construye recibo (sólo devuelve problemas).
+1. Existe EXACTAMENTE UNA construcción del literal del recibo (identificada por sus claves marcadoras) y vive DENTRO del
+   emisor `certify_runtime` — ninguna otra función lo construye.
+2. `certify_runtime` acepta SÓLO `lock_rel` (ni observación ni contrato del caller) y llama `load_contract()` +
+   `observe_runtime()` por su cuenta.
+3. NINGUNA función que RECIBA un `DeepObservation` construye recibo (si no, el caller podría reinyectar).
+4. `run` sólo DELEGA a `certify_runtime` y no construye recibo.
+5. La función PURA `evaluate` NO construye recibo (sólo devuelve problemas).
 
 Escanea SÓLO el fichero versionado `tools/deep_smoke.py`; si git falla o el fichero no parsea, FALLA cerrado. El núcleo
 `problems(src)` es PURO/testeable con fuente inyectada (para regresiones adversariales)."""
@@ -21,11 +23,16 @@ import subprocess
 import sys
 
 _TARGET = "tools/deep_smoke.py"
-_EMITTER = "certify_observation"
+_EMITTER = "certify_runtime"  # B335: emisor SIN parámetro de observación (observa por su cuenta)
 _PURE = "evaluate"
+_DELEGATOR = "run"
+_OBSERVATION_TYPE = "DeepObservation"
 # Claves MARCADORAS que identifican inequívocamente el literal del recibo (no una config cualquiera).
 _RECEIPT_MARKERS = frozenset({"deep_smoke_contract_sha256", "tensor_checksum", "lock_sha256"})
-_FORBIDDEN_EMITTER_PARAMS = frozenset({"contract", "contract_sha", "contract_imports"})
+_EMITTER_PARAMS = frozenset(
+    {"lock_rel"}
+)  # B335: el emisor acepta SÓLO lock_rel — ni observación ni contrato del caller
+_EMITTER_REQUIRED_CALLS = ("load_contract", "observe_runtime")  # B335: observa y carga el contrato por su cuenta
 
 
 def _dict_keys(node: ast.Dict) -> set[str]:
@@ -50,6 +57,21 @@ def _params(fn: ast.FunctionDef) -> set[str]:
     return {a.arg for a in (*fn.args.posonlyargs, *fn.args.args, *fn.args.kwonlyargs)}
 
 
+def _takes_observation(fn: ast.FunctionDef) -> bool:
+    """True si alguna anotación de parámetro es `DeepObservation` (bare o `ds.DeepObservation`)."""
+    for a in (*fn.args.posonlyargs, *fn.args.args, *fn.args.kwonlyargs):
+        ann = a.annotation
+        if isinstance(ann, ast.Name) and ann.id == _OBSERVATION_TYPE:
+            return True
+        if isinstance(ann, ast.Attribute) and ann.attr == _OBSERVATION_TYPE:
+            return True
+    return False
+
+
+def _named_calls(fn: ast.FunctionDef) -> set[str]:
+    return {n.func.id for n in ast.walk(fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+
+
 def problems(src: str) -> list[str]:
     try:
         tree = ast.parse(src, filename=_TARGET)
@@ -63,18 +85,28 @@ def problems(src: str) -> list[str]:
     for r in receipts:
         loc = owner.get(id(r), "<módulo>")
         if loc != _EMITTER:
-            probs.append(f"el recibo se construye en {loc!r}, no en {_EMITTER!r} (B331)")
+            probs.append(f"el recibo se construye en {loc!r}, no en {_EMITTER!r} (B331/B335)")
     funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
     emitter = funcs.get(_EMITTER)
     if emitter is None:
-        probs.append(f"falta la función emisora {_EMITTER!r} (B331)")
+        probs.append(f"falta la función emisora {_EMITTER!r} (B335)")
     else:
-        bad = _params(emitter) & _FORBIDDEN_EMITTER_PARAMS
-        if bad:
-            probs.append(f"{_EMITTER} no puede aceptar contrato del caller: {sorted(bad)} (B331)")
-        calls = {n.func.id for n in ast.walk(emitter) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
-        if "load_contract" not in calls:
-            probs.append(f"{_EMITTER} debe cargar el contrato canónico por su cuenta (load_contract()) (B331)")
+        if _params(emitter) != _EMITTER_PARAMS:  # B335: SÓLO lock_rel — jamás una observación/contrato del caller
+            probs.append(f"{_EMITTER} debe aceptar SÓLO {sorted(_EMITTER_PARAMS)} (tiene {sorted(_params(emitter))}) (B335)")  # fmt: skip
+        calls = _named_calls(emitter)
+        for req in _EMITTER_REQUIRED_CALLS:  # observa y carga el contrato por su cuenta
+            if req not in calls:
+                probs.append(f"{_EMITTER} debe llamar {req}() por su cuenta (B335)")
+    # B335: NINGUNA función que RECIBA un DeepObservation puede construir un recibo (cerraría de nuevo la inyección).
+    for name, fn in funcs.items():
+        if _takes_observation(fn) and any(_is_receipt(n) for n in ast.walk(fn)):
+            probs.append(f"{name} recibe {_OBSERVATION_TYPE} y construye recibo — el caller podría inyectar (B335)")
+    delegator = funcs.get(_DELEGATOR)  # `run` sólo delega al emisor y no construye recibo
+    if delegator is not None:
+        if _EMITTER not in _named_calls(delegator):
+            probs.append(f"{_DELEGATOR} debe delegar a {_EMITTER} (B335)")
+        if any(_is_receipt(n) for n in ast.walk(delegator)):
+            probs.append(f"{_DELEGATOR} no puede construir un recibo (debe delegar) (B335)")
     pure = funcs.get(_PURE)
     if pure is not None and any(_is_receipt(n) for n in ast.walk(pure)):
         probs.append(f"{_PURE}() no puede construir un recibo (debe devolver sólo problemas) (B331)")

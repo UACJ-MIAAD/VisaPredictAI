@@ -375,7 +375,8 @@ jobs:
       - name: Deep receipt negative test (B333 — recibo manipulado DEBE fallar)
         run: |
           # el validador debe RECHAZAR un recibo con procedencia manipulada; si lo acepta, es fail-open y aborta el job.
-          python -c "import json,pathlib; r=json.loads(pathlib.Path('deep-receipt-${{ matrix.variant }}.json').read_text()); r['commit_sha']='0'*40; pathlib.Path('tampered-${{ matrix.variant }}.json').write_text(json.dumps(r))"
+          # el recibo manipulado se escribe con modo 0600 EXACTO (B337) para que el rechazo sea por el commit, no por el modo.
+          python -c "import json,os,pathlib; r=json.loads(pathlib.Path('deep-receipt-${{ matrix.variant }}.json').read_text()); r['commit_sha']='0'*40; p=pathlib.Path('tampered-${{ matrix.variant }}.json'); p.write_text(json.dumps(r)); os.chmod(p,0o600)"
           if python -m tools.validate_deep_receipt --receipt tampered-${{ matrix.variant }}.json --lock ${{ matrix.lock }} --expected-variant ${{ matrix.variant }}; then
             echo "✗ el validador ACEPTÓ un recibo con commit manipulado (fail-open)"; exit 1
           fi

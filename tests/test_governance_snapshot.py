@@ -478,6 +478,49 @@ def test_b299_tracked_non_utf8_stays_in_taxonomy(tmp_path, monkeypatch):
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(gs.__file__)))
 
 
+# ---------------------------------------------------------------------------
+# B336 — el productor/validador del recibo deep resolvían HEAD con un `git rev-parse HEAD` ad hoc (una sola llamada, sin
+# cat-file/toplevel/entorno saneado): un stdout 40-hex se aceptaba como HEAD. `GovernanceSnapshot.head_commit` es la ÚNICA
+# observación git gobernada: toplevel textual == ROOT + `rev-parse --verify HEAD^{commit}` 40-hex de una línea.
+# ---------------------------------------------------------------------------
+def test_b336_head_commit_matches_real_head():
+    head = gs.GovernanceSnapshot(_REPO_ROOT).head_commit()
+    real = subprocess.run(
+        ["/usr/bin/git", "-C", _REPO_ROOT, "rev-parse", "HEAD"], capture_output=True, text=True
+    ).stdout.strip()
+    assert head == real and len(head) == 40 and all(c in "0123456789abcdef" for c in head)
+    assert "HEAD_COMMIT" in gs._GIT_OPS and gs._GIT_OPS["HEAD_COMMIT"] == ("rev-parse", "--verify", "HEAD^{commit}")
+
+
+def test_b336_head_commit_rejects_wrong_toplevel(monkeypatch):
+    snap = gs.GovernanceSnapshot(_REPO_ROOT)
+
+    def fake(op, out_limit):  # toplevel MIENTE (otro repo); un stdout 40-hex no basta si el toplevel no es ROOT
+        return b"/some/other/repo\n" if op == "TOPLEVEL" else b"f" * 40 + b"\n"
+
+    monkeypatch.setattr(snap, "_run_git", fake)
+    with pytest.raises(gs.GovernanceSnapshotError, match="toplevel"):
+        snap.head_commit()
+
+
+def test_b336_head_commit_rejects_non_40hex_or_multiline(monkeypatch):
+    snap = gs.GovernanceSnapshot(_REPO_ROOT)
+
+    def multiline(op, out_limit):
+        return _REPO_ROOT.encode("utf-8") + b"\n" if op == "TOPLEVEL" else b"f" * 40 + b"\nEXTRA\n"
+
+    monkeypatch.setattr(snap, "_run_git", multiline)
+    with pytest.raises(gs.GovernanceSnapshotError, match="40-hex"):
+        snap.head_commit()
+
+    def nothex(op, out_limit):
+        return _REPO_ROOT.encode("utf-8") + b"\n" if op == "TOPLEVEL" else b"Z" * 40 + b"\n"
+
+    monkeypatch.setattr(snap, "_run_git", nothex)
+    with pytest.raises(gs.GovernanceSnapshotError, match="40-hex"):
+        snap.head_commit()
+
+
 def test_b301_inventory_sealed_one_capture(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     with gs.GovernanceSnapshot(_REPO_ROOT) as snap:

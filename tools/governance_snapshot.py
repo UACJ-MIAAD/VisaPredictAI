@@ -59,6 +59,7 @@ _GIT_TIMEOUT_S = 30.0
 _GIT_OPS = {
     "TOPLEVEL": ("rev-parse", "--show-toplevel"),
     "TRACKED_INVENTORY": ("ls-files", "-z", "--"),
+    "HEAD_COMMIT": ("rev-parse", "--verify", "HEAD^{commit}"),  # B336: HEAD verificado como objeto commit
 }
 _ALLOWED_MODES = frozenset({0o644, 0o600})  # B296: conjunto cerrado de modos exactos aprobados
 _CATEGORY_CAPS = {  # B296: cada categoría fija su cota superior; una categoría estricta NUNCA se satisface con una laxa
@@ -485,6 +486,21 @@ class GovernanceSnapshot(AbstractContextManager):
         if self._governed_git_identity() != ident_before:  # rebind del ejecutable durante la ejecución
             raise GovernanceSnapshotError("git cambió de identidad durante la ejecución (B303)")
         return stdout
+
+    def head_commit(self) -> str:
+        """B336: HEAD commit VERIFICADO gobernado — el `--show-toplevel` textual debe resolver a ROOT y
+        `rev-parse --verify HEAD^{commit}` debe emitir EXACTAMENTE 40-hex minúsculas en UNA sola línea, con git ABSOLUTO
+        gobernado (identidad revalidada antes/después) y entorno allowlist sin `GIT_DIR/GIT_WORK_TREE/GIT_CONFIG_*`. Ni el
+        productor ni el validador ejecutan git ad hoc: ambos consumen esta ÚNICA observación cerrada. Toda desviación (git
+        no gobernable, toplevel != ROOT, salida no-40-hex/multilínea) es fail-closed → `GovernanceSnapshotError`."""
+        top = self._run_git("TOPLEVEL", 1 << 16).decode("utf-8", "strict").strip()
+        if os.path.realpath(top) != os.path.realpath(self._root):
+            raise GovernanceSnapshotError(f"git toplevel {top!r} != ROOT {self._root!r} (B336)")
+        raw = self._run_git("HEAD_COMMIT", 1 << 16).decode("utf-8", "strict")
+        head = raw.strip()
+        if raw.count("\n") > 1 or len(head) != 40 or any(c not in "0123456789abcdef" for c in head):
+            raise GovernanceSnapshotError(f"git HEAD^{{commit}} no es 40-hex de una línea: {raw!r} (B336)")
+        return head
 
     def _run_bounded(self, argv: list[str], out_limit: int) -> bytes:
         """B306/B311/B312/B313/B314/B315/B318: runner TOTAL, PORTABLE y de ADQUISICIÓN/LIMPIEZA COMPLETA. El selector se

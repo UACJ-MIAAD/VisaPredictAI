@@ -23,7 +23,6 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
 
 from tools import deep_smoke as ds
@@ -169,14 +168,15 @@ def _import_problems(records: object, contract: ds.DeepSmokeContract, observed: 
 
 
 def _git_head() -> str | None:
+    """B336: HEAD por la ÚNICA observación git GOBERNADA (`GovernanceSnapshot.head_commit`: toplevel==ROOT,
+    `rev-parse --verify HEAD^{commit}`, 40-hex de una línea, git absoluto gobernado). Sin git ad hoc. None si no gobernable
+    (que `receipt_problems` trata como ROJO, B333)."""
+    from tools.governance_snapshot import GovernanceSnapshot
+
     try:
-        out = subprocess.run(
-            ["/usr/bin/git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=10, check=False
-        )
-    except OSError:
+        return GovernanceSnapshot(str(lc.ROOT)).head_commit()
+    except GovernanceSnapshotError:
         return None
-    head = out.stdout.strip() if out.returncode == 0 else None
-    return head if head and _HEX40.fullmatch(head) else None
 
 
 def _governed_bytes(rel: str) -> bytes:

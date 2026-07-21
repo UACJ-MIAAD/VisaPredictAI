@@ -33,9 +33,11 @@ from tools import lock_contracts as lc
 
 # Autoridad INDEPENDIENTE del inventario deep — SEPARADA de este archivo (B323).
 _CONTRACT_REL = "security/deep_smoke_contract.json"
-_GIT_ABS = "/usr/bin/git"  # B328: git ABSOLUTO gobernado — NUNCA por PATH
 _PY_RE = re.compile(r"3\.14\.\d+")  # B328: Python exacto (fullmatch), no `startswith`
-_HEX40 = re.compile(r"[0-9a-f]{40}")  # B328: commit real de 40 hex
+_HEX40 = re.compile(
+    r"[0-9a-f]{40}"
+)  # B328: commit real de 40 hex (usado en evaluate; B336: HEAD lo gobierna la snapshot)
+_SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}")  # B335: forma canónica del origin_sha256 gobernado
 
 
 def _sha256(p: Path) -> str:
@@ -107,8 +109,9 @@ class DeepSmokeContract:
     @classmethod
     def for_test(cls, imports: tuple[tuple[str, str], ...]) -> DeepSmokeContract:
         """Para tests PUROS de `evaluate` (SOLO problemas, jamás recibo): serializa `imports` a bytes canónicos y RE-VALIDA
-        el mismo esquema (orden/PEP-503/únicos). B331: `for_test` NO alcanza la ruta de certificación — `certify_observation`
-        carga el contrato canónico por su cuenta y es el ÚNICO que emite recibo; un contrato reducido no puede certificar."""
+        el mismo esquema (orden/PEP-503/únicos). B331/B335: `for_test` NO alcanza la ruta de certificación — `certify_runtime`
+        observa el entorno real y carga el contrato canónico por su cuenta; es el ÚNICO que emite recibo, y ningún caller
+        suministra observación ni contrato. Un contrato reducido de fixture no puede certificar."""
         payload = {"schema_version": 1, "imports": [{"module": m, "distribution": d} for m, d in imports]}
         raw = (json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
         return cls._from_bytes(raw)
@@ -116,9 +119,10 @@ class DeepSmokeContract:
 
 @dataclass(frozen=True, slots=True)
 class DeepObservation:
-    """B331: estado REAL observado del entorno deep instalado — lo produce SOLO `observe_runtime()`. `certify_observation()`
-    carga el contrato CANÓNICO por su cuenta y construye el recibo a partir de esta observación; el caller NO puede inyectar
-    un contrato/inventario reducido a la certificación (ese era el agujero de B326 que B331 cierra)."""
+    """B331: estado REAL observado del entorno deep instalado — lo produce SOLO `observe_runtime()`. `certify_runtime()`
+    lo OBTIENE llamando a `observe_runtime` por su cuenta (jamás del caller) y construye el recibo con el contrato CANÓNICO;
+    ninguna función que RECIBA un `DeepObservation` construye recibo, así que el caller no puede inyectar un inventario
+    reducido/fabricado a la certificación (agujero de B326/B335 cerrado)."""
 
     py_version: str
     system: str
@@ -158,24 +162,17 @@ def _distribution_inventory() -> tuple[dict[str, str], list[str]]:
     return inv, probs
 
 
-def _git(*args: str) -> str | None:
-    """B328: git ABSOLUTO gobernado (`/usr/bin/git`), NUNCA por PATH. None si falla o no es un repo."""
-    try:
-        out = subprocess.run([_GIT_ABS, *args], capture_output=True, text=True, timeout=10, check=False)
-    except OSError:
-        return None
-    return out.stdout.strip() if out.returncode == 0 else None
-
-
 def verified_commit(env_sha: str | None) -> tuple[str | None, str | None]:
-    """B328: commit REAL y verificable — `HEAD` resuelto por git ABSOLUTO, exactamente 40-hex, que EXISTE como commit
-    (`cat-file -e HEAD^{commit}`); en CI `GITHUB_SHA` debe COINCIDIR con HEAD. Devuelve `(sha, problema)`; el smoke falla
-    si el problema no es None (nunca emite un recibo con `unknown`)."""
-    head = _git("rev-parse", "HEAD")
-    if head is None or not _HEX40.fullmatch(head):
-        return None, "commit HEAD no resuelto a 40-hex"
-    if _git("cat-file", "-e", f"{head}^{{commit}}") is None:
-        return None, f"commit {head} no existe como commit"
+    """B328/B336: commit REAL y verificable vía la ÚNICA observación git GOBERNADA (`GovernanceSnapshot.head_commit`:
+    toplevel textual == ROOT, `rev-parse --verify HEAD^{commit}`, 40-hex de una línea, git absoluto gobernado con entorno
+    allowlist e identidad revalidada). En CI `GITHUB_SHA` debe COINCIDIR con HEAD. Devuelve `(sha, problema)`; el smoke falla
+    si el problema no es None (nunca emite un recibo con `unknown`). Ni aquí ni en el validador hay git ad hoc (B336)."""
+    from tools.governance_snapshot import GovernanceSnapshot, GovernanceSnapshotError
+
+    try:
+        head = GovernanceSnapshot(str(lc.ROOT)).head_commit()
+    except GovernanceSnapshotError as exc:
+        return None, f"HEAD no gobernable ({exc})"
     if env_sha is not None and env_sha != head:
         return None, f"GITHUB_SHA {env_sha} != HEAD {head}"
     return head, None
@@ -198,7 +195,8 @@ def evaluate(
     """Lógica PURA de PROBLEMAS del smoke (sin importar el stack deep) — testeable con valores inyectados y un contrato de
     fixture. El inventario observado se exige EXACTAMENTE igual al del contrato (B322): ni omisión, ni extra, ni tipo
     inválido. B331: esta función NUNCA construye un recibo (el segundo elemento es SIEMPRE `{}`) — un contrato reducido de
-    fixture jamás puede certificar; el ÚNICO emisor de recibo es `certify_observation`, que carga el contrato canónico."""
+    fixture jamás puede certificar; el ÚNICO emisor de recibo es `certify_runtime`, que observa el entorno y carga el
+    contrato canónico por su cuenta."""
     if lock_rel not in lc.DEEP_RUNTIME:
         return [f"lock no gobernado: {lock_rel} (no está en DEEP_RUNTIME)"], {}
     if type(contract) is not DeepSmokeContract:  # B326: ni lista+sha sueltos ni subclase — sólo la fábrica gobernada
@@ -235,17 +233,37 @@ def evaluate(
     # t=[[0,1,2],[3,4,5]]; t@t.T=[[5,14],[14,50]]; suma=83 (determinista en cualquier plataforma).
     if checksum != 83.0:
         probs.append(f"checksum tensorial {checksum} != 83.0 (no determinista)")
-    return probs, {}  # B331: SIEMPRE recibo vacío — la certificación vive en certify_observation
+    return probs, {}  # B331: SIEMPRE recibo vacío — la certificación vive en certify_runtime
 
 
-def certify_observation(lock_rel: str, observation: DeepObservation) -> tuple[list[str], dict]:
-    """B331: ÚNICO emisor de recibo deep. Carga el contrato CANÓNICO por su cuenta (jamás lo recibe del caller), re-evalúa
-    los problemas contra ESE contrato y SÓLO si no hay ninguno construye el recibo (única construcción del literal en todo
-    el módulo). Un `DeepObservation` sólo lo produce `observe_runtime()` sobre el entorno REAL, de modo que ni el contrato
-    ni el inventario pueden reducirse desde fuera para certificar un stack incompleto."""
-    if type(observation) is not DeepObservation:  # sólo la observación gobernada del entorno real
-        return ["observación deep inválida (se exige DeepObservation de observe_runtime)"], {}
+def _import_records_problems(records: tuple[tuple[str, str, str, str], ...], contract: DeepSmokeContract) -> list[str]:
+    """B335: cruza los `import_records` de la observación EXACTAMENTE con el contrato ANTES de emitir recibo — longitud,
+    orden, module/dist, origen relativo simple (ni absoluto ni `..` ni `unknown`) y `origin_sha256` con forma
+    `sha256:<64hex>`. Defensa en profundidad: un registro degradado bloquea el recibo aunque la identidad gobernada haya
+    fallado silenciosamente."""
+    if len(records) != len(contract.imports):
+        return [f"import_records {len(records)} != {len(contract.imports)} entradas del contrato"]
+    probs: list[str] = []
+    for (m, d, o, s), (cm, cd) in zip(records, contract.imports, strict=True):
+        if m != cm or d != cd:
+            probs.append(f"import_record {m!r}/{d!r} != contrato {cm!r}/{cd!r}")
+        if type(o) is not str or not o or os.path.isabs(o) or o == "unknown" or os.pardir in o.split("/"):
+            probs.append(f"origin {o!r} no es una ruta relativa simple bajo sys.prefix")
+        if type(s) is not str or not _SHA256_RE.fullmatch(s):
+            probs.append(f"origin_sha256 {s!r} no tiene forma sha256:<64hex>")
+    return probs
+
+
+def certify_runtime(lock_rel: str) -> tuple[list[str], dict]:
+    """B331/B335: ÚNICO emisor de recibo deep. NO recibe observación del caller: OBSERVA el entorno real por su cuenta
+    (`observe_runtime`) y carga el contrato CANÓNICO (`load_contract`), re-evalúa los problemas contra ESE contrato, cruza
+    los `import_records` con el contrato (`_import_records_problems`), y SÓLO si no hay ninguno construye el recibo (única
+    construcción del literal en todo el módulo). Como NINGUNA función que reciba un `DeepObservation` construye recibo, un
+    caller no puede inyectar inventario/orígenes fabricados para certificar un stack incompleto (agujero de B335)."""
     contract = load_contract()  # AUTORIDAD CANÓNICA — nunca del caller (B331)
+    obs_problems, observation = observe_runtime(lock_rel)  # entorno REAL — nunca del caller (B335)
+    if observation is None:
+        return (obs_problems or ["observe_runtime no produjo observación (fail-closed)"]), {}
     installed = dict(observation.installed)
     probs, _ = evaluate(
         lock_rel,
@@ -260,6 +278,7 @@ def certify_observation(lock_rel: str, observation: DeepObservation) -> tuple[li
         commit_sha=observation.commit_sha,
         import_identity=list(observation.identity_problems),
     )
+    probs.extend(_import_records_problems(observation.import_records, contract))  # B335: cruce EXACTO con el contrato
     if probs:  # el recibo SÓLO se emite si NADA falló
         return probs, {}
     rt = lc.DEEP_RUNTIME[lock_rel]
@@ -368,12 +387,9 @@ def observe_runtime(lock_rel: str) -> tuple[list[str], DeepObservation | None]:
 
 
 def run(lock_rel: str) -> tuple[list[str], dict]:
-    """B331: observa el entorno real y CERTIFICA contra el contrato canónico. La observación y la certificación están
-    separadas: `observe_runtime` no puede emitir recibo y `certify_observation` no acepta contrato del caller."""
-    _obs_probs, observation = observe_runtime(lock_rel)
-    if observation is None:  # defensivo: observe_runtime siempre construye la observación salvo excepción dura
-        return _obs_probs, {}
-    return certify_observation(lock_rel, observation)
+    """B331/B335: delega EXCLUSIVAMENTE a `certify_runtime`, que observa el entorno real y certifica contra el contrato
+    canónico. No existe ruta pública que acepte una observación suministrada por el caller."""
+    return certify_runtime(lock_rel)
 
 
 def write_receipt_governed(name: str, data: dict) -> None:

@@ -43,9 +43,9 @@ def _kwargs(lock_rel, **over):
 
 
 def _observation(lock_rel, **over):
-    """B331: `DeepObservation` sintético (inventario == contrato canónico + pines del lock) para probar la CERTIFICACIÓN sin
-    el stack deep instalado. `certify_observation` recarga el contrato canónico; esta observación no puede reducir la
-    autoridad."""
+    """`DeepObservation` sintético (inventario == contrato canónico + pines del lock) para probar la construcción del recibo
+    sin el stack deep instalado, monkeypatcheando `observe_runtime`. NO es un bypass: la API pública (`certify_runtime`) no
+    acepta observación del caller (B335); esto sólo ejercita la ruta feliz de la construcción del recibo."""
     rt = lc.DEEP_RUNTIME[lock_rel]
     installed = _installed(lock_rel)
     base = dict(
@@ -64,8 +64,11 @@ def _observation(lock_rel, **over):
     return ds.DeepObservation(**base)
 
 
-def test_happy_path_receipt_is_lock_and_contract_bound():
-    probs, receipt = ds.certify_observation(CPU, _observation(CPU))
+def test_happy_path_receipt_is_lock_and_contract_bound(monkeypatch):
+    # `certify_runtime` OBSERVA por su cuenta (B335); se monkeypatchea `observe_runtime` con una observación sintética para
+    # ejercitar la construcción del recibo sin el stack deep.
+    monkeypatch.setattr(ds, "observe_runtime", lambda lock_rel: ([], _observation(lock_rel)))
+    probs, receipt = ds.certify_runtime(CPU)
     assert probs == []
     assert receipt["lock_sha256"].startswith("sha256:") and len(receipt["lock_sha256"]) == 71
     assert receipt["manifest_sha256"].startswith("sha256:")
@@ -79,8 +82,8 @@ def test_happy_path_receipt_is_lock_and_contract_bound():
 def test_b331_reduced_contract_never_certifies():
     # B331: en el SHA base `evaluate()` construía un recibo con el contrato del CALLER — un `for_test((('torch','torch'),))`
     # + `installed={'torch': …}` producía recibo verde reduciendo la autoridad a torch. Ahora `evaluate()` es PURO de
-    # problemas y JAMÁS devuelve recibo (siempre `{}`); la certificación vive sólo en `certify_observation`, que recarga el
-    # contrato canónico. Un contrato reducido no puede certificar por ninguna vía pública.
+    # problemas y JAMÁS devuelve recibo (siempre `{}`); la certificación vive sólo en `certify_runtime`, que observa por su
+    # cuenta y recarga el contrato canónico. Un contrato reducido no puede certificar por ninguna vía pública.
     rt = lc.DEEP_RUNTIME[CPU]
     reduced = ds.DeepSmokeContract.for_test((("torch", "torch"),))
     probs, receipt = ds.evaluate(
@@ -99,16 +102,32 @@ def test_b331_reduced_contract_never_certifies():
     assert probs == []  # los checks pasan, pero evaluate no emite recibo
 
 
-def test_b331_certify_takes_no_caller_contract_and_reloads_canonical():
-    # B331: `certify_observation` NO tiene parámetros de contrato — carga el canónico por su cuenta. Sólo acepta un
-    # `DeepObservation` (producido por observe_runtime); una tupla/objeto arbitrario NO certifica.
+def test_b335_no_public_api_accepts_a_caller_observation():
+    # B335: en el SHA base `certify_observation(lock_rel, observation)` aceptaba un `DeepObservation` construible por el
+    # caller (inventario/orígenes/commit fabricados) → recibo verde. Ahora NO existe tal API: el ÚNICO emisor
+    # `certify_runtime` acepta SÓLO `lock_rel` y observa por su cuenta.
     import inspect
 
-    sig = inspect.signature(ds.certify_observation)
-    assert set(sig.parameters) == {"lock_rel", "observation"}, sig
-    for forged in ((), [], {"installed": {"torch": "x"}}, "obs"):
-        probs, receipt = ds.certify_observation(CPU, forged)
-        assert receipt == {} and any("observación deep inválida" in p for p in probs), (forged, probs)
+    assert not hasattr(ds, "certify_observation"), "certify_observation debe desaparecer (B335)"
+    assert set(inspect.signature(ds.certify_runtime).parameters) == {"lock_rel"}, inspect.signature(ds.certify_runtime)
+
+
+def test_b335_import_records_cross_checked_with_contract():
+    # B335: antes de emitir recibo, `certify_runtime` cruza los import_records con el contrato — longitud/orden/module/dist/
+    # origen relativo simple/`origin_sha256` canónico. Un registro degradado BLOQUEA el recibo.
+    m0, d0 = CONTRACT.imports[0]
+    good = tuple((m, d, f"lib/x/{m}/__init__.py", "sha256:" + "0" * 64) for m, d in CONTRACT.imports)
+    assert ds._import_records_problems(good, CONTRACT) == []
+    for bad, needle in [
+        ((m0, d0, "/abs/x.py", "sha256:" + "0" * 64), "relativa simple"),
+        ((m0, d0, "../up.py", "sha256:" + "0" * 64), "relativa simple"),
+        ((m0, d0, "unknown", "sha256:" + "0" * 64), "relativa simple"),
+        ((m0, d0, f"lib/x/{m0}/__init__.py", "notasha"), "origin_sha256"),
+        (("evil", d0, f"lib/x/{m0}/__init__.py", "sha256:" + "0" * 64), "!= contrato"),
+    ]:
+        recs = (bad, *good[1:])
+        assert any(needle in p for p in ds._import_records_problems(recs, CONTRACT)), bad
+    assert any("import_records" in p for p in ds._import_records_problems(good[:-1], CONTRACT))
 
 
 def test_non_governed_lock_blocks():

@@ -101,6 +101,30 @@ def test_b328_rejects_forged_provenance_and_schema():
         assert any(needle in p for p in probs), f"{label}: {probs}"
 
 
+def test_b336_git_head_ignores_adhoc_subprocess(monkeypatch):
+    # B336: en el SHA base `_git_head` hacía UN `subprocess.run(rev-parse HEAD)` ad hoc — un stdout f*40 se aceptaba como
+    # HEAD. Ahora pasa por la observación git GOBERNADA (Popen + identidad del ejecutable + toplevel==ROOT + verify), que
+    # IGNORA este monkeypatch de `subprocess.run`. En el SHA base este test falla (devolvería f*40).
+    import subprocess
+
+    real_run = subprocess.run
+
+    def fake(cmd, *a, **k):
+        class _R:
+            returncode = 0
+            stdout = "f" * 40 + "\n"
+            stderr = ""
+
+        if isinstance(cmd, list | tuple) and len(cmd) >= 2 and cmd[1] == "rev-parse":
+            return _R()
+        return real_run(cmd, *a, **k)
+
+    monkeypatch.setattr(subprocess, "run", fake)
+    head = v._git_head()
+    assert head != "f" * 40, "el HEAD gobernado no puede provenir de un subprocess.run ad hoc (B336)"
+    assert head is None or (len(head) == 40 and all(c in "0123456789abcdef" for c in head))
+
+
 def test_b333_missing_git_head_is_red():
     # B333: en el SHA base, con git_head=None el commit/Python/orígenes fabricados se ACEPTABAN (fail-open). Ahora un HEAD
     # no resuelto es SIEMPRE un problema.
@@ -176,9 +200,43 @@ def test_b334_read_and_write_reject_leaf_symlink(tmp_path):
 
 def test_b334_read_rejects_duplicate_keys(tmp_path):
     (tmp_path / "dup.json").write_text('{"a": 1, "a": 2}')
+    os.chmod(tmp_path / "dup.json", 0o600)  # B337: la lectura exige 0600 exacto
     raw = grio.read_receipt_bytes("dup.json", authorized_dir=str(tmp_path))
     with pytest.raises(ValueError, match="duplicada"):
         json.loads(raw.decode("utf-8"), object_pairs_hook=ds._no_dup_keys)
+
+
+def test_b337_read_requires_exact_0600(tmp_path):
+    # B337: en el SHA base `read_receipt_bytes` aceptaba 0644 aunque el contrato exige 0600 exacto. Ahora sólo 0600.
+    p = tmp_path / "r.json"
+    p.write_text('{"x": 1}')
+    for mode in (0o644, 0o666, 0o640, 0o400, 0o700):
+        os.chmod(p, mode)
+        with pytest.raises(ValueError, match="0o600"):
+            grio.read_receipt_bytes("r.json", authorized_dir=str(tmp_path))
+    os.chmod(p, 0o600)  # happy path 0600
+    assert json.loads(grio.read_receipt_bytes("r.json", authorized_dir=str(tmp_path))) == {"x": 1}
+
+
+def test_b337_authorized_dir_must_be_owned_and_not_go_writable(tmp_path):
+    loose = tmp_path / "loose"
+    loose.mkdir()
+    (loose / "r.json").write_text("{}")
+    os.chmod(loose / "r.json", 0o600)
+    os.chmod(loose, 0o777)  # escritura grupo/otros en el directorio autorizado
+    with pytest.raises(ValueError, match="autorizado"):
+        grio.read_receipt_bytes("r.json", authorized_dir=str(loose))
+
+
+def test_b337_read_rejects_fifo_and_hardlink(tmp_path):
+    os.mkfifo(str(tmp_path / "fifo.json"))
+    with pytest.raises(ValueError, match="regular"):
+        grio.read_receipt_bytes("fifo.json", authorized_dir=str(tmp_path))
+    (tmp_path / "a.json").write_text("{}")
+    os.chmod(tmp_path / "a.json", 0o600)
+    os.link(str(tmp_path / "a.json"), str(tmp_path / "b.json"))  # nlink 2
+    with pytest.raises(ValueError, match="nlink"):
+        grio.read_receipt_bytes("b.json", authorized_dir=str(tmp_path))
 
 
 def test_b334_governed_write_round_trip_and_o_excl(tmp_path, monkeypatch):
