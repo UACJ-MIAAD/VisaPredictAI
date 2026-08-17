@@ -375,7 +375,7 @@ obtención y conversión al formato de modelado.
 \subsection{1.1.1 Identificación de fuentes de datos}
 
 La fuente primaria es el \textit{Visa Bulletin} mensual publicado por el
-Departamento de Estado de Estados Unidos en \texttt{travel.state.gov}. Su elección
+Departamento de Estado de Estados Unidos en \texttt{travel.state.gov} \cita{3}. Su elección
 obedece a tres criterios: es la fuente oficial y autoritativa de las fechas de
 prioridad; cubre de forma homogénea las cinco áreas de cargabilidad de interés
 (México, India, China, Filipinas y \textit{All Chargeability Areas Except Those
@@ -412,6 +412,64 @@ columnas. Cada celda es una fecha (F), \textit{Current} (C) o \textit{Unavailabl
 celdas con fecha son objetivo predictivo.}
 \label{fig:tabla_pub}
 \end{figure}
+
+\paragraph{Fuentes complementarias.} Junto a la fuente primaria se identificaron tres
+fuentes que no aportan la variable a predecir, pero sí el contexto necesario para
+interpretarla y para validar las reglas de negocio del sistema. La primera es el marco
+normativo: la \textit{Immigration and Nationality Act} (INA) y, en particular, el límite
+del siete por ciento anual de visas de preferencia por país codificado en 8~U.S.C. 1152
+\cita{4}, que explica por qué México, India, China y Filipinas presentan filas mucho más
+largas que el resto y sustenta la decisión de modelar el área de cargabilidad como
+dimensión del panel y no como una covariable más. La segunda son los cuadros de
+presentación de solicitudes de ajuste de estatus del Servicio de Ciudadanía e Inmigración
+(USCIS) \cita{5}, que cada mes determinan cuál de las dos tablas rige la recepción de
+solicitudes y justifican que FAD y DFF se traten como series separadas y no comparables
+entre sí. La tercera son los informes estadísticos anuales de la Oficina de Visas
+\cita{6}, empleados como contexto y como verificación cualitativa de los movimientos
+observados, además de ser la vía prevista para una eventual extensión del histórico hacia
+el periodo anterior a la serie mensual homogénea.
+
+Conviene subrayar una restricción de acceso que condiciona todo el proceso descrito en la
+sección~1.1.2: el Departamento de Estado no ofrece una interfaz de programación de
+aplicaciones (\textit{application programming interface}, API) ni un archivo descargable con
+el histórico consolidado. La publicación se realiza exclusivamente como páginas HTML
+independientes, una por mes, de modo que la obtención de la serie se resolvió mediante un
+proceso propio de extracción web y no mediante el consumo de un servicio. La
+Tabla~\ref{tab:inventario} resume el inventario de fuentes con su tipo de acceso, formato,
+frecuencia y uso.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Inventario de fuentes de datos]{Inventario de fuentes: tipo de acceso, formato de
+publicación, frecuencia de actualización y uso previsto en el proyecto.}
+\label{tab:inventario}
+\begin{tabular}{p{2.9cm}p{2.4cm}p{1.7cm}p{1.75cm}p{4.25cm}}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Fuente} & \textbf{Acceso} & \textbf{Formato} & \textbf{Frecuencia} & \textbf{Uso en el proyecto} \\ \midrule
+\textit{Visa Bulletin}, Departamento de Estado \cita{3} & Portal público, sin API; extracción web propia & HTML & Mensual & Fuente primaria: variable dependiente $y_{p,c,b,t}$ \\
+INA, 8 U.S.C. 1152 \cita{4} & Texto legal público & HTML y PDF & Estable & Límite del 7\,\% anual por país; justifica el área de cargabilidad como dimensión \\
+Cuadros de presentación de solicitudes, USCIS \cita{5} & Portal público & HTML & Mensual & Define qué tabla rige cada mes; separa FAD de DFF \\
+Informe anual de la Oficina de Visas \cita{6} & Portal público & PDF y hoja de cálculo & Anual & Contexto y verificación cualitativa; vía de extensión histórica \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Justificación de la elección.} La selección del \textit{Visa Bulletin} como
+fuente primaria responde a cinco criterios: es la fuente \textbf{oficial y única} del dato,
+pues la fecha de prioridad no es una estimación ni un agregado de terceros sino el valor
+administrativo que determina el avance real de cada solicitud; ofrece \textbf{cobertura
+longitudinal} suficiente para aplicar validación temporal con ventanas móviles; su
+\textbf{frecuencia mensual} define por sí misma la granularidad del problema y del
+producto; es de \textbf{acceso público y libre} y publica exclusivamente valores agregados
+de política migratoria, sin dato personal identificable de solicitantes; y presenta
+\textbf{estabilidad estructural} suficiente para un extractor automatizado y reproducible.
+Se evaluaron y se descartaron dos alternativas: los foros donde los solicitantes reportan
+el avance de sus casos, que no son autoritativos y presentan un fuerte sesgo de
+autoselección, y los registros de casos individuales, excluidos por contener datos
+personales y por ser innecesarios para un objetivo que opera sobre valores agregados de
+política pública.
 
 \subsection{1.1.2 Obtención de los datos y conversión al formato adecuado}
 
@@ -505,6 +563,207 @@ y vistas/marts de gobernanza, con restricciones de clave e integridad como contr
 fecha de prioridad y la variable objetivo \texttt{days\_since\_base}.}
 \label{fig:duckdb}
 \end{figure}
+
+\paragraph{Procedimiento detallado, etapa por etapa.} El flujo de la
+Figura~\ref{fig:pipeline_datos} se implementó como una cadena de siete pasos ejecutables,
+cada uno con su herramienta, su formato de salida y su artefacto verificable:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Descubrimiento del índice.} Se solicita la página índice del portal con el
+cliente HTTP \texttt{requests} \cita{7} y se analiza el documento con Beautiful Soup
+\cita{8}, extrayendo del acordeón que agrupa los boletines por año fiscal los enlaces de
+cada mes. La lista se contrasta contra un piso mínimo de 290 enlaces esperados: si el portal
+renombrara su maquetado, la lista quedaría vacía y el proceso se volvería un no-op
+silencioso, de modo que por debajo de ese piso el paso aborta con error.
+\item \textbf{Descarga y congelado inmutable.} Cada boletín no descargado previamente se
+solicita una sola vez, con reintentos y espera creciente ante fallos transitorios y con
+tiempo límite por petición. Antes de escribir, el contenido debe presentar los marcadores
+propios de un boletín real, lo que evita momificar una página de mantenimiento devuelta con
+código 200. La escritura es atómica (archivo temporal y reemplazo), y la política es no
+sobrescribir jamás: una página ya congelada es un hecho fijo. El resultado es un respaldo
+local de instantáneas HTML replicado en almacenamiento de objetos en la nube.
+\item \textbf{Extracción sin conexión.} El análisis sintáctico no toca la red: recorre las
+instantáneas congeladas y, en una sola lectura por archivo, extrae las tres secciones de
+interés (preferencia por empleo, preferencia familiar y visas por diversidad). La detección
+de secciones y de columnas tolera la deriva de dos décadas de maquetado, y las etiquetas de
+categoría se traducen a un catálogo canónico de códigos. Un fallo en la sección de visas por
+diversidad no invalida el mes, porque ese bloque no es objetivo predictivo.
+\item \textbf{Consolidación y conversión.} Los archivos por país se unen con la biblioteca
+\texttt{pandas} \cita{9} en un único panel largo en formato \textit{tidy}
+\cita{10}, donde cada fila es una observación identificada por país, categoría, tabla y
+mes. Aquí se clasifica el régimen de cada celda, se calcula la variable dependiente como
+días transcurridos desde la época base y se aplican las guardas que documenta la
+sección~1.1.3.
+\item \textbf{Almacenamiento.} El panel se materializa en tres formatos complementarios:
+texto separado por comas para consulta y descarga abierta, formato columnar comprimido
+(Parquet \cita{11}) para lectura eficiente y el almacén dimensional en estrella sobre
+DuckDB (Apéndice~A.7), cuyas restricciones de clave, de integridad referencial y de
+verificación actúan como contrato de calidad.
+\item \textbf{Registro, metadatos y trazabilidad.} Cada construcción escribe un registro de
+limpieza con el mes de la añada, el conteo de filas por régimen y las guardas evaluadas
+(Apéndice~A.13); la carga al almacén deja constancia en una bitácora de ejecución, y el
+grafo de dependencias de datos versiona los artefactos por su huella digital
+(Apéndice~A.5), de modo que cualquier tercero puede reconstruir la cadena completa y
+obtener los mismos archivos.
+\item \textbf{Automatización mensual.} Una tarea programada verifica en días hábiles si el
+Departamento de Estado publicó un boletín nuevo; solo cuando aparece uno, congela la página,
+reconstruye el panel y el almacén, revalida la consistencia y publica los artefactos. Cada
+ejecución emite un aviso por correo, exitosa o fallida, para que la ausencia de noticias no
+se confunda con un proceso sano.
+\end{enumerate}
+
+La Tabla~\ref{tab:herramientas} resume las herramientas, los formatos y los artefactos
+producidos en cada etapa.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Herramientas, formatos y artefactos por etapa]{Herramientas, conversión de formato y
+artefacto verificable de cada etapa del proceso de obtención y conversión.}
+\label{tab:herramientas}
+\begin{tabular}{p{2.5cm}p{2.95cm}p{3.55cm}p{4.45cm}}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Etapa} & \textbf{Herramienta} & \textbf{Conversión de formato} & \textbf{Artefacto resultante} \\ \midrule
+Descubrimiento & Python: \texttt{requests} y \texttt{beautifulsoup4} & Índice HTML a lista de enlaces & Lista de enlaces mensuales, contrastada con un piso de 290 \\
+Congelado & \texttt{requests}, con reintentos y escritura atómica & Página en vivo a instantánea inmutable & \texttt{data/snapshots/}: 298 archivos HTML (33~MB), replicados en la nube \\
+Extracción & \texttt{beautifulsoup4} y \texttt{pandas} & HTML congelado a tablas por bloque & 11 archivos CSV crudos en \texttt{data/raw/} \\
+Conversión & \texttt{pandas} & CSV por país a panel largo \textit{tidy} & \texttt{visa\_panel\_long.csv}: \factNObsFmt{} filas por 9 variables (1.6~MB) \\
+Almacenamiento & DuckDB y Parquet & Panel \textit{tidy} a almacén dimensional & \texttt{visapredict.duckdb} (12 tablas y 6 vistas, 13~MB) y el archivo columnar equivalente (98~KB) \\
+Trazabilidad & Git, control de versiones de datos y almacenamiento de objetos & Artefactos a versiones con huella digital & Registro de limpieza, bitácora de ejecución y archivo de bloqueo del grafo de datos \\
+Automatización & Tarea programada de integración continua & Boletín nuevo a publicación & Reconstrucción condicional, aviso por correo y verificación del despliegue \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Cantidad de los datos obtenidos.} El proceso descrito produjo un panel de
+\factNObsFmt{} registros distribuidos en \factNSeriesStructural{} series y \factNMonths{}
+meses consecutivos, sin meses faltantes, con nueve variables por registro que documenta el
+Apéndice~A.11. La Tabla~\ref{tab:censo_obtencion} desglosa el volumen obtenido por
+artefacto y por bloque; el censo de las observaciones con fecha por bloque y tabla se
+detalla más adelante, en la Tabla~\ref{tab:eda_descriptiva}.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Cantidad de datos obtenidos]{Volumen del conjunto obtenido tras la extracción y la
+conversión, por artefacto y por bloque del panel.}
+\label{tab:censo_obtencion}
+\begin{tabular}{p{6.3cm}r p{6.0cm}}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Indicador} & \textbf{Valor} & \textbf{Nota} \\ \midrule
+Instantáneas HTML congeladas & 298 & 33~MB; \factNMonths{} meses únicos, más una ruta alterna y un anuncio especial de julio de 2007 \\
+Meses cubiertos por el panel & \factNMonths{} & De diciembre de 2001 a julio de 2026, sin meses faltantes \\
+Series estructurales & \factNSeriesStructural{} & Combinaciones observadas de 5 áreas de cargabilidad, 21 categorías y 2 tablas \\
+Registros del panel largo & \factNObsFmt{} & Nueve variables por registro \\
+Registros de la tabla FAD & 18{,}663 & \factNMonths{} meses (diciembre de 2001 a julio de 2026) \\
+Registros de la tabla DFF & 8{,}948 & 130 meses (la tabla existe desde octubre de 2015) \\
+Bloque de preferencia por empleo & 17{,}246 & 16 categorías (EB-1 a EB-5 con subcategorías) \\
+Bloque de preferencia familiar & 10{,}365 & 5 categorías (F1, F2A, F2B, F3 y F4) \\
+Rangos de \textit{Diversity Visa} & \factDvNRowsFmt{} & Hecho separado del almacén; no es objetivo predictivo \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Calidad de los datos.} La calidad se evalúa con dos criterios: qué proporción de
+las celdas obtenidas quedó correctamente interpretada y cuántas violaciones de las
+invariantes del conjunto se detectaron. El primero es alto: \factNObsFFmt{} registros
+(\factPctTrainableF{}\,\%) traen una fecha de prioridad y constituyen el objetivo entrenable,
+mientras que el resto corresponde a regímenes sin fecha que se conservan como anotación
+descriptiva; una sola celda de las \factNObsFmt{} quedó sin poder interpretarse. El segundo
+es igualmente favorable, pero por construcción: las guardas del proceso no reportan
+incidencias porque \textit{abortan} la construcción del panel cuando se violan, de modo que
+un valor distinto de cero en esas filas es inalcanzable y su presencia documenta la
+invariante vigente. La Tabla~\ref{tab:calidad_obtencion} presenta ambos grupos de
+indicadores.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Calidad del conjunto obtenido]{Indicadores de calidad del panel: interpretación de
+las celdas publicadas, invariantes verificadas y cobertura efectiva de las series.}
+\label{tab:calidad_obtencion}
+\begin{tabular}{p{6.3cm}r p{6.0cm}}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Indicador} & \textbf{Valor} & \textbf{Interpretación} \\ \midrule
+Celdas con régimen asignado & 99.99\,\% & 27{,}610 de \factNObsFmt{}: solo una celda quedó sin dato interpretable \\
+Observaciones con fecha ($e=F$) & \factNObsFFmt{} & 57.7\,\% del panel; único objetivo predictivo \\
+Observaciones \textit{Current} ($e=C$) & 11{,}058 & 40.0\,\%; categoría al corriente, sin fecha que pronosticar \\
+Observaciones \textit{Unavailable} ($e=U$) & 621 & 2.2\,\%; sin números disponibles ese mes \\
+Observaciones sin dato (UNK) & 1 & Menos del 0.01\,\%; se conserva el valor crudo \\
+Fechas de prioridad imparseables & 0 & Guarda que detiene la construcción del panel \\
+Fechas de boletín imparseables & 0 & Guarda que detiene la construcción del panel \\
+Fechas anteriores a la época base $t_0$ & 0 & Guarda de época: delataría un error de siglo \\
+Filas duplicadas colapsadas & 0 & Deduplicación por preferencia de régimen \\
+Meses faltantes & 0 & Cobertura del 100\,\% a nivel de boletín \\
+Saltos superiores a ocho años & 14 & Eventos administrativos reales; se conservan, no se recortan \\
+Series con al menos una fecha & \factNSeriesWithF{} & De \factNSeriesStructural{}; el resto permanece en $C$ o $U$ todo el periodo \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Conviene precisar dos lecturas de estos indicadores. La primera es que la proporción de
+celdas sin fecha no es un defecto de la extracción, sino una propiedad de la fuente: muchas
+combinaciones de país y categoría permanecen al corriente durante todo el periodo y, por
+definición, no tienen fecha que publicar. La segunda es que los catorce saltos superiores a
+ocho años no se tratan como valores atípicos a corregir, sino como eventos administrativos
+verdaderos (agotamiento de cuotas y cambios de régimen) que el sistema debe tolerar; por eso
+ninguna etapa del proceso recorta ni suaviza valores extremos.
+
+\paragraph{Retos enfrentados y cómo se resolvieron.} La obtención de una serie de
+veinticinco años a partir de páginas HTML publicadas una por una planteó retos de acceso,
+de formato y de calidad. Las Tablas~\ref{tab:retos_acceso} y~\ref{tab:retos_conversion} los
+enumeran junto con su impacto potencial y la solución adoptada.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Retos de acceso y extracción]{Retos enfrentados en el acceso a la fuente y en la
+extracción, con su impacto potencial y la solución adoptada.}
+\label{tab:retos_acceso}
+\begin{tabular}{p{3.5cm}p{4.0cm}p{6.0cm}}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Reto} & \textbf{Impacto potencial} & \textbf{Solución adoptada} \\ \midrule
+Ausencia de interfaz de programación y de histórico descargable & Sin descarga directa no existe serie ni variable dependiente & Extractor propio que recorre el archivo mensual del portal y lo convierte en panel \\
+Retiro de boletines antiguos del portal & Cinco boletines dejaron de publicarse en vivo; la serie quedaba con huecos irrecuperables & Congelado inmutable de cada página y recuperación manual de esos cinco meses desde el archivo histórico, integrados a las instantáneas; cobertura final de \factNMonths{} de \factNMonths{} meses \\
+Deriva del maquetado HTML a lo largo de dos décadas & Una columna no reconocida elimina un país entero de la serie sin aviso & Detección de secciones y de columnas tolerante a la deriva, catálogo canónico de 21 categorías y verificación de cobertura por país y mes que aborta si el boletín más reciente pierde una columna \\
+Respuestas de mantenimiento devueltas con código 200 & Una página falsa quedaría congelada para siempre por la política de no sobrescribir & Validación de los marcadores propios del boletín antes de escribir, y escritura atómica \\
+Cambio de estructura del índice de boletines & El proceso se volvería un no-op silencioso, con todos los controles en verde & Piso mínimo de enlaces esperados que aborta de forma ruidosa \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Retos de conversión y calidad]{Retos enfrentados en la conversión al formato de
+modelado y en el aseguramiento de la calidad, con su impacto potencial y la solución
+adoptada.}
+\label{tab:retos_conversion}
+\begin{tabular}{p{3.5cm}p{4.0cm}p{6.0cm}}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Reto} & \textbf{Impacto potencial} & \textbf{Solución adoptada} \\ \midrule
+Erratas tipográficas acumuladas en la fuente & Celdas válidas se descartarían por una etiqueta mal escrita & Normalización explícita y documentada de las erratas conocidas; lo imparseable se conserva como UNK con el valor crudo intacto \\
+Ambigüedad de siglo del formato \texttt{DDMMMYY} & Un año de dos dígitos puede leerse un siglo antes o después del real & Pivote de siglo y guarda de época: toda fecha anterior a $t_0$ detiene el proceso en lugar de truncar en silencio \\
+Coerción automática del literal \texttt{NA} al leer los archivos & La anotación de ausencia se convertía en valor nulo y borraba el régimen & Centinela explícito \texttt{UNK} y lectura con la coerción desactivada \\
+Un mismo mes publicado en dos rutas del portal & Una observación entrenable podía perderse al azar al eliminar el duplicado & Deduplicación por preferencia de régimen; si dos fechas publicadas discrepan, el proceso se detiene para revisión humana \\
+Naturaleza dispersa de las series & Las celdas en régimen $C$ o $U$ no aportan fecha y se manifiestan como huecos & El régimen se conserva como anotación, solo las celdas con fecha son objetivo, y el censo identifica \factNSeriesWithF{} series con fecha y \factNSeriesEvaluable{} evaluables \\
+Reproducibilidad y volumen de los artefactos & 51~MB entre instantáneas, archivos crudos y derivados que deben poder reconstruirse & Versionado con Git y con control de versiones de datos, respaldo en la nube y grafo de dependencias que reconstruye solo lo que cambió \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El conjunto obtenido no se da por bueno por inspección visual: además de las guardas que
+abortan la construcción, la integración continua ejecuta en cada cambio la batería de
+pruebas de la capa de datos (Apéndice~A.9), una auditoría automática recorre el panel
+completo y reporta cobertura, duplicados, saltos y huecos, y un verificador de consistencia
+compara las cifras publicadas en el documento, en el repositorio y en el portal de
+divulgación para que una misma cifra no discrepe entre artefactos. El entorno con versiones
+fijadas y las órdenes exactas que reproducen la cadena se detallan en el Apéndice~A.14.
 
 % ------------------------------------------------------------
 \subsection{1.1.3 Limpieza y clasificación de los datos}
@@ -873,16 +1132,16 @@ con el atraso bajo FAD (acción final), para las series con ambas tablas publica
 \label{fig:eda_brecha}
 \end{figure}
 
-La descomposición STL (\textit{Seasonal-Trend decomposition using Loess})\cita{3} de una serie representativa (Figura~\ref{fig:eda_stl})
+La descomposición STL (\textit{Seasonal-Trend decomposition using Loess})\cita{12} de una serie representativa (Figura~\ref{fig:eda_stl})
 confirma una tendencia creciente dominante y una componente estacional pequeña,
 con residuos volátiles concentrados en el periodo temprano. Las pruebas de
 estacionariedad lo formalizan: para la serie México/F3/FAD, la prueba de
 \textit{Augmented Dickey-Fuller} (ADF) no rechaza la raíz unitaria ($p=0.99$) y la
-de \textit{Kwiatkowski-Phillips-Schmidt-Shin} (KPSS)\cita{4} rechaza la estacionariedad en
+de \textit{Kwiatkowski-Phillips-Schmidt-Shin} (KPSS)\cita{13} rechaza la estacionariedad en
 nivel ($p<0.01$); ambas concuerdan en que la serie requiere una diferenciación. Como
 la prueba ADF pierde potencia precisamente bajo tendencia fuerte y muestras cortas
 (el escenario de este panel), se añade la prueba DF-GLS de Elliott-Rothenberg-Stock
-\cita{5}, que aplica un \textit{detrending} por mínimos cuadrados generalizados y
+\cita{14}, que aplica un \textit{detrending} por mínimos cuadrados generalizados y
 alcanza la envolvente de potencia óptima; también confirma la no estacionariedad en
 nivel ($p=0.78$), reforzando de forma más robusta la elección $d=1$. La
 Figura~\ref{fig:eda_acf} muestra la autocorrelación de la serie diferenciada, que
@@ -994,14 +1253,14 @@ del objetivo predictivo del sistema.}
 \subsubsection{Catálogo de características por serie}
 
 Examinar 25 series una por una no escala. Por ello se adopta el enfoque de análisis
-basado en características (\textit{feature-based}) \cita{6}: se resume cada serie en
+basado en características (\textit{feature-based}) \cita{15}: se resume cada serie en
 un vector de descriptores numéricos comparables, de modo que el panel completo se
 analiza como una tabla. A continuación se define cada característica, su rango y su
 lectura operativa para el modelado.
 
 \paragraph{Fuerza de tendencia y de estacionalidad ($F_T$, $F_S$).} A partir de la
 descomposición STL $Y_t = T_t + S_t + R_t$ (tendencia, estacionalidad, residuo) se
-miden, según la formulación de descomposición de FPP3~\cita{7},
+miden, según la formulación de descomposición de FPP3~\cita{16},
 \begin{equation}
 F_T = \max\!\left(0,\; 1 - \frac{\operatorname{Var}(R_t)}{\operatorname{Var}(T_t + R_t)}\right),
 \qquad
@@ -1162,7 +1421,7 @@ El conteo de la columna ``Atípicos'' (32--87) proviene de un $z$-score robusto 
 punto y, por sí solo, confunde dos fenómenos distintos. Un diagnóstico de mayor nivel
 los separa: por un lado, los \textbf{cambios de régimen} (desplazamientos estructurales
 duraderos) se detectan con el algoritmo PELT (\textit{Pruned Exact Linear Time})
-\cita{8} sobre la serie estandarizada; por otro, las \textbf{anomalías puntuales}
+\cita{17} sobre la serie estandarizada; por otro, las \textbf{anomalías puntuales}
 (observaciones aisladas) con un filtro de Hampel sobre el residuo de la STL (mediana y
 MAD locales). Aplicado a México/F3/FAD, el método identifica \textbf{solo 3 cambios de
 régimen} (no 87), mientras que las anomalías puntuales se concentran en la era volátil
@@ -1184,7 +1443,7 @@ México/F3/FAD. Distingue desplazamientos estructurales de observaciones aislada
 caracterización se calcula, por serie, el exponente de Hurst (mediante análisis de
 fluctuación sin tendencia), la entropía de permutación y de muestra, la $\lambda$
 óptima de Box-Cox y la prueba de Zivot-Andrews (raíz unitaria con un quiebre endógeno),
-además del conjunto canónico de 22 características \textit{catch22} \cita{9}, un
+además del conjunto canónico de 22 características \textit{catch22} \cita{18}, un
 subconjunto de alto rendimiento seleccionado entre más de siete mil descriptores. En
 México/F3/FAD el exponente de Hurst supera 1 (un valor fuera del rango canónico $[0,1]$ que
 señala no estacionariedad pura, no memoria larga; véase la lectura de este diagnóstico más
@@ -1193,7 +1452,7 @@ las entropías de permutación y de muestra son bajas ($\approx 0.13$--$0.17$, s
 una dinámica muy regular y por tanto predecible); la $\lambda$ de Box-Cox queda cerca
 de 1 (no se requiere transformar la varianza); y Zivot-Andrews rechaza la raíz unitaria
 tras una diferencia ($p < 0.001$), reforzando la elección $d=1$. Finalmente, la prueba
-BDS de Brock-Dechert-Scheinkman-LeBaron \cita{10} (cuya hipótesis nula es que la serie
+BDS de Brock-Dechert-Scheinkman-LeBaron \cita{19} (cuya hipótesis nula es que la serie
 diferenciada es independiente e idénticamente distribuida) se rechaza con fuerza
 ($p < 0.001$), lo que evidencia dependencia no lineal y justifica de forma cuantitativa
 incluir modelos no lineales (LSTM, DeepAR, XGBoost) en la comparación, en lugar de
@@ -1205,9 +1464,9 @@ Con muestras de 130--\factNMonths{} observaciones por serie, cada grado de liber
 lo que el conjunto unido de características de caracterización (catch22 y descriptores
 de pronóstico y de diagnóstico) se somete a un análisis formal de relevancia en dos pasos.
 Primero, un filtro de relevancia univariada con corrección de multiplicidad de Benjamini-Yekutieli
-(el patrón del algoritmo FRESH \cita{11}) que controla la tasa de falso descubrimiento.
+(el patrón del algoritmo FRESH \cita{20}) que controla la tasa de falso descubrimiento.
 Segundo, una des-redundancia por correlación de Spearman, en el espíritu de la selección
-de mínima redundancia y máxima relevancia (mRMR) \cita{12}, que conserva una sola
+de mínima redundancia y máxima relevancia (mRMR) \cita{21}, que conserva una sola
 característica representativa de cada grupo colineal. Es importante acotar qué es este
 análisis: una \textbf{caracterización retrospectiva de la dificultad}, que relaciona
 descriptores calculados sobre la serie completa con el MASE de hold-out del modelo
@@ -1221,7 +1480,7 @@ control de falso descubrimiento (\texttt{\feFactSelName}, un descriptor catch22 
 distribución temporal de los avances extremos), evidencia directa de que apilar
 bibliotecas completas de características (que serían cientos, con fuerte redundancia
 mutua) no aporta: pocos descriptores bien elegidos superan a muchos correlacionados
-\cita{13}.
+\cita{22}.
 
 \paragraph{Nota sobre la ingeniería de características viva.} Igual que el EDA, la
 ingeniería de características y la limpieza mantienen un catálogo versionado
@@ -1336,7 +1595,7 @@ corresponden a regímenes \textit{Current}/\textit{Unavailable}, donde estructur
 no hay fecha que predecir. Es un mecanismo \textit{Missing Not At Random} (MNAR): la
 ausencia misma es información. Por ello el tratamiento es doble. Para
 \textbf{caracterizar y visualizar} se imputa con suavizado de Kalman sobre un modelo de
-espacio de estados, el método de referencia de \texttt{imputeTS} \cita{14}, superior a
+espacio de estados, el método de referencia de \texttt{imputeTS} \cita{23}, superior a
 la interpolación lineal (Figura~\ref{fig:eda_kalman}). Para \textbf{modelar}, la
 rejilla mensual de entrenamiento se construye con relleno estrictamente causal: cada
 mes sin fecha publicada ($C$/$U$) arrastra la última observación anterior
@@ -1480,15 +1739,15 @@ diferencia; Chronos es zero-shot.}
 \textbf{Familia} & \textbf{Modelos} & \textbf{Rol} \\ \midrule
 Referencia & Naïve-1 (paseo aleatorio), deriva, & Piso operativo; denominador \\
  & naïve estacional & de MASE ($m=1$ y $m=12$) \\
-Estadísticos \cita{15} & ARIMA, SARIMA & Tendencia/estacionalidad lineal \\
-Suavizamiento y estado \cita{16}\textendash\cita{19} & ETS amortiguado, Theta, Kalman, & Tendencia parsimoniosa \\
+Estadísticos \cita{24} & ARIMA, SARIMA & Tendencia/estacionalidad lineal \\
+Suavizamiento y estado \cita{25}\textendash\cita{28} & ETS amortiguado, Theta, Kalman, & Tendencia parsimoniosa \\
  & tendencia lineal local (LLT) & \\
-Aditivo \cita{20} & Prophet & Tendencia con cambios de régimen \\
-Árboles sobre deltas \cita{21}\textendash\cita{23} & XGBoost, LightGBM, CatBoost & Rezagos + regresores, extrapolación \\
-Lineales/profundos \cita{24}\textendash\cita{31} & DLinear, NLinear, RLinear, TiDE, & No linealidad y capacidad alta \\
+Aditivo \cita{29} & Prophet & Tendencia con cambios de régimen \\
+Árboles sobre deltas \cita{30}\textendash\cita{32} & XGBoost, LightGBM, CatBoost & Rezagos + regresores, extrapolación \\
+Lineales/profundos \cita{33}\textendash\cita{40} & DLinear, NLinear, RLinear, TiDE, & No linealidad y capacidad alta \\
  & LSTM, DeepAR, ARIMA-LSTM, & \\
  & N-BEATS, N-HiTS, TFT & \\
-Foundation \textit{(zero-shot)} \cita{32} & Chronos & Transferencia sin entrenamiento \\ \bottomrule
+Foundation \textit{(zero-shot)} \cita{41} & Chronos & Transferencia sin entrenamiento \\ \bottomrule
 \end{tabular}
 \end{table}
 
@@ -1506,7 +1765,7 @@ nada; el naïve-1, sin embargo, resulta el rival a vencer de todo el capítulo d
 del $28$\,\% de meses congelados en FAD al $66$\,\% en DFF (Tabla~\ref{tab:eda_descriptiva}),
 la fecha se repite con frecuencia. La deriva, que añade el avance medio, apenas lo matiza.
 
-\paragraph{Estadísticos lineales: ARIMA y SARIMA \cita{15}.} Modelan la serie como una
+\paragraph{Estadísticos lineales: ARIMA y SARIMA \cita{24}.} Modelan la serie como una
 combinación lineal de sus valores y errores pasados; SARIMA añade términos estacionales. Se
 eligen porque las series son fuertemente autorregresivas. Ocupan la zona media (ARIMA $0.157$,
 SARIMA $0.135$ en FAD) y revelan una fragilidad clave: con las series cortas de DFF, SARIMA solo
@@ -1515,8 +1774,8 @@ desmiente su aparente ventaja.
 
 \paragraph{Suavizamiento parsimonioso y espacio de estados: ETS amortiguado, Theta, Kalman y
 tendencia lineal local.} El suavizamiento exponencial con tendencia
-amortiguada\cita{16}\cita{17}, la descomposición de Theta\cita{18}, el filtro de
-Kalman\cita{19} y el modelo estructural de tendencia lineal local (LLT, nivel más pendiente
+amortiguada\cita{25}\cita{26}, la descomposición de Theta\cita{27}, el filtro de
+Kalman\cita{28} y el modelo estructural de tendencia lineal local (LLT, nivel más pendiente
 en espacio de estados) comparten una virtud decisiva: \textbf{pocos parámetros}. Se eligen
 justo para el régimen observado, donde un modelo simple y bien regularizado es difícil de
 batir. El resultado lo confirma: Theta (selección $0.110$) y ETS son los mejores modelos
@@ -1525,13 +1784,13 @@ estas series es nivel más pendiente. Pero ninguno bate al naïve-1 en el conjun
 el hallazgo contraintuitivo del proyecto es que aquí menos es más, hasta el extremo de que
 \textit{no aprender nada} (repetir el último valor) es lo más difícil de superar a un paso.
 
-\paragraph{Aditivo: Prophet \cita{20}.} Descompone la serie en tendencia, estacionalidad y puntos
+\paragraph{Aditivo: Prophet \cita{29}.} Descompone la serie en tendencia, estacionalidad y puntos
 de cambio. Se elige por su manejo explícito de cambios de régimen, atractivo ante las
 retrogresiones. Sin embargo, su estructura aditiva y suave \textit{subajusta} (MASE $0.553$): no
 reproduce ni la trayectoria escalonada ni los saltos abruptos de las colas migratorias.
 
 \paragraph{Árboles de potenciación de gradiente sobre deltas: XGBoost, LightGBM y CatBoost
-\cita{21}\textendash\cita{23}.} Aprenden relaciones no lineales entre rezagos y regresores de calendario. Su
+\cita{30}\textendash\cita{32}.} Aprenden relaciones no lineales entre rezagos y regresores de calendario. Su
 limitación (no extrapolan más allá del máximo visto en el entrenamiento) se resuelve
 formulándolos sobre la \textbf{primera diferencia}: predicen el avance mensual y lo reintegran.
 Con sus hiperparámetros optimizados (§1.4.3) encabezan incluso la métrica de selección en FAD
@@ -1540,7 +1799,7 @@ queda por encima del piso del naïve-1 ($\factNaiveOneFadMean$): la capacidad bi
 destrona.
 
 \paragraph{Lineales y redes profundas: DLinear, NLinear, RLinear, TiDE, LSTM, DeepAR, ARIMA-LSTM,
-N-BEATS, N-HiTS y TFT \cita{24}\textendash\cita{31}.} Abarcan desde proyecciones lineales hasta
+N-BEATS, N-HiTS y TFT \cita{33}\textendash\cita{40}.} Abarcan desde proyecciones lineales hasta
 arquitecturas de altísima capacidad. Se incluyen para responder \textit{empíricamente} si la
 capacidad ayuda, y la respuesta exigió una autocorrección de especificación que se documenta
 con transparencia. En las campañas iniciales, entrenadas por serie sobre el nivel crudo,
@@ -1553,7 +1812,7 @@ alcanza $0.111$ de selección en FAD; la cascada ARIMA-LSTM sigue sin converger 
 cortas de DFF). Aun corregidas, \textbf{ninguna supera el piso del naïve-1}; el
 entrenamiento global sobre el panel (§2.2) les presta señal adicional entre series.
 
-\paragraph{Foundation model: Chronos en modo zero-shot.} Un modelo preentrenado\cita{32} sobre
+\paragraph{Foundation model: Chronos en modo zero-shot.} Un modelo preentrenado\cita{41} sobre
 millones de series, evaluado \textit{sin ajuste alguno} a estos datos. Se incluye para medir
 cuánto vale la transferencia de conocimiento frente a la escasez. Con MASE de selección
 $0.184$ ocupa la zona media-baja de la tabla: la transferencia aporta un pronóstico
@@ -1607,7 +1866,7 @@ conjunto de prueba, para impedir la fuga de información.
 
 \subsection{1.4.3 Optimización de parámetros y pruebas avanzadas}
 
-Los árboles de potenciación de gradiente se optimizan con \textit{Optuna} \cita{33}
+Los árboles de potenciación de gradiente se optimizan con \textit{Optuna} \cita{42}
 (muestreo TPE, \textit{Tree-structured Parzen Estimator}, multivariante, semilla fija, con
 poda por mediana y almacenamiento persistente de los estudios) bajo un protocolo
 \textit{anidado y libre de fuga} con \textbf{tres particiones}: la región de selección se
@@ -1635,7 +1894,7 @@ su distribución predictiva, de la que se leen los cuantiles 2.5\,\% y 97.5\,\%.
 es el conforme dividido, un método no paramétrico y agnóstico al modelo que fija el
 semiancho a partir del cuantil de los errores absolutos de calibración (calculados solo
 sobre meses con fecha publicada), con cobertura garantizada bajo intercambiabilidad
-\cita{34}; al no depender del modelo, sirve de red de seguridad uniforme para los 24. El
+\cita{43}; al no depender del modelo, sirve de red de seguridad uniforme para los 24. El
 tercero es el que \textbf{despliega el demostrador}: bandas cuyo semiancho por horizonte
 $h=1,\dots,12$ se calibra con el \textit{cuantil empírico} de los errores realmente
 observados en el registro de evaluación por horizonte (§2.2), separadas por tabla y
@@ -1781,7 +2040,7 @@ sobre S3 y el código con Git, todo orquestado por un único guion.}
 El desempeño se mide con cuatro métricas estándar evaluadas solo sobre las
 observaciones con fecha: el error absoluto medio (MAE), la raíz del error cuadrático
 medio (RMSE), el error porcentual absoluto medio simétrico (sMAPE) y el error
-absoluto medio escalado (MASE \cita{35}), este último referido al naïve estacional
+absoluto medio escalado (MASE \cita{44}), este último referido al naïve estacional
 ($m=12$) y reportado en paralelo en su variante escalada por el naïve-1 ($m=1$).
 Un valor de MASE menor que uno indica que el modelo mejora a la línea base ingenua
 correspondiente.
@@ -1994,9 +2253,9 @@ país-categoría-tabla) se sostiene en la métrica de selección (el ganador se 
 árboles y familia estadística), pero el conjunto reservado la matiza: la heterogeneidad
 real está en \textit{cuánto} pierde cada modelo frente al piso ingenuo en cada serie, no
 en quién gana. La significancia de las diferencias se contrasta con la prueba de
-Diebold-Mariano \cita{36} (una única comparación pre-registrada por tabla) y, dado el tamaño del pool, con el conjunto de
-confianza de modelos (Model Confidence Set) \cita{37} y el ranking de Friedman-Nemenyi
-\cita{38} sobre las 25 series, fijados de antemano.
+Diebold-Mariano \cita{45} (una única comparación pre-registrada por tabla) y, dado el tamaño del pool, con el conjunto de
+confianza de modelos (Model Confidence Set) \cita{46} y el ranking de Friedman-Nemenyi
+\cita{47} sobre las 25 series, fijados de antemano.
 
 \paragraph{Resultados sobre la tabla DFF.} Como FAD y DFF se evalúan por separado, el
 mismo protocolo (los \factNModels{} modelos) se aplicó a las 25 series DFF de preferencia familiar
@@ -2077,7 +2336,7 @@ supervivencia), por lo que no es una referencia comparable.}
 La significancia de estas diferencias se formaliza con la prueba de Friedman sobre los
 rangos de los modelos en las series (25 en FAD; 14 distintas en DFF tras descontar las
 pseudo-réplicas del corte mundial), seguida de la prueba posterior de Nemenyi
-\cita{38}. El \textbf{diagrama de diferencia crítica} (Figura~\ref{fig:cd}) resume el
+\cita{47}. El \textbf{diagrama de diferencia crítica} (Figura~\ref{fig:cd}) resume el
 resultado: la prueba de Friedman rechaza la hipótesis de igualdad ($p<0.001$) en ambas
 tablas, y la barra de diferencia crítica (CD) une los modelos cuyo rango promedio no se
 distingue estadísticamente. \textbf{El naïve-1 obtiene el mejor rango promedio} en FAD
@@ -2097,7 +2356,7 @@ estadísticamente significativa en su rango. (a) FAD; (b) DFF.}
 \end{figure}
 
 \paragraph{Efecto de la optimización de hiperparámetros.} Los tres árboles de
-potenciación de gradiente se optimizaron con \textit{Optuna} \cita{33} bajo el protocolo
+potenciación de gradiente se optimizaron con \textit{Optuna} \cita{42} bajo el protocolo
 de tres particiones de §1.4.3, y la aceptación se decidió en la cola de
 \textit{val-confirmación} (una ventana que ni el buscador ni la configuración incumbente
 vieron), no sobre el conjunto reservado, que queda solo para el número publicado.
@@ -2121,7 +2380,7 @@ encima del piso del naïve-1 ($\factNaiveOneFadMean$). La capacidad adicional bi
 modelo complejo; no lo hace superar al simple, y a ninguno lo lleva bajo el piso ingenuo.
 
 \paragraph{Combinación de modelos y distribución predictiva.} Se evaluaron, también sin
-fuga, estrategias de conjunto \cita{39} implementadas en sus formas fuertes: la
+fuga, estrategias de conjunto \cita{48} implementadas en sus formas fuertes: la
 \textbf{mediana de los mejores $K$ modelos por serie} (elegidos por error de selección,
 $K\in\{2,3,5\}$), un \textit{stacking} global con un único vector de pesos por tabla
 regularizado en el simplex, y un selector de modelo por características de serie
@@ -2135,7 +2394,7 @@ las series distintas, el propio naïve-1 resulta elegido como miembro de la comb
 óptima en el $40$\,\% de las combinaciones serie$\times K$ de FAD y en el $90$\,\% de
 las de DFF (los conjuntos ganan \textit{incorporando} al paseo aleatorio,
 no venciéndolo). En cuanto a la \textit{distribución predictiva completa}, medida con el
-CRPS (\textit{Continuous Ranked Probability Score}) \cita{40}, la receta campeona
+CRPS (\textit{Continuous Ranked Probability Score}) \cita{49}, la receta campeona
 desplegada (que promedia los cuantiles nativos de sus miembros y la banda conforme de los
 que no muestrean) obtiene un CRPS de $\factCrpsFad$ días en FAD y $\factCrpsDff$ en DFF, mejor que
 cualquiera de los clásicos con muestreo nativo por separado (ARIMA $49.5$, SARIMA
@@ -2145,14 +2404,14 @@ criterio informativo.
 \paragraph{Entrenamiento global y aprendizaje profundo.} La pregunta de si el
 aprendizaje profundo puede aportar se completa con la práctica moderna de entrenar un
 \textbf{modelo global} sobre todas las series apiladas, de modo que cada serie corta tome
-señal prestada del resto \cita{39}. Como el modelo global exige series continuas, los meses en
+señal prestada del resto \cita{48}. Como el modelo global exige series continuas, los meses en
 régimen \textit{Current} (en los que, por definición, el cutoff es el mes en curso) se
 codifican con la fecha del propio boletín, en lugar de interpolar linealmente a través del
 periodo. Así las veinticinco series conservan su historia completa con valores
 \textbf{reales} (incluida la dinámica de retrogresión \textit{Current}$\rightarrow$fecha)
 sin fabricar datos, y la evaluación permanece sobre fechas específicas (F). Se entrenó así un
 \textbf{barrido de ocho arquitecturas recientes}
-(N-HiTS, PatchTST\cita{41}, TiDE, BiTCN\cita{42}, TimesNet\cita{43}, TimeMixer\cita{44}, KAN\cita{45}, DeepAR), sobre el nivel,
+(N-HiTS, PatchTST\cita{50}, TiDE, BiTCN\cita{51}, TimesNet\cita{52}, TimeMixer\cita{53}, KAN\cita{54}, DeepAR), sobre el nivel,
 la primera diferencia (con reintegración a un paso) y variantes con agrupamiento y normalización
 por serie, cada una en campañas \textbf{multi-semilla} y con optimización de hiperparámetros a nivel
 de arquitectura. Por su costo de cómputo, el barrido se ejecutó sobre una \textbf{GPU en la nube}
@@ -2252,7 +2511,7 @@ debajo del $95$\,\% nominal (una sub-cobertura esperable con series cortas, que 
 documenta con transparencia en lugar de declararse exacta).
 
 \paragraph{Calibración adaptativa de la cobertura.} La sub-cobertura anterior se corrigió
-con \textit{inferencia conforme adaptativa} (Adaptive Conformal Inference) \cita{46}, que ajusta el
+con \textit{inferencia conforme adaptativa} (Adaptive Conformal Inference) \cita{55}, que ajusta el
 nivel de error en línea tras cada origen de pronóstico en lugar de fijarlo de antemano,
 con su tasa de adaptación elegida solo sobre el tramo de calibración. Con
 esta calibración (leakage-free, sobre el mismo ganador profundo) la cobertura empírica del
@@ -2277,7 +2536,7 @@ los modelos clásicos, incluido el DeepAR entrenado localmente.}
 \paragraph{¿Queda margen en la exactitud puntual? La frontera está confirmada.} Para
 acotar el techo de error alcanzable se evaluó además, fuera del marco comparativo
 principal, un segundo \textit{foundation model} preentrenado (TabPFN-TS)
-\cita{47} en modo zero-shot sobre el panel: alcanza un MASE de $0.1175$ en media
+\cita{56} en modo zero-shot sobre el panel: alcanza un MASE de $0.1175$ en media
 ($0.1111$ en mediana) en FAD, cerca del listón parsimonioso ($\factEtsFadMean$), pero
 por encima del piso del naïve-1 ($\factNaiveOneFadMean$); la cifra corresponde a sus pronósticos
 congelados el 19 de junio, re-puntuados con la máscara de fechas F sobre el panel
@@ -2850,101 +3109,121 @@ categorías de empleo y la integración del archivo histórico 1992--2001.
 \item\label{bib:1} P. Chapman \textit{et al.}, ``CRISP-DM 1.0: Step-by-step data
 mining guide,'' SPSS Inc., 2000.
 \item\label{bib:2} C. Bergmeir y J. M. Benítez, ``On the use of cross-validation for time series predictor evaluation,'' \textit{Information Sciences}, vol. 191, pp. 192--213, 2012.
-\item\label{bib:3} R. B. Cleveland, W. S. Cleveland, J. E. McRae, y I. Terpenning, ``STL: A seasonal-trend decomposition procedure based on loess,'' \textit{Journal of Official Statistics}, vol. 6, n.\textsuperscript{o} 1, pp. 3--73, 1990.
-\item\label{bib:4} D. Kwiatkowski, P. C. B. Phillips, P. Schmidt, y Y. Shin, ``Testing the null hypothesis of stationarity against the alternative of a unit root,'' \textit{Journal of Econometrics}, vol. 54, n.\textsuperscript{o} 1--3, pp. 159--178, 1992.
-\item\label{bib:5} G. Elliott, T. J. Rothenberg, y J. H. Stock, ``Efficient tests for
+\item\label{bib:3} U.S. Department of State, Bureau of Consular Affairs, ``Visa Bulletin.'' [En línea].
+Disponible en: \url{https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html}
+\item\label{bib:4} \textit{Immigration and Nationality Act}, 8 U.S.C. 1152, ``Numerical limitations on
+individual foreign states.'' [En línea]. Disponible en: \url{https://uscode.house.gov/}
+\item\label{bib:5} U.S. Citizenship and Immigration Services, ``Adjustment of Status Filing Charts from
+the Visa Bulletin.'' [En línea]. Disponible en:
+\url{https://www.uscis.gov/green-card/green-card-processes-and-procedures/visa-availability-priority-dates/adjustment-of-status-filing-charts-from-the-visa-bulletin}
+\item\label{bib:6} U.S. Department of State, Bureau of Consular Affairs, ``Annual Report of the Visa
+Office.'' [En línea]. Disponible en:
+\url{https://travel.state.gov/content/travel/en/legal/visa-law0/visa-statistics/annual-reports.html}
+\item\label{bib:7} K. Reitz, ``Requests: HTTP for Humans,'' documentación del proyecto, 2026. [En línea].
+Disponible en: \url{https://requests.readthedocs.io}
+\item\label{bib:8} L. Richardson, ``Beautiful Soup documentation,'' 2026. [En línea]. Disponible en:
+\url{https://www.crummy.com/software/BeautifulSoup/bs4/doc/}
+\item\label{bib:9} W. McKinney, ``Data structures for statistical computing in Python,'' en
+\textit{Proc. 9th Python in Science Conf. (SciPy)}, 2010, pp. 56--61.
+\item\label{bib:10} H. Wickham, ``Tidy data,'' \textit{Journal of Statistical Software}, vol. 59,
+n.\textsuperscript{o} 10, pp. 1--23, 2014.
+\item\label{bib:11} Apache Software Foundation, ``Apache Parquet,'' software de código abierto, 2026.
+[En línea]. Disponible en: \url{https://parquet.apache.org}
+\item\label{bib:12} R. B. Cleveland, W. S. Cleveland, J. E. McRae, y I. Terpenning, ``STL: A seasonal-trend decomposition procedure based on loess,'' \textit{Journal of Official Statistics}, vol. 6, n.\textsuperscript{o} 1, pp. 3--73, 1990.
+\item\label{bib:13} D. Kwiatkowski, P. C. B. Phillips, P. Schmidt, y Y. Shin, ``Testing the null hypothesis of stationarity against the alternative of a unit root,'' \textit{Journal of Econometrics}, vol. 54, n.\textsuperscript{o} 1--3, pp. 159--178, 1992.
+\item\label{bib:14} G. Elliott, T. J. Rothenberg, y J. H. Stock, ``Efficient tests for
 an autoregressive unit root,'' \textit{Econometrica}, vol. 64, n.\textsuperscript{o} 4,
 pp. 813--836, 1996.
-\item\label{bib:6} X. Wang, K. Smith, y R. Hyndman, ``Characteristic-based
+\item\label{bib:15} X. Wang, K. Smith, y R. Hyndman, ``Characteristic-based
 clustering for time series data,'' \textit{Data Mining and Knowledge Discovery},
 vol. 13, n.\textsuperscript{o} 3, pp. 335--364, 2006.
-\item\label{bib:7} R. J. Hyndman y G. Athanasopoulos, \textit{Forecasting: Principles and Practice (FPP3)}, 3.\textsuperscript{a} ed. Melbourne, Australia: OTexts, 2021.
-\item\label{bib:8} R. Killick, P. Fearnhead, y I. A. Eckley, ``Optimal detection of
+\item\label{bib:16} R. J. Hyndman y G. Athanasopoulos, \textit{Forecasting: Principles and Practice (FPP3)}, 3.\textsuperscript{a} ed. Melbourne, Australia: OTexts, 2021.
+\item\label{bib:17} R. Killick, P. Fearnhead, y I. A. Eckley, ``Optimal detection of
 changepoints with a linear computational cost,'' \textit{Journal of the American
 Statistical Association}, vol. 107, n.\textsuperscript{o} 500, pp. 1590--1598, 2012.
-\item\label{bib:9} C. H. Lubba, S. S. Sethi, P. Knaute, S. R. Schultz, B. D. Fulcher,
+\item\label{bib:18} C. H. Lubba, S. S. Sethi, P. Knaute, S. R. Schultz, B. D. Fulcher,
 y N. S. Jones, ``catch22: CAnonical Time-series CHaracteristics,'' \textit{Data Mining
 and Knowledge Discovery}, vol. 33, n.\textsuperscript{o} 6, pp. 1821--1852, 2019.
-\item\label{bib:10} W. A. Brock, W. D. Dechert, J. A. Scheinkman, y B. LeBaron, ``A test
+\item\label{bib:19} W. A. Brock, W. D. Dechert, J. A. Scheinkman, y B. LeBaron, ``A test
 for independence based on the correlation dimension,'' \textit{Econometric Reviews},
 vol. 15, n.\textsuperscript{o} 3, pp. 197--235, 1996.
-\item\label{bib:11} M. Christ, N. Braun, J. Neuffer, y A. W. Kempa-Liehr, ``Time series
+\item\label{bib:20} M. Christ, N. Braun, J. Neuffer, y A. W. Kempa-Liehr, ``Time series
 feature extraction on basis of scalable hypothesis tests (tsfresh),''
 \textit{Neurocomputing}, vol. 307, pp. 72--77, 2018.
-\item\label{bib:12} C. Ding y H. Peng, ``Minimum redundancy feature selection from
+\item\label{bib:21} C. Ding y H. Peng, ``Minimum redundancy feature selection from
 microarray gene expression data,'' \textit{Journal of Bioinformatics and Computational
 Biology}, vol. 3, n.\textsuperscript{o} 2, pp. 185--205, 2005.
-\item\label{bib:13} T. Henderson y B. D. Fulcher, ``An empirical evaluation of
+\item\label{bib:22} T. Henderson y B. D. Fulcher, ``An empirical evaluation of
 time-series feature sets,'' en \textit{ICDM Workshops}, 2021, pp. 1032--1038.
-\item\label{bib:14} S. Moritz y T. Bartz-Beielstein, ``imputeTS: Time series missing
+\item\label{bib:23} S. Moritz y T. Bartz-Beielstein, ``imputeTS: Time series missing
 value imputation in R,'' \textit{The R Journal}, vol. 9, n.\textsuperscript{o} 1,
 pp. 207--218, 2017.
-\item\label{bib:15} G. E. P. Box, G. M. Jenkins, G. C. Reinsel, y G. M. Ljung,
+\item\label{bib:24} G. E. P. Box, G. M. Jenkins, G. C. Reinsel, y G. M. Ljung,
 \textit{Time Series Analysis: Forecasting and Control}, 5.\textsuperscript{a} ed.
 Hoboken, NJ: Wiley, 2015.
-\item\label{bib:16} E. S. Gardner, Jr. y E. McKenzie, ``Forecasting trends in time series,'' \textit{Management Science}, vol. 31, n.\textsuperscript{o} 10, pp. 1237--1246, 1985.
-\item\label{bib:17} R. J. Hyndman, A. B. Koehler, J. K. Ord, y R. D. Snyder, \textit{Forecasting with Exponential Smoothing: The State Space Approach}. Berlín: Springer, 2008.
-\item\label{bib:18} V. Assimakopoulos y K. Nikolopoulos, ``The theta model: A decomposition approach to forecasting,'' \textit{International Journal of Forecasting}, vol. 16, n.\textsuperscript{o} 4, pp. 521--530, 2000.
-\item\label{bib:19} R. E. Kalman, ``A new approach to linear filtering and prediction problems,'' \textit{Journal of Basic Engineering}, vol. 82, n.\textsuperscript{o} 1, pp. 35--45, 1960.
-\item\label{bib:20} S. J. Taylor y B. Letham, ``Forecasting at scale,'' \textit{The
+\item\label{bib:25} E. S. Gardner, Jr. y E. McKenzie, ``Forecasting trends in time series,'' \textit{Management Science}, vol. 31, n.\textsuperscript{o} 10, pp. 1237--1246, 1985.
+\item\label{bib:26} R. J. Hyndman, A. B. Koehler, J. K. Ord, y R. D. Snyder, \textit{Forecasting with Exponential Smoothing: The State Space Approach}. Berlín: Springer, 2008.
+\item\label{bib:27} V. Assimakopoulos y K. Nikolopoulos, ``The theta model: A decomposition approach to forecasting,'' \textit{International Journal of Forecasting}, vol. 16, n.\textsuperscript{o} 4, pp. 521--530, 2000.
+\item\label{bib:28} R. E. Kalman, ``A new approach to linear filtering and prediction problems,'' \textit{Journal of Basic Engineering}, vol. 82, n.\textsuperscript{o} 1, pp. 35--45, 1960.
+\item\label{bib:29} S. J. Taylor y B. Letham, ``Forecasting at scale,'' \textit{The
 American Statistician}, vol. 72, n.\textsuperscript{o} 1, pp. 37--45, 2018.
-\item\label{bib:21} T. Chen y C. Guestrin, ``XGBoost: A scalable tree boosting
+\item\label{bib:30} T. Chen y C. Guestrin, ``XGBoost: A scalable tree boosting
 system,'' en \textit{Proc. 22nd ACM SIGKDD}, 2016, pp. 785--794.
-\item\label{bib:22} G. Ke \textit{et al.}, ``LightGBM: A highly efficient gradient boosting decision tree,'' en \textit{Advances in Neural Information Processing Systems (NIPS)}, 2017, pp. 3146--3154.
-\item\label{bib:23} L. Prokhorenkova, G. Gusev, A. Vorobev, A. V. Dorogush, y A. Gulin, ``CatBoost: Unbiased boosting with categorical features,'' en \textit{Advances in Neural Information Processing Systems (NeurIPS)}, 2018, pp. 6639--6649.
-\item\label{bib:24} S. Hochreiter y J. Schmidhuber, ``Long short-term memory,''
+\item\label{bib:31} G. Ke \textit{et al.}, ``LightGBM: A highly efficient gradient boosting decision tree,'' en \textit{Advances in Neural Information Processing Systems (NIPS)}, 2017, pp. 3146--3154.
+\item\label{bib:32} L. Prokhorenkova, G. Gusev, A. Vorobev, A. V. Dorogush, y A. Gulin, ``CatBoost: Unbiased boosting with categorical features,'' en \textit{Advances in Neural Information Processing Systems (NeurIPS)}, 2018, pp. 6639--6649.
+\item\label{bib:33} S. Hochreiter y J. Schmidhuber, ``Long short-term memory,''
 \textit{Neural Computation}, vol. 9, n.\textsuperscript{o} 8, pp. 1735--1780, 1997.
-\item\label{bib:25} D. Salinas, V. Flunkert, J. Gasthaus, y T. Januschowski,
+\item\label{bib:34} D. Salinas, V. Flunkert, J. Gasthaus, y T. Januschowski,
 ``DeepAR: Probabilistic forecasting with autoregressive recurrent networks,''
 \textit{International Journal of Forecasting}, vol. 36, n.\textsuperscript{o} 3,
 pp. 1181--1191, 2020.
-\item\label{bib:26} G. P. Zhang, ``Time series forecasting using a hybrid ARIMA and
+\item\label{bib:35} G. P. Zhang, ``Time series forecasting using a hybrid ARIMA and
 neural network model,'' \textit{Neurocomputing}, vol. 50, pp. 159--175, 2003.
-\item\label{bib:27} A. Zeng, M. Chen, L. Zhang, y Q. Xu, ``Are transformers effective for time series forecasting?,'' en \textit{Proc. AAAI Conf. Artificial Intelligence}, vol. 37, n.\textsuperscript{o} 9, pp. 11121 a 11128, 2023.
-\item\label{bib:28} A. Das, W. Kong, A. Leach, S. Mathur, R. Sen, y R. Yu, ``Long-term forecasting with TiDE: Time-series dense encoder,'' \textit{Transactions on Machine Learning Research}, 2023, arXiv:2304.08424.
-\item\label{bib:29} B. N. Oreshkin, D. Carpov, N. Chapados, y Y. Bengio, ``N-BEATS: Neural basis expansion analysis for interpretable time series forecasting,'' en \textit{Int. Conf. on Learning Representations (ICLR)}, 2020, arXiv:1905.10437.
-\item\label{bib:30} C. Challu, K. G. Olivares, B. N. Oreshkin, F. Garza, M. Mergenthaler-Canseco, y A. Dubrawski, ``NHITS: Neural hierarchical interpolation for time series forecasting,'' en \textit{Proc. AAAI Conf. Artificial Intelligence}, vol. 37, n.\textsuperscript{o} 6, pp. 6989--6997, 2023.
-\item\label{bib:31} B. Lim, S. Ö. Ar{\i}k, N. Loeff, y T. Pfister, ``Temporal fusion transformers for interpretable multi-horizon time series forecasting,'' \textit{International Journal of Forecasting}, vol. 37, n.\textsuperscript{o} 4, pp. 1748--1764, 2021.
-\item\label{bib:32} A. F. Ansari \textit{et al.}, ``Chronos: Learning the language of time series,'' \textit{Transactions on Machine Learning Research}, 2024, arXiv:2403.07815.
-\item\label{bib:33} T. Akiba, S. Sano, T. Yanase, T. Ohta, y M. Koyama, ``Optuna: A
+\item\label{bib:36} A. Zeng, M. Chen, L. Zhang, y Q. Xu, ``Are transformers effective for time series forecasting?,'' en \textit{Proc. AAAI Conf. Artificial Intelligence}, vol. 37, n.\textsuperscript{o} 9, pp. 11121 a 11128, 2023.
+\item\label{bib:37} A. Das, W. Kong, A. Leach, S. Mathur, R. Sen, y R. Yu, ``Long-term forecasting with TiDE: Time-series dense encoder,'' \textit{Transactions on Machine Learning Research}, 2023, arXiv:2304.08424.
+\item\label{bib:38} B. N. Oreshkin, D. Carpov, N. Chapados, y Y. Bengio, ``N-BEATS: Neural basis expansion analysis for interpretable time series forecasting,'' en \textit{Int. Conf. on Learning Representations (ICLR)}, 2020, arXiv:1905.10437.
+\item\label{bib:39} C. Challu, K. G. Olivares, B. N. Oreshkin, F. Garza, M. Mergenthaler-Canseco, y A. Dubrawski, ``NHITS: Neural hierarchical interpolation for time series forecasting,'' en \textit{Proc. AAAI Conf. Artificial Intelligence}, vol. 37, n.\textsuperscript{o} 6, pp. 6989--6997, 2023.
+\item\label{bib:40} B. Lim, S. Ö. Ar{\i}k, N. Loeff, y T. Pfister, ``Temporal fusion transformers for interpretable multi-horizon time series forecasting,'' \textit{International Journal of Forecasting}, vol. 37, n.\textsuperscript{o} 4, pp. 1748--1764, 2021.
+\item\label{bib:41} A. F. Ansari \textit{et al.}, ``Chronos: Learning the language of time series,'' \textit{Transactions on Machine Learning Research}, 2024, arXiv:2403.07815.
+\item\label{bib:42} T. Akiba, S. Sano, T. Yanase, T. Ohta, y M. Koyama, ``Optuna: A
 next-generation hyperparameter optimization framework,'' en \textit{Proc. 25th ACM
 SIGKDD}, 2019, pp. 2623--2631.
-\item\label{bib:34} V. Vovk, A. Gammerman, y G. Shafer, \textit{Algorithmic Learning
+\item\label{bib:43} V. Vovk, A. Gammerman, y G. Shafer, \textit{Algorithmic Learning
 in a Random World}. Nueva York: Springer, 2005.
-\item\label{bib:35} R. J. Hyndman y A. B. Koehler, ``Another look at measures of
+\item\label{bib:44} R. J. Hyndman y A. B. Koehler, ``Another look at measures of
 forecast accuracy,'' \textit{International Journal of Forecasting}, vol. 22,
 n.\textsuperscript{o} 4, pp. 679--688, 2006.
-\item\label{bib:36} F. X. Diebold y R. S. Mariano, ``Comparing predictive
+\item\label{bib:45} F. X. Diebold y R. S. Mariano, ``Comparing predictive
 accuracy,'' \textit{Journal of Business \& Economic Statistics}, vol. 13,
 n.\textsuperscript{o} 3, pp. 253--263, 1995.
-\item\label{bib:37} P. R. Hansen, A. Lunde, y J. M. Nason, ``The model confidence
+\item\label{bib:46} P. R. Hansen, A. Lunde, y J. M. Nason, ``The model confidence
 set,'' \textit{Econometrica}, vol. 79, n.\textsuperscript{o} 2, pp. 453--497, 2011.
-\item\label{bib:38} J. Dem\v{s}ar, ``Statistical comparisons of classifiers over
+\item\label{bib:47} J. Dem\v{s}ar, ``Statistical comparisons of classifiers over
 multiple data sets,'' \textit{Journal of Machine Learning Research}, vol. 7,
 pp. 1--30, 2006.
-\item\label{bib:39} S. Makridakis, E. Spiliotis, y V. Assimakopoulos, ``The M4
+\item\label{bib:48} S. Makridakis, E. Spiliotis, y V. Assimakopoulos, ``The M4
 competition: 100,000 time series and 61 forecasting methods,'' \textit{International
 Journal of Forecasting}, vol. 36, n.\textsuperscript{o} 1, pp. 54--74, 2020.
-\item\label{bib:40} T. Gneiting y A. E. Raftery, ``Strictly proper scoring rules,
+\item\label{bib:49} T. Gneiting y A. E. Raftery, ``Strictly proper scoring rules,
 prediction, and estimation,'' \textit{Journal of the American Statistical Association},
 vol. 102, n.\textsuperscript{o} 477, pp. 359--378, 2007.
-\item\label{bib:41} Y. Nie, N. H. Nguyen, P. Sinthong, y J. Kalagnanam, ``A time series is worth 64 words: Long-term forecasting with transformers,'' en \textit{Int. Conf. on Learning Representations (ICLR)}, 2023, arXiv:2211.14730.
-\item\label{bib:42} O. Sprangers, S. Schelter, y M. de Rijke, ``Parameter-efficient deep probabilistic forecasting,'' \textit{International Journal of Forecasting}, vol. 39, n.\textsuperscript{o} 1, pp. 332--345, 2023.
-\item\label{bib:43} H. Wu, T. Hu, Y. Liu, H. Zhou, J. Wang, y M. Long, ``TimesNet: Temporal 2D-variation modeling for general time series analysis,'' en \textit{Int. Conf. on Learning Representations (ICLR)}, 2023, arXiv:2210.02186.
-\item\label{bib:44} S. Wang \textit{et al.}, ``TimeMixer: Decomposable multiscale mixing for time series forecasting,'' en \textit{Int. Conf. on Learning Representations (ICLR)}, 2024, arXiv:2405.14616.
-\item\label{bib:45} Z. Liu \textit{et al.}, ``KAN: Kolmogorov-Arnold networks,'' en \textit{Int. Conf. on Learning Representations (ICLR)}, 2025, arXiv:2404.19756.
-\item\label{bib:46} I. Gibbs y E. Cand\`es, ``Adaptive conformal inference under
+\item\label{bib:50} Y. Nie, N. H. Nguyen, P. Sinthong, y J. Kalagnanam, ``A time series is worth 64 words: Long-term forecasting with transformers,'' en \textit{Int. Conf. on Learning Representations (ICLR)}, 2023, arXiv:2211.14730.
+\item\label{bib:51} O. Sprangers, S. Schelter, y M. de Rijke, ``Parameter-efficient deep probabilistic forecasting,'' \textit{International Journal of Forecasting}, vol. 39, n.\textsuperscript{o} 1, pp. 332--345, 2023.
+\item\label{bib:52} H. Wu, T. Hu, Y. Liu, H. Zhou, J. Wang, y M. Long, ``TimesNet: Temporal 2D-variation modeling for general time series analysis,'' en \textit{Int. Conf. on Learning Representations (ICLR)}, 2023, arXiv:2210.02186.
+\item\label{bib:53} S. Wang \textit{et al.}, ``TimeMixer: Decomposable multiscale mixing for time series forecasting,'' en \textit{Int. Conf. on Learning Representations (ICLR)}, 2024, arXiv:2405.14616.
+\item\label{bib:54} Z. Liu \textit{et al.}, ``KAN: Kolmogorov-Arnold networks,'' en \textit{Int. Conf. on Learning Representations (ICLR)}, 2025, arXiv:2404.19756.
+\item\label{bib:55} I. Gibbs y E. Cand\`es, ``Adaptive conformal inference under
 distribution shift,'' en \textit{Advances in Neural Information Processing Systems
 (NeurIPS)}, vol. 34, pp. 1660--1672, 2021.
-\item\label{bib:47} S. Hoo, S. M\"uller, D. Salinas, y F. Hutter, ``The tabular
+\item\label{bib:56} S. Hoo, S. M\"uller, D. Salinas, y F. Hutter, ``The tabular
 foundation model TabPFN outperforms specialized time series forecasting models,''
 \textit{arXiv:2501.02945}, 2025.
-\item\label{bib:48} R. Kuprieiev \textit{et al.}, ``DVC: Data Version Control, Git
+\item\label{bib:57} R. Kuprieiev \textit{et al.}, ``DVC: Data Version Control, Git
 for data \& models,'' Iterative, software de c\'odigo abierto, 2024. [En l\'inea]. Disponible: \url{https://dvc.org}
-\item\label{bib:49} M. Zaharia \textit{et al.}, ``Accelerating the machine learning
+\item\label{bib:58} M. Zaharia \textit{et al.}, ``Accelerating the machine learning
 lifecycle with MLflow,'' \textit{IEEE Data Engineering Bulletin}, vol. 41, n.\textsuperscript{o} 4,
 pp. 39--45, 2018.
-\item\label{bib:50} M. Raasveldt y H. M\"uhleisen, ``DuckDB: An embeddable analytical
+\item\label{bib:59} M. Raasveldt y H. M\"uhleisen, ``DuckDB: An embeddable analytical
 database,'' en \textit{Proc.\ ACM SIGMOD Int.\ Conf.\ on Management of Data}, 2019, pp.\ 1981--1984.
 \end{enumerate}
 
@@ -3111,7 +3390,7 @@ Monitor de \textit{drift} & Vigila degradaci\'on de desempe\~no, cobertura y dat
 \section{A.5 Pipeline reproducible y versionado de datos}
 
 La cadena de datos abiertos se declara como un grafo de dependencias versionado con la
-herramienta de control de versiones de datos (\textit{Data Version Control}, DVC~\cita{48}).
+herramienta de control de versiones de datos (\textit{Data Version Control}, DVC~\cita{57}).
 El comando \texttt{dvc repro} reconstruye \textit{en orden y solo lo que cambi\'o} la
 secuencia \texttt{scrape} $\to$ \texttt{panel} $\to$ \{\texttt{bulletins}, almac\'en,
 cifras canónicas\}, con la carpeta de \textit{snapshots} HTML congelados como ra\'iz
@@ -3126,7 +3405,7 @@ no recomputa nada) y un mismo \textit{rebuild} produce datos id\'enticos byte a 
 \section{A.6 Seguimiento de experimentos}
 
 Cada corrida de modelado se registra en un almac\'en de experimentos gestionado con
-MLflow~\cita{49}: par\'ametros, m\'etricas (MASE, sMAPE, cobertura), identificador de
+MLflow~\cita{58}: par\'ametros, m\'etricas (MASE, sMAPE, cobertura), identificador de
 \textit{commit} de Git y artefactos asociados. En total se conservan \textbf{m\'as de
 2\,400 corridas} trazables a lo largo de las campa\~nas de comparaci\'on, ajuste y ensamble.
 Desde la \'ultima campa\~na, cada corrida porta adem\'as el \textbf{identificador de
@@ -3154,7 +3433,7 @@ Fuente: captura de la interfaz de MLflow del proyecto.}
 \section{A.7 Almac\'en dimensional en estrella}
 
 El panel se carga en un almac\'en dimensional en estrella implementado sobre la base de
-datos anal\'itica embebida DuckDB~\cita{50}. El modelo (ya presentado en la
+datos anal\'itica embebida DuckDB~\cita{59}. El modelo (ya presentado en la
 Figura~\ref{fig:schema_er}) comprende doce tablas: siete dimensiones, dos tablas de
 hechos y tres de gobernanza y procedencia (la versi\'on del esquema, la bit\'acora de
 ejecuci\'on ampliada y el linaje de artefactos fuente, que ata cada mes del panel al
@@ -3367,6 +3646,155 @@ registra a la deriva como \textbf{retador formal no promovible} en la gobernanza
 de despliegue. El experimento no quedó en un cuaderno suelto: se productivizó como un módulo del
 repertorio, con su propio objetivo reproducible (\texttt{make horizon-facts}), de modo que la
 figura y la tabla anteriores se regeneran con el pipeline y no se teclean a mano.
+
+
+\section{A.11 Diccionario de datos del panel}
+
+El panel largo \texttt{visa\_panel\_long.csv} es la salida de la conversión descrita en la
+sección~1.1.2 y la fuente abierta de la que se derivan el almacén y el archivo columnar.
+Cada fila es una observación del grano (área de cargabilidad, categoría, tabla, mes de
+boletín) y consta de las nueve variables de la Tabla~\ref{tab:diccionario}, ilustradas con
+una fila real del corte de julio de 2026.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Diccionario de datos del panel]{Diccionario de las nueve variables del panel largo,
+con su dominio y el valor que toman en una observación real (México, F3, FAD, julio de 2026).}
+\label{tab:diccionario}
+\begin{tabular}{p{2.9cm}p{1.9cm}p{5.2cm}p{3.3cm}}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Variable} & \textbf{Tipo} & \textbf{Dominio} & \textbf{Ejemplo} \\ \midrule
+\texttt{country}         & Texto   & Área de cargabilidad: \texttt{mexico}, \texttt{india}, \texttt{china}, \texttt{philippines}, \texttt{all\_chargeability} & \texttt{mexico} \\
+\texttt{block}           & Texto   & Bloque de preferencia: \texttt{family} o \texttt{employment} & \texttt{family} \\
+\texttt{category}        & Texto   & 21 códigos canónicos (F1--F4 y EB1--EB5 con subcategorías) & \texttt{F3} \\
+\texttt{table}           & Texto   & Tipo de tabla: \texttt{FAD} o \texttt{DFF} & \texttt{FAD} \\
+\texttt{bulletin\_date}  & Fecha   & Primer día del mes del boletín, de 2001-12 a 2026-07 & \texttt{2026-07-01} \\
+\texttt{status}          & Texto   & Régimen $e$: \texttt{F}, \texttt{C}, \texttt{U} o \texttt{UNK} & \texttt{F} \\
+\texttt{priority\_date}  & Fecha   & Fecha de prioridad publicada; definida solo si \texttt{status = F} & \texttt{2001-06-01} \\
+\texttt{days\_since\_base} & Entero & Variable dependiente $y_{p,c,b,t}$: días desde $t_0 = $ 1975-01-01; definida solo si \texttt{status = F} & \texttt{9648} \\
+\texttt{raw\_value}      & Texto   & Contenido de la celda tal como se publicó, sin normalizar & \texttt{01JUN01} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Estas definiciones no son una convención de documentación: se declaran como restricciones
+del almacén y se verifican al cargar. La clave primaria es la cuádrupla del grano, de modo
+que una observación duplicada es imposible; \texttt{days\_iff\_F} y \texttt{pdate\_iff\_F}
+exigen que la variable dependiente y la fecha de prioridad existan si y solo si el régimen
+es $F$; \texttt{days\_is\_datediff} recalcula la resta contra la época base y rechaza
+cualquier fila cuya variable dependiente no corresponda a su fecha; y una verificación
+adicional impide valores negativos, que delatarían una fecha anterior a $t_0$.
+
+\section{A.12 Catálogo de dimensiones observadas}
+
+El panel cubre cinco áreas de cargabilidad y veintiuna categorías migratorias. La
+Tabla~\ref{tab:catalogo} presenta el catálogo con el número de observaciones de cada
+categoría, que explica por qué las \factNSeriesStructural{} series estructurales no
+equivalen al producto cartesiano de las dimensiones: varias subcategorías nacieron o
+desaparecieron a lo largo del periodo (por ejemplo, las reservas de EB-5 creadas en 2022 o
+la categoría de traductores), de modo que solo existen en una fracción de los meses.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Catálogo de dimensiones observadas]{Categorías migratorias observadas en el panel,
+por bloque de preferencia, con su número de observaciones. Las cinco áreas de cargabilidad
+aportan entre 38 y 39 series cada una, para un total de \factNSeriesStructural{}.}
+\label{tab:catalogo}
+\begin{tabular}{p{2.2cm}p{3.0cm}r p{2.2cm}p{3.1cm}r}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Bloque} & \textbf{Categoría} & \textbf{Obs.} & \textbf{Bloque} & \textbf{Categoría} & \textbf{Obs.} \\ \midrule
+Familiar & F1  & 2{,}073 & Empleo & EB5            & 480 \\
+Familiar & F2A & 2{,}073 & Empleo & EB5\_TEA       & 729 \\
+Familiar & F2B & 2{,}073 & Empleo & EB5\_PILOT     & 105 \\
+Familiar & F3  & 2{,}073 & Empleo & EB5\_RC        & 805 \\
+Familiar & F4  & 2{,}073 & Empleo & EB5\_NONRC     & 790 \\
+Empleo & EB1        & 2{,}044 & Empleo & EB5\_UNRESERVED & 510 \\
+Empleo & EB2        & 2{,}044 & Empleo & EB5\_RURAL      & 510 \\
+Empleo & EB3        & 2{,}044 & Empleo & EB5\_HIGHUNEMP  & 510 \\
+Empleo & EB3\_OW    & 2{,}044 & Empleo & EB5\_INFRA      & 510 \\
+Empleo & EB4        & 2{,}044 & \multicolumn{2}{l}{\textbf{Total familiar}} & \textbf{10{,}365} \\
+Empleo & EB4\_RW    & 2{,}037 & \multicolumn{2}{l}{\textbf{Total empleo}}   & \textbf{17{,}246} \\
+Empleo & EB4\_TRANS & 40      & \multicolumn{2}{l}{\textbf{Total panel}}    & \textbf{\factNObsFmt{}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{A.13 Registro de limpieza del corte vigente}
+
+Cada construcción del panel escribe un registro de limpieza determinista, versionado junto
+al código, que documenta qué produjo esa añada y qué guardas se evaluaron. El registro del
+corte de julio de 2026, que es el que sustenta todas las cifras de este documento, es el
+siguiente:
+
+\begin{verbatim}
+{
+ "vintage": "2026-07",
+ "n_rows": 27611,
+ "n_series": 194,
+ "rows_by_status": {"F": 15931, "C": 11058, "U": 621, "UNK": 1},
+ "dup_collapsed": 0,
+ "bulletin_date_unparseable": 0,
+ "f_priority_date_unparseable": 0,
+ "epoch_underflow": 0,
+ "big_jumps_gt_8y": 14
+}
+\end{verbatim}
+
+Los cuatro contadores en cero corresponden a guardas que \textbf{abortan} la construcción
+cuando se violan, de modo que su valor no puede ser distinto de cero en un panel publicado:
+documentan la invariante vigente, no una ausencia casual de incidencias. El campo
+\texttt{vintage} es la clave de versión de la añada y sustituye deliberadamente a una marca
+de reloj, para que dos reconstrucciones del mismo corte produzcan archivos idénticos byte a
+byte.
+
+\section{A.14 Entorno de ejecución y órdenes de reproducción}
+
+La cadena de obtención y conversión corre sobre Python 3.14 con las versiones fijadas de la
+Tabla~\ref{tab:entorno}; el archivo de proyecto las declara con versión exacta, de modo que
+una instalación limpia reproduce el mismo entorno.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Entorno de ejecución]{Principales componentes y versiones fijadas del entorno de
+obtención y conversión de datos, declarados con versión exacta en el archivo de proyecto del
+repositorio.}
+\label{tab:entorno}
+\begin{tabular}{p{4.0cm}p{2.6cm}p{7.0cm}}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Componente} & \textbf{Versión} & \textbf{Función en la cadena} \\ \midrule
+Python                            & 3.14     & Intérprete de todo el flujo \\
+\texttt{requests} \cita{7}     & 2.33.0   & Descarga de las páginas del boletín \\
+\texttt{beautifulsoup4} \cita{8} & 4.14.3 & Análisis sintáctico del HTML congelado \\
+\texttt{pandas} \cita{9}    & 3.0.0    & Consolidación y conversión al panel largo \\
+\texttt{duckdb} \cita{59}      & 1.5.3    & Almacén dimensional y archivo columnar \\
+\texttt{tqdm}                     & 4.67.3   & Barra de progreso de los recorridos largos \\
+DVC \cita{57}                  & \textit{fijada por perfil} & Grafo de dependencias y versionado de datos \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Con ese entorno, la cadena completa se reproduce con cinco órdenes, en este orden:
+
+\noindent\begin{minipage}{\linewidth}
+\begin{verbatim}
+make freeze   # congela boletines nuevos (paso con red)
+make scrape   # parsea las instantáneas HTML sin conexión
+make panel    # consolida el panel + registro de limpieza
+make db       # construye el almacén DuckDB y el Parquet
+make audit    # auditoría del panel (cobertura, claves)
+\end{verbatim}
+\end{minipage}
+
+Como alternativa, \texttt{make repro} ejecuta el grafo de dependencias completo y reconstruye
+solo las etapas cuyas entradas cambiaron, y \texttt{make test} corre la batería de pruebas
+automatizadas de la capa de datos.
+
 
 % ============================================================
 % ACERCA DEL AUTOR Y DEL ASESOR DE TESIS
