@@ -872,6 +872,94 @@ aplicadas.
 
 \subsection{1.2.1 Análisis exploratorio de datos (EDA)}
 
+\paragraph{Propósito y preguntas guía.} El análisis exploratorio de datos
+(\textit{exploratory data analysis}, EDA) es la etapa de descubrimiento que antecede al
+modelado. Su propósito aquí no es ajustar nada todavía, sino comprender la estructura, la
+distribución, las relaciones y la calidad del panel obtenido en la sección~1.1, de modo que
+cada decisión posterior (qué familias de modelos son admisibles, qué transformaciones hacen
+falta, qué esquema de validación es honesto) quede fundamentada en evidencia y no en
+supuestos. El análisis se organizó alrededor de seis preguntas:
+
+\begin{enumerate}[leftmargin=*, itemsep=1pt, topsep=2pt]
+\item ¿Qué contiene realmente el panel: cuántas series, de qué longitud y con qué proporción
+de observaciones utilizables para entrenar?
+\item ¿Cómo se distribuye la variable dependiente y, sobre todo, su primera diferencia, que
+es el objeto que un modelo de series de tiempo debe reproducir?
+\item ¿Hay tendencia, estacionalidad o ambas, y con qué fuerza relativa?
+\item ¿Las series son estacionarias o exigen diferenciación, y de qué orden?
+\item ¿Existen valores atípicos y, de existir, son ruido aislado o desplazamientos
+estructurales de régimen?
+\item ¿Las series se mueven juntas? ¿Alguna anticipa a otra?
+\end{enumerate}
+
+Las respuestas se desarrollan a lo largo de la sección y se recapitulan, junto con la
+decisión de modelado que cada una induce, en las Tablas~\ref{tab:eda_sintesis}
+y~\ref{tab:eda_sintesis2}.
+
+\paragraph{Variables analizadas y su papel en el análisis.} El EDA opera sobre las nueve
+variables del panel largo documentadas en el diccionario de datos (Apéndice~A.11). Distinguir
+su papel es indispensable, porque una de ellas es la variable dependiente, cuatro son
+dimensiones de corte o de agregación, una es el índice temporal y las tres restantes son
+equivalencia, régimen y trazabilidad: gobiernan qué observación es utilizable, pero no son
+insumo predictivo. Confundir una anotación con un insumo es precisamente el tipo de error
+que el EDA existe para prevenir. La Tabla~\ref{tab:eda_variables} precisa qué mide cada
+variable, con qué papel entra en el análisis y qué se hace con ella.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Variables del panel en el análisis exploratorio]{Papel de cada una de las nueve
+variables del panel en el análisis exploratorio: una variable dependiente, cuatro dimensiones
+de corte o de agregación, un índice temporal y tres variables de equivalencia, régimen y
+trazabilidad. El dominio completo de cada una se documenta en el Apéndice~A.11.}
+\label{tab:eda_variables}
+\begin{tabular}{p{3.2cm}>{\raggedright\arraybackslash}p{3.3cm}>{\raggedright\arraybackslash}p{7.1cm}}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Variable} & \textbf{Papel en el EDA} & \textbf{Tratamiento y razón} \\ \midrule
+\texttt{days\_since\_base} & Variable dependiente $y_{p,c,b,t}$ (entero, días) &
+Objeto central del análisis: se estudian su nivel, su primera diferencia (el avance mensual)
+y su estructura temporal. Es entero y monótono por construcción salvo en las retrogresiones \\
+\texttt{priority\_date} & Equivalente en fecha de la dependiente &
+Se usa solo para las figuras y para expresar los atrasos en años; no se analiza por separado
+para no duplicar la misma información \\
+\texttt{country} & Dimensión de corte (5 áreas) &
+Define las series y estratifica toda comparación. \textit{All Chargeability} se trata como
+agrupación residual, no como un país \\
+\texttt{category} & Dimensión de corte (21 categorías) &
+Define las series junto con el área; separa el bloque familiar del bloque de empleo \\
+\texttt{table} & Dimensión de corte (FAD, DFF) &
+FAD y DFF se analizan y se modelan por separado; solo se comparan para dimensionar su brecha \\
+\texttt{block} & Dimensión de agregación &
+Permite censar por bloque y explica la asimetría de cobertura entre familiar y empleo \\
+\texttt{bulletin\_date} & Índice temporal (mensual) &
+Ordena cada serie y define la malla; su continuidad es objeto de verificación explícita \\
+\texttt{status} & Anotación de régimen ($F$, $C$, $U$, UNK) &
+Determina qué observación es entrenable. Se analiza su composición, pero los regímenes
+$C$ y $U$ no son objetivo predictivo y quedan fuera del entrenamiento \\
+\texttt{raw\_value} & Trazabilidad de la fuente &
+No entra al análisis cuantitativo: se conserva para poder auditar cualquier celda contra el
+boletín publicado \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Técnicas y herramientas.} El análisis combina estadística descriptiva,
+inspección gráfica y pruebas formales de hipótesis, en ese orden: primero se observa la
+estructura, después se contrasta lo observado con pruebas cuya hipótesis nula está declarada.
+Las técnicas aplicadas son las siguientes: censo descriptivo y de completitud del panel;
+histogramas, diagramas de violín y diagramas de cumbres para la forma de las distribuciones;
+mapas de calor de correlación con agrupamiento jerárquico y correlación cruzada con retardos
+para las relaciones entre series; descomposición estacional y funciones de autocorrelación
+para la estructura temporal; pruebas de raíz unitaria, de estacionariedad, de ruido blanco y
+de independencia para formalizar los diagnósticos; detección de cambios de régimen y filtrado
+robusto para separar el desplazamiento estructural del atípico puntual; y un catálogo de
+características por serie que permite analizar el panel como una tabla en lugar de serie por
+serie. Todo se ejecuta con software libre y con versiones fijadas, sobre el mismo entorno
+reproducible de la fase de obtención (Apéndice~A.14), de modo que un solo entorno reproduce
+datos y análisis. Cada figura y cada estadístico de esta sección se genera por programa a
+partir del panel versionado, nunca a mano.
+
 \paragraph{Panorama del panel completo.} Antes de profundizar en el piloto, el EDA
 censa el panel íntegro: las $\factNObsFmt$ observaciones de las \factNSeriesStructural{} series estructurales
 a lo largo de los \factNMonths{} boletines se condensan en la Figura~\ref{fig:eda_panel}, donde
@@ -1172,8 +1260,8 @@ orden~1 sin excepciones. La Tabla~\ref{tab:eda_estacionariedad} reporta el censo
 las 25 series piloto; la prueba de Ljung-Box rechaza además el ruido blanco en la
 gran mayoría de los incrementos, confirmando estructura temporal aprovechable tras la
 diferenciación. (El censo aplica Ljung-Box a rezago 12 sobre los incrementos
-observados, sin regularizar la malla mensual; el catálogo de características de la
-sección siguiente usa 24 rezagos sobre la serie regularizada, donde el rechazo es
+observados, sin regularizar la malla mensual; el catálogo de características de más
+adelante en esta sección usa 24 rezagos sobre la serie regularizada, donde el rechazo es
 unánime; las dos lecturas son complementarias, no contradictorias.)
 
 \begin{table}[H]
@@ -1543,6 +1631,123 @@ avances entre áreas (familiar FAD, retardos de $\pm 6$ meses). En todas las par
 máximo ocurre en el retardo cero: el co-movimiento es contemporáneo.}
 \label{fig:eda_leadlag}
 \end{figure}
+
+\subsubsection{Síntesis: hallazgos del análisis y decisiones que inducen}
+
+Un análisis exploratorio no termina en la descripción: termina cuando cada hallazgo se
+traduce en una decisión verificable sobre el modelado. Las
+Tablas~\ref{tab:eda_sintesis} y~\ref{tab:eda_sintesis2} recapitulan los doce hallazgos
+principales de esta sección, la evidencia concreta que los sostiene y la consecuencia que
+cada uno tiene para la fase siguiente: la primera reúne los que describen la estructura, la
+cobertura y la forma de los datos; la segunda, los que se refieren a las anomalías, a las
+dependencias entre series y al alcance de lo que el sistema puede prometer. Leídas en
+conjunto, describen un panel de series fuertemente tendenciales, sin ciclo anual, integradas
+de orden uno, con distribuciones de avance asimétricas y de cola pesada, con anomalías
+mayoritariamente estructurales y con un co-movimiento contemporáneo que no permite usar un
+área como indicador adelantado de otra.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Síntesis del análisis exploratorio (1 de 2)]{Síntesis del análisis exploratorio
+(1 de 2): hallazgos sobre la estructura, la cobertura y la forma de los datos, con la
+evidencia que los sostiene y la consecuencia que cada uno induce sobre el diseño del modelo
+y de su validación.}
+\label{tab:eda_sintesis}
+\begin{tabular}{>{\raggedright\arraybackslash}p{3.8cm}>{\raggedright\arraybackslash}p{3.1cm}>{\raggedright\arraybackslash}p{6.5cm}}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Hallazgo} & \textbf{Evidencia} & \textbf{Consecuencia para el modelado} \\ \midrule
+El congelamiento es el comportamiento típico: el $\factPctFrozen$\,\% de los meses del panel
+no registra movimiento (28\,\% en familiar FAD, 66\,\% en familiar DFF) &
+Tabla~\ref{tab:eda_descriptiva}, Figura~\ref{fig:eda_panel} &
+Un pronóstico ingenuo de un paso es un piso exigente, no un adorno: toda comparación de
+modelos debe incluirlo y ningún modelo puede declararse útil sin superarlo \\
+Los faltantes no son ruido de captura sino régimen: solo el $\factPctTrainableF$\,\% de las
+celdas tiene fecha, y en el bloque de empleo la proporción cae a 32--38\,\% &
+Tabla~\ref{tab:eda_descriptiva}, Figura~\ref{fig:eda_completitud} &
+Se entrena exclusivamente sobre las observaciones con estado $F$; $C$ y $U$ se conservan como
+anotación. La cobertura evaluable es escalonada y se declara de antemano \\
+Tendencia dominante y estacionalidad prácticamente nula ($F_T>0.99$ en la mayoría de las
+series, $F_S<0.23$ en todas) &
+Tabla~\ref{tab:features_estructura}, Figura~\ref{fig:eda_features} &
+Los términos estacionales no tienen materia prima que explotar: no se espera que SARIMA
+mejore a ARIMA, y las pruebas de raíz unitaria estacional resultan innecesarias \\
+Ninguna serie es estacionaria en nivel: \factStationarityDifference{} de las
+\factNSeriesEvaluable{} evaluables exigen diferenciación y \factStationarityMixed{} dan señales
+mixtas &
+Tabla~\ref{tab:eda_estacionariedad} &
+El panel es integrado de orden uno: se modela sobre la primera diferencia con $d=1$, salvo dos
+series mexicanas que requieren $d=2$ \\
+Queda estructura temporal aprovechable tras diferenciar: Ljung-Box rechaza el ruido blanco en
+las 25 series piloto &
+Tabla~\ref{tab:features_anomalias}, Figura~\ref{fig:eda_acf} &
+Los modelos autorregresivos tienen señal que capturar; el orden se orienta con las funciones
+de autocorrelación de la serie diferenciada \\
+La distribución de los avances es asimétrica y de cola pesada (asimetría negativa en 23 de
+las 25 series, curtosis de hasta 107) &
+Figuras~\ref{fig:eda_dist}, \ref{fig:eda_violin_c} y~\ref{fig:eda_ridge} &
+Se descarta el supuesto gaussiano: la evaluación usa métricas robustas y los intervalos de
+predicción se construyen por cuantiles empíricos, no por desviación estándar \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption[Síntesis del análisis exploratorio (2 de 2)]{Síntesis del análisis exploratorio
+(2 de 2): hallazgos sobre las anomalías, las dependencias entre series y el alcance de lo
+que el sistema puede prometer, con la evidencia que los sostiene y su consecuencia sobre el
+diseño del modelo y de su validación.}
+\label{tab:eda_sintesis2}
+\begin{tabular}{>{\raggedright\arraybackslash}p{3.8cm}>{\raggedright\arraybackslash}p{3.1cm}>{\raggedright\arraybackslash}p{6.5cm}}
+\toprule
+\rowcolor{uacjblue!15}
+\textbf{Hallazgo} & \textbf{Evidencia} & \textbf{Consecuencia para el modelado} \\ \midrule
+Las retrogresiones son raras pero extremas: \factNRetroEvents{} episodios
+($\factPctRetro$\,\% de los movimientos), con retrocesos de hasta $12.8$ años en un mes &
+Figuras~\ref{fig:eda_retros} y~\ref{fig:eda_len} &
+Los cambios de régimen quedan fuera de lo que el sistema promete predecir, pero la validación
+debe demostrar que el modelo los tolera sin degradarse \\
+Los atípicos son mayoritariamente estructurales: en México/F3 hay 3 cambios de régimen frente
+a 87 observaciones marcadas como atípicas &
+Figura~\ref{fig:eda_changepoints} &
+No se recortan ni se imputan como si fueran ruido; se conservan y se emplea validación
+progresiva con ventanas móviles, que respeta el orden temporal \\
+Hay dependencia no lineal en la serie diferenciada: la prueba BDS rechaza la independencia
+($p<0.001$) &
+Diagnósticos avanzados de esta sección &
+Se justifica de forma cuantitativa incluir modelos no lineales en la comparación, en lugar de
+incorporarlos por moda \\
+El co-movimiento entre áreas es contemporáneo: en todas las parejas la mejor correlación
+cruzada ocurre en el retardo cero &
+Figuras~\ref{fig:eda_cross} y~\ref{fig:eda_leadlag} &
+Ningún área sirve como indicador adelantado de otra; se descarta esa clase de regresor y se
+conserva la opción de modelos globales que compartan información dentro del grupo mundial \\
+Las dos tablas no son intercambiables: la brecha entre DFF y FAD tiene mediana cercana a seis
+meses y llega a dos años &
+Figura~\ref{fig:eda_brecha} &
+FAD y DFF se entrenan y se evalúan por separado, y sus resultados nunca se comparan entre sí
+como si midieran lo mismo \\
+Apilar bibliotecas de características no aporta: de \feFactSelIn{} descriptores candidatos
+solo \feFactSelRelevant{} sobrevive al control de falso descubrimiento &
+Selección FRESH y mRMR de esta sección &
+Se prefieren pocos insumos bien elegidos (rezagos, calendario y máscaras de ausencia) a
+cientos de descriptores mutuamente redundantes \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Limitaciones del análisis.} Tres advertencias acotan lo anterior. Primera, los
+descriptores por serie se calculan sobre la muestra completa, de modo que describen la
+dificultad de cada serie de forma retrospectiva y no constituyen insumos libres de filtración
+para el pronóstico; los modelos consumen rezagos y calendario, no estos descriptores.
+Segunda, el bloque de empleo se censa pero no se explora con la misma profundidad que el
+piloto familiar, porque su baja proporción de fechas publicadas limita lo que cualquier
+diagnóstico puede afirmar sobre él. Tercera, el sorteo de diversidad se describe por
+completitud del panel, pero su valor es un número de rango y no una fecha, por lo que no
+participa del objetivo predictivo ni de las conclusiones de esta sección.
 
 \paragraph{Nota sobre el EDA vivo.} Todo el análisis de esta sección (censo
 estadístico, figuras y un reporte ejecutivo en PDF) se regenera de forma automática
@@ -3753,16 +3958,16 @@ byte.
 
 \section{A.14 Entorno de ejecución y órdenes de reproducción}
 
-La cadena de obtención y conversión corre sobre Python 3.14 con las versiones fijadas de la
-Tabla~\ref{tab:entorno}; el archivo de proyecto las declara con versión exacta, de modo que
-una instalación limpia reproduce el mismo entorno.
+La cadena de obtención, conversión y análisis corre sobre Python 3.14 con las versiones
+fijadas de la Tabla~\ref{tab:entorno}; el archivo de proyecto las declara con versión exacta,
+de modo que una instalación limpia reproduce el mismo entorno.
 
 \begin{table}[H]
 \centering
 \footnotesize
 \caption[Entorno de ejecución]{Principales componentes y versiones fijadas del entorno de
-obtención y conversión de datos, declarados con versión exacta en el archivo de proyecto del
-repositorio.}
+obtención, conversión y análisis de los datos, declarados con versión exacta en el archivo de
+proyecto del repositorio.}
 \label{tab:entorno}
 \begin{tabular}{p{4.0cm}p{2.6cm}p{7.0cm}}
 \toprule
@@ -3775,11 +3980,18 @@ Python                            & 3.14     & Intérprete de todo el flujo \\
 \texttt{duckdb} \cita{59}      & 1.5.3    & Almacén dimensional y archivo columnar \\
 \texttt{tqdm}                     & 4.67.3   & Barra de progreso de los recorridos largos \\
 DVC \cita{57}                  & \textit{fijada por perfil} & Grafo de dependencias y versionado de datos \\
+\texttt{matplotlib}               & 3.10.8   & Motor de todas las figuras, con paleta institucional única \\
+\texttt{seaborn}                  & 0.13.2   & Diagramas de violín y de caja, y mapas de calor con agrupamiento jerárquico \\
+\texttt{statsmodels}              & 0.14.6   & Descomposición estacional, pruebas de raíz unitaria y de estacionariedad, autocorrelaciones y pruebas de ruido blanco \\
+\texttt{scipy}                    & 1.17.1   & Periodograma, estimación de densidad, asimetría y curtosis \\
+\texttt{ruptures}                 & 1.1.9    & Detección de cambios de régimen \\
+\texttt{pycatch22}                & 0.4.5    & Conjunto canónico de características de series de tiempo \\
+\texttt{antropy}                  & 0.2.2    & Entropías de permutación y de muestra \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Con ese entorno, la cadena completa se reproduce con cinco órdenes, en este orden:
+Con ese entorno, la cadena completa se reproduce con seis órdenes, en este orden:
 
 \noindent\begin{minipage}{\linewidth}
 \begin{verbatim}
@@ -3788,6 +4000,7 @@ make scrape   # parsea las instantáneas HTML sin conexión
 make panel    # consolida el panel + registro de limpieza
 make db       # construye el almacén DuckDB y el Parquet
 make audit    # auditoría del panel (cobertura, claves)
+make eda-all  # censo del EDA + figuras por serie y galería
 \end{verbatim}
 \end{minipage}
 
