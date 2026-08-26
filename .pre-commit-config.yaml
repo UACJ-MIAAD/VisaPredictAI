@@ -93,3 +93,13 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-push]
+      # Regla dura (26-ago-2026): autoría única en TODO el rango saliente — autor y committer del
+      # autor, cero Co-Authored-By, cero trailers/firmas/menciones de IA. El push publica los
+      # commits tal cual; si falla, se corrige antes de subir. Mismo PATTERN que commit-msg y CI.
+      - id: outgoing-authorship
+        name: autoría única del rango saliente (autor/committer, sin coautoría ni rastro de IA)
+        entry: bash tools/check_outgoing_authorship.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

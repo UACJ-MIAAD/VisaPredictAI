@@ -33,7 +33,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
           BASE_REF: ${{ github.base_ref }}
         run: |
-          PATTERN='co-authored-by|@anthropic|anthropic\.com|generated with .*claude|claude code|claude-session|claude\.ai|noreply@anthropic'
+          PATTERN='co-authored-by|@anthropic|anthropic\.com|generated with .*(claude|chatgpt|codex|copilot|openai|gpt)|claude code|claude-session|claude\.ai|noreply@anthropic|chatgpt|openai|codex|copilot|ai-generated|assisted-by|generated-by'
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch origin "$BASE_REF" --quiet
             range="origin/$BASE_REF..HEAD"
@@ -42,11 +42,19 @@ jobs:
           else
             range="HEAD~20..HEAD"   # primer push / force-push: ventana razonable
           fi
+          # Autoría única (regla dura 26-ago-2026): autor = jrebull; committer = jrebull o el
+          # "GitHub <noreply@github.com>" que estampa un squash merge desde la UI.
+          EXPECTED='Javier Rebull <168046724+jrebull@users.noreply.github.com>'
           fail=0
           for c in $(git rev-list "$range" 2>/dev/null); do
             if git log -1 --format='%B' "$c" | grep -qiE "$PATTERN"; then
               echo "::error::Commit $c no cumple la política de mensajes del repo:"
               git log -1 --format='  %h %s' "$c"
+              fail=1
+            fi
+            a="$(git log -1 --format='%an <%ae>' "$c")"; k="$(git log -1 --format='%cn <%ce>' "$c")"
+            if [ "$a" != "$EXPECTED" ] || { [ "$k" != "$EXPECTED" ] && [ "$k" != "GitHub <noreply@github.com>" ]; }; then
+              echo "::error::Commit $c con autoría ajena: autor '$a' committer '$k'"
               fail=1
             fi
           done
