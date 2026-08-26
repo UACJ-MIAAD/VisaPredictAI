@@ -56,7 +56,8 @@ def test_make_locks_pin():
 
 
 def test_workflow_bootstrap_counts():
-    assert _text(".github/workflows/ci.yml").count(f'"setuptools=={EXPECTED}"') == 3
+    # 2 bootstraps (lint-and-test, model-tests); el job deep-lock-install se retiró (ADR 0002).
+    assert _text(".github/workflows/ci.yml").count(f'"setuptools=={EXPECTED}"') == 2
     assert _text(".github/workflows/freeze_and_rebuild.yml").count(f'"setuptools=={EXPECTED}"') == 1
 
 
