@@ -10,7 +10,7 @@
 set -euo pipefail
 msg_file="${1:?uso: check_no_coauthor.sh <commit-msg-file>}"
 
-PATTERN='co-authored-by|@anthropic|anthropic\.com|generated with .*claude|claude code|claude-session|claude\.ai|noreply@anthropic'
+PATTERN='co-authored-by|@anthropic|anthropic\.com|generated with .*(claude|chatgpt|codex|copilot|openai|gpt)|claude code|claude-session|claude\.ai|noreply@anthropic|chatgpt|openai|codex|copilot|ai-generated|assisted-by|generated-by'
 
 if grep -qiE "$PATTERN" "$msg_file"; then
   echo "✗ Commit BLOQUEADO: el mensaje contiene un co-autor de IA / rastro de Claude." >&2
