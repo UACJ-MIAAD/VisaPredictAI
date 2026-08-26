@@ -23,6 +23,13 @@ artifacts:
   # sus cifras/claims sobrevivieron 2 re-campañas sin vigilancia (0.121±0.008, √h como
   # método vigente); ahora el grupo governance lo cubre.
   governance: ["reports/governance/MODEL_CARD.md", "docs/FORECAST_EVAL.md"]
+  # Sesión 17-ago: el guardián escaneaba PROSA, no DIBUJOS — y el diagrama ER
+  # (docs/schema_er.svg, que ProyectoI.tex incluye rasterizado como
+  # data_schema_er.png) sobrevivió a la resurrección I1 con las cifras viejas
+  # (27,127 / 15,662 / ≈1,600) durante seis semanas. Un SVG con texto ES prosa
+  # publicada: entra al escaneo. El PNG es derivado (make_data_figures.trim_er
+  # lo rasteriza del SVG), así que vigilar la fuente basta.
+  diagrams: ["docs/schema_er.svg"]
   # content/source.html = la fuente ES (incluye #datos); el lado EN son páginas sueltas.
   # TODO el contenido publicado se vigila (audit 3-jul: capii/capiii/tablas quedaban fuera
   # de esta lista y por eso sus "~290/~125" sobrevivieron dos generaciones de cifras).
@@ -202,6 +209,27 @@ required:
     reason: 'ProyectoI.tex debe hacer \input{fe_facts} (selección FRESH/mRMR derivada del catálogo FE)'
 
 numeric:
+  # --- Diagrama ER (grupo `diagrams`) ------------------------------------------
+  # El SVG rotula cuatro conteos dentro de las cajas del esquema. NO se reusan las
+  # reglas genéricas de abajo: el mismo dibujo dice "27,611 filas", "15,931 filas"
+  # y "1,647 filas", así que un label suelto de "N filas" chocaría entre sí. Cada
+  # regla se ancla al texto vecino de SU caja.
+  - fact: n_obs
+    label: 'raw_value\s*·\s*([0-9]{2}[.,]?[0-9]{3})\s*filas'
+    in: [diagrams]
+    reason: 'fact_priority del diagrama ER = filas totales del panel'
+  - fact: n_obs_F
+    label: '([0-9]{2}[.,]?[0-9]{3})\s*filas\s*·\s*listo para modelar'
+    in: [diagrams]
+    reason: 'mart_training_F del diagrama ER = observaciones con estado F'
+  - fact: dv_n_rows
+    label: 'Diversity Visa\s*·\s*≈?\s*([0-9][.,]?[0-9]{3})\s*filas'
+    in: [diagrams]
+    reason: 'fact_dv_rank del diagrama ER = filas del sorteo de diversidad'
+  - fact: n_series_structural
+    label: '([0-9]{3})\s*series\s*·\s*filtro evaluable'
+    in: [diagrams]
+    reason: 'mart_series_summary del diagrama ER = series estructurales'
   # obs TOTAL del panel: "27,289 obs/observaciones/observations/filas/rows" pero NO "obs
   # entrenables" (eso es F). OJO: \w* tras "observaci"/"observation" es OBLIGATORIO — un \b
   # tras "observaci" NUNCA cierra en "observaci|ones" (ambos \w) y dejaba esas líneas (ES y
