@@ -5,14 +5,19 @@ Genera, en reports/latex/Figures/ (paleta UACJ + serif):
   data_bulletin_table.pdf  la tabla FAD familiar real (jul-2026) tal como se publica, con régimen
   data_csv_panel.pdf       muestra del panel tidy visa_panel_long.csv (estados C/F/U)
   data_duckdb_sample.pdf   muestra del almacén DuckDB (vista v_panel_long) + el catálogo de tablas
-  data_schema_er.png       recorte del diagrama ER del esquema estrella
+  data_schema_er.png       diagrama ER del esquema estrella, rasterizado de docs/schema_er.svg
 
-Insumos: /tmp/vb_month.png, /tmp/schema_er.png (capturas con Chrome), data/processed/*.
+Insumos: docs/schema_er.svg (se rasteriza con Chrome headless, sin paso manual),
+/tmp/vb_month.png (captura de la fuente), data/processed/*.
 Corre en `ante`:  ante/bin/python make_data_figures.py
 """
 
 from __future__ import annotations
 
+import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 import duckdb
@@ -31,6 +36,19 @@ FIG = ROOT / "reports" / "latex" / "Figures"
 DATEC, CURC, UNAC, UNKC = REGIME["F"]["fill"], REGIME["C"]["fill"], REGIME["U"]["fill"], REGIME["UNK"]["fill"]
 plt.rcParams.update({"font.family": "serif", "savefig.bbox": "tight", "savefig.dpi": 300})
 
+ER_SVG = ROOT / "docs" / "schema_er.svg"
+ER_SCALE = 3.6  # 1360x1000 viewBox x3.6 -> ~4900x3600, print grade
+
+
+def _er_viewbox() -> tuple[int, int]:
+    """Read the SVG's own viewBox. Never hardcode it: two copies of a size drift."""
+    head = ER_SVG.read_text(encoding="utf-8")[:2000]
+    m = re.search(r'viewBox\s*=\s*["\']\s*[\d.]+\s+[\d.]+\s+([\d.]+)\s+([\d.]+)', head)
+    if not m:
+        raise SystemExit(f"{ER_SVG}: sin viewBox legible")
+    return round(float(m.group(1))), round(float(m.group(2)))
+
+
 AREAS = ["all_chargeability", "china", "india", "mexico", "philippines"]
 ANAMES = ["All Charg.", "China", "India", "México", "Filipinas"]
 CATS = ["F1", "F2A", "F2B", "F3", "F4"]
@@ -44,11 +62,68 @@ def crop_source() -> None:
     print("data_source_page.png OK")
 
 
+def _render_er_svg(dest: Path) -> bool:
+    """Rasterise docs/schema_er.svg with a headless browser. False if none is installed.
+
+    The ER figure used to come from a Chrome screenshot dropped by hand in /tmp,
+    so it could not be regenerated -- and it silently kept pre-resurrection row
+    counts (27,127 / 15,662) long after the panel grew to 27,611 / 15,931.
+    Rendering the versioned SVG makes the PNG a derivative again.
+    """
+    browsers = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        shutil.which("chromium") or "",
+        shutil.which("google-chrome") or "",
+    ]
+    binary = next((b for b in browsers if b and Path(b).exists()), None)
+    if binary is None:
+        return False
+
+    svg = ER_SVG
+    width, height = _er_viewbox()
+    with tempfile.TemporaryDirectory() as tmp:
+        stage = Path(tmp)
+        shutil.copy(svg, stage / svg.name)
+        (stage / "er.html").write_text(
+            "<!doctype html><meta charset='utf-8'>"
+            "<style>html,body{margin:0;padding:0;background:#fff}"
+            f"img{{display:block;width:{width}px;height:{height}px}}</style>"
+            f"<img src='{svg.name}' alt=''>",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            [
+                binary,
+                "--headless",
+                "--disable-gpu",
+                "--hide-scrollbars",
+                "--default-background-color=FFFFFFFF",
+                f"--window-size={width},{height}",
+                f"--force-device-scale-factor={ER_SCALE}",
+                f"--screenshot={dest}",
+                (stage / "er.html").as_uri(),
+            ],
+            check=True,
+            capture_output=True,
+        )
+    return dest.exists()
+
+
 def trim_er() -> None:
-    im = Image.open("/tmp/schema_er.png").convert("RGB")
-    bg = Image.new("RGB", im.size, (255, 255, 255))
+    """Rasterise the star-schema ER diagram and trim its uniform white margin."""
     from PIL import ImageChops
 
+    with tempfile.TemporaryDirectory() as tmp:
+        shot = Path(tmp) / "schema_er.png"
+        if not _render_er_svg(shot):
+            # No browser here: fall back to a screenshot staged by hand.
+            shot = Path("/tmp/schema_er.png")
+            if not shot.exists():
+                raise SystemExit("data_schema_er.png: no headless browser found and no /tmp/schema_er.png staged")
+        im = Image.open(shot).convert("RGB")
+
+    bg = Image.new("RGB", im.size, (255, 255, 255))
     diff = ImageChops.difference(im, bg)
     bbox = diff.getbbox()
     if bbox:
