@@ -60,16 +60,35 @@ jobs:
     needs: gate
     if: needs.gate.outputs.proceed == 'true'
     runs-on: ubuntu-latest
+    # B0: el token de instalación de la App expira a la hora; el job debe fallar cerrado
+    # antes de que caduque (máximo histórico observado ~22 min).
+    timeout-minutes: 55
     permissions:
-      contents: write  # commit + push del panel refrescado
+      contents: read   # B0: los commits se pushean con el token de la App, no con GITHUB_TOKEN
       issues: write    # abrir/append del issue de fallo
       id-token: write  # F2: token OIDC para asumir el role (sin keys estáticas)
-      actions: write   # L2: disparar ci.yml sobre el commit de datos (workflow_dispatch)
+      actions: read    # ciwait: listar y observar el run automático de ci.yml sobre el SHA sellado
 
     steps:
+    - name: Mint the repository-scoped GitHub App token (B0)
+      id: cron-app-token
+      # B0: la App "VisaPredictAI Cron Publisher" (contents:write, instalada SOLO en este
+      # repositorio) es el actor de bypass del ruleset main-protected. Sin `owner` ni
+      # `repositories` el token queda limitado al repositorio actual. A diferencia de
+      # GITHUB_TOKEN, sus pushes SI disparan `on: push` de ci.yml (ver ciwait).
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+      with:
+        client-id: ${{ vars.VISA_CRON_APP_CLIENT_ID }}
+        private-key: ${{ secrets.VISA_CRON_APP_PRIVATE_KEY }}
+        permission-contents: write
+
     - name: Checkout repository
       uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
       with:
+        # B0: los cuatro `git push` de este job usan la identidad de la App (persistida
+        # en el checkout; actions/checkout la retira al terminar el job).
+        token: ${{ steps.cron-app-token.outputs.token }}
+        persist-credentials: true
         # Ronda 3 audit: el gate de contratos verifica que el git_sha del manifiesto
         # commiteado EXISTA en el historial (fail-closed en shallow) -- y el manifiesto
         # puede referenciar un commit de hace un mes: se requiere historial completo.
@@ -196,6 +215,7 @@ jobs:
             git commit -m "Add bulletin $mes: refresh panel from frozen HTML"
           fi
           git pull --rebase origin main   # A5: un push a main durante los ~20 min de corrida ya no tumba el job
+          bash tools/check_outgoing_authorship.sh origin/main..HEAD   # autoría única del rango saliente
           git push
           echo "pushed=true" >> "$GITHUB_OUTPUT"
         fi
@@ -300,13 +320,14 @@ jobs:
         else
           git commit -m "Update forecasts, scorecard and key facts"
           git pull --rebase origin main
+          bash tools/check_outgoing_authorship.sh origin/main..HEAD   # autoría única del rango saliente
           git push
           echo "pushed=true" >> "$GITHUB_OUTPUT"
         fi
 
-        # L2: los pushes hechos con GITHUB_TOKEN NO disparan CI (anti-recursión de
-        # GitHub), así que el commit de datos más importante del mes escapaba al
-        # guardián de consistencia. Correrlo AQUÍ y surfacearlo en el correo SES:
+        # B0: los pushes van con el token de la App y SI disparan `on: push` de ci.yml
+        # (antes, con GITHUB_TOKEN, no lo hacían y el commit de datos más importante del
+        # mes escapaba al guardián). Se sigue corriendo AQUÍ para surfacearlo en el correo SES:
         # el drift mensual de n_obs (regla #0) debe verse el día que ocurre. No es
         # gate (|| true): que la prosa quede desfasada del dato nuevo es esperado;
         # lo grave es no verlo.
@@ -365,6 +386,7 @@ jobs:
         else
           git commit -m "Update living EDA + FE (census, catalog, galleries, reports)"
           git pull --rebase origin main
+          bash tools/check_outgoing_authorship.sh origin/main..HEAD   # autoría única del rango saliente
           git push
           echo "pushed=true" >> "$GITHUB_OUTPUT"
         fi
@@ -400,6 +422,7 @@ jobs:
         else
           git commit -m "Seal the release manifest for this cut"
           git pull --rebase origin main
+          bash tools/check_outgoing_authorship.sh origin/main..HEAD   # autoría única del rango saliente
           git push
         fi
         echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -411,17 +434,20 @@ jobs:
       # conocer su veredicto — un CI rojo llegaba tarde. Ahora el deploy espera el run
       # de ci.yml sobre el SHA EXACTO sellado por el release gate; timeout o fallo
       # bloquean el hook (fail-closed; el sitio conserva el deploy anterior).
+      # B0: los pushes de la App disparan `on: push` por si solos (no hay que despachar
+      # ci.yml a mano); la concurrencia de ci.yml cancela los runs de los pushes
+      # intermedios y sobrevive el del SHA final, que es el que aqui se certifica.
+      # GITHUB_TOKEN con `actions: read` basta para listar y observar ese run.
       if: steps.run.outputs.rebuilt == 'true' && steps.release.outcome == 'success'
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
         set -eo pipefail
         want="${{ steps.release.outputs.sha }}"
-        gh workflow run ci.yml --ref main
-        echo "esperando el run de ci.yml sobre $want…"
+        echo "esperando el run automatico (on: push) de ci.yml sobre $want…"
         run_id=""
         for i in $(seq 1 20); do
-          run_id=$(gh run list --workflow=ci.yml --limit 10 --json databaseId,headSha \
+          run_id=$(gh run list --workflow=ci.yml --event push --limit 30 --json databaseId,headSha \
             -q ".[] | select(.headSha == \"$want\") | .databaseId" | head -1)
           [ -n "$run_id" ] && break
           sleep 15
@@ -498,9 +524,10 @@ jobs:
         if [ -f reports/governance/drift_report.json ]; then
           DRIFT_LINE=$(python -c "import json;d=json.load(open('reports/governance/drift_report.json'));p=d.get('performance',{});n=len(d.get('data',{}).get('flagged',[]));s='DRIFT DETECTADO' if d.get('drift_detected') else 'sin novedad';print(s+' -- desempeno x'+str(p.get('perf_ratio','?'))+', '+str(n)+' serie(s) con movimiento sin precedente')")
         fi
-        # L2: veredicto del guardián de consistencia (regla #0) sobre el dato recién
-        # comiteado — el push del cron no dispara CI, así que este correo es donde
-        # el humano ve el drift n_obs↔prosa el día que ocurre.
+        # Veredicto del guardián de consistencia (regla #0) sobre el dato recién comiteado.
+        # B0: los pushes de la App disparan CI automáticamente (ci.yml también corre el
+        # guardián), pero este resumen in-band conserva la visibilidad inmediata: el correo
+        # es donde el humano ve el drift n_obs↔prosa el mismo día, sin abrir Actions.
         CONS_LINE="n/d (sin corrida este run)"
         if [ -f /tmp/consistency.txt ]; then
           # tr: sin comillas/backslashes que rompan el JSON del heredoc de SES
