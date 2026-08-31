@@ -1,40 +1,45 @@
 """Freeze the raw monthly Visa Bulletin HTML to a local immutable snapshot dir.
 
-The scrapers parse live HTML in memory and only persist derived CSVs, so the
-true scraping artifact (each month's fixed HTML page) was never saved -- and the
-live site already lost ~5 pages to rot (Wayback-only). This grabs each live
-bulletin page ONCE and never overwrites: a page already on disk is frozen.
+The scrapers parse frozen HTML offline and only persist derived CSVs, so the
+true scraping artifact (each month's fixed HTML page) is what this grabs ONCE
+and never overwrites: a page already on disk is frozen.
 
     ante/bin/python -m pipeline.freeze_snapshots
     aws s3 sync data/snapshots/ s3://<your-bucket>/raw-html/   # then push to S3
 
 ponytail: skip-if-exists IS the immutability -- no versioning logic, no hashing.
-The 5 dead-on-live pages won't appear in extract_month_links(); fetch those from
-Wayback by hand and drop them in data/snapshots/ once.
 
-A1 hardening: every candidate page must pass _looks_like_bulletin() BEFORE it is
-written -- a 200 that is really a WAF/maintenance/soft-404 page would otherwise be
-mummified forever by skip-if-exists (and synced to S3, the source of truth).
-Writes are wire bytes (resp.content, no re-decode) and atomic (tmp + os.replace),
-so a killed run never leaves a truncated snapshot that skip-if-exists protects.
+A1 (fetcher seam): the network lives behind an injected ``vp_data.fetchers``
+``Fetcher`` (default: the retrying live one), so this whole module tests
+offline. Content validation (``looks_like_bulletin``) runs HERE, in the
+consumer, right before the atomic write -- it applies to EVERY fetcher, the
+manual-ingestion path included, so a 200 that is really a WAF/maintenance/
+soft-404 page is never mummified by skip-if-exists (nor synced to S3, the
+source of truth). A page that fails it counts as a failed link for this run
+(the cron runs again; no retry loop on content).
+
+A ``SourceBlockedError`` (Cloudflare, live since 2026-08-06) is degradation,
+not failure: ``main`` returns ``source_blocked=True`` with ``new`` counting
+whatever froze before the block, and the CLI still exits 0 printing the count
+-- the cron records the delay instead of going red twice a day.
 """
+
+from __future__ import annotations
 
 import logging
 import os
-import time
+from dataclasses import dataclass
 from pathlib import Path
 
-import requests
 from tqdm import tqdm
 
 from vp_data.config import SNAPSHOTS_DIR
+from vp_data.fetchers import Fetcher, FetchError, SourceBlockedError, default_fetcher
 from vp_data.visa_common import (
-    BACKOFF_BASE_S,
-    MAX_RETRIES,
-    REQUEST_TIMEOUT,
     SITE_ROOT,
     extract_datetime_from_link,
     extract_month_links,
+    looks_like_bulletin,
     report_failures,
 )
 
@@ -46,52 +51,25 @@ MIN_INDEX_LINKS = 290
 logger = logging.getLogger(__name__)
 
 
-def _looks_like_bulletin(content: bytes) -> bool:
-    """Cheap sanity gate before freezing a page forever.
+@dataclass(frozen=True)
+class FreezeResult:
+    """Outcome of one freeze pass. ``source_blocked`` separates "the source is
+    behind its WAF" (degrade: exit clean, record, retry next run) from a real
+    failure (starved index, structural break: abort loud)."""
 
-    Empirical over the full 25-year archive (298 snapshots): every real monthly
-    bulletin carries BOTH markers; the site-wide nav template does mention
-    "Visa Bulletin", so a soft-404/maintenance page could carry that one, but
-    never "chargeability". Only known exception:
-    update-on-july-visa-availability.html (2007 special announcement, already
-    frozen -- skip-if-exists means it is never re-fetched or re-validated).
-    """
-    t = content.decode("utf-8", errors="replace").lower()
-    return "visa bulletin" in t and "chargeability" in t
+    new: int
+    source_blocked: bool = False
+    detail: str = ""
 
 
-def fetch_bytes(url: str) -> bytes:
-    """Raw GET with the same retry+backoff get_soup uses -- a few months hit an
-    intermittent redirect loop (e.g. 2007-12) that clears on retry. Returns
-    resp.content (true wire bytes: no charset re-decode that could momify
-    mojibake). Content that fails _looks_like_bulletin() is treated as a
-    transient failure (WAF page) and retried; after MAX_RETRIES it raises, so
-    the Action fails LOUD instead of freezing garbage."""
-    last: Exception = RuntimeError(f"no fetch attempt for {url}")
-    for attempt in range(MAX_RETRIES):
-        try:
-            resp = requests.get(url, timeout=REQUEST_TIMEOUT)
-            resp.raise_for_status()
-            if not _looks_like_bulletin(resp.content):
-                raise ValueError(f"200 sin marcadores de boletín (WAF/mantenimiento?): {url}")
-            return resp.content
-        except requests.HTTPError as exc:
-            # J5: mirror get_soup's fast-fail — a 4xx is permanent (a link published
-            # before the page exists, or a rotted old link); 6 retries only burn
-            # ~42s of backoff before failing anyway.
-            if exc.response is not None and 400 <= exc.response.status_code < 500:
-                raise
-            last = exc
-            time.sleep(BACKOFF_BASE_S * (attempt + 1))
-        except Exception as exc:  # noqa: BLE001 -- mirror get_soup: retry any transient blip
-            last = exc
-            time.sleep(BACKOFF_BASE_S * (attempt + 1))
-    raise last
-
-
-def main() -> None:
+def main(fetch: Fetcher | None = None) -> FreezeResult:
+    fetch = fetch or default_fetcher()
     SNAP_DIR.mkdir(parents=True, exist_ok=True)
-    links = extract_month_links()
+    try:
+        links = extract_month_links(fetch=fetch)
+    except SourceBlockedError as exc:
+        logger.warning("FUENTE BLOQUEADA en el índice: %s — 0 nuevos (retraso, no fallo)", exc)
+        return FreezeResult(new=0, source_blocked=True, detail=str(exc))
     if len(links) < MIN_INDEX_LINKS:
         raise SystemExit(
             f"ERROR: el índice de boletines devolvió {len(links)} links (< piso {MIN_INDEX_LINKS}) — "
@@ -99,6 +77,7 @@ def main() -> None:
         )
     new = 0
     failed: list[tuple[str, str]] = []  # J5: aislar fallos por link — el primero ya no mata el resto
+    blocked_detail: str | None = None
     for link in tqdm(links, desc="Freezing raw HTML"):
         dest = SNAP_DIR / Path(link).name
         if dest.exists():
@@ -109,22 +88,38 @@ def main() -> None:
             logger.warning("link del índice sin mes mapeable (se omite): %s", link)
             continue
         try:
-            content = fetch_bytes(SITE_ROOT + link)
-        except Exception as exc:  # noqa: BLE001 -- collected and reported below
+            content = fetch(SITE_ROOT + link)
+        except SourceBlockedError as exc:
+            # every remaining link is behind the same WAF: stop burning backoff
+            blocked_detail = str(exc)
+            break
+        except FetchError as exc:
             failed.append((link, str(exc)[:80]))
+            continue
+        if not looks_like_bulletin(content):
+            failed.append((link, "200 sin marcadores de boletín (WAF/mantenimiento?)"))
             continue
         tmp = dest.with_name(dest.name + ".part")
         tmp.write_bytes(content)
         os.replace(tmp, dest)  # atomic: never a truncated snapshot on disk
         new += 1
-    # J5: same accounting every scraper uses — warn each failed link, abort loud
-    # (without printing a count) if so many failed that the source must be broken.
-    # A dead link no longer blocks freezing the months that come after it.
-    report_failures(failed, logger)
+    if blocked_detail is None:
+        # J5: same accounting every scraper uses — warn each failed link, abort loud
+        # (without printing a count) if so many failed that the source must be broken.
+        report_failures(failed, logger)
+    else:
+        logger.warning("FUENTE BLOQUEADA: %s — se congelaron %d antes del bloqueo", blocked_detail, new)
     logger.info("%d new snapshots; %d total in %s", new, len(list(SNAP_DIR.glob("*.html"))), SNAP_DIR)
-    print(new)  # stdout (logging/tqdm go to stderr) -- the CI step gates rebuild on this count
+    return FreezeResult(new=new, source_blocked=blocked_detail is not None, detail=blocked_detail or "")
+
+
+def _cli(fetch: Fetcher | None = None) -> None:
+    result = main(fetch)
+    # stdout (logging/tqdm go to stderr) -- the CI step gates rebuild on `tail -1`
+    # being this integer; a blocked source prints 0 and exits clean.
+    print(result.new)
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
-    main()
+    _cli()

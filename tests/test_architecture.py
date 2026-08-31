@@ -13,8 +13,9 @@ Las capas y su dirección de imports (verificadas por AST, no por grep de substr
     experiments (entrypoints/orquestación)                            → cualquiera
 
 Puertos (I/O detrás de una sola puerta): la RED vive exclusivamente en
-``vp_data.visa_common.get_soup`` y ``pipeline.freeze_snapshots`` — reglas de visas,
-métricas y postproceso se prueban sin red/DVC/MLflow (esta suite corre offline).
+``vp_data.fetchers`` (A1: ``Fetcher`` inyectable; ``get_soup``/``freeze_snapshots``
+lo consumen) — reglas de visas, métricas y postproceso se prueban sin
+red/DVC/MLflow (esta suite corre offline).
 El reloj es inyectable donde importa (``ledger.stamp_rows(frozen_at=…)``); el tracking
 es un puerto JSONL append-only (MLflow es un adapter histórico vía ``sync_mlflow``).
 
@@ -43,8 +44,8 @@ FORBIDDEN: dict[str, set[str]] = {
     "tools": {"experiments"},
 }
 
-# la RED solo detrás de estos módulos (el resto del sistema se prueba offline)
-NETWORK_PORTS = {"vp_data/visa_common.py", "pipeline/freeze_snapshots.py"}
+# la RED solo detrás de este módulo (el resto del sistema se prueba offline)
+NETWORK_PORTS = {"vp_data/fetchers.py"}
 NETWORK_LIBS = {"requests", "urllib", "http", "socket"}
 
 

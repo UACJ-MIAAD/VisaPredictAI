@@ -3,7 +3,7 @@
 PY ?= ante/bin/python
 DVC ?= ante/bin/dvc
 
-.PHONY: help install model-install freeze scrape panel db news repro repro-force dag challenger shadow model-card drift figures audit test test-model lint typecheck check all update eda eda-facts eda-all eda-report fe-facts fe-figures fe-report fe-all compare report validate key-facts consistency web-forecasts score-forecasts derive-band80 significance horizon-facts horizon-figure auto-arima paper-figures sync mlflow-sync
+.PHONY: help install model-install freeze ingest-manual scrape panel db news repro repro-force dag challenger shadow model-card drift figures audit test test-model lint typecheck check all update eda eda-facts eda-all eda-report fe-facts fe-figures fe-report fe-all compare report validate key-facts consistency web-forecasts score-forecasts derive-band80 significance horizon-facts horizon-figure auto-arima paper-figures sync mlflow-sync
 
 help:
 	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"
@@ -45,6 +45,17 @@ model-install:
 
 freeze:
 	$(PY) -m pipeline.freeze_snapshots
+
+ingest-manual:  ## A2 (fuente bloqueada): valida e ingiere un boletín bajado a mano — FILE=<html> [MONTH=YYYY-MM]
+	@test -n "$(FILE)" || { echo "uso: make ingest-manual FILE=<boletin.html> [MONTH=YYYY-MM]"; exit 2; }
+	@OUT=$$($(PY) -m pipeline.ingest_manual "$(FILE)" $(if $(MONTH),--month $(MONTH))) && \
+	DEST=$$(printf '%s\n' "$$OUT" | tail -1) && \
+	echo "snapshot validado: $$DEST" && \
+	aws s3api put-object --bucket visapredictai-raw-snapshots --key "raw-html/$$(basename "$$DEST")" \
+		--body "$$DEST" --if-none-match '*' && \
+	$(MAKE) scrape panel db && \
+	$(PY) tools/check_ingestion.py --mode assert && \
+	$(PY) -m pipeline.mega_audit
 
 scrape:
 	$(PY) -m pipeline.scrape_all

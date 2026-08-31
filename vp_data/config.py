@@ -22,6 +22,23 @@ DV_RANK_PATH = RAW_DIR / "dv_visa_rank_timecourse.csv"
 # freeze workflow). Single source: freeze_snapshots writes here and
 # build_database reads it to register source_artifact provenance (H2).
 SNAPSHOTS_DIR = DATA_DIR / "snapshots"
+# Manually downloaded bulletin pages awaiting validation (gitignored; A2). While
+# the source sits behind Cloudflare, `make ingest-manual` promotes a file from
+# here (or anywhere) into SNAPSHOTS_DIR only after it passes the same
+# completeness floor the ingestion gate enforces.
+INBOX_DIR = DATA_DIR / "inbox"
+
+# K3 completeness floor for a newly ingested month (single source; consumed by
+# tools/check_ingestion.py after a rebuild AND by pipeline/ingest_manual.py
+# before a manual page can touch SNAPSHOTS_DIR): a modern bulletin carries all
+# four block×table combinations and ~120+ long-panel rows between them.
+REQUIRED_COMBOS = {
+    ("employment", "FAD"),
+    ("employment", "DFF"),
+    ("family", "FAD"),
+    ("family", "DFF"),
+}
+MIN_ROWS_NEW_MONTH = 90
 # Archival URI prefix for a snapshot (its stable, resolvable source of truth;
 # the original travel.state.gov href is not persisted at freeze time).
 SNAPSHOTS_S3_PREFIX = "s3://visapredictai-raw-snapshots/raw-html/"

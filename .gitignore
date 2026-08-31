@@ -40,6 +40,8 @@ data/processed/*.parquet
 
 # Raw HTML snapshots: master copy lives in S3 (cold backup), not git.
 data/snapshots/
+# Manually downloaded pages awaiting `make ingest-manual` (A2; local staging).
+data/inbox/
 
 # Modeling artifacts — regenerables con `make compare` / `make report` / `make eda`
 reports/*.log
