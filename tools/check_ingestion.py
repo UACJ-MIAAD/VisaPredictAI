@@ -20,7 +20,14 @@ Tercer modo (auto-reparación del MODELADO, pendiente #17 del audit EDA 3-jul):
                    forecasts/EDA del mes no se recuperaban hasta el boletín
                    siguiente. "fresh" si ambos reflejan el vintage del panel.
 
-Uso:  python tools/check_ingestion.py --mode {pending,assert,model-pending}
+Cuarto modo (estado de la fuente, D3/A3):
+
+  --mode source : imprime el status registrado en el feed de ingesta
+                  (ok|blocked|partial|offline), o "absent" si el feed aún no
+                  existe. El cron lo surfacea como output y decide el mensaje
+                  de commit del snapshot manual.
+
+Uso:  python tools/check_ingestion.py --mode {pending,assert,model-pending,source}
 """
 
 from __future__ import annotations
@@ -34,6 +41,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 SNAP_DIR = ROOT / "data" / "snapshots"
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.csv"
+STATE = ROOT / "reports" / "governance" / "ingestion_state.json"
 
 # K3: presencia del mes-unión no basta — si la fuente cambia el markup de UNA
 # sección (solo family, o solo la tabla DFF), ese bloque parsea a 0 filas sin
@@ -92,10 +100,25 @@ def model_artifacts_stale(panel_month: str, key_facts: dict, eda_facts: dict) ->
     return lagging
 
 
+def source_status() -> str:
+    """Status del feed de ingesta ('absent' = aún no publicado; degradar)."""
+    from vp_data.ingestion_state import read_state
+
+    state = read_state(STATE)
+    return str(state.get("status", "absent")) if state else "absent"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--mode", choices=("pending", "assert", "model-pending"), required=True)
+    ap.add_argument("--mode", choices=("pending", "assert", "model-pending", "source"), required=True)
     mode = ap.parse_args().mode
+    if mode == "source":
+        try:
+            print(source_status())
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        return 0
     if mode == "model-pending":
         import json
 

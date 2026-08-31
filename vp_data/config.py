@@ -27,6 +27,11 @@ SNAPSHOTS_DIR = DATA_DIR / "snapshots"
 # here (or anywhere) into SNAPSHOTS_DIR only after it passes the same
 # completeness floor the ingestion gate enforces.
 INBOX_DIR = DATA_DIR / "inbox"
+# Source-ingestion state feed (D3, schema v1): written by freeze_snapshots only
+# when the semantic payload changes (no daily churn), versioned via the cron's
+# data allowlist even without a rebuild, OUT of the release manifest. An absent
+# file means "no state recorded"; a present-but-invalid one fails closed.
+INGESTION_STATE_PATH = Path("reports") / "governance" / "ingestion_state.json"
 
 # K3 completeness floor for a newly ingested month (single source; consumed by
 # tools/check_ingestion.py after a rebuild AND by pipeline/ingest_manual.py

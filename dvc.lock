@@ -102,8 +102,8 @@ stages:
       size: 13450
     - path: vp_data/config.py
       hash: md5
-      md5: 44732cd984ad2d40fdd938da9068ff01
-      size: 4201
+      md5: e02918da63ffd69554f95fdac9550339
+      size: 4593
     - path: vp_data/visa_common.py
       hash: md5
       md5: 785afdbb04557202ecd571ea98ea9c4c

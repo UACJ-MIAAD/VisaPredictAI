@@ -88,8 +88,8 @@ def test_main_returns_zero_when_everything_is_already_frozen(snap_dir):
     for n in names:
         (snap_dir / n).write_bytes(b"x")
     result = freeze_snapshots.main(fetch=_index_fetch(names))
-    assert result == FreezeResult(new=0)
-    assert not result.source_blocked
+    assert result.new == 0 and not result.source_blocked and result.failed == ()
+    assert result.n_index_links == freeze_snapshots.MIN_INDEX_LINKS
 
 
 def test_main_freezes_a_new_valid_month_atomically(snap_dir):
@@ -165,6 +165,82 @@ def test_cli_prints_zero_and_exits_clean_when_source_is_blocked(snap_dir, capsys
     freeze_snapshots._cli(fetch=blocked)  # NO SystemExit: bloqueo = degradación, no fallo
     out = capsys.readouterr().out.strip().splitlines()
     assert out[-1] == "0"
+
+
+# ------------------------------------------------- estado de ingesta (D3 wiring)
+@pytest.fixture(autouse=True)
+def _isolated_state(tmp_path, monkeypatch):
+    """Panel mínimo + ruta de estado en tmp para TODO el módulo: _cli escribe el
+    estado D3, así que un test sin aislar escribía ingestion_state.json (derivado
+    de fetchers FALSOS) en el árbol real del repo — y un add -A lo comiteó."""
+    from vp_data import config
+
+    panel = tmp_path / "visa_panel_long.csv"
+    panel.write_text("country,bulletin_date,value\nmx,2026-06-01,1\nmx,2026-07-01,2\n")
+    state = tmp_path / "governance" / "ingestion_state.json"
+    monkeypatch.setattr(config, "PANEL_PATH", panel)
+    monkeypatch.setattr(config, "INGESTION_STATE_PATH", state)
+    return state
+
+
+@pytest.fixture()
+def state_env(_isolated_state):
+    return _isolated_state
+
+
+def _blocked_fetch(url: str) -> bytes:
+    raise SourceBlockedError(url, "HTTP 403 tras el WAF", status=403)
+
+
+def test_cli_records_blocked_state_only_on_transition(state_env, capsys):
+    import json
+
+    freeze_snapshots._cli(fetch=_blocked_fetch)
+    state = json.loads(state_env.read_text())
+    assert state["schema"] == 1 and state["status"] == "blocked"
+    assert state["panel_vintage"] == "2026-07"
+    assert "HTTP 403" in state["reason"]
+    first = state_env.read_bytes()
+    freeze_snapshots._cli(fetch=_blocked_fetch)  # misma corrida bloqueada: sin transición
+    assert state_env.read_bytes() == first
+
+
+def test_cli_transitions_back_to_ok(state_env, snap_dir, capsys):
+    import json
+
+    freeze_snapshots._cli(fetch=_blocked_fetch)
+    names = _frozen_names(freeze_snapshots.MIN_INDEX_LINKS)
+    for n in names:
+        (snap_dir / n).write_bytes(b"x")
+    freeze_snapshots._cli(fetch=_index_fetch(names))
+    assert json.loads(state_env.read_text())["status"] == "ok"
+
+
+def test_cli_writes_offline_and_reraises_on_transient_index_failure(state_env, capsys):
+    import json
+
+    def down(url: str) -> bytes:
+        raise FetchError(url, "error de red: reset")
+
+    with pytest.raises(FetchError):
+        freeze_snapshots._cli(fetch=down)  # el fallo real SIGUE fallando (Action rojo)
+    assert json.loads(state_env.read_text())["status"] == "offline"
+
+
+def test_starved_index_aborts_without_touching_the_state(state_env, capsys):
+    with pytest.raises(SystemExit):
+        freeze_snapshots._cli(fetch=_index_fetch(["visa-bulletin-for-july-2026.html"]))
+    assert not state_env.exists()  # rotura estructural: señal = job rojo, no estado
+
+
+def test_cli_fails_closed_on_a_corrupt_committed_feed(state_env, capsys):
+    # un feed PRESENTE e inválido jamás se pisa: el job muere rojo con los bytes intactos
+    state_env.parent.mkdir(parents=True, exist_ok=True)
+    state_env.write_text("{truncado por un kill")
+    before = state_env.read_bytes()
+    with pytest.raises(ValueError):
+        freeze_snapshots._cli(fetch=_blocked_fetch)
+    assert state_env.read_bytes() == before
 
 
 if __name__ == "__main__":

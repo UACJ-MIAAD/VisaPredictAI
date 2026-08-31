@@ -32,6 +32,10 @@ ALLOWLIST: dict[str, tuple[str, ...]] = {
         "data/processed/",
         "dvc.lock",
         "reports/governance/cleaning_ledger.json",
+        # D3: el estado de la fuente lo escribe freeze_snapshots (solo ante cambio
+        # semántico, sin churn diario) y viaja con el commit de datos — incluso el
+        # commit solo-de-estado sin rebuild; NO entra al manifiesto.
+        "reports/governance/ingestion_state.json",
     ),
     "model": (
         "dvc.lock",

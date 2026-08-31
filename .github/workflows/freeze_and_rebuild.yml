@@ -15,6 +15,15 @@ env:
 
 on:
   workflow_dispatch:
+    inputs:
+      # A3: tras `make ingest-manual` (el snapshot manual ya vive en S3), este run
+      # omite EXCLUSIVAMENTE el acceso a la fuente (Cloudflare); el sync S3, los
+      # gates, el CI del SHA exacto y el deploy corren idénticos — la ruta stale
+      # ingiere el mes manual.
+      skip_freeze:
+        description: 'Omitir el acceso a la fuente (la ingesta manual ya está en S3)'
+        type: boolean
+        default: false
   schedule:
     # GitHub cron is UTC and ignores DST, so we fire at BOTH UTC times that map
     # to noon America/New_York and let the gate job below let exactly one
@@ -121,17 +130,66 @@ jobs:
 
     - name: Freeze a newly published bulletin, then rebuild only if one arrived
       id: run
+      env:
+        SKIP_FREEZE: ${{ inputs.skip_freeze }}
       run: |
         set -eo pipefail
 
         # The frozen HTML in S3 is the source of truth. Pull it down so
         # freeze's skip-if-exists fetches ONLY a month not already frozen.
         aws s3 sync s3://visapredictai-raw-snapshots/raw-html/ data/snapshots/ --quiet
-        python -m pipeline.freeze_snapshots > /tmp/new_count   # crashes fail the step under set -e
-        # A5: robusto a stdout espurio (un warning de una dep rompía el [ "$new" = "0" ])
-        new=$(tail -1 /tmp/new_count)
+
+        # A3/D3: EL sitio único de push de datos, compartido por las CUATRO salidas
+        # (boletín nuevo, self-heal, cambio de estado sin rebuild y freeze muerto):
+        # identidad, allowlist, gate de autoría y push viven UNA sola vez. Definida
+        # ANTES del freeze para que un freeze que muere (offline) aún publique su
+        # estado. Idéntico = no-op aquí (el writer ya no escribió) y el commit
+        # solo-de-estado expone data_sha para que ciwait espere SU CI — sin
+        # rebuild jamás hay deploy.
+        publish_data() {
+          git config --local user.email "168046724+jrebull@users.noreply.github.com"
+          git config --local user.name "Javier Rebull"
+          python tools/cron_publish.py --stage data
+          if git diff --cached --quiet; then
+            echo "publish_data: nada que publicar"
+            return 0
+          fi
+          git commit -m "$1"
+          git pull --rebase origin main   # A5: un push a main durante la corrida no tumba el job
+          bash tools/check_outgoing_authorship.sh origin/main..HEAD   # autoría única del rango saliente
+          git push
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          echo "data_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        }
+
+        # A3: skip_freeze omite SOLO el acceso a la fuente; todo lo demás corre igual.
+        if [ "$SKIP_FREEZE" = "true" ]; then
+          echo "skip_freeze: sin acceso a la fuente este run (ingesta manual ya en S3)."
+          new=0
+        else
+          # A3/D3: capturar el código del freeze — un freeze que muere (offline o
+          # rotura estructural) puede haber registrado un cambio de estado: se
+          # publica por el sitio compartido y DESPUÉS se devuelve el fallo
+          # ORIGINAL, así el feed viaja a main pero el job queda rojo.
+          freeze_rc=0
+          python -m pipeline.freeze_snapshots > /tmp/new_count || freeze_rc=$?
+          if [ "$freeze_rc" != "0" ]; then
+            source_status=$(python tools/check_ingestion.py --mode source) || source_status="absent"
+            echo "source=$source_status" >> "$GITHUB_OUTPUT"
+            publish_data "Record source ingestion state: $source_status"
+            exit "$freeze_rc"
+          fi
+          # A5: robusto a stdout espurio (un warning de una dep rompía el [ "$new" = "0" ])
+          new=$(tail -1 /tmp/new_count)
+        fi
         [[ "$new" =~ ^[0-9]+$ ]] || { echo "::error::conteo de freeze no numérico: '$new'"; exit 1; }
         echo "new=$new" >> "$GITHUB_OUTPUT"   # surfaced to the email step below
+        # A3/D3: estado de la fuente (freeze lo escribe solo ante cambio semántico;
+        # "absent" mientras el feed no exista; un feed corrupto tumba este comando
+        # bajo set -e: fallo real) — gobierna el mensaje de commit y el issue único.
+        source_status=$(python tools/check_ingestion.py --mode source)
+        echo "estado de la fuente: $source_status"
+        echo "source=$source_status" >> "$GITHUB_OUTPUT"
 
         # A3: rebuild when a month was JUST frozen *or* when a previously frozen
         # month never made it into the committed panel (self-healing: a run that
@@ -148,12 +206,17 @@ jobs:
           model=$(python tools/check_ingestion.py --mode model-pending)
           if [ "$model" = "stale" ]; then
             echo "Panel al dia pero key_facts/eda_facts van detras -- re-lanzando el bloque de modelado."
+            publish_data "Record source ingestion state: $source_status"
             pip install --require-hashes -r locks/dev-linux-x86_64.txt && pip install -e . --no-deps
             python -m pipeline.build_database
             python -m pytest tests/test_database.py --cov-fail-under=0
             echo "rebuilt=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # A3/D3: la transición de estado se versiona AUNQUE no haya rebuild —
+          # sin esto, el blocked quedaba efímero en el runner y watchdog/web
+          # jamás lo veían (fallo cazado por el autor).
+          publish_data "Record source ingestion state: $source_status"
           echo "No new bulletin and panel up to date -- nothing to rebuild."
           exit 0
         fi
@@ -198,32 +261,104 @@ jobs:
         #    (and its S3 backup) hostage indefinitely.
         pip install "dvc==3.67.1"   # same pin as ci.yml
         dvc commit --force scrape panel bulletins
-        git config --local user.email "168046724+jrebull@users.noreply.github.com"
-        git config --local user.name "Javier Rebull"
         # A5+C4: publicación por ALLOWLIST (nada de `git add -A` ni barridos de dirs) —
         # lo fuera de la lista se reporta a gritos en el log en vez de viajar en silencio.
-        python tools/cron_publish.py --stage data
-        if git diff --cached --quiet; then
-          echo "New HTML frozen but parsed data unchanged -- nothing to commit."
+        # L7: name the month actually INGESTED (an August bulletin publishes
+        # mid-July: date -u said 2026-07) and be honest on the self-heal path.
+        # A3: con la fuente bloqueada, un new=0 que ingiere es el snapshot MANUAL
+        # subido a S3 — el mensaje lo dice tal cual.
+        mes=$(python -c "import pandas as pd; print(pd.to_datetime(pd.read_csv('data/processed/visa_panel_long.csv', usecols=['bulletin_date'])['bulletin_date']).max().strftime('%Y-%m'))")
+        if [ "$new" = "0" ] && [ "$source_status" = "blocked" ]; then
+          msg="Add bulletin $mes from manual snapshot (source blocked)"
+        elif [ "$new" = "0" ]; then
+          msg="Self-heal: reingest panel through $mes from frozen HTML"
         else
-          # L7: name the month actually INGESTED (an August bulletin publishes
-          # mid-July: date -u said 2026-07) and be honest on the self-heal path.
-          mes=$(python -c "import pandas as pd; print(pd.to_datetime(pd.read_csv('data/processed/visa_panel_long.csv', usecols=['bulletin_date'])['bulletin_date']).max().strftime('%Y-%m'))")
-          if [ "$new" = "0" ]; then
-            git commit -m "Self-heal: reingest panel through $mes from frozen HTML"
-          else
-            git commit -m "Add bulletin $mes: refresh panel from frozen HTML"
-          fi
-          git pull --rebase origin main   # A5: un push a main durante los ~20 min de corrida ya no tumba el job
-          bash tools/check_outgoing_authorship.sh origin/main..HEAD   # autoría única del rango saliente
-          git push
-          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          msg="Add bulletin $mes: refresh panel from frozen HTML"
         fi
+        publish_data "$msg"
 
         # 6. Back the validated raw HTML up to S3 right after the data commit (A3/L3).
         #    If anything above failed, nothing was synced: the next run re-fetches the
         #    month from the live site and retries everything.
         aws s3 sync data/snapshots/ s3://visapredictai-raw-snapshots/raw-html/
+
+    - name: "Source-blocked issue: keep exactly ONE open while the source is behind its WAF (A4)"
+      # Señal honesta sin ruido: UN issue con label source-blocked mientras la fuente
+      # esté bloqueada (sin comentarios diarios), cerrado solo cuando vuelva a ok.
+      # Estado ausente = no-op. Los fallos REALES siguen en "Alert on failure".
+      if: always() && steps.run.outcome == 'success'
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
+      with:
+        script: |
+          const fs = require('fs');
+          const path = 'reports/governance/ingestion_state.json';
+          if (!fs.existsSync(path)) { core.info('sin estado de ingesta registrado: no-op'); return; }
+          // Validación canónica COMPLETA (espejo de vp_data.ingestion_state.validate):
+          // set cerrado de llaves, enum, formatos y tipos — antes de consumir nada.
+          const KEYS = ['schema', 'status', 'panel_vintage', 'expected_month', 'missing_months', 'status_since', 'last_success_date', 'n_index_links', 'failed_links', 'reason'];
+          const isMonth = (v) => typeof v === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
+          const isDay = (v) => typeof v === 'string' && /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(v);
+          const contractProblems = (s) => {
+            if (typeof s !== 'object' || s === null || Array.isArray(s)) return ['no es un objeto'];
+            const p = [];
+            for (const k of Object.keys(s)) if (!KEYS.includes(k)) p.push(`llave fuera del schema: ${k}`);
+            for (const k of KEYS) if (!(k in s)) p.push(`llave ausente: ${k}`);
+            if (p.length) return p;
+            if (!Number.isInteger(s.schema) || s.schema !== 1) p.push('schema != 1');
+            if (!['ok', 'blocked', 'partial', 'offline'].includes(s.status)) p.push('status fuera del enum');
+            if (s.panel_vintage !== null && !isMonth(s.panel_vintage)) p.push('panel_vintage');
+            if (!isMonth(s.expected_month)) p.push('expected_month');
+            if (!isDay(s.status_since)) p.push('status_since');
+            if (s.last_success_date !== null && !isDay(s.last_success_date)) p.push('last_success_date');
+            if (!Array.isArray(s.missing_months) || !s.missing_months.every(isMonth)) p.push('missing_months');
+            if (s.n_index_links !== null && !Number.isInteger(s.n_index_links)) p.push('n_index_links');
+            if (!Array.isArray(s.failed_links) || !s.failed_links.every((x) => typeof x === 'string')) p.push('failed_links');
+            if (typeof s.reason !== 'string') p.push('reason');
+            return p;
+          };
+          let state;
+          try {
+            state = JSON.parse(fs.readFileSync(path, 'utf8'));
+            const probs = contractProblems(state);
+            if (probs.length) throw new Error(probs.join('; '));
+          } catch (e) {
+            core.setFailed(`feed de ingesta CORRUPTO (${e.message}): presente e inválido es un fallo real`);
+            return;
+          }
+          const label = 'source-blocked';
+          const { data: open } = await github.rest.issues.listForRepo({
+            owner: context.repo.owner, repo: context.repo.repo, labels: label, state: 'open',
+          });
+          if (state.status === 'blocked') {
+            if (open.length) { core.info(`issue #${open[0].number} ya abierto: sin duplicar ni comentar`); return; }
+            try {
+              await github.rest.issues.createLabel({
+                owner: context.repo.owner, repo: context.repo.repo, name: label,
+                color: 'b60205', description: 'travel.state.gov responde bloqueado (WAF)',
+              });
+            } catch (e) { core.info('label ya existe'); }
+            const missing = (state.missing_months || []).join(', ') || 'n/d';
+            await github.rest.issues.create({
+              owner: context.repo.owner, repo: context.repo.repo,
+              title: 'Bulletin source is blocked (WAF)', labels: [label],
+              body: `La fuente respondió bloqueada (${state.reason}) desde ${state.status_since}. ` +
+                `Panel en ${state.panel_vintage}; falta(n): ${missing}.\n` +
+                'Acción humana: descargar el boletín en el navegador, correr make ingest-manual FILE=<html> ' +
+                'y disparar este workflow con skip_freeze.\n' +
+                'Issue ÚNICO: se cierra solo cuando la fuente vuelva a responder ok.',
+            });
+          } else if (state.status === 'ok' && open.length) {
+            for (const issue of open) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number, body: 'La fuente volvió a responder ok: se cierra.',
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number, state: 'closed',
+              });
+            }
+          }
 
     - name: Regenerate forecasts, scorecard and key facts (modeling block)
       id: model
@@ -438,12 +573,16 @@ jobs:
       # ci.yml a mano); la concurrencia de ci.yml cancela los runs de los pushes
       # intermedios y sobrevive el del SHA final, que es el que aqui se certifica.
       # GITHUB_TOKEN con `actions: read` basta para listar y observar ese run.
-      if: steps.run.outputs.rebuilt == 'true' && steps.release.outcome == 'success'
+      # A3/D3: un commit SOLO-de-estado (sin rebuild) también espera aquí el CI de
+      # su SHA exacto (data_sha) — INCLUSO si el paso run terminó rojo (offline
+      # publicado antes de morir): always() lo habilita. El deploy sigue exigiendo
+      # rebuilt=true (y éxito de la cadena) en su propio if, jamás corre en rojo.
+      if: always() && ((steps.run.outputs.rebuilt == 'true' && steps.release.outcome == 'success') || steps.run.outputs.data_sha != '')
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
         set -eo pipefail
-        want="${{ steps.release.outputs.sha }}"
+        want="${{ steps.release.outputs.sha || steps.run.outputs.data_sha }}"
         echo "esperando el run automatico (on: push) de ci.yml sobre $want…"
         run_id=""
         for i in $(seq 1 20); do
@@ -579,6 +718,13 @@ jobs:
         if [ -f /tmp/deploy.txt ]; then
           DEPLOY_LINE=$(tr -d '"\\' < /tmp/deploy.txt)
         fi
+        # A4: línea de la fuente DERIVADA del estado de ingesta (D3), jamás tipeada.
+        # El fallback interno protege este paso always() si el job murió antes del
+        # pip install -e (summary_line vive en vp_data).
+        SOURCE_LINE="n/d (sin estado de ingesta registrado)"
+        if [ -f reports/governance/ingestion_state.json ]; then
+          SOURCE_LINE=$( (python -c "from pathlib import Path; from vp_data.ingestion_state import read_state, summary_line; print(summary_line(read_state(Path('reports/governance/ingestion_state.json'))))" 2>/dev/null || echo "estado presente pero ilegible este run") | tr -d '"\\')
+        fi
         # I3 (STORAGE_POLICY.md): metrica mensual de crecimiento por clase de
         # almacenamiento — si reports/ o .git crecen sostenido, la poda es una
         # decision de PR con la politica actualizada, nunca un script automatico.
@@ -589,7 +735,7 @@ jobs:
           "Destination": {"ToAddresses": ["al263483@alumnos.uacj.mx"]},
           "Content": {"Simple": {
             "Subject": {"Data": "VisaPredict | corrida $JOB_STATUS — $NEW boletín(es) nuevo(s)"},
-            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nEDA vivo: $EDA_LINE\nFE vivo: $FE_LINE\nCampeon-retador: $CHAMPION_LINE\nSombra: $SHADOW_LINE\nPublicacion (allowlist): $PUBLISH_LINE\nRelease gate (A-01): $RELEASE_LINE\nCI del SHA exacto: $CIWAIT_LINE\nCompletitud (exenciones): $COMPLETENESS_LINE\nDeploy verificado: $DEPLOY_LINE\nTamanos (I3): $SIZES_LINE\nLogs: $RUN_URL"}}
+            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nFuente: $SOURCE_LINE\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nEDA vivo: $EDA_LINE\nFE vivo: $FE_LINE\nCampeon-retador: $CHAMPION_LINE\nSombra: $SHADOW_LINE\nPublicacion (allowlist): $PUBLISH_LINE\nRelease gate (A-01): $RELEASE_LINE\nCI del SHA exacto: $CIWAIT_LINE\nCompletitud (exenciones): $COMPLETENESS_LINE\nDeploy verificado: $DEPLOY_LINE\nTamanos (I3): $SIZES_LINE\nLogs: $RUN_URL"}}
           }}
         }
         JSON
