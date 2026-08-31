@@ -28,6 +28,55 @@ jobs:
       # exacto: el manifiesto avanza con commits intra-mes sin redeploy (benigno);
       # una añada atrasada o un estado != fresh sí es incidente.
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+      # B5/D3: estado de la fuente como CONTEXTO — un notice visible cuando el feed
+      # registra la fuente bloqueada (el issue único lo lleva el cron; los fallos
+      # reales los detectan los pasos de abajo). Feed ausente = comportamiento previo.
+      - name: Estado de ingesta de la fuente (informativo)
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'reports/governance/ingestion_state.json';
+            if (!fs.existsSync(path)) { core.info('sin estado de ingesta registrado: comportamiento previo'); return; }
+            // Validación canónica COMPLETA (espejo de vp_data.ingestion_state.validate):
+            // set cerrado de llaves, enum, formatos y tipos — antes de consumir nada.
+            const KEYS = ['schema', 'status', 'panel_vintage', 'expected_month', 'missing_months', 'status_since', 'last_success_date', 'n_index_links', 'failed_links', 'reason'];
+            const isMonth = (v) => typeof v === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
+            const isDay = (v) => typeof v === 'string' && /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(v);
+            const contractProblems = (s) => {
+              if (typeof s !== 'object' || s === null || Array.isArray(s)) return ['no es un objeto'];
+              const p = [];
+              for (const k of Object.keys(s)) if (!KEYS.includes(k)) p.push(`llave fuera del schema: ${k}`);
+              for (const k of KEYS) if (!(k in s)) p.push(`llave ausente: ${k}`);
+              if (p.length) return p;
+              if (!Number.isInteger(s.schema) || s.schema !== 1) p.push('schema != 1');
+              if (!['ok', 'blocked', 'partial', 'offline'].includes(s.status)) p.push('status fuera del enum');
+              if (s.panel_vintage !== null && !isMonth(s.panel_vintage)) p.push('panel_vintage');
+              if (!isMonth(s.expected_month)) p.push('expected_month');
+              if (!isDay(s.status_since)) p.push('status_since');
+              if (s.last_success_date !== null && !isDay(s.last_success_date)) p.push('last_success_date');
+              if (!Array.isArray(s.missing_months) || !s.missing_months.every(isMonth)) p.push('missing_months');
+              if (s.n_index_links !== null && !Number.isInteger(s.n_index_links)) p.push('n_index_links');
+              if (!Array.isArray(s.failed_links) || !s.failed_links.every((x) => typeof x === 'string')) p.push('failed_links');
+              if (typeof s.reason !== 'string') p.push('reason');
+              return p;
+            };
+            let s;
+            try {
+              s = JSON.parse(fs.readFileSync(path, 'utf8'));
+              const probs = contractProblems(s);
+              if (probs.length) throw new Error(probs.join('; '));
+            } catch (e) {
+              core.setFailed(`feed de ingesta CORRUPTO (${e.message}): presente e inválido es un fallo real`);
+              return;
+            }
+            if (s.status === 'blocked') {
+              const missing = (s.missing_months || []).join(', ') || 'n/d';
+              core.notice(`Fuente BLOQUEADA (${s.reason}) desde ${s.status_since} — panel en ${s.panel_vintage}; ` +
+                `falta(n): ${missing}. Acción humana: make ingest-manual FILE=<html> + dispatch con skip_freeze.`);
+            } else {
+              core.info(`estado registrado de la fuente: ${s.status}`);
+            }
       - name: Production serves this repo's month vintage, fresh
         id: prod
         continue-on-error: true
