@@ -39,14 +39,10 @@ PANEL = ROOT / "data" / "processed" / "visa_panel_long.csv"
 # sección (solo family, o solo la tabla DFF), ese bloque parsea a 0 filas sin
 # excepción y el mes entra al panel por el otro bloque: medio boletín comiteado
 # con todo verde. El mes recién ingerido debe traer las 4 combinaciones y un
-# piso de filas (un boletín moderno trae ~120 entre las cuatro).
-REQUIRED_COMBOS = {
-    ("employment", "FAD"),
-    ("employment", "DFF"),
-    ("family", "FAD"),
-    ("family", "DFF"),
-}
-MIN_ROWS_NEW_MONTH = 90
+# piso de filas (un boletín moderno trae ~120 entre las cuatro). Piso
+# single-sourced en vp_data.config (A2: ingest_manual aplica el MISMO antes de
+# que una página manual toque data/snapshots/); se re-exporta aquí.
+from vp_data.config import MIN_ROWS_NEW_MONTH, REQUIRED_COMBOS  # noqa: E402
 
 
 def month_coverage_problems(panel: pd.DataFrame) -> list[str]:

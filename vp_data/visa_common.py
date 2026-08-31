@@ -1,22 +1,30 @@
 """Shared helpers for the Visa Bulletin scrapers.
 
-Centralizes the fetch / link-discovery / date / status functions that were
-byte-for-byte (modulo comments) duplicated across ``scrape_visa_bulletins.py``
-and ``scrape_family_visa_bulletins.py``. Each scraper now imports from here and
+Centralizes the link-discovery / date / status functions that were byte-for-byte
+(modulo comments) duplicated across ``scrape_visa_bulletins.py`` and
+``scrape_family_visa_bulletins.py``. Each scraper now imports from here and
 keeps only what genuinely differs (section detection, category mapping, output
 columns).
+
+The network itself lives behind ``vp_data.fetchers`` (A1): ``get_soup`` and
+``extract_month_links`` take an injected ``Fetcher`` (default: the retrying
+live one) and everything here parses bytes/soup, testable offline.
 """
+
+from __future__ import annotations
 
 import logging
 import re
-import time
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import pandas as pd
-import requests
 from bs4 import BeautifulSoup
 
 from vp_data.config import DAYS_PER_YEAR
+
+if TYPE_CHECKING:
+    from vp_data.fetchers import Fetcher
 
 # ---- configuration (single source of truth) ----------------------------
 BASE_URL = "https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html"
@@ -31,9 +39,7 @@ DATE_FMT = "%d%b%y"
 # cells today); robustness against format drift (audit finding).
 _DATE_TOKEN = re.compile(r"\d{1,2}[A-Z]{3}\d{2}(?!\d)")  # (?!\d): un futuro 01JAN2015 NO es 01JAN20
 logger = logging.getLogger(__name__)
-REQUEST_TIMEOUT = 30
-MAX_RETRIES = 6  # a couple of months (e.g. 2007-12) hit an intermittent redirect loop
-BACKOFF_BASE_S = 2  # segundos base del backoff lineal del retry (audit r4: era literal x4)
+# retry/timeout constants moved to vp_data.fetchers with the retry policy (A1)
 FOOTNOTE_CHARS = "*† "  # marcadores de nota al pie de la fuente (C*/U*); centralizado (audit r4)
 # A handful of months can fail transiently (a redirect loop, a 5xx); the run
 # proceeds and the failure-reporter logs them. But if MORE than this many fail,
@@ -77,34 +83,23 @@ def extract_datetime_from_link(link: str) -> None | datetime:
     return datetime(year=int(year), month=month, day=1)
 
 
-def get_soup(url: str, retries: int = MAX_RETRIES) -> BeautifulSoup:
-    """GET with retry+backoff and a timeout, raising on non-200.
+def get_soup(url: str, *, fetch: Fetcher | None = None) -> BeautifulSoup:
+    """Fetch a page through the injected ``Fetcher`` and parse it.
 
-    A bare ``requests.get`` plus ``except: pass`` in the caller was silently
-    dropping a whole month on any transient HTTP blip; the retry prevents that.
+    The retry/backoff loop that lived here moved to ``vp_data.fetchers`` (A1):
+    the default fetcher is the retrying live one, and tests/offline callers
+    inject their own. Bytes are decoded with ``errors="replace"`` — the same
+    criterion the freeze gate and the offline parse use (J6).
     """
-    last: Exception = RuntimeError(f"no fetch attempt for {url}")
-    for attempt in range(retries):
-        try:
-            response = requests.get(url, timeout=REQUEST_TIMEOUT)
-            response.raise_for_status()
-            return BeautifulSoup(response.text, "html.parser")
-        except requests.HTTPError as exc:
-            # A 4xx is permanent (e.g. a 404 for a month that never existed):
-            # retrying only burns the backoff. Retry 5xx (transient server side).
-            if exc.response is not None and 400 <= exc.response.status_code < 500:
-                raise
-            last = exc
-            time.sleep(BACKOFF_BASE_S * (attempt + 1))
-        except Exception as exc:
-            last = exc
-            time.sleep(BACKOFF_BASE_S * (attempt + 1))
-    raise last
+    if fetch is None:
+        from vp_data.fetchers import default_fetcher  # lazy: offline parsing never touches the port
+
+        fetch = default_fetcher()
+    return BeautifulSoup(fetch(url).decode("utf-8", errors="replace"), "html.parser")
 
 
-def extract_month_links() -> list[str]:
-    """Return every monthly-bulletin href listed in the page accordion."""
-    soup = get_soup(BASE_URL)
+def parse_month_links(soup: BeautifulSoup) -> list[str]:
+    """Pure accordion walk: every monthly-bulletin href, in document order."""
     month_links = []
     for section in soup.find_all("div", class_="accordion parbase section"):
         link_container = section.find("div", class_="tsg-rwd-accordion-copy")
@@ -112,6 +107,27 @@ def extract_month_links() -> list[str]:
             for link in link_container.find_all("a", href=True):
                 month_links.append(str(link["href"]))
     return month_links
+
+
+def extract_month_links(*, fetch: Fetcher | None = None) -> list[str]:
+    """Return every monthly-bulletin href listed in the index page accordion."""
+    return parse_month_links(get_soup(BASE_URL, fetch=fetch))
+
+
+def looks_like_bulletin(content: bytes) -> bool:
+    """Cheap sanity gate before a page can enter ``data/snapshots/`` forever
+    (moved from ``freeze_snapshots._looks_like_bulletin``; public because the
+    manual-ingestion path A2 applies the same gate).
+
+    Empirical over the full 25-year archive (298 snapshots): every real monthly
+    bulletin carries BOTH markers; the site-wide nav template does mention
+    "Visa Bulletin", so a soft-404/maintenance page could carry that one, but
+    never "chargeability". Only known exception:
+    update-on-july-visa-availability.html (2007 special announcement, already
+    frozen -- skip-if-exists means it is never re-fetched or re-validated).
+    """
+    t = content.decode("utf-8", errors="replace").lower()
+    return "visa bulletin" in t and "chargeability" in t
 
 
 def report_failures(failed: list[tuple[str, str]], logger) -> None:

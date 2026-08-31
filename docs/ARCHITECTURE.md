@@ -20,7 +20,7 @@ vp_data/       dominio de datos: parseo, limpieza, config, contratos, tracking
 
 | Puerto | Dónde vive | Adapter / nota |
 |---|---|---|
-| **Red** | `vp_data.visa_common.get_soup` (retry+backoff) y `pipeline.freeze_snapshots` (el ÚNICO paso online del sistema) | Todo lo demás se prueba offline; el test lo exige |
+| **Red** | `vp_data.fetchers` (A1): `Fetcher = Callable[[str], bytes]`, retry+backoff únicos en `with_retry`, `SourceBlockedError` para el WAF | `get_soup(fetch=…)` y `freeze_snapshots.main(fetch=…)` lo consumen inyectado; todo lo demás se prueba offline y el test lo exige |
 | **Tracking** | `vp_data.tracking.log_run` → JSONL append-only en `mlruns_staging/` | MLflow es un adapter HISTÓRICO (`experiments/sync_mlflow.py`), jamás dependencia productiva |
 | **Reloj** | Inyectable donde importa la evidencia: `ledger.stamp_rows(frozen_at=…)`, `tracking.log_run(ts=…)` | Los outs DVC son función pura de sus deps: cero reloj dentro (lección H3) |
 | **Filesystem** | Rutas centralizadas en `vp_data.config` / `vp_model.config` | Nunca re-tipear rutas (`BULLETINS_JSON_PATH`, `PANEL_PATH`…) |

@@ -26,8 +26,8 @@ stages:
       size: 8288
     - path: vp_data/visa_common.py
       hash: md5
-      md5: c33163ff4c82e55142ad35911ff73a22
-      size: 15684
+      md5: 785afdbb04557202ecd571ea98ea9c4c
+      size: 16498
     outs:
     - path: data/raw
       hash: md5
@@ -102,12 +102,12 @@ stages:
       size: 13450
     - path: vp_data/config.py
       hash: md5
-      md5: a654e5484eb867c31f917a862a093958
-      size: 3436
+      md5: 44732cd984ad2d40fdd938da9068ff01
+      size: 4201
     - path: vp_data/visa_common.py
       hash: md5
-      md5: c33163ff4c82e55142ad35911ff73a22
-      size: 15684
+      md5: 785afdbb04557202ecd571ea98ea9c4c
+      size: 16498
     outs:
     - path: data/processed/visa_panel_long.parquet
       hash: md5
