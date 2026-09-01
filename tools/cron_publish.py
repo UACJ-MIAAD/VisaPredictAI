@@ -36,6 +36,13 @@ ALLOWLIST: dict[str, tuple[str, ...]] = {
         # semántico, sin churn diario) y viaja con el commit de datos — incluso el
         # commit solo-de-estado sin rebuild; NO entra al manifiesto.
         "reports/governance/ingestion_state.json",
+        # A7.3-R1: el rebuild corre `pipeline.mega_audit` como gate de calidad (paso 2,
+        # antes de publicar), así que el informe es un producto de ESTA fase. Está
+        # RASTREADO: dejarlo fuera del allowlist lo deja sin stagear y el
+        # `git pull --rebase` siguiente aborta con "You have unstaged changes"
+        # (exit 128 del run 33443890067, antes del push). Nominal a propósito — el
+        # resto de `reports/governance/` lo publica el bloque de modelado.
+        "reports/governance/mega_audit_report.md",
     ),
     "model": (
         "dvc.lock",
