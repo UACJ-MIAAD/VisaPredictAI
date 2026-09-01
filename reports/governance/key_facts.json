@@ -3,22 +3,22 @@
   "n_series_structural": 194,
   "n_series_with_F": 136,
   "n_series_evaluable": 74,
-  "n_obs": 27611,
-  "n_obs_F": 15931,
+  "n_obs": 27911,
+  "n_obs_F": 16117,
   "pct_trainable_F": 58,
   "date_first": "2001-12",
-  "date_last": "2026-07",
-  "n_months": 296,
+  "date_last": "2026-09",
+  "n_months": 298,
   "n_retro_events": 382,
   "pct_retro": 2.4,
   "pct_frozen": 45,
-  "dv_n_rows": 1647,
+  "dv_n_rows": 1659,
   "prosp_n_scored": 2944,
   "prosp_mae_days": 146,
   "prosp_mase": 0.347,
   "prosp_cov95": 0.92,
   "prosp_cov80_heldout": 0.81,
-  "prosp_n_vintages_effective": 3,
+  "prosp_n_vintages_effective": 4,
   "band80_ratio": 0.4744,
   "ets_fad_mean": 0.114,
   "theta_fad_mean": 0.12,
@@ -54,9 +54,9 @@
   "aci_coverage_fad": 0.92,
   "aci_coverage_dff": 0.95,
   "naive1_fad_holdout_wins": 24,
-  "panel_vintage": "2026-07",
-  "panel_hash_short": "00115d2dd0b6",
-  "live_pairs_scored": 0,
+  "panel_vintage": "2026-09",
+  "panel_hash_short": "07d43c029953",
+  "live_pairs_scored": 158,
   "v2": {
     "data": {
       "n_series_structural": {
@@ -64,63 +64,63 @@
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "n_series_with_F": {
         "value": 136,
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "n_series_evaluable": {
         "value": 74,
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "n_obs": {
-        "value": 27611,
+        "value": 27911,
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "n_obs_F": {
-        "value": 15931,
+        "value": 16117,
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "n_months": {
-        "value": 296,
+        "value": 298,
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "dv_n_rows": {
-        "value": 1647,
+        "value": 1659,
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "panel_vintage": {
-        "value": "2026-07",
+        "value": "2026-09",
         "unit": "valor",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "panel_hash_short": {
-        "value": "00115d2dd0b6",
+        "value": "07d43c029953",
         "unit": "valor",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       }
     },
     "model": {
@@ -129,196 +129,196 @@
         "unit": "proporción",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "date_first": {
         "value": "2001-12",
         "unit": "valor",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "date_last": {
-        "value": "2026-07",
+        "value": "2026-09",
         "unit": "valor",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "band80_ratio": {
         "value": 0.4744,
         "unit": "valor",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "ets_fad_mean": {
         "value": 0.114,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "theta_fad_mean": {
         "value": 0.12,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "naive1_fad_mean": {
         "value": 0.1,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "naive1_fad_median": {
         "value": 0.089,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "fad_champion_mase": {
         "value": 0.11,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "ets_dff_mean": {
         "value": 0.094,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "theta_dff_mean": {
         "value": 0.086,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "naive1_dff_mean": {
         "value": 0.086,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "naive1_dff_median": {
         "value": 0.086,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "autoarima_fad_mean": {
         "value": 0.162,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "autoarima_fad_median": {
         "value": 0.125,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "autoarima_dff_mean": {
         "value": 0.114,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "autoarima_dff_median": {
         "value": 0.102,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "bitcn_dff_mean": {
         "value": 0.09,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "autobitcn_fad_mean": {
         "value": 0.109,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "deep_dff_margin_pct": {
         "value": 21,
         "unit": "conteo",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "fad_champion_mean": {
         "value": 0.121,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "crps_fad": {
         "value": 32.1,
         "unit": "valor",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "naive1_fad_dedup_mean": {
         "value": 0.105,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "dff_champion_mean": {
         "value": 0.1,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "crps_dff": {
         "value": 31.3,
         "unit": "valor",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "naive1_dff_dedup_mean": {
         "value": 0.077,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "aci_coverage_fad": {
         "value": 0.92,
         "unit": "proporción",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "aci_coverage_dff": {
         "value": 0.95,
         "unit": "proporción",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       }
     },
     "eda": {
@@ -327,35 +327,35 @@
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "pct_retro": {
         "value": 2.4,
         "unit": "proporción",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "pct_frozen": {
         "value": 45,
         "unit": "proporción",
         "population": "panel completo (todas las series y meses)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "stationarity_difference": {
         "value": 71,
         "unit": "proporción",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "stationarity_mixed": {
         "value": 3,
         "unit": "proporción",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       }
     },
     "backfill": {
@@ -364,42 +364,42 @@
         "unit": "conteo",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "prosp_mae_days": {
         "value": 146,
         "unit": "días",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "prosp_mase": {
         "value": 0.347,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "prosp_cov95": {
         "value": 0.92,
         "unit": "proporción",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "prosp_cov80_heldout": {
         "value": 0.81,
         "unit": "proporción",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "prosp_n_vintages_effective": {
-        "value": 3,
+        "value": 4,
         "unit": "conteo",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       }
     },
     "governance": {
@@ -408,65 +408,65 @@
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "tuning_groups": {
         "value": 12,
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "tuning_accepted": {
         "value": 11,
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "tuning_accepted_family": {
         "value": 5,
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "tuning_accepted_employment": {
         "value": 6,
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "friedman_rank_naive1_fad": {
         "value": 1.2,
         "unit": "valor",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "friedman_rank_naive1_dff": {
         "value": 2.39,
         "unit": "valor",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       },
       "naive1_fad_holdout_wins": {
         "value": 24,
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       }
     },
     "prospective": {
       "live_pairs_scored": {
-        "value": 0,
+        "value": 158,
         "unit": "conteo",
         "population": "pares campeón-sombra con evaluation_mode=live en ambos lados",
         "source": "reports/governance/promotion_decision.json",
-        "vintage": "2026-07"
+        "vintage": "2026-09"
       }
     }
   }

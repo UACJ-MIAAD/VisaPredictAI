@@ -1,67 +1,93 @@
 {
-  "drift_detected": false,
+  "drift_detected": true,
   "performance": {
     "status": "ok",
-    "latest_vintage": "2025-07",
-    "latest_n": 976,
-    "latest_mase": 0.3836,
-    "baseline_mase": 0.3294,
-    "baseline_n": 1968,
+    "latest_vintage": "2026-07",
+    "latest_n": 158,
+    "latest_mase": 0.47,
+    "baseline_mase": 0.0803,
+    "baseline_n": 500,
     "horizons_matched": [
       1,
-      2,
-      3,
-      4,
-      5,
-      6,
-      7,
-      8,
-      9,
-      10,
-      11,
-      12
+      2
     ],
-    "perf_ratio": 1.165,
-    "latest_cov95": 0.951,
+    "perf_ratio": 5.85,
+    "latest_cov95": 0.772,
     "coverage_evaluated": true,
-    "performance_drift": false,
-    "coverage_drift": false,
-    "consecutive_perf_drift": 0,
+    "performance_drift": true,
+    "coverage_drift": true,
+    "consecutive_perf_drift": 1,
     "recampaign_due": false
   },
   "data": {
     "status": "ok",
-    "latest_month": "2026-07-01",
+    "latest_month": "2026-09-01",
     "flagged": [
       {
         "series": "all_chargeability/F1/FAD",
-        "delta_days": 153,
-        "hist_median_delta": 16,
-        "mad": 16.0
+        "delta_days": 403,
+        "hist_median_delta": 17,
+        "mad": 17.0
       },
       {
-        "series": "china/EB1/FAD",
-        "delta_days": 61,
-        "hist_median_delta": 0,
-        "mad": 7.0
+        "series": "all_chargeability/F2B/FAD",
+        "delta_days": 598,
+        "hist_median_delta": 30,
+        "mad": 22.0
+      },
+      {
+        "series": "all_chargeability/F3/FAD",
+        "delta_days": 890,
+        "hist_median_delta": 16,
+        "mad": 15.0
+      },
+      {
+        "series": "all_chargeability/F4/FAD",
+        "delta_days": 781,
+        "hist_median_delta": 23,
+        "mad": 16.0
       },
       {
         "series": "china/F1/FAD",
-        "delta_days": 153,
+        "delta_days": 403,
         "hist_median_delta": 16,
         "mad": 16.0
+      },
+      {
+        "series": "china/F2B/FAD",
+        "delta_days": 598,
+        "hist_median_delta": 30,
+        "mad": 23.0
+      },
+      {
+        "series": "china/F3/FAD",
+        "delta_days": 890,
+        "hist_median_delta": 16,
+        "mad": 15.0
+      },
+      {
+        "series": "china/F4/FAD",
+        "delta_days": 781,
+        "hist_median_delta": 21,
+        "mad": 21.0
       },
       {
         "series": "india/F1/FAD",
-        "delta_days": 153,
+        "delta_days": 403,
         "hist_median_delta": 16,
         "mad": 16.0
       },
       {
-        "series": "philippines/F3/FAD",
-        "delta_days": 92,
-        "hist_median_delta": 7,
-        "mad": 7.0
+        "series": "india/F2B/FAD",
+        "delta_days": 598,
+        "hist_median_delta": 30,
+        "mad": 23.0
+      },
+      {
+        "series": "india/F3/FAD",
+        "delta_days": 890,
+        "hist_median_delta": 16,
+        "mad": 15.0
       }
     ]
   }

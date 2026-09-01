@@ -653,14 +653,14 @@ conversión, por artefacto y por bloque del panel.}
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Indicador} & \textbf{Valor} & \textbf{Nota} \\ \midrule
-Instantáneas HTML congeladas & 298 & 33~MB; \factNMonths{} meses únicos, más una ruta alterna y un anuncio especial de julio de 2007 \\
-Meses cubiertos por el panel & \factNMonths{} & De diciembre de 2001 a julio de 2026, sin meses faltantes \\
+Instantáneas HTML congeladas & 300 & 33~MB; \factNMonths{} meses únicos, más una ruta alterna y un anuncio especial de julio de 2007 \\
+Meses cubiertos por el panel & \factNMonths{} & De diciembre de 2001 a septiembre de 2026, sin meses faltantes \\
 Series estructurales & \factNSeriesStructural{} & Combinaciones observadas de 5 áreas de cargabilidad, 21 categorías y 2 tablas \\
 Registros del panel largo & \factNObsFmt{} & Nueve variables por registro \\
-Registros de la tabla FAD & 18{,}663 & \factNMonths{} meses (diciembre de 2001 a julio de 2026) \\
-Registros de la tabla DFF & 8{,}948 & 130 meses (la tabla existe desde octubre de 2015) \\
-Bloque de preferencia por empleo & 17{,}246 & 16 categorías (EB-1 a EB-5 con subcategorías) \\
-Bloque de preferencia familiar & 10{,}365 & 5 categorías (F1, F2A, F2B, F3 y F4) \\
+Registros de la tabla FAD & 18{,}813 & \factNMonths{} meses (diciembre de 2001 a septiembre de 2026) \\
+Registros de la tabla DFF & 9{,}098 & 132 meses (la tabla existe desde octubre de 2015) \\
+Bloque de preferencia por empleo & 17{,}446 & 16 categorías (EB-1 a EB-5 con subcategorías) \\
+Bloque de preferencia familiar & 10{,}465 & 5 categorías (F1, F2A, F2B, F3 y F4) \\
 Rangos de \textit{Diversity Visa} & \factDvNRowsFmt{} & Hecho separado del almacén; no es objetivo predictivo \\
 \bottomrule
 \end{tabular}
@@ -1405,31 +1405,31 @@ reproducible.
 \rowcolor{uacjblue!15}
 \textbf{Área} & \textbf{Cat.} & $\mathbf{F_T}$ & $\mathbf{F_S}$ & $\mathbf{H}$ & \textbf{ACF1} & $\mathbf{ACF1_\Delta}$ & $\mathbf{d}$ \\ \midrule
 % --- tab:features_estructura: vp_model.series_characterization (make_tex_tables.py) ---
-CN & F1 & 0.993 & 0.001 & 0.292 & 0.989 & $+0.275$ & 1 \\
-CN & F2A & 0.990 & 0.000 & 0.338 & 0.987 & $+0.158$ & 1 \\
-CN & F2B & 0.998 & 0.036 & 0.299 & 0.989 & $+0.268$ & 1 \\
-CN & F3 & 0.998 & 0.000 & 0.344 & 0.987 & $+0.111$ & 1 \\
-CN & F4 & 0.993 & 0.021 & 0.351 & 0.984 & $-0.217$ & 1 \\
-IN & F1 & 0.990 & 0.000 & 0.302 & 0.990 & $+0.207$ & 1 \\
-IN & F2A & 0.994 & 0.006 & 0.319 & 0.989 & $+0.159$ & 1 \\
-IN & F2B & 0.999 & 0.037 & 0.272 & 0.992 & $+0.250$ & 1 \\
-IN & F3 & 0.999 & 0.000 & 0.332 & 0.989 & $+0.116$ & 1 \\
+CN & F1 & 0.993 & 0.016 & 0.303 & 0.986 & $+0.300$ & 1 \\
+CN & F2A & 0.991 & 0.000 & 0.347 & 0.985 & $+0.145$ & 1 \\
+CN & F2B & 0.998 & 0.040 & 0.304 & 0.988 & $+0.210$ & 1 \\
+CN & F3 & 0.995 & 0.000 & 0.357 & 0.982 & $+0.052$ & 1 \\
+CN & F4 & 0.991 & 0.015 & 0.367 & 0.980 & $-0.119$ & 1 \\
+IN & F1 & 0.989 & 0.006 & 0.310 & 0.988 & $+0.226$ & 1 \\
+IN & F2A & 0.994 & 0.000 & 0.326 & 0.988 & $+0.146$ & 1 \\
+IN & F2B & 0.998 & 0.038 & 0.276 & 0.990 & $+0.199$ & 1 \\
+IN & F3 & 0.997 & 0.000 & 0.341 & 0.985 & $+0.054$ & 1 \\
 IN & F4 & 0.993 & 0.000 & 0.335 & 0.988 & $-0.062$ & 1 \\
-MX & F1 & 0.928 & 0.227 & 0.407 & 0.956 & $+0.043$ & 2 \\
-MX & F2A & 0.995 & 0.062 & 0.305 & 0.990 & $+0.142$ & 1 \\
-MX & F2B & 0.997 & 0.075 & 0.356 & 0.985 & $+0.104$ & 2 \\
-MX & F3 & 0.754 & 0.000 & 0.444 & 0.918 & $-0.142$ & 1 \\
-MX & F4 & 0.950 & 0.000 & 0.411 & 0.972 & $-0.019$ & 1 \\
-PH & F1 & 0.990 & 0.000 & 0.251 & 0.991 & $+0.117$ & 1 \\
-PH & F2A & 0.994 & 0.006 & 0.319 & 0.989 & $+0.159$ & 1 \\
+MX & F1 & 0.932 & 0.225 & 0.405 & 0.958 & $+0.043$ & 2 \\
+MX & F2A & 0.994 & 0.012 & 0.312 & 0.989 & $+0.133$ & 1 \\
+MX & F2B & 0.997 & 0.069 & 0.353 & 0.986 & $+0.104$ & 2 \\
+MX & F3 & 0.769 & 0.000 & 0.438 & 0.920 & $-0.142$ & 1 \\
+MX & F4 & 0.945 & 0.000 & 0.408 & 0.972 & $-0.019$ & 1 \\
+PH & F1 & 0.991 & 0.000 & 0.250 & 0.991 & $+0.117$ & 1 \\
+PH & F2A & 0.994 & 0.000 & 0.326 & 0.988 & $+0.146$ & 1 \\
 PH & F2B & 0.995 & 0.020 & 0.276 & 0.990 & $+0.157$ & 1 \\
-PH & F3 & 0.966 & 0.081 & 0.330 & 0.981 & $+0.075$ & 1 \\
-PH & F4 & 0.997 & 0.000 & 0.322 & 0.989 & $+0.229$ & 1 \\
-RoW & F1 & 0.991 & 0.011 & 0.296 & 0.989 & $+0.202$ & 1 \\
-RoW & F2A & 0.994 & 0.007 & 0.319 & 0.989 & $+0.160$ & 1 \\
-RoW & F2B & 0.999 & 0.042 & 0.271 & 0.992 & $+0.275$ & 1 \\
-RoW & F3 & 0.999 & 0.000 & 0.331 & 0.989 & $+0.118$ & 1 \\
-RoW & F4 & 0.997 & 0.161 & 0.327 & 0.988 & $-0.232$ & 1 \\
+PH & F3 & 0.967 & 0.080 & 0.330 & 0.981 & $+0.075$ & 1 \\
+PH & F4 & 0.997 & 0.000 & 0.321 & 0.989 & $+0.229$ & 1 \\
+RoW & F1 & 0.991 & 0.023 & 0.304 & 0.987 & $+0.219$ & 1 \\
+RoW & F2A & 0.994 & 0.000 & 0.326 & 0.988 & $+0.146$ & 1 \\
+RoW & F2B & 0.998 & 0.038 & 0.276 & 0.990 & $+0.217$ & 1 \\
+RoW & F3 & 0.997 & 0.000 & 0.341 & 0.985 & $+0.055$ & 1 \\
+RoW & F4 & 0.995 & 0.007 & 0.339 & 0.985 & $-0.125$ & 1 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1444,31 +1444,31 @@ RoW & F4 & 0.997 & 0.161 & 0.327 & 0.988 & $-0.232$ & 1 \\
 \rowcolor{uacjblue!15}
 \textbf{Área} & \textbf{Cat.} & \textbf{Atípicos} & \textbf{LB}\,$p$ & \textbf{Asim.} & \textbf{Curt.} \\ \midrule
 % --- tab:features_anomalias: vp_model.series_characterization (make_tex_tables.py) ---
-CN & F1 & 68 & 0.000 & $-2.85$ & 55.1 \\
-CN & F2A & 68 & 0.000 & $-3.64$ & 30.9 \\
-CN & F2B & 32 & 0.000 & $-6.72$ & 95.6 \\
-CN & F3 & 43 & 0.000 & $-5.73$ & 83.9 \\
-CN & F4 & 43 & 0.000 & $-2.28$ & 54.9 \\
-IN & F1 & 70 & 0.000 & $-5.15$ & 60.1 \\
-IN & F2A & 66 & 0.000 & $-3.88$ & 35.6 \\
-IN & F2B & 36 & 0.000 & $-6.67$ & 100.6 \\
-IN & F3 & 44 & 0.000 & $-6.02$ & 94.6 \\
-IN & F4 & 46 & 0.000 & $-3.10$ & 48.8 \\
-MX & F1 & 75 & 0.000 & $-2.60$ & 98.9 \\
-MX & F2A & 80 & 0.000 & $-5.78$ & 76.8 \\
-MX & F2B & 75 & 0.000 & $+0.66$ & 21.8 \\
-MX & F3 & 87 & 0.000 & $-4.80$ & 79.2 \\
-MX & F4 & 71 & 0.000 & $-3.39$ & 78.9 \\
-PH & F1 & 73 & 0.000 & $-6.24$ & 57.2 \\
-PH & F2A & 66 & 0.000 & $-3.88$ & 35.6 \\
-PH & F2B & 69 & 0.000 & $-4.04$ & 66.3 \\
-PH & F3 & 82 & 0.000 & $+0.88$ & 48.2 \\
-PH & F4 & 62 & 0.000 & $-7.65$ & 107.0 \\
-RoW & F1 & 61 & 0.000 & $-4.00$ & 50.9 \\
-RoW & F2A & 74 & 0.000 & $-3.88$ & 35.6 \\
-RoW & F2B & 32 & 0.000 & $-7.01$ & 106.7 \\
-RoW & F3 & 42 & 0.000 & $-6.01$ & 94.4 \\
-RoW & F4 & 48 & 0.000 & $-2.60$ & 74.6 \\
+CN & F1 & 64 & 0.000 & $-2.43$ & 48.7 \\
+CN & F2A & 69 & 0.000 & $-3.17$ & 28.4 \\
+CN & F2B & 27 & 0.000 & $-2.90$ & 70.2 \\
+CN & F3 & 44 & 0.000 & $+5.85$ & 103.3 \\
+CN & F4 & 45 & 0.000 & $-0.46$ & 43.4 \\
+IN & F1 & 74 & 0.000 & $-4.78$ & 55.9 \\
+IN & F2A & 69 & 0.000 & $-3.38$ & 32.8 \\
+IN & F2B & 32 & 0.000 & $-2.86$ & 75.1 \\
+IN & F3 & 49 & 0.000 & $+6.25$ & 117.8 \\
+IN & F4 & 52 & 0.000 & $-3.10$ & 49.1 \\
+MX & F1 & 78 & 0.000 & $-2.61$ & 99.6 \\
+MX & F2A & 81 & 0.000 & $-5.35$ & 71.8 \\
+MX & F2B & 65 & 0.000 & $+0.66$ & 21.9 \\
+MX & F3 & 90 & 0.000 & $-4.82$ & 79.8 \\
+MX & F4 & 67 & 0.000 & $-3.40$ & 79.4 \\
+PH & F1 & 76 & 0.000 & $-6.25$ & 57.6 \\
+PH & F2A & 66 & 0.000 & $-3.37$ & 32.7 \\
+PH & F2B & 78 & 0.000 & $-4.05$ & 66.8 \\
+PH & F3 & 79 & 0.000 & $+0.89$ & 48.5 \\
+PH & F4 & 60 & 0.000 & $-7.66$ & 107.6 \\
+RoW & F1 & 65 & 0.000 & $-3.73$ & 47.6 \\
+RoW & F2A & 69 & 0.000 & $-3.38$ & 32.8 \\
+RoW & F2B & 28 & 0.000 & $-2.99$ & 78.7 \\
+RoW & F3 & 50 & 0.000 & $+6.25$ & 117.7 \\
+RoW & F4 & 45 & 0.000 & $-0.41$ & 57.2 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1548,7 +1548,7 @@ hacerlo por defecto.
 
 \subsubsection{Caracterización retrospectiva de la dificultad por serie}
 
-Con muestras de 130--\factNMonths{} observaciones por serie, cada grado de libertad cuenta, por
+Con muestras de 132--\factNMonths{} observaciones por serie, cada grado de libertad cuenta, por
 lo que el conjunto unido de características de caracterización (catch22 y descriptores
 de pronóstico y de diagnóstico) se somete a un análisis formal de relevancia en dos pasos.
 Primero, un filtro de relevancia univariada con corrección de multiplicidad de Benjamini-Yekutieli
@@ -3875,7 +3875,7 @@ con su dominio y el valor que toman en una observación real (México, F3, FAD, 
 \texttt{block}           & Texto   & Bloque de preferencia: \texttt{family} o \texttt{employment} & \texttt{family} \\
 \texttt{category}        & Texto   & 21 códigos canónicos (F1--F4 y EB1--EB5 con subcategorías) & \texttt{F3} \\
 \texttt{table}           & Texto   & Tipo de tabla: \texttt{FAD} o \texttt{DFF} & \texttt{FAD} \\
-\texttt{bulletin\_date}  & Fecha   & Primer día del mes del boletín, de 2001-12 a 2026-07 & \texttt{2026-07-01} \\
+\texttt{bulletin\_date}  & Fecha   & Primer día del mes del boletín, de 2001-12 a 2026-09 & \texttt{2026-09-01} \\
 \texttt{status}          & Texto   & Régimen $e$: \texttt{F}, \texttt{C}, \texttt{U} o \texttt{UNK} & \texttt{F} \\
 \texttt{priority\_date}  & Fecha   & Fecha de prioridad publicada; definida solo si \texttt{status = F} & \texttt{2001-06-01} \\
 \texttt{days\_since\_base} & Entero & Variable dependiente $y_{p,c,b,t}$: días desde $t_0 = $ 1975-01-01; definida solo si \texttt{status = F} & \texttt{9648} \\
@@ -3912,17 +3912,17 @@ aportan entre 38 y 39 series cada una, para un total de \factNSeriesStructural{}
 \toprule
 \rowcolor{uacjblue!15}
 \textbf{Bloque} & \textbf{Categoría} & \textbf{Obs.} & \textbf{Bloque} & \textbf{Categoría} & \textbf{Obs.} \\ \midrule
-Familiar & F1  & 2{,}073 & Empleo & EB5            & 480 \\
-Familiar & F2A & 2{,}073 & Empleo & EB5\_TEA       & 729 \\
-Familiar & F2B & 2{,}073 & Empleo & EB5\_PILOT     & 105 \\
-Familiar & F3  & 2{,}073 & Empleo & EB5\_RC        & 805 \\
-Familiar & F4  & 2{,}073 & Empleo & EB5\_NONRC     & 790 \\
-Empleo & EB1        & 2{,}044 & Empleo & EB5\_UNRESERVED & 510 \\
-Empleo & EB2        & 2{,}044 & Empleo & EB5\_RURAL      & 510 \\
-Empleo & EB3        & 2{,}044 & Empleo & EB5\_HIGHUNEMP  & 510 \\
-Empleo & EB3\_OW    & 2{,}044 & Empleo & EB5\_INFRA      & 510 \\
-Empleo & EB4        & 2{,}044 & \multicolumn{2}{l}{\textbf{Total familiar}} & \textbf{10{,}365} \\
-Empleo & EB4\_RW    & 2{,}037 & \multicolumn{2}{l}{\textbf{Total empleo}}   & \textbf{17{,}246} \\
+Familiar & F1  & 2{,}093 & Empleo & EB5            & 480 \\
+Familiar & F2A & 2{,}093 & Empleo & EB5\_TEA       & 729 \\
+Familiar & F2B & 2{,}093 & Empleo & EB5\_PILOT     & 105 \\
+Familiar & F3  & 2{,}093 & Empleo & EB5\_RC        & 805 \\
+Familiar & F4  & 2{,}093 & Empleo & EB5\_NONRC     & 790 \\
+Empleo & EB1        & 2{,}064 & Empleo & EB5\_UNRESERVED & 530 \\
+Empleo & EB2        & 2{,}064 & Empleo & EB5\_RURAL      & 530 \\
+Empleo & EB3        & 2{,}064 & Empleo & EB5\_HIGHUNEMP  & 530 \\
+Empleo & EB3\_OW    & 2{,}064 & Empleo & EB5\_INFRA      & 530 \\
+Empleo & EB4        & 2{,}064 & \multicolumn{2}{l}{\textbf{Total familiar}} & \textbf{10{,}465} \\
+Empleo & EB4\_RW    & 2{,}057 & \multicolumn{2}{l}{\textbf{Total empleo}}   & \textbf{17{,}446} \\
 Empleo & EB4\_TRANS & 40      & \multicolumn{2}{l}{\textbf{Total panel}}    & \textbf{\factNObsFmt{}} \\
 \bottomrule
 \end{tabular}
@@ -3932,15 +3932,15 @@ Empleo & EB4\_TRANS & 40      & \multicolumn{2}{l}{\textbf{Total panel}}    & \t
 
 Cada construcción del panel escribe un registro de limpieza determinista, versionado junto
 al código, que documenta qué produjo esa añada y qué guardas se evaluaron. El registro del
-corte de julio de 2026, que es el que sustenta todas las cifras de este documento, es el
+corte de septiembre de 2026, que es el que sustenta todas las cifras de este documento, es el
 siguiente:
 
 \begin{verbatim}
 {
- "vintage": "2026-07",
- "n_rows": 27611,
+ "vintage": "2026-09",
+ "n_rows": 27911,
  "n_series": 194,
- "rows_by_status": {"F": 15931, "C": 11058, "U": 621, "UNK": 1},
+ "rows_by_status": {"F": 16117, "C": 11168, "U": 625, "UNK": 1},
  "dup_collapsed": 0,
  "bulletin_date_unparseable": 0,
  "f_priority_date_unparseable": 0,

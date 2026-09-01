@@ -46,7 +46,7 @@ import torch
 from darts import TimeSeries, concatenate
 from darts.dataprocessing.transformers import Scaler
 from darts.models import (
-    ARIMA,
+    ARIMA as DartsARIMA,
     CatBoostModel,
     DLinearModel,
     ExponentialSmoothing,
@@ -70,6 +70,7 @@ from darts.utils.utils import ModelMode
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from statsmodels.tsa.arima.model import ARIMA as StatsmodelsARIMA
 
 from vp_model import preprocess
 from vp_model.config import (
@@ -110,7 +111,54 @@ class Forecaster(Protocol):
 
 # Reexportados desde config para compatibilidad de la API pública del módulo
 # (models.MODEL_NAMES / models.PROBABILISTIC siguen resolviendo).
-__all__ = ["MODEL_NAMES", "PROBABILISTIC", "build_model", "registry", "to_timeseries", "ArimaLstm"]
+__all__ = [
+    "MODEL_NAMES",
+    "PROBABILISTIC",
+    "build_model",
+    "build_relaxed_sarima",
+    "registry",
+    "to_timeseries",
+    "ArimaLstm",
+]
+
+
+class _RelaxedSarima(DartsARIMA):
+    """Misma orden SARIMA, con inicialización tolerante a raíces fronterizas.
+
+    Statsmodels intenta inicializar por defecto bajo estacionariedad/invertibilidad;
+    algunas series que apenas cruzan el piso de historia producen ``LinAlgError: LU
+    decomposition error`` en esa inicialización y el conjunto exacto depende del
+    backend LAPACK. Esta variante se usa únicamente como segundo intento tras ese
+    error: no sustituye la receta primaria ni convierte otros fallos en éxitos.
+    """
+
+    def _fit(
+        self,
+        series: TimeSeries,
+        future_covariates: TimeSeries | None = None,
+        verbose: bool | None = None,
+    ):
+        # Saltar DartsARIMA._fit (que instancia StatsmodelsARIMA con los defaults)
+        # pero conservar las comprobaciones de la clase base de Darts.
+        super(DartsARIMA, self)._fit(series, future_covariates, verbose=verbose)
+        self._assert_univariate(series)
+        self.training_historic_future_covariates = future_covariates
+        self.model = StatsmodelsARIMA(
+            series.values(copy=False),
+            exog=future_covariates.values(copy=False) if future_covariates else None,
+            order=self.order,
+            seasonal_order=self.seasonal_order,
+            trend=self.trend,
+            enforce_stationarity=False,
+            enforce_invertibility=False,
+        ).fit()
+        return self
+
+
+def build_relaxed_sarima() -> _RelaxedSarima:
+    """Construye el segundo intento gobernado de la receta SARIMA canónica."""
+
+    return _RelaxedSarima(**HYPERPARAMS["sarima"])
 
 
 def to_timeseries(series: pd.Series) -> TimeSeries:
@@ -201,8 +249,8 @@ _FACTORIES: dict[str, Callable[[str | None], Forecaster]] = {
     "naive": lambda table: NaiveSeasonal(K=SEASONAL_PERIOD),
     "naive1": lambda table: NaiveSeasonal(K=1),  # AI1: random-walk floor of the pool
     "drift": lambda table: NaiveDrift(),  # AI1: random walk with drift
-    "arima": lambda table: ARIMA(**HYPERPARAMS["arima"]),
-    "sarima": lambda table: ARIMA(**HYPERPARAMS["sarima"]),
+    "arima": lambda table: DartsARIMA(**HYPERPARAMS["arima"]),
+    "sarima": lambda table: DartsARIMA(**HYPERPARAMS["sarima"]),
     "prophet": lambda table: _prophet(),
     "ets": lambda table: AutoETS(),  # AJ4: small AICc search over {trend x damped}
     "theta": lambda table: AutoTheta(),  # AJ4: FourTheta.select_best_model
@@ -271,7 +319,7 @@ class ArimaLstm:
     """
 
     def __init__(self) -> None:
-        self.arima = ARIMA(**HYPERPARAMS["arima"])
+        self.arima = DartsARIMA(**HYPERPARAMS["arima"])
         # Ventana corta (rnn_hybrid): el LSTM ve solo los residuales que quedan tras
         # el warm-up de ARIMA, que son pocos en la ventana inicial.
         self.lstm = RNNModel(
@@ -285,7 +333,7 @@ class ArimaLstm:
     def fit(self, series: TimeSeries, **kwargs: object) -> ArimaLstm:
         # AJ3: fit is now called repeatedly (annual refit) — rebuild fresh
         # sub-models so each refit trains from scratch instead of resuming.
-        self.arima = ARIMA(**HYPERPARAMS["arima"])
+        self.arima = DartsARIMA(**HYPERPARAMS["arima"])
         self.lstm = RNNModel(
             model="LSTM",
             **HYPERPARAMS["rnn_hybrid"],
