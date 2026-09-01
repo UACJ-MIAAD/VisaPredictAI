@@ -12,7 +12,7 @@
 - **Sistema:** predictor del U.S. Visa Bulletin — panel multiserie `y_{p,c,b,t}` (país × categoría × tabla × mes).
 - **Tarea:** regresión temporal de fechas de prioridad sobre observaciones con estado **F** (FAD y DFF por separado).
 - **Receta desplegada (campeón):** FAD → `median(theta+ets+sarima)` · DFF → `sarima` (manifiesto versionado `champion_manifest.json`).
-- **Versión / linaje:** git `7c1ca97` · hash del panel `00115d2dd0b6`.
+- **Versión / linaje:** git `cb5df8f` · hash del panel `07d43c029953`.
 - **Autor:** Javier A. Rebull Saucedo · MIAAD, UACJ. Demostrador: visapredictai.com.
 
 ## 2. Uso previsto
@@ -24,7 +24,7 @@
 - Categorías: familiares (F1–F4) y empleo (EB). Tablas: Final Action Dates (FAD) y Dates for Filing (DFF), evaluadas por separado.
 
 ## 4. Datos de entrenamiento
-- **Panel:** 27,611 observaciones · 58 % entrenables (estado F = 15,931) · rango 2001-12 → 2026-07.
+- **Panel:** 27,911 observaciones · 58 % entrenables (estado F = 16,117) · rango 2001-12 → 2026-09.
 - **Series:** 194 estructurales · 74 plenamente evaluables (≥84 obs F = ventana 60 + hold-out 24).
 - Fuente: U.S. Department of State, Visa Bulletin (HTML congelado, parseo offline reproducible).
 
@@ -36,8 +36,8 @@
 
 ## 6. Linaje y reproducibilidad
 - **Receta:** `champion_manifest.json` (cambia solo vía `run_champion_challenger.py --promote`, auditado).
-- **Código:** git `7c1ca97`. **Datos:** panel hash `00115d2dd0b6`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
-- **Corte (H3):** release vigente al generar `2026-07-5f6adfa8869e` · pipeline_run_id `local` · añada `2026-07`.
+- **Código:** git `cb5df8f`. **Datos:** panel hash `07d43c029953`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
+- **Corte (H3):** release vigente al generar `2026-07-5e473ac91f60` · pipeline_run_id `local-a73-r2` · añada `2026-09`.
 - **Promoción (dos gates):** el hold-out (Wilcoxon+Holm, h=1) solo declara aptitud retrospectiva; la autorización la da el gate prospectivo PRE-REGISTRADO (docs/PROMOTION_POLICY.md) sobre pares live campeón-vs-sombra, aplicada por un humano (`--promote`, que se rehúsa sin decisión "promote") con rollback versionado.
 
 ## 7. Limitaciones y consideraciones éticas

@@ -328,4 +328,10 @@ def get_logger(name: str) -> logging.Logger:
         root.addHandler(handler)
     root.setLevel(logging.INFO)
     root.propagate = False
-    return logging.getLogger(name)
+    # A7.3-R2: los llamadores históricos pasan tanto nombres cortos
+    # (``web_forecasts``) como ``__name__`` (``vp_model.walkforward``). Devolver el
+    # nombre corto directamente crea un logger hermano de ``vp_model``: no hereda el
+    # handler anterior y su nivel efectivo queda en WARNING, silenciando precisamente
+    # los ``skip`` y los éxitos por serie que necesita una corrida desatendida.
+    child = name if name == "vp_model" or name.startswith("vp_model.") else f"vp_model.{name}"
+    return logging.getLogger(child)

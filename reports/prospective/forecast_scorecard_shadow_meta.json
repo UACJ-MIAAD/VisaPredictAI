@@ -1,9 +1,59 @@
 {
   "what": "scoring del ledger SOMBRA (retador) con la misma maquinaria y universo que el campeón (A3)",
   "caveat": "backfill leakage-free; NO equivale a haber servido los pronósticos en tiempo real",
-  "n_scored": 0,
-  "n_pending": 1164,
-  "by_mode": {},
+  "n_scored": 160,
+  "n_pending": 1004,
+  "by_mode": {
+    "live": {
+      "overall": {
+        "n": 160,
+        "mae_days": 160.7,
+        "mase": 0.482,
+        "cov80": 0.75,
+        "cov95": 0.838,
+        "cov80_ci95": [
+          0.679,
+          0.812
+        ],
+        "cov95_ci95": [
+          0.775,
+          0.888
+        ]
+      },
+      "by_horizon": {
+        "1": {
+          "n": 80,
+          "mae_days": 83.8,
+          "mase": 0.2179,
+          "cov80": 0.838,
+          "cov95": 0.875,
+          "cov80_ci95": [
+            0.745,
+            0.906
+          ],
+          "cov95_ci95": [
+            0.79,
+            0.934
+          ]
+        },
+        "2": {
+          "n": 80,
+          "mae_days": 237.6,
+          "mase": 0.7461,
+          "cov80": 0.662,
+          "cov95": 0.8,
+          "cov80_ci95": [
+            0.555,
+            0.759
+          ],
+          "cov95_ci95": [
+            0.703,
+            0.876
+          ]
+        }
+      }
+    }
+  },
   "recipes": [
     "naive1"
   ]

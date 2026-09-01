@@ -314,5 +314,7 @@
       "holdout_pass": true,
       "promotable": true
     }
-  }
+  },
+  "campaign_id": null,
+  "git_sha": null
 }

@@ -33,8 +33,60 @@
       "h1_12": "H_A: el retador mejora materialmente al campeón en TODAS las bandas h=1..12 en pares live"
     }
   },
-  "by_table": {},
-  "n_pairs_total": 0,
-  "n_pairs_live": 0,
-  "note": "sin pares campeón-sombra aún — el gate espera añadas live puntuadas"
+  "by_table": {
+    "DFF": {
+      "decision": "extend-shadow",
+      "reasons": [
+        "añadas live con pares: 1 < mínimo 3"
+      ],
+      "n_pairs_live": 62,
+      "n_live_vintages": 1,
+      "candidate": {
+        "champion": "sarima",
+        "challenger": "naive1",
+        "challenger_recipes": [
+          "naive1"
+        ],
+        "release_id": "2026-07-5e473ac91f60",
+        "vintages": [
+          "2026-07"
+        ],
+        "decided_at": "2026-09-01T03:29:40+00:00",
+        "evidence": {
+          "scorecard_champion": "9ba54f7215ed",
+          "scorecard_shadow": "f5f16bca4f7a",
+          "shadow_ledger": "8f0fbb1b9485"
+        },
+        "hash": "e2209ac03aac"
+      }
+    },
+    "FAD": {
+      "decision": "extend-shadow",
+      "reasons": [
+        "añadas live con pares: 1 < mínimo 3"
+      ],
+      "n_pairs_live": 96,
+      "n_live_vintages": 1,
+      "candidate": {
+        "champion": "median(theta+ets+sarima)",
+        "challenger": "naive1",
+        "challenger_recipes": [
+          "naive1"
+        ],
+        "release_id": "2026-07-5e473ac91f60",
+        "vintages": [
+          "2026-07"
+        ],
+        "decided_at": "2026-09-01T03:29:40+00:00",
+        "evidence": {
+          "scorecard_champion": "9ba54f7215ed",
+          "scorecard_shadow": "f5f16bca4f7a",
+          "shadow_ledger": "8f0fbb1b9485"
+        },
+        "hash": "a1d39217f525"
+      }
+    }
+  },
+  "n_pairs_total": 158,
+  "n_pairs_live": 158
 }

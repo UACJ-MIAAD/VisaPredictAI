@@ -49,8 +49,11 @@ Corre en ``ante`` desde la raíz:  ante/bin/python experiments/generate_web_fore
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
+from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -66,6 +69,27 @@ HORIZON = 12
 ACI_MIN_HITS = 8  # minimum scored ledger rows for a series before ACI kicks in (AN4)
 ACI_GAMMA_DEFAULT = 0.05
 log = config.get_logger("web_forecasts")
+
+# Bootstrap de la primera añada que separa catálogo de universo modelable. Después
+# del primer éxito, ``web_forecasts_meta.json`` conserva las claves completas y la
+# comparación es por inclusión de sets, no solo por conteo. Los pisos evitan que la
+# migración inicial selle como autoridad un parser ya contraído.
+BOOTSTRAP_MIN_CATALOG = {"FAD": 105, "DFF": 89}
+BOOTSTRAP_MIN_ELIGIBLE = {"FAD": 56, "DFF": 41}
+ELIGIBILITY_SCHEMA = 1
+SARIMA_STABILIZATION = "sarima_relaxed_stationarity_invertibility"
+
+
+@dataclass(frozen=True)
+class SeriesEligibility:
+    """Clasificación estructural previa e independiente del ajuste del modelo."""
+
+    key: str
+    table: str
+    n_obs: int
+    min_required: int
+    eligible: bool
+    reason: str | None
 
 
 def _load_pi_scales() -> dict | None:
@@ -114,7 +138,66 @@ def _band_halfwidths(h: int, half95_1step: float, table: str, scales: dict | Non
     return half95_1step * config.BAND80_RATIO * grow, half95_1step * grow, "sqrt_h"
 
 
-def _holdout_preds(model_set: tuple[str, ...], country: str, category: str, table: str, as_of: str | None = None):
+def _prepare_series(country: str, category: str, table: str, as_of: str | None = None):
+    """Carga y regulariza una serie; devuelve ``(ts, raw, razón estructural)``.
+
+    Es la fuente única del criterio de suficiencia que comparten el universo esperado
+    y el ajuste real. Los errores de lectura/parseo se propagan: solo ausencia legítima
+    de F, origen fuera de rango e historia corta son inelegibilidad estructural.
+    """
+
+    try:
+        raw = dataset.load_series(country, category, table).astype("float64")
+    except KeyError as exc:
+        # ``dataset.load_series`` reserva KeyError para la serie catalogada sin una
+        # sola observación F. No se engloban errores de parseo/DB: esos se propagan.
+        if "Serie vacía:" not in str(exc):
+            raise
+        raw = pd.Series(dtype="float64", index=pd.DatetimeIndex([], name="month"))
+    minimum = config.MIN_TRAIN[table] + config.HOLDOUT + config.MIN_BACKTEST_BUFFER
+    if raw.empty:
+        return None, raw, "no_f_observations"
+    ts = models.to_timeseries(raw)
+    if as_of is not None:
+        cut = pd.Timestamp(as_of) + pd.offsets.MonthBegin(1)
+        if not (ts.start_time() < cut <= ts.end_time() + ts.freq):
+            return None, raw, "as_of_out_of_range"
+        ts = ts.drop_after(cut)
+        raw = raw[raw.index < cut]
+    if len(ts) < minimum:
+        return ts, raw, "too_short"
+    return ts, raw, None
+
+
+def _series_eligibility(country: str, category: str, table: str, as_of: str | None = None) -> SeriesEligibility:
+    ts, _raw, reason = _prepare_series(country, category, table, as_of)
+    n_obs = len(ts) if ts is not None else 0
+    minimum = config.MIN_TRAIN[table] + config.HOLDOUT + config.MIN_BACKTEST_BUFFER
+    return SeriesEligibility(
+        key=f"{country}/{category}/{table}",
+        table=table,
+        n_obs=n_obs,
+        min_required=minimum,
+        eligible=reason is None,
+        reason=reason,
+    )
+
+
+def _build_model(name: str, table: str, *, relaxed_sarima: bool):
+    if name == "sarima" and relaxed_sarima:
+        return models.build_relaxed_sarima()
+    return models.build_model(name, table=table)
+
+
+def _holdout_preds(
+    model_set: tuple[str, ...],
+    country: str,
+    category: str,
+    table: str,
+    as_of: str | None = None,
+    *,
+    relaxed_sarima: bool = False,
+):
     """(serie darts, serie F cruda, dict modelo->pred 1-paso del hold-out).
 
     Walk-forward de 1 paso, leakage-free, **solo sobre los 24 meses de hold-out**
@@ -127,20 +210,13 @@ def _holdout_preds(model_set: tuple[str, ...], country: str, category: str, tabl
     returned alongside because its index is the B1 mask (calibration + scoring must
     ignore the months ``to_timeseries`` interpolates).
     """
-    raw = dataset.load_series(country, category, table).astype("float64")
-    ts = models.to_timeseries(raw)
-    if as_of is not None:
-        cut = pd.Timestamp(as_of) + pd.offsets.MonthBegin(1)
-        if not (ts.start_time() < cut <= ts.end_time() + ts.freq):  # serie sin datos en ese origen
-            raise ValueError(f"as_of={as_of} fuera del rango de la serie")
-        ts = ts.drop_after(cut)
-        raw = raw[raw.index < cut]
-    if len(ts) < config.MIN_TRAIN[table] + config.HOLDOUT + config.MIN_BACKTEST_BUFFER:
-        raise ValueError(f"serie demasiado corta ({len(ts)})")
+    ts, raw, structural_reason = _prepare_series(country, category, table, as_of)
+    if structural_reason is not None or ts is None:
+        raise ValueError(f"serie estructuralmente no elegible ({structural_reason})")
     split = ts.time_index[-config.HOLDOUT]
     preds: dict[str, TimeSeries] = {}
     for name in model_set:
-        m = models.build_model(name, table=table)  # tuned per-table params for GBMs (Wave-1)
+        m = _build_model(name, table, relaxed_sarima=relaxed_sarima)
         preds[name] = m.historical_forecasts(  # type: ignore[attr-defined]
             ts, start=split, forecast_horizon=1, stride=1, retrain=True, last_points_only=True, verbose=False
         )
@@ -162,13 +238,42 @@ def _series_forecast(
     aci_gamma: dict[str, float],
     hits: dict[tuple[str, str, str], list[int]],
 ) -> tuple[list[dict], dict] | None:
-    """Error boundary: cualquier fallo de una serie/modelo (serie corta, ``as_of`` fuera
-    de rango, error numérico de SARIMA, etc.) la OMITE sin abortar la añada completa."""
-    try:
-        return _compute_series_forecast(country, category, table, as_of, prod, pi_scales, aci_gamma, hits)
-    except Exception as e:  # noqa: BLE001 — robustez: una serie que falla no tumba la corrida
-        log.info("skip %s/%s/%s: %s", country, category, table, e)
-        return None
+    """Error boundary observable, con un único segundo intento numérico gobernado.
+
+    La elegibilidad estructural ya se resolvió antes de llegar aquí. Un ``LinAlgError``
+    de una receta que contiene SARIMA se reintenta relajando únicamente la
+    inicialización de estacionariedad/invertibilidad; cualquier otro fallo permanece
+    ausente y el gate de igualdad decide fail-closed o excepción nominal.
+    """
+    key = f"{country}/{category}/{table}"
+    relaxed_sarima = False
+    while True:
+        try:
+            result = _compute_series_forecast(
+                country,
+                category,
+                table,
+                as_of,
+                prod,
+                pi_scales,
+                aci_gamma,
+                hits,
+                relaxed_sarima=relaxed_sarima,
+            )
+            if relaxed_sarima:
+                rows, meta = result
+                meta[key]["numerical_stabilization"] = SARIMA_STABILIZATION
+                return rows, meta
+            return result
+        except np.linalg.LinAlgError as exc:
+            if relaxed_sarima or "sarima" not in prod[table]:
+                log.warning("skip %s: %s: %s", key, type(exc).__name__, exc)
+                return None
+            relaxed_sarima = True
+            log.warning("retry %s con %s tras %s: %s", key, SARIMA_STABILIZATION, type(exc).__name__, exc)
+        except Exception as exc:  # noqa: BLE001 — robustez: una serie que falla no tumba la corrida
+            log.warning("skip %s: %s: %s", key, type(exc).__name__, exc)
+            return None
 
 
 def _compute_series_forecast(
@@ -180,9 +285,18 @@ def _compute_series_forecast(
     pi_scales: dict | None,
     aci_gamma: dict[str, float],
     hits: dict[tuple[str, str, str], list[int]],
+    *,
+    relaxed_sarima: bool = False,
 ) -> tuple[list[dict], dict]:
     model_set = prod[table]
-    ts, raw, hold_preds = _holdout_preds(model_set, country, category, table, as_of)
+    ts, raw, hold_preds = _holdout_preds(
+        model_set,
+        country,
+        category,
+        table,
+        as_of,
+        relaxed_sarima=relaxed_sarima,
+    )
     origin = ts.end_time().strftime("%Y-%m")  # mes desde el que se pronostica (la "añada")
     fdates = raw.index  # B1 mask: real F observations only (AN1)
 
@@ -237,7 +351,7 @@ def _compute_series_forecast(
     # pronóstico FUTURO: ajustar cada modelo en TODA la serie y predecir 12 meses
     fut: list[np.ndarray] = []
     for name in model_set:
-        m = models.build_model(name, table=table)  # tuned per-table params for GBMs (Wave-1)
+        m = _build_model(name, table, relaxed_sarima=relaxed_sarima)
         m.fit(ts)  # theta/ets/sarima no requieren covariables
         fut.append(m.predict(HORIZON).to_series().to_numpy())
     point = _ensemble_point(fut)
@@ -316,13 +430,192 @@ def _project_rows(rows: list[dict]) -> tuple[list[dict], dict]:
     return frame.to_dict("records"), counters
 
 
-def _meta_payload(method: dict, all_meta: dict, cone_meta: dict) -> dict:
+def _keys_by_table(keys: set[str]) -> dict[str, set[str]]:
+    return {table: {key for key in keys if key.endswith(f"/{table}")} for table in config.TABLES}
+
+
+def _keys_digest(keys: set[str]) -> str:
+    payload = json.dumps(sorted(keys), ensure_ascii=False, separators=(",", ":")).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _forecast_universe(
+    as_of: str | None = None,
+) -> tuple[dict[str, tuple[str, str, str]], set[str], dict[str, SeriesEligibility]]:
+    """Devuelve catálogo, elegibles e inelegibles antes de ajustar ningún modelo."""
+
+    catalogue: dict[str, tuple[str, str, str]] = {}
+    eligible: set[str] = set()
+    structural: dict[str, SeriesEligibility] = {}
+    for table in config.TABLES:
+        for block in ("family", "employment"):
+            cat = dataset.list_series(table=table, block=block, countries=config.PILOT_COUNTRIES)
+            for row in cat.itertuples():
+                key = f"{row.country}/{row.category}/{table}"
+                if key in catalogue:
+                    raise SystemExit(f"ABORT (catálogo duplicado): {key}")
+                catalogue[key] = (row.country, row.category, table)
+                item = _series_eligibility(row.country, row.category, table, as_of)
+                if item.eligible:
+                    eligible.add(key)
+                else:
+                    structural[key] = item
+    return catalogue, eligible, structural
+
+
+def _eligibility_payload(
+    catalogue: set[str],
+    eligible: set[str],
+    structural: dict[str, SeriesEligibility],
+) -> dict:
+    """Snapshot derivado que vuelve ruidosa toda contracción en la próxima añada."""
+
+    cat_by = _keys_by_table(catalogue)
+    eligible_by = _keys_by_table(eligible)
+    return {
+        "schema_version": ELIGIBILITY_SCHEMA,
+        "criterion": {
+            table: config.MIN_TRAIN[table] + config.HOLDOUT + config.MIN_BACKTEST_BUFFER for table in config.TABLES
+        },
+        "catalogue": {
+            table: {"count": len(cat_by[table]), "keys": sorted(cat_by[table]), "sha256": _keys_digest(cat_by[table])}
+            for table in config.TABLES
+        },
+        "eligible": {
+            table: {
+                "count": len(eligible_by[table]),
+                "keys": sorted(eligible_by[table]),
+                "sha256": _keys_digest(eligible_by[table]),
+            }
+            for table in config.TABLES
+        },
+        # No se mantiene una allowlist de las series estructurales: se vuelven a
+        # derivar del panel y solo se conserva el censo por causa para auditoría.
+        "structural_ineligible": {
+            table: {
+                "count": sum(item.table == table for item in structural.values()),
+                "reasons": dict(
+                    sorted(Counter(item.reason for item in structural.values() if item.table == table).items())
+                ),
+            }
+            for table in config.TABLES
+        },
+    }
+
+
+def _validated_key_group(raw: object, *, label: str) -> set[str]:
+    if not isinstance(raw, dict) or set(raw) != {"count", "keys", "sha256"}:
+        raise ValueError(f"eligibility anterior: {label} con schema abierto/incompleto")
+    keys = raw["keys"]
+    if not isinstance(keys, list) or not all(isinstance(key, str) for key in keys) or len(keys) != len(set(keys)):
+        raise ValueError(f"eligibility anterior: {label}.keys inválidas/duplicadas")
+    key_set = set(keys)
+    if type(raw["count"]) is not int or raw["count"] != len(key_set):
+        raise ValueError(f"eligibility anterior: {label}.count no coincide")
+    if raw["sha256"] != _keys_digest(key_set):
+        raise ValueError(f"eligibility anterior: {label}.sha256 no re-deriva")
+    return key_set
+
+
+def _previous_universe(meta_path: Path) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """Carga el baseline anterior; el meta legado usa sus series publicadas como piso."""
+
+    empty: dict[str, set[str]] = {table: set() for table in config.TABLES}
+    if not meta_path.exists():
+        return empty, {table: set() for table in config.TABLES}
+    raw = json.loads(meta_path.read_text())
+    eligibility = raw.get("eligibility")
+    if eligibility is None:
+        series = raw.get("series")
+        if not isinstance(series, dict) or not all(isinstance(key, str) for key in series):
+            raise ValueError("meta anterior sin eligibility ni series válidas para migrar")
+        previous = _keys_by_table(set(series))
+        return {table: set() for table in config.TABLES}, previous
+    if not isinstance(eligibility, dict) or set(eligibility) != {
+        "schema_version",
+        "criterion",
+        "catalogue",
+        "eligible",
+        "structural_ineligible",
+    }:
+        raise ValueError("eligibility anterior con schema abierto/incompleto")
+    if type(eligibility["schema_version"]) is not int or eligibility["schema_version"] != ELIGIBILITY_SCHEMA:
+        raise ValueError("eligibility anterior con schema_version inválido")
+    criterion = eligibility["criterion"]
+    catalogue_raw = eligibility["catalogue"]
+    eligible_raw = eligibility["eligible"]
+    structural_raw = eligibility["structural_ineligible"]
+    if not all(isinstance(part, dict) for part in (criterion, catalogue_raw, eligible_raw, structural_raw)):
+        raise ValueError("eligibility anterior con secciones no-objeto")
+    expected_tables = set(config.TABLES)
+    if any(set(part) != expected_tables for part in (criterion, catalogue_raw, eligible_raw, structural_raw)):
+        raise ValueError("eligibility anterior sin las tablas canónicas exactas")
+    for table in config.TABLES:
+        expected_minimum = config.MIN_TRAIN[table] + config.HOLDOUT + config.MIN_BACKTEST_BUFFER
+        if type(criterion[table]) is not int or criterion[table] != expected_minimum:
+            raise ValueError(f"eligibility anterior: criterion.{table} no coincide con la política actual")
+    previous_catalogue = {
+        table: _validated_key_group(catalogue_raw[table], label=f"catalogue.{table}") for table in config.TABLES
+    }
+    previous_eligible = {
+        table: _validated_key_group(eligible_raw[table], label=f"eligible.{table}") for table in config.TABLES
+    }
+    for table in config.TABLES:
+        if not previous_eligible[table] <= previous_catalogue[table]:
+            raise ValueError(f"eligibility anterior: eligible.{table} no es subconjunto del catálogo")
+        if any(not key.endswith(f"/{table}") for key in previous_catalogue[table]):
+            raise ValueError(f"eligibility anterior: catalogue.{table} contiene claves de otra tabla")
+        group = structural_raw[table]
+        if not isinstance(group, dict) or set(group) != {"count", "reasons"}:
+            raise ValueError(f"eligibility anterior: structural_ineligible.{table} con schema inválido")
+        count, reasons = group["count"], group["reasons"]
+        if (
+            type(count) is not int
+            or count < 0
+            or not isinstance(reasons, dict)
+            or not all(
+                isinstance(reason, str) and reason and type(n) is int and n >= 0 for reason, n in reasons.items()
+            )
+            or sum(reasons.values()) != count
+        ):
+            raise ValueError(f"eligibility anterior: structural_ineligible.{table} no re-deriva")
+        if len(previous_catalogue[table]) != len(previous_eligible[table]) + count:
+            raise ValueError(f"eligibility anterior: censo {table} no particiona el catálogo")
+    return previous_catalogue, previous_eligible
+
+
+def _universe_problems(
+    catalogue: set[str],
+    eligible: set[str],
+    previous_catalogue: dict[str, set[str]],
+    previous_eligible: dict[str, set[str]],
+) -> list[str]:
+    cat_by = _keys_by_table(catalogue)
+    eligible_by = _keys_by_table(eligible)
+    problems: list[str] = []
+    for table in config.TABLES:
+        cat_floor = BOOTSTRAP_MIN_CATALOG.get(table, 0)
+        eligible_floor = BOOTSTRAP_MIN_ELIGIBLE.get(table, 0)
+        if len(cat_by[table]) < cat_floor:
+            problems.append(f"{table}: catálogo {len(cat_by[table])} < piso gobernado {cat_floor}")
+        if len(eligible_by[table]) < eligible_floor:
+            problems.append(f"{table}: elegibles {len(eligible_by[table])} < piso gobernado {eligible_floor}")
+        removed_catalogue = sorted(previous_catalogue.get(table, set()) - cat_by[table])
+        removed_eligible = sorted(previous_eligible.get(table, set()) - eligible_by[table])
+        if removed_catalogue:
+            problems.append(f"{table}: contracción del catálogo: {removed_catalogue[:8]}")
+        if removed_eligible:
+            problems.append(f"{table}: contracción del universo elegible: {removed_eligible[:8]}")
+    return problems
+
+
+def _meta_payload(method: dict, all_meta: dict, cone_meta: dict, eligibility: dict | None = None) -> dict:
     """Payload del meta JSON del publicador (testeable sin correr la añada completa).
 
     Expone los contadores del cono (``cone_violations_pre``/``post`` + desglose) como
     métrica de primera clase: el correo SES y los gates los vigilan por añada.
     """
-    return {
+    payload = {
         "method": method,
         "horizon_months": HORIZON,
         "base_date": config.BASE_EPOCH,
@@ -335,6 +628,9 @@ def _meta_payload(method: dict, all_meta: dict, cone_meta: dict) -> dict:
         "cone_violations_detail": cone_meta["cone_violations_detail"],
         "series": all_meta,
     }
+    if eligibility is not None:
+        payload["eligibility"] = eligibility
+    return payload
 
 
 WEB_COLS = ["country", "category", "table", "date", "days", "lo80", "hi80", "lo95", "hi95"]
@@ -377,28 +673,49 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
     pi_scales = _load_pi_scales()
     aci_gamma = _load_aci_gamma()
     hits = _ledger_hits()
+    csv_path = REPORTS / "prospective" / "web_forecasts.csv"
+    meta_path = REPORTS / "prospective" / "web_forecasts_meta.json"
+    catalogue, expected_keys, structural = _forecast_universe(as_of)
+    eligibility_snapshot = _eligibility_payload(set(catalogue), expected_keys, structural)
+    if as_of is None:
+        previous_catalogue, previous_eligible = _previous_universe(meta_path)
+        universe_problems = _universe_problems(
+            set(catalogue),
+            expected_keys,
+            previous_catalogue,
+            previous_eligible,
+        )
+        if universe_problems:
+            raise SystemExit("ABORT (contracción del universo de forecasts): " + " | ".join(universe_problems))
+    for table in config.TABLES:
+        table_catalogue = sum(key.endswith(f"/{table}") for key in catalogue)
+        table_eligible = sum(key.endswith(f"/{table}") for key in expected_keys)
+        table_structural = Counter(item.reason for item in structural.values() if item.table == table)
+        log.info(
+            "universo %s: catálogo=%d elegibles=%d estructurales=%d (%s)",
+            table,
+            table_catalogue,
+            table_eligible,
+            table_catalogue - table_eligible,
+            dict(sorted(table_structural.items())),
+        )
     all_rows: list[dict] = []
     all_meta: dict = {}
-    expected_keys: set[str] = set()  # A-05: el universo esperado ES el catalogo vigente
-    for table in config.TABLES:
-        for block in ("family", "employment"):
-            cat = dataset.list_series(table=table, block=block, countries=config.PILOT_COUNTRIES)
-            for r in cat.itertuples():
-                expected_keys.add(f"{r.country}/{r.category}/{table}")
-                out = _series_forecast(r.country, r.category, table, as_of, prod, pi_scales, aci_gamma, hits)
-                if out is None:
-                    continue
-                rows, meta = out
-                all_rows += rows
-                all_meta.update(meta)
-                log.info("✓ %s/%s/%s (%d series acumuladas)", table, r.country, r.category, len(all_meta))
+    for key, (country, category, table) in catalogue.items():
+        if key not in expected_keys:
+            continue
+        out = _series_forecast(country, category, table, as_of, prod, pi_scales, aci_gamma, hits)
+        if out is None:
+            continue
+        rows, meta = out
+        all_rows += rows
+        all_meta.update(meta)
+        log.info("✓ %s (%d series acumuladas)", key, len(all_meta))
 
     # C2 + A-05 (auditoria ciega 11-jul): gate de salida por TABLA y SET DE CLAVES contra
     # el catalogo VIGENTE (antes: n_series del meta del run ANTERIOR con 10% de tolerancia
     # global — una tabla completa ausente pasaba si la otra producia filas). Un env roto a
     # medias NO publica ni archiva: el ledger es inmutable (C3).
-    csv_path = REPORTS / "prospective" / "web_forecasts.csv"
-    meta_path = REPORTS / "prospective" / "web_forecasts_meta.json"
     got_keys = set(all_meta)
     allowed = ledger.load_completeness_allowlist()
     problems: list[str] = []
@@ -464,7 +781,7 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
 
         meta_path.write_text(
             json.dumps(
-                _no_nan(_meta_payload(method, all_meta, cone_meta)),
+                _no_nan(_meta_payload(method, all_meta, cone_meta, eligibility_snapshot)),
                 ensure_ascii=False,
                 indent=2,
                 allow_nan=False,

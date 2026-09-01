@@ -206,7 +206,9 @@ def test_load_deep_median_aggregates_seeds(tmp_path):
 def test_build_model_receives_table_at_migrated_call_sites():
     """Los GBMs deben recibir la tabla para usar sus params tuneados por tabla."""
     expectations = {
-        ROOT / "experiments" / "generate_web_forecasts.py": ("build_model(name, table=table)", 2),
+        # A7.3-R2 centraliza los dos call sites en _build_model para que el retry
+        # numérico cambie solo SARIMA; la delegación canónica conserva table=table.
+        ROOT / "experiments" / "generate_web_forecasts.py": ("build_model(name, table=table)", 1),
         ROOT / "experiments" / "save_finalists.py": ("build_model(name, table=table)", 1),
         ROOT / "experiments" / "export_forecasts.py": ("build_model(name, table=table)", 1),
         ROOT / "vp_model" / "report.py": ("build_model(model_name, table=table)", 1),
@@ -214,6 +216,8 @@ def test_build_model_receives_table_at_migrated_call_sites():
     for path, (needle, count) in expectations.items():
         src = path.read_text()
         assert src.count(needle) == count, f"{path.name}: esperaba {count}x '{needle}'"
+    web_src = (ROOT / "experiments" / "generate_web_forecasts.py").read_text()
+    assert web_src.count("_build_model(name, table") == 2
 
 
 def test_mase_loops_migrated_to_canonical_scorer():

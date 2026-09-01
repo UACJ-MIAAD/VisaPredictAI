@@ -72,7 +72,7 @@
     <rect x="330" y="290" width="215" height="175" rx="13" fill="#FFFDF0" stroke="#E6BD00" stroke-width="2.5"/>
     <path d="M342 290 h191 a13 13 0 0 1 13 13 v17 h-217 v-17 a13 13 0 0 1 13 -13 Z" fill="#E6BD00"/>
     <text x="437" y="315" text-anchor="middle" font-size="16" font-weight="700" fill="#231F20">fact_priority</text>
-    <text x="346" y="350" font-size="13" fill="#333"><tspan font-style="italic" fill="#1955BF">area·category·table·date</tspan><tspan> PK/FK</tspan><tspan x="346" dy="19" font-style="italic" fill="#1955BF">status</tspan><tspan> FK</tspan><tspan x="346" dy="19">priority_date  (iff F)</tspan><tspan x="346" dy="19" font-weight="700" fill="#003CA6">days_since_base = y  (iff F)</tspan><tspan x="346" dy="19" font-style="italic" fill="#777">raw_value · 27,611 filas</tspan></text>
+    <text x="346" y="350" font-size="13" fill="#333"><tspan font-style="italic" fill="#1955BF">area·category·table·date</tspan><tspan> PK/FK</tspan><tspan x="346" dy="19" font-style="italic" fill="#1955BF">status</tspan><tspan> FK</tspan><tspan x="346" dy="19">priority_date  (iff F)</tspan><tspan x="346" dy="19" font-weight="700" fill="#003CA6">days_since_base = y  (iff F)</tspan><tspan x="346" dy="19" font-style="italic" fill="#777">raw_value · 27,911 filas</tspan></text>
   </g>
 
   <!-- dim_date (CONFORMED) -->
@@ -95,7 +95,7 @@
     <rect x="910" y="290" width="215" height="165" rx="13" fill="#FFFDF0" stroke="#E6BD00" stroke-width="2.5"/>
     <path d="M922 290 h191 a13 13 0 0 1 13 13 v17 h-217 v-17 a13 13 0 0 1 13 -13 Z" fill="#E6BD00"/>
     <text x="1017" y="315" text-anchor="middle" font-size="16" font-weight="700" fill="#231F20">fact_dv_rank</text>
-    <text x="926" y="350" font-size="13" fill="#333"><tspan font-style="italic" fill="#1955BF">region·date</tspan><tspan> PK/FK</tspan><tspan x="926" dy="19" font-style="italic" fill="#1955BF">status</tspan><tspan> FK</tspan><tspan x="926" dy="19" font-weight="700" fill="#003CA6">rank_cutoff  (iff F)</tspan><tspan x="926" dy="19">exceptions (por país)</tspan><tspan x="926" dy="19" font-style="italic" fill="#777">Diversity Visa · 1,647 filas</tspan></text>
+    <text x="926" y="350" font-size="13" fill="#333"><tspan font-style="italic" fill="#1955BF">region·date</tspan><tspan> PK/FK</tspan><tspan x="926" dy="19" font-style="italic" fill="#1955BF">status</tspan><tspan> FK</tspan><tspan x="926" dy="19" font-weight="700" fill="#003CA6">rank_cutoff  (iff F)</tspan><tspan x="926" dy="19">exceptions (por país)</tspan><tspan x="926" dy="19" font-style="italic" fill="#777">Diversity Visa · 1,659 filas</tspan></text>
   </g>
 
   <!-- dim_region -->
@@ -126,7 +126,7 @@
     <rect x="330" y="820" width="215" height="92" rx="13" fill="#fff" stroke="#2E7D32" stroke-width="2"/>
     <path d="M342 820 h191 a13 13 0 0 1 13 13 v17 h-217 v-17 a13 13 0 0 1 13 -13 Z" fill="#2E7D32"/>
     <text x="437" y="845" text-anchor="middle" font-size="15.5" font-weight="700" fill="#fff">mart_training_F</text>
-    <text x="346" y="880" font-size="13" fill="#333"><tspan font-style="italic">solo status=F + y + features</tspan><tspan x="346" dy="19" font-weight="700" fill="#2E7D32">15,931 filas · listo para modelar</tspan></text>
+    <text x="346" y="880" font-size="13" fill="#333"><tspan font-style="italic">solo status=F + y + features</tspan><tspan x="346" dy="19" font-weight="700" fill="#2E7D32">16,117 filas · listo para modelar</tspan></text>
   </g>
   <g filter="url(#ersh)">
     <rect x="620" y="820" width="215" height="92" rx="13" fill="#fff" stroke="#2E7D32" stroke-width="2"/>
