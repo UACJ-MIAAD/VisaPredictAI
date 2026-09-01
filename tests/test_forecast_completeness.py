@@ -15,8 +15,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from experiments import generate_web_forecasts as gwf
-from vp_model import config
+pytest.importorskip("darts")
+
+from experiments import generate_web_forecasts as gwf  # noqa: E402
+from vp_model import config  # noqa: E402
 
 ROW = {
     "origin": "2026-09",
