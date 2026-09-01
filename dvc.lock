@@ -5,9 +5,9 @@ stages:
     deps:
     - path: data/snapshots
       hash: md5
-      md5: 5a3caf6ab1f8627fa5f8a1062deae256.dir
-      size: 33093464
-      nfiles: 298
+      md5: 1ac0138746e1e94732c77c5e3883f8c9.dir
+      size: 33359593
+      nfiles: 300
     - path: pipeline/scrape_all.py
       hash: md5
       md5: 8bee68e47682199d2534ea247f1af1aa
@@ -31,16 +31,16 @@ stages:
     outs:
     - path: data/raw
       hash: md5
-      md5: 559fa17329b318c28b0e2a3cc4f65718.dir
-      size: 2089449
+      md5: e77a1a8f2a72bbb3b260f93da2a2810e.dir
+      size: 2114443
       nfiles: 11
   panel:
     cmd: python -m pipeline.build_panel
     deps:
     - path: data/raw
       hash: md5
-      md5: 559fa17329b318c28b0e2a3cc4f65718.dir
-      size: 2089449
+      md5: e77a1a8f2a72bbb3b260f93da2a2810e.dir
+      size: 2114443
       nfiles: 11
     - path: pipeline/build_panel.py
       hash: md5
@@ -53,19 +53,19 @@ stages:
     outs:
     - path: data/processed/visa_panel_long.csv
       hash: md5
-      md5: 00115d2dd0b68f0b8e58ee41762fe09b
-      size: 1589531
+      md5: 07d43c029953e4899724f9fc22927900
+      size: 1607489
     - path: reports/governance/cleaning_ledger.json
       hash: md5
-      md5: 53c4c8f9a43812452654c51ad55df843
+      md5: d37096f5ee9b544888bb32fa5f89d581
       size: 387
   bulletins:
     cmd: python -m pipeline.build_bulletins_json
     deps:
     - path: data/processed/visa_panel_long.csv
       hash: md5
-      md5: 00115d2dd0b68f0b8e58ee41762fe09b
-      size: 1589531
+      md5: 07d43c029953e4899724f9fc22927900
+      size: 1607489
     - path: pipeline/build_bulletins_json.py
       hash: md5
       md5: 66c46684c209a71f3497af6f87680e08
@@ -73,8 +73,8 @@ stages:
     outs:
     - path: data/processed/bulletins.json
       hash: md5
-      md5: 8e55bf29f3fcb28fe2c07e4efad57c4b
-      size: 607669
+      md5: 01b291e787bf1c809e9b2648916f03e4
+      size: 607434
   database:
     cmd: python -m pipeline.build_database
     deps:

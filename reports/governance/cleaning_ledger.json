@@ -1,13 +1,13 @@
 {
  "_source": "pipeline/build_panel.py via vp_data.cleaning — NO editar a mano",
  "_policy": "docs/CLEANING.md",
- "vintage": "2026-07",
- "n_rows": 27611,
+ "vintage": "2026-09",
+ "n_rows": 27911,
  "n_series": 194,
  "rows_by_status": {
-  "F": 15931,
-  "C": 11058,
-  "U": 621,
+  "F": 16117,
+  "C": 11168,
+  "U": 625,
   "UNK": 1
  },
  "dup_collapsed": 0,

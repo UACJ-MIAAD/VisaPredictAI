@@ -1,4 +1,16 @@
 region,rank_cutoff,status,raw_value,exceptions,visa_bulletin_date
+africa,101250.0,F,"101,250","Except: Algeria 85,000 Egypt 50,000",2026-09-01
+asia,40000.0,F,"40,000","Except: Nepal 13,500",2026-09-01
+europe,47500.0,F,"47,500",,2026-09-01
+north_america,,C,Current,,2026-09-01
+oceania,3000.0,F,"3,000",,2026-09-01
+south_america_caribbean,4750.0,F,"4,750",,2026-09-01
+africa,60000.0,F,"60,000","Except: Algeria 51,250 Egypt 36,000",2026-08-01
+asia,40000.0,F,"40,000","Except: Nepal 13,500",2026-08-01
+europe,29000.0,F,"29,000",,2026-08-01
+north_america,,C,Current,,2026-08-01
+oceania,2050.0,F,"2,050",,2026-08-01
+south_america_caribbean,4000.0,F,"4,000",,2026-08-01
 africa,55000,F,"55,000","Except: Algeria 40,000 Egypt 31,000",2026-07-01
 asia,35000,F,"35,000","Except: Nepal 13,000",2026-07-01
 europe,23000,F,"23,000",,2026-07-01
