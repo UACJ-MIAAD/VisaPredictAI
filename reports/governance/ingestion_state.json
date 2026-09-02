@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "status": "blocked",
+  "panel_vintage": "2026-09",
+  "expected_month": "2026-09",
+  "missing_months": [],
+  "status_since": "2026-09-02",
+  "last_success_date": null,
+  "n_index_links": null,
+  "failed_links": [],
+  "reason": "HTTP 403 tras el WAF [https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin.html]"
+}
