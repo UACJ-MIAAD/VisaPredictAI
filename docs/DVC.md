@@ -31,9 +31,10 @@ La fase de modelado ya llegó, así que DVC **ya está en uso**. Pointers `*.dvc
 
 - **`models.dvc`** — checkpoints/finalistas de modelos (no reproducibles barato).
 - **`mlflow.db.dvc`** — historia de experimentos MLflow (no reproducible en git).
-- **`visapredict.duckdb` + `visa_panel_long.parquet`** — binarios derivados; ya **no** son
-  pointers `*.dvc` sueltos: son **salidas con cache del stage `database` del DAG** (ver abajo),
-  igual versionados en la cache DVC → S3, reconstruibles con `make repro`/`make db`.
+- **`visa_panel_long.parquet`** — binario derivado; ya **no** es un pointer `*.dvc` suelto:
+  es la **única salida con cache del stage `database` del DAG** (ver abajo), versionada en la
+  cache DVC → S3 y reconstruible con `make repro`/`make db`. **`visapredict.duckdb` no se
+  versiona** (no es byte-determinista; efecto secundario gitignored de ese mismo stage).
 
 El remoto es S3 (`make sync` → `dvc push` + commit de los pointers/lock). Un clon que quiera los
 binarios sin re-construir hace `dvc pull` **con credenciales S3 del proyecto**; sin ellas,
@@ -88,8 +89,8 @@ dvc pull        # baja en otro clon
 # en la GitHub Action, las credenciales del remoto van como secrets.
 ```
 
-`dvc` es una dependencia de desarrollo (no se necesita en runtime ni en el CI de
-código hasta que existan artefactos versionados).
+El DVC **gobernado** del proyecto es `ante/bin/dvc` (3.67.1, el mismo pin que instala el paso E2
+de CI); `make` lo usa vía `DVC ?= ante/bin/dvc` y el hook `dvc-lock-fresh` lo exige (abajo).
 
 ## Frontera DAG-determinista vs runner-transaccional (C1/C2, plan auditoría 2026-07-11)
 
@@ -118,3 +119,35 @@ Los stages `eda_facts`/`fe_facts` requieren `pip install -e .[model]`.
 corrida. La única tolerancia conocida es la deriva numérica menor de la optimización de
 SARIMA entre máquinas (documentada en `docs/FORECAST_EVAL.md`, limitación 6) — por eso
 forecasts no son stage DVC y los facts sí (byte-exactos).
+
+## Hook pre-push `dvc-lock-fresh` (D1, plan MLOps v2 · 2-sep-2026)
+
+El paso **E2** de CI (`dvc status --json panel bulletins key_facts eda_facts fe_facts` debe dar
+`{}`) detonó cuatro veces en julio porque `dvc.lock` se pusheaba desfasado. El hook
+`dvc-lock-fresh` (`.pre-commit-config.yaml`, stage **pre-push** únicamente) corre exactamente
+esa comprobación **antes** de publicar, con `tools/check_dvc_lock_fresh.py`:
+
+- **Mismos cinco stages git-only** que E2, en el mismo orden (un test lo verifica contra el YAML
+  del workflow). `scrape` y `database` quedan fuera a propósito: dependen de `data/snapshots`
+  (privado) y de la caché DVC (S3), que no existen en un clon limpio.
+- **Fail-closed:** usa el DVC gobernado (`ante/bin/dvc`, o la ruta en `$VP_DVC`); si falta, si
+  `dvc status` termina con error, si la salida no es JSON, no es un objeto o no es `{}`, el push
+  se **bloquea** y se listan los stages desfasados. No toca la red ni modifica nada.
+- **Instalación** (una vez por clon): `pre-commit install --hook-type pre-push`. A mano:
+  `python tools/check_dvc_lock_fresh.py` (sale 0 al día, 1 desfasado).
+- **Remedio** cuando falla: `make repro` y commitear `dvc.lock` junto con las salidas git-only
+  que hayan cambiado (`data/processed/*.csv|json`, `reports/governance/*.json`,
+  `reports/latex/*_facts.tex`, `reports/eda|fe/*_facts.json`). Nunca editar `dvc.lock` a mano.
+
+## Contrato real del parquet y del DuckDB (verificado 2-sep-2026)
+
+| Artefacto | Estado en DVC | Cómo se reconstruye |
+|---|---|---|
+| `data/processed/visa_panel_long.parquet` | salida **con cache** del stage `database`; su md5 vive en `dvc.lock` y el objeto en la cache local → S3 (`dvc-store`) | `make db` lo regenera byte-idéntico desde el CSV del panel; si `dvc status` dice `not in cache`, cachearlo con `ante/bin/dvc commit database --no-relink` (deja `dvc.lock` intacto) |
+| `data/processed/visapredict.duckdb` | **no versionado** (no es byte-determinista) | `make db` (efecto secundario del mismo stage) |
+| `data/snapshots/` | dep del stage `scrape` (privado, gitignored; máster en S3 `raw-html/`) | cada worktree debe tener **su propia copia** (jamás un symlink al de otro worktree: el hash de directorio de cada `dvc.lock` es distinto y un enlace compartido deja sucio el `dvc status` de uno u otro) |
+
+> Lección del 2-sep-2026: un worktree de integración que compartía `data/snapshots` por symlink
+> con el worktree pausado quedó con `scrape` "modificado" y el parquet `not in cache` durante
+> semanas. Se resolvió materializando los snapshots propios y regenerando/cacheando el parquet;
+> no hizo falta (ni existía) el objeto en el remoto para ese hash.
