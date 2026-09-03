@@ -93,6 +93,17 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-push]
+      # D1 (plan MLOps v2, 2-sep-2026): dvc.lock FRESCO antes de pushear — el mismo contrato que
+      # el paso E2 de CI (cinco stages git-only; scrape/database fuera: snapshots privados / caché
+      # S3). Usa el DVC gobernado (ante/bin/dvc o $VP_DVC); si falta, falla o el estado no es {},
+      # el push se bloquea. Remedio: make repro + commitear dvc.lock y las salidas git-only.
+      - id: dvc-lock-fresh
+        name: dvc.lock al día (panel bulletins key_facts eda_facts fe_facts) — igual que CI/E2
+        entry: python tools/check_dvc_lock_fresh.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
       # Regla dura (26-ago-2026): autoría única en TODO el rango saliente — autor y committer del
       # autor, cero Co-Authored-By, cero trailers/firmas/menciones de IA. El push publica los
       # commits tal cual; si falla, se corrige antes de subir. Mismo PATTERN que commit-msg y CI.
