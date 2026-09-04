@@ -102,6 +102,18 @@
       "reason": "El optimizador de maxima verosimilitud de statsmodels no converge en algunas ventanas cortas del walk-forward y lo avisa; el ajuste devuelve parametros utilizables y la prueba de fuga temporal solo compara pronosticos. Aparecio al activar `error` global; NO es codigo propio y corregirlo exigiria tocar vp_model/, fuera del alcance de D2-C (regla 10 de la autorizacion: excepcion upstream, reproducible y estrecha).",
       "issue": "upstream statsmodels: MLE no converge en ventanas cortas",
       "review": "2027-01-31"
+    },
+    {
+      "id": "statsmodels-holtwinters-convergence",
+      "package": "statsmodels",
+      "version": "0.14.6",
+      "pin_source": "pyproject.toml",
+      "category": "statsmodels.tools.sm_exceptions.ConvergenceWarning",
+      "message_prefix": "Optimization failed to converge. Check mle_retvals.",
+      "origin": "emision upstream en statsmodels.tsa.holtwinters.model, alcanzada por FourTheta/Theta desde vp_model.models.build_model(\"theta\")",
+      "reason": "La convergencia numerica de Holt-Winters puede variar entre runners: el mismo arbol de codigo converge en un job y no en otro. El ajuste devuelve resultado utilizable y el test valida FUGA TEMPORAL, no certifica la convergencia del optimizador. Sin esta excepcion, `error` global vuelve NO DETERMINISTA a model-tests (CI rojo 33844476552 con la PR verde).",
+      "issue": "upstream statsmodels: convergencia de Holt-Winters dependiente del entorno numerico",
+      "review": "2027-01-31"
     }
   ]
 }

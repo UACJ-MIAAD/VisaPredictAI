@@ -69,25 +69,31 @@ def _set_filters(root: Path, filters: list[str]) -> None:
 
 # ----------------------------------------------------------------- estado vigente
 def test_real_repository_satisfies_the_contract() -> None:
-    """7 excepciones: las 4 acreditadas en R9, las 2 de arranque de statsmodels y la de
-    convergencia del MLE, que afloró justo al activar `error` global (regla 10: upstream,
-    reproducible y estrecha; corregirla exigiría tocar vp_model/, fuera del alcance)."""
+    """8 excepciones: las 4 acreditadas en R9 y 4 de statsmodels (arranque AR y MA,
+    convergencia del MLE y convergencia de Holt-Winters). La última entró tras el CI rojo
+    `33844476552`: el mismo árbol pasaba en la PR y fallaba en el push porque la convergencia
+    numérica depende del runner."""
     entries = cw.verify(ROOT, TODAY)
-    assert len(entries) == 7
+    assert len(entries) == 8
     assert {e["package"] for e in entries} == {"scikit-learn", "optuna", "scipy", "statsmodels"}
-    assert sum(e["package"] == "statsmodels" for e in entries) == 3
+    assert sum(e["package"] == "statsmodels" for e in entries) == 4
 
 
 def test_error_is_the_global_default_and_no_broad_suppression_exists() -> None:
     filters = cw.conftest_filters(ROOT / "tests" / "conftest.py")
     assert filters[0] == "error"
     assert all(f.startswith("ignore:") and not f.startswith("ignore::") for f in filters[1:])
-    assert len(filters) == 8  # error + 7 excepciones
+    assert len(filters) == 9  # error + 8 excepciones
 
 
-def test_the_two_statsmodels_exceptions_are_registered() -> None:
+def test_the_statsmodels_exceptions_are_registered() -> None:
     ids = {e["id"] for e in cw.verify(ROOT, TODAY)}
-    assert {"statsmodels-nonstationary-ar-start", "statsmodels-noninvertible-ma-start"} <= ids
+    assert {
+        "statsmodels-nonstationary-ar-start",
+        "statsmodels-noninvertible-ma-start",
+        "statsmodels-mle-convergence",
+        "statsmodels-holtwinters-convergence",
+    } <= ids
 
 
 def test_registry_documents_the_deferred_producer_debt() -> None:
@@ -379,3 +385,62 @@ def test_pin_source_traversal_is_rejected(tmp_path: Path, source: str) -> None:
     _write(root, data)
     with pytest.raises(cw.ContractError, match="ruta absoluta|traversal|fuera de pyproject"):
         cw.verify(root, TODAY)
+
+
+# ------------------- M13-R1: la convergencia de Holt-Winters no puede tumbar el CI
+HOLTWINTERS_MSG = "Optimization failed to converge. Check mle_retvals."
+MLE_MSG = "Maximum Likelihood optimization failed to converge. Check mle_retvals"
+
+
+def _silences(message_prefix: str, category, emitted: str) -> bool:
+    """¿El filtro derivado de `message_prefix` silencia el mensaje `emitted`?"""
+    import warnings as _warnings
+
+    _, msg, _ = cw.filter_expression({"message_prefix": message_prefix, "category": "x"}).split(":", 2)
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.resetwarnings()
+        _warnings.filterwarnings("ignore", message=msg, category=category)
+        _warnings.simplefilter("always", append=True)
+        _warnings.warn(emitted, category, stacklevel=2)
+    return not caught
+
+
+def test_holtwinters_message_is_covered_by_its_own_exception() -> None:
+    """El mensaje EXACTO que tumbó el CI 33844476552 queda cubierto."""
+    from statsmodels.tools.sm_exceptions import ConvergenceWarning
+
+    entry = next(e for e in cw.verify(ROOT, TODAY) if e["id"] == "statsmodels-holtwinters-convergence")
+    assert entry["message_prefix"] == HOLTWINTERS_MSG
+    assert entry["category"] == "statsmodels.tools.sm_exceptions.ConvergenceWarning"
+    assert _silences(entry["message_prefix"], ConvergenceWarning, HOLTWINTERS_MSG)
+
+
+@pytest.mark.parametrize(
+    "emitted",
+    [
+        MLE_MSG,  # el otro ConvergenceWarning: tiene SU PROPIA entrada, no la de Holt-Winters
+        "Optimization failed to converge. Something else entirely",
+        "Optimization failed",
+        "Convergence failed. Check mle_retvals.",
+    ],
+)
+def test_neighbouring_messages_are_not_silenced_by_the_holtwinters_filter(emitted: str) -> None:
+    """La excepción es estrecha: sólo calla su mensaje, no la vecindad."""
+    from statsmodels.tools.sm_exceptions import ConvergenceWarning
+
+    assert not _silences(HOLTWINTERS_MSG, ConvergenceWarning, emitted)
+
+
+def test_each_convergence_message_has_its_own_narrow_entry() -> None:
+    """Los dos mensajes de convergencia son distintos y cada uno tiene su entrada."""
+    entries = {e["id"]: e for e in cw.verify(ROOT, TODAY)}
+    holt = entries["statsmodels-holtwinters-convergence"]["message_prefix"]
+    mle = entries["statsmodels-mle-convergence"]["message_prefix"]
+    assert holt != mle and not mle.startswith(holt) and not holt.startswith(mle)
+
+
+def test_deferred_debt_is_unchanged_by_this_fix() -> None:
+    """M13-R1 no toca productores: los nueve sitios de deuda siguen iguales."""
+    debt = _registry(ROOT)["deferred_debt"]
+    assert debt["count"] == 9 and len(debt["sites"]) == 9
+    assert sorted(debt["sites"]) == sorted(cw.detect_broad_suppressions(ROOT))

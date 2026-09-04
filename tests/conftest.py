@@ -25,6 +25,7 @@ FILTERWARNINGS = [
     "ignore:Non\\-stationary\\ starting\\ autoregressive\\ parameters\\ found\\.\\ Using\\ zeros\\ as\\ starting\\ parameters\\.:UserWarning",
     "ignore:Non\\-invertible\\ starting\\ MA\\ parameters\\ found\\.\\ Using\\ zeros\\ as\\ starting\\ parameters\\.:UserWarning",
     "ignore:Maximum\\ Likelihood\\ optimization\\ failed\\ to\\ converge\\.\\ Check\\ mle_retvals:statsmodels.tools.sm_exceptions.ConvergenceWarning",
+    "ignore:Optimization\\ failed\\ to\\ converge\\.\\ Check\\ mle_retvals\\.:statsmodels.tools.sm_exceptions.ConvergenceWarning",
 ]
 
 
