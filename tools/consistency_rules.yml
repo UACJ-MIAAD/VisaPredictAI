@@ -29,7 +29,12 @@ artifacts:
   # (27,127 / 15,662 / ≈1,600) durante seis semanas. Un SVG con texto ES prosa
   # publicada: entra al escaneo. El PNG es derivado (make_data_figures.trim_er
   # lo rasteriza del SVG), así que vigilar la fuente basta.
-  diagrams: ["docs/schema_er.svg"]
+  diagrams: ["docs/schema_er.svg", "docs/mlops_architecture.svg"]
+  # D9: la arquitectura MLOps es un documento de una vista (página + SVG canónico) generado
+  # por experiments/make_mlops_architecture.py desde las fuentes canónicas. Grupo propio para
+  # anclar sus reglas sin chocar con el ER (que rotula otras cajas con la palabra "filas").
+  # El SVG entra en AMBOS grupos: es dibujo vigilado y es artefacto de la arquitectura.
+  architecture: ["docs/MLOPS_ARCHITECTURE.md", "docs/mlops_architecture.svg"]
   # content/source.html = la fuente ES (incluye #datos); el lado EN son páginas sueltas.
   # TODO el contenido publicado se vigila (audit 3-jul: capii/capiii/tablas quedaban fuera
   # de esta lista y por eso sus "~290/~125" sobrevivieron dos generaciones de cifras).
@@ -230,6 +235,42 @@ numeric:
     label: '([0-9]{3})\s*series\s*·\s*filtro evaluable'
     in: [diagrams]
     reason: 'mart_series_summary del diagrama ER = series estructurales'
+  # --- Arquitectura MLOps (grupo `architecture`, D9) ----------------------------
+  # La página y su SVG publican el estado vivo de la plataforma. Se generan desde las
+  # fuentes canónicas, pero el guardián NO confía en el generador: verifica el artefacto
+  # commiteado, que es lo que la gente lee. Labels anclados a la frase vecina de SU dato.
+  - fact: n_obs
+    label: '([0-9]{2}[.,]?[0-9]{3})\s*filas\s*·\s*[0-9]{3}\s*meses'
+    in: [architecture]
+    reason: 'la caja/fila del panel de la arquitectura MLOps = filas totales'
+  - fact: n_months
+    label: '[0-9]{2}[.,]?[0-9]{3}\s*filas\s*·\s*([0-9]{3})\s*meses'
+    in: [architecture]
+    reason: 'la cobertura de meses del panel en la arquitectura MLOps'
+  - fact: n_obs_F
+    label: '([0-9]{2}[.,]?[0-9]{3})\s*(?:observaciones )?con estado F'
+    in: [architecture]
+    reason: 'las observaciones entrenables (estado F) en la arquitectura MLOps'
+  - fact: n_series_structural
+    label: '([0-9]{3})\s*(?:series )?catalogadas'
+    in: [architecture]
+    reason: 'las series catalogadas en la arquitectura MLOps'
+  - fact: n_series_with_F
+    label: '([0-9]{3})\s*con historia F'
+    in: [architecture]
+    reason: 'las series con historia F en la arquitectura MLOps'
+  - fact: n_models
+    label: 'de ([0-9]{2}) modelos'
+    in: [architecture]
+    reason: 'el catálogo de modelos que la arquitectura MLOps anuncia'
+  - fact: live_pairs_scored
+    label: '([0-9]{2,4})\s*pares live'
+    in: [architecture]
+    reason: 'los pares live campeón-sombra que sostienen el gate de promoción'
+  - fact: prosp_n_scored
+    label: '([0-9][.,]?[0-9]{3})\s*(?:pronósticos congelados ya puntuados|puntuadas)'
+    in: [architecture]
+    reason: 'las predicciones prospectivas ya puntuadas'
   # obs TOTAL del panel: "27,289 obs/observaciones/observations/filas/rows" pero NO "obs
   # entrenables" (eso es F). OJO: \w* tras "observaci"/"observation" es OBLIGATORIO — un \b
   # tras "observaci" NUNCA cierra en "observaci|ones" (ambos \w) y dejaba esas líneas (ES y
@@ -325,3 +366,12 @@ decimal:
     label: 'na[iï]ve-?1[^0-9\n\\]{0,160}?\$([0-9]\.[0-9]{2,3})\$ (en|on) DFF'
     in: [deliverable, paper]
     reason: 'el piso naïve-1 en DFF (hold-out medio) citado en prosa debe igualar key_facts'
+  # D9: la arquitectura publica el MASE y la cobertura prospectivos del sistema desplegado.
+  - fact: prosp_mase
+    label: 'MASE ([0-9]\.[0-9]{2,3})'
+    in: [architecture]
+    reason: 'el MASE prospectivo que la arquitectura MLOps publica'
+  - fact: prosp_cov95
+    label: 'cobertura (?:[0-9]{2}% = )?([0-9]\.[0-9]{2,3})'
+    in: [architecture]
+    reason: 'la cobertura prospectiva al 95% que la arquitectura MLOps publica'

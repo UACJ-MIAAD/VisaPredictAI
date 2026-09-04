@@ -91,6 +91,9 @@ shadow:  ## congela la añada del mejor retador en el shadow ledger (AO6) -> rep
 
 model-card: release-manifest  ## D4: la tarjeta la emite el manifiesto (identidad única); este target delega
 
+mlops-architecture:  ## D9: diagrama + página de arquitectura MLOps desde las fuentes canónicas
+	$(PY) experiments/make_mlops_architecture.py
+
 drift:  ## monitor de drift ML (desempeño+cobertura del ledger + datos del último boletín)
 	$(PY) experiments/check_drift.py
 
