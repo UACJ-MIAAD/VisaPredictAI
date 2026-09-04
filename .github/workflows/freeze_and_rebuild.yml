@@ -411,8 +411,9 @@ jobs:
         #     data + scorecard, so the consistency guard (CI) keeps the prose honest.
         python experiments/build_key_facts.py
 
-        # 4e. Regenerate the auto-derived model card (numbers from key_facts + lineage stamp).
-        python experiments/build_model_card.py
+        # 4e. D4: la tarjeta YA NO se emite aquí. Su release_id sale del mismo calculo que el
+        # manifiesto, asi que la emite el paso BLOQUEANTE "Release gate" junto al manifiesto
+        # (un solo emisor). Emitirla antes estampaba el release ANTERIOR.
 
         # 4e-bis (AO6a). Refresh the champion-challenger verdict every bulletin so the
         # promotion recommendation never goes stale. NOT a gate (|| true): a failed

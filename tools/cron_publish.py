@@ -59,7 +59,12 @@ ALLOWLIST: dict[str, tuple[str, ...]] = {
     ),
     # A-01 (auditoria ciega 11-jul): el manifiesto de release se emite en su PROPIO paso
     # BLOQUEANTE del cron (tras datos+modelo+EDA), nunca dentro del bloque opcional.
-    "release": ("reports/release/",),
+    # D4: un emisor produce manifiesto Y tarjeta en el paso bloqueante, asi que la fase de
+    # release publica AMBOS, nominalmente (nada de prefijos amplios: lo extrano se reporta).
+    "release": (
+        "reports/release/release_manifest.json",
+        "reports/governance/MODEL_CARD.md",
+    ),
 }
 # Fuera de estos árboles el cron no publica nada; lo sucio ahí ni se stagea ni se reporta
 # (p. ej. venvs locales) — el reporte de rechazados se limita al territorio publicable.
