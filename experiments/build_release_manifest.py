@@ -9,8 +9,8 @@ hace swap atómico: o toma el corte completo o se queda con el anterior — nunc
 mezcla de añadas.
 
 Criticidad (contrato de dos lados):
-- ``critical``/``required``: el PRODUCTOR aborta si faltan (un corte sin ellos es un
-  pipeline roto — falta crítica aborta, aceptación B1). Para el CONSUMIDOR:
+- ``critical``/``required``: el PRODUCTOR aborta si faltan **o si están vacíos** (D2-A: un
+  archivo de 0 bytes es un bloqueante inválido, no un corte publicable). Para el CONSUMIDOR:
   ``critical`` bloquea el deploy; ``required`` permite servir con insignia de stale.
 - ``optional``: se omite con aviso (cosmético: PDFs/galerías); el consumidor degrada.
 
@@ -119,14 +119,21 @@ def build(root: Path = ROOT) -> dict:
     entries: list[dict] = []
     missing_blocking: list[str] = []
     missing_optional: list[str] = []
+    empty_blocking: list[str] = []
     for rel, crit in artifact_spec(root):
         e = _entry(root, rel, crit)
         if e is None:
             (missing_optional if crit == "optional" else missing_blocking).append(f"{crit}:{rel}")
             continue
+        # D2-A: un bloqueante de 0 bytes es tan inválido como uno ausente — existe el archivo
+        # pero no hay corte que publicar. Los opcionales conservan su trato (se incluyen).
+        if crit != "optional" and e["size"] == 0:
+            empty_blocking.append(f"{crit}:{rel}")
         entries.append(e)
     if missing_blocking:
         raise SystemExit(f"ABORT release manifest — artefactos bloqueantes ausentes: {missing_blocking}")
+    if empty_blocking:
+        raise SystemExit(f"ABORT release manifest — artefactos bloqueantes vacíos (0 bytes): {empty_blocking}")
     for m in missing_optional:
         log.warning("artefacto opcional ausente (omitido del corte): %s", m)
 

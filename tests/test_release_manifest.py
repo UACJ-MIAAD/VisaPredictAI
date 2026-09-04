@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -41,6 +42,67 @@ def test_missing_required_aborts(tmp_path) -> None:
     _seed_tree(tmp_path, skip={"reports/fe/fe_facts.json"})
     with pytest.raises(SystemExit, match="required:reports/fe/fe_facts.json"):
         brm.build(tmp_path)
+
+
+def test_empty_critical_aborts(tmp_path) -> None:
+    """D2-A: un critical de 0 bytes es un bloqueante inválido — el productor aborta."""
+    _seed_tree(tmp_path)
+    (tmp_path / "reports" / "prospective" / "web_forecasts.csv").write_bytes(b"")
+    with pytest.raises(SystemExit, match=r"vacíos \(0 bytes\).*critical:reports/prospective/web_forecasts\.csv"):
+        brm.build(tmp_path)
+
+
+def test_empty_required_aborts(tmp_path) -> None:
+    """D2-A: un required de 0 bytes también aborta, con su criticidad y ruta en el diagnóstico."""
+    _seed_tree(tmp_path)
+    (tmp_path / "reports" / "prospective" / "forecast_scorecard_shadow.csv").write_bytes(b"")
+    with pytest.raises(
+        SystemExit, match=r"vacíos \(0 bytes\).*required:reports/prospective/forecast_scorecard_shadow\.csv"
+    ):
+        brm.build(tmp_path)
+
+
+def test_nonempty_blocking_artifacts_are_accepted(tmp_path) -> None:
+    """Comportamiento intacto para bloqueantes con contenido: se emite el corte completo."""
+    _seed_tree(tmp_path)
+    m = brm.build(tmp_path)
+    blocking = [e for e in m["artifacts"] if e["criticality"] in ("critical", "required")]
+    assert blocking and all(e["size"] > 0 for e in blocking)
+    assert m["n_artifacts"] == len(m["artifacts"])
+
+
+def test_missing_blocking_keeps_previous_diagnostic(tmp_path) -> None:
+    """Un archivo AUSENTE sigue abortando por la vía previa (ausentes), no por la nueva."""
+    _seed_tree(tmp_path, skip={"reports/prospective/web_forecasts.csv"})
+    with pytest.raises(SystemExit, match="ausentes") as exc:
+        brm.build(tmp_path)
+    assert "vacíos" not in str(exc.value)
+
+
+def test_empty_optional_keeps_current_behaviour(tmp_path) -> None:
+    """D2-A no toca los opcionales: un optional de 0 bytes se incluye y no aborta."""
+    _seed_tree(tmp_path)
+    pdf = tmp_path / "reports" / "eda" / "eda_report.pdf"
+    pdf.parent.mkdir(parents=True, exist_ok=True)
+    pdf.write_bytes(b"")
+    m = brm.build(tmp_path)
+    by_path = {e["path"]: e for e in m["artifacts"]}
+    assert by_path["reports/eda/eda_report.pdf"]["size"] == 0
+    assert "reports/eda/eda_report.pdf" not in m["missing_optional"]
+
+
+def test_real_manifest_blocking_artifacts_exist_and_are_nonempty() -> None:
+    """El corte commiteado cumple el contrato: todo critical/required existe y pesa > 0."""
+    root = Path(__file__).resolve().parent.parent
+    manifest = json.loads((root / "reports" / "release" / "release_manifest.json").read_text())
+    blocking = [e for e in manifest["artifacts"] if e["criticality"] in ("critical", "required")]
+    assert blocking, "el manifiesto real no declara artefactos bloqueantes"
+    zero_in_manifest = [e["path"] for e in blocking if e["size"] == 0]
+    absent = [e["path"] for e in blocking if not (root / e["path"]).exists()]
+    empty_on_disk = [
+        e["path"] for e in blocking if (root / e["path"]).exists() and (root / e["path"]).stat().st_size == 0
+    ]
+    assert zero_in_manifest == [] and absent == [] and empty_on_disk == []
 
 
 def test_missing_optional_warns_and_omits(tmp_path) -> None:
