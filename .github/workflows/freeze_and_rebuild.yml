@@ -103,6 +103,16 @@ jobs:
         # puede referenciar un commit de hace un mes: se requiere historial completo.
         fetch-depth: 0
 
+    - name: Configure the single git identity for every commit path
+      # D2-B: ANTES vivían cuatro parejas `git config user.*` repetidas (una por ruta de
+      # commit), y la ruta self-heal que las saltaba moría con "empty ident". Una sola
+      # configuración local, inmediatamente tras el checkout y antes de cualquier commit,
+      # cubre las cuatro rutas sin repetirse. Los cuatro `git push` conservan su gate de
+      # autoría única: la identidad no sustituye a la verificación del rango saliente.
+      run: |
+        git config --local user.email "168046724+jrebull@users.noreply.github.com"
+        git config --local user.name "Javier Rebull"
+
     - name: Set up Python
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
       with:
@@ -147,8 +157,6 @@ jobs:
         # solo-de-estado expone data_sha para que ciwait espere SU CI — sin
         # rebuild jamás hay deploy.
         publish_data() {
-          git config --local user.email "168046724+jrebull@users.noreply.github.com"
-          git config --local user.name "Javier Rebull"
           python tools/cron_publish.py --stage data
           if git diff --cached --quiet; then
             echo "publish_data: nada que publicar"
@@ -410,15 +418,36 @@ jobs:
         # promotion recommendation never goes stale. NOT a gate (|| true): a failed
         # verdict must not hold this month's forecasts hostage. Its governance
         # artifacts (champion_challenger.{json,md}) ride the `git add reports` below.
-        (python experiments/run_champion_challenger.py && echo "veredicto refrescado OK" > /tmp/champion.txt) \
-          || echo "FALLO este run (veredicto del mes anterior sigue vigente; ver logs)" > /tmp/champion.txt
+        # D2-B: además de la línea humana, un marcador ESTRICTO (valor exacto ok|failed)
+        # del que se deriva N para el asunto del correo y el contador de consecutividad.
+        if python experiments/run_champion_challenger.py; then
+          echo "veredicto refrescado OK" > /tmp/champion.txt; echo -n "ok" > /tmp/champion_status.txt
+        else
+          echo "FALLO este run (veredicto del mes anterior sigue vigente; ver logs)" > /tmp/champion.txt
+          echo -n "failed" > /tmp/champion_status.txt
+        fi
 
         # 4e-ter (AO6b). Shadow deployment: freeze the best challenger's vintage into
         # the SEPARATE immutable shadow ledger (forecast_log_shadow.csv) so the
         # promotion gate accumulates prospective evidence. Statistical re-fits only
         # (minutes); non-blocking like the verdict itself.
-        (python experiments/freeze_shadow.py && echo "anada del retador congelada OK" > /tmp/shadow.txt) \
-          || echo "FALLO este run (sin evidencia sombra nueva este mes; ver logs)" > /tmp/shadow.txt
+        if python experiments/freeze_shadow.py; then
+          echo "anada del retador congelada OK" > /tmp/shadow.txt; echo -n "ok" > /tmp/shadow_status.txt
+        else
+          echo "FALLO este run (sin evidencia sombra nueva este mes; ver logs)" > /tmp/shadow.txt
+          echo -n "failed" > /tmp/shadow_status.txt
+        fi
+
+        # D2-B. Estado de advisories: racha de fallos CONSECUTIVOS por advisory en
+        # reports/governance/advisory_state.json (schema cerrado, escritura atómica). El
+        # archivo pertenece a la fase model y ya viaja en su allowlist (reports/governance/).
+        # No bloqueante como los advisories mismos: su fallo no toca release ni deploy.
+        python tools/advisory_state.py update \
+          --state reports/governance/advisory_state.json \
+          --marker champion_challenger=/tmp/champion_status.txt \
+          --marker shadow_freeze=/tmp/shadow_status.txt \
+          --run-id "${GITHUB_RUN_ID:-local}" --out /tmp/advisory_summary.json \
+          || echo "::warning::el estado de advisories no pudo actualizarse (no bloqueante)"
 
         # 4f. ML drift monitor — not a gate; its summary goes in the SES email below.
         python experiments/check_drift.py | tee /tmp/drift.txt || true
@@ -442,11 +471,8 @@ jobs:
         # puede desplazar las de dvc; re-pinnear es idempotente y tarda segundos.)
         pip install "dvc==3.67.1" --quiet
         dvc commit --force key_facts
-        # La identidad git del paso `run` solo se escribe en su sección de commit de
-        # datos, que la ruta self-heal (#17) salta con exit 0 — sin estas líneas el
-        # primer commit de este paso moría con "empty ident" (cazado en el estreno).
-        git config --local user.email "168046724+jrebull@users.noreply.github.com"
-        git config --local user.name "Javier Rebull"
+        # D2-B: la identidad git la fija UN solo paso tras el checkout (arriba), así que
+        # esta ruta ya no la reconfigura ni depende de que otro paso la haya escrito.
         # C4: allowlist del bloque de modelado (prospective/governance/key_facts.tex/
         # release + dvc.lock); lo extraño se reporta en el log y el correo, no se barre.
         python tools/cron_publish.py --stage model --marker /tmp/publish_model.txt
@@ -511,9 +537,6 @@ jobs:
         # C1: eda_facts/fe_facts son ahora stages DVC — registrar sus hashes frescos en
         # dvc.lock EN EL MISMO commit o el gate E2 de CI detona en el siguiente push.
         dvc commit -f eda_facts fe_facts
-        # Identidad propia: en la ruta self-heal ningún paso previo la configura.
-        git config --local user.email "168046724+jrebull@users.noreply.github.com"
-        git config --local user.name "Javier Rebull"
         # C4: allowlist del bloque EDA/FE (eda/fe/galerías/figuras del .tex + dvc.lock).
         python tools/cron_publish.py --stage eda --marker /tmp/publish_eda.txt
         if git diff --cached --quiet; then
@@ -549,8 +572,6 @@ jobs:
           exit 1
         }
         tail -2 /tmp/release_gate.txt
-        git config --local user.email "168046724+jrebull@users.noreply.github.com"
-        git config --local user.name "Javier Rebull"
         python tools/cron_publish.py --stage release --marker /tmp/publish_release.txt
         if git diff --cached --quiet; then
           echo "Manifiesto sin cambios -- nada que comitear."
@@ -725,6 +746,17 @@ jobs:
         if [ -f reports/governance/ingestion_state.json ]; then
           SOURCE_LINE=$( (python -c "from pathlib import Path; from vp_data.ingestion_state import read_state, summary_line; print(summary_line(read_state(Path('reports/governance/ingestion_state.json'))))" 2>/dev/null || echo "estado presente pero ilegible este run") | tr -d '"\\')
         fi
+        # D2-B: estado de los advisories y gate prospectivo, DERIVADOS del resumen que
+        # dejó tools/advisory_state.py (que a su vez sale de los marcadores ok|failed).
+        # Sin rebuild no hay advisories que corran: N=0 y la linea lo dice sin fingir exito.
+        ADVISORY_N=0
+        ADVISORY_LINE="n/d (sin rebuild este run)"
+        PAIRS_LINE="n/d"
+        if [ -f /tmp/advisory_summary.json ]; then
+          ADVISORY_N=$(python -c "import json;print(json.load(open('/tmp/advisory_summary.json'))['failed_count'])" 2>/dev/null || echo 0)
+          ADVISORY_LINE=$(python -c "import json;print(json.load(open('/tmp/advisory_summary.json'))['status_line'])" 2>/dev/null | tr -d '"\\' || echo "resumen presente pero ilegible este run")
+          PAIRS_LINE=$(python -c "import json;print(json.load(open('/tmp/advisory_summary.json'))['n_pairs_live'])" 2>/dev/null || echo "n/d")
+        fi
         # I3 (STORAGE_POLICY.md): metrica mensual de crecimiento por clase de
         # almacenamiento — si reports/ o .git crecen sostenido, la poda es una
         # decision de PR con la politica actualizada, nunca un script automatico.
@@ -734,8 +766,8 @@ jobs:
           "FromEmailAddress": "VisaPredict CI <noreply@visapredictai.com>",
           "Destination": {"ToAddresses": ["al263483@alumnos.uacj.mx"]},
           "Content": {"Simple": {
-            "Subject": {"Data": "VisaPredict | corrida $JOB_STATUS — $NEW boletín(es) nuevo(s)"},
-            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nFuente: $SOURCE_LINE\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nEDA vivo: $EDA_LINE\nFE vivo: $FE_LINE\nCampeon-retador: $CHAMPION_LINE\nSombra: $SHADOW_LINE\nPublicacion (allowlist): $PUBLISH_LINE\nRelease gate (A-01): $RELEASE_LINE\nCI del SHA exacto: $CIWAIT_LINE\nCompletitud (exenciones): $COMPLETENESS_LINE\nDeploy verificado: $DEPLOY_LINE\nTamanos (I3): $SIZES_LINE\nLogs: $RUN_URL"}}
+            "Subject": {"Data": "VisaPredict | corrida $JOB_STATUS — $NEW boletín(es) nuevo(s) [$ADVISORY_N advisories fallidos]"},
+            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nFuente: $SOURCE_LINE\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nEDA vivo: $EDA_LINE\nFE vivo: $FE_LINE\nCampeon-retador: $CHAMPION_LINE\nSombra: $SHADOW_LINE\nAdvisories: $ADVISORY_LINE\nGate prospectivo: n_pairs_live=$PAIRS_LINE\nPublicacion (allowlist): $PUBLISH_LINE\nRelease gate (A-01): $RELEASE_LINE\nCI del SHA exacto: $CIWAIT_LINE\nCompletitud (exenciones): $COMPLETENESS_LINE\nDeploy verificado: $DEPLOY_LINE\nTamanos (I3): $SIZES_LINE\nLogs: $RUN_URL"}}
           }}
         }
         JSON
@@ -745,6 +777,71 @@ jobs:
         # no pipeline: degradar a warning (el watchdog L6 cubre el silencio).
         aws sesv2 send-email --region us-east-1 --cli-input-json file:///tmp/ses.json \
           || echo "::warning::el correo SES falló (los datos NO se afectan); revisar cuota/identidad SES"
+
+    - name: Advisory issue (open once at two consecutive failures, close on recovery)
+      # D2-B: los advisories nunca bloquean, pero un fallo CRONICO tiene que doler en algun
+      # lado. A los dos fallos consecutivos de cualquiera de los dos se abre UN issue con
+      # label estable; el primer fallo no abre nada y las corridas siguientes no duplican
+      # ni comentan a diario. La recuperacion total comenta una vez y cierra. Este paso es
+      # tan no bloqueante como los advisories: continue-on-error.
+      if: always()
+      continue-on-error: true
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
+      with:
+        script: |
+          const fs = require('fs');
+          const path = '/tmp/advisory_summary.json';
+          if (!fs.existsSync(path)) { core.info('sin resumen de advisories (no hubo rebuild): nada que hacer'); return; }
+          let summary;
+          try { summary = JSON.parse(fs.readFileSync(path, 'utf8')); }
+          catch (e) { core.warning(`resumen de advisories ilegible: ${e}`); return; }
+          const action = summary.issue_action;
+          if (action !== 'open' && action !== 'close') { core.info(`sin accion de issue (${action})`); return; }
+          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+          const label = 'mlops-advisory';
+          const { data: open } = await github.rest.issues.listForRepo({
+            owner: context.repo.owner, repo: context.repo.repo, labels: label, state: 'open',
+          });
+          if (action === 'open') {
+            if (open.length) { core.info(`issue #${open[0].number} ya abierto: no se duplica ni se comenta`); return; }
+            // La etiqueta debe EXISTIR antes de crear el issue: este repo no la tenía y un
+            // fallo aquí quedaría degradado por continue-on-error, o sea alerta muda. Se
+            // comprueba y, si falta, se crea con color y descripción fijos; "ya existe"
+            // (422, carrera entre corridas) es idempotente. Cualquier otro error SÍ se
+            // propaga a este paso, que sigue siendo no bloqueante para release y deploy.
+            try {
+              await github.rest.issues.getLabel({ owner: context.repo.owner, repo: context.repo.repo, name: label });
+              core.info(`etiqueta ${label} ya existe: se reutiliza`);
+            } catch (e) {
+              if (e.status !== 404) throw e;
+              try {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner, repo: context.repo.repo, name: label,
+                  color: 'B60205',
+                  description: 'Advisories del cron (campeon-retador y anada sombra) fallando de forma consecutiva',
+                });
+                core.info(`etiqueta ${label} creada`);
+              } catch (e2) {
+                if (e2.status !== 422) throw e2;
+                core.info(`etiqueta ${label} creada por otra corrida: idempotente`);
+              }
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner, repo: context.repo.repo,
+              title: 'MLOps advisories del cron fallando de forma consecutiva',
+              body: `Dos corridas consecutivas con al menos un advisory en fallo.\n\nEstado: ${summary.status_line}\nGate prospectivo: n_pairs_live=${summary.n_pairs_live}\nLogs: ${runUrl}\n\nNo bloquea release ni deploy: es visibilidad de un fallo cronico.`,
+              labels: [label],
+            });
+          } else {
+            if (!open.length) { core.info('nada que cerrar'); return; }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: open[0].number,
+              body: `Advisories recuperados: ${summary.status_line}\nLogs: ${runUrl}`,
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: open[0].number, state: 'closed',
+            });
+          }
 
     - name: Alert on failure (open or append a tracking issue)
       if: failure()

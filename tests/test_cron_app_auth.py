@@ -148,10 +148,25 @@ def test_authorship_gate_runs_before_every_push():
         )
 
 
-def test_commit_identity_is_the_single_author():
+def test_commit_identity_is_configured_once_before_any_commit_path():
+    """D2-B: UNA sola configuración de identidad, tras el checkout y antes de todo commit.
+
+    Antes vivían cuatro parejas repetidas (una por ruta de commit) y la ruta que las saltaba
+    moría con "empty ident". El gate de autoría de cada push NO se toca: sigue habiendo cuatro.
+    """
     text = CRON.read_text(encoding="utf-8")
-    assert text.count('git config --local user.email "168046724+jrebull@users.noreply.github.com"') == 4
-    assert text.count('git config --local user.name "Javier Rebull"') == 4
+    assert text.count('git config --local user.email "168046724+jrebull@users.noreply.github.com"') == 1
+    assert text.count('git config --local user.name "Javier Rebull"') == 1
+
+    steps = _cron()["jobs"]["update"]["steps"]
+    names = [s.get("name", "") for s in steps]
+    checkout = next(i for i, s in enumerate(steps) if str(s.get("uses", "")).startswith("actions/checkout"))
+    identity = next(i for i, s in enumerate(steps) if "user.email" in str(s.get("run", "")))
+    assert identity == checkout + 1, f"la identidad debe fijarse justo tras el checkout; pasos: {names}"
+
+    first_commit = next(i for i, s in enumerate(steps) if "git commit" in str(s.get("run", "")))
+    assert identity < first_commit, "la identidad se fija antes de cualquier ruta de commit"
+    assert re.search(r"^\s*git push\s*$", text, re.M), "los pushes siguen existiendo"
 
 
 def test_ci_workflow_documents_app_pushes_and_keeps_dispatch_and_concurrency():
