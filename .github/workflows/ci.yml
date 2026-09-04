@@ -233,6 +233,11 @@ jobs:
       # de cada artefacto publicado + corte de añada única. Cero dependencias.
       - name: Check artifact contracts
         run: python tools/check_contracts.py
+      # D2-C: los warnings de la suite son un contrato. Valida el registro positivo
+      # (esquema, tipos, duplicados, amplitud, expiración, pines exactos) y la biyección
+      # con FILTERWARNINGS del conftest. Stdlib puro, fail-closed.
+      - name: Check warnings contract
+        run: python tools/check_warnings.py
       # E3: trinquete de deuda — los marcadores (except amplios sin razón, ignores,
       # TODOs) jamás suben respecto a docs/debt_baseline.json. Cero dependencias.
       - name: Check debt ratchet
