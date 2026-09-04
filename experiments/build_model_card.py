@@ -5,13 +5,17 @@ Toda cifra sale de ``reports/governance/key_facts.json`` (la fuente única de ve
 automáticamente alineada con el guardián de consistencia); la receta campeona, del manifiesto
 y del veredicto campeón-retador; el linaje (git sha + hash del panel) se sella al generar.
 
-    ante/bin/python experiments/build_model_card.py   (o `make model-card`)
+D4: la tarjeta ya NO se emite por su cuenta. Expone ``render(release_id)``, una función PURA que
+recibe el id del corte, y el ÚNICO emisor es ``experiments/build_release_manifest.py`` (``make
+release-manifest``, al que ``make model-card`` delega). Así se rompe el ciclo que hacía que la
+tarjeta estampara el release ANTERIOR mientras el manifiesto hasheaba sus bytes.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -32,12 +36,13 @@ def _panel_hash() -> str:
     return hashlib.md5(p.read_bytes()).hexdigest()[:12] if p.exists() else "n/d"
 
 
-def _release_id() -> str:
-    # H3: el release VIGENTE al generar (el manifiesto de este corte se emite después,
-    # en 4h — misma semántica que deployment_id en el ledger).
-    from vp_model.ledger import current_release_id
-
-    return current_release_id()
+#: Marcador estructural ÚNICO que ocupa el lugar del ``release_id`` mientras se calcula la
+#: identidad del corte. Debe aparecer exactamente una vez en la tarjeta normalizada.
+RELEASE_ID_SENTINEL = "@@RELEASE_ID_SENTINEL@@"
+#: Línea estructural (machine-readable) que lleva el id: el validador la parsea por este patrón
+#: y sustituye SOLO ese tramo, nunca con un `replace` global.
+RELEASE_ID_FIELD = "release_id: "
+RELEASE_ID_RE = re.compile(rf"(?m)^{re.escape(RELEASE_ID_FIELD)}(\S+)$")
 
 
 def _pipeline_run_id() -> str:
@@ -53,7 +58,12 @@ def _fmt(v) -> str:  # noqa: ANN001 — accepts int or the "n/d" degradation sen
     return f"{v:,}" if isinstance(v, int) else str(v)
 
 
-def build() -> str:
+def render(release_id: str) -> str:
+    """Bytes de la tarjeta para un ``release_id`` dado. PURA: no lee ni escribe el id en disco.
+
+    Con ``RELEASE_ID_SENTINEL`` produce la forma NORMALIZADA que entra al digest de identidad;
+    con el id real produce los bytes finales, cuyo SHA-256 registra el manifiesto.
+    """
     kf = _load("governance/key_facts.json")
     cc = _load("governance/champion_challenger.json")
     manifest = _load("governance/champion_manifest.json")
@@ -110,7 +120,11 @@ def build() -> str:
 ## 6. Linaje y reproducibilidad
 - **Receta:** `champion_manifest.json` (cambia solo vía `run_champion_challenger.py --promote`, auditado).
 - **Código:** git `{sha}`. **Datos:** panel hash `{_panel_hash()}`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
-- **Corte (H3):** release vigente al generar `{_release_id()}` · pipeline_run_id `{_pipeline_run_id()}` · añada `{kf.get("panel_vintage", "n/d")}`.
+- **Corte (D4):** identidad del corte en el campo estructural de abajo · pipeline_run_id `{_pipeline_run_id()}` · añada `{kf.get("panel_vintage", "n/d")}`.
+
+```
+{RELEASE_ID_FIELD}{release_id}
+```
 - **Promoción (dos gates):** el hold-out (Wilcoxon+Holm, h=1) solo declara aptitud retrospectiva; la autorización la da el gate prospectivo PRE-REGISTRADO (docs/PROMOTION_POLICY.md) sobre pares live campeón-vs-sombra, aplicada por un humano (`--promote`, que se rehúsa sin decisión "promote") con rollback versionado.
 
 ## 7. Limitaciones y consideraciones éticas
@@ -119,11 +133,41 @@ def build() -> str:
 - Las retrogresiones por cuota son reales y el modelo debe tolerarlas; no constituye consejo legal.
 - El registro prospectivo actual es un backfill sin fuga (información truncada al origen), no pronósticos servidos en tiempo real; las añadas servidas en vivo se acumulan desde jul-2026.
 """
-    (REPORTS / "governance").mkdir(parents=True, exist_ok=True)
-    (REPORTS / "governance" / "MODEL_CARD.md").write_text(md)
     return md
 
 
+def extract_release_id(card: str) -> str:
+    """Id declarado en el ÚNICO campo estructural. Lanza ``ValueError`` si falta o hay más de uno."""
+    hits = RELEASE_ID_RE.findall(card)
+    if len(hits) != 1:
+        raise ValueError(
+            f"la tarjeta debe declarar exactamente un `{RELEASE_ID_FIELD.strip()}`; encontrados: {len(hits)}"
+        )
+    value = hits[0]
+    if not value:
+        raise ValueError("release_id vacío en la tarjeta")
+    return value
+
+
+def normalize(card: str) -> str:
+    """Tarjeta con el id sustituido por el sentinel, SOLO en su campo estructural.
+
+    Nunca un ``replace`` global: si el id apareciera en otra parte (edición manual, sustitución
+    accidental), esos bytes NO se tocan y la identidad recomputada deja de cuadrar.
+    """
+    extract_release_id(card)  # valida unicidad antes de tocar nada
+    return RELEASE_ID_RE.sub(f"{RELEASE_ID_FIELD}{RELEASE_ID_SENTINEL}", card, count=1)
+
+
+def main() -> int:
+    """D4: emisor único. La tarjeta se escribe junto al manifiesto, nunca por separado."""
+    print(
+        "D4: la tarjeta ya no se emite por su cuenta — su release_id sale del mismo cálculo que el "
+        "manifiesto. Usa `make release-manifest` (o `make model-card`, que delega en él).",
+        file=sys.stderr,
+    )
+    return 1
+
+
 if __name__ == "__main__":
-    build()
-    print(f"escrito {REPORTS / 'governance' / 'MODEL_CARD.md'}")
+    raise SystemExit(main())

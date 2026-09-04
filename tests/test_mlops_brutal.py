@@ -41,17 +41,24 @@ def test_git_state_public_and_alias() -> None:
 # --- AP5: model card degrades cleanly without key_facts ----------------------
 
 
-def test_model_card_fmt_and_degraded_build(tmp_path) -> None:
+def test_model_card_fmt_and_degraded_render(tmp_path) -> None:
+    """D4: `build()` (que además escribía el archivo) pasó a ser `render(release_id)`, PURA.
+
+    La intención original se conserva: la degradación C1 ("n/d") no revienta el formateo y la
+    tarjeta se produce aunque falten todos los JSON de gobernanza. Lo que cambia es que ya no
+    escribe nada: el único emisor es `build_release_manifest`, que le pasa el id calculado.
+    """
     mod = _load_script("build_model_card")
     assert mod._fmt(27611) == "27,611"
     assert mod._fmt("n/d") == "n/d"  # the C1 degradation sentinel must not crash
     mod.REPORTS = tmp_path  # no governance JSONs at all -> every _load returns {}
     try:
-        md = mod.build()  # used to raise ValueError on f"{'n/d':,}"
+        md = mod.render("2026-09-000000000000")  # used to raise ValueError on f"{'n/d':,}"
     finally:
         mod.REPORTS = ROOT / "reports"
     assert "n/d" in md
-    assert (tmp_path / "governance" / "MODEL_CARD.md").exists()
+    assert mod.extract_release_id(md) == "2026-09-000000000000"
+    assert not (tmp_path / "governance" / "MODEL_CARD.md").exists(), "render es puro: no escribe"
 
 
 # --- AO7: horizon-matched drift baseline + coverage floor --------------------

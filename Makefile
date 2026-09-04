@@ -89,8 +89,7 @@ challenger:  ## evalúa campeón vs retadores (Wilcoxon+Holm) -> reports/governa
 shadow:  ## congela la añada del mejor retador en el shadow ledger (AO6) -> reports/prospective/forecast_log_shadow.csv
 	$(PY) experiments/freeze_shadow.py
 
-model-card:  ## regenera reports/governance/MODEL_CARD.md (tarjeta de modelo + linaje) desde key_facts
-	$(PY) experiments/build_model_card.py
+model-card: release-manifest  ## D4: la tarjeta la emite el manifiesto (identidad única); este target delega
 
 drift:  ## monitor de drift ML (desempeño+cobertura del ledger + datos del último boletín)
 	$(PY) experiments/check_drift.py

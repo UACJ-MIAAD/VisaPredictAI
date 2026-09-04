@@ -27,6 +27,7 @@ import datetime
 import hashlib
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,6 +39,17 @@ log = config.get_logger("release_manifest")
 
 OUT = ROOT / "reports" / "release" / "release_manifest.json"
 SCHEMA_VERSION = 1
+#: D4: versión del bloque de identidad. Un manifiesto sin él es PRE-D4 y su identidad no se
+#: puede verificar (se emitió con el ciclo viejo); el validador lo dice en voz alta.
+IDENTITY_SCHEMA = 2
+#: La tarjeta es el artefacto cuyo contenido depende del propio release_id: entra al digest
+#: NORMALIZADA (con el sentinel) y se registra con el SHA-256 de sus bytes FINALES.
+CARD_REL = "reports/governance/MODEL_CARD.md"
+#: Rutas EXACTAS que jamás entran al digest de identidad (el manifiesto sobre sí mismo, y el
+#: estado de release que publica el web a partir de él).
+SELF_EXCLUDED = frozenset(
+    {"reports/release/release_manifest.json", "public/data/release-state.json", "data/release-state.json"}
+)
 
 MIME = {
     ".csv": "text/csv",
@@ -114,8 +126,26 @@ def _entry(root: Path, rel: str, criticality: str) -> dict | None:
     }
 
 
-def build(root: Path = ROOT) -> dict:
-    """Construye el manifiesto; aborta (SystemExit) si falta un artefacto no-opcional."""
+def build(root: Path = ROOT, card_renderer: Callable[[str], str] | None = None) -> dict:
+    """Construye el manifiesto Y emite la tarjeta; aborta (SystemExit) si falta un bloqueante.
+
+    D4, identidad sin ciclo y en un solo emisor:
+
+    1. se renderiza la tarjeta NORMALIZADA (con ``RELEASE_ID_SENTINEL``);
+    2. el digest de identidad toma esos bytes con sentinel para la tarjeta y el SHA-256 real del
+       resto de artefactos — el propio manifiesto y ``release-state.json`` quedan fuera porque no
+       están en ``artifact_spec``;
+    3. de ese digest sale el ``release_id``;
+    4. se renderiza la tarjeta FINAL con ese id, se escribe, y el manifiesto registra el SHA-256
+       de esos bytes finales.
+
+    Mismo contenido ⇒ mismo ``release_id``: ``generated_at`` nunca entra al digest.
+    """
+    # D4: import perezoso — el emisor vive en experiments/ y así se evita tocar sys.path arriba.
+    sys.path.insert(0, str(ROOT / "experiments"))
+    import build_model_card
+
+    render = card_renderer or build_model_card.render
     entries: list[dict] = []
     missing_blocking: list[str] = []
     missing_optional: list[str] = []
@@ -138,9 +168,36 @@ def build(root: Path = ROOT) -> dict:
         log.warning("artefacto opcional ausente (omitido del corte): %s", m)
 
     vintage = ledger.panel_vintage(root / "data" / "processed" / "visa_panel_long.csv")
-    # release_id determinista: SOLO el contenido define el id (generated_at fuera).
-    content = json.dumps([(e["path"], e["sha256"]) for e in entries], sort_keys=True).encode()
-    release_id = f"{vintage}-{hashlib.sha256(content).hexdigest()[:12]}"
+    # D4. release_id determinista: SOLO el contenido define el id (generated_at fuera). La tarjeta
+    # entra NORMALIZADA para romper el ciclo tarjeta↔manifiesto.
+    normalized_card = render(build_model_card.RELEASE_ID_SENTINEL)
+    normalized_sha = hashlib.sha256(normalized_card.encode()).hexdigest()
+    identity_pairs = [(e["path"], normalized_sha if e["path"] == CARD_REL else e["sha256"]) for e in entries]
+    # El manifiesto y el estado de release del web quedan FUERA de su propio digest. La guarda
+    # compara RUTAS EXACTAS (nada de basename: `vp_data/contracts/release_manifest.json` es el
+    # CONTRATO del manifiesto, un artefacto legítimo, y sí entra) y es un fallo explícito, no un
+    # `assert`: con `python -O` los asserts desaparecen y la guarda tiene que seguir viva.
+    self_paths = sorted({p for p, _ in identity_pairs if p in SELF_EXCLUDED})
+    if self_paths:
+        raise SystemExit(f"ABORT release manifest — no pueden entrar en su propio digest: {self_paths}")
+    # El contrato del sentinel se verifica en la emisión, no se supone.
+    if normalized_card.count(build_model_card.RELEASE_ID_SENTINEL) != 1:
+        raise SystemExit("ABORT release manifest — la tarjeta normalizada no tiene exactamente un sentinel")
+    content = json.dumps(identity_pairs, sort_keys=True).encode()
+    identity_digest = hashlib.sha256(content).hexdigest()
+    release_id = f"{vintage}-{identity_digest[:12]}"
+
+    # La tarjeta FINAL lleva el id recién calculado; el manifiesto registra el hash de ESOS bytes.
+    final_card = render(release_id)
+    if build_model_card.normalize(final_card) != normalized_card:
+        raise SystemExit("ABORT release manifest — normalizar la tarjeta final no reproduce los bytes normalizados")
+    card_path = root / CARD_REL
+    card_path.parent.mkdir(parents=True, exist_ok=True)
+    card_path.write_text(final_card, encoding="utf-8")
+    for e in entries:
+        if e["path"] == CARD_REL:
+            e["sha256"] = hashlib.sha256(final_card.encode()).hexdigest()
+            e["size"] = len(final_card.encode())
 
     def _json(rel: str) -> dict:
         # Degradación C1: un JSON ausente o corrupto no tumba el manifiesto — los campos
@@ -172,6 +229,13 @@ def build(root: Path = ROOT) -> dict:
         "panel_hash_md5_12": ledger.panel_hash(root / "data" / "processed" / "visa_panel_long.csv"),
         "champion_recipes": {t: r.get("models") for t, r in champions.items()} if champions else {},
         "counts": {k: kf[k] for k in ("n_obs", "n_series_structural", "n_series_evaluable", "n_months") if k in kf},
+        "identity": {
+            "schema": IDENTITY_SCHEMA,
+            "card_path": CARD_REL,
+            "sentinel": build_model_card.RELEASE_ID_SENTINEL,
+            "digest": identity_digest,
+            "card_sha256_normalized": normalized_sha,
+        },
         "n_artifacts": len(entries),
         "missing_optional": [m.split(":", 1)[1] for m in missing_optional],
         "artifacts": entries,
