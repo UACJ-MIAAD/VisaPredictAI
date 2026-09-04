@@ -390,6 +390,17 @@ def test_pin_source_traversal_is_rejected(tmp_path: Path, source: str) -> None:
 # ------------------- M13-R1: la convergencia de Holt-Winters no puede tumbar el CI
 HOLTWINTERS_MSG = "Optimization failed to converge. Check mle_retvals."
 MLE_MSG = "Maximum Likelihood optimization failed to converge. Check mle_retvals"
+HOLTWINTERS_CATEGORY = "statsmodels.tools.sm_exceptions.ConvergenceWarning"
+
+
+class _SyntheticConvergenceWarning(Warning):
+    """Sustituta local de ``ConvergenceWarning`` para probar el COMPORTAMIENTO del filtro.
+
+    M14-R1: lo que se verifica aquí es el patrón de mensaje (que `re.escape` lo vuelve literal y
+    que sólo calla lo declarado), no la clase concreta de statsmodels. Importar la real ataba estas
+    pruebas al extra ``model``: el job base de CI instala sólo ``.[dev]`` y fallaban con
+    ``ModuleNotFoundError``. La categoría real se sigue verificando como TEXTO en el registro.
+    """
 
 
 def _silences(message_prefix: str, category, emitted: str) -> bool:
@@ -407,12 +418,10 @@ def _silences(message_prefix: str, category, emitted: str) -> bool:
 
 def test_holtwinters_message_is_covered_by_its_own_exception() -> None:
     """El mensaje EXACTO que tumbó el CI 33844476552 queda cubierto."""
-    from statsmodels.tools.sm_exceptions import ConvergenceWarning
-
     entry = next(e for e in cw.verify(ROOT, TODAY) if e["id"] == "statsmodels-holtwinters-convergence")
     assert entry["message_prefix"] == HOLTWINTERS_MSG
-    assert entry["category"] == "statsmodels.tools.sm_exceptions.ConvergenceWarning"
-    assert _silences(entry["message_prefix"], ConvergenceWarning, HOLTWINTERS_MSG)
+    assert entry["category"] == HOLTWINTERS_CATEGORY  # la categoría real, verificada como texto
+    assert _silences(entry["message_prefix"], _SyntheticConvergenceWarning, HOLTWINTERS_MSG)
 
 
 @pytest.mark.parametrize(
@@ -426,9 +435,7 @@ def test_holtwinters_message_is_covered_by_its_own_exception() -> None:
 )
 def test_neighbouring_messages_are_not_silenced_by_the_holtwinters_filter(emitted: str) -> None:
     """La excepción es estrecha: sólo calla su mensaje, no la vecindad."""
-    from statsmodels.tools.sm_exceptions import ConvergenceWarning
-
-    assert not _silences(HOLTWINTERS_MSG, ConvergenceWarning, emitted)
+    assert not _silences(HOLTWINTERS_MSG, _SyntheticConvergenceWarning, emitted)
 
 
 def test_each_convergence_message_has_its_own_narrow_entry() -> None:
@@ -444,3 +451,36 @@ def test_deferred_debt_is_unchanged_by_this_fix() -> None:
     debt = _registry(ROOT)["deferred_debt"]
     assert debt["count"] == 9 and len(debt["sites"]) == 9
     assert sorted(debt["sites"]) == sorted(cw.detect_broad_suppressions(ROOT))
+
+
+def test_filter_behaviour_checks_run_without_statsmodels_importable() -> None:
+    """M14-R1: estas comprobaciones no dependen de que ``statsmodels`` sea importable.
+
+    Se demuestra de dos formas: (1) el archivo no importa statsmodels en absoluto, y (2) con el
+    módulo BLOQUEADO en ``sys.modules`` la verificación del filtro sigue corriendo y dando el
+    mismo veredicto. Así el contrato es verificable en el job base (`.[dev]`) y no sólo en
+    `model-tests`.
+    """
+    import importlib
+    import sys
+
+    source = Path(__file__).read_text(encoding="utf-8")
+    # Agujas construidas en tiempo de ejecución: escritas literales, esta misma línea se
+    # autodetectaría y la prueba sería un falso rojo.
+    needles = ("import " + "statsmodels", "from " + "statsmodels")
+    hits = [n for n in needles if n in source]
+    assert not hits, f"las pruebas del contrato no pueden depender del extra `model`: {hits}"
+
+    saved = {name: mod for name, mod in sys.modules.items() if name == "statsmodels" or name.startswith("statsmodels.")}
+    for name in saved:
+        sys.modules[name] = None  # type: ignore[assignment]  # bloquea el import durante la prueba
+    try:
+        with pytest.raises(ImportError):
+            importlib.import_module("statsmodels.tools.sm_exceptions")
+        assert _silences(HOLTWINTERS_MSG, _SyntheticConvergenceWarning, HOLTWINTERS_MSG)
+        assert not _silences(HOLTWINTERS_MSG, _SyntheticConvergenceWarning, MLE_MSG)
+    finally:
+        for name, mod in saved.items():
+            sys.modules[name] = mod
+        for name in [n for n in sys.modules if sys.modules[n] is None and n.startswith("statsmodels")]:
+            del sys.modules[name]
