@@ -187,3 +187,19 @@ def test_manifest_missing_listed_artifact_fails_closed(tmp_path) -> None:
     )
     problems = cc.check(root, cdir)
     assert any("AUSENTE del árbol" in p for p in problems)
+
+
+def test_check_does_not_leak_file_descriptors():
+    """D2-C: regresión — `art.open().readline()` dejaba el CSV sin cerrar (ResourceWarning).
+
+    Con `error` global en la suite ese descuido es un fallo; aquí se fija explícitamente para
+    que ninguna futura lectura de artefactos vuelva a filtrarse.
+    """
+    import warnings as _warnings
+
+    root = Path(__file__).resolve().parents[1]
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter("always")
+        cc.check(root, root / "vp_data" / "contracts")
+    leaked = [w for w in caught if issubclass(w.category, ResourceWarning)]
+    assert not leaked, f"descriptores sin cerrar: {[str(w.message) for w in leaked]}"

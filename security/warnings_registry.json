@@ -1,0 +1,107 @@
+{
+  "schema_version": 2,
+  "note": "Registro POSITIVO de los warnings UPSTREAM inevitables de la SUITE. La batería corre con `error` global (tests/conftest.py, FILTERWARNINGS): todo warning nuevo es un fallo salvo estas excepciones, cada una por un filtro ESTRECHO (prefijo de mensaje + categoría). Prohibida cualquier supresión amplia. Cada excepción EXPIRA (`review`) y su `version` debe coincidir con el pin EXACTO declarado en `pin_source`. Los warnings del código PROPIO se corrigen, no se registran. `tools/check_warnings.py` valida esquema, tipos, duplicados, amplitud, expiración, pines y la BIYECCIÓN registro<->FILTERWARNINGS.",
+  "scope": "D2-C gobierna la SUITE de pruebas y su gate de CI. NO gobierna los warnings de ejecución de los productores: 9 supresiones amplias siguen vivas ahí (ver deferred_debt) y quedan como deuda posterior, fuera del alcance de este contrato.",
+  "deferred_debt": {
+    "id": "broad-suppressions-in-producers",
+    "count": 9,
+    "sites": [
+      "vp_model/eda.py:79",
+      "vp_model/missingness.py:97",
+      "vp_model/series_characterization.py:120",
+      "vp_model/series_characterization.py:136",
+      "vp_model/series_characterization.py:258",
+      "experiments/auto_arima_baseline.py:30",
+      "experiments/build_eda_facts.py:116",
+      "experiments/freeze_shadow.py:174",
+      "experiments/generate_web_forecasts.py:664"
+    ],
+    "note": "Supresiones amplias (`simplefilter(\"ignore\")` / `filterwarnings(\"ignore\")`) en el camino de ejecución de los productores. Estrecharlas exige tocar productores y re-verificar artefactos canónicos, así que NO entra en D2-C. `vp_model/walkforward.py:148` usa `simplefilter(\"always\")`, que no suprime nada y por eso no cuenta."
+  },
+  "warnings": [
+    {
+      "id": "sklearn-lgbm-feature-names",
+      "package": "scikit-learn",
+      "version": "1.9.0",
+      "pin_source": "locks/model-cpu.txt",
+      "category": "UserWarning",
+      "message_prefix": "X does not have valid feature names, but LGBMRegressor was fitted with feature names",
+      "origin": "vp_model/tune.py",
+      "reason": "LightGBM se entrena con nombres de columna y se predice sobre un ndarray sin nombres; comportamiento benigno y estable de sklearn/LightGBM.",
+      "issue": "upstream sklearn/LightGBM: predecir con ndarray tras fit con DataFrame",
+      "review": "2027-01-31"
+    },
+    {
+      "id": "optuna-multivariate-experimental",
+      "package": "optuna",
+      "version": "4.9.0",
+      "pin_source": "locks/deep-macos-arm64.txt",
+      "category": "optuna.exceptions.ExperimentalWarning",
+      "message_prefix": "Argument ``multivariate`` is an experimental feature",
+      "origin": "vp_model/tune.py:346",
+      "reason": "El TPESampler usa `multivariate=True` (API experimental deliberada) para el muestreo conjunto de hiperparametros.",
+      "issue": "optuna experimental API multivariate",
+      "review": "2027-01-31"
+    },
+    {
+      "id": "optuna-group-experimental",
+      "package": "optuna",
+      "version": "4.9.0",
+      "pin_source": "locks/deep-macos-arm64.txt",
+      "category": "optuna.exceptions.ExperimentalWarning",
+      "message_prefix": "Argument ``group`` is an experimental feature",
+      "origin": "vp_model/tune.py:346",
+      "reason": "El TPESampler usa `group=True` (API experimental deliberada) para respetar la estructura de grupos del espacio.",
+      "issue": "optuna experimental API group",
+      "review": "2027-01-31"
+    },
+    {
+      "id": "scipy-constant-input-corr",
+      "package": "scipy",
+      "version": "1.17.1",
+      "pin_source": "pyproject.toml",
+      "category": "scipy.stats.ConstantInputWarning",
+      "message_prefix": "An input array is constant",
+      "origin": "vp_model/tune.py:430",
+      "reason": "Una serie puede ser constante en una ventana; la correlacion no esta definida y se maneja aguas abajo. Benigno.",
+      "issue": "scipy constant-input correlation",
+      "review": "2027-01-31"
+    },
+    {
+      "id": "statsmodels-nonstationary-ar-start",
+      "package": "statsmodels",
+      "version": "0.14.6",
+      "pin_source": "pyproject.toml",
+      "category": "UserWarning",
+      "message_prefix": "Non-stationary starting autoregressive parameters found. Using zeros as starting parameters.",
+      "origin": "vp_model (ajuste ARIMA/SARIMA sobre series no estacionarias)",
+      "reason": "statsmodels avisa que los parametros AR iniciales caen fuera de la region estacionaria y arranca en ceros; es su fallback documentado y el ajuste converge igual. El panel es no estacionario por construccion (71/74 series requieren diferenciacion), asi que el aviso es estructural, no un defecto propio.",
+      "issue": "upstream statsmodels: starting parameters no estacionarios en ARIMA",
+      "review": "2027-01-31"
+    },
+    {
+      "id": "statsmodels-noninvertible-ma-start",
+      "package": "statsmodels",
+      "version": "0.14.6",
+      "pin_source": "pyproject.toml",
+      "category": "UserWarning",
+      "message_prefix": "Non-invertible starting MA parameters found. Using zeros as starting parameters.",
+      "origin": "vp_model (ajuste ARIMA/SARIMA con componente MA)",
+      "reason": "El equivalente MA del anterior: los parametros MA iniciales no son invertibles y statsmodels arranca en ceros. Mismo fallback documentado y misma causa estructural.",
+      "issue": "upstream statsmodels: starting parameters MA no invertibles en ARIMA",
+      "review": "2027-01-31"
+    },
+    {
+      "id": "statsmodels-mle-convergence",
+      "package": "statsmodels",
+      "version": "0.14.6",
+      "pin_source": "pyproject.toml",
+      "category": "statsmodels.tools.sm_exceptions.ConvergenceWarning",
+      "message_prefix": "Maximum Likelihood optimization failed to converge. Check mle_retvals",
+      "origin": "statsmodels (optimizador MLE de statsmodels.tsa.arima) al ajustar ARIMA desde vp_model.models.build_model('arima'); se observa en el walk-forward y aflora en tests/test_walkforward.py",
+      "reason": "El optimizador de maxima verosimilitud de statsmodels no converge en algunas ventanas cortas del walk-forward y lo avisa; el ajuste devuelve parametros utilizables y la prueba de fuga temporal solo compara pronosticos. Aparecio al activar `error` global; NO es codigo propio y corregirlo exigiria tocar vp_model/, fuera del alcance de D2-C (regla 10 de la autorizacion: excepcion upstream, reproducible y estrecha).",
+      "issue": "upstream statsmodels: MLE no converge en ventanas cortas",
+      "review": "2027-01-31"
+    }
+  ]
+}

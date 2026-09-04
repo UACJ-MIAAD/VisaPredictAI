@@ -66,7 +66,10 @@ def check(root: Path = ROOT, contracts_dir: Path = CONTRACTS_DIR) -> list[str]:
             problems.append(f"{c['artifact']}: artefacto ausente")
             continue
         if c["kind"] == "csv":
-            header = art.open().readline().strip().split(",")
+            # D2-C: `art.open()` sin cerrar dejaba el descriptor a merced del GC y emitía
+            # ResourceWarning; con `error` global en la suite eso es un fallo, y con razón.
+            with art.open() as fh:
+                header = fh.readline().strip().split(",")
             missing = [col for col in c["required_columns"] if col not in header]
             if missing:
                 problems.append(f"{c['artifact']}: columnas requeridas ausentes {missing}")
