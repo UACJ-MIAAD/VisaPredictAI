@@ -399,7 +399,9 @@ jobs:
         #     panel, grade every previously-frozen forecast whose target month just
         #     landed (forecast_log.csv vs actuals) → reports/prospective/forecast_scorecard*.
         #     A3: also scores the shadow ledger + emits the champion-vs-shadow head-to-head.
-        python experiments/score_forecasts.py
+        # D7: la instrumentacion mensual deja su marcador de UNA linea en esta ruta (misma
+        # convencion que los marcadores de advisories); el paso sigue siendo BLOQUEANTE.
+        VP_SCORING_SUMMARY=/tmp/tracking_monthly.txt python experiments/score_forecasts.py
 
         # 4c-bis (A4). Pre-registered prospective promotion gate: consumes both
         # scorecards and refreshes reports/governance/promotion_decision.json
@@ -758,6 +760,14 @@ jobs:
           ADVISORY_LINE=$(python -c "import json;print(json.load(open('/tmp/advisory_summary.json'))['status_line'])" 2>/dev/null | tr -d '"\\' || echo "resumen presente pero ilegible este run")
           PAIRS_LINE=$(python -c "import json;print(json.load(open('/tmp/advisory_summary.json'))['n_pairs_live'])" 2>/dev/null || echo "n/d")
         fi
+        # D7: resumen de la instrumentacion mensual del scoring, DERIVADO del marcador de
+        # UNA linea que deja experiments/score_forecasts.py (que lo deriva de las metricas
+        # del propio record). El script lo escribe tambien si el scoring falla. Sin marcador
+        # -o sin rebuild- la linea dice n/d: jamas se finge una corrida que no hubo.
+        TRACKING_LINE="n/d (sin rebuild este run)"
+        if [ -f /tmp/tracking_monthly.txt ]; then
+          TRACKING_LINE=$(head -n 1 /tmp/tracking_monthly.txt | tr -d '"\\')
+        fi
         # I3 (STORAGE_POLICY.md): metrica mensual de crecimiento por clase de
         # almacenamiento — si reports/ o .git crecen sostenido, la poda es una
         # decision de PR con la politica actualizada, nunca un script automatico.
@@ -768,7 +778,7 @@ jobs:
           "Destination": {"ToAddresses": ["al263483@alumnos.uacj.mx"]},
           "Content": {"Simple": {
             "Subject": {"Data": "VisaPredict | corrida $JOB_STATUS — $NEW boletín(es) nuevo(s) [$ADVISORY_N advisories fallidos]"},
-            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nFuente: $SOURCE_LINE\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nEDA vivo: $EDA_LINE\nFE vivo: $FE_LINE\nCampeon-retador: $CHAMPION_LINE\nSombra: $SHADOW_LINE\nAdvisories: $ADVISORY_LINE\nGate prospectivo: n_pairs_live=$PAIRS_LINE\nPublicacion (allowlist): $PUBLISH_LINE\nRelease gate (A-01): $RELEASE_LINE\nCI del SHA exacto: $CIWAIT_LINE\nCompletitud (exenciones): $COMPLETENESS_LINE\nDeploy verificado: $DEPLOY_LINE\nTamanos (I3): $SIZES_LINE\nLogs: $RUN_URL"}}
+            "Body": {"Text": {"Data": "El proceso de actualización corrió.\nResultado del job: $JOB_STATUS\nBoletines nuevos congelados este run: $NEW\nFuente: $SOURCE_LINE\nDrift ML: $DRIFT_LINE\nConsistencia (regla #0): $CONS_LINE\nEDA vivo: $EDA_LINE\nFE vivo: $FE_LINE\nCampeon-retador: $CHAMPION_LINE\nSombra: $SHADOW_LINE\nAdvisories: $ADVISORY_LINE\nGate prospectivo: n_pairs_live=$PAIRS_LINE\nTracking mensual: $TRACKING_LINE\nPublicacion (allowlist): $PUBLISH_LINE\nRelease gate (A-01): $RELEASE_LINE\nCI del SHA exacto: $CIWAIT_LINE\nCompletitud (exenciones): $COMPLETENESS_LINE\nDeploy verificado: $DEPLOY_LINE\nTamanos (I3): $SIZES_LINE\nLogs: $RUN_URL"}}
           }}
         }
         JSON

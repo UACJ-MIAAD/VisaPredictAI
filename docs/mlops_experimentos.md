@@ -82,6 +82,50 @@ loguea INCLUSO si el bloque falla (status `failed` + excepción tipada, re-lanza
   `--apply` (o cualquier sync que ingiera runs) hay que correr `dvc commit mlflow.db.dvc`
   en el mismo commit para que el pointer refleje la db nueva.
 
+## Instrumentación de la corrida mensual (D7)
+
+`experiments/score_forecasts.py` es el único paso del cron que adopta `track_run`, y lo hace
+**una vez por invocación**: la corrida entera va dentro de un solo context-manager, así que
+emite **exactamente un** record `web_forecast_scoring` (`run_name = monthly`). Antes emitía
+uno global *más uno por horizonte*, de modo que el número de records dependía del mes y no
+existía ninguno cuando no había nada puntuado o cuando el scoring fallaba.
+
+Qué garantiza el contrato:
+
+| Regla | Cómo se cumple |
+|---|---|
+| un record por invocación | el `with track_run(...)` envuelve `_score_all`, incluido el retorno temprano |
+| se registra lo que no produjo nada | cero objetivos realizados y ledger ausente emiten igual, con `n_scored = 0` y el motivo en `warnings` |
+| un fallo se ve y no se traga | `status = "failed"` + excepción tipada, **re-lanzada sin alterar** (el paso del cron sigue siendo bloqueante) |
+| el tracking nunca enmascara | si `log_run` falla durante un fallo del scoring, gana la excepción original (`vp_model.tracking`); si falla el marcador, queda el aviso en `stderr` y la corrida sigue |
+| un `log_run` roto no se disfraza de éxito | `track_run` re-lanza ese fallo, así que el comando falla; el marcador se escribe **fuera** del `with` y dice `FALLO`, nunca `ok` |
+| métricas mínimas | `n_scored`, `n_pending`, `n_no_scale`, `n_pairs`, `n_pairs_live` (esta última con la MISMA definición que `vp_model.promotion.decide`), más `mae_days`/`mase`/`cov80`/`cov95` **cuando existen** |
+| artefactos honestos | cada salida se registra **justo después de escribirse**; no hay descubrimiento por `is_file()` al final, así que un scorecard sombra de la añada anterior no se cuela y un fallo a mitad deja anotadas solo las salidas que sí llegaron a existir |
+| telemetría medida | duración, RSS, GPU si aplica, bytes de artefactos y warnings los mide `vp_model.tracking`, que los deja en `TrackedRun.telemetry`; el script los **lee** para el correo y no fabrica ninguno |
+| salidas intactas | los cinco artefactos publicados son **byte-idénticos** para las mismas entradas (maestro dorado en `tests/test_forecast_scoring.py`) |
+
+**Marcador para el correo.** Al terminar —también si el scoring falló— el script escribe una
+línea única en `$VP_SCORING_SUMMARY` (por omisión `/tmp/tracking_monthly.txt`), derivada de
+las métricas del propio record:
+
+```text
+ok · status=ok · n_scored=1234 · n_pending=567 · n_no_scale=0 · n_pairs=158 · n_pairs_live=0 · MASE 0.347 · MAE 22 d · cob95 97% · 41.882 s · RSS 612.4 MB · GPU n/a · artefactos 1841203 B · warnings=0
+FALLO RuntimeError: sin actuals · status=failed · n_scored=0 · n_pending=0 · n_no_scale=0 · n_pairs=0 · n_pairs_live=0 · 0.412 s · RSS 88.1 MB · GPU n/a · artefactos n/d · warnings=1
+```
+
+Todo lo que va después de las métricas sale de `TrackedRun.telemetry`, la misma que se registró:
+duración, RSS pico, GPU (`n/a` sin CUDA), bytes de artefactos y cuántos warnings acumuló la corrida.
+El `status` es el del **comando**, no el del bloque: cuando el scoring va bien pero `log_run` falla,
+la telemetría registrada dice `ok` y el marcador dice `FALLO`, porque eso es lo que vio el operador.
+
+El cron la pega en el correo SES como `Tracking mensual: ...`. **Sin marcador o sin rebuild la
+línea dice `n/d`**, nunca un éxito fingido. El marcador vive en `/tmp`: es telemetría del run,
+no evidencia del release, así que no se versiona ni entra en DVC.
+
+**Alcance y revisión.** Esto no cambia la política de AO9: el staging sigue siendo local y no
+hay servicio MLflow remoto en el cron. La adopción queda **a prueba durante dos rebuilds
+reales**; con esa evidencia se decide conservar o retirar `vp_model/tracking.py`.
+
 ## ⚠️ Decisión (AO9): MLflow = archivo histórico, NO dashboard en vivo
 
 MLflow se sincroniza **manualmente** (`make mlflow-sync`, o como paso 1 de

@@ -62,6 +62,10 @@ class TrackedRun:
         self.tags: dict = dict(tags or {})
         self.warnings: list[str] = []
         self.artifacts: list[str] = []
+        # ``track_run`` deposita aquí la telemetría FINAL (la misma que loguea) antes de
+        # intentar el registro: quien envuelve el bloque puede reportarla —a un correo, a un
+        # marcador— sin volver a medir nada ni fabricar valores.
+        self.telemetry: dict = {}
 
     def log_metric(self, key: str, value: float) -> None:
         self.metrics[key] = value
@@ -100,6 +104,11 @@ def track_run(
 
     Fallo ⇒ ``telemetry.status="failed"`` + ``telemetry.exception`` tipada y la excepción
     se RE-LANZA (el tracking observa, no traga errores).
+
+    La telemetría final queda además en ``run.telemetry`` ANTES de intentar el registro, para
+    que el llamador la reporte sin re-medirla. Ojo: si ``log_run`` falla tras un bloque
+    exitoso, esta función RE-LANZA ese fallo — un resumen del llamador debe escribirse
+    DESPUÉS de salir del ``with``, o declarará un éxito que el comando no tuvo.
     """
     run = TrackedRun(params, tags)
     t0 = time.monotonic()
@@ -119,6 +128,7 @@ def track_run(
             "warnings": run.warnings,
             "exception": ({"type": type(error).__name__, "message": str(error)[:500]} if error is not None else None),
         }
+        run.telemetry = telemetry
         try:
             base.log_run(
                 experiment,
