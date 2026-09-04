@@ -242,3 +242,149 @@ def test_watchdog_state_notice_names_the_human_action():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q", "--no-cov"]))
+
+# ---------------------------------------------------------------------------
+# D2-B: advisories visibles (marcadores estrictos, asunto, SES, issue único)
+# ---------------------------------------------------------------------------
+ADVISORY_SUMMARY = "/tmp/advisory_summary.json"
+ADVISORY_STATE_REL = "reports/governance/advisory_state.json"
+
+
+def _model_step() -> dict:
+    """El bloque de modelado (id ``model``) es donde viven los dos advisories y su publish."""
+    return next(s for s in _update_steps() if s.get("id") == "model")
+
+
+def _model_text() -> str:
+    return str(_model_step()["run"])
+
+
+def test_both_advisories_stay_non_blocking_and_write_strict_markers():
+    """Sus fallos no propagan (no hay `exit`/`set -e` que los eleve) y el marcador es exacto."""
+    text = _model_text()
+    for script, marker in (
+        ("experiments/run_champion_challenger.py", "/tmp/champion_status.txt"),
+        ("experiments/freeze_shadow.py", "/tmp/shadow_status.txt"),
+    ):
+        assert f"if python {script}; then" in text, f"{script} debe seguir siendo advisory (rama else, sin abortar)"
+        assert f'echo -n "ok" > {marker}' in text
+        assert f'echo -n "failed" > {marker}' in text
+    # el bloque advisory jamás toca el gate de release ni el deploy
+    idx = text.index("experiments/run_champion_challenger.py")
+    block = text[idx : text.index("advisory_state.py")]
+    assert "exit 1" not in block and "release gate" not in block
+
+
+def test_advisory_state_is_updated_from_the_markers_and_is_not_blocking():
+    text = _model_text()
+    assert "python tools/advisory_state.py update" in text
+    assert f"--state {ADVISORY_STATE_REL}" in text
+    assert "--marker champion_challenger=/tmp/champion_status.txt" in text
+    assert "--marker shadow_freeze=/tmp/shadow_status.txt" in text
+    assert f"--out {ADVISORY_SUMMARY}" in text
+    call = text[text.index("python tools/advisory_state.py") :]
+    assert "::warning::" in call.split("\n\n")[0], "el fallo del estado debe degradar a warning, no bloquear"
+
+
+def test_advisory_state_rides_the_model_publish_allowlist():
+    """El estado pertenece a la fase model y ya viaja en su allowlist vigente (sin ampliarla)."""
+    assert any(ADVISORY_STATE_REL.startswith(prefix) for prefix in ALLOWLIST["model"])
+    text = _model_text()
+    assert text.index("advisory_state.py") < text.index("--stage model"), (
+        "el estado se actualiza antes del commit del bloque de modelado que lo publica"
+    )
+
+
+def _ses_step() -> dict:
+    return next(s for s in _update_steps() if "SES" in s.get("name", ""))
+
+
+def test_ses_subject_always_ends_with_the_derived_advisory_count():
+    run = str(_ses_step()["run"])
+    assert '[$ADVISORY_N advisories fallidos]"}' in run, "el asunto debe terminar en el sufijo con N"
+    assert "ADVISORY_N=0" in run, "sin rebuild no corren advisories: N=0, sin fingir éxito"
+    assert f"json.load(open('{ADVISORY_SUMMARY}'))['failed_count']" in run, "N sale del resumen de marcadores"
+    assert "advisories fallidos" not in run.split("Subject")[0].replace("ADVISORY_N=0", ""), (
+        "N no puede tipearse en texto libre"
+    )
+
+
+def test_ses_body_carries_both_advisory_statuses_and_the_prospective_gate():
+    run = str(_ses_step()["run"])
+    assert "Advisories: $ADVISORY_LINE" in run and "Gate prospectivo: n_pairs_live=$PAIRS_LINE" in run
+    assert f"json.load(open('{ADVISORY_SUMMARY}'))['status_line']" in run
+    assert f"json.load(open('{ADVISORY_SUMMARY}'))['n_pairs_live']" in run
+    assert 'PAIRS_LINE="n/d"' in run, "ausente o inválido se muestra honestamente como n/d"
+    assert "n_pairs_live=158" not in run, "el valor jamás se hardcodea"
+
+
+def _advisory_issue_step() -> dict:
+    return next(s for s in _update_steps() if "Advisory issue" in s.get("name", ""))
+
+
+def test_advisory_issue_is_single_labelled_and_never_blocking():
+    step = _advisory_issue_step()
+    assert step.get("continue-on-error") is True and step.get("if") == "always()"
+    assert step["uses"].endswith(GH_SCRIPT_SHA)
+    script = step["with"]["script"]
+    assert "labels: label" in script and "mlops-advisory" in script
+    assert "issue_action" in script and "'open'" in script and "'close'" in script
+    assert "ya abierto: no se duplica" in script, "corridas posteriores no duplican ni comentan a diario"
+    assert "issues.update" in script and "state: 'closed'" in script, "la recuperación comenta una vez y cierra"
+    assert "if (!fs.existsSync(path))" in script, "sin resumen (sin rebuild) no hace nada"
+
+
+def test_failure_issue_and_source_blocked_issue_stay_separate_from_the_advisory_one():
+    names = [s.get("name", "") for s in _update_steps()]
+    assert sum("Advisory issue" in n for n in names) == 1
+    assert any("Alert on failure" in n for n in names), "el issue de fallo real sigue existiendo"
+    text = CRON.read_text(encoding="utf-8")
+    assert "scrape-failure" in text and "mlops-advisory" in text and "source-blocked" in text
+
+
+def test_advisory_label_is_ensured_before_the_issue_is_created():
+    """M8-R1: la etiqueta no existía en el repo; crearla es parte del camino de apertura.
+
+    Sin esto, `issues.create` con una etiqueta inexistente puede fallar y `continue-on-error`
+    convertiría la alerta en un silencio.
+    """
+    script = _advisory_issue_step()["with"]["script"]
+    get_label = script.index("issues.getLabel")
+    create_label = script.index("issues.createLabel")
+    create_issue = script.index("issues.create({")
+    assert get_label < create_issue and create_label < create_issue, (
+        "la etiqueta se comprueba y se crea ANTES de abrir el issue"
+    )
+    assert "e.status !== 404" in script, "solo la ausencia (404) dispara la creación"
+    assert "e2.status !== 422" in script, "'ya existe' (422) es idempotente"
+    assert "throw e" in script and "throw e2" in script, "cualquier otro error se propaga al paso"
+    assert "color: 'B60205'" in script and "description:" in script, "color y descripción fijos"
+
+
+def test_advisory_label_name_is_identical_everywhere():
+    """Un solo nombre exacto para listar, crear y asignar."""
+    script = _advisory_issue_step()["with"]["script"]
+    assert script.count("const label = 'mlops-advisory';") == 1
+    assert "labels: label," in script  # listForRepo
+    assert "name: label" in script  # getLabel y createLabel
+    assert "labels: [label]," in script  # issues.create
+    assert "'mlops-advisory'" in script and script.count("mlops-advisory") == 1, (
+        "el nombre vive en una sola constante, sin variantes tipeadas"
+    )
+
+
+def test_advisory_issue_step_stays_non_blocking_after_the_label_fix():
+    step = _advisory_issue_step()
+    assert step.get("continue-on-error") is True and step.get("if") == "always()"
+
+
+def test_first_failure_opens_nothing_and_the_second_reaches_the_label_and_issue_path():
+    """La transición que dispara el camino de etiqueta+issue es el SEGUNDO fallo consecutivo."""
+    from tools import advisory_state as adv
+
+    first = adv.next_state(None, {"champion_challenger": "failed", "shadow_freeze": "ok"}, "r1")
+    assert adv.issue_action(first, None) == "none"
+    second = adv.next_state(first, {"champion_challenger": "failed", "shadow_freeze": "ok"}, "r2")
+    assert adv.issue_action(second, first) == "open"
+    script = _advisory_issue_step()["with"]["script"]
+    assert "if (action !== 'open' && action !== 'close')" in script, "solo open/close actúan"
