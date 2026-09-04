@@ -318,6 +318,55 @@ def test_ses_body_carries_both_advisory_statuses_and_the_prospective_gate():
     assert "n_pairs_live=158" not in run, "el valor jamás se hardcodea"
 
 
+# D7: la instrumentación mensual del scoring viaja al correo como una línea propia.
+SCORING_SRC = ROOT / "experiments" / "score_forecasts.py"
+TRACKING_ENV = "VP_SCORING_SUMMARY"
+
+
+def _scoring_step() -> dict:
+    return next(s for s in _update_steps() if "experiments/score_forecasts.py" in str(s.get("run", "")))
+
+
+def _marker_path() -> str:
+    """La ruta del marcador la fija el CRON (como los marcadores de advisories); aquí se lee
+    de su propia orden para que el test no la re-tipee."""
+    run = str(_scoring_step()["run"])
+    line = next(ln for ln in run.splitlines() if "experiments/score_forecasts.py" in ln)
+    assert line.strip().startswith(f"{TRACKING_ENV}="), "el cron pasa la ruta explícita al script"
+    return line.strip().split("=", 1)[1].split()[0]
+
+
+def test_ses_body_carries_the_monthly_tracking_line():
+    run = str(_ses_step()["run"])
+    marker = _marker_path()
+    assert "Tracking mensual: $TRACKING_LINE" in run, "el resumen mensual tiene línea propia"
+    assert f"[ -f {marker} ]" in run, "el correo lee EXACTAMENTE el marcador que el cron pidió escribir"
+    assert f"head -n 1 {marker}" in run, "una sola línea: el correo nunca se parte"
+
+
+def test_monthly_tracking_line_is_honest_without_a_marker():
+    run = str(_ses_step()["run"])
+    assert 'TRACKING_LINE="n/d (sin rebuild este run)"' in run
+    for invented in ("n_scored=", "n_pairs_live=1", "MASE "):
+        assert invented not in run.split("Subject")[0], f"{invented} jamás se tipea en el cron"
+
+
+def test_tracking_marker_env_is_single_sourced_with_the_scoring_script():
+    # Sin importar score_forecasts: este test corre en el job base, que no trae el extra `model`.
+    src = SCORING_SRC.read_text(encoding="utf-8")
+    assert f'SUMMARY_ENV = "{TRACKING_ENV}"' in src, "el cron y el script nombran la MISMA variable"
+    assert "os.environ.get(SUMMARY_ENV" in src, "el script honra la ruta que le pasa el invocador"
+    assert _marker_path().endswith(".txt")
+
+
+def test_scoring_step_stays_blocking_so_a_failure_is_not_swallowed():
+    step = _scoring_step()
+    run = str(step["run"])
+    assert "python experiments/score_forecasts.py\n" in run
+    assert "score_forecasts.py || true" not in run, "un fallo del scoring debe seguir tumbando el paso"
+    assert step.get("continue-on-error") is not True
+
+
 def _advisory_issue_step() -> dict:
     return next(s for s in _update_steps() if "Advisory issue" in s.get("name", ""))
 

@@ -22,8 +22,21 @@ universo, consumible por el gate de promoción (A4). Salidas:
   • reports/prospective/forecast_scorecard_shadow.csv  — ídem para el ledger sombra
   • reports/prospective/forecast_scorecard_shadow_meta.json
   • reports/prospective/prospective_head_to_head.json  — pares campeón/sombra (mismo modo)
-Tracking MLflow (experimento "web_forecast_scoring") es para desarrollo local; el registro
-DURABLE es el scorecard commiteado en git (en CI el staging MLflow es efímero).
+Tracking (experimento "web_forecast_scoring") es para desarrollo local; el registro
+DURABLE es el scorecard commiteado en git (en CI el staging es efímero, y no hay servicio
+remoto: solo el JSONL de staging de ``vp_data.tracking``).
+
+**D7 — instrumentación mensual.** Cada invocación de ``run`` emite **exactamente un**
+record ``web_forecast_scoring`` vía ``vp_model.tracking.track_run`` (antes eran uno global
+más uno por horizonte, así que el número de records dependía del mes). El record se emite
+también cuando no hay objetivos realizados, cuando falta el ledger y cuando el scoring
+falla —en ese caso con ``status="failed"``, la excepción tipada y el error RE-LANZADO sin
+alterar—, y lleva las métricas mínimas ``n_scored``/``n_pending``/``n_no_scale``/
+``n_pairs``/``n_pairs_live`` más MAE/MASE/cobertura cuando existen. Además deja un
+**marcador de resumen de UNA línea** en ``$VP_SCORING_SUMMARY`` (el cron pasa la ruta
+explícita, como con sus otros marcadores) que pega en el correo como "Tracking mensual: ...";
+sin marcador el correo dice ``n/d`` honestamente. La instrumentación observa: las salidas
+de esta corrida son byte-idénticas a las de antes para las mismas entradas.
 
 Al inicio de una añada nada está realizado aún → n=0 (correcto): la medición se
 acumula mes a mes. Corre en ``ante``:  ante/bin/python experiments/score_forecasts.py
@@ -32,17 +45,29 @@ acumula mes a mes. Corre en ``ante``:  ante/bin/python experiments/score_forecas
 from __future__ import annotations
 
 import json
+import math
+import os
+import sys
+import tempfile
 from pathlib import Path
 
 import pandas as pd
 
-from vp_data import tracking
-from vp_model import config, dataset, intervals, metrics
+from vp_model import config, dataset, intervals, metrics, promotion
+from vp_model.tracking import TrackedRun, track_run
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
 N_FLOOR = 30  # AN7: coverage blocks with n below this carry insufficient_n=true
 log = config.get_logger("score_forecasts")
+
+# D7: el marcador de una línea que el cron pega en el correo. Vive fuera de git (no es un
+# artefacto versionado): es telemetría del run, no evidencia del release. La RUTA la fija
+# quien invoca (el cron la pasa explícita, como con el resto de sus marcadores); el default
+# solo cubre la corrida a mano.
+SUMMARY_ENV = "VP_SCORING_SUMMARY"
+DEFAULT_SUMMARY = Path(tempfile.gettempdir()) / "tracking_monthly.txt"
+MIN_METRICS = ("n_scored", "n_pending", "n_no_scale", "n_pairs", "n_pairs_live")
 
 
 def _score_rows(fc: pd.DataFrame, actuals: dict, scale_for) -> tuple[list[dict], int]:
@@ -171,10 +196,132 @@ def _head_to_head(champ: pd.DataFrame, shadow: pd.DataFrame) -> dict:
     return out
 
 
+def _live_pairs(champ: pd.DataFrame, shadow: pd.DataFrame) -> int:
+    """Pares campeón/sombra que el gate de promoción considera VIVOS (A4).
+
+    Misma definición que ``vp_model.promotion.decide`` (``modes_allowed`` + modo idéntico
+    en ambos lados) y el mismo pareo que ``_pairs``: se deriva, no se re-tipea. No toca
+    ``prospective_head_to_head.json`` — es telemetría, no artefacto publicado."""
+    pair = _pairs(champ, shadow)
+    if not len(pair):
+        return 0
+    modes = promotion.POLICY["modes_allowed"]
+    live = pair[
+        pair["evaluation_mode_champ"].isin(modes) & (pair["evaluation_mode_champ"] == pair["evaluation_mode_shadow"])
+    ]
+    return int(len(live))
+
+
+def _finite(values: dict) -> dict:
+    """Solo métricas numéricas finitas: un MASE NaN (toda la añada sin escala) no es un cero."""
+    out = {}
+    for k, v in values.items():
+        try:
+            f = float(v)
+        except TypeError, ValueError:
+            continue
+        if math.isfinite(f):
+            out[k] = v
+    return out
+
+
+def _summary_path() -> Path:
+    raw = os.environ.get(SUMMARY_ENV, "").strip()
+    return Path(raw) if raw else DEFAULT_SUMMARY
+
+
+def _one_line(text: object, limit: int = 120) -> str:
+    """Colapsa a una sola línea y quita lo que rompería el JSON del correo."""
+    return " ".join(str(text).split()).replace('"', "").replace("\\", "")[:limit]
+
+
+def _wrote(tracked: TrackedRun, path: Path) -> None:
+    """Registra una salida JUSTO DESPUÉS de escribirla.
+
+    No se descubren artefactos con ``is_file()`` al final: un scorecard sombra de la añada
+    anterior seguiría en disco cuando esta corrida no lo produce, y se registraría como si
+    fuera suyo. Registrar al escribir también hace que un fallo a mitad deje anotadas —y
+    solo— las salidas que sí llegaron a existir."""
+    tracked.add_artifact(str(path))
+
+
+def _summary_line(tracked: TrackedRun, error: BaseException | None) -> str:
+    """Resumen de UNA línea, DERIVADO de las métricas y de la telemetría REAL del record.
+
+    ``error`` es el resultado del comando, no el del bloque: si ``log_run`` falla tras un
+    scoring correcto, ``telemetry["status"]`` dice ``ok`` pero el comando falló, y el
+    marcador tiene que decir FALLO."""
+    tel = tracked.telemetry
+    status = "failed" if error is not None else str(tel.get("status", "n/d"))
+    head = "ok" if error is None else f"FALLO {type(error).__name__}: {_one_line(error)}"
+    parts = [head, f"status={status}"]
+    parts += [f"{k}={int(tracked.metrics.get(k, 0))}" for k in MIN_METRICS]
+    if "mase" in tracked.metrics:
+        parts.append(f"MASE {float(tracked.metrics['mase']):.3f}")
+    if "mae_days" in tracked.metrics:
+        parts.append(f"MAE {float(tracked.metrics['mae_days']):.0f} d")
+    if "cov95" in tracked.metrics:
+        parts.append(f"cob95 {float(tracked.metrics['cov95']) * 100:.0f}%")
+    dur = tel.get("duration_s")
+    parts.append("duración n/d" if dur is None else f"{float(dur):.3f} s")
+    rss = tel.get("rss_peak_mb")
+    parts.append("RSS n/d" if rss is None else f"RSS {rss} MB")
+    gpu = tel.get("gpu_mem_mb")
+    parts.append("GPU n/a" if gpu is None else f"GPU {gpu} MB")
+    art = tel.get("artifact_bytes")
+    parts.append("artefactos n/d" if art is None else f"artefactos {int(art)} B")
+    parts.append(f"warnings={len(tel.get('warnings', []))}")
+    return _one_line(" · ".join(parts), limit=400)
+
+
+def _write_summary(tracked: TrackedRun | None, error: BaseException | None) -> None:
+    """Escribe el marcador SIN poder tapar nada.
+
+    Corre en el ``finally`` de ``run``, así que cualquier excepción suya sustituiría al
+    resultado real del scoring o del tracking: por eso el formateo entra también en el
+    ``try``. Si no se puede escribir, queda el aviso en ``stderr`` y el correo dirá ``n/d``,
+    que es la verdad."""
+    if tracked is None:  # track_run murió antes de ceder el acumulador: nada que resumir
+        return
+    try:
+        _summary_path().write_text(_summary_line(tracked, error) + "\n", encoding="utf-8")
+    except (OSError, ValueError, TypeError, UnicodeError) as exc:
+        print(f"[score_forecasts] marcador de resumen no escrito: {exc!r}", file=sys.stderr)
+
+
 def run() -> Path | None:
+    """Corrida mensual instrumentada: UN record por invocación + marcador de resumen.
+
+    El marcador se escribe FUERA del context-manager a propósito: ``track_run`` intenta el
+    registro al salir y RE-LANZA si ese registro falla, así que un marcador escrito dentro
+    declararía ``ok`` en una corrida que el operador ve fallar."""
+    tracked: TrackedRun | None = None
+    error: BaseException | None = None
+    result: Path | None = None
+    try:
+        with track_run(
+            "web_forecast_scoring",
+            "monthly",
+            params={"scope": "prospective"},
+            tags={"kind": "prospective_score"},
+        ) as run_acc:
+            tracked = run_acc
+            result = _score_all(run_acc)
+    except BaseException as exc:
+        error = exc
+        raise
+    finally:
+        _write_summary(tracked, error)
+    return result
+
+
+def _score_all(tracked: TrackedRun) -> Path | None:
+    tracked.log_metrics(dict.fromkeys(MIN_METRICS, 0))
     log_path = REPORTS / "prospective" / "forecast_log.csv"
     if not log_path.exists():
-        log.warning("no hay ledger %s — corre generate_web_forecasts primero", log_path)
+        msg = f"no hay ledger {log_path} — corre generate_web_forecasts primero"
+        log.warning("%s", msg)
+        tracked.warn(msg)
         return None
     fc = pd.read_csv(log_path)
     actuals = dataset.actuals_F()
@@ -202,9 +349,12 @@ def run() -> Path | None:
 
     sdf = pd.DataFrame(scored)
     sdf.to_csv(REPORTS / "prospective" / "forecast_scorecard.csv", index=False)
+    _wrote(tracked, REPORTS / "prospective" / "forecast_scorecard.csv")
     n_no_scale = int(sdf["scaled_err"].isna().sum()) if len(sdf) else 0
     if n_no_scale:
         log.warning("%d fila(s) evaluable(s) sin escala naïve válida (excluidas del MASE)", n_no_scale)
+        tracked.warn(f"{n_no_scale} fila(s) evaluable(s) sin escala naïve válida (excluidas del MASE)")
+    tracked.log_metrics({"n_scored": int(len(sdf)), "n_pending": int(pending), "n_no_scale": n_no_scale})
 
     # A3: overall/by_horizon/by_table se ANCLAN al modo backfill — cuando las añadas live
     # empiecen a puntuar viven en by_mode; ningún agregado combina modos jamás.
@@ -214,6 +364,8 @@ def run() -> Path | None:
     by_table = {t: _agg(g) for t, g in back.groupby("table")} if len(back) else {}
     # cov80 HELD-OUT: cobertura de la banda 80 % sobre las añadas NO usadas para calibrar
     # BAND80_RATIO → out-of-sample, no circular (overall.cov80 sí incluye calibración).
+    if len(back):
+        tracked.log_metrics(_finite({k: overall[k] for k in ("mae_days", "mase", "cov80", "cov95")}))
     heldout = back[~back["origin"].isin(config.BAND80_CAL_VINTAGES)] if len(back) else back
     # n efectivo por añada: muchas añadas (orígenes con último-F antiguo) NO aportan filas
     # evaluables (sus meses-objetivo caen en régimen C/U) → honestidad: el grueso del n
@@ -254,6 +406,7 @@ def run() -> Path | None:
     (REPORTS / "prospective" / "forecast_scorecard_meta.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2) + "\n"
     )
+    _wrote(tracked, REPORTS / "prospective" / "forecast_scorecard_meta.json")
 
     # A3: el ledger sombra se puntúa con la MISMA maquinaria y el mismo universo de
     # actuals, a archivos propios (jamás se mezcla con el scorecard del campeón), y se
@@ -264,6 +417,7 @@ def run() -> Path | None:
         s_scored, s_pending = _score_rows(sfc, actuals, scale_for)
         s_sdf = pd.DataFrame(s_scored)
         s_sdf.to_csv(REPORTS / "prospective" / "forecast_scorecard_shadow.csv", index=False)
+        _wrote(tracked, REPORTS / "prospective" / "forecast_scorecard_shadow.csv")
         _s_back, s_by_mode = _mode_blocks(s_sdf)
         shadow_meta = {
             "what": "scoring del ledger SOMBRA (retador) con la misma maquinaria y universo que el campeón (A3)",
@@ -276,6 +430,7 @@ def run() -> Path | None:
         (REPORTS / "prospective" / "forecast_scorecard_shadow_meta.json").write_text(
             json.dumps(shadow_meta, ensure_ascii=False, indent=2) + "\n"
         )
+        _wrote(tracked, REPORTS / "prospective" / "forecast_scorecard_shadow_meta.json")
         h2h = {
             "what": (
                 "campeón vs sombra por pares (misma añada/serie/target/h y MISMO "
@@ -286,6 +441,7 @@ def run() -> Path | None:
         (REPORTS / "prospective" / "prospective_head_to_head.json").write_text(
             json.dumps(h2h, ensure_ascii=False, indent=2) + "\n"
         )
+        _wrote(tracked, REPORTS / "prospective" / "prospective_head_to_head.json")
         log.info(
             "SOMBRA: n=%d puntuadas (%d pendientes) · head-to-head: %d pares (%d de modo mixto excluidos)",
             len(s_sdf),
@@ -293,28 +449,13 @@ def run() -> Path | None:
             h2h["n_pairs"],
             h2h["n_mixed_mode_excluded"],
         )
+        tracked.log_metrics({"n_pairs": int(h2h["n_pairs"]), "n_pairs_live": _live_pairs(sdf, s_sdf)})
 
+    # D7: UN solo record por invocación (lo emite ``track_run`` al salir de ``run``); antes
+    # se emitía uno global MÁS uno por horizonte, así que el número de records dependía
+    # del mes y ninguno existía cuando no había nada puntuado o el scoring fallaba.
+    tracked.params["n_vintages"] = int(fc["origin"].nunique())
     if len(sdf):
-        tracking.log_run(
-            "web_forecast_scoring",
-            "overall",
-            params={"n_vintages": fc["origin"].nunique(), "scope": "prospective"},
-            metrics={
-                "mae_days": overall["mae_days"],
-                "mase": overall["mase"],
-                "cov95": overall["cov95"],
-                "n": overall["n"],
-            },
-            tags={"kind": "prospective_score"},
-        )
-        for h, a in by_h.items():
-            tracking.log_run(
-                "web_forecast_scoring",
-                f"h{h:02d}",
-                params={"horizon": h, "scope": "prospective"},
-                metrics={"mae_days": a["mae_days"], "mase": a["mase"], "cov95": a["cov95"], "n": a["n"]},
-                tags={"kind": "prospective_score"},
-            )
         log.info(
             "PROSPECTIVO: n=%d · MAE %.0f d · MASE %.3f · cob95 %.0f%%",
             overall["n"],
