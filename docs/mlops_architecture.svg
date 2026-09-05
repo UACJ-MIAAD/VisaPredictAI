@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 860" font-family="'DejaVu Sans','Helvetica Neue',Arial,sans-serif">
+  <defs>
+    <filter id="mash" x="-12%" y="-12%" width="124%" height="140%">
+      <feDropShadow dx="0" dy="2.5" stdDeviation="4" flood-color="#0b1f4a" flood-opacity="0.18"/>
+    </filter>
+    <marker id="maarr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#555559"/>
+    </marker>
+    <linearGradient id="mabg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#f3f6fc"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1320" height="860" fill="#ffffff"/>
+  <text x="40" y="46" font-size="21" font-weight="700" fill="#003CA6">VisaPredict AI — arquitectura MLOps</text>
+  <text x="40" y="68" font-size="12.5" fill="#555559">del boletín publicado al pronóstico servido: datos, modelado, gobernanza y publicación · añada 2026-09</text>
+  <text x="40" y="104" font-size="12" font-weight="600" fill="#555559">1 · DATOS</text>
+  <g>
+    <rect x="40" y="116" width="290" height="132" rx="10" fill="url(#mabg)" stroke="#003CA6" stroke-width="1.6" filter="url(#mash)"/>
+    <rect x="40" y="116" width="290" height="26" rx="10" fill="#003CA6"/>
+    <rect x="40" y="132" width="290" height="10" fill="#003CA6"/>
+    <text x="52" y="134" font-size="13" font-weight="600" fill="#ffffff">Ingesta y estado de la fuente</text>
+    <text x="52" y="162" font-size="12" fill="#231F20">travel.state.gov · bloqueada (403)</text>
+    <text x="52" y="179" font-size="12" fill="#231F20">mes esperado 2026-09</text>
+    <text x="52" y="196" font-size="12" fill="#231F20">añada del panel 2026-09</text>
+    <text x="52" y="213" font-size="12" fill="#231F20">estado: ingestion_state.json</text>
+  </g>
+  <g>
+    <rect x="370" y="116" width="380" height="132" rx="10" fill="url(#mabg)" stroke="#003CA6" stroke-width="1.6" filter="url(#mash)"/>
+    <rect x="370" y="116" width="380" height="26" rx="10" fill="#003CA6"/>
+    <rect x="370" y="132" width="380" height="10" fill="#003CA6"/>
+    <text x="382" y="134" font-size="13" font-weight="600" fill="#ffffff">DAG DVC reproducible</text>
+    <text x="382" y="162" font-size="12" fill="#231F20">7 stages encadenados:</text>
+    <text x="382" y="179" font-size="12" fill="#231F20">scrape → panel → bulletins → database →</text>
+    <text x="382" y="196" font-size="12" fill="#231F20">key_facts → eda_facts → fe_facts</text>
+    <text x="382" y="213" font-size="12" fill="#231F20">dvc.lock es un gate de CI, no un adorno</text>
+  </g>
+  <g>
+    <rect x="790" y="116" width="490" height="132" rx="10" fill="url(#mabg)" stroke="#003CA6" stroke-width="1.6" filter="url(#mash)"/>
+    <rect x="790" y="116" width="490" height="26" rx="10" fill="#003CA6"/>
+    <rect x="790" y="132" width="490" height="10" fill="#003CA6"/>
+    <text x="802" y="134" font-size="13" font-weight="600" fill="#ffffff">Panel multiserie</text>
+    <text x="802" y="162" font-size="12" fill="#231F20">27,911 filas · 298 meses (2001-12 a 2026-09)</text>
+    <text x="802" y="179" font-size="12" fill="#231F20">16,117 observaciones con estado F (entrenables)</text>
+    <text x="802" y="196" font-size="12" fill="#231F20">194 series catalogadas · 136 con historia F</text>
+    <text x="802" y="213" font-size="12" fill="#231F20">74 evaluables tras el filtro de longitud</text>
+  </g>
+  <text x="40" y="292" font-size="12" font-weight="600" fill="#555559">2 · MODELADO Y EVALUACIÓN</text>
+  <g>
+    <rect x="40" y="304" width="330" height="150" rx="10" fill="url(#mabg)" stroke="#2E7D32" stroke-width="1.6" filter="url(#mash)"/>
+    <rect x="40" y="304" width="330" height="26" rx="10" fill="#2E7D32"/>
+    <rect x="40" y="320" width="330" height="10" fill="#2E7D32"/>
+    <text x="52" y="322" font-size="13" font-weight="600" fill="#ffffff">Campeón y retador</text>
+    <text x="52" y="350" font-size="12" fill="#231F20">catálogo de 24 modelos</text>
+    <text x="52" y="367" font-size="12" fill="#231F20">campeón FAD: theta+ets+sarima</text>
+    <text x="52" y="384" font-size="12" fill="#231F20">campeón DFF: sarima</text>
+    <text x="52" y="401" font-size="12" fill="#231F20">manifiesto: champion_manifest.json</text>
+    <text x="52" y="418" font-size="12" fill="#231F20">veredicto mensual, no bloqueante</text>
+  </g>
+  <g>
+    <rect x="410" y="304" width="330" height="150" rx="10" fill="url(#mabg)" stroke="#2E7D32" stroke-width="1.6" filter="url(#mash)"/>
+    <rect x="410" y="304" width="330" height="26" rx="10" fill="#2E7D32"/>
+    <rect x="410" y="320" width="330" height="10" fill="#2E7D32"/>
+    <text x="422" y="322" font-size="13" font-weight="600" fill="#ffffff">Despliegue en sombra</text>
+    <text x="422" y="350" font-size="12" fill="#231F20">ledger sombra propio e inmutable</text>
+    <text x="422" y="367" font-size="12" fill="#231F20">misma máquina de scoring que el campeón</text>
+    <text x="422" y="384" font-size="12" fill="#231F20">158 pares live campeón-vs-sombra</text>
+    <text x="422" y="401" font-size="12" fill="#231F20">salida: prospective_head_to_head.json</text>
+    <text x="422" y="418" font-size="12" fill="#231F20">jamás se mezcla con el campeón</text>
+  </g>
+  <g>
+    <rect x="780" y="304" width="500" height="150" rx="10" fill="url(#mabg)" stroke="#2E7D32" stroke-width="1.6" filter="url(#mash)"/>
+    <rect x="780" y="304" width="500" height="26" rx="10" fill="#2E7D32"/>
+    <rect x="780" y="320" width="500" height="10" fill="#2E7D32"/>
+    <text x="792" y="322" font-size="13" font-weight="600" fill="#ffffff">Evaluación prospectiva</text>
+    <text x="792" y="350" font-size="12" fill="#231F20">2,944 pronósticos congelados ya puntuados</text>
+    <text x="792" y="367" font-size="12" fill="#231F20">MASE 0.347 · MAE 146 días · cobertura 95% = 0.92</text>
+    <text x="792" y="384" font-size="12" fill="#231F20">horizontes h=1 a 12, bandas 80% y 95%</text>
+    <text x="792" y="401" font-size="12" fill="#231F20">el pronóstico se compara con el corte realmente publicado</text>
+    <text x="792" y="418" font-size="12" fill="#231F20">salida: forecast_scorecard*.{csv,json}</text>
+  </g>
+  <text x="40" y="498" font-size="12" font-weight="600" fill="#555559">3 · GOBERNANZA</text>
+  <g>
+    <rect x="40" y="510" width="330" height="150" rx="10" fill="url(#mabg)" stroke="#B26A00" stroke-width="1.6" filter="url(#mash)"/>
+    <rect x="40" y="510" width="330" height="26" rx="10" fill="#B26A00"/>
+    <rect x="40" y="526" width="330" height="10" fill="#B26A00"/>
+    <text x="52" y="528" font-size="13" font-weight="600" fill="#ffffff">Gate de promoción pre-registrado</text>
+    <text x="52" y="556" font-size="12" fill="#231F20">política v1.0.1 · modos live</text>
+    <text x="52" y="573" font-size="12" fill="#231F20">decisión vigente: DFF extend-shadow · FAD extend-shadow</text>
+    <text x="52" y="590" font-size="12" fill="#231F20">la muestra insuficiente NUNCA promueve</text>
+    <text x="52" y="607" font-size="12" fill="#231F20">la promoción real la aplica un humano</text>
+    <text x="52" y="624" font-size="12" fill="#231F20">salida: promotion_decision.json</text>
+  </g>
+  <g>
+    <rect x="410" y="510" width="330" height="150" rx="10" fill="url(#mabg)" stroke="#B26A00" stroke-width="1.6" filter="url(#mash)"/>
+    <rect x="410" y="510" width="330" height="26" rx="10" fill="#B26A00"/>
+    <rect x="410" y="526" width="330" height="10" fill="#B26A00"/>
+    <text x="422" y="528" font-size="13" font-weight="600" fill="#ffffff">Monitor de deriva</text>
+    <text x="422" y="556" font-size="12" fill="#231F20">deriva: detectado · datos ok</text>
+    <text x="422" y="573" font-size="12" fill="#231F20">no es un gate: alimenta el correo</text>
+    <text x="422" y="590" font-size="12" fill="#231F20">3 añadas seguidas abren UN issue</text>
+    <text x="422" y="607" font-size="12" fill="#231F20">la re-campaña la decide un humano</text>
+    <text x="422" y="624" font-size="12" fill="#231F20">salida: drift_report.json</text>
+  </g>
+  <g>
+    <rect x="780" y="510" width="500" height="150" rx="10" fill="url(#mabg)" stroke="#B26A00" stroke-width="1.6" filter="url(#mash)"/>
+    <rect x="780" y="510" width="500" height="26" rx="10" fill="#B26A00"/>
+    <rect x="780" y="526" width="500" height="10" fill="#B26A00"/>
+    <text x="792" y="528" font-size="13" font-weight="600" fill="#ffffff">Guardián de consistencia (regla #0)</text>
+    <text x="792" y="556" font-size="12" fill="#231F20">key_facts.json es la fuente única de toda cifra publicada</text>
+    <text x="792" y="573" font-size="12" fill="#231F20">tesis, paper, web, RAG, diagramas y model card se escanean</text>
+    <text x="792" y="590" font-size="12" fill="#231F20">una cifra de una añada anterior tumba el CI</text>
+    <text x="792" y="607" font-size="12" fill="#231F20">este diagrama entra al mismo escaneo</text>
+    <text x="792" y="624" font-size="12" fill="#231F20">reglas: tools/consistency_rules.yml</text>
+  </g>
+  <text x="40" y="704" font-size="12" font-weight="600" fill="#555559">4 · PUBLICACIÓN</text>
+  <g>
+    <rect x="40" y="716" width="620" height="108" rx="10" fill="url(#mabg)" stroke="#003CA6" stroke-width="1.6" filter="url(#mash)"/>
+    <rect x="40" y="716" width="620" height="26" rx="10" fill="#003CA6"/>
+    <rect x="40" y="732" width="620" height="10" fill="#003CA6"/>
+    <text x="52" y="734" font-size="13" font-weight="600" fill="#ffffff">Manifiesto y procedencia del corte</text>
+    <text x="52" y="762" font-size="12" fill="#231F20">añada 2026-09 · 111 artefactos con su hash</text>
+    <text x="52" y="779" font-size="12" fill="#231F20">identidad del release derivada de la tarjeta normalizada + el resto (D4)</text>
+    <text x="52" y="796" font-size="12" fill="#231F20">salidas: release_manifest.json · MODEL_CARD.md</text>
+  </g>
+  <g>
+    <rect x="700" y="716" width="580" height="108" rx="10" fill="url(#mabg)" stroke="#003CA6" stroke-width="1.6" filter="url(#mash)"/>
+    <rect x="700" y="716" width="580" height="26" rx="10" fill="#003CA6"/>
+    <rect x="700" y="732" width="580" height="10" fill="#003CA6"/>
+    <text x="712" y="734" font-size="13" font-weight="600" fill="#ffffff">Cron mensual y publicación</text>
+    <text x="712" y="762" font-size="12" fill="#231F20">un boletín nuevo dispara ingesta, modelado, EDA/FE y gobernanza</text>
+    <text x="712" y="779" font-size="12" fill="#231F20">release gate BLOQUEANTE y deploy solo tras CI verde del SHA exacto</text>
+    <text x="712" y="796" font-size="12" fill="#231F20">correo SES con fuente, deriva, advisories y tracking mensual</text>
+  </g>
+  <path d="M330 182 L368 182" stroke="#555559" stroke-width="1.4" fill="none" marker-end="url(#maarr)"/>
+  <path d="M750 182 L788 182" stroke="#555559" stroke-width="1.4" fill="none" marker-end="url(#maarr)"/>
+  <path d="M205 248 L205 302" stroke="#555559" stroke-width="1.4" fill="none" marker-end="url(#maarr)"/>
+  <text x="205" y="269" font-size="10.5" fill="#555559" text-anchor="middle" font-style="italic">panel congelado</text>
+  <path d="M1030 248 L1030 302" stroke="#555559" stroke-width="1.4" fill="none" marker-end="url(#maarr)"/>
+  <text x="1030" y="269" font-size="10.5" fill="#555559" text-anchor="middle" font-style="italic">series evaluables</text>
+  <path d="M370 379 L408 379" stroke="#555559" stroke-width="1.4" fill="none" marker-end="url(#maarr)"/>
+  <path d="M740 379 L778 379" stroke="#555559" stroke-width="1.4" fill="none" marker-end="url(#maarr)"/>
+  <path d="M205 454 L205 508" stroke="#555559" stroke-width="1.4" fill="none" marker-end="url(#maarr)"/>
+  <text x="205" y="475" font-size="10.5" fill="#555559" text-anchor="middle" font-style="italic">evidencia por pares</text>
+  <path d="M1030 454 L1030 508" stroke="#555559" stroke-width="1.4" fill="none" marker-end="url(#maarr)"/>
+  <text x="1030" y="475" font-size="10.5" fill="#555559" text-anchor="middle" font-style="italic">cifras vivas</text>
+  <path d="M205 660 L205 714" stroke="#555559" stroke-width="1.4" fill="none" marker-end="url(#maarr)"/>
+  <text x="205" y="681" font-size="10.5" fill="#555559" text-anchor="middle" font-style="italic">decisión trazable</text>
+  <path d="M1030 660 L1030 714" stroke="#555559" stroke-width="1.4" fill="none" marker-end="url(#maarr)"/>
+  <text x="1030" y="681" font-size="10.5" fill="#555559" text-anchor="middle" font-style="italic">corte verificable</text>
+  <path d="M660 770 L698 770" stroke="#555559" stroke-width="1.4" fill="none" marker-end="url(#maarr)"/>
+  <text x="40" y="846" font-size="11" fill="#555559" font-style="italic">Generado por experiments/make_mlops_architecture.py desde las fuentes canónicas del repo; vigilado por el guardián de consistencia.</text>
+</svg>

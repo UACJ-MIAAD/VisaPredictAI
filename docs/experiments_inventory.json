@@ -30,6 +30,7 @@
   "make_gallery_figures.py": {"clase": "producto", "consumidor": "cron 4g -> galeria EDA 4 variantes + PDFs del .tex"},
   "make_hero_figures.py": {"clase": "deliverable", "consumidor": "fan-chart hero del .tex"},
   "make_horizon_figure.py": {"clase": "deliverable", "consumidor": "figura A.10 (horizon_facts.json)"},
+  "make_mlops_architecture.py": {"clase": "deliverable", "consumidor": "docs/MLOPS_ARCHITECTURE.md + docs/mlops_architecture.svg (arquitectura MLOps: material de tesis/deck; vigilado por el guardian)"},
   "make_latinometrics_figures.py": {"clase": "deliverable", "consumidor": "fig backlog estilo Latinometrics del .tex"},
   "make_result_figures.py": {"clase": "deliverable", "consumidor": "results_* del .tex (ranking/backtest/CD/cobertura)"},
   "make_tex_tables.py": {"clase": "deliverable", "consumidor": "tablas generadas del .tex (21 modelos, censo EDA, caracterizacion)"},
