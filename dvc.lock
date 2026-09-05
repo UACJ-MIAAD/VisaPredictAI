@@ -18,16 +18,20 @@ stages:
       size: 9860
     - path: pipeline/scrape_family_visa_bulletins.py
       hash: md5
-      md5: 366db6bf7386840dd7619fc035fbce9e
-      size: 6300
+      md5: 7a1a6aeb4fe66d6633b2e4880e3b0315
+      size: 3467
     - path: pipeline/scrape_visa_bulletins.py
       hash: md5
-      md5: 3a0c138fc8946bf7d0f91592ec1c57f1
-      size: 6359
+      md5: 5ef92a54eafa93dd3173f4a988deb7a8
+      size: 3535
     - path: vp_data/categories.py
       hash: md5
       md5: 2d3224af1481718f77cf1cfcff1d9623
       size: 7233
+    - path: vp_data/extract.py
+      hash: md5
+      md5: a6e73ab635b0699ba99903495af23720
+      size: 5624
     - path: vp_data/visa_common.py
       hash: md5
       md5: bd627bfa46172b99bfe9ef900d7ba6e5

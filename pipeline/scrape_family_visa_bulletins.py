@@ -12,15 +12,14 @@ from tqdm import tqdm
 
 from vp_data.categories import classify_family
 from vp_data.config import RAW_DIR
+from vp_data.extract import extract_country_data as shared_extract
 from vp_data.visa_common import (
     SCRAPER_COUNTRIES,
     SITE_ROOT,
-    annotate_dates,
     check_country_coverage,
     extract_datetime_from_link,
     extract_month_links,
     get_soup,
-    norm_label,
     parse_tables,
     report_failures,
 )
@@ -46,73 +45,9 @@ def classify_family_category(raw) -> None | str:
 
 
 def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataFrame:
-    # 'row' (Rest of World) lives in the "all chargeability areas except
-    # those listed" column; match 'except those listed', which is stable
-    # even when older bulletins split 'chargeability' as 'charge ability'.
-    search_country = "except those listed" if country == "row" else country
-
-    country_data = []
-    for df in all_data:
-        norm = {col: norm_label(col) for col in df.columns}
-
-        # The family-category column is always column 0 (header is
-        # 'family- sponsored', 'family', or '' across the years).
-        cat_col = df.columns[0]
-        country_col = next((c for c in df.columns if search_country in norm[c]), None)
-        if country_col is None or country_col == cat_col:
-            continue
-
-        try:
-            sub = df[[cat_col, country_col, "visa_bulletin_date", "table_type"]].copy()
-        except KeyError, ValueError:
-            # ValueError: a duplicate normalized header makes df[country_col] a
-            # frame, so the column-rename below would mismatch. Skip that table.
-            continue
-        sub.columns = ["F_level", "priority_date", "visa_bulletin_date", "table_type"]
-        country_data.append(sub)
-
-    if not country_data:
-        # J8: schema in sync with the REAL output below (it had drifted: raw_value
-        # and status were missing, so a country with 0 family rows would write a
-        # CSV that build_panel then rejects with a KeyError far from the cause).
-        return pd.DataFrame(
-            columns=[
-                "F_level",
-                "priority_date",
-                "visa_bulletin_date",
-                "table_type",
-                "raw_value",
-                "status",
-                "visa_wait_time",
-                "raw_category",
-            ]
-        )
-
-    country_df = pd.concat(country_data, axis=0, ignore_index=True)
-    country_df = country_df[country_df["visa_bulletin_date"].notna()]
-
-    # raw_value / status / parse priority_date / visa_wait_time (H1 annotation).
-    country_df = annotate_dates(country_df, "priority_date")
-
-    # Preserve the raw published label before normalizing it, so
-    # dim_category_alias can document 20 years of label drift (lineage).
-    # Per-line rstrip: the 2009 archive bulletins publish multi-line labels with
-    # trailing spaces per line; leaving them writes line-trailing whitespace into
-    # the quoted CSV field, which the repo's whitespace hook then rewrites (churn).
-    country_df["raw_category"] = (
-        country_df["F_level"].astype(str).str.strip().str.replace(r"[ \t]+\n", "\n", regex=True)
-    )
-
-    # Map the raw 'Family-Sponsored' label to a canonical level code
-    # (1, 2A, 2B, 3, 4); drop rows that are not a family category.
-    country_df["F_level"] = country_df["F_level"].apply(classify_family_category)
-    country_df = country_df[country_df["F_level"].notna()]
-
-    # Keep a unique (level, month, table) key (guards against any label
-    # transition putting the same category twice in one bulletin).
-    country_df = country_df.drop_duplicates(subset=["F_level", "visa_bulletin_date", "table_type"], keep="first")
-
-    return country_df
+    """Compatibilidad: el algoritmo vive en `vp_data.extract` (C2), parametrizado por la
+    columna de nivel y el clasificador. Aquí solo queda la elección de esos dos."""
+    return shared_extract(country, all_data, level_col="F_level", classifier=classify_family)
 
 
 def write_csvs(all_data: list[pd.DataFrame]) -> None:
