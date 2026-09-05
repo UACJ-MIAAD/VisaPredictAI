@@ -1,5 +1,7 @@
 # Plataforma de experimentación (MLflow + DVC)
 
+> Índice normativo de la documentación: [`docs/ENGINEERING.md`](ENGINEERING.md) — este documento es la **autoridad** sobre la plataforma de experimentación.
+
 Tracking de experimentos, versionado de datos/modelos y reproducibilidad para la campaña de
 modelado. Diseñada alrededor de los **dos entornos** del proyecto (incompatibles por pandas):
 

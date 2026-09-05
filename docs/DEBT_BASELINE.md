@@ -1,5 +1,7 @@
 # Deuda técnica: baseline, trinquete y clasificación de warnings (E3)
 
+> Índice normativo de la documentación: [`docs/ENGINEERING.md`](ENGINEERING.md) — este documento es la **autoridad** sobre el trinquete de deuda.
+
 **Mecánica:** `tools/check_debt.py` (gate en `make check` y en el job consistency de CI)
 compara los marcadores de deuda contra `docs/debt_baseline.json`. **Ningún conteo puede
 subir**; si baja, el gate pide actualizar la baseline en el mismo PR (`--update`,

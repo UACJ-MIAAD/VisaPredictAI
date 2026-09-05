@@ -1,5 +1,7 @@
 # Mapa de dependencias y límites (E1, plan auditoría 2026-07-11)
 
+> Índice normativo de la documentación: [`docs/ENGINEERING.md`](ENGINEERING.md) — este documento es la **autoridad** sobre el contrato de capas.
+
 El contrato de capas del repo, **verificado por `tests/test_architecture.py`** (AST de
 imports, no grep de substrings). La dirección solo apunta hacia abajo:
 
