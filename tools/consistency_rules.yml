@@ -122,7 +122,7 @@ forbidden:
     reason: 'champion/curada/selección-por-serie pre-resurrección (0.1183 / empatada / +9.7% vigentes)'
   - pattern: '(~|≈|\\sim\s*\$?\s*)29[04]\b|\b29[04]\s*~?\s*obs'
     in: [deliverable, paper, readmes, web]
-    reason: 'el "~290 obs" murió con la resurrección: son 296 meses completos'
+    reason: 'el "~290 obs" murió con la resurrección: la cobertura completa la fija n_months'
   - pattern: '(~|≈|\\sim\s*\$?\s*)125\s*~?\s*obs|noviembre\s*(de\s*)?2015|November[\s&nbsp;]*2015'
     in: [deliverable, paper, readmes, web]
     reason: 'DFF existe desde OCTUBRE 2015 con 130 obs (no "~125 / noviembre")'
@@ -286,11 +286,15 @@ numeric:
   - fact: n_months
     label: '([0-9]{3})(?:\s*/\s*[0-9]{3}|\s+de\s+[0-9]{3})[\s\\,~]*(?:boletines|bulletins|meses|months)\b'
     in: [deliverable, web]
-    reason: 'la cobertura de boletines (296) crece con cada boletín; toda mención ratio debe seguirla'
+    reason: 'la cobertura de boletines crece con cada boletín; toda mención en razón debe seguirla'
+  # M33: la forma SUELTA ya no exige determinante. La versión anterior pedía "los|the" y dejaba
+  # pasar "con 300 boletines", que vivió publicado en el plan del sitio: 300 son INSTANTÁNEAS
+  # archivadas, no meses del panel. `(?<![0-9])` evita morder los últimos tres dígitos de un
+  # número mayor, y la regla NO alcanza a "N snapshots"/"N instantáneas", que son otro hecho.
   - fact: n_months
-    label: '(?:los|the)\s+([0-9]{3})\s+(?:boletines|bulletins)\b'
+    label: '(?<![0-9])([0-9]{3})\s+(?:boletines|bulletins)\b'
     in: [deliverable, web]
-    reason: 'menciones sueltas "los 296 boletines" del censo'
+    reason: 'toda mención "N boletines/bulletins" es la cobertura de meses del panel, con o sin determinante'
   - fact: pct_frozen
     label: '\$([0-9]{2})\$\\,\\% de los meses'
     in: [deliverable]
