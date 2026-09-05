@@ -1,5 +1,7 @@
 # Reporte de código muerto — US D1 (plan auditoría 2026-07-12)
 
+> Índice normativo de la documentación: [`docs/ENGINEERING.md`](ENGINEERING.md) — documento **histórico**: registra el barrido de julio de 2026, no gobierna el presente.
+
 Candidatos a código muerto en `vp_model/` con prueba de consumidor (validador adversarial
 2026-07-12 + re-verificación con `rg` sobre TODO el repo: código, docs/, reports/latex/,
 `.sh`, workflows). Anti-resurrección: `tests/test_public_api.py`.

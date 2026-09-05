@@ -1,5 +1,7 @@
 # Matriz de fallos: estado → señal → comportamiento → rollback (G4)
 
+> Índice normativo de la documentación: [`docs/ENGINEERING.md`](ENGINEERING.md) — este documento es la **autoridad** sobre los modos de fallo y su rollback.
+
 Cada modo de fallo del plan de auditoría, con la SEÑAL que lo hace visible, el
 comportamiento del sistema, el rollback, y la PRUEBA que lo simula (test o gate que ya
 corre — no simulacros de papel). Invariantes duras que ningún modo viola: **el ledger

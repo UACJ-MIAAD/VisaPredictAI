@@ -1,5 +1,7 @@
 # Roadmap — base de datos a nivel supremo
 
+> Índice normativo de la documentación: [`docs/ENGINEERING.md`](ENGINEERING.md) — documento **histórico**: es un plan fechado, no una norma vigente.
+
 Plan para elevar el modelo de datos de VisaPredict AI: cobertura completa de
 categorías + prácticas de modelado dimensional, gobernanza y calidad de primer
 nivel. El modelo actual (esquema estrella en DuckDB, ver

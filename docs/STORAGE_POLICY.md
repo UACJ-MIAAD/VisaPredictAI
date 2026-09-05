@@ -1,5 +1,7 @@
 # Política de artefactos y almacenamiento (I3, plan auditoría 2026-07-11)
 
+> Índice normativo de la documentación: [`docs/ENGINEERING.md`](ENGINEERING.md) — este documento es la **autoridad** sobre dónde vive cada artefacto.
+
 Inventario de QUÉ vive DÓNDE, con tamaño al corte 2026-07-11, retención, consumidor y
 ruta de restauración. La métrica se re-mide en cada corrida del cron (línea "Tamaños"
 del correo SES) para ver crecimiento mes a mes. **La línea del SES es `du` del checkout
