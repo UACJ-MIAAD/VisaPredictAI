@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from vp_data.categories import EB_CODES, FAMILY_CODES
 from vp_data.cleaning import write_ledger
 from vp_data.config import BASE_EPOCH, BIG_JUMP_YEARS, DAYS_PER_YEAR, TABLE_MAP
 from vp_data.config import CANONICAL_COUNTRY as COUNTRIES
@@ -76,10 +77,12 @@ def load_employment() -> pd.DataFrame:
         # AA4: keep_default_na=False (shield for the UNK sentinel) disables NA
         # coercion for the WHOLE frame, so a stray literal in EB_level would ride
         # through as a plain string. Validate the domain explicitly instead.
+        # C1: pertenencia al dominio cerrado, no un prefijo. `^EB[1-5]` aceptaba cualquier
+        # invención que empezara por ahí ("EB1_INVENTADO") y la dejaba entrar al panel.
         lv = df["EB_level"].astype(str)
-        bad_lv = sorted(set(lv[~lv.str.match(r"^EB[1-5]")]))
+        bad_lv = sorted(set(lv) - set(EB_CODES))
         if bad_lv:
-            raise SystemExit(f"{fp}: EB_level fuera de dominio (^EB[1-5]…): {bad_lv[:5]}")
+            raise SystemExit(f"{fp}: EB_level fuera de dominio {sorted(EB_CODES)}: {bad_lv[:5]}")
         df = df.rename(columns={"visa_bulletin_date": "bulletin_date"})  # priority_date already named
         df["country"] = canon
         df["block"] = "employment"
@@ -100,10 +103,11 @@ def load_family() -> pd.DataFrame:
         df = pd.read_csv(fp, dtype={"status": str, "raw_value": str}, keep_default_na=False, na_values=[""])
         _require(df, fp, "F_level")
         # AA4: same explicit domain validation as the employment loader.
+        # C1: el dominio familiar sale de la misma autoridad que las reglas.
         lv = df["F_level"].astype(str)
-        bad_lv = sorted(set(lv) - {"1", "2A", "2B", "3", "4"})
+        bad_lv = sorted(set(lv) - set(FAMILY_CODES))
         if bad_lv:
-            raise SystemExit(f"{fp}: F_level fuera de dominio {{1,2A,2B,3,4}}: {bad_lv[:5]}")
+            raise SystemExit(f"{fp}: F_level fuera de dominio {sorted(FAMILY_CODES)}: {bad_lv[:5]}")
         df = df.rename(columns={"visa_bulletin_date": "bulletin_date"})  # priority_date already named
         df["country"] = canon
         df["block"] = "family"

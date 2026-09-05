@@ -18,16 +18,20 @@ stages:
       size: 9860
     - path: pipeline/scrape_family_visa_bulletins.py
       hash: md5
-      md5: 24f0bbfec37ba57ce3cfc51cabf50f7d
-      size: 7169
+      md5: 366db6bf7386840dd7619fc035fbce9e
+      size: 6300
     - path: pipeline/scrape_visa_bulletins.py
       hash: md5
-      md5: 6de80054f85aa825ca12fcfe4bdf0158
-      size: 8288
+      md5: 3a0c138fc8946bf7d0f91592ec1c57f1
+      size: 6359
+    - path: vp_data/categories.py
+      hash: md5
+      md5: 2d3224af1481718f77cf1cfcff1d9623
+      size: 7233
     - path: vp_data/visa_common.py
       hash: md5
-      md5: 785afdbb04557202ecd571ea98ea9c4c
-      size: 16498
+      md5: bd627bfa46172b99bfe9ef900d7ba6e5
+      size: 17080
     outs:
     - path: data/raw
       hash: md5
@@ -44,8 +48,12 @@ stages:
       nfiles: 11
     - path: pipeline/build_panel.py
       hash: md5
-      md5: 4c46f84f448d4f28405b19897f40f7ff
-      size: 11826
+      md5: f4268b59323797f13a5512fcf8cfbf95
+      size: 12128
+    - path: vp_data/categories.py
+      hash: md5
+      md5: 2d3224af1481718f77cf1cfcff1d9623
+      size: 7233
     - path: vp_data/cleaning.py
       hash: md5
       md5: ee547a573b7a2c1b827874079c2a75bd
@@ -89,8 +97,8 @@ stages:
       nfiles: 11
     - path: pipeline/build_database.py
       hash: md5
-      md5: abc1006b11c3ec2d8f95855976e02844
-      size: 47468
+      md5: 19b71b5bcd1a47735733dde9b4eed215
+      size: 46219
     - path: pipeline/migrations
       hash: md5
       md5: eec79b4aeac7140a0e7305c44e7eb5de.dir
@@ -100,14 +108,18 @@ stages:
       hash: md5
       md5: 42f5490c7e691f40ab4991acc3611287
       size: 13450
+    - path: vp_data/categories.py
+      hash: md5
+      md5: 2d3224af1481718f77cf1cfcff1d9623
+      size: 7233
     - path: vp_data/config.py
       hash: md5
       md5: e02918da63ffd69554f95fdac9550339
       size: 4593
     - path: vp_data/visa_common.py
       hash: md5
-      md5: 785afdbb04557202ecd571ea98ea9c4c
-      size: 16498
+      md5: bd627bfa46172b99bfe9ef900d7ba6e5
+      size: 17080
     outs:
     - path: data/processed/visa_panel_long.parquet
       hash: md5

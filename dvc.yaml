@@ -29,6 +29,7 @@ stages:
       - pipeline/scrape_visa_bulletins.py
       - pipeline/scrape_family_visa_bulletins.py
       - pipeline/scrape_dv_visa_bulletins.py
+      - vp_data/categories.py
       - data/snapshots
     outs:
       - data/raw:
@@ -40,6 +41,7 @@ stages:
     deps:
       - pipeline/build_panel.py
       - vp_data/cleaning.py
+      - vp_data/categories.py
       - data/raw
     outs:
       - data/processed/visa_panel_long.csv:
@@ -72,6 +74,7 @@ stages:
       # afecta el único out rastreado (el Parquet sale de v_panel_long, sin fuentes).
       - vp_data/visa_common.py
       - vp_data/config.py
+      - vp_data/categories.py
       - data/processed/visa_panel_long.csv
       - data/raw
     # El .duckdb NO se declara como out: el archivo DuckDB embebe orden interno/timestamps y

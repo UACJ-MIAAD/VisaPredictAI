@@ -10,9 +10,9 @@ import logging
 import pandas as pd
 from tqdm import tqdm
 
+from vp_data.categories import classify_family
 from vp_data.config import RAW_DIR
 from vp_data.visa_common import (
-    FOOTNOTE_CHARS,
     SCRAPER_COUNTRIES,
     SITE_ROOT,
     annotate_dates,
@@ -41,28 +41,8 @@ def extract_tables(link: str) -> list[pd.DataFrame]:
 
 
 def classify_family_category(raw) -> None | str:
-    """Map a raw 'Family-Sponsored' row label to a canonical level code,
-    absorbing label drift ('1st'->F1 in 2006-2011, 'F1' from 2011 on, and the
-    '*' footnote variants). Returns None for non-category rows (e.g. the
-    'family' spanning header). Codes match the legacy values: 1, 2A, 2B, 3, 4.
-    """
-    s = norm_label(raw)
-    # J3: same footnote tolerance as classify_eb_category (H3). The hardcoded
-    # '2a*'/'2b*' variants proved the source DOES footnote family rows; the
-    # other levels ('F1*', '4th*') simply hadn't happened yet and would have
-    # dropped the month for that series in silence.
-    s = s.rstrip(FOOTNOTE_CHARS)
-    if s in ("1st", "f1"):
-        return "1"
-    if s in ("2a", "2nd-a", "2nda", "f2a"):
-        return "2A"
-    if s in ("2b", "2nd-b", "2ndb", "f2b"):
-        return "2B"
-    if s in ("3rd", "f3"):
-        return "3"
-    if s in ("4th", "4rd", "f4"):  # '4rd' = typo de la fuente (2003-03) -> recupera 3 celdas F4
-        return "4"
-    return None
+    """Compatibilidad: la taxonomía vive en `vp_data.categories` (C1)."""
+    return classify_family(raw)
 
 
 def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataFrame:

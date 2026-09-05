@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 from bs4 import BeautifulSoup
 
-from vp_data.config import DAYS_PER_YEAR
+from vp_data.config import CANONICAL_COUNTRY, DAYS_PER_YEAR
 
 if TYPE_CHECKING:
     from vp_data.fetchers import Fetcher
@@ -31,7 +31,15 @@ BASE_URL = "https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bull
 SITE_ROOT = "https://travel.state.gov/"
 # Countries scraped, in the order the per-country CSVs are written. 'row' =
 # "All Chargeability Areas Except Those Listed".
-SCRAPER_COUNTRIES = ["india", "china", "mexico", "philippines", "row"]
+# C1: el canónico manda. Esta lista solo fija el ORDEN REAL en que se escriben los CSV por
+# país, que no es el del diccionario canónico; el conjunto se deriva de él, así que ya no hay
+# una segunda lista de países que pueda quedarse atrás.
+_SCRAPER_ORDER = ("india", "china", "mexico", "philippines", "row")
+SCRAPER_COUNTRIES = [c for c in _SCRAPER_ORDER if c in CANONICAL_COUNTRY]
+if set(SCRAPER_COUNTRIES) != set(CANONICAL_COUNTRY):  # fail-closed: un país nuevo sin orden
+    raise SystemExit(
+        f"SCRAPER_COUNTRIES no cubre CANONICAL_COUNTRY: faltan {sorted(set(CANONICAL_COUNTRY) - set(SCRAPER_COUNTRIES))}"
+    )
 DATE_FMT = "%d%b%y"
 # A published cell may carry a footnote marker ("15JUL05*", "01MAY16 1"); the exact strptime
 # would drop it to UNK. As a FALLBACK (only after the exact parse fails) we extract the first
