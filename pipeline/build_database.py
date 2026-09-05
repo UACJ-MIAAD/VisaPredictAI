@@ -51,6 +51,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
+from vp_data.categories import CATEGORY_META  # C1: autoridad única de la taxonomía
 from vp_data.config import (
     DUCKDB_PATH,
     DV_RANK_PATH,
@@ -80,30 +81,6 @@ AREA_NAMES = {
     "all_chargeability": "All Chargeability Areas Except Those Listed",
 }
 TABLE_NAMES = {"FAD": "Final Action Dates", "DFF": "Dates for Filing"}
-CATEGORY_META = {
-    # code: (parent_code, preference_level, is_subcategory, ina_basis)
-    "F1": (None, 1, False, "INA 203(a)(1)"),
-    "F2A": ("F2", 2, True, "INA 203(a)(2)(A)"),
-    "F2B": ("F2", 2, True, "INA 203(a)(2)(B)"),
-    "F3": (None, 3, False, "INA 203(a)(3)"),
-    "F4": (None, 4, False, "INA 203(a)(4)"),
-    "EB1": (None, 1, False, "INA 203(b)(1)"),
-    "EB2": (None, 2, False, "INA 203(b)(2)"),
-    "EB3": (None, 3, False, "INA 203(b)(3)"),
-    "EB3_OW": ("EB3", 3, True, "INA 203(b)(3)"),  # Other Workers
-    "EB4": (None, 4, False, "INA 203(b)(4)"),
-    "EB4_RW": ("EB4", 4, True, "INA 203(b)(4)"),  # Certain Religious Workers
-    "EB4_TRANS": ("EB4", 4, True, "INA 203(b)(4)"),  # Iraqi/Afghan Translators
-    "EB5": (None, 5, False, "INA 203(b)(5)"),
-    "EB5_TEA": ("EB5", 5, True, "INA 203(b)(5)"),  # Targeted Employment Area
-    "EB5_PILOT": ("EB5", 5, True, "INA 203(b)(5)"),  # Regional Center Pilot
-    "EB5_RC": ("EB5", 5, True, "INA 203(b)(5)"),  # Regional Center
-    "EB5_NONRC": ("EB5", 5, True, "INA 203(b)(5)"),  # Non-Regional Center
-    "EB5_UNRESERVED": ("EB5", 5, True, "INA 203(b)(5)"),
-    "EB5_RURAL": ("EB5", 5, True, "INA 203(b)(5)(B)(ii)"),  # RIA-2022 set-asides
-    "EB5_HIGHUNEMP": ("EB5", 5, True, "INA 203(b)(5)(B)(ii)"),
-    "EB5_INFRA": ("EB5", 5, True, "INA 203(b)(5)(B)(ii)"),
-}
 # C/F/U/UNK regime, promoted to dim_status. Only 'F' is a modeling target.
 STATUS_META = [
     ("F", "Final", "Se publicó una fecha o rango específico (único objetivo predictivo).", True),

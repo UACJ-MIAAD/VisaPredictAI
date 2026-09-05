@@ -11,9 +11,9 @@ import re
 import pandas as pd
 from tqdm import tqdm
 
+from vp_data.categories import classify_eb
 from vp_data.config import RAW_DIR
 from vp_data.visa_common import (
-    FOOTNOTE_CHARS,
     SCRAPER_COUNTRIES,
     SITE_ROOT,
     annotate_dates,
@@ -40,66 +40,12 @@ def extract_tables(link: str) -> list[pd.DataFrame]:
 
 
 def classify_eb_category(raw) -> None | str:
-    """Map a raw 'Employment-based' row label to a canonical category code,
-    absorbing 20+ years of label drift. Returns None for rows that are not an
-    EB-1..EB-5 preference line (e.g. Schedule A, footnotes).
+    """Compatibilidad: la taxonomía vive en `vp_data.categories` (C1).
 
-    Canonical codes (H3):
-      EB1 EB2 EB3 EB3_OW EB4 EB4_RW EB4_TRANS EB5
-      EB5_TEA EB5_PILOT EB5_RC EB5_NONRC
-      EB5_UNRESERVED EB5_RURAL EB5_HIGHUNEMP EB5_INFRA
-
-    Order matters: 'targeted employment' and 'non-regional center' must be
-    tested before the bare 'regional center' substring they contain, and the
-    post-2022 set-asides before the generic EB-5 checks.
+    Se conserva el nombre porque es la entrada pública que usa el resto del scraper;
+    las reglas —y su orden semántico— ya no se duplican aquí.
     """
-    s = norm_label(raw)
-    if not s:
-        return None
-    s = s.rstrip(FOOTNOTE_CHARS)  # tolera footnotes tipo '4th*' (la familia ya sufrió '2A*') (H3)
-    # Numbered preferences
-    if s == "1st":
-        return "EB1"
-    if s == "2nd":
-        return "EB2"
-    if s == "3rd":
-        return "EB3"
-    if s == "4th":
-        return "EB4"
-    # EB-3 subcategory
-    if s.startswith("other worker"):
-        return "EB3_OW"
-    # EB-4 subcategories
-    if "religious" in s or "religiuos" in s:  # 'religiuos' = typo de la fuente (2004-05)
-        return "EB4_RW"
-    if "translator" in s:
-        return "EB4_TRANS"
-    # EB-5 post-2022 set-asides
-    if "set aside" in s or "set-aside" in s:
-        if "rural" in s:
-            return "EB5_RURAL"
-        if "high unemployment" in s:
-            return "EB5_HIGHUNEMP"
-        if "infrastructure" in s:
-            return "EB5_INFRA"
-        return "EB5_UNRESERVED"  # defensive fallback
-    if "unreserved" in s:
-        return "EB5_UNRESERVED"
-    # EB-5 pre-2015 targeted-employment / pilot (TEA contains 'regional center')
-    if "targeted employment" in s:
-        return "EB5_TEA"
-    if "pilot prog" in s:  # 'prog' (no 'program') tolera el typo 'pilot progams' (2009-04)
-        return "EB5_PILOT"
-    # EB-5 2015-2022 regional-center split ('non-regional' contains 'regional')
-    if "non-regional center" in s:
-        return "EB5_NONRC"
-    if "regional center" in s:
-        return "EB5_RC"
-    # Bare 5th (2003-2011)
-    if s == "5th":
-        return "EB5"
-    # Schedule A workers and anything else: outside EB-1..5 scope
-    return None
+    return classify_eb(raw)
 
 
 def extract_country_data(country: str, all_data: list[pd.DataFrame]) -> pd.DataFrame:
