@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 from vp_data.categories import classify_family
 from vp_data.config import RAW_DIR
+from vp_data.errors import PARSE_FAILURES, FetchError, ParseError
 from vp_data.extract import extract_country_data as shared_extract
 from vp_data.visa_common import (
     SCRAPER_COUNTRIES,
@@ -72,13 +73,15 @@ def write_csvs(all_data: list[pd.DataFrame]) -> None:
 def main():
     month_links = extract_month_links()
     all_data = []
-    failed = []
+    failed: list[ParseError] = []
     for link in tqdm(month_links, desc="Extracting all family-sponsored visa bulletin tables"):
         try:
             all_data.extend(extract_tables(link))
-        except Exception as exc:
-            failed.append((link, str(exc)[:60]))
-    report_failures(failed, logger)
+        except (FetchError, *PARSE_FAILURES) as exc:
+            # Red caída, WAF o un boletín que no se deja parsear: fallo ESPERADO que se
+            # agrega al reporte mensual. Un defecto nuestro escapa y pone el proceso rojo.
+            failed.append(ParseError("familia", link, str(exc)))
+    report_failures([(err.source, err.describe()) for err in failed], logger)
     write_csvs(all_data)
 
 

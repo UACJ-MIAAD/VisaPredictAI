@@ -10,28 +10,32 @@ stages:
       nfiles: 300
     - path: pipeline/scrape_all.py
       hash: md5
-      md5: 8bee68e47682199d2534ea247f1af1aa
-      size: 4238
+      md5: 7484099981b9f6b8a376afac1ac83da1
+      size: 4898
     - path: pipeline/scrape_dv_visa_bulletins.py
       hash: md5
-      md5: cc96684e6812471182987c9089728c52
-      size: 9860
+      md5: 73e77b3aebec8ca82912dc46071875f1
+      size: 10122
     - path: pipeline/scrape_family_visa_bulletins.py
       hash: md5
-      md5: 7a1a6aeb4fe66d6633b2e4880e3b0315
-      size: 3467
+      md5: f3120e60d7a01e2c53d4a691a409e7f5
+      size: 3810
     - path: pipeline/scrape_visa_bulletins.py
       hash: md5
-      md5: 5ef92a54eafa93dd3173f4a988deb7a8
-      size: 3535
+      md5: 38eb1226adac54cb741914fe1f551782
+      size: 3877
     - path: vp_data/categories.py
       hash: md5
       md5: 2d3224af1481718f77cf1cfcff1d9623
       size: 7233
+    - path: vp_data/errors.py
+      hash: md5
+      md5: fbad403e68b3be98b56bd8f0f8af6f6d
+      size: 3555
     - path: vp_data/extract.py
       hash: md5
-      md5: a6e73ab635b0699ba99903495af23720
-      size: 5624
+      md5: e74b407f086a437249865040ed303b17
+      size: 6411
     - path: vp_data/visa_common.py
       hash: md5
       md5: bd627bfa46172b99bfe9ef900d7ba6e5
@@ -101,8 +105,8 @@ stages:
       nfiles: 11
     - path: pipeline/build_database.py
       hash: md5
-      md5: 19b71b5bcd1a47735733dde9b4eed215
-      size: 46219
+      md5: ef6edb56a1df363d74780ecb4ca44300
+      size: 46233
     - path: pipeline/migrations
       hash: md5
       md5: eec79b4aeac7140a0e7305c44e7eb5de.dir

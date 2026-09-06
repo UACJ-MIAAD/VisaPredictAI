@@ -18,6 +18,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from vp_data.config import RAW_DIR
+from vp_data.errors import PARSE_FAILURES, FetchError, ParseError
 from vp_data.visa_common import (
     SITE_ROOT,
     extract_datetime_from_link,
@@ -233,15 +234,16 @@ def finalize(frames: list[pd.DataFrame]) -> None:
 def main() -> None:
     month_links = extract_month_links()
     frames = []
-    failed = []
+    failed: list[ParseError] = []
     for link in tqdm(month_links, desc="Extracting all diversity-visa bulletin tables"):
         try:
             rows = extract_month_rows(get_soup(SITE_ROOT + link), extract_datetime_from_link(link))
             if not rows.empty:
                 frames.append(rows)
-        except Exception as exc:
-            failed.append((link, str(exc)[:60]))
-    report_failures(failed, logger)
+        except (FetchError, *PARSE_FAILURES) as exc:
+            # Igual que en los otros scrapers: lo esperado se reporta, lo inesperado escapa.
+            failed.append(ParseError("diversity visa", link, str(exc)))
+    report_failures([(err.source, err.describe()) for err in failed], logger)
     finalize(frames)
 
 

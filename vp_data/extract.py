@@ -14,11 +14,24 @@ responsabilidad de cada scraper.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 
 import pandas as pd
 
+from vp_data.errors import ParseError
 from vp_data.visa_common import annotate_dates, norm_label
+
+logger = logging.getLogger(__name__)
+
+
+def month_of(df: pd.DataFrame) -> str | None:
+    """El mes de una tabla ya parseada, si trae uno reconocible."""
+    if "visa_bulletin_date" not in df.columns or df.empty:
+        return None
+    values = df["visa_bulletin_date"].dropna().unique()
+    return None if len(values) == 0 else str(values[0])
+
 
 # Columnas que el marco vacío debe declarar además de la de nivel. Vive aquí porque el panel
 # las exige: un país sin filas escribía antes un CSV incompleto y `build_panel` fallaba lejos
@@ -109,9 +122,16 @@ def extract_country_data(
         cat_col, country_col = cols
         try:
             sub = df[[cat_col, country_col, "visa_bulletin_date", "table_type"]].copy()
-        except KeyError, ValueError:
+        except (KeyError, ValueError) as exc:
             # ValueError: una cabecera normalizada duplicada hace que `df[country_col]` sea un
-            # marco, así que el rename de abajo no cuadraría. Esa tabla se omite.
+            # marco, así que el rename de abajo no cuadraría. Esa tabla se omite — pero C4 le
+            # quita el silencio: se dice qué país, qué mes y por qué, en vez de desaparecer.
+            logger.warning(
+                "tabla omitida (columnas no utilizables): %s",
+                ParseError(
+                    "columnas de país", "tabla parseada", str(exc), month=month_of(df), country=country
+                ).describe(),
+            )
             continue
         sub.columns = [level_col, "priority_date", "visa_bulletin_date", "table_type"]
         country_data.append(sub)
