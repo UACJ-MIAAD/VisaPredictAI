@@ -27,26 +27,56 @@ from matplotlib.ticker import MaxNLocator  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 REP = ROOT / "reports"
 FIG = REP / "latex" / "Figures"
+
 from vp_model.config import BASE_EPOCH, days_to_year  # noqa: E402
 from vp_model.palette import BLUE, GOLD, GRAY, GRID, INK, MID, MUTE, STRIPE, WARN  # noqa: E402
 
 BLACK = INK  # alias: el cuerpo usa BLACK para el texto/línea dominante
 
-plt.rcParams.update(
-    {
-        "font.family": "serif",
-        "font.size": 9,
-        "axes.titlesize": 10,
-        "axes.labelsize": 9,
-        "axes.edgecolor": MID,
-        "axes.linewidth": 0.8,
-        "axes.grid": True,
-        "grid.color": GRID,
-        "grid.linewidth": 0.6,
-        "savefig.bbox": "tight",
-        "savefig.dpi": 300,
-    }
-)
+# C5/R1: el estilo de imprenta de los resultados ya NO se aplica al importar. Es
+# monolingue y solo emite PDF, asi que no tiene variantes; pero su marco visual vive en
+# un tema reversible como el de las galerias, y se aplica al generar, no al importar.
+RESULTS_RC = {
+    "font.family": "serif",
+    "font.size": 9,
+    "axes.titlesize": 10,
+    "axes.labelsize": 9,
+    "axes.edgecolor": MID,
+    "axes.linewidth": 0.8,
+    "axes.grid": True,
+    "grid.color": GRID,
+    "grid.linewidth": 0.6,
+    "savefig.bbox": "tight",
+    "savefig.dpi": 300,
+}
+
+
+def results_context():
+    """El contexto de imprenta de las figuras de resultados: claro, en espanol, sin variantes.
+
+    Los imports van aqui dentro a proposito: este archivo coloca sus imports despues de
+    definir ROOT (E402 ya suprimido linea a linea), y anadir dos supresiones mas solo para
+    el kit haria subir el trinquete de deuda por una razon puramente cosmetica.
+    """
+    from _figkit import FigureContext, LangCtx, Theme
+
+    from vp_model import palette as _palette
+
+    return FigureContext(
+        theme=Theme("light", _palette.LIGHT, RESULTS_RC),
+        lang=LangCtx("es", {}, {}),
+    )
+
+
+def _emit(fig: plt.Figure, name: str) -> None:
+    """Guarda el PDF del .tex y cierra la figura.
+
+    Este generador es monolingue y solo emite PDF vectorial para el entregable, asi que
+    no usa `save_dual` del kit: no tiene variantes de idioma ni de tema. Lo que si era
+    duplicacion real era este par savefig/close repetido en cada figura.
+    """
+    fig.savefig(FIG / f"{name}.pdf")
+    plt.close(fig)
 
 
 # D5 (regla #0): listones desde la fuente única de verdad, no hardcodeados.
@@ -95,8 +125,7 @@ def fig_ranking() -> None:
                 style="italic",
             )
     fig.tight_layout()
-    fig.savefig(FIG / "results_ranking_mase.pdf")
-    plt.close(fig)
+    _emit(fig, "results_ranking_mase")
     print("F1 ranking OK")
 
 
@@ -131,8 +160,7 @@ def fig_forecast() -> None:
         ax.tick_params(axis="x", labelrotation=30, labelsize=7)
         ax.legend(fontsize=7, loc="best", framealpha=0.9)
     fig.tight_layout()
-    fig.savefig(FIG / "results_forecast_winner.pdf")
-    plt.close(fig)
+    _emit(fig, "results_forecast_winner")
     print("F2 forecast OK")
 
 
@@ -207,8 +235,7 @@ def fig_multiseed() -> None:
     ax.set_title("Validación multi-semilla: aprendizaje profundo global vs. listón")
     ax.legend(fontsize=7.5, loc="lower right", framealpha=0.95)
     fig.tight_layout()
-    fig.savefig(FIG / "results_multiseed_ci.pdf")
-    plt.close(fig)
+    _emit(fig, "results_multiseed_ci")
     print("F3 multiseed OK")
 
 
@@ -287,8 +314,7 @@ def fig_coverage_crps() -> None:
         frameon=False,
         bbox_to_anchor=(0.5, -0.01),
     )
-    fig.savefig(FIG / "results_coverage_crps.pdf")
-    plt.close(fig)
+    _emit(fig, "results_coverage_crps")
     print("F4 coverage+crps OK")
 
 
@@ -366,8 +392,7 @@ def fig_backtest_grid(table: str) -> None:
     fig.supylabel("Fecha de prioridad (año)", fontsize=9)
     fig.suptitle(f"Backtest del pronóstico sobre el hold-out — tabla {table}", fontsize=11, y=0.997)
     fig.tight_layout(rect=(0.01, 0.03, 1, 0.99))
-    fig.savefig(FIG / f"results_backtest_grid_{table}.pdf")
-    plt.close(fig)
+    _emit(fig, f"results_backtest_grid_{table}")
     print(f"F5 grid {table} OK")
 
 
@@ -493,8 +518,7 @@ def fig_cd_diagram() -> None:
             ax, avg, cd, f"({'a' if table == 'FAD' else 'b'}) {table} — {k} modelos, {n} series · Friedman {ptxt}"
         )
     fig.tight_layout(h_pad=1.2)
-    fig.savefig(FIG / "results_cd_diagram.pdf")
-    plt.close(fig)
+    _emit(fig, "results_cd_diagram")
     print("F6 CD-diagram OK")
 
 
@@ -528,21 +552,23 @@ def fig_error_heatmap() -> None:
         cb.ax.tick_params(labelsize=6)
     fig.suptitle("Error absoluto medio del pronóstico por serie (días)", fontsize=10, y=1.02)
     fig.tight_layout()
-    fig.savefig(FIG / "results_error_heatmap.pdf")
-    plt.close(fig)
+    _emit(fig, "results_error_heatmap")
     print("F7 heatmap OK")
 
 
 if __name__ == "__main__":
-    fig_ranking()
-    fig_forecast()
-    fig_multiseed()
-    fig_coverage_crps()
-    fig_backtest_grid("FAD")
-    fig_backtest_grid("DFF")
-    fig_cd_diagram()
-    for t in ("FAD", "DFF"):
-        forecast_vs_actual_rows(t).to_csv(REP / "prospective" / f"forecast_vs_actual_{t}.csv", index=False)
-        print(f"tabla {t} -> reports/prospective/forecast_vs_actual_{t}.csv")
-    fig_error_heatmap()  # DESPUÉS de regenerar los CSV que lee (antes iba un run desfasado)
+    from _figkit import figure_style
+
+    with figure_style(results_context()):
+        fig_ranking()
+        fig_forecast()
+        fig_multiseed()
+        fig_coverage_crps()
+        fig_backtest_grid("FAD")
+        fig_backtest_grid("DFF")
+        fig_cd_diagram()
+        for t in ("FAD", "DFF"):
+            forecast_vs_actual_rows(t).to_csv(REP / "prospective" / f"forecast_vs_actual_{t}.csv", index=False)
+            print(f"tabla {t} -> reports/prospective/forecast_vs_actual_{t}.csv")
+        fig_error_heatmap()  # DESPUÉS de regenerar los CSV que lee (antes iba un run desfasado)
     print("Figuras en", FIG)

@@ -25,7 +25,9 @@ from vp_model.palette import BLUE, GRAY, INK, MID, MUTE, style  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"
-style()
+# C5/R1: `style()` ya NO se aplica al importar. Tres modulos importan `MES`/`_flag` de
+# aqui, y ese efecto lateral reconfiguraba Matplotlib para todo el proceso solo por
+# tomar prestada una tabla de meses. Se aplica en el entrypoint, donde se dibuja.
 
 W, H = 150, 100  # lienzo de cada mini-bandera
 
@@ -182,5 +184,6 @@ def fig_backlog(category="F4", table="FAD", highlight="mexico", out="latam_backl
 
 
 if __name__ == "__main__":
+    style()
     fig_backlog()
     print("Latinometrics-UACJ en", FIG)

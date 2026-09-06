@@ -27,6 +27,7 @@ matplotlib.use("Agg")
 import make_fe_figures as fefig  # noqa: E402  (sys.path[0] = experiments/)
 import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
+from _figkit import figure_style, num
 from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 
 from vp_data.decisions_i18n import DECISIONS_EN  # noqa: E402
@@ -349,8 +350,8 @@ def page_decisions(
 def page_ledger(pdf: PdfPages, facts: dict, rt: dict, mes: str, anio: int, page_no: int) -> None:
     led = facts["cleaning_ledger"]
     flat: dict[str, str] = {k: str(v) for k, v in led.items() if not isinstance(v, dict)}
-    flat.update({k: fefig._num(int(v)) for k, v in led["rows_by_status"].items()})
-    flat["n_rows"] = fefig._num(int(led["n_rows"]))
+    flat.update({k: num(int(v)) for k, v in led["rows_by_status"].items()})
+    flat["n_rows"] = num(int(led["n_rows"]))
     fig, ax = _blank_page()
     ax.text(0.06, 0.93, rt["ledger_title"], fontsize=19, color=INK, fontweight="bold")
     ax.text(0.06, 0.90, rt["ledger_sub"], fontsize=9.5, color=GRAY)
@@ -471,10 +472,10 @@ def build(lang: str) -> Path:
     out = OUT[lang]
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    # figuras VIVAS en el idioma del reporte, tema claro (entregable en papel)
-    fefig._apply_lang(lang)
-    fefig._apply_theme(dark=False)
-    df, gfacts = fefig._load()
+    # Figuras VIVAS en el idioma del reporte, tema claro (entregable en papel). El
+    # contexto viaja como argumento: nada que "poner" ni que restaurar en el modulo.
+    ctx = fefig.context_for(lang, "light")
+    df, gfacts = fefig.load_inputs()
     # orden narrativo = flujo del dato: pipeline -> parser -> régimen -> huecos -> FE
     makers = (
         fefig.f07_pipeline,
@@ -485,62 +486,63 @@ def build(lang: str) -> Path:
         fefig.f02_calendar,
         fefig.f03_importance,
     )
-    figs = [mk(df, gfacts) for mk in makers]
-    hero_buf = io.BytesIO()
-    figs[0].savefig(hero_buf, format="png", dpi=150, bbox_inches="tight")
+    with figure_style(ctx):
+        figs = [mk(df, gfacts, ctx) for mk in makers]
+        hero_buf = io.BytesIO()
+        figs[0].savefig(hero_buf, format="png", dpi=150, bbox_inches="tight")
 
-    clean = list(facts["cleaning_decisions"])
-    fe = list(facts["fe_decisions"])
-    with PdfPages(out) as pdf:
-        page_cover(pdf, facts, rt, mes, anio, hero_buf.getvalue())
-        page_no = 2
-        # decisiones de limpieza (2 páginas de 6) y de FE (2 páginas de 4)
-        for block, title_key, sub_key, size in (
-            (clean, "clean_title", "clean_sub", 6),
-            (fe, "fe_title", "fe_sub", 4),
-        ):
-            chunks = [block[i : i + size] for i in range(0, len(block), size)]
-            for ci, chunk in enumerate(chunks):
-                page_decisions(
-                    pdf,
-                    chunk,
-                    lang,
-                    rt,
-                    mes,
-                    anio,
-                    title_key=title_key,
-                    sub_key=sub_key,
-                    n_total=len(block),
-                    part=(ci + 1, len(chunks)),
-                    start_idx=ci * size + 1,
-                    page_no=page_no,
-                )
+        clean = list(facts["cleaning_decisions"])
+        fe = list(facts["fe_decisions"])
+        with PdfPages(out) as pdf:
+            page_cover(pdf, facts, rt, mes, anio, hero_buf.getvalue())
+            page_no = 2
+            # decisiones de limpieza (2 páginas de 6) y de FE (2 páginas de 4)
+            for block, title_key, sub_key, size in (
+                (clean, "clean_title", "clean_sub", 6),
+                (fe, "fe_title", "fe_sub", 4),
+            ):
+                chunks = [block[i : i + size] for i in range(0, len(block), size)]
+                for ci, chunk in enumerate(chunks):
+                    page_decisions(
+                        pdf,
+                        chunk,
+                        lang,
+                        rt,
+                        mes,
+                        anio,
+                        title_key=title_key,
+                        sub_key=sub_key,
+                        n_total=len(block),
+                        part=(ci + 1, len(chunks)),
+                        start_idx=ci * size + 1,
+                        page_no=page_no,
+                    )
+                    page_no += 1
+            for fig in figs:
+                pdf.savefig(fig, bbox_inches="tight", pad_inches=0.35)
+                plt.close(fig)
                 page_no += 1
-        for fig in figs:
-            pdf.savefig(fig, bbox_inches="tight", pad_inches=0.35)
-            plt.close(fig)
-            page_no += 1
-        page_ledger(pdf, facts, rt, mes, anio, page_no)
-        page_selection(pdf, facts, rt, mes, anio, page_no + 1)
-        page_methods(pdf, facts, rt, mes, anio, page_no + 2)
-        n_pages = page_no + 2
-        led = facts["cleaning_ledger"]
-        fs = facts["feature_selection"]
-        meta = pdf.infodict()
-        meta["Title"] = rt["pdf_title"].format(mes=mes, anio=anio)
-        meta["Author"] = "Javier Rebull"
-        meta["Subject"] = rt["pdf_subject"]
-        # stats embebidos verificables por tests/test_fe_report.py contra fe_facts (regla #0)
-        # H3: provenance machine-readable (aditiva — el test parsea pares k=v).
-        from vp_data.tracking import pipeline_run_id
-        from vp_model.ledger import git_sha, panel_hash
+            page_ledger(pdf, facts, rt, mes, anio, page_no)
+            page_selection(pdf, facts, rt, mes, anio, page_no + 1)
+            page_methods(pdf, facts, rt, mes, anio, page_no + 2)
+            n_pages = page_no + 2
+            led = facts["cleaning_ledger"]
+            fs = facts["feature_selection"]
+            meta = pdf.infodict()
+            meta["Title"] = rt["pdf_title"].format(mes=mes, anio=anio)
+            meta["Author"] = "Javier Rebull"
+            meta["Subject"] = rt["pdf_subject"]
+            # stats embebidos verificables por tests/test_fe_report.py contra fe_facts (regla #0)
+            # H3: provenance machine-readable (aditiva — el test parsea pares k=v).
+            from vp_data.tracking import pipeline_run_id
+            from vp_model.ledger import git_sha, panel_hash
 
-        meta["Keywords"] = (
-            f"vintage={facts['vintage']}; fe_version={facts['fe_version']}; "
-            f"n_rows={led['n_rows']}; n_series={led['n_series']}; rows_F={led['rows_by_status']['F']}; "
-            f"features_in={fs['n_features_in']}; selected={fs['n_selected']}; "
-            f"panel={panel_hash()}; git={git_sha()}; run={pipeline_run_id()}"
-        )
+            meta["Keywords"] = (
+                f"vintage={facts['vintage']}; fe_version={facts['fe_version']}; "
+                f"n_rows={led['n_rows']}; n_series={led['n_series']}; rows_F={led['rows_by_status']['F']}; "
+                f"features_in={fs['n_features_in']}; selected={fs['n_selected']}; "
+                f"panel={panel_hash()}; git={git_sha()}; run={pipeline_run_id()}"
+            )
     size_mb = out.stat().st_size / 1e6
     if size_mb >= 3.0:
         raise SystemExit(f"GATE FE-REPORT: {size_mb:.1f} MB >= 3 MB (hook large-files).")
@@ -554,5 +556,3 @@ def build(lang: str) -> Path:
 if __name__ == "__main__":
     for lang in ("es", "en"):
         build(lang)
-    fefig._apply_lang("es")
-    fefig._apply_theme(dark=False)

@@ -19,7 +19,10 @@ CLASSES = {"producto", "deliverable", "investigacion", "diagnostico", "archivo"}
 
 def main() -> int:
     inv = json.loads(INVENTORY.read_text())
-    entries = {k: v for k, v in inv.items() if not k.startswith("_")}
+    # C5: solo `_doc` es metadato del propio inventario. Antes se descartaba TODA clave que
+    # empezara por "_", así que un módulo interno como `_figkit.py` no se podía registrar:
+    # el disco lo veía y el inventario lo filtraba, y el gate quedaba roto sin salida.
+    entries = {k: v for k, v in inv.items() if k != "_doc"}
     on_disk = {p.name for p in (ROOT / "experiments").glob("*.py")} | {
         p.name for p in (ROOT / "experiments").glob("*.sh")
     }

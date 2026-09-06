@@ -2,6 +2,6 @@
   "except_exception": 29,
   "except_exception_unjustified": 0,
   "type_ignore": 11,
-  "noqa": 141,
+  "noqa": 139,
   "todo_class": 2
 }

@@ -1,5 +1,6 @@
 {
   "_doc": "I2 (plan auditoría 2026-07-11): inventario clasificado de TODO entrypoint de experiments/. Clases: producto (ruta del cron/demostrador) · deliverable (figuras/tablas de tesis+paper) · investigacion (campañas/exploración; conservan receta, NO son ruta productiva) · diagnostico (tooling puntual) · archivo (one-shot histórico ya ejecutado). Gate: tools/check_experiments_inventory.py — un entrypoint nuevo sin clasificar rompe CI. Owner por defecto: Javier (repo de autor único); comando = desde la raíz con el venv ante/.",
+  "_figkit.py": {"clase": "producto", "consumidor": "make_gallery_figures.py, make_fe_figures.py, make_result_figures.py, build_eda_report.py, build_fe_report.py (kit comun de figuras: contexto inmutable de tema/idioma, rcParams reversibles y guardado por variante)"},
   "aggregate_seeds.py": {"clase": "investigacion", "consumidor": "campañas multi-semilla (tablas del deliverable via make_tex_tables)"},
   "apply_cone_constraints.py": {"clase": "producto", "consumidor": "generate_web_forecasts (cono FAD<=DFF/pais<=mundial)"},
   "auto_arima_baseline.py": {"clase": "investigacion", "consumidor": "reports/eval/auto_arima_baseline.csv (dep DVC de key_facts)"},
