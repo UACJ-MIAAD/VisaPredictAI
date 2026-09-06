@@ -231,7 +231,7 @@ def _apply_migrations(con: duckdb.DuckDBPyConnection, migs: list[Migration]) -> 
             for stmt in _split_sql(mig.path.read_text(encoding="utf-8")):
                 con.execute(stmt)
             con.execute("COMMIT")
-        except Exception:  # amplio a propósito -- ROLLBACK garantizado ante CUALQUIER fallo, luego re-raise
+        except Exception:  # noqa: BLE001 -- amplio a propósito: ROLLBACK garantizado ante CUALQUIER fallo, luego re-raise
             con.execute("ROLLBACK")
             logger.error("migración %03d (%s) FALLÓ — almacén previo intacto", mig.version, mig.description)
             raise

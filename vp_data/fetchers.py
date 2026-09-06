@@ -25,6 +25,10 @@ import requests
 
 from vp_data import config
 
+# C4: los errores viven en `vp_data.errors` (autoridad única). Se reexportan aquí porque
+# `from vp_data.fetchers import FetchError` es la forma que usan los consumidores desde A1.
+from vp_data.errors import FetchError, SourceBlockedError
+
 Fetcher = Callable[[str], bytes]
 
 REQUEST_TIMEOUT = 30
@@ -48,25 +52,6 @@ BROWSER_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
 }
-
-
-class FetchError(Exception):
-    """A failed fetch. ``permanent`` tells ``with_retry`` whether retrying can help."""
-
-    def __init__(self, url: str, msg: str, *, status: int | None = None, permanent: bool = False):
-        super().__init__(f"{msg} [{url}]")
-        self.url = url
-        self.status = status
-        self.permanent = permanent
-
-
-class SourceBlockedError(FetchError):
-    """The source's WAF/anti-bot layer refused us (Cloudflare). Permanent for
-    this run: no amount of backoff clears a challenge page, so consumers must
-    degrade (record the block, exit clean) instead of retrying or failing red."""
-
-    def __init__(self, url: str, msg: str = "fuente tras el WAF (Cloudflare)", *, status: int | None = None):
-        super().__init__(url, msg, status=status, permanent=True)
 
 
 def _looks_blocked(status: int, content: bytes, server: str) -> bool:

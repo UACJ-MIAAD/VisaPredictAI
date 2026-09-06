@@ -22,9 +22,15 @@ from pipeline import scrape_dv_visa_bulletins as dv
 from pipeline import scrape_family_visa_bulletins as fam
 from pipeline import scrape_visa_bulletins as emp
 from pipeline.freeze_snapshots import SNAP_DIR
+from vp_data.errors import PARSE_FAILURES, ParseError
 from vp_data.visa_common import extract_datetime_from_link, parse_tables, report_failures
 
 logger = logging.getLogger(__name__)
+
+
+def month_label(ym) -> str | None:
+    """El mes en texto para el reporte; `ym` ya viene validado por el llamador."""
+    return None if ym is None else str(ym)
 
 
 def main() -> None:
@@ -38,8 +44,8 @@ def main() -> None:
     emp_tables = []
     fam_tables = []
     dv_frames = []
-    failed = []  # fallos del PANEL objetivo (employment+family) -- esto sí es "mes perdido"
-    dv_failed = []  # fallos SOLO del parser DV (dataset no-predictivo) -- NO contamina el panel
+    failed: list[ParseError] = []  # fallos del PANEL objetivo (employment+family) -- esto sí es "mes perdido"
+    dv_failed: list[ParseError] = []  # fallos SOLO del parser DV (dataset no-predictivo) -- NO contamina el panel
     for path in tqdm(snapshots, desc="Parsing frozen bulletins offline (employment + family + DV)"):
         try:
             # J6: errors="replace" — mismo criterio que el gate de freeze. Una página
@@ -47,8 +53,11 @@ def main() -> None:
             # decode estricto, convirtiendo un byte raro en un mes perdido.
             soup = BeautifulSoup(path.read_text(encoding="utf-8", errors="replace"), "html.parser")
             ym = extract_datetime_from_link(path.name)
-        except Exception as exc:
-            failed.append((path.name, f"soup/ym: {str(exc)[:50]}"))
+        except PARSE_FAILURES as exc:
+            # Un snapshot ilegible o con un nombre que no da mes: fallo ESPERADO del
+            # formato. Un defecto nuestro (AttributeError, TypeError…) NO entra aquí y
+            # escapa, en vez de disfrazarse de mes perdido.
+            failed.append(ParseError("lectura", path.name, str(exc), month=None))
             continue
         # I1: a snapshot whose filename doesn't map to a month used to flow on with
         # ym=None and get dropped row-by-row downstream (notna filter) — zero rows,
@@ -61,8 +70,8 @@ def main() -> None:
         try:
             e_parsed = parse_tables(soup, ym, emp.is_employment_section)
             f_parsed = parse_tables(soup, ym, fam.is_family_section)
-        except Exception as exc:
-            failed.append((path.name, str(exc)[:60]))
+        except PARSE_FAILURES as exc:
+            failed.append(ParseError("tablas del panel", path.name, str(exc), month=month_label(ym)))
         else:  # all-or-nothing REAL: si familia truena, empleo no queda medio-poblado (H1)
             emp_tables.extend(e_parsed)
             fam_tables.extend(f_parsed)
@@ -72,15 +81,15 @@ def main() -> None:
             rows = dv.extract_month_rows(soup, ym)
             if not rows.empty:
                 dv_frames.append(rows)
-        except Exception as exc:
-            dv_failed.append((path.name, str(exc)[:60]))
+        except PARSE_FAILURES as exc:
+            dv_failed.append(ParseError("tablas DV", path.name, str(exc), month=month_label(ym)))
 
-    report_failures(failed, logger)
+    report_failures([(err.source, err.describe()) for err in failed], logger)
     if dv_failed:
         logger.warning(
             "DV parser falló en %d meses (dataset no-predictivo; panel objetivo intacto): %s",
             len(dv_failed),
-            [f[0] for f in dv_failed],
+            [err.describe() for err in dv_failed],
         )
     emp.write_csvs(emp_tables)
     fam.write_csvs(fam_tables)
