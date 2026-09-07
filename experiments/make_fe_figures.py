@@ -24,10 +24,20 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.colors as mcolors  # noqa: E402
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+from _figkit import (
+    FigureContext,
+    LangCtx,
+    Theme,
+    footer,
+    header,
+    num,
+    run_variants,
+    save_dual,
+)
 from make_latinometrics_figures import MES  # noqa: E402  (sys.path[0] = experiments/)
 from matplotlib.patches import FancyArrowPatch, Patch, Rectangle  # noqa: E402
 
@@ -35,73 +45,38 @@ from vp_data.visa_common import classify_status, string_to_datetime  # noqa: E40
 from vp_model import dataset, missingness, preprocess  # noqa: E402
 from vp_model import palette as _palette  # noqa: E402
 from vp_model.config import days_to_year  # noqa: E402
-from vp_model.palette import (  # noqa: E402
-    BLUE,
-    GOLD,
-    GRAY,
-    GRID,
-    INK,
-    MID,
-    STRIPE,
-    TEAL,
-    WINE,
-    style,
-)
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG_TEX = ROOT / "reports" / "latex" / "Figures"
 FIG_PNG = ROOT / "reports" / "fe" / "gallery"
-style()
-plt.rcParams.update({"font.size": 9, "axes.grid": False})
+# C5/R1: el estilo de esta familia de figuras ya NO se aplica al importar. Importar un
+# modulo no debe reconfigurar Matplotlib para todo el proceso: viaja en el tema y se va
+# con el contexto.
+GALLERY_RC = {"font.size": 9, "axes.grid": False}
 
-# --- Tema claro/oscuro -------------------------------------------------------------
-# Igual que la galería EDA: los neutros viven en palette.LIGHT/DARK (fuente única);
-# aquí solo se re-vinculan los nombres de color del módulo antes de cada pasada.
+# --- Tema e idioma -------------------------------------------------------------------
+# Igual que la galeria EDA: los colores y los textos viajan en el `FigureContext` que
+# recibe cada figura, no en globals que alguien re-vincula antes de cada pasada.
 _LIGHT = _palette.LIGHT
-PAPER = _LIGHT["PAPER"]
-UNK_FILL = _LIGHT["UNK_FILL"]
-DARK_MODE = False
 
 
-def _apply_theme(dark: bool) -> None:
-    """Re-vincula los colores del módulo y los rcParams al tema pedido."""
-    global PAPER, INK, GRAY, MID, GRID, STRIPE, BLUE, TEAL, WINE, GOLD, UNK_FILL, DARK_MODE
-    src: dict = _palette.DARK if dark else _LIGHT
-    DARK_MODE = dark
-    PAPER, INK, GRAY, MID, GRID, STRIPE = (
-        src["PAPER"],
-        src["INK"],
-        src["GRAY"],
-        src["MID"],
-        src["GRID"],
-        src["STRIPE"],
-    )
-    BLUE, TEAL, WINE, GOLD = src["BLUE"], src["TEAL"], src["WINE"], src["GOLD"]
-    UNK_FILL = src["UNK_FILL"]
-    plt.rcParams.update(
-        {
-            "figure.facecolor": PAPER,
-            "axes.facecolor": PAPER,
-            "savefig.facecolor": PAPER,
-            "axes.edgecolor": MID,
-            "axes.labelcolor": INK,
-            "axes.titlecolor": BLUE,
-            "xtick.color": GRAY,
-            "ytick.color": GRAY,
-            "text.color": INK,
-            "grid.color": GRID,
-        }
+def context_for(lang: str, theme: str) -> FigureContext:
+    """El contexto de una pasada: paleta canonica + textos y meses del idioma."""
+    return FigureContext(
+        theme=Theme(theme, _palette.DARK if theme == "dark" else _LIGHT, GALLERY_RC),
+        lang=LangCtx(code=lang, txt=TXT[lang], months=MES if lang == "es" else MES_EN),
     )
 
 
-def _regime_fill(code: str) -> str | tuple[float, float, float, float]:
+def _regime_fill(code: str, ctx: FigureContext) -> str | tuple[float, float, float, float]:
     """Relleno de banda/chip por régimen C/F/U/UNK.
 
     Claro: los pasteles canónicos de palette.REGIME. Oscuro: se DERIVA del color de
     línea del tema con alfa (los pasteles claros ensucian la superficie charcoal) —
     sin hex nuevos, fuente única de color intacta.
     """
-    if DARK_MODE:
+    if ctx.theme.dark:
+        BLUE, TEAL, WINE, MID = ctx.theme.pick("BLUE", "TEAL", "WINE", "MID")
         line = {"F": BLUE, "C": TEAL, "U": WINE, "UNK": MID}[code]
         return mcolors.to_rgba(line, 0.30)
     return _palette.REGIME[code]["fill"]
@@ -109,8 +84,7 @@ def _regime_fill(code: str) -> str | tuple[float, float, float, float]:
 
 # --- Idioma ------------------------------------------------------------------------
 # Cuatro pasadas idioma × tema, como la galería EDA. Todo texto visible vive en TXT;
-# el código consume el vínculo global T/MESL que _apply_lang() re-apunta.
-LANG = "es"
+# cada figura recibe los suyos por `ctx.lang`, sin vínculos globales de por medio.
 MES_EN = {
     1: "January",
     2: "February",
@@ -302,74 +276,35 @@ TXT: dict[str, dict] = {
         ],
     },
 }
-T: dict = TXT["es"]
-MESL: dict[int, str] = MES
 
 
-def _apply_lang(lang: str) -> None:
-    """Re-vincula los textos visibles (T) y los nombres de mes (MESL)."""
-    global LANG, T, MESL
-    LANG = lang
-    T = TXT[lang]
-    MESL = MES if lang == "es" else MES_EN
-
-
-def _num(v: int) -> str:
-    """Separador de miles con coma (27,611) — convención del proyecto en ambos idiomas."""
-    return f"{v:,}"
-
-
-def _load() -> tuple[pd.DataFrame, dict]:
+def load_inputs() -> tuple[pd.DataFrame, dict]:
     df = pd.read_csv(ROOT / "data" / "processed" / "visa_panel_long.csv", parse_dates=["bulletin_date"])
     facts = json.loads((ROOT / "reports" / "fe" / "fe_facts.json").read_text())
     return df, facts
 
 
-def _save(fig: plt.Figure, name: str) -> plt.Figure:
-    """Guarda el par PDF-vector (.tex, nombres fe_*) + PNG-300dpi y DEVUELVE la figura viva.
+def _save(fig: plt.Figure, name: str, ctx: FigureContext) -> plt.Figure:
+    """Guarda la variante que toca y devuelve la figura viva (el caller la cierra).
 
-    El caller cierra (``plt.close``); ``build_fe_report`` la re-usa como página
-    vectorial. Variantes solo-web (EN y/o oscura): solo PNG en el subdir que toca.
+    ``build_fe_report`` la re-usa como pagina vectorial. Los PDF del .tex conservan sus
+    nombres historicos: f04_gaps -> fe_gaps.pdf.
     """
-    if LANG == "en" or DARK_MODE:
-        sub = FIG_PNG
-        if LANG == "en":
-            sub = sub / "en"
-        if DARK_MODE:
-            sub = sub / "dark"
-        sub.mkdir(parents=True, exist_ok=True)
-        fig.savefig(sub / f"{name}.png", bbox_inches="tight", dpi=300, facecolor=PAPER)
-        print(f"{sub.relative_to(FIG_PNG)}/{name} OK")
-        return fig
-    FIG_PNG.mkdir(parents=True, exist_ok=True)
-    tex_name = "fe_" + name.split("_", 1)[1]  # f04_gaps -> fe_gaps.pdf (nombres históricos del .tex)
-    fig.savefig(FIG_TEX / f"{tex_name}.pdf", bbox_inches="tight")
-    fig.savefig(FIG_PNG / f"{name}.png", bbox_inches="tight", dpi=300)
-    print(f"{tex_name} OK")
-    return fig
-
-
-def _header(fig: plt.Figure, headline: str, sub: str, y: float = 1.02, dy: float = 0.055) -> None:
-    """Titular-frase (el hallazgo) + bajada explicativa, estilo editorial (= galería EDA)."""
-    w_in, h_in = fig.get_size_inches()
-    head = textwrap.fill(headline, width=max(28, int(w_in * 7.2)))
-    body = textwrap.fill(sub, width=max(50, int(w_in * 12.5)))
-    lift = body.count(chr(10)) * (0.175 / h_in)
-    fig.text(0.01, y + dy + lift, head, fontsize=14, fontweight="bold", color=INK, ha="left", va="bottom")
-    fig.text(0.01, y, body, fontsize=9.5, color=GRAY, ha="left", va="bottom")
-
-
-def _footer(fig: plt.Figure, vintage: str, extra: str = "", y: float = -0.045) -> None:
-    per = pd.Period(vintage)
-    text = T["footer"].format(mes=MESL[per.month], anio=per.year) + (f"  {extra}" if extra else "")
-    fig.text(0.01, y, text, fontsize=7.4, color=GRAY, ha="left")
-    brand_y = y - 0.035 if len(text) > 80 else y
-    fig.text(0.99, brand_y, "VisaPredict AI", fontsize=8.5, color=BLUE, ha="right", fontweight="bold")
+    return save_dual(
+        fig,
+        name,
+        ctx,
+        png_root=FIG_PNG,
+        pdf_root=FIG_TEX,
+        pdf_name=lambda n: "fe_" + n.split("_", 1)[1],
+    )
 
 
 # ------------------------------------------------------------------------------- f01
-def f01_differencing(df: pd.DataFrame, facts: dict) -> plt.Figure:
+def f01_differencing(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     """Niveles vs. primera diferencia: por qué los árboles ven Δy, no y."""
+    BLUE, GOLD, GRAY, GRID = ctx.theme.pick("BLUE", "GOLD", "GRAY", "GRID")
+    T = ctx.lang.txt
     s = (
         df[(df.status == "F") & (df.country == "all_chargeability") & (df.category == "F2A") & (df.table == "FAD")]
         .sort_values("bulletin_date")
@@ -404,14 +339,16 @@ def f01_differencing(df: pd.DataFrame, facts: dict) -> plt.Figure:
         ax.grid(True, axis="y", color=GRID, lw=0.6)
         for sp in ("top", "right"):
             ax.spines[sp].set_visible(False)
-    _header(fig, T["f01_head"], T["f01_sub"].format(name=T["f01_series"]))
-    _footer(fig, facts["vintage"], y=-0.075)
-    return _save(fig, "f01_differencing")
+    header(fig, T["f01_head"], T["f01_sub"].format(name=T["f01_series"]), ctx)
+    footer(fig, facts["vintage"], ctx, y=-0.075)
+    return _save(fig, "f01_differencing", ctx)
 
 
 # ------------------------------------------------------------------------------- f02
-def f02_calendar(df: pd.DataFrame, facts: dict) -> plt.Figure:
+def f02_calendar(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     """Codificación cíclica del año fiscal desde el encoder CANÓNICO (AD4)."""
+    BLUE, GOLD, GRID, MID = ctx.theme.pick("BLUE", "GOLD", "GRID", "MID")
+    T = ctx.lang.txt
     months = T["f02_months"]
     idx = pd.date_range("2025-10-01", periods=12, freq="MS")  # un año fiscal completo
     cal = preprocess.calendar_features(idx)
@@ -443,14 +380,16 @@ def f02_calendar(df: pd.DataFrame, facts: dict) -> plt.Figure:
     a2.set_aspect("equal")
     a2.axis("off")
     a2.set_title(T["f02_b"], fontsize=9, color=BLUE, loc="left")
-    _header(fig, T["f02_head"], T["f02_sub"], y=1.0, dy=0.075)
-    _footer(fig, facts["vintage"], y=-0.09)
-    return _save(fig, "f02_calendar")
+    header(fig, T["f02_head"], T["f02_sub"], ctx, y=1.0, dy=0.075)
+    footer(fig, facts["vintage"], ctx, y=-0.09)
+    return _save(fig, "f02_calendar", ctx)
 
 
 # ------------------------------------------------------------------------------- f03
-def f03_importance(df: pd.DataFrame, facts: dict) -> plt.Figure:
+def f03_importance(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     """Importancia de un LightGBM sobre Δy (rezagos + calendario canónico)."""
+    BLUE, GOLD, GRID, PAPER = ctx.theme.pick("BLUE", "GOLD", "GRID", "PAPER")
+    T = ctx.lang.txt
     import lightgbm as lgb
 
     f = df[(df.status == "F") & (df.block == "family") & (df.table == "FAD")].sort_values("bulletin_date").copy()
@@ -478,14 +417,16 @@ def f03_importance(df: pd.DataFrame, facts: dict) -> plt.Figure:
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
     top = nice[str(imp.index[-1])]  # el titular se DERIVA del modelo, no se tipea
-    _header(fig, T["f03_head"].format(top=top), T["f03_sub"], y=1.01, dy=0.09)
-    _footer(fig, facts["vintage"], y=-0.10)
-    return _save(fig, "f03_importance")
+    header(fig, T["f03_head"].format(top=top), T["f03_sub"], ctx, y=1.01, dy=0.09)
+    footer(fig, facts["vintage"], ctx, y=-0.10)
+    return _save(fig, "f03_importance", ctx)
 
 
 # ------------------------------------------------------------------------------- f04
-def f04_gaps(df: pd.DataFrame, facts: dict) -> plt.Figure:
+def f04_gaps(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     """La decisión maestra MNAR: interpolar corto, jamás inventar largo, Kalman solo EDA."""
+    BLUE, GOLD, GRAY, GRID, MID, UNK_FILL = ctx.theme.pick("BLUE", "GOLD", "GRAY", "GRID", "MID", "UNK_FILL")
+    T = ctx.lang.txt
     cap = int(facts["constants"]["max_interpolable_gap"])
     country, category, table = "mexico", "EB4_RW", "FAD"
     raw = dataset.load_series(country, category, table)
@@ -545,20 +486,23 @@ def f04_gaps(df: pd.DataFrame, facts: dict) -> plt.Figure:
         Patch(fc=UNK_FILL, ec=MID, lw=0.4, label=T["f04_gap"]),
     ]
     ax.legend(handles=handles, fontsize=7.4, frameon=False, loc="lower right")
-    _header(
+    header(
         fig,
         T["f04_head"].format(cap=cap, n=len(long_)),
         T["f04_sub"].format(
             name=T["f04_series"], miss=prof.n_missing, runs=prof.n_gap_runs, maxrun=prof.max_gap_run, cap=cap
         ),
+        ctx,
     )
-    _footer(fig, facts["vintage"], y=-0.08)
-    return _save(fig, "f04_gaps")
+    footer(fig, facts["vintage"], ctx, y=-0.08)
+    return _save(fig, "f04_gaps", ctx)
 
 
 # ------------------------------------------------------------------------------- f05
-def f05_regime(df: pd.DataFrame, facts: dict) -> plt.Figure:
+def f05_regime(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     """La decisión maestra B1: los regímenes C/U anotan; solo las fechas F se puntúan."""
+    BLUE, GRID, MID = ctx.theme.pick("BLUE", "GRID", "MID")
+    T = ctx.lang.txt
     country, category, table = "india", "EB2", "FAD"
     s = df[(df.country == country) & (df.category == category) & (df.table == table)].sort_values("bulletin_date")
     grid_idx = pd.date_range(s.bulletin_date.min(), s.bulletin_date.max(), freq="MS")
@@ -578,7 +522,7 @@ def f05_regime(df: pd.DataFrame, facts: dict) -> plt.Figure:
             j = i
             while j + 1 < len(codes) and codes[j + 1] == codes[i]:
                 j += 1
-            ax.axvspan(grid_idx[i] - pad, grid_idx[j] + pad, color=_regime_fill(str(codes[i])), zorder=0, lw=0)
+            ax.axvspan(grid_idx[i] - pad, grid_idx[j] + pad, color=_regime_fill(str(codes[i]), ctx), zorder=0, lw=0)
             i = j + 1
         else:
             i += 1
@@ -589,9 +533,9 @@ def f05_regime(df: pd.DataFrame, facts: dict) -> plt.Figure:
         ax.spines[sp].set_visible(False)
     handles = [
         plt.Line2D([0], [0], color=BLUE, lw=1.6, label=T["f05_F"].format(n=int(counts.get("F", 0)))),
-        Patch(fc=_regime_fill("C"), label=T["f05_C"].format(n=int(counts.get("C", 0)))),
-        Patch(fc=_regime_fill("U"), label=T["f05_U"].format(n=int(counts.get("U", 0)))),
-        Patch(fc=_regime_fill("UNK"), ec=MID, lw=0.4, label=T["f05_UNK"].format(n=int(counts.get("UNK", 0)))),
+        Patch(fc=_regime_fill("C", ctx), label=T["f05_C"].format(n=int(counts.get("C", 0)))),
+        Patch(fc=_regime_fill("U", ctx), label=T["f05_U"].format(n=int(counts.get("U", 0)))),
+        Patch(fc=_regime_fill("UNK", ctx), ec=MID, lw=0.4, label=T["f05_UNK"].format(n=int(counts.get("UNK", 0)))),
     ]
     ax.legend(handles=handles, fontsize=7.2, frameon=False, loc="upper left", ncol=2)
     # franja inferior: los meses que la evaluación PUNTÚA (máscara F-only, fix B1)
@@ -611,7 +555,7 @@ def f05_regime(df: pd.DataFrame, facts: dict) -> plt.Figure:
     axs.text(-0.012, 0.5, T["f05_strip"], transform=axs.transAxes, ha="right", va="center", fontsize=7, color=BLUE)
     for sp in ("top", "right", "left"):
         axs.spines[sp].set_visible(False)
-    _header(
+    header(
         fig,
         T["f05_head"].format(nf=int(counts.get("F", 0))),
         T["f05_sub"].format(
@@ -620,14 +564,17 @@ def f05_regime(df: pd.DataFrame, facts: dict) -> plt.Figure:
             nu=int(counts.get("U", 0)),
             nk=int(counts.get("UNK", 0)),
         ),
+        ctx,
     )
-    _footer(fig, facts["vintage"], y=-0.075)
-    return _save(fig, "f05_regime")
+    footer(fig, facts["vintage"], ctx, y=-0.075)
+    return _save(fig, "f05_regime", ctx)
 
 
 # ------------------------------------------------------------------------------- f06
-def f06_parser(df: pd.DataFrame, facts: dict) -> plt.Figure:
+def f06_parser(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     """Panel tipográfico: el parser REAL normaliza 6 celdas verificables en vivo."""
+    BLUE, GRAY, INK, MID, STRIPE, TEAL, WINE = ctx.theme.pick("BLUE", "GRAY", "INK", "MID", "STRIPE", "TEAL", "WINE")
+    T = ctx.lang.txt
     bulletin = pd.Timestamp(facts["vintage"] + "-01").to_pydatetime()
     examples = ["01MAY16", "08OCT79", "15JUL05*", "C", "U*", ""]
     rows = []
@@ -654,7 +601,9 @@ def f06_parser(df: pd.DataFrame, facts: dict) -> plt.Figure:
     for irow, (raw, st, parsed, rule) in enumerate(rows):
         if irow % 2 == 1:
             ax.add_patch(Rectangle((0.0, y - 0.088), 1.0, step, fc=STRIPE, lw=0, zorder=0))
-        ax.add_patch(Rectangle((cols_x[0], y - 0.052), 0.185, 0.082, fc=_regime_fill(st), ec=MID, lw=0.5, zorder=1))
+        ax.add_patch(
+            Rectangle((cols_x[0], y - 0.052), 0.185, 0.082, fc=_regime_fill(st, ctx), ec=MID, lw=0.5, zorder=1)
+        )
         shown = raw if raw else T["f06_empty"]
         ax.text(
             cols_x[0] + 0.0925, y - 0.011, shown, fontsize=9, color=INK, family="monospace", ha="center", va="center"
@@ -664,26 +613,28 @@ def f06_parser(df: pd.DataFrame, facts: dict) -> plt.Figure:
         ax.text(cols_x[1] + 0.085, y - 0.011, parsed, fontsize=9, color=INK, family="monospace", va="center")
         ax.text(cols_x[2], y - 0.011, textwrap.fill(rule, 46), fontsize=7.8, color=GRAY, va="center")
         y -= step
-    _header(fig, T["f06_head"].format(yrs=yrs, n=n_regimes), T["f06_sub"], y=0.985, dy=0.05)
-    _footer(fig, facts["vintage"], y=0.005)
-    return _save(fig, "f06_parser")
+    header(fig, T["f06_head"].format(yrs=yrs, n=n_regimes), T["f06_sub"], ctx, y=0.985, dy=0.05)
+    footer(fig, facts["vintage"], ctx, y=0.005)
+    return _save(fig, "f06_parser", ctx)
 
 
 # ------------------------------------------------------------------------------- f07
-def f07_pipeline(df: pd.DataFrame, facts: dict) -> plt.Figure:
+def f07_pipeline(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     """El pipeline de limpieza end-to-end con el ledger vivo bajo cada etapa."""
+    BLUE, INK, MID, PAPER = ctx.theme.pick("BLUE", "INK", "MID", "PAPER")
+    T = ctx.lang.txt
     led = facts["cleaning_ledger"]
     n_rows, n_f = int(led["n_rows"]), int(led["rows_by_status"]["F"])
     stats = [
         s.format(
             n_months=int(df.bulletin_date.dt.to_period("M").nunique()),
             unp=int(led["f_priority_date_unparseable"]),
-            n_rows=_num(n_rows),
+            n_rows=num(n_rows),
             n_series=int(led["n_series"]),
             dups=int(led["dup_collapsed"]),
             jumps=int(led["big_jumps_gt_8y"]),
             under=int(led["epoch_underflow"]),
-            nf=_num(n_f),
+            nf=num(n_f),
             pct=f"{100 * n_f / n_rows:.0f}",
         )
         for s in T["f07_stats"]
@@ -724,9 +675,9 @@ def f07_pipeline(df: pd.DataFrame, facts: dict) -> plt.Figure:
                     (x1, 0.54), (i + 1 + 0.04, 0.54), arrowstyle="-|>", mutation_scale=11, color=MID, lw=1.1, zorder=3
                 )
             )
-    _header(fig, T["f07_head"].format(n=len(stages)), T["f07_sub"], y=0.93, dy=0.09)
-    _footer(fig, facts["vintage"], y=0.03)
-    return _save(fig, "f07_pipeline")
+    header(fig, T["f07_head"].format(n=len(stages)), T["f07_sub"], ctx, y=0.93, dy=0.09)
+    footer(fig, facts["vintage"], ctx, y=0.03)
+    return _save(fig, "f07_pipeline", ctx)
 
 
 MAKERS = (
@@ -740,20 +691,8 @@ MAKERS = (
 )
 
 
-def _run_all(df: pd.DataFrame, facts: dict) -> None:
-    for fn in MAKERS:
-        plt.close(fn(df, facts))
-
-
 if __name__ == "__main__":
-    df, facts = _load()
+    df, facts = load_inputs()
     # 4 pasadas idioma × tema; SOLO es-claro escribe los PDF del .tex y el reporte
-    for lang in ("es", "en"):
-        _apply_lang(lang)
-        _apply_theme(dark=False)
-        _run_all(df, facts)
-        _apply_theme(dark=True)  # web oscura -> gallery/dark/ (es) · gallery/en/dark/ (en)
-        _run_all(df, facts)
-    _apply_lang("es")
-    _apply_theme(dark=False)
+    run_variants(MAKERS, context_for, df, facts)
     print("Galería FE (es/en × clara/oscura) en", FIG_TEX, "y", FIG_PNG)

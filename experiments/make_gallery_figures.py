@@ -20,15 +20,27 @@ Corre en `ante`:  ante/bin/python experiments/make_gallery_figures.py  (o `make 
 from __future__ import annotations
 
 import json
-import textwrap
 from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
+from collections.abc import Callable
+from functools import partial
+
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+from _figkit import (
+    FigureContext,
+    LangCtx,
+    Theme,
+    footer,
+    header,
+    num,
+    run_variants,
+    save_dual,
+)
 from make_latinometrics_figures import MES, _flag  # noqa: E402  (sys.path[0] = experiments/)
 from matplotlib.colors import ListedColormap  # noqa: E402
 from matplotlib.offsetbox import AnnotationBbox, OffsetImage  # noqa: E402
@@ -37,21 +49,7 @@ from matplotlib.patches import Patch  # noqa: E402
 from vp_model import palette as _palette  # noqa: E402
 from vp_model.config import DAYS_PER_YEAR, days_to_year  # noqa: E402
 from vp_model.palette import (  # noqa: E402
-    BLUE,
-    COUNTRY,
     COUNTRY_NAME,
-    DIV,
-    GOLD,
-    GRAY,
-    GRID,
-    INK,
-    MID,
-    MUTE,
-    SEQ,
-    SLATE,
-    TEAL,
-    WINE,
-    style,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,54 +58,35 @@ FIG_PNG = ROOT / "reports" / "eda" / "gallery"
 PILOT = ("mexico", "india", "china", "philippines", "all_chargeability")
 FAM = ["F1", "F2A", "F2B", "F3", "F4"]
 EB = ["EB1", "EB2", "EB3", "EB4", "EB5"]
-style()
-plt.rcParams.update({"font.size": 9, "axes.grid": False})
+# C5/R1: el estilo de esta familia de figuras ya NO se aplica al importar. Importar un
+# modulo no debe reconfigurar Matplotlib para todo el proceso: viaja en el tema y se va
+# con el contexto.
+GALLERY_RC = {"font.size": 9, "axes.grid": False}
 
-# --- Tema claro/oscuro -----------------------------------------------------------------
-# La galeria se emite DOS veces: clara (LaTeX/PDF/web claro) y oscura (web dark mode).
-# El tema oscuro canonico vive en vp_model.palette.DARK (fuente unica); aqui solo se
-# re-vinculan los nombres de color del modulo antes de cada pasada.
-# AE3: los neutros claros viven en palette.LIGHT (fuente única, espejo de DARK);
-# aquí solo se materializan los vínculos iniciales del módulo.
+# --- Tema e idioma -------------------------------------------------------------------
+# Los colores y los textos ya no viven en globals que alguien re-vincula antes de cada
+# pasada: viajan en el `FigureContext` que recibe cada figura. Las paletas siguen siendo
+# las de `vp_model.palette` (fuente única) y los textos siguen en TXT.
 _LIGHT = _palette.LIGHT
-PAPER = _LIGHT["PAPER"]
-UNK_FILL = _LIGHT["UNK_FILL"]  # celdas U/sin dato (G1) — reconciliado con REGIME["UNK"]
-NODATA = _LIGHT["NODATA"]  # barras "sin dato" (G11)
-QUAD_BLUE = _LIGHT["QUAD_BLUE"]  # cuadrante sombreado (G9)
-DARK_MODE = False
 
 
-def _apply_theme(dark: bool) -> None:
-    """Re-vincula los colores del modulo y los rcParams al tema pedido."""
-    global PAPER, INK, GRAY, MID, MUTE, GRID, BLUE, TEAL, WINE, GOLD, SLATE
-    global UNK_FILL, NODATA, QUAD_BLUE, COUNTRY, SEQ, DIV, DARK_MODE
-    src: dict = _palette.DARK if dark else _LIGHT
-    DARK_MODE = dark
-    PAPER, INK, GRAY, MID, MUTE, GRID = src["PAPER"], src["INK"], src["GRAY"], src["MID"], src["MUTE"], src["GRID"]
-    BLUE, TEAL, WINE, GOLD, SLATE = src["BLUE"], src["TEAL"], src["WINE"], src["GOLD"], src["SLATE"]
-    UNK_FILL, NODATA, QUAD_BLUE = src["UNK_FILL"], src["NODATA"], src["QUAD_BLUE"]
-    COUNTRY, SEQ, DIV = src["COUNTRY"], src["SEQ"], src["DIV"]
-    plt.rcParams.update(
-        {
-            "figure.facecolor": PAPER,
-            "axes.facecolor": PAPER,
-            "savefig.facecolor": PAPER,
-            "axes.edgecolor": MID,
-            "axes.labelcolor": INK,
-            "axes.titlecolor": BLUE,
-            "xtick.color": GRAY,
-            "ytick.color": GRAY,
-            "text.color": INK,
-            "grid.color": GRID,
-        }
+def context_for(lang: str, theme: str) -> FigureContext:
+    """El contexto de una pasada: paleta canónica + textos, meses y países del idioma."""
+    return FigureContext(
+        theme=Theme(theme, _palette.DARK if theme == "dark" else _LIGHT, GALLERY_RC),
+        lang=LangCtx(
+            code=lang,
+            txt=TXT[lang],
+            months=MES if lang == "es" else MES_EN,
+            countries=COUNTRY_NAME if lang == "es" else COUNTRY_NAME_EN,
+        ),
     )
 
 
 # --- Idioma ----------------------------------------------------------------------------
 # La galeria se emite en DOS idiomas (× dos temas = 4 pasadas). Todo texto visible vive
-# en TXT; el codigo consume el vinculo global T/CNAME/MESL que _apply_lang() re-apunta.
+# en TXT; cada figura recibe los suyos por `ctx.lang`, sin vinculos globales de por medio.
 # La terminologia EN es la MISMA que los captions del web (eda-gallery.tsx) — regla #0.
-LANG = "es"
 MES_EN = {
     1: "January",
     2: "February",
@@ -315,24 +294,6 @@ TXT: dict[str, dict] = {
         "g11_foot": "Tiered coverage: structural → with dates → evaluable.",
     },
 }
-T: dict = TXT["es"]
-CNAME: dict[str, str] = COUNTRY_NAME
-MESL: dict[int, str] = MES
-
-
-def _apply_lang(lang: str) -> None:
-    """Re-vincula los textos visibles (T), nombres de país (CNAME) y meses (MESL)."""
-    global LANG, T, CNAME, MESL
-    LANG = lang
-    T = TXT[lang]
-    CNAME = COUNTRY_NAME if lang == "es" else COUNTRY_NAME_EN
-    MESL = MES if lang == "es" else MES_EN
-
-
-def _num(v: int) -> str:
-    """Separador de miles con coma (27,611) — convención es-MX del proyecto, igual
-    en ambos idiomas; el espacio fino previo desalineaba figura vs caption/.tex."""
-    return f"{v:,}"
 
 
 def _spread(vals: list[float], min_gap: float) -> list[float]:
@@ -344,7 +305,7 @@ def _spread(vals: list[float], min_gap: float) -> list[float]:
     return out.tolist()
 
 
-def _load() -> tuple[pd.DataFrame, dict]:
+def load_inputs() -> tuple[pd.DataFrame, dict]:
     df = pd.read_csv(
         ROOT / "data" / "processed" / "visa_panel_long.csv", parse_dates=["bulletin_date", "priority_date"]
     )
@@ -356,61 +317,31 @@ def _load() -> tuple[pd.DataFrame, dict]:
 TEX_PDFS = {"g01_panel", "g04_retros", "g05_brecha", "g07_leadlag", "g10_dv", "g11_completitud"}
 
 
-def _save(fig: plt.Figure, name: str) -> plt.Figure:
-    """Guarda el par PDF-vector + PNG-300dpi y DEVUELVE la figura viva.
+def _save(fig: plt.Figure, name: str, ctx: FigureContext) -> plt.Figure:
+    """Guarda la variante que toca y devuelve la figura viva (el caller la cierra).
 
-    El caller cierra (``plt.close``); ``build_eda_report`` la re-usa tal cual como
-    página vectorial del reporte (cero re-rasterización = cero pérdida de nitidez).
+    ``build_eda_report`` la re-usa tal cual como página vectorial del reporte: cero
+    re-rasterización, cero pérdida de nitidez.
     """
-    if LANG == "en" or DARK_MODE:
-        # variantes solo-web (EN y/o oscura): solo PNG; el .tex y el reporte PDF
-        # viven en ES-claro (entregable académico en español)
-        sub = FIG_PNG
-        if LANG == "en":
-            sub = sub / "en"
-        if DARK_MODE:
-            sub = sub / "dark"
-        sub.mkdir(parents=True, exist_ok=True)
-        fig.savefig(sub / f"{name}.png", bbox_inches="tight", dpi=300, facecolor=PAPER)
-        print(f"{sub.relative_to(FIG_PNG)}/{name} OK")
-        return fig
-    FIG_PNG.mkdir(parents=True, exist_ok=True)
-    # PENDIENTES #13: el .tex solo referencia 6 de las 11 figuras; emitir PDF únicamente
-    # para esas (las demás vivían huérfanas en Figures/ y el sync de Overleaf las arrastraba).
-    if name in TEX_PDFS:
-        fig.savefig(FIG_TEX / f"eda3_{name}.pdf", bbox_inches="tight")
-    fig.savefig(FIG_PNG / f"{name}.png", bbox_inches="tight", dpi=300)
-    print(f"eda3_{name} OK")
-    return fig
-
-
-def _header(fig: plt.Figure, headline: str, sub: str, y: float = 1.02, dy: float = 0.055) -> None:
-    """Titular-frase (el hallazgo) + bajada explicativa, estilo editorial.
-
-    Envuelve titular y bajada al ancho de la figura (sin corte de carro, una bajada
-    larga estiraba el bbox y encogia el plot). Las lineas extra crecen hacia ARRIBA
-    (va="bottom" + lift del titular) para no invadir los ejes.
-    """
-    w_in, h_in = fig.get_size_inches()
-    head = textwrap.fill(headline, width=max(28, int(w_in * 7.2)))
-    body = textwrap.fill(sub, width=max(50, int(w_in * 12.5)))
-    lift = body.count(chr(10)) * (0.175 / h_in)
-    fig.text(0.01, y + dy + lift, head, fontsize=14, fontweight="bold", color=INK, ha="left", va="bottom")
-    fig.text(0.01, y, body, fontsize=9.5, color=GRAY, ha="left", va="bottom")
-
-
-def _footer(fig: plt.Figure, vintage: str, extra: str = "", y: float = -0.045) -> None:
-    per = pd.Period(vintage)
-    text = T["footer"].format(mes=MESL[per.month], anio=per.year) + (f"  {extra}" if extra else "")
-    fig.text(0.01, y, text, fontsize=7.4, color=GRAY, ha="left")
-    # con pie largo la marca baja un renglón para no encimarse con el texto
-    brand_y = y - 0.035 if len(text) > 80 else y
-    fig.text(0.99, brand_y, "VisaPredict AI", fontsize=8.5, color=BLUE, ha="right", fontweight="bold")
+    return save_dual(
+        fig,
+        name,
+        ctx,
+        png_root=FIG_PNG,
+        pdf_root=FIG_TEX,
+        pdf_name=lambda n: f"eda3_{n}" if n in TEX_PDFS else None,
+        log_name=lambda n: f"eda3_{n}",
+    )
 
 
 # ---------------------------------------------------------------------------- G1
-def g01_panel(df: pd.DataFrame, facts: dict) -> plt.Figure:
+def g01_panel(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     """El panel completo en una sola imagen: 194 series × 296 meses."""
+    BLUE, INK, MID, MUTE, PAPER, TEAL, UNK_FILL, WINE = ctx.theme.pick(
+        "BLUE", "INK", "MID", "MUTE", "PAPER", "TEAL", "UNK_FILL", "WINE"
+    )
+    T = ctx.lang.txt
+    CNAME = ctx.lang.cname
     months = pd.period_range(df.bulletin_date.min(), df.bulletin_date.max(), freq="M")
     m_idx = {p: i for i, p in enumerate(months)}
     # clases: 0 ausente · 1 F avanza · 2 F congelada · 3 F retrocede · 4 Current · 5 U/UNK
@@ -488,10 +419,11 @@ def g01_panel(df: pd.DataFrame, facts: dict) -> plt.Figure:
 
     fig.subplots_adjust(top=0.965, bottom=0.075, left=0.09, right=0.93)
     p = facts["panel"]
-    _header(
+    header(
         fig,
-        T["g01_head"].format(n=_num(p["n_obs"])),
+        T["g01_head"].format(n=num(p["n_obs"])),
         T["g01_sub"].format(n=p["n_series_structural"], pct=f"{p['pct_frozen']:.0f}"),
+        ctx,
         y=0.975,
         dy=0.022,
     )
@@ -509,13 +441,17 @@ def g01_panel(df: pd.DataFrame, facts: dict) -> plt.Figure:
         frameon=False,
         bbox_to_anchor=(0.5, 0.038),
     )
-    _footer(fig, facts["vintage"], T["g01_foot"], y=0.022)
-    return _save(fig, "g01_panel")
+    footer(fig, facts["vintage"], ctx, T["g01_foot"], y=0.022)
+    return _save(fig, "g01_panel", ctx)
 
 
 # ---------------------------------------------------------------------------- G2
-def g02_trayectorias(df: pd.DataFrame, facts: dict) -> plt.Figure:
+def g02_trayectorias(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     """Un cuarto de siglo de fila: las 25 series familiares FAD, anotadas."""
+    COUNTRY, GRAY, GRID, WINE = ctx.theme.pick("COUNTRY", "GRAY", "GRID", "WINE")
+    T = ctx.lang.txt
+    CNAME = ctx.lang.cname
+    MESL = ctx.lang.months
     f = df[(df.status == "F") & (df.block == "family") & (df.table == "FAD")].copy()
     f["years"] = days_to_year(f.days_since_base)  # AD3
     fig, ax = plt.subplots(figsize=(8.6, 4.9))
@@ -576,14 +512,17 @@ def g02_trayectorias(df: pd.DataFrame, facts: dict) -> plt.Figure:
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
     med = f.delta.median()
-    _header(fig, T["g02_head"], T["g02_sub"].format(med=f"{med:.0f}"))
-    _footer(fig, facts["vintage"])
-    return _save(fig, "g02_trayectorias")
+    header(fig, T["g02_head"], T["g02_sub"].format(med=f"{med:.0f}"), ctx)
+    footer(fig, facts["vintage"], ctx)
+    return _save(fig, "g02_trayectorias", ctx)
 
 
 # ---------------------------------------------------------------------------- G3
-def g03_backlog(df: pd.DataFrame, facts: dict) -> plt.Figure:
+def g03_backlog(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     """¿Cuántos años de fila? — matriz Latinometrics familia + empleo."""
+    BLUE, MID, MUTE = ctx.theme.pick("BLUE", "MID", "MUTE")
+    T = ctx.lang.txt
+    CNAME = ctx.lang.cname
     bt = pd.DataFrame(facts["backlog_today"])
     bt = bt[bt.table == "FAD"]
     fam = bt[bt.block == "family"]
@@ -642,7 +581,7 @@ def g03_backlog(df: pd.DataFrame, facts: dict) -> plt.Figure:
             ax.set_yticks([])
             for sp in ax.spines.values():
                 sp.set_visible(False)
-    _header(
+    header(
         fig,
         T["g03_head"].format(
             cf=CNAME[top_f.country],
@@ -653,16 +592,21 @@ def g03_backlog(df: pd.DataFrame, facts: dict) -> plt.Figure:
             ye=f"{top_e.backlog_years:.0f}",
         ),
         T["g03_sub"],
+        ctx,
         y=0.965,
         dy=0.045,
     )
-    _footer(fig, facts["vintage"], T["g03_foot"], y=0.015)
-    return _save(fig, "g03_backlog")
+    footer(fig, facts["vintage"], ctx, T["g03_foot"], y=0.015)
+    return _save(fig, "g03_backlog", ctx)
 
 
 # ---------------------------------------------------------------------------- G4
-def g04_retros(facts: dict) -> plt.Figure:
+def g04_retros(facts: dict, ctx: FigureContext) -> plt.Figure:
     """Los meses en que el sistema se rompió: TODAS las retrogresiones."""
+    COUNTRY, GRID, INK, MID, PAPER = ctx.theme.pick("COUNTRY", "GRID", "INK", "MID", "PAPER")
+    T = ctx.lang.txt
+    CNAME = ctx.lang.cname
+    MESL = ctx.lang.months
     ev = pd.DataFrame(facts["retro_events"])
     ev["date_ts"] = pd.to_datetime(ev.date + "-01")
     ev["years_lost"] = ev.days / DAYS_PER_YEAR
@@ -706,14 +650,17 @@ def g04_retros(facts: dict) -> plt.Figure:
     fig.legend(handles=handles, fontsize=7.6, frameon=False, loc="lower center", ncol=5, bbox_to_anchor=(0.5, -0.005))
     n = len(ev)
     pct = facts["panel"]["pct_retro"]
-    _header(fig, T["g04_head"].format(n=n), T["g04_sub"].format(pct=f"{pct:.1f}"))
-    _footer(fig, facts["vintage"], y=-0.085)
-    return _save(fig, "g04_retros")
+    header(fig, T["g04_head"].format(n=n), T["g04_sub"].format(pct=f"{pct:.1f}"), ctx)
+    footer(fig, facts["vintage"], ctx, y=-0.085)
+    return _save(fig, "g04_retros", ctx)
 
 
 # ---------------------------------------------------------------------------- G5
-def g05_brecha(facts: dict) -> plt.Figure:
+def g05_brecha(facts: dict, ctx: FigureContext) -> plt.Figure:
     """La brecha entre las dos tablas: dumbbell FAD ↔ DFF hoy."""
+    BLUE, GOLD, GRAY, GRID, INK, MID, MUTE = ctx.theme.pick("BLUE", "GOLD", "GRAY", "GRID", "INK", "MID", "MUTE")
+    T = ctx.lang.txt
+    CNAME = ctx.lang.cname
     bt = pd.DataFrame(facts["backlog_today"])
     wide = bt.pivot_table(index=["country", "block", "category"], columns="table", values="backlog_years")
     wide = wide.dropna().reset_index()
@@ -753,14 +700,16 @@ def g05_brecha(facts: dict) -> plt.Figure:
     ax.grid(True, axis="x", color=GRID, lw=0.6)
     for sp in ("top", "right", "left"):
         ax.spines[sp].set_visible(False)
-    _header(fig, T["g05_head"].format(n=f"{med_gap:.0f}"), T["g05_sub"], y=0.985, dy=0.04)
-    _footer(fig, facts["vintage"], T["g05_foot"], y=0.02)
-    return _save(fig, "g05_brecha")
+    header(fig, T["g05_head"].format(n=f"{med_gap:.0f}"), T["g05_sub"], ctx, y=0.985, dy=0.04)
+    footer(fig, facts["vintage"], ctx, T["g05_foot"], y=0.02)
+    return _save(fig, "g05_brecha", ctx)
 
 
 # ---------------------------------------------------------------------------- G6
-def g06_pulso_fiscal(df: pd.DataFrame, facts: dict) -> plt.Figure:
+def g06_pulso_fiscal(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     """El pulso del año fiscal: avance mediano mes × año fiscal."""
+    BLUE, DIV, GOLD, GRAY, GRID, MID = ctx.theme.pick("BLUE", "DIV", "GOLD", "GRAY", "GRID", "MID")
+    T = ctx.lang.txt
     f = df[df.status == "F"].sort_values("bulletin_date").copy()
     f["delta"] = f.groupby(["country", "block", "category", "table"])["days_since_base"].diff()
     f = f.dropna(subset=["delta"])
@@ -821,14 +770,17 @@ def g06_pulso_fiscal(df: pd.DataFrame, facts: dict) -> plt.Figure:
         arrowprops={"arrowstyle": "-", "color": MID, "lw": 0.7},
     )
     lo, hi = float(med.min()), float(med.max())
-    _header(fig, T["g06_head"].format(lo=f"{lo:.0f}", hi=f"{hi:.0f}"), T["g06_sub"], y=0.945, dy=0.035)
-    _footer(fig, facts["vintage"], T["g06_foot"], y=0.03)
-    return _save(fig, "g06_pulso_fiscal")
+    header(fig, T["g06_head"].format(lo=f"{lo:.0f}", hi=f"{hi:.0f}"), T["g06_sub"], ctx, y=0.945, dy=0.035)
+    footer(fig, facts["vintage"], ctx, T["g06_foot"], y=0.03)
+    return _save(fig, "g06_pulso_fiscal", ctx)
 
 
 # ---------------------------------------------------------------------------- G7
-def g07_leadlag(df: pd.DataFrame, facts: dict) -> plt.Figure:
+def g07_leadlag(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     """¿Quién se mueve primero? Correlación cruzada con retardos entre áreas."""
+    INK, PAPER, SEQ = ctx.theme.pick("INK", "PAPER", "SEQ")
+    T = ctx.lang.txt
+    CNAME = ctx.lang.cname
     f = df[(df.status == "F") & (df.block == "family") & (df.table == "FAD")].sort_values("bulletin_date").copy()
     f["delta"] = f.groupby(["country", "category"])["days_since_base"].diff()
     sig = {c: f[f.country == c].groupby("bulletin_date").delta.mean().asfreq("MS") for c in PILOT}
@@ -866,20 +818,24 @@ def g07_leadlag(df: pd.DataFrame, facts: dict) -> plt.Figure:
     mask = ~np.eye(n, dtype=bool)
     strong = int((best_r[mask] > 0.5).sum() // 2)
     lag_note = T["g07_lag_some"] if any_lag else T["g07_lag_zero"]
-    _header(
+    header(
         fig,
         T["g07_head"].format(n=strong, s="s" if strong != 1 else ""),
         T["g07_sub"].format(lag_note=lag_note),
+        ctx,
         y=0.99,
         dy=0.075,
     )
-    _footer(fig, facts["vintage"], y=-0.075)
-    return _save(fig, "g07_leadlag")
+    footer(fig, facts["vintage"], ctx, y=-0.075)
+    return _save(fig, "g07_leadlag", ctx)
 
 
 # ---------------------------------------------------------------------------- G8
-def g08_congelados(facts: dict) -> plt.Figure:
+def g08_congelados(facts: dict, ctx: FigureContext) -> plt.Figure:
     """Los meses congelados: % de meses sin movimiento por serie."""
+    COUNTRY, GRID, INK, MID = ctx.theme.pick("COUNTRY", "GRID", "INK", "MID")
+    T = ctx.lang.txt
+    CNAME = ctx.lang.cname
     census = pd.DataFrame(facts["series"])
     g = census[(census.block == "family") & (census.table == "FAD")].copy()
     g["name"] = g.country.map(CNAME) + " " + g.category
@@ -908,14 +864,19 @@ def g08_congelados(facts: dict) -> plt.Figure:
         sp_obj = ax.spines[sp]
         sp_obj.set_visible(False)
     med = float(g.pct_frozen.median()) * 100
-    _header(fig, T["g08_head"].format(n=f"{med:.0f}"), T["g08_sub"], y=0.975, dy=0.04)
-    _footer(fig, facts["vintage"], y=0.02)
-    return _save(fig, "g08_congelados")
+    header(fig, T["g08_head"].format(n=f"{med:.0f}"), T["g08_sub"], ctx, y=0.975, dy=0.04)
+    footer(fig, facts["vintage"], ctx, y=0.02)
+    return _save(fig, "g08_congelados", ctx)
 
 
 # ---------------------------------------------------------------------------- G9
-def g09_estacionariedad(facts: dict) -> plt.Figure:
+def g09_estacionariedad(facts: dict, ctx: FigureContext) -> plt.Figure:
     """Censo de estacionariedad: ADF vs KPSS, 74 series juzgadas de un vistazo."""
+    BLUE, COUNTRY, GRAY, MID, PAPER, QUAD_BLUE, TEAL = ctx.theme.pick(
+        "BLUE", "COUNTRY", "GRAY", "MID", "PAPER", "QUAD_BLUE", "TEAL"
+    )
+    T = ctx.lang.txt
+    CNAME = ctx.lang.cname
     census = pd.DataFrame(facts["series"])
     ev = census[census.verdict.notna()].copy()
     rng = np.random.default_rng(7)  # jitter determinista (los p-values saturan en 0.01/0.99)
@@ -977,14 +938,16 @@ def g09_estacionariedad(facts: dict) -> plt.Figure:
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
     n_diff, n_tot = int(counts.get("difference", 0)), len(ev)
-    _header(fig, T["g09_head"].format(a=n_diff, b=n_tot), T["g09_sub"], y=0.99, dy=0.06)
-    _footer(fig, facts["vintage"], T["g09_foot"], y=-0.02)
-    return _save(fig, "g09_estacionariedad")
+    header(fig, T["g09_head"].format(a=n_diff, b=n_tot), T["g09_sub"], ctx, y=0.99, dy=0.06)
+    footer(fig, facts["vintage"], ctx, T["g09_foot"], y=-0.02)
+    return _save(fig, "g09_estacionariedad", ctx)
 
 
 # ---------------------------------------------------------------------------- G10
-def g10_dv(facts: dict) -> plt.Figure:
+def g10_dv(facts: dict, ctx: FigureContext) -> plt.Figure:
     """La lotería también hace fila: rangos de corte DV por región."""
+    BLUE, GOLD, GRID, MID, SLATE, TEAL, WINE = ctx.theme.pick("BLUE", "GOLD", "GRID", "MID", "SLATE", "TEAL", "WINE")
+    T = ctx.lang.txt
     dv = pd.read_csv(ROOT / "data" / "raw" / "dv_visa_rank_timecourse.csv", parse_dates=["visa_bulletin_date"])
     dv = dv[dv.status == "F"].copy()
     region_name = T["g10_regions"]
@@ -1017,18 +980,23 @@ def g10_dv(facts: dict) -> plt.Figure:
         ax.spines[sp].set_visible(False)
     latest = dv[dv.visa_bulletin_date == dv.visa_bulletin_date.max()]
     top = latest.loc[latest.rank_cutoff.idxmax()]
-    _header(
+    header(
         fig,
         T["g10_head"].format(region=region_name.get(top.region, top.region), n=int(top.rank_cutoff / 1000)),
-        T["g10_sub"].format(n=_num(facts["dv"]["n_rows"])),
+        T["g10_sub"].format(n=num(facts["dv"]["n_rows"])),
+        ctx,
     )
-    _footer(fig, facts["vintage"], T["g10_foot"])
-    return _save(fig, "g10_dv")
+    footer(fig, facts["vintage"], ctx, T["g10_foot"])
+    return _save(fig, "g10_dv", ctx)
 
 
 # ---------------------------------------------------------------------------- G11
-def g11_completitud(facts: dict) -> plt.Figure:
+def g11_completitud(facts: dict, ctx: FigureContext) -> plt.Figure:
     """Radiografía de completitud de las 194 series estructurales."""
+    BLUE, GRID, INK, NODATA, PAPER, TEAL, WINE = ctx.theme.pick(
+        "BLUE", "GRID", "INK", "NODATA", "PAPER", "TEAL", "WINE"
+    )
+    T = ctx.lang.txt
     census = pd.DataFrame(facts["series"]).copy()
     census["pct_F"] = census.n_F / census.n_total
     order_block = {"family": 0, "employment": 1}
@@ -1101,33 +1069,32 @@ def g11_completitud(facts: dict) -> plt.Figure:
         color=BLUE,
     )
     p = facts["panel"]
-    _header(
+    header(
         fig,
         T["g11_head"].format(p=p["pct_trainable_F"]),
         T["g11_sub"].format(n=p["n_series_structural"]),
+        ctx,
         y=0.975,
         dy=0.04,
     )
-    _footer(fig, facts["vintage"], T["g11_foot"], y=-0.055)
-    return _save(fig, "g11_completitud")
+    footer(fig, facts["vintage"], ctx, T["g11_foot"], y=-0.055)
+    return _save(fig, "g11_completitud", ctx)
 
 
-def _run_all(df: pd.DataFrame, facts: dict) -> None:
-    for fn in (g01_panel, g02_trayectorias, g03_backlog, g06_pulso_fiscal, g07_leadlag):
-        plt.close(fn(df, facts))
-    for fn2 in (g04_retros, g05_brecha, g08_congelados, g09_estacionariedad, g10_dv, g11_completitud):
-        plt.close(fn2(facts))
+# Unas figuras necesitan el panel y otras se bastan con los facts. El catálogo distingue
+# ambas, pero la emisión es UNA sola pasada por variante: partirla en dos llamadas cambiaría
+# el orden en que se generan (y el del log), que es comportamiento observable del entrypoint.
+MAKERS_DF = (g01_panel, g02_trayectorias, g03_backlog, g06_pulso_fiscal, g07_leadlag)
+MAKERS_FACTS = (g04_retros, g05_brecha, g08_congelados, g09_estacionariedad, g10_dv, g11_completitud)
+
+
+def bound_makers(df: pd.DataFrame, facts: dict) -> tuple[Callable[[FigureContext], plt.Figure], ...]:
+    """Las once figuras con sus datos ya ligados, en el orden en que se emiten."""
+    return tuple([partial(fn, df, facts) for fn in MAKERS_DF] + [partial(fn, facts) for fn in MAKERS_FACTS])
 
 
 if __name__ == "__main__":
-    df, facts = _load()
+    df, facts = load_inputs()
     # 4 pasadas idioma × tema; SOLO es-claro escribe los PDF del .tex y el reporte
-    for lang in ("es", "en"):
-        _apply_lang(lang)
-        _apply_theme(dark=False)
-        _run_all(df, facts)
-        _apply_theme(dark=True)  # web oscura -> gallery/dark/ (es) · gallery/en/dark/ (en)
-        _run_all(df, facts)
-    _apply_lang("es")
-    _apply_theme(dark=False)
+    run_variants(bound_makers(df, facts), context_for)
     print("Galería EDA (es/en × clara/oscura) en", FIG_TEX, "y", FIG_PNG)

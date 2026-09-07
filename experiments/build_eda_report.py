@@ -7,7 +7,7 @@ key_facts.json (0 a mano); el vintage es el del último boletín del panel.
 Bilingüe (PENDIENTES #14): ``build(lang)`` emite el reporte en español (entregable
 académico) y en inglés (lo sirve la página EN del sitio, que antes descargaba el PDF
 en español). Las figuras usan la MISMA maquinaria de idioma de la galería
-(``gallery._apply_lang``), así que texto editorial y figuras van siempre en el mismo
+(``gallery.context_for``), así que texto editorial y figuras van siempre en el mismo
 idioma.
 
 Calidad: las páginas de figura se insertan como VECTOR (la figura viva de la galería
@@ -33,6 +33,7 @@ matplotlib.use("Agg")
 import make_gallery_figures as gallery  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
+from _figkit import figure_style
 from make_latinometrics_figures import MES  # noqa: E402  (sys.path[0] = experiments/)
 from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 
@@ -379,50 +380,46 @@ def build(lang: str = "es") -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     facts = _facts()
     per = pd.Period(facts["vintage"])
-    df, gfacts = gallery._load()
-    # figuras en el idioma del reporte, SIEMPRE tema claro (documento impreso);
-    # restaurar es-claro al final para no contaminar a otros consumidores.
-    gallery._apply_lang(lang)
-    gallery._apply_theme(dark=False)
+    df, gfacts = gallery.load_inputs()
+    # Figuras en el idioma del reporte y SIEMPRE en tema claro (documento impreso).
+    # El contexto es un valor que se pasa: ya no hay que "poner" el idioma en el modulo
+    # de la galeria ni restaurarlo despues para no contaminar a otros consumidores.
+    ctx = gallery.context_for(lang, "light")
     # páginas de figura: la MISMA figura viva de la galería, en vector. El orden
     # narrativo difiere del numérico: panorama -> completitud -> historia -> ...
     makers = [
-        lambda: gallery.g01_panel(df, gfacts),
-        lambda: gallery.g11_completitud(gfacts),
-        lambda: gallery.g02_trayectorias(df, gfacts),
-        lambda: gallery.g03_backlog(df, gfacts),
-        lambda: gallery.g08_congelados(gfacts),
-        lambda: gallery.g04_retros(gfacts),
-        lambda: gallery.g05_brecha(gfacts),
-        lambda: gallery.g06_pulso_fiscal(df, gfacts),
-        lambda: gallery.g09_estacionariedad(gfacts),
-        lambda: gallery.g07_leadlag(df, gfacts),
-        lambda: gallery.g10_dv(gfacts),
+        lambda: gallery.g01_panel(df, gfacts, ctx),
+        lambda: gallery.g11_completitud(gfacts, ctx),
+        lambda: gallery.g02_trayectorias(df, gfacts, ctx),
+        lambda: gallery.g03_backlog(df, gfacts, ctx),
+        lambda: gallery.g08_congelados(gfacts, ctx),
+        lambda: gallery.g04_retros(gfacts, ctx),
+        lambda: gallery.g05_brecha(gfacts, ctx),
+        lambda: gallery.g06_pulso_fiscal(df, gfacts, ctx),
+        lambda: gallery.g09_estacionariedad(gfacts, ctx),
+        lambda: gallery.g07_leadlag(df, gfacts, ctx),
+        lambda: gallery.g10_dv(gfacts, ctx),
     ]
-    try:
-        with PdfPages(out) as pdf:
-            # la portada usa la miniatura PNG de G1: generar las figuras primero
-            figs = [make() for make in makers]
-            page_cover(pdf, facts, t, lang)
-            page_summary(pdf, facts, t, lang)
-            for fig in figs:
-                pdf.savefig(fig, bbox_inches="tight", pad_inches=0.35)
-                plt.close(fig)
-            page_methods(pdf, facts, len(makers) + 3, t, lang)
-            meta = pdf.infodict()
-            meta["Title"] = t["meta_title"].format(mes=_month(lang, per.month), anio=per.year)
-            meta["Author"] = "Javier Augusto Rebull Saucedo (UACJ · MIAAD)"
-            meta["Subject"] = t["meta_subject"]
-            # H3: provenance machine-readable — el corte exacto que produjo este PDF.
-            from vp_data.tracking import pipeline_run_id
-            from vp_model.ledger import git_sha, panel_hash
+    with figure_style(ctx), PdfPages(out) as pdf:
+        # la portada usa la miniatura PNG de G1: generar las figuras primero
+        figs = [make() for make in makers]
+        page_cover(pdf, facts, t, lang)
+        page_summary(pdf, facts, t, lang)
+        for fig in figs:
+            pdf.savefig(fig, bbox_inches="tight", pad_inches=0.35)
+            plt.close(fig)
+        page_methods(pdf, facts, len(makers) + 3, t, lang)
+        meta = pdf.infodict()
+        meta["Title"] = t["meta_title"].format(mes=_month(lang, per.month), anio=per.year)
+        meta["Author"] = "Javier Augusto Rebull Saucedo (UACJ · MIAAD)"
+        meta["Subject"] = t["meta_subject"]
+        # H3: provenance machine-readable — el corte exacto que produjo este PDF.
+        from vp_data.tracking import pipeline_run_id
+        from vp_model.ledger import git_sha, panel_hash
 
-            meta["Keywords"] = (
-                f"vintage={facts.get('vintage', 'n/d')}; panel={panel_hash()}; git={git_sha()}; run={pipeline_run_id()}"
-            )
-    finally:
-        gallery._apply_lang("es")
-        gallery._apply_theme(dark=False)
+        meta["Keywords"] = (
+            f"vintage={facts.get('vintage', 'n/d')}; panel={panel_hash()}; git={git_sha()}; run={pipeline_run_id()}"
+        )
     size_mb = out.stat().st_size / 1e6
     if size_mb >= 3.0:
         raise SystemExit(f"GATE EDA-REPORT: {size_mb:.1f} MB >= 3 MB (hook large-files).")
