@@ -38,6 +38,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from vp_data.tree_dirty import Scope, tree_dirty
+
 ROOT = Path(__file__).resolve().parent.parent
 PANEL_CSV = ROOT / "data" / "processed" / "visa_panel_long.csv"
 
@@ -61,17 +63,21 @@ PAYLOAD_COLS = ("h", "days", "lo80", "hi80", "lo95", "hi95")
 
 
 def git_sha() -> str:
-    """HEAD corto (12 hex) con sufijo ``-dirty`` si el árbol tiene cambios; ``n/d`` sin git."""
+    """HEAD corto (12 hex) con sufijo ``-dirty`` si el árbol tiene cambios; ``n/d`` sin git.
+
+    C7b: la noción de «sucio» viene de `tools.tree_dirty`, una sola definición para todo el
+    repo, en vez de repetir aquí el `git status --porcelain`.
+    """
     try:
         sha = subprocess.check_output(
             ["git", "rev-parse", "--short=12", "HEAD"], text=True, stderr=subprocess.DEVNULL, cwd=ROOT
         ).strip()
-        dirty = subprocess.check_output(
-            ["git", "status", "--porcelain"], text=True, stderr=subprocess.DEVNULL, cwd=ROOT
-        ).strip()
     except subprocess.CalledProcessError, FileNotFoundError:
         return "n/d"
-    return f"{sha}-dirty" if dirty else sha
+    sucio = tree_dirty(Scope.ALL, root=ROOT)
+    if sucio is None:
+        return "n/d"
+    return f"{sha}-dirty" if sucio else sha
 
 
 def panel_hash(path: Path = PANEL_CSV) -> str:
