@@ -105,8 +105,20 @@ stages:
       nfiles: 11
     - path: pipeline/build_database.py
       hash: md5
-      md5: ef6edb56a1df363d74780ecb4ca44300
-      size: 46233
+      md5: e857bcd9f2d6072c63d5e9207bb76f47
+      size: 19288
+    - path: pipeline/db_governance.py
+      hash: md5
+      md5: 4834b80e61df0f9c93d02a19df53d83e
+      size: 6670
+    - path: pipeline/db_loaders.py
+      hash: md5
+      md5: 9c4e81594bf1cc01aa19b10dc4287251
+      size: 15999
+    - path: pipeline/db_migrations.py
+      hash: md5
+      md5: 403164eae7d6f7f8737fdb19fe29ca6c
+      size: 8847
     - path: pipeline/migrations
       hash: md5
       md5: eec79b4aeac7140a0e7305c44e7eb5de.dir

@@ -67,6 +67,10 @@ stages:
     cmd: python -m pipeline.build_database
     deps:
       - pipeline/build_database.py
+      # C6: el módulo se partió en tres; los tres son dependencia del stage.
+      - pipeline/db_migrations.py
+      - pipeline/db_loaders.py
+      - pipeline/db_governance.py
       # H1: el DDL es una cadena de migraciones versionadas (schema.sql = baseline 001,
       # byte-idéntico a pipeline/migrations/001_*; el resto del DDL vive en migrations/).
       - pipeline/migrations
