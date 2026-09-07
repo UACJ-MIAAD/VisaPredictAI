@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import gc
 import pathlib
+import weakref
+from types import MappingProxyType
 
 import matplotlib
 
@@ -98,6 +101,21 @@ class TestImmutableState:
         kit.FigureContext(theme=kit.Theme("dark", {"PAPER": "#000"}), lang=kit.LangCtx("en", {}, {}))
         assert dict(plt.rcParams) == before
 
+    def test_every_shared_constant_of_the_kit_is_immutable(self, kit) -> None:
+        """El kit sí tiene constantes globales; lo que no tiene es estado global MUTABLE."""
+        for nombre in ("BASE_RC", "VARIANTS", "THEMES", "LANGS"):
+            valor = getattr(kit, nombre)
+            assert isinstance(valor, MappingProxyType | tuple | frozenset), (
+                f"{nombre} es {type(valor).__name__}: un contenedor mutable compartido"
+            )
+
+    def test_the_shared_base_style_cannot_be_mutated(self, kit) -> None:
+        """`BASE_RC` es global y público: si fuera mutable, cualquiera podría cambiar el
+        marco visual de TODAS las figuras del proyecto en tiempo de ejecución."""
+        with pytest.raises(TypeError):
+            kit.BASE_RC["font.size"] = 99  # type: ignore[index]
+        assert kit.BASE_RC["font.size"] == 10
+
     def test_pick_does_not_mutate_the_palette_it_received(self, kit) -> None:
         colors = {"BLUE": "#00f", "INK": "#000"}
         theme = kit.Theme("light", colors)
@@ -182,6 +200,97 @@ class TestVariants:
             kit.run_variants([revienta], lambda lang, theme: ctx)
         assert dict(plt.rcParams) == before
 
+    def test_a_maker_that_opens_a_figure_and_then_fails_leaks_nothing(self, kit, ctx) -> None:
+        """El caso que la prueba anterior NO cubre: fallar DESPUÉS de crear la figura.
+
+        La versión previa lanzaba antes de abrir nada, así que una figura huérfana por
+        variante pasaba inadvertida.
+        """
+
+        def abre_y_revienta(c):
+            plt.figure()
+            raise RuntimeError("fallo tras abrir")
+
+        abiertas = len(plt.get_fignums())
+        with pytest.raises(RuntimeError, match="fallo tras abrir"):
+            kit.run_variants([abre_y_revienta], lambda lang, theme: ctx)
+        assert len(plt.get_fignums()) == abiertas, "quedó una figura abierta tras el fallo"
+
+    def test_a_maker_that_opens_several_figures_and_fails_leaks_nothing(self, kit, ctx) -> None:
+        def abre_varias_y_revienta(c):
+            plt.figure()
+            plt.figure()
+            raise ValueError("fallo con dos abiertas")
+
+        abiertas = len(plt.get_fignums())
+        with pytest.raises(ValueError):
+            kit.run_variants([abre_varias_y_revienta], lambda lang, theme: ctx)
+        assert len(plt.get_fignums()) == abiertas
+
+    def test_a_figure_that_reuses_a_freed_number_is_still_closed(self, kit, ctx) -> None:
+        """El caso que el conteo por `fignums` NO podía ver.
+
+        Si el maker cierra la figura 1 y abre otra, Matplotlib le da otra vez el número 1:
+        comparar números daba «ninguna figura nueva» mientras la sustituta seguía abierta.
+        Por eso el kit compara identidades de objeto.
+        """
+        plt.close("all")
+        previa = plt.figure(1)
+        ids_previos = {id(previa)}
+
+        def cierra_y_reabre_y_revienta(c):
+            plt.close(1)  # libera el número 1
+            plt.figure(1)  # la sustituta reutiliza ese número
+            raise RuntimeError("falla tras reutilizar el número")
+
+        with pytest.raises(RuntimeError, match="reutilizar el número"):
+            kit.run_variants([cierra_y_reabre_y_revienta], lambda lang, theme: ctx, variants=(("es", "light"),))
+
+        vivas = {id(plt.figure(n)) for n in plt.get_fignums()}
+        assert not (vivas - ids_previos), "la figura sustituta sobrevivió al fallo"
+        plt.close("all")
+
+    def test_the_previous_figure_is_held_alive_while_the_comparison_runs(self, kit, ctx) -> None:
+        """La figura previa la sostiene SOLO `Gcf`; nadie la guarda en una variable.
+
+        Es el escenario que un `id(...)` no cubre: si el maker la cierra y el recolector la
+        destruye, CPython puede reutilizar su identificador para la figura sustituta, y esta
+        pasaría por «ya estaba abierta». El kit conserva referencias fuertes, así que
+        mientras dura la comparación la previa no puede morir y su `id` no se recicla.
+        """
+        plt.close("all")
+        gc.collect()
+        testigo = weakref.ref(plt.figure(1))  # sostenida únicamente por Gcf
+        vista_viva: list[bool] = []
+
+        def cierra_recolecta_y_revienta(c):
+            plt.close(1)
+            gc.collect()
+            # el kit tiene su referencia fuerte: la previa sigue viva aquí dentro
+            vista_viva.append(testigo() is not None)
+            plt.figure(1)  # la sustituta reutiliza el número
+            raise RuntimeError("falla tras cerrar, recolectar y reabrir")
+
+        with pytest.raises(RuntimeError, match="cerrar, recolectar y reabrir"):
+            kit.run_variants([cierra_recolecta_y_revienta], lambda lang, theme: ctx, variants=(("es", "light"),))
+
+        assert vista_viva == [True], "la figura previa murió durante la comparación"
+        assert plt.get_fignums() == [], "la sustituta sobrevivió al fallo"
+        plt.close("all")
+
+    def test_a_failure_does_not_close_figures_the_caller_already_owned(self, kit, ctx) -> None:
+        """Solo se cierran las que abrió el maker que falló, no las del llamador."""
+        mia = plt.figure()
+
+        def abre_y_revienta(c):
+            plt.figure()
+            raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError):
+            kit.run_variants([abre_y_revienta], lambda lang, theme: ctx)
+        assert mia.number in plt.get_fignums(), "cerró una figura que no era suya"
+        plt.close(mia)
+
 
 class TestReversibleStyle:
     def test_the_style_applies_the_exact_values_and_then_restores_them(self, kit, ctx) -> None:
@@ -259,6 +368,11 @@ class TestSaving:
 
 
 class TestGeneratorsHaveNoGlobalState:
+    """Lo que se garantiza es preciso: **ningún global de idioma o tema se re-vincula
+    durante las pasadas**. No es «cero globals»: el kit conserva constantes compartidas
+    (`BASE_RC`, `VARIANTS`, `THEMES`, `LANGS`), pero son inmutables y nadie las reasigna.
+    """
+
     @pytest.mark.parametrize("path", GENERATORS)
     def test_no_module_level_language_or_theme_globals(self, path: str) -> None:
         src = (ROOT / path).read_text()

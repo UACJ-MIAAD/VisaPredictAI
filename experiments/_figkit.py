@@ -27,6 +27,7 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from matplotlib._pylab_helpers import Gcf as _Gcf
 
 __all__ = [
     "BASE_RC",
@@ -52,12 +53,14 @@ VARIANTS: tuple[tuple[str, str], ...] = (("es", "light"), ("es", "dark"), ("en",
 # Marco visual comun de todas las figuras del proyecto. Antes cada generador lo aplicaba
 # al importarse (`style()` + un `rcParams.update` suelto), asi que importar un modulo
 # tenia el efecto lateral de reconfigurar Matplotlib para todo el proceso.
-BASE_RC: Mapping[str, Any] = {
-    "font.family": "serif",
-    "font.size": 10,
-    "savefig.bbox": "tight",
-    "savefig.dpi": 300,
-}
+BASE_RC: Mapping[str, Any] = MappingProxyType(
+    {
+        "font.family": "serif",
+        "font.size": 10,
+        "savefig.bbox": "tight",
+        "savefig.dpi": 300,
+    }
+)
 
 THEMES: frozenset[str] = frozenset({"light", "dark"})
 LANGS: frozenset[str] = frozenset({"es", "en"})
@@ -239,6 +242,24 @@ def save_dual(
     return fig
 
 
+def _open_figures() -> list[plt.Figure]:
+    """Las figuras abiertas ahora mismo, como referencias FUERTES a los objetos.
+
+    Dos trampas que esta función evita:
+
+    * `plt.get_fignums()` devuelve NÚMEROS, y Matplotlib los reutiliza: si un maker cierra
+      la figura 1 y abre otra, la nueva vuelve a ser la 1, así que comparar números daba
+      «nada nuevo» mientras la sustituta seguía viva.
+    * guardar `id(...)` tampoco basta: CPython puede reutilizar el identificador de un
+      objeto ya destruido, y entonces una figura nueva se confundiría con la vieja.
+
+    Por eso se devuelven los objetos: mientras la lista viva, sus `id` no se reciclan, y la
+    comparación se hace con `is`. `Gcf` es la misma fuente sobre la que `get_fignums()`
+    está implementado.
+    """
+    return [manager.canvas.figure for manager in _Gcf.get_all_fig_managers()]
+
+
 def run_variants(
     makers: Sequence[Callable[..., plt.Figure]],
     context_for: Callable[[str, str], FigureContext],
@@ -247,14 +268,30 @@ def run_variants(
 ) -> None:
     """Ejecuta cada maker una vez por variante, en orden determinista.
 
-    Cada figura se cierra tras usarse y los rcParams se restauran aunque un maker
-    falle: la excepción se propaga sin tragarse, pero no deja el proceso teñido.
+    Cada figura se cierra tras usarse y los rcParams se restauran aunque un maker falle:
+    la excepción se propaga sin tragarse, pero no deja el proceso teñido ni con figuras
+    abiertas, incluso si el maker reventó después de crear la suya.
     """
     for lang_code, theme_name in variants:
         ctx = context_for(lang_code, theme_name)
         with figure_style(ctx):
             for maker in makers:
-                plt.close(maker(*args, ctx))
+                # Un maker puede abrir su figura y fallar DESPUÉS (al calcular, al rotular).
+                # Sin esta red la figura se quedaba abierta: la excepción se propaga igual,
+                # pero el proceso no acumula figuras huérfanas variante tras variante.
+                #
+                # Se comparan los OBJETOS con `is`, no números ni `id`: Matplotlib recicla
+                # los números y CPython puede reciclar los `id`. Sostener las figuras en una
+                # lista mantiene vivos ambos mientras dura la comparación.
+                abiertas = _open_figures()
+                try:
+                    fig = maker(*args, ctx)
+                except BaseException:
+                    for otra in _open_figures():
+                        if not any(otra is previa for previa in abiertas):
+                            plt.close(otra)
+                    raise
+                plt.close(fig)
 
 
 def num(v: int) -> str:
