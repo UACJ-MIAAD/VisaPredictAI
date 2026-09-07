@@ -11,6 +11,7 @@ Ahora `pi_scale_by_h.json` es obligatorio y una celda ausente detiene el build.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import pathlib
 
@@ -18,6 +19,14 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GENERADOR = ROOT / "experiments" / "generate_web_forecasts.py"
+
+# El generador importa `darts` (extra `model`), que el job base (`.[dev]`) no instala. Solo las
+# pruebas que EJECUTAN el generador lo necesitan; las que leen su texto fuente, no. `find_spec` no
+# importa el módulo.
+NECESITA_MODELO = pytest.mark.skipif(
+    importlib.util.find_spec("darts") is None,
+    reason="ejecuta generate_web_forecasts, que importa darts (extra `model`)",
+)
 
 
 def _modulo():
@@ -59,6 +68,7 @@ class TestTheFallbackIsGone:
                 assert "dict | None" not in fuente, f"{node.name} sigue admitiendo escalas ausentes"
 
 
+@NECESITA_MODELO
 class TestMissingScalesStopTheBuild:
     def test_a_missing_file_aborts_instead_of_estimating(self, tmp_path, monkeypatch) -> None:
         mod = _modulo()
