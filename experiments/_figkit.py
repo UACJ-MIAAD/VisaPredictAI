@@ -35,6 +35,7 @@ __all__ = [
     "FigureContext",
     "VARIANTS",
     "figure_style",
+    "plain_style",
     "save_dual",
     "run_variants",
     "header",
@@ -175,6 +176,19 @@ class FigureContext:
 
 
 @contextmanager
+def plain_style(rcparams: Mapping[str, Any]) -> Iterator[None]:
+    """Aplica un conjunto de rcParams tal cual y los restaura al salir.
+
+    Para las figuras que NO tienen variantes de idioma ni tema —los resultados del
+    entregable, monolingües y solo PDF— y cuyo marco visual es el suyo, no el de la web.
+    Envolverlas en un `Theme` completo les cambiaría el color de título, texto y ejes: el
+    tema web define semánticas de color que ese generador nunca aplicó.
+    """
+    with plt.rc_context(dict(rcparams)):
+        yield
+
+
+@contextmanager
 def figure_style(ctx: FigureContext) -> Iterator[FigureContext]:
     """Aplica los rcParams del tema y los restaura al salir, pase lo que pase.
 
@@ -193,6 +207,7 @@ def save_dual(
     png_root: Path,
     pdf_root: Path,
     pdf_name: Callable[[str], str | None] | None = None,
+    log_name: Callable[[str], str] | None = None,
     announce: bool = True,
 ) -> plt.Figure:
     """Guarda la figura donde le toca a su variante y DEVUELVE la figura viva.
@@ -211,15 +226,16 @@ def save_dual(
             print(f"{sub.relative_to(png_root)}/{name} OK")
         return fig
     png_root.mkdir(parents=True, exist_ok=True)
-    label = name
     if pdf_name is not None:
         target = pdf_name(name)
         if target is not None:
             fig.savefig(pdf_root / f"{target}.pdf", bbox_inches="tight")
-            label = target
     fig.savefig(png_root / f"{name}.png", bbox_inches="tight", dpi=300)
     if announce:
-        print(f"{label} OK")
+        # `log_name` es cómo se ANUNCIA la figura, que no siempre coincide con el PDF que
+        # emite: la galería EDA rotula todas sus figuras `eda3_*` aunque solo seis tengan
+        # PDF. Cambiar esa línea sería alterar la salida del cron sin declararlo.
+        print(f"{(log_name or pdf_name or str)(name) or name} OK")
     return fig
 
 

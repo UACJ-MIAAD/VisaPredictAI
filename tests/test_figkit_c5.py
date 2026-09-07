@@ -304,24 +304,38 @@ class TestGeneratorsHaveNoGlobalState:
         llamadas = {n.func.id for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
         assert "run_variants" not in llamadas, "los resultados no tienen variantes de idioma ni tema"
         assert "save_dual" not in llamadas, "su guardado es monolingüe y solo PDF"
-        assert "results_context" in llamadas, "debe construir su contexto de imprenta"
-        assert "figure_style" in llamadas, "debe envolver la generación en ese contexto"
+        assert "results_style" in llamadas, "debe construir su estilo de imprenta"
+        assert "plain_style" in llamadas, "usa el contexto reversible plano, no el tema web"
+        assert "Theme" not in llamadas, "el tema web le cambiaría el color de título, texto y ejes"
         assert "_emit" in llamadas, "sigue duplicando el par savefig/close"
 
-    def test_result_figures_builds_exactly_one_spanish_light_context(self) -> None:
+    def test_result_figures_applies_only_its_historic_print_style(self) -> None:
+        """Su estilo es exactamente `RESULTS_RC`: ni un rcParam más.
+
+        Envolverlo en un `Theme` del kit le añadía ocho rcParams del tema web
+        (`text.color`, `xtick.color`, `axes.titlecolor`…) y cambiaba el aspecto de todas
+        las figuras del entregable. Esta prueba lo impide.
+        """
         import importlib.util
+        import sys
 
         spec = importlib.util.spec_from_file_location("mrf_c5", ROOT / "experiments/make_result_figures.py")
         assert spec is not None and spec.loader is not None
-        import sys
-
         sys.path.insert(0, str(ROOT / "experiments"))
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        ctx = mod.results_context()
-        assert ctx.variant == "es/light"
-        assert ctx.academic is True
-        assert ctx.theme.overrides["axes.grid"] is True  # rejilla de imprenta, no de web
+
+        antes = dict(plt.rcParams)
+        with mod.results_style():
+            dentro = dict(plt.rcParams)
+        cambiados = {k for k in antes if str(antes[k]) != str(dentro[k])}
+        # solo puede cambiar lo que RESULTS_RC declara, y nada más
+        assert cambiados <= set(mod.RESULTS_RC), f"rcParams de más: {sorted(cambiados - set(mod.RESULTS_RC))}"
+        for k, v in mod.RESULTS_RC.items():
+            # Matplotlib normaliza algunos valores (font.family "serif" -> ["serif"])
+            esperado = [v] if isinstance(dentro[k], list) and not isinstance(v, list) else v
+            assert dentro[k] == esperado, f"{k}: {dentro[k]!r} != {esperado!r}"
+        assert dict(plt.rcParams) == antes  # y se restaura
 
 
 class TestGovernedInventory:

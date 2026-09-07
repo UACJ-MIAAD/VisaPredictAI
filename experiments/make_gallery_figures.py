@@ -25,6 +25,9 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
+from collections.abc import Callable
+from functools import partial
+
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
@@ -327,6 +330,7 @@ def _save(fig: plt.Figure, name: str, ctx: FigureContext) -> plt.Figure:
         png_root=FIG_PNG,
         pdf_root=FIG_TEX,
         pdf_name=lambda n: f"eda3_{n}" if n in TEX_PDFS else None,
+        log_name=lambda n: f"eda3_{n}",
     )
 
 
@@ -1077,15 +1081,20 @@ def g11_completitud(facts: dict, ctx: FigureContext) -> plt.Figure:
     return _save(fig, "g11_completitud", ctx)
 
 
-# Las que necesitan el panel y las que se bastan con los facts; `run_variants` pasa el
-# contexto de cada pasada como ultimo argumento a cada maker.
+# Unas figuras necesitan el panel y otras se bastan con los facts. El catálogo distingue
+# ambas, pero la emisión es UNA sola pasada por variante: partirla en dos llamadas cambiaría
+# el orden en que se generan (y el del log), que es comportamiento observable del entrypoint.
 MAKERS_DF = (g01_panel, g02_trayectorias, g03_backlog, g06_pulso_fiscal, g07_leadlag)
 MAKERS_FACTS = (g04_retros, g05_brecha, g08_congelados, g09_estacionariedad, g10_dv, g11_completitud)
 
 
+def bound_makers(df: pd.DataFrame, facts: dict) -> tuple[Callable[[FigureContext], plt.Figure], ...]:
+    """Las once figuras con sus datos ya ligados, en el orden en que se emiten."""
+    return tuple([partial(fn, df, facts) for fn in MAKERS_DF] + [partial(fn, facts) for fn in MAKERS_FACTS])
+
+
 if __name__ == "__main__":
     df, facts = load_inputs()
-    # 4 pasadas idioma x tema; SOLO es-claro escribe los PDF del .tex y el reporte
-    run_variants(MAKERS_DF, context_for, df, facts)
-    run_variants(MAKERS_FACTS, context_for, facts)
-    print("Galeria EDA (es/en x clara/oscura) en", FIG_TEX, "y", FIG_PNG)
+    # 4 pasadas idioma × tema; SOLO es-claro escribe los PDF del .tex y el reporte
+    run_variants(bound_makers(df, facts), context_for)
+    print("Galería EDA (es/en × clara/oscura) en", FIG_TEX, "y", FIG_PNG)

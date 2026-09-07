@@ -693,6 +693,6 @@ MAKERS = (
 
 if __name__ == "__main__":
     df, facts = load_inputs()
-    # 4 pasadas idioma x tema; SOLO es-claro escribe los PDF del .tex y el reporte
+    # 4 pasadas idioma × tema; SOLO es-claro escribe los PDF del .tex y el reporte
     run_variants(MAKERS, context_for, df, facts)
-    print("Galeria FE (es/en x clara/oscura) en", FIG_TEX, "y", FIG_PNG)
+    print("Galería FE (es/en × clara/oscura) en", FIG_TEX, "y", FIG_PNG)

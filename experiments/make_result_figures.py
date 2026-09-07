@@ -51,21 +51,20 @@ RESULTS_RC = {
 }
 
 
-def results_context():
-    """El contexto de imprenta de las figuras de resultados: claro, en espanol, sin variantes.
+def results_style():
+    """El estilo de imprenta de estas figuras, en un contexto reversible.
 
-    Los imports van aqui dentro a proposito: este archivo coloca sus imports despues de
-    definir ROOT (E402 ya suprimido linea a linea), y anadir dos supresiones mas solo para
-    el kit haria subir el trinquete de deuda por una razon puramente cosmetica.
+    Es `RESULTS_RC` y nada más: un `Theme` completo del kit añadiría las semánticas de
+    color de la web (título azul, texto y ejes grises) que este generador nunca aplicó, y
+    cambiaría el aspecto de todas las figuras del entregable.
+
+    El import va aquí dentro a propósito: este archivo coloca sus imports después de
+    definir ROOT (E402 ya suprimido línea a línea), y añadir una supresión más solo para el
+    kit haría subir el trinquete de deuda por una razón puramente cosmética.
     """
-    from _figkit import FigureContext, LangCtx, Theme
+    from _figkit import plain_style
 
-    from vp_model import palette as _palette
-
-    return FigureContext(
-        theme=Theme("light", _palette.LIGHT, RESULTS_RC),
-        lang=LangCtx("es", {}, {}),
-    )
+    return plain_style(RESULTS_RC)
 
 
 def _emit(fig: plt.Figure, name: str) -> None:
@@ -557,9 +556,7 @@ def fig_error_heatmap() -> None:
 
 
 if __name__ == "__main__":
-    from _figkit import figure_style
-
-    with figure_style(results_context()):
+    with results_style():
         fig_ranking()
         fig_forecast()
         fig_multiseed()
