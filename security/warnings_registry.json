@@ -14,7 +14,7 @@
       "experiments/auto_arima_baseline.py:30",
       "experiments/build_eda_facts.py:116",
       "experiments/freeze_shadow.py:174",
-      "experiments/generate_web_forecasts.py:664"
+      "experiments/generate_web_forecasts.py:674"
     ],
     "note": "Supresiones amplias (`simplefilter(\"ignore\")` / `filterwarnings(\"ignore\")`) en el camino de ejecución de los productores. Estrecharlas exige tocar productores y re-verificar artefactos canónicos, así que NO entra en D2-C. `vp_model/walkforward.py:148` usa `simplefilter(\"always\")`, que no suprime nada y por eso no cuenta."
   },

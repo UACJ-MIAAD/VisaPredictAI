@@ -28,9 +28,16 @@ sys.path.insert(0, str(ROOT))
 
 
 def _load(name: str):
+    """Carga un módulo de `experiments/` por ruta.
+
+    El módulo se registra en `sys.modules` ANTES de ejecutarlo: `dataclasses` resuelve las
+    anotaciones mirando `sys.modules[cls.__module__]`, y sin el registro revienta con un
+    `AttributeError` sobre `None` en cuanto el módulo declara una dataclass.
+    """
     spec = importlib.util.spec_from_file_location(name, ROOT / "experiments" / f"{name}.py")
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -133,21 +140,24 @@ def test_conformal_calib_dates_excludes_interpolated_months() -> None:
 # --- generate_web_forecasts._band_halfwidths (AN2) ---------------------------
 
 
-def test_band_halfwidths_qh_and_fallback() -> None:
+def test_band_halfwidths_has_no_fallback_left() -> None:
+    """C7: las cuantilas empíricas son el ÚNICO camino; una celda ausente aborta.
+
+    Antes, un horizonte sin calibrar caía en un `sqrt(h)` heredado que infra-cubre, y el
+    consumidor no distinguía una banda medida de una estimada.
+    """
     pytest.importorskip("darts")
     gwf = _load("generate_web_forecasts")
-    from vp_model import config
 
     scales = {"FAD": {"80": {"3": 2.0}, "95": {"3": 3.0}}}
     h80, h95, method = gwf._band_halfwidths(3, 100.0, "FAD", scales)
     assert (h80, h95, method) == (200.0, 300.0, "q_h")
-    # horizon not calibrated -> documented sqrt(h) fallback
-    h80, h95, method = gwf._band_halfwidths(5, 100.0, "FAD", scales)
-    assert method == "sqrt_h"
-    assert h95 == pytest.approx(100.0 * np.sqrt(5))
-    assert h80 == pytest.approx(100.0 * config.BAND80_RATIO * np.sqrt(5))
-    # no scales file at all -> same fallback
-    assert gwf._band_halfwidths(1, 100.0, "DFF", None)[2] == "sqrt_h"
+    # horizonte sin calibrar: se detiene y dice cuál falta, no estima de otro modo
+    with pytest.raises(SystemExit, match="sin escala de banda"):
+        gwf._band_halfwidths(5, 100.0, "FAD", scales)
+    # tabla sin escalas: igual
+    with pytest.raises(SystemExit, match="sin escala de banda"):
+        gwf._band_halfwidths(1, 100.0, "DFF", scales)
 
 
 # --- derive_band80_ratio: per-horizon scales (AN2) ----------------------------
