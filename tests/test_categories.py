@@ -186,8 +186,13 @@ def test_metadata_covers_exactly_the_domain() -> None:
             assert parent in cat.CATEGORY_META or parent == "F2", code
 
 
-def test_database_imports_the_metadata_instead_of_redeclaring_it() -> None:
-    src = (ROOT / "pipeline" / "build_database.py").read_text(encoding="utf-8")
+@pytest.mark.parametrize(
+    "modulo",
+    ["build_database.py", "db_migrations.py", "db_loaders.py", "db_governance.py"],
+)
+def test_database_imports_the_metadata_instead_of_redeclaring_it(modulo: str) -> None:
+    """C6 partió `build_database` en tres: la garantía cubre a los cuatro módulos."""
+    src = (ROOT / "pipeline" / modulo).read_text(encoding="utf-8")
     tree = ast.parse(src)
     assigns = [
         n
@@ -196,11 +201,17 @@ def test_database_imports_the_metadata_instead_of_redeclaring_it() -> None:
         for t in n.targets
         if isinstance(t, ast.Name) and t.id == "CATEGORY_META"
     ]
-    assert not assigns, "build_database vuelve a declarar CATEGORY_META"
-    assert "from vp_data.categories import" in src
+    assert not assigns, f"{modulo} vuelve a declarar CATEGORY_META"
+
+
+def test_the_taxonomy_reaching_the_warehouse_is_the_canonical_object() -> None:
+    """Quien consume `build_database.CATEGORY_META` recibe el canónico, no una copia."""
     from pipeline import build_database as bd
+    from pipeline import db_loaders as dl
 
     assert bd.CATEGORY_META is cat.CATEGORY_META
+    assert dl.CATEGORY_META is cat.CATEGORY_META
+    assert "from vp_data.categories import" in (ROOT / "pipeline" / "db_loaders.py").read_text(encoding="utf-8")
 
 
 def test_country_list_has_a_single_authority() -> None:
