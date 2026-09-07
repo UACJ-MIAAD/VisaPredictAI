@@ -21,7 +21,7 @@ Prediction interval (AN1/AN2/AN4):
     prospective ledger (``reports/prospective/pi_scale_by_h.json``, derived by
     ``experiments/derive_band80_ratio.py`` on a disjoint vintage split). Documented
     fallback: if the JSON is missing or has no cell for (table, level, h), the band
-    reverts to the legacy sqrt(h) heuristic with ``config.BAND80_RATIO`` for the 80 %
+    son obligatorias: una celda ausente detiene el build en vez de estimar de otro modo
     band. Real multi-step coverage is still measured by ``score_forecasts.py``.
   • Per-series ACI (Gibbs & Candès): if the prospective ledger already scored >= 8
     forecasts of a series, the conformal level is adapted from its hit history
@@ -51,7 +51,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -92,13 +91,24 @@ class SeriesEligibility:
     reason: str | None
 
 
-def _load_pi_scales() -> dict | None:
-    """Per-horizon band scales q_{table, level, h} (AN2); None -> sqrt(h) fallback."""
+def _load_pi_scales() -> dict:
+    """Escalas de banda por horizonte q_{table, level, h} (AN2). OBLIGATORIAS.
+
+    C7: ya no hay respaldo. El `sqrt(h)` heredado no era una alternativa equivalente sino
+    una forma DISTINTA de calcular la banda, y la evidencia prospectiva mostró que
+    infra-cubre; servirla en silencio cuando falta el archivo publicaba intervalos que no
+    son los que el sistema declara. Sin el archivo, el build se detiene.
+    """
     path = REPORTS / "prospective" / "pi_scale_by_h.json"
     if not path.exists():
-        log.warning("no %s — bands fall back to sqrt(h) growth (run derive_band80_ratio)", path.name)
-        return None
-    return json.loads(path.read_text())["scales"]
+        raise SystemExit(
+            f"falta {path}: las bandas del demostrador se derivan de las cuantilas empíricas "
+            "por horizonte. Ejecuta `derive_band80_ratio` antes de generar los pronósticos."
+        )
+    scales = json.loads(path.read_text())["scales"]
+    if not scales:
+        raise SystemExit(f"{path} no declara ninguna escala")
+    return scales
 
 
 def _load_aci_gamma() -> dict[str, float]:
@@ -121,21 +131,21 @@ def _ledger_hits() -> dict[tuple[str, str, str], list[int]]:
     }
 
 
-def _band_halfwidths(h: int, half95_1step: float, table: str, scales: dict | None) -> tuple[float, float, str]:
-    """(half80, half95, method) at horizon ``h`` from the 1-step conformal half-width.
+def _band_halfwidths(h: int, half95_1step: float, table: str, scales: dict) -> tuple[float, float, str]:
+    """(half80, half95, método) en el horizonte ``h`` desde la semi-anchura conforme a 1 paso.
 
-    Primary path (AN2): empirical ledger quantiles ``q_{table, level, h}``. Documented
-    fallback when the JSON or the (table, level, h) cell is missing (e.g. h beyond the
-    calibrated range, or a cell below the min-n floor): legacy sqrt(h) random-walk
-    growth with the scalar ``config.BAND80_RATIO`` for the 80 % band.
+    Único camino (AN2): las cuantilas empíricas del ledger ``q_{table, level, h}``. Una
+    celda ausente es un error, no una invitación a estimar de otro modo: se detiene y dice
+    cuál falta.
     """
-    if scales is not None:
-        t = scales.get(table, {})
-        q80, q95 = t.get("80", {}).get(str(h)), t.get("95", {}).get(str(h))
-        if q80 is not None and q95 is not None:
-            return half95_1step * float(q80), half95_1step * float(q95), "q_h"
-    grow = math.sqrt(h)
-    return half95_1step * config.BAND80_RATIO * grow, half95_1step * grow, "sqrt_h"
+    t = scales.get(table, {})
+    q80, q95 = t.get("80", {}).get(str(h)), t.get("95", {}).get(str(h))
+    if q80 is None or q95 is None:
+        raise SystemExit(
+            f"sin escala de banda para (tabla={table}, h={h}): faltan las cuantilas empíricas. "
+            "Re-deriva pi_scale_by_h.json o acota el horizonte publicado."
+        )
+    return half95_1step * float(q80), half95_1step * float(q95), "q_h"
 
 
 def _prepare_series(country: str, category: str, table: str, as_of: str | None = None):
@@ -234,7 +244,7 @@ def _series_forecast(
     table: str,
     as_of: str | None,
     prod: dict[str, tuple[str, ...]],
-    pi_scales: dict | None,
+    pi_scales: dict,
     aci_gamma: dict[str, float],
     hits: dict[tuple[str, str, str], list[int]],
 ) -> tuple[list[dict], dict] | None:
@@ -282,7 +292,7 @@ def _compute_series_forecast(
     table: str,
     as_of: str | None,
     prod: dict[str, tuple[str, ...]],
-    pi_scales: dict | None,
+    pi_scales: dict,
     aci_gamma: dict[str, float],
     hits: dict[tuple[str, str, str], list[int]],
     *,
@@ -408,7 +418,7 @@ def _compute_series_forecast(
             "horizon": HORIZON,
         },
         metrics={"mase": meta["mase"], "smape": meta["smape"], "cov95": meta["cov95_holdout"], "n_obs": len(ts)},
-        tags={"kind": "web_forecast", "pi": "conformal_qh" if "q_h" in band_methods else "conformal_sqrt_h"},
+        tags={"kind": "web_forecast", "pi": "conformal_qh"},  # C7: es el único método
     )
     return rows, {f"{country}/{category}/{table}": meta}
 

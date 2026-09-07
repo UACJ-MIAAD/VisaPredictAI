@@ -18,7 +18,15 @@ import pytest
 pytest.importorskip("darts")
 
 from experiments import generate_web_forecasts as gwf  # noqa: E402
+
+# C7: las escalas de banda por horizonte dejaron de ser opcionales, así que las pruebas
+# que ejercitan el pronóstico traen las suyas en vez de pasar `None`.
+_ESCALAS_DE_PRUEBA = {t: {lvl: {str(h): 1.0 for h in range(1, 13)} for lvl in ("80", "95")} for t in ("FAD", "DFF")}
 from vp_model import config  # noqa: E402
+
+# C7: las escalas de banda por horizonte dejaron de ser opcionales, así que las pruebas
+# que ejercitan el pronóstico traen las suyas en vez de pasar `None`.
+_ESCALAS_DE_PRUEBA = {t: {lvl: {str(h): 1.0 for h in range(1, 13)} for lvl in ("80", "95")} for t in ("FAD", "DFF")}
 
 ROW = {
     "origin": "2026-09",
@@ -162,7 +170,7 @@ def test_linalg_failure_retries_once_with_governed_sarima_stabilization(monkeypa
         "FAD",
         None,
         {"FAD": ("theta", "ets", "sarima")},
-        None,
+        _ESCALAS_DE_PRUEBA,
         {"FAD": 0.05},
         {},
     )
@@ -179,7 +187,10 @@ def test_non_numerical_model_failure_is_not_retried(monkeypatch) -> None:
         raise ValueError("modelo roto")
 
     monkeypatch.setattr(gwf, "_compute_series_forecast", compute)
-    assert gwf._series_forecast("mexico", "F1", "FAD", None, {"FAD": ("sarima",)}, None, {"FAD": 0.05}, {}) is None
+    assert (
+        gwf._series_forecast("mexico", "F1", "FAD", None, {"FAD": ("sarima",)}, _ESCALAS_DE_PRUEBA, {"FAD": 0.05}, {})
+        is None
+    )
     assert calls == 1
 
 
@@ -193,7 +204,10 @@ def test_relaxed_retry_failure_is_not_retried_a_third_time(monkeypatch) -> None:
         raise np.linalg.LinAlgError("singular en ambos intentos")
 
     monkeypatch.setattr(gwf, "_compute_series_forecast", compute)
-    assert gwf._series_forecast("mexico", "F1", "FAD", None, {"FAD": ("sarima",)}, None, {"FAD": 0.05}, {}) is None
+    assert (
+        gwf._series_forecast("mexico", "F1", "FAD", None, {"FAD": ("sarima",)}, _ESCALAS_DE_PRUEBA, {"FAD": 0.05}, {})
+        is None
+    )
     assert calls == [False, True]
 
 

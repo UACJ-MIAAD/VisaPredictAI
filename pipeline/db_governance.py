@@ -22,6 +22,8 @@ from pathlib import Path
 
 import duckdb
 
+from vp_data.tree_dirty import Scope, tree_dirty
+
 logger = logging.getLogger(__name__)
 
 # Columnas de reloj de pared: quedan FUERA de la huella de contenido a propósito.
@@ -122,13 +124,14 @@ def _git_identity() -> tuple[str | None, bool | None]:
     root = Path(__file__).resolve().parents[1]
     try:
         sha = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=root, check=False)
-        status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True, cwd=root, check=False)
     except OSError:
         return None, None
     full = sha.stdout.strip()
     if sha.returncode != 0 or len(full) != 40:
         return None, None
-    return full, bool(status.stdout.strip()) if status.returncode == 0 else None
+    # C7b: `tree_dirty` devuelve None cuando no se pudo averiguar, y ese None se propaga
+    # como NULL en la bitácora: no se convierte en False.
+    return full, tree_dirty(Scope.ALL, root=root)
 
 
 def _run_identity(args: argparse.Namespace, started_at: datetime, panel_path: Path) -> dict:
