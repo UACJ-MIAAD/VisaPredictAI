@@ -149,6 +149,29 @@ class TestVariants:
         assert vistos == ["es/light", "es/dark", "en/light", "en/dark"]
         assert len(plt.get_fignums()) == abiertas  # ninguna figura queda abierta
 
+    def test_the_variant_set_can_be_narrowed_and_reordered(self, kit, ctx) -> None:
+        """`variants` existe para que el llamador acote o reordene las pasadas.
+
+        Es lo que permite comprobar que el resultado NO depende del orden: la misma figura
+        sale igual en `es/light → en/dark` que al revés.
+        """
+        vistos: list[str] = []
+
+        def maker(c):
+            vistos.append(c.variant)
+            return plt.figure()
+
+        contexto = lambda lang, theme: kit.FigureContext(  # noqa: E731
+            theme=kit.Theme(theme, dict(ctx.theme.colors)), lang=kit.LangCtx(lang, {}, {})
+        )
+        kit.run_variants([maker], contexto, variants=(("es", "light"), ("en", "dark")))
+        assert vistos == ["es/light", "en/dark"]
+
+        vistos.clear()
+        kit.run_variants([maker], contexto, variants=(("en", "dark"), ("es", "light")))
+        assert vistos == ["en/dark", "es/light"]
+        assert len(plt.get_fignums()) == 0
+
     def test_a_failing_maker_propagates_and_leaves_no_tint(self, kit, ctx) -> None:
         before = dict(plt.rcParams)
 
