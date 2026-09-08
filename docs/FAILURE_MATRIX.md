@@ -20,7 +20,7 @@ híbrida** (swap todo-o-nada por hash).
 | CDN/header incorrecto (CSP, og) | `verify-build` FALLA el job build-offline | El PR no pasa; Netlify nunca lo ve | Revertir el commit | `scripts/verify-build.mjs` en CI (G1) |
 | Release stale servida / deploy no aplicado | Correo SES "deploy NO verificado" (C4) + **watchdog de salud real** (lunes: vintage de PROD vs manifiesto + status fresh → issue) | Producción expone su estado en `/data/release-state.json` + footer | Re-disparar hook de Netlify; investigar loader | Paso C4 post-hook (sondea PROD) + watchdog G4 |
 | `dvc.lock` desfasado | Gate E2 en CI (5 stages git-only) | El push no pasa CI | `make repro` + commitear lock | Gate E2 (detonó 5+ veces históricas — funciona) |
-| Boletín HTML malformado | Correo SES + fail-soft por mes | Un mes malo no tumba los 296; `_looks_like_bulletin` + piso de links | El mes se recupera a mano a snapshots/ | `test_extraction` offline sobre fixtures |
+| Boletín HTML malformado | Correo SES + fail-soft por mes | Un mes malo no tumba el resto del panel; `_looks_like_bulletin` + piso de links | El mes se recupera a mano a snapshots/ | `test_extraction` offline sobre fixtures |
 | Cifra desalineada entre artefactos | Guardián de consistencia (CI + pre-push, 119 artefactos) | El push no pasa | Propagar regla #0 | `check_consistency` + tripwires probados con violaciones sembradas |
 
 **Exposición de identidad (aceptación G4):** producción expone `release_id`/estado en

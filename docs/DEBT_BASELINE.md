@@ -14,7 +14,7 @@ Todo `except Exception` amplio lleva **`noqa: BLE001` + comentario de continuida
 (qué se degrada y por qué no debe abortar). Al sembrar la baseline (2026-07-11):
 36 totales, **9 sin razón declarada** — todos en la familia de scrapers
 (`vp_data/visa_common.py`, `pipeline/scrape_*.py`): son el patrón fail-soft por-mes del
-parseo (un boletín malformado no tumba los 296) y les falta el comentario, no la
+parseo (un boletín malformado no tumba el resto del panel) y les falta el comentario, no la
 política. El trinquete impide que aparezcan nuevos sin justificar; anotar esos 9 es
 limpieza incremental que BAJA la baseline.
 
