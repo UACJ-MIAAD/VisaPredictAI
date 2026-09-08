@@ -21,7 +21,14 @@ tools/consistency_rules.yml ──► tools/check_consistency.py ──┤ compa
   deep-vs-parsimonia, BAND80\_RATIO). **No editar a mano** — `make key-facts` lo regenera.
 - **`tools/consistency_rules.yml`** — reglas: `forbidden` (claims viejos prohibidos),
   `required` (cifras canónicas que DEBEN aparecer), `numeric` (un número etiquetado en la
-  prosa debe igualar la fuente; tolerante a separadores LaTeX `27{,}611`).
+  prosa debe igualar la fuente; tolerante al separador tipográfico de LaTeX (`27{,}911` es el mismo número que `27911`).
+- **`tex_json`** — contratos entre un `.tex` generado y su JSON de autoridad, cerrados en ambos
+  sentidos (`kind: macros` y `kind: table`). Ninguna regla de texto entra en un archivo generado:
+  sin esto, una macro desalineada o una fila regenerada a medias pasaban enteras.
+- **`frozen`** — grupos de documentos ENTREGADOS (hoy la propuesta): se vigilan con tripwires y el
+  checker **rechaza** una regla `required` sobre ellos, porque un entregable no se reescribe.
+- **`retro_protocol` + `provisional_caveat`** — el descargo provisional del paper es obligatorio
+  bajo `pre-F1` y prohibido bajo `f2-causal`: el texto tiene que acompañar al protocolo declarado.
 - **`tools/check_consistency.py`** (`make consistency`) — escanea los artefactos y **falla
   (exit 1)** ante cualquier violación, indicando archivo:línea y el motivo.
 

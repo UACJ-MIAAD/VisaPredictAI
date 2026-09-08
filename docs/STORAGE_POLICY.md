@@ -13,7 +13,7 @@ desarrollo local `du` incluye además regenerables gitignored — para el tamañ
 |---|---|---|---|---|---|
 | Fuentes + tests + docs | git (`main`) | (dentro de .git 203 MB) | permanente | todo | clone |
 | CSVs abiertos (raw/panel/bulletins) | git, `cache:false` (entregable descargable) | data/ **4.1 MB versionados** (árbol local 47 MB: + .duckdb/.parquet regenerables, gitignored) | permanente | web, DAG, tesis | `dvc repro` / clone |
-| HTML congelado (296 boletines) | **S3 `visapredictai-raw-snapshots`** (versioning ON) = fuente de verdad; local gitignored | 32 MB | permanente | scrape offline | `aws s3 sync` (make update) |
+| HTML congelado (una instantánea por boletín ingerido; el conteo vivo lo da `make ingest-manual`/el ledger) | **S3 `visapredictai-raw-snapshots`** (versioning ON) = fuente de verdad; local gitignored | 32 MB | permanente | scrape offline | `aws s3 sync` (make update) |
 | `.duckdb` / Parquet | regenerable; Parquet en cache DVC→S3 | (no en git) | regenerable | modelado | `make db` / `dvc pull` |
 | reports/ (ledgers, scorecards, facts, galerías×4, PDFs, campañas) | git | **48.4 MB versionados** (⚠️ corrección auditoría 11-jul: el árbol local pesa 640 MB, pero ~590 MB son regenerables IGNORADOS — logs/estudios Optuna, PDFs y galerías locales; el rubro dominante EN GIT sigue siendo este, no 640) | ledgers/facts permanentes; galerías/PDFs = última añada (se REEMPLAZAN, no se acumulan versiones); campañas = procedencia permanente | web (fetch), RAG, .tex, gates | regenerables del DAG/cron salvo ledgers (append-only, actas git) |
 | Manifiesto + contratos | git (`reports/release/`, `vp_data/contracts/`) | <1 MB | permanente | loader web (B2/B3) | `make release-manifest` |
