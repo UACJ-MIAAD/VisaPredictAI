@@ -16,6 +16,24 @@ artifacts:
   deliverable: ["reports/latex/ProyectoI_VisaPredictAI.tex"]
   paper: ["reports/paper_micai/paper.tex", "reports/paper_micai/README.md"]
   readmes: ["README.md"]
+  # F3 · La propuesta entregada. CONGELADA (ver `frozen`): solo tripwires.
+  proposal: ["reports/latex/AnteproyectoVisaPredictAI.tex"]
+  # F3 · Documentacion de producto: fuentes y consumidores NOMINALES, uno por uno. No es un
+  # glob: un documento nuevo entra aqui a proposito, no por caer en un patron.
+  docs:
+    - "docs/ARCHITECTURE.md"
+    - "docs/CLEANING.md"
+    - "docs/CONSISTENCY.md"
+    - "docs/DEBT_BASELINE.md"
+    - "docs/DVC.md"
+    - "docs/ENGINEERING.md"
+    - "docs/FORECAST_EVAL.md"
+    - "docs/PROMOTION_POLICY.md"
+    - "docs/ROADMAP.md"
+    - "docs/STORAGE_POLICY.md"
+    - "docs/data_dictionary.md"
+    - "docs/er_diagram.md"
+    - "docs/mlops_experimentos.md"
   # audit ciego r3 (5-jul): el model card publica "N modelos" (derivado de
   # n_models) y el RAG del sitio lo indexa como fuente del veredicto del bot —
   # debe seguir a key_facts o el VisaBot cita un catálogo fósil.
@@ -59,12 +77,56 @@ artifacts:
     "../VisaPredictAI_web/app/*/*/*.tsx",
   ]
 
+
+# F3 · La PROPUESTA es un documento CONGELADO: se entrego y no se reescribe ni se regenera.
+# Solo se vigila con tripwires (valores muertos que no pueden resucitar en el). Declararlo
+# aqui es lo que impide que una regla `required` lo obligue a decir algo nuevo: el checker
+# rechaza aplicar `required` a un grupo congelado, y hay una prueba que lo comprueba.
+frozen: [proposal]
+
+# F3 · Contratos .tex <-> .json, CERRADOS: cada macro/fila del .tex tiene su autoridad en el
+# JSON y cada autoridad tiene su macro/fila. Antes solo existia un bloque cableado para
+# key_facts; fe_facts y la tabla de horizonte no las vigilaba nadie.
+tex_json:
+  - kind: macros
+    tex: reports/latex/key_facts.tex
+    json: reports/governance/key_facts.json
+    prefix: fact
+    authority: top_level_scalars
+    # `build_key_facts` emite ademas una variante \factXxxFmt con separador de miles para los
+    # conteos grandes. Tiene la MISMA autoridad y se declara, en vez de quedar sin vigilar.
+    formatted_suffix: Fmt
+    generator: experiments/build_key_facts.py
+  - kind: macros
+    tex: reports/latex/fe_facts.tex
+    json: reports/fe/fe_facts.json
+    prefix: feFact
+    authority: explicit
+    map:
+      Version: fe_version
+      SelIn: feature_selection.n_features_in
+      SelRelevant: feature_selection.n_relevant
+      SelFinal: feature_selection.n_selected
+      SelSeries: feature_selection.n_series
+      NCleanDecisions: 'len:cleaning_decisions'
+      NFeDecisions: 'len:fe_decisions'
+      SelName: 'first_escaped:feature_selection.selected'
+    generator: experiments/build_fe_facts.py
+  - kind: table
+    tex: reports/latex/horizon_champion.tex
+    json: reports/eval/horizon_facts.json
+    generator: experiments/build_horizon_facts.py
+    sticky_first_column: true
+    rows_from: '{group}.significance'
+    groups: [FAD, DFF]
+    columns: [group, h, drift, naive1, delta_pct, sig]
+
 forbidden:
   - pattern: 'actualiza este feed autom|updates this feed automatically|se actualiza autom\w+ (en cuanto|as soon)'
     in: [web]
     reason: 'F2: la fuente está tras un WAF desde el 6-ago-2026 y los dos últimos boletines entraron a mano; el sitio NO puede prometer ingesta automática'
   - pattern: 'holgura|holgada'
-    in: [deliverable, paper]
+    in: [deliverable, paper, proposal, docs]
     reason: 'el deep NO gana DFF "con holgura"; es ventaja modesta ~11% y frágil'
   - pattern: 'gana en DFF e iguala en FAD'
     in: [deliverable, paper]
@@ -76,7 +138,7 @@ forbidden:
     in: [deliverable, paper, readmes]
     reason: 'el "23%" provenía de CatBoost (baseline débil); el margen real es ~11%'
   - pattern: 'modela\w*\s+(las\s+)?194\s+series|194\s+series\s+modela'
-    in: [deliverable, paper, readmes, web]
+    in: [deliverable, paper, readmes, web, proposal, docs]
     reason: '194 son ESTRUCTURALES; solo ~74 evaluables (>=84 obs F)'
   # \b en ambos lados: con IGNORECASE, "FAD" matcheaba dentro de \factThetaFadMean (AH1)
   - pattern: '\bFAD\b[^.;]{0,90}0\.10[67]|0\.10[67][^.;]{0,60}\bFAD\b'

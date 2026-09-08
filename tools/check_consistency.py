@@ -74,6 +74,156 @@ def _resolve(globs: list[str]) -> list[Path]:
     return out
 
 
+# ── F3 · contratos .tex <-> .json ───────────────────────────────────────────────────────
+# El valor admite la coma tipográfica `{,}` de LaTeX: `[^}]*` sola truncaba `27{,}911`
+# en `27{,` sin fallar (el `}` de la coma cerraba el macro), y el conteo formateado
+# quedaba comparándose contra un fragmento.
+_MACRO_RX = re.compile(r"\\newcommand\{\\(\w+)\}\{((?:[^{}]|\{,\})*)\}")
+
+
+def _authority_value(data: dict, expr: str):
+    """Autoridad de una macro: ruta punteada, `len:ruta` o `first_escaped:ruta`."""
+    op, _, path = expr.partition(":")
+    if not path:
+        op, path = "value", expr
+    node = data
+    for part in path.split("."):
+        if not isinstance(node, dict) or part not in node:
+            raise KeyError(path)
+        node = node[part]
+    if op == "len":
+        if not isinstance(node, (list, dict)):
+            raise TypeError(f"{path}: len: exige lista u objeto, no {type(node).__name__}")
+        return len(node)
+    if op == "first_escaped":
+        if not isinstance(node, list):
+            raise TypeError(f"{path}: first_escaped: exige lista, no {type(node).__name__}")
+        return (node[0] if node else "—").replace("_", r"\_")
+    return node
+
+
+def _macros_contract(contract: dict, tex_text: str, data: dict) -> list[str]:
+    """Cada macro del .tex tiene autoridad y cada autoridad tiene macro. Cerrado en ambos sentidos."""
+    prefix, out = contract["prefix"], []
+    encontradas = _MACRO_RX.findall(tex_text)
+    nombres = [n for n, _ in encontradas if n.startswith(prefix)]
+    for dup in sorted({n for n in nombres if nombres.count(n) > 1}):
+        out.append(f"TEXJSON    {contract['tex']}  macro duplicada \\{dup}")
+    tex_vals = {n: v for n, v in encontradas if n.startswith(prefix)}
+
+    if contract["authority"] == "top_level_scalars":
+        esperado = {
+            f"{prefix}{_macro_name(k)[len('fact') :] if prefix == 'fact' else _macro_name(k)}": v
+            for k, v in data.items()
+            if not k.startswith("_") and not isinstance(v, (list, dict))
+        }
+    else:
+        esperado = {}
+        for sufijo, expr in contract["map"].items():
+            try:
+                esperado[f"{prefix}{sufijo}"] = _authority_value(data, expr)
+            except (KeyError, TypeError) as exc:
+                out.append(f"TEXJSON    {contract['json']}  autoridad inválida para \\{prefix}{sufijo}: {exc}")
+    sufijo_fmt = contract.get("formatted_suffix")
+    if sufijo_fmt:
+        # La variante formateada comparte autoridad con su macro base: el generador solo la emite
+        # para los conteos grandes, así que se declara cuando existe y se compara sin separador.
+        for nombre in list(esperado):
+            if f"{nombre}{sufijo_fmt}" in tex_vals:
+                esperado[f"{nombre}{sufijo_fmt}"] = esperado[nombre]
+    for nombre in sorted(set(tex_vals) - set(esperado)):
+        out.append(f"TEXJSON    {contract['tex']}  macro \\{nombre} SIN autoridad en {contract['json']}")
+    for nombre in sorted(set(esperado) - set(tex_vals)):
+        out.append(f"TEXJSON    {contract['tex']}  falta la macro \\{nombre} — regenerar con {contract['generator']}")
+    for nombre in sorted(set(tex_vals) & set(esperado)):
+        got, want = tex_vals[nombre].replace("{,}", ""), str(esperado[nombre]).replace(",", "")
+        if not _num_eq(got, want) and got != want:
+            out.append(
+                f"TEXJSON    {contract['tex']}  \\{nombre}={tex_vals[nombre]!r} != {contract['json']} {esperado[nombre]!r}"
+                f" — regenerar con {contract['generator']}"
+            )
+    return out
+
+
+def _table_rows(tex_text: str, sticky: bool) -> list[list[str]]:
+    """Las filas entre `\\midrule` y `\bottomrule`, con la primera celda pegajosa si toca."""
+    cuerpo = tex_text.split("\\midrule", 1)[-1].split("\\bottomrule", 1)[0]
+    filas, anterior = [], ""
+    for linea in cuerpo.splitlines():
+        linea = linea.strip()
+        if not linea or linea.startswith("%") or linea.startswith("\\"):
+            continue
+        celdas = [c.strip() for c in linea.rstrip("\\").split("&")]
+        if sticky:
+            if celdas[0]:
+                anterior = celdas[0]
+            else:
+                celdas[0] = anterior
+        filas.append(celdas)
+    return filas
+
+
+def _table_contract(contract: dict, tex_text: str, data: dict) -> list[str]:
+    """Cada fila del .tex es una fila del JSON y viceversa; nada ambiguo ni duplicado."""
+    cols, out = contract["columns"], []
+    filas = _table_rows(tex_text, bool(contract.get("sticky_first_column")))
+    for i, celdas in enumerate(filas, 1):
+        if len(celdas) != len(cols):
+            out.append(f"TEXJSON    {contract['tex']}  fila {i} con {len(celdas)} celdas, se esperaban {len(cols)}")
+    filas = [f for f in filas if len(f) == len(cols)]
+    tex_idx: dict[tuple[str, str], list[str]] = {}
+    for celdas in filas:
+        clave = (celdas[0], celdas[1])
+        if clave in tex_idx:
+            out.append(f"TEXJSON    {contract['tex']}  fila duplicada para {clave}")
+        tex_idx[clave] = celdas
+    json_idx = {}
+    for grupo in contract["groups"]:
+        nodo = data.get(grupo)
+        ruta = contract["rows_from"].format(group=grupo).split(".", 1)[1]
+        if not isinstance(nodo, dict) or not isinstance(nodo.get(ruta), list):
+            out.append(f"TEXJSON    {contract['json']}  falta {grupo}.{ruta} o no es una lista")
+            continue
+        for fila in nodo[ruta]:
+            json_idx[(grupo, str(fila["h"]))] = fila
+    for clave in sorted(set(tex_idx) - set(json_idx)):
+        out.append(f"TEXJSON    {contract['tex']}  fila {clave} SIN autoridad en {contract['json']}")
+    for clave in sorted(set(json_idx) - set(tex_idx)):
+        out.append(f"TEXJSON    {contract['tex']}  falta la fila {clave} — regenerar con {contract['generator']}")
+    for clave in sorted(set(tex_idx) & set(json_idx)):
+        celdas, fila = tex_idx[clave], json_idx[clave]
+        for col, celda in zip(cols[2:], celdas[2:], strict=True):
+            if col == "sig":
+                esperado = "$\\checkmark$" if fila["sig"] else "--"
+                if celda != esperado:
+                    out.append(f"TEXJSON    {contract['tex']}  {clave} sig={celda!r} != {esperado!r}")
+                continue
+            if not _num_eq(celda.lstrip("+"), str(fila[col])):
+                out.append(
+                    f"TEXJSON    {contract['tex']}  {clave} {col}={celda!r} != {contract['json']} {fila[col]!r}"
+                    f" — regenerar con {contract['generator']}"
+                )
+    return out
+
+
+def _tex_json_violations(rules: dict) -> list[str]:
+    """Los contratos declarados en `tex_json`. Un contrato cuyo .tex o .json falte es un fallo."""
+    out: list[str] = []
+    for contract in rules.get("tex_json", []):
+        tex_path, json_path = ROOT / contract["tex"], ROOT / contract["json"]
+        if not tex_path.exists() or not json_path.exists():
+            falta = contract["tex"] if not tex_path.exists() else contract["json"]
+            out.append(f"TEXJSON    contrato roto: falta {falta}")
+            continue
+        data = json.loads(json_path.read_text())
+        tex_text = tex_path.read_text()
+        out += (_macros_contract if contract["kind"] == "macros" else _table_contract)(contract, tex_text, data)
+    return out
+
+
+RULES_PATH = ROOT / "tools" / "consistency_rules.yml"
+
+
 def main() -> int:
     quiet = "--quiet" in sys.argv
     kf_facts = json.loads((ROOT / "reports" / "governance" / "key_facts.json").read_text())
@@ -85,7 +235,7 @@ def main() -> int:
         fs = json.loads(fe_fp.read_text()).get("feature_selection", {})
         facts.setdefault("fe_sel_in", fs.get("n_features_in"))
         facts.setdefault("fe_sel_final", fs.get("n_selected"))
-    rules = yaml.safe_load((ROOT / "tools" / "consistency_rules.yml").read_text())
+    rules = yaml.safe_load(RULES_PATH.read_text())
     sets = {name: _resolve(globs) for name, globs in rules["artifacts"].items()}
 
     # aviso si el repo web no está montado (CI del repo de datos solo, p. ej.)
@@ -101,21 +251,11 @@ def main() -> int:
 
     violations: list[str] = []
 
-    # 0) key_facts.tex == key_facts.json (AH1): la prosa macro-izada del deliverable
-    # confía en el .tex de macros; si éste se desalinea del .json (edición manual,
-    # regeneración parcial), NINGUNA regla de texto lo cazaría — verificar aquí.
-    kf_tex = ROOT / "reports" / "latex" / "key_facts.tex"
-    if kf_tex.exists():
-        tex_vals = dict(re.findall(r"\\newcommand\{\\(fact\w+)\}\{([^}]*(?:\{,\}[^}]*)*)\}", kf_tex.read_text()))
-        for k, v in kf_facts.items():
-            if k.startswith("_") or isinstance(v, (list, dict)):
-                continue
-            got = tex_vals.get(_macro_name(k))
-            if got is None or not _num_eq(got.replace("{,}", ""), str(v).replace(",", "")):
-                violations.append(
-                    f"KEYFACTS   reports/latex/key_facts.tex  macro \\{_macro_name(k)}={got!r} != json {k}={v!r} "
-                    f"— regenerar con experiments/build_key_facts.py"
-                )
+    # 0) TEX_JSON — contratos .tex <-> .json, CERRADOS (F3). Antes esto era un bloque
+    # cableado que solo miraba key_facts: fe_facts y la tabla de horizonte podían
+    # desalinearse sin que nada lo dijera, porque ninguna regla de texto mira dentro de
+    # un archivo generado. Ahora los contratos se declaran y se validan por igual.
+    violations += _tex_json_violations(rules)
 
     # 1) FORBIDDEN — el patrón no debe aparecer
     for r in rules.get("forbidden", []):
@@ -130,7 +270,18 @@ def main() -> int:
                     )
 
     # 2) REQUIRED — al menos una forma debe aparecer en el grupo
+    # F3: un grupo CONGELADO (la propuesta entregada) no admite reglas `required`: exigirle
+    # decir algo nuevo obligaría a reescribir un documento que ya se entregó. Se vigila con
+    # tripwires, no con obligaciones. El intento es un fallo del propio contrato, no del texto.
+    congelados = set(rules.get("frozen", []))
     for r in rules.get("required", []):
+        invasores = sorted(congelados.intersection(r["in"]))
+        if invasores:
+            violations.append(
+                f"CONTRATO   regla `required` sobre grupo(s) congelado(s) {invasores} "
+                f"(fact {r['fact']!r}) — un documento entregado no se reescribe; usa un tripwire"
+            )
+            continue
         val = facts.get(r["fact"], "")
         # acepta el literal O la macro derivada (\factXxx, opcionalmente con {}) en el MISMO
         # contexto de cada forma: la prosa macro-izada satisface el REQUIRED sin re-teclear el valor.
