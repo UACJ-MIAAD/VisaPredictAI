@@ -246,6 +246,10 @@ jobs:
       # deliverable/investigacion/diagnostico/archivo) con consumidor declarado.
       - name: Check experiments inventory
         run: python tools/check_experiments_inventory.py
+      # C9: cada archivo gobernado tiene exactamente un rol, y el tooling no puede
+      # superar la mitad del producto (instrucción del autor del 17-ago).
+      - name: Check LOC by role
+        run: python tools/check_loc_by_role.py
       # D2: catálogo gobernado de modelos — baselines obligatorias en toda tabla de
       # comparación; el manifiesto campeón solo despliega clase 'active'.
       - name: Check model catalog

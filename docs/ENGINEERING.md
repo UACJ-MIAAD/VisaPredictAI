@@ -38,6 +38,7 @@ de la columna *Autoridad* es el que manda y el otro debe enlazarlo, no repetirlo
 | [`docs/er_diagram.md`](er_diagram.md) | generado | el diagrama entidad-relación del esquema estrella | `experiments/make_data_figures.py`, guardián (grupo `diagrams`) |
 | [`docs/experiments_inventory.json`](experiments_inventory.json) | canónico | la clase y el consumidor de cada entrypoint de `experiments/` | `tools/check_experiments_inventory.py` |
 | [`docs/coverage_floors.json`](coverage_floors.json) | canónico | los pisos de cobertura por capa | `tools/check_coverage_floors.py`, paso E1 del CI |
+| [`docs/loc_roles.json`](loc_roles.json) | canónico | el rol de cada archivo gobernado y el techo de tamaño del tooling | `tools/check_loc_by_role.py`, paso `Check LOC by role` del CI |
 | [`docs/model_catalog.json`](model_catalog.json) | canónico | el catálogo de modelos y su estado | `tools/check_model_catalog.py`, guardián |
 
 ## Decisiones de arquitectura (ADR)

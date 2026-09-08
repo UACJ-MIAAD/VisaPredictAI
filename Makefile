@@ -211,7 +211,10 @@ check-inventory:  ## I2: todo entrypoint de experiments/ clasificado con consumi
 check-catalog:  ## D2: catálogo de modelos (baselines obligatorias; manifiesto solo 'active')
 	$(PY) tools/check_model_catalog.py
 
-check: validate consistency check-debt check-inventory check-catalog lint typecheck test
+check-loc:  ## C9: cada archivo gobernado con un rol único; el tooling bajo el techo del autor
+	$(PY) tools/check_loc_by_role.py
+
+check: validate consistency check-debt check-inventory check-catalog check-loc lint typecheck test
 
 all: freeze scrape panel db test figures audit
 

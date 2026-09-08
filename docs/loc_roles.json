@@ -1,0 +1,247 @@
+{
+  "_doc": "C9 · Cada archivo GOBERNADO (lo que `git ls-files` enumera) tiene exactamente un rol. Dos niveles de regla: las EXACTAS (sin comodines) declaran la excepción y ganan; entre las de GLOB no puede haber empate. Un archivo sin regla, con dos globs que lo reclamen, con dos reglas exactas iguales o una regla exacta que no exista en disco rompen el gate. Los entornos (ante/, .vp_envs/) no aparecen porque no están gobernados, y eso se comprueba. La razón de la política mira SOLO líneas de código (.py, .sh, .sql): un contrato JSON cuenta como archivo de su rol pero no infla el numerador ni el denominador.",
+  "policy": {
+    "tooling_ratio_max": 0.5,
+    "why": "Instrucción del autor (17-ago-2026): el tooling no puede volver a superar la mitad del producto. Es el ÚNICO número escrito a mano de este gate; todo lo demás se mide."
+  },
+  "roles": {
+    "producto": "El sistema que se entrega: paquetes de datos, pipeline y modelado, su esquema y sus contratos.",
+    "pruebas": "La suite y su material de apoyo.",
+    "herramientas": "Los gates, guardianes y utilidades que gobiernan el repositorio.",
+    "experimentos": "Estudios, campañas y generadores de figuras: no son el producto y no se les exige su cobertura.",
+    "generados": "Artefactos versionados que produce un generador y nadie edita a mano.",
+    "evidencia": "Salidas de corridas: informes, figuras, tablas y cortes publicados.",
+    "documentacion": "Prosa: manuales, ADR y avisos.",
+    "configuracion": "Declaraciones del entorno de trabajo y de la automatización.",
+    "datos": "Insumos y panel versionados.",
+    "vendor": "Código de terceros incorporado tal cual: se excluye de toda métrica propia."
+  },
+  "rules": [
+    {
+      "glob": "vp_data/**/*.py",
+      "role": "producto"
+    },
+    {
+      "glob": "pipeline/**/*.py",
+      "role": "producto"
+    },
+    {
+      "glob": "vp_model/**/*.py",
+      "role": "producto"
+    },
+    {
+      "glob": "pipeline/migrations/*.sql",
+      "role": "producto"
+    },
+    {
+      "glob": "vp_data/contracts/*.json",
+      "role": "producto",
+      "why": "Contratos de artefacto que consume check_contracts: viajan con el paquete."
+    },
+    {
+      "glob": "schema.sql",
+      "role": "producto"
+    },
+    {
+      "glob": "tests/**/*",
+      "role": "pruebas"
+    },
+    {
+      "glob": "tools/**/*",
+      "role": "herramientas",
+      "why": "Todo lo de tools/ es herramienta, incluidas sus reglas en YAML y el shim de compatibilidad."
+    },
+    {
+      "glob": "experiments/**/*",
+      "role": "experimentos"
+    },
+    {
+      "glob": "aws_gpu/**/*",
+      "role": "experimentos",
+      "why": "Material del estudio en GPU: guías, lanzadores y requirements propios."
+    },
+    {
+      "glob": "reports/paper_micai/make_paper_figures.py",
+      "role": "experimentos",
+      "why": "Generador de figuras del paper; vive bajo reports/ por historia, no es evidencia."
+    },
+    {
+      "glob": "dvc.lock",
+      "role": "generados"
+    },
+    {
+      "glob": "locks/**/*",
+      "role": "generados",
+      "why": "Los nueve locks y su manifiesto los emite `make lock`; editarlos a mano rompe el contrato."
+    },
+    {
+      "glob": "docs/debt_baseline.json",
+      "role": "generados",
+      "why": "La escribe `check_debt.py --update`."
+    },
+    {
+      "glob": "docs/schema_er.svg",
+      "role": "generados"
+    },
+    {
+      "glob": "docs/mlops_architecture.svg",
+      "role": "generados"
+    },
+    {
+      "glob": "docs/MLOPS_ARCHITECTURE.md",
+      "role": "generados",
+      "why": "La emite experiments/make_mlops_architecture.py desde las fuentes canónicas."
+    },
+    {
+      "glob": "docs/dead_code_report.md",
+      "role": "generados"
+    },
+    {
+      "glob": "reports/**/*.csv",
+      "role": "evidencia"
+    },
+    {
+      "glob": "reports/**/*.png",
+      "role": "evidencia"
+    },
+    {
+      "glob": "reports/**/*.jpg",
+      "role": "evidencia"
+    },
+    {
+      "glob": "reports/**/*.pdf",
+      "role": "evidencia"
+    },
+    {
+      "glob": "reports/**/*.json",
+      "role": "evidencia"
+    },
+    {
+      "glob": "reports/**/*.jsonl",
+      "role": "evidencia"
+    },
+    {
+      "glob": "reports/**/*.md",
+      "role": "evidencia"
+    },
+    {
+      "glob": "reports/**/*.tex",
+      "role": "evidencia"
+    },
+    {
+      "glob": "reports/**/*.cls",
+      "role": "vendor",
+      "why": "Clase LaTeX de Springer, incorporada tal cual."
+    },
+    {
+      "glob": "reports/**/*.bst",
+      "role": "vendor",
+      "why": "Estilo BibTeX de Springer, incorporado tal cual."
+    },
+    {
+      "glob": "docs/**/*.md",
+      "role": "documentacion"
+    },
+    {
+      "glob": "docs/**/*.pdf",
+      "role": "documentacion"
+    },
+    {
+      "glob": "docs/**/*.sql",
+      "role": "documentacion",
+      "why": "Consultas de ejemplo del manual, no del producto."
+    },
+    {
+      "glob": "docs/coverage_floors.json",
+      "role": "documentacion",
+      "why": "Pisos y política de cobertura, mantenidos a mano en un PR."
+    },
+    {
+      "glob": "docs/experiments_inventory.json",
+      "role": "documentacion",
+      "why": "Inventario mantenido a mano; su gate exige clasificar cada entrypoint."
+    },
+    {
+      "glob": "docs/model_catalog.json",
+      "role": "documentacion"
+    },
+    {
+      "glob": "docs/loc_roles.json",
+      "role": "documentacion",
+      "why": "Este mismo archivo."
+    },
+    {
+      "glob": "*.md",
+      "role": "documentacion"
+    },
+    {
+      "glob": "LICENSE",
+      "role": "documentacion"
+    },
+    {
+      "glob": "data/**/*",
+      "role": "datos"
+    },
+    {
+      "glob": "*.dvc",
+      "role": "datos"
+    },
+    {
+      "glob": ".github/**/*",
+      "role": "configuracion"
+    },
+    {
+      "glob": ".dvc/**/*",
+      "role": "configuracion"
+    },
+    {
+      "glob": "requirements/*.in",
+      "role": "configuracion"
+    },
+    {
+      "glob": "security/*.json",
+      "role": "configuracion"
+    },
+    {
+      "glob": ".dvcignore",
+      "role": "configuracion"
+    },
+    {
+      "glob": ".editorconfig",
+      "role": "configuracion"
+    },
+    {
+      "glob": ".pre-commit-config.yaml",
+      "role": "configuracion"
+    },
+    {
+      "glob": ".python-version",
+      "role": "configuracion"
+    },
+    {
+      "glob": ".ruff.toml",
+      "role": "configuracion"
+    },
+    {
+      "glob": "Makefile",
+      "role": "configuracion"
+    },
+    {
+      "glob": "dvc.yaml",
+      "role": "configuracion"
+    },
+    {
+      "glob": "pyproject.toml",
+      "role": "configuracion"
+    },
+    {
+      "glob": "reports/**/.gitignore",
+      "role": "configuracion",
+      "why": "El .gitignore anidado de reports/paper_micai declara qué NO se versiona ahí."
+    },
+    {
+      "glob": ".gitignore",
+      "role": "configuracion"
+    }
+  ]
+}
