@@ -122,10 +122,22 @@ class TestTheLiveTreeIsUnderstood:
                 assert literales and literales[0] == "git", f"subproceso que no es git: {literales}"
         assert vistos == 1, f"se esperaba una sola invocación de subproceso, hay {vistos}"
 
-    def test_the_real_repos_report_their_state(self) -> None:
+    def test_an_isolated_data_checkout_reports_what_it_can(self) -> None:
+        """Solo invariantes que existen SIN el repo web: en el runner no está clonado (solo el
+        job `consistency` lo trae), y la versión anterior de esta prueba esperaba su pin. El gate
+        se portaba bien; la prueba daba por hecho un rasgo del entorno local."""
         estado, _ = cp.check()
         assert estado["release_id"] and estado["n_critical"] >= 1
-        assert "web_release_id" in estado
+        assert estado["datos_clean"] in (True, False)
+        assert Path(estado["data_repo"]).is_dir()
+
+    def test_with_no_web_repo_the_diagnosis_is_explicit(self, tmp_path) -> None:
+        """La ausencia del web NO es un éxito ni un salto: es un diagnóstico con nombre."""
+        estado, problemas = cp.check(ROOT, tmp_path / "web-que-no-existe")
+        assert estado["web_clean"] is None
+        assert any("no responde a git" in p for p in problemas)
+        assert any("pin del web ausente" in p for p in problemas)
+        assert problemas, "sin repo web el gate no puede pasar"
 
 
 class TestTheHappyPathIsSilent:
@@ -134,6 +146,13 @@ class TestTheHappyPathIsSilent:
         estado, problemas = cp.check(datos, web)
         assert problemas == []
         assert estado["release_id"] == estado["web_release_id"] == "2026-09-abc"
+
+    def test_the_pin_is_present_and_equal_in_a_hermetic_pair(self, tmp_path) -> None:
+        datos, web = _par(tmp_path, release="2026-11-xyz")
+        estado, problemas = cp.check(datos, web)
+        assert estado["web_release_id"] == estado["release_id"] == "2026-11-xyz"
+        assert estado["web_release_status"] == "fresh"
+        assert problemas == []
 
     def test_a_web_that_lags_is_fine(self, tmp_path) -> None:
         """Control benigno: el web PUEDE ir por detrás; lo que no puede es ir por delante."""
