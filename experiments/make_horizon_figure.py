@@ -17,10 +17,10 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 
-from vp_model.palette import BLUE, GRAY, GRID, MID, WINE  # noqa: E402
+from vp_model.palette import BLUE, GRAY, GRID, MID, WINE
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"

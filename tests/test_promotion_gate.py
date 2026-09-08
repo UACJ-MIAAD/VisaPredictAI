@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vp_model import promotion  # noqa: E402
+from vp_model import promotion
 
 
 def _pairs_frame(

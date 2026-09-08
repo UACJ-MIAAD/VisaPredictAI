@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
-import check_contracts as cc  # noqa: E402
+import check_contracts as cc
 
 
 def _mini(tmp_path: Path, panel_vintage: str = "2026-07", eda_vintage: str = "2026-07") -> tuple[Path, Path]:

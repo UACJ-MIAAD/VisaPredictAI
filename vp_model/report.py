@@ -13,10 +13,10 @@ import matplotlib
 import pandas as pd
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
-from vp_model import config, dataset, walkforward  # noqa: E402
-from vp_model.plots import OUTDIR, UACJ_BLACK, UACJ_BLUE, _save  # noqa: E402
+from vp_model import config, dataset, walkforward
+from vp_model.plots import OUTDIR, UACJ_BLACK, UACJ_BLUE, _save
 
 log = config.get_logger(__name__)
 

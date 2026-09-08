@@ -179,7 +179,7 @@ def build_panel_frame(table: str, limit: int | None) -> tuple[pd.DataFrame, set[
     return panel[panel["target_dy"].notna()].reset_index(drop=True), eval_keys
 
 
-def _make_model(name: str, table: str, seed: int):  # noqa: ANN202 — heavy libs typed at runtime only
+def _make_model(name: str, table: str, seed: int):  # heavy libs typed at runtime only
     """GBM regressor seeded from the local tuned winners (AJ5 bridge; see docstring)."""
     params = dict(DEFAULT_PARAMS[name])
     if TUNED.exists():

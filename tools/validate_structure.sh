@@ -34,6 +34,7 @@ done
 allowed_root=(
   .claude .coverage .DS_Store .dvc .dvcignore .editorconfig .git .github
   .gitignore .mypy_cache .pre-commit-config.yaml .pytest_cache .python-version
+  .ruff.toml
   .ruff_cache __pycache__ htmlcov lightning_logs
   ante ante_nf ante_tab ante_tfm aws_gpu data docs experiments locks pipeline
   reports requirements security tests tools vp_data vp_model

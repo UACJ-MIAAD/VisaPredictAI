@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
-import cron_publish as cp  # noqa: E402
+import cron_publish as cp
 
 
 def test_model_stage_publishes_its_artifacts_and_rejects_strays() -> None:

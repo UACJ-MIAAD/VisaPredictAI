@@ -49,7 +49,7 @@ def _pipeline_run_id() -> str:
     return tracking.pipeline_run_id()
 
 
-def _fmt(v) -> str:  # noqa: ANN001 — accepts int or the "n/d" degradation sentinel
+def _fmt(v) -> str:  # accepts int or the "n/d" degradation sentinel
     """Thousands-comma for ints only; the C1 degradation ("n/d") passes through.
 
     AP5: ``f"{v:,}"`` raised ValueError on the "n/d" fallback, so a missing

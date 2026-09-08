@@ -142,7 +142,7 @@ def track_run(
                 seed=seed,
                 telemetry=telemetry,
             )
-        except Exception as log_exc:  # noqa: BLE001 — no enmascarar la excepción original
+        except Exception as log_exc:  # broad-catch: no enmascarar la excepción original
             if error is None:
                 raise
             print(f"[vp_model.tracking] log_run failed after run error: {log_exc!r}", file=sys.stderr)

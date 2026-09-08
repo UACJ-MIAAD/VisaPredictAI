@@ -24,11 +24,11 @@ import duckdb
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import pandas as pd  # noqa: E402
-from PIL import Image  # noqa: E402
+import matplotlib.pyplot as plt
+import pandas as pd
+from PIL import Image
 
-from vp_model.palette import BLUE, GRAY, MUTE, REGIME, STRIPE  # noqa: E402
+from vp_model.palette import BLUE, GRAY, MUTE, REGIME, STRIPE
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"

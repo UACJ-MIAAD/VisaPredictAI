@@ -130,7 +130,7 @@ def load_f_series(table: str) -> dict[tuple[str, str, str], pd.Series]:
     return out
 
 
-def _build_models():  # noqa: ANN202 — statsforecast types only exist in ante_nf
+def _build_models():  # statsforecast types only exist in ante_nf
     """The 4 Auto* searchers, aliased to the pool's lowercase naming convention."""
     from statsforecast.models import AutoCES, AutoETS, AutoTheta, DynamicOptimizedTheta
 

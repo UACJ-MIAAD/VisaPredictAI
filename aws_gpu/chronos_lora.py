@@ -99,7 +99,7 @@ def zeroshot(args) -> None:
     _write(rows, args.table, "chronos_zs", args.out_dir)
 
 
-def finetune(args) -> None:  # noqa: D401
+def finetune(args) -> None:
     """Fine-tune LoRA sobre el tramo de entrenamiento (sin los últimos 24m). GPU. NO validado.
 
     Flujo (a confirmar en la instancia): construir ventanas contexto→objetivo SOLO del tramo

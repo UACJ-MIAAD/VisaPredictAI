@@ -23,16 +23,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # de tests de modelado, este módulo se salta limpio si darts no está disponible.
 pytest.importorskip("darts")
 
-from vp_model import preprocess  # noqa: E402
-from vp_model.config import (  # noqa: E402
+from vp_model import preprocess
+from vp_model.config import (
     COVARIATES,
     DIFFERENCED,
     MASK_COVARIATES,
     NN_DIFFERENCED,
     TREE_FUTURE_COV_LAGS,
 )
-from vp_model.config import HOLDOUT as CFG_HOLDOUT  # noqa: E402
-from vp_model.feature_builder import FE_DECISIONS, FeatureBuilder  # noqa: E402
+from vp_model.config import HOLDOUT as CFG_HOLDOUT
+from vp_model.feature_builder import FE_DECISIONS, FeatureBuilder
 
 ROOT = Path(__file__).resolve().parent.parent
 

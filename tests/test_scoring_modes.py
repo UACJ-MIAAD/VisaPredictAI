@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
 # score_forecasts importa la capa de modelado (darts); en el env dev de CI no está —
 # mismo patrón que test_web_publish.py.
 pytest.importorskip("darts")
-import score_forecasts as sf  # noqa: E402
+import score_forecasts as sf
 
 
 def _scored_row(mode: str, h: int = 1, scaled: float = 0.1, table: str = "FAD", origin: str = "2024-07") -> dict:

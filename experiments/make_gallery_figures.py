@@ -28,9 +28,9 @@ matplotlib.use("Agg")
 from collections.abc import Callable
 from functools import partial
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 from _figkit import (
     FigureContext,
     LangCtx,
@@ -41,14 +41,14 @@ from _figkit import (
     run_variants,
     save_dual,
 )
-from make_latinometrics_figures import MES, _flag  # noqa: E402  (sys.path[0] = experiments/)
-from matplotlib.colors import ListedColormap  # noqa: E402
-from matplotlib.offsetbox import AnnotationBbox, OffsetImage  # noqa: E402
-from matplotlib.patches import Patch  # noqa: E402
+from make_latinometrics_figures import MES, _flag  # (sys.path[0] = experiments/)
+from matplotlib.colors import ListedColormap
+from matplotlib.offsetbox import AnnotationBbox, OffsetImage
+from matplotlib.patches import Patch
 
-from vp_model import palette as _palette  # noqa: E402
-from vp_model.config import DAYS_PER_YEAR, days_to_year  # noqa: E402
-from vp_model.palette import (  # noqa: E402
+from vp_model import palette as _palette
+from vp_model.config import DAYS_PER_YEAR, days_to_year
+from vp_model.palette import (
     COUNTRY_NAME,
 )
 

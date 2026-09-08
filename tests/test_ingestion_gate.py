@@ -15,7 +15,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.check_ingestion import (  # noqa: E402
+from tools.check_ingestion import (
     MIN_ROWS_NEW_MONTH,
     model_artifacts_stale,
     month_coverage_problems,

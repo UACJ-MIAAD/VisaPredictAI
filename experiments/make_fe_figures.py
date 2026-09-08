@@ -25,9 +25,9 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.colors as mcolors
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 from _figkit import (
     FigureContext,
     LangCtx,
@@ -38,13 +38,13 @@ from _figkit import (
     run_variants,
     save_dual,
 )
-from make_latinometrics_figures import MES  # noqa: E402  (sys.path[0] = experiments/)
-from matplotlib.patches import FancyArrowPatch, Patch, Rectangle  # noqa: E402
+from make_latinometrics_figures import MES  # (sys.path[0] = experiments/)
+from matplotlib.patches import FancyArrowPatch, Patch, Rectangle
 
-from vp_data.visa_common import classify_status, string_to_datetime  # noqa: E402
-from vp_model import dataset, missingness, preprocess  # noqa: E402
-from vp_model import palette as _palette  # noqa: E402
-from vp_model.config import days_to_year  # noqa: E402
+from vp_data.visa_common import classify_status, string_to_datetime
+from vp_model import dataset, missingness, preprocess
+from vp_model import palette as _palette
+from vp_model.config import days_to_year
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG_TEX = ROOT / "reports" / "latex" / "Figures"

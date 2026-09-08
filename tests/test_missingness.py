@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("statsmodels")
 
-from vp_model import dataset  # noqa: E402
+from vp_model import dataset
 from vp_model import missingness as miss
 
 pytestmark = pytest.mark.skipif(not dataset.DB_PATH.exists(), reason="almacén DuckDB ausente")

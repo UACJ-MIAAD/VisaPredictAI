@@ -8,6 +8,7 @@ programación NO se disfraza de «mes perdido», escapa y pone el proceso en roj
 from __future__ import annotations
 
 import ast
+import json
 import logging
 import pathlib
 import textwrap
@@ -117,6 +118,13 @@ class TestScrapersCatchOnlyExpectedFailures:
             assert "str(exc)[:60]" not in src, f"{path}: sigue recortando la causa"
 
 
+def _suppressions(counts: dict[str, int]) -> int:
+    """Las supresiones de CUALQUIER regla. C8 (#51) las separó por regla y retiró el total
+    agregado porque mezclaba naturalezas distintas; estas comprobaciones solo necesitan saber
+    que NO se contó nada, así que suman aquí y no en el trinquete."""
+    return sum(v for k, v in counts.items() if k.startswith("noqa_"))
+
+
 class TestDebtCheckerCountsRealCode:
     def _count(self, source: str) -> dict[str, int]:
         from tools.check_debt import count_file
@@ -129,7 +137,7 @@ class TestDebtCheckerCountsRealCode:
             x = 1
         ''')
         assert c["except_exception"] == 0
-        assert c["noqa"] == 0
+        assert _suppressions(c) == 0
 
     def test_ignores_the_marker_inside_a_string_literal(self) -> None:
         # El falso positivo exacto que el propio checker se causaba.
@@ -140,14 +148,14 @@ class TestDebtCheckerCountsRealCode:
                 return None
         """)
         assert c["except_exception"] == 0
-        assert c["noqa"] == 0
+        assert _suppressions(c) == 0
 
     def test_a_comment_that_merely_mentions_a_directive_is_not_a_suppression(self) -> None:
         c = self._count("""
             # la política pide noqa: BLE001 en toda captura amplia
             x = 1
         """)
-        assert c["noqa"] == 0
+        assert _suppressions(c) == 0
 
     def test_counts_a_real_handler_written_across_several_lines(self) -> None:
         c = self._count("""
@@ -185,22 +193,13 @@ class TestDebtCheckerCountsRealCode:
     def test_an_unjustified_broad_catch_turns_the_gate_red(self, tmp_path, monkeypatch) -> None:
         import tools.check_debt as cd
 
+        # La baseline se deriva de METRICS: así el contrato de claves lo fija el propio módulo
+        # y añadir una métrica (C8 añadió cinco) no vuelve a romper esta prueba.
         base = tmp_path / "baseline.json"
-        base.write_text(
-            '{"except_exception": 0, "except_exception_unjustified": 0, "type_ignore": 0, "noqa": 0, "todo_class": 0}\n'
-        )
+        base.write_text(json.dumps(dict.fromkeys(cd.METRICS, 0)) + "\n")
         monkeypatch.setattr(cd, "BASELINE", base)
-        monkeypatch.setattr(
-            cd,
-            "counts",
-            lambda: {
-                "except_exception": 1,
-                "except_exception_unjustified": 1,
-                "type_ignore": 0,
-                "noqa": 0,
-                "todo_class": 0,
-            },
-        )
+        peor = dict.fromkeys(cd.METRICS, 0) | {"except_exception": 1, "except_exception_unjustified": 1}
+        monkeypatch.setattr(cd, "counts", lambda: peor)
         monkeypatch.setattr("sys.argv", ["check_debt.py"])
         assert cd.main() == 1
 

@@ -664,7 +664,7 @@ class LLTForecaster:
         self._series: TimeSeries | None = None
 
     @classmethod
-    def _fit_mle(cls, y: np.ndarray):  # noqa: ANN206 — statsmodels results type, runtime only
+    def _fit_mle(cls, y: np.ndarray):  # statsmodels results type, runtime only
         from statsmodels.tsa.statespace.structural import UnobservedComponents
 
         return UnobservedComponents(y, level=cls._SPEC).fit(disp=0)
@@ -693,7 +693,7 @@ class LLTForecaster:
             if params is None or step % NN_RETRAIN == 0:
                 try:
                     params = self._fit_mle(y[:t]).params
-                except Exception:  # noqa: BLE001 — keep the last stable params on an unstable window
+                except Exception:  # broad-catch: keep the last stable params on an unstable window
                     if params is None:
                         raise
             res = UnobservedComponents(y[:t], level=self._SPEC).filter(params)

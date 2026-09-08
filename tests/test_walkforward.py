@@ -10,7 +10,7 @@ import pytest
 
 pytest.importorskip("darts")
 
-from vp_model import dataset, metrics, walkforward  # noqa: E402
+from vp_model import dataset, metrics, walkforward
 
 pytestmark = pytest.mark.skipif(not dataset.DB_PATH.exists(), reason="almacén DuckDB ausente")
 

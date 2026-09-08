@@ -195,7 +195,7 @@ def test_every_figure_in_the_page_names_its_canonical_source() -> None:
 
 def test_svg_is_well_formed_and_self_contained() -> None:
     svg = SVG.read_text(encoding="utf-8")
-    ET.fromstring(svg)  # noqa: S314 — artefacto propio del repo, no entrada externa
+    ET.fromstring(svg)  # artefacto propio del repo, no entrada externa
     naked = svg.replace("http://www.w3.org/2000/svg", "")  # el xmlns no es un recurso externo
     assert "<image" not in naked and "http://" not in naked and "https://" not in naked
     assert len(svg) < 60_000, "un diagrama, no un mapa de bits vectorizado"

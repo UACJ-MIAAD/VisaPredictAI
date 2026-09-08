@@ -24,14 +24,14 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import make_fe_figures as fefig  # noqa: E402  (sys.path[0] = experiments/)
-import matplotlib.pyplot as plt  # noqa: E402
-import pandas as pd  # noqa: E402
+import make_fe_figures as fefig  # (sys.path[0] = experiments/)
+import matplotlib.pyplot as plt
+import pandas as pd
 from _figkit import figure_style, num
-from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
+from matplotlib.backends.backend_pdf import PdfPages
 
-from vp_data.decisions_i18n import DECISIONS_EN  # noqa: E402
-from vp_model.palette import BLUE, GRAY, INK, MID, STRIPE, YELLOW  # noqa: E402
+from vp_data.decisions_i18n import DECISIONS_EN
+from vp_model.palette import BLUE, GRAY, INK, MID, STRIPE, YELLOW
 
 ROOT = Path(__file__).resolve().parents[1]
 FE_DIR = ROOT / "reports" / "fe"

@@ -17,7 +17,7 @@ import pytest
 
 pytest.importorskip("darts")
 
-from experiments import generate_web_forecasts as gwf  # noqa: E402
+from experiments import generate_web_forecasts as gwf
 
 # C7: las escalas de banda por horizonte dejaron de ser opcionales, así que las pruebas
 # que ejercitan el pronóstico traen las suyas en vez de pasar `None`.

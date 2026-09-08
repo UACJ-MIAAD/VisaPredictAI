@@ -27,9 +27,9 @@ import pytest
 
 pytest.importorskip("darts")
 
-from darts import TimeSeries  # noqa: E402
+from darts import TimeSeries
 
-from vp_model import config, dataset, metrics, models, walkforward  # noqa: E402
+from vp_model import config, dataset, metrics, models, walkforward
 
 pytestmark = pytest.mark.skipif(not dataset.DB_PATH.exists(), reason="almacén DuckDB ausente")
 
@@ -126,7 +126,7 @@ def test_auto_arima_declares_non_converging_series(monkeypatch, tmp_path, caplog
 
     aab = pytest.importorskip("experiments.auto_arima_baseline")
 
-    def fake_list_series(*, table, block, countries):  # noqa: ARG001
+    def fake_list_series(*, table, block, countries):
         if table != "FAD":
             return pd.DataFrame(columns=["country", "category"])
         return pd.DataFrame([{"country": "mexico", "category": "F1"}, {"country": "india", "category": "F2A"}])
@@ -134,7 +134,7 @@ def test_auto_arima_declares_non_converging_series(monkeypatch, tmp_path, caplog
     idx = pd.date_range("2001-12-01", periods=30, freq="MS")
     raw = pd.Series(np.arange(30, dtype="float64"), index=idx)
 
-    def fake_backtest(name, country, category, table, *, model):  # noqa: ARG001
+    def fake_backtest(name, country, category, table, *, model):
         if (country, category) == ("india", "F2A"):
             raise np.linalg.LinAlgError("LU decomposition error.")
         return SimpleNamespace(holdout={"mase": 0.10})

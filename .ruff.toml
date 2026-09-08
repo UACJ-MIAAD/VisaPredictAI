@@ -1,0 +1,35 @@
+# Configuración de lint que NO puede vivir en `pyproject.toml`.
+#
+# `locks/lockset.json` pinnea `pyproject.toml` por sha256 (P0R.4): editarlo, aunque sea en una
+# sección de lint, invalida el manifiesto y solo se repara regenerando los nueve locks. D2-C ya
+# esquivó ese archivo por lo mismo. Así que la base sigue en `pyproject.toml` (`extend`) y aquí
+# van SOLO los añadidos de C8.
+extend = "pyproject.toml"
+
+[lint]
+# RUF100 — una supresión que no suprime nada es ruido que envejece: 133 directivas (sobre todo
+#          E402 de archivos que dejaron de tocar `sys.path`) sobrevivían así.
+# BLE001 — la política escrita del repo es que toda captura amplia lleve su razón; sin la regla
+#          encendida sus directivas no silenciaban nada y el trinquete se apoyaba en algo inerte.
+# C901   — la complejidad NO se medía en ninguna parte.
+extend-select = ["BLE001", "C901", "RUF100"]
+
+[lint.mccabe]
+# Máximo MEDIDO del producto (`_split_sql`, pipeline/db_migrations.py). Es un trinquete: si la
+# complejidad real baja hay que bajar este número en el mismo PR, y una prueba comprueba que no
+# queda holgura entre ambos.
+max-complexity = 19
+
+[lint.extend-per-file-ignores]
+# La complejidad se mide sobre el PRODUCTO (vp_data, pipeline, vp_model). Herramientas,
+# experimentos, pruebas y el material de GPU quedan fuera a propósito: su máximo de hoy (36, 17
+# y 13) volvería el umbral del producto un número sin fuerza.
+"tools/**" = ["C901"]
+"experiments/**" = ["C901"]
+"tests/**" = ["C901"]
+"aws_gpu/**" = ["C901"]
+# Este archivo también lo pinnea el manifiesto de locks, así que no se le puede añadir una
+# directiva. Sus dos `except BaseException` son el rollback de la promoción —correr también ante
+# KeyboardInterrupt, porque media matriz de locks es peor que ninguna— y su razón ya está escrita
+# en el propio código. La métrica `base_exception` del trinquete los cuenta igual.
+"tools/promote_lockset.py" = ["BLE001"]

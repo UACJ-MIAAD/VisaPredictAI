@@ -12,13 +12,13 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.dates as mdates  # noqa: E402
-import matplotlib.pyplot as plt  # noqa: E402
-import pandas as pd  # noqa: E402
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
+import pandas as pd
 
-from vp_model import dataset  # noqa: E402
-from vp_model.config import days_to_year  # noqa: E402
-from vp_model.palette import BLUE, GRID, INK, MID, style  # noqa: E402
+from vp_model import dataset
+from vp_model.config import days_to_year
+from vp_model.palette import BLUE, GRID, INK, MID, style
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"
