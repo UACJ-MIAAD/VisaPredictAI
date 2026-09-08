@@ -11,6 +11,11 @@ distribución/intervalo predictivo), implementadas con sus fórmulas canónicas:
     escala por el error naïve, comparable entre series.
   * pinball — pérdida cuantílica (quantile loss), score propio por cuantil.
 Todas se evalúan SOLO sobre observaciones con fecha (estado F).
+
+El denominador del MASE/MSIS (``seasonal_naive_mae``/``naive_scale_before``) vive en
+``vp_model.scale`` desde E0: es dependency-light y así el mismo código lo usan los
+experimentos que corren sin el extra ``model``. Aquí se re-exportan porque
+``from vp_model.metrics import naive_scale_before`` es el import histórico del repo.
 """
 
 from __future__ import annotations
@@ -22,36 +27,10 @@ from darts.metrics import mae, mase, rmse, smape
 
 from vp_model.config import SEASONAL_PERIOD as SEASONAL_M
 from vp_model.config import get_logger
+from vp_model.scale import naive_scale_before as naive_scale_before
+from vp_model.scale import seasonal_naive_mae as seasonal_naive_mae
 
 log = get_logger("metrics")
-
-
-def seasonal_naive_mae(values: np.ndarray, m: int = SEASONAL_M) -> float:
-    """MAE del naïve estacional in-sample = denominador del MASE/MSIS. ÚNICA fuente.
-
-    B4: una escala degenerada (serie de 1 punto, o constante) devuelve **NaN con
-    warning**, no 1.0 — el fallback silencioso convertía el "MASE" en MAE en días
-    (~10³) y contaminaba las medias agregadas sin dejar rastro. Los agregadores
-    pandas (`mean()`) omiten NaN, así que la serie degenerada queda excluida del
-    MASE pero conserva sus demás métricas.
-    """
-    v = np.asarray(values, dtype="float64")
-    diffs = np.abs(v[m:] - v[:-m]) if len(v) > m else np.abs(np.diff(v))
-    s = float(np.mean(diffs)) if len(diffs) else 0.0
-    if np.isfinite(s) and s > 0:
-        return s
-    log.warning("escala naïve degenerada (n=%d, s=%r) — MASE indefinido para esta serie", len(v), s)
-    return float("nan")
-
-
-def naive_scale_before(full: pd.Series, cutoff, m: int = SEASONAL_M) -> float:
-    """Escala naïve estacional sobre el tramo ANTERIOR a ``cutoff``, alineado por FECHA.
-
-    El corte por fecha (no posicional ``full[:-len(g)]``) es robusto a series con huecos
-    C/U: en el bloque empleo el corte posicional se desalinea. Leakage-free: solo pasado.
-    """
-    train = full[full.index < cutoff].astype("float64").to_numpy()
-    return seasonal_naive_mae(train, m)
 
 
 def mase_by_series(

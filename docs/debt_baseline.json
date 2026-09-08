@@ -6,7 +6,7 @@
   "type_ignore": 11,
   "todo_class": 2,
   "noqa_BLE001": 25,
-  "noqa_E402": 21,
+  "noqa_E402": 22,
   "noqa_F401": 5,
   "noqa_E731": 1,
   "noqa_bare": 0,

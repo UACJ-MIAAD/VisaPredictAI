@@ -22,6 +22,7 @@ import pandas as pd
 # vp_model.config is dependency-light (no darts/torch) and the project is installed
 # editable in every venv, so the protocol constant has ONE source (AP5).
 from vp_model.config import HOLDOUT
+from vp_model.scale import seasonal_naive_mae
 
 ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
@@ -43,13 +44,6 @@ def _actuals(parquet: pd.DataFrame, country: str, category: str, table: str) -> 
         & (parquet["status"] == "F")
     ]
     return g.set_index(pd.to_datetime(g["bulletin_date"]))["days_since_base"].astype("float64").sort_index()
-
-
-def _naive_scale(values: np.ndarray, m: int = 12) -> float:
-    v = np.asarray(values, dtype="float64")
-    d = np.abs(v[m:] - v[:-m]) if len(v) > m else np.abs(np.diff(v))
-    s = float(np.mean(d)) if len(d) else 0.0
-    return s if np.isfinite(s) and s > 0 else 1.0
 
 
 def main() -> None:
@@ -104,7 +98,9 @@ def main() -> None:
         g = g[g["timestamp"].isin(full.index)]  # F-only
         if g.empty:
             continue
-        scale = _naive_scale(full[full.index < g["timestamp"].min()].to_numpy())
+        scale = seasonal_naive_mae(full[full.index < g["timestamp"].min()].to_numpy())
+        if not np.isfinite(scale):  # E0: escala degenerada ⇒ serie EXCLUIDA, no dividida por 1.0
+            continue
         y = full.reindex(g["timestamp"]).to_numpy()
         mases.append(float(np.mean(np.abs(y - g["forecast"].to_numpy()))) / scale)
     mase = float(np.mean(mases))

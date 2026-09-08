@@ -66,6 +66,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # también desde ante_nf — la rejilla causal es la función CANÓNICA, no una réplica.
 sys.path.insert(0, str(ROOT))
 from vp_model.preprocess import to_regular_monthly_causal  # noqa: E402
+from vp_model.scale import naive_scale_before  # noqa: E402
 
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
 OUT_DIR = ROOT / "reports" / "eval"
@@ -77,23 +78,6 @@ MIN_TRAIN = {"FAD": 60, "DFF": 36}  # = vp_model.config.MIN_TRAIN
 MIN_BACKTEST_BUFFER = 6  # = vp_model.config.MIN_BACKTEST_BUFFER
 SEASONAL_M = 12  # = vp_model.config.SEASONAL_PERIOD
 SEASON_LENGTH = 12  # season_length passed to the statsforecast models
-
-
-def seasonal_naive_mae(values: np.ndarray, m: int = SEASONAL_M) -> float:
-    """Replica of ``vp_model.metrics.seasonal_naive_mae`` (anchored by test).
-
-    Degenerate scale (constant / too-short series) -> NaN, never a silent 1.0.
-    """
-    v = np.asarray(values, dtype="float64")
-    diffs = np.abs(v[m:] - v[:-m]) if len(v) > m else np.abs(np.diff(v))
-    s = float(np.mean(diffs)) if len(diffs) else 0.0
-    return s if np.isfinite(s) and s > 0 else float("nan")
-
-
-def naive_scale_before(full: pd.Series, cutoff: pd.Timestamp, m: int = SEASONAL_M) -> float:
-    """Replica of ``vp_model.metrics.naive_scale_before`` (date-aligned, leakage-free)."""
-    train = full[full.index < cutoff].astype("float64").to_numpy()
-    return seasonal_naive_mae(train, m)
 
 
 def densify(raw: pd.Series) -> pd.Series:

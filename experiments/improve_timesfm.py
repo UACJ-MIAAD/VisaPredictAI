@@ -17,17 +17,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# E0: vp_model.scale es dependency-light (numpy+pandas) y el proyecto va instalado
+# editable en cada venv, así que la escala del MASE tiene UNA fuente (mismo patrón
+# que improve_tabpfn con vp_model.config).
+from vp_model.scale import seasonal_naive_mae
+
 ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
 HOLDOUT = 24
 CONTEXT = 256
-
-
-def _naive_scale(values: np.ndarray, m: int = 12) -> float:
-    v = np.asarray(values, dtype="float64")
-    d = np.abs(v[m:] - v[:-m]) if len(v) > m else np.abs(np.diff(v))
-    s = float(np.mean(d)) if len(d) else 0.0
-    return s if np.isfinite(s) and s > 0 else 1.0
 
 
 def _actuals(parquet: pd.DataFrame, country: str, category: str, table: str) -> pd.Series:
@@ -87,7 +85,9 @@ def main() -> None:
         ds = [d for d, _ in rows]
         y = full.reindex(ds).to_numpy()
         f = np.array([v for _, v in rows])
-        scale = _naive_scale(full[full.index < min(ds)].to_numpy())
+        scale = seasonal_naive_mae(full[full.index < min(ds)].to_numpy())
+        if not np.isfinite(scale):  # E0: escala degenerada ⇒ serie EXCLUIDA, no dividida por 1.0
+            continue
         mases.append(float(np.mean(np.abs(y - f))) / scale)
     mase = float(np.mean(mases))
     # AI6: the bar comes from the single source of truth (same pattern as
