@@ -84,6 +84,20 @@ artifacts:
 # rechaza aplicar `required` a un grupo congelado, y hay una prueba que lo comprueba.
 frozen: [proposal]
 
+# F5 · Protocolo bajo el que se midieron las cifras del paper. `pre-F1` = anteriores a la
+# corrección causal del relleno de huecos; `f2-causal` = re-derivadas con ella. El caveat
+# provisional es OBLIGATORIO bajo el primero y PROHIBIDO bajo el segundo: dejarlo puesto tras
+# la re-derivación sería un descargo caduco, y quitarlo antes sería vender como definitivo lo
+# que el propio texto reconoce provisional. Cambiar este valor sin re-derivar rompe el gate.
+retro_protocol: pre-F1
+provisional_caveat:
+  pattern: 'provisional pending re-derivation'
+  # Nominal, no un grupo: el descargo pertenece al manuscrito, no al README que lo acompaña.
+  files: ['reports/paper_micai/paper.tex']
+  reason_required: 'las cifras del paper preceden a la corrección causal (D5/#33): el descargo no puede faltar'
+  reason_forbidden: 'con las cifras ya re-derivadas bajo el protocolo causal, el descargo provisional es falso'
+
+
 # F3 · Contratos .tex <-> .json, CERRADOS: cada macro/fila del .tex tiene su autoridad en el
 # JSON y cada autoridad tiene su macro/fila. Antes solo existia un bloque cableado para
 # key_facts; fe_facts y la tabla de horizonte no las vigilaba nadie.
@@ -436,6 +450,21 @@ decimal:
     in: [deliverable, paper]
     reason: 'el piso naïve-1 en DFF (hold-out medio) citado en prosa debe igualar key_facts'
   # D9: la arquitectura publica el MASE y la cobertura prospectivos del sistema desplegado.
+  # F5 · El MASE prospectivo se cita cinco veces en el paper y ninguna regla lo miraba. El
+  # ancla exige la forma enfática o parentizada, que es la que usa el paper para ESTE número:
+  # un `MASE 0.162` de Auto-ARIMA no debe entrar en la comparación.
+  - fact: prosp_mase
+    label: 'MASE[~ ]*(?:\\textbf\{|\()([0-9]\.[0-9]{3})'
+    in: [paper]
+    reason: 'el MASE prospectivo del sistema desplegado, citado en el paper'
+  - fact: prosp_cov95
+    label: 'attain (?:\\textbf\{)?([0-9]\.[0-9]{2})\}? empirical coverage'
+    in: [paper]
+    reason: 'la cobertura empírica al 95% que el paper reporta como calibración'
+  - fact: ets_fad_mean
+    label: 'hold-out ([0-9]\.[0-9]{3}) and [0-9]\.[0-9]{3} on FAD'
+    in: [paper]
+    reason: 'el hold-out de ETS en FAD que abre la comparación del paper'
   - fact: prosp_mase
     label: 'MASE ([0-9]\.[0-9]{2,3})'
     in: [architecture]

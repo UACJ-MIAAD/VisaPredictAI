@@ -221,6 +221,41 @@ def _tex_json_violations(rules: dict) -> list[str]:
     return out
 
 
+PROTOCOLS = ("pre-F1", "f2-causal")
+
+
+def _provisional_caveat_violations(rules: dict) -> list[str]:
+    """El descargo provisional del paper: obligatorio bajo `pre-F1`, prohibido bajo `f2-causal`.
+
+    No se infiere de ninguna corrida: el protocolo se DECLARA en las reglas y el gate obliga a
+    que el texto lo acompañe. Así, re-derivar sin quitar el descargo (o quitarlo sin re-derivar)
+    es un fallo visible, no una discrepancia que nadie note.
+    """
+    caveat = rules.get("provisional_caveat")
+    if not caveat:
+        return []
+    protocolo = rules.get("retro_protocol")
+    if protocolo not in PROTOCOLS:
+        return [f"CAVEAT     retro_protocol inválido: {protocolo!r} (válidos: {list(PROTOCOLS)})"]
+    rx = re.compile(caveat["pattern"], re.IGNORECASE)
+    out = []
+    for rel in caveat["files"]:
+        f = ROOT / rel
+        if not f.exists():
+            out.append(f"CAVEAT     {rel}: declarado en las reglas pero ausente del árbol")
+            continue
+        cuerpo = [ln for ln in f.read_text(errors="ignore").splitlines() if not ln.lstrip().startswith("%")]
+        presente = any(rx.search(ln) for ln in cuerpo)
+        if protocolo == "pre-F1" and not presente:
+            out.append(f"CAVEAT     {f.relative_to(ROOT)}  falta /{caveat['pattern']}/ — {caveat['reason_required']}")
+        if protocolo == "f2-causal" and presente:
+            linea = next(i for i, ln in enumerate(cuerpo, 1) if rx.search(ln))
+            out.append(
+                f"CAVEAT     {f.relative_to(ROOT)}:{linea}  sobra /{caveat['pattern']}/ — {caveat['reason_forbidden']}"
+            )
+    return out
+
+
 RULES_PATH = ROOT / "tools" / "consistency_rules.yml"
 
 
@@ -256,6 +291,9 @@ def main() -> int:
     # desalinearse sin que nada lo dijera, porque ninguna regla de texto mira dentro de
     # un archivo generado. Ahora los contratos se declaran y se validan por igual.
     violations += _tex_json_violations(rules)
+
+    # 0b) CAVEAT CONDICIONAL (F5) — el descargo provisional depende del protocolo vigente.
+    violations += _provisional_caveat_violations(rules)
 
     # 1) FORBIDDEN — el patrón no debe aparecer
     for r in rules.get("forbidden", []):
