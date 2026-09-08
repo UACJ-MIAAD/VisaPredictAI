@@ -97,6 +97,10 @@ def artifact_spec(root: Path = ROOT) -> list[tuple[str, str]]:
         ("reports/governance/champion_manifest.json", "critical"),
         ("reports/governance/champion_challenger.json", "required"),
         ("reports/governance/completeness_allowlist.json", "required"),
+        # F2: el feed de ingesta (D3) viaja en el corte para que el sitio informe el estado de
+        # la FUENTE en vez de prometer una actualización automática que dejó de ser cierta el
+        # 6-ago-2026. `required`: sin él, el consumidor no puede distinguir «no lo sé» de «ok».
+        ("reports/governance/ingestion_state.json", "required"),
         ("reports/governance/promotion_decision.json", "required"),
         ("reports/governance/MODEL_CARD.md", "required"),
         ("reports/governance/mega_audit_report.md", "optional"),

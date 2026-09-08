@@ -167,6 +167,16 @@ LEGACY_MANIFEST_SHA256 = "8c362dbbacc245fdf4ba4b9835af096f81257ebc8f0a03c12a0654
 LEGACY_CARD_SHA256 = "3cc175f4641547f7e19998495ed6d6422db53bb34bb8246e323a3be8ac1ee9fa"
 LEGACY_RELEASE_ID = "2026-09-158ec972c234"
 LEGACY_VINTAGE = "2026-09"
+#: F2: el feed de ingesta entra al spec del manifiesto, pero el corte YA PUBLICADO se emitió sin
+#: él y no se regenera (cambiaría `release_id` y el corte que sirve producción). La excepción es
+#: NOMINAL y CERRADA: solo este corte, acreditado por sus cuatro valores exactos. Cualquier otro
+#: manifiesto que omita el artefacto falla, y cuando el próximo corte lo incluya esta excepción
+#: deja de aplicarse sola.
+INGESTION_FEED_PATH = "reports/governance/ingestion_state.json"
+PRE_F2_MANIFEST_SHA256 = "8c362dbbacc245fdf4ba4b9835af096f81257ebc8f0a03c12a065484fbed3145"
+PRE_F2_RELEASE_ID = "2026-09-158ec972c234"
+PRE_F2_VINTAGE = "2026-09"
+PRE_F2_N_ARTIFACTS = 111
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
@@ -195,6 +205,29 @@ def _legacy_bridge_problems(manifest: dict, manifest_sha: str, card_sha: str) ->
     print(
         f"  · identidad del release: corte LEGADO {LEGACY_RELEASE_ID} acreditado por sus cuatro "
         "valores exactos (puente cerrado, previo a D4); el próximo corte ya emite `identity`"
+    )
+    return []
+
+
+def _ingestion_feed_problems(manifest: dict, manifest_sha: str) -> list[str]:
+    """El manifiesto debe publicar el feed de ingesta; solo el corte PRE-F2 acreditado se salva."""
+    if any(a.get("path") == INGESTION_FEED_PATH for a in manifest.get("artifacts", [])):
+        return []
+    checks = {
+        "sha256 del manifiesto": (manifest_sha, PRE_F2_MANIFEST_SHA256),
+        "release_id": (manifest.get("release_id"), PRE_F2_RELEASE_ID),
+        "panel_vintage": (manifest.get("panel_vintage"), PRE_F2_VINTAGE),
+        "n_artifacts": (manifest.get("n_artifacts"), PRE_F2_N_ARTIFACTS),
+    }
+    wrong = [f"{name}: {got!r} != {want!r}" for name, (got, want) in checks.items() if got != want]
+    if wrong:
+        return [
+            f"manifiesto sin `{INGESTION_FEED_PATH}` que NO es el corte PRE-F2 acreditado "
+            f"({'; '.join(wrong)}): todo corte nuevo debe publicar el feed de ingesta"
+        ]
+    print(
+        f"  · feed de ingesta: corte PRE-F2 {PRE_F2_RELEASE_ID} acreditado por sus cuatro valores "
+        "exactos (excepción cerrada); el próximo corte ya lo publica"
     )
     return []
 
@@ -247,12 +280,16 @@ def release_identity_problems(root: Path = ROOT) -> list[str]:
         return [f"{CARD_PATH}: la tarjeta del corte no existe"]
     card = card_file.read_text()
     card_sha = hashlib.sha256(card.encode()).hexdigest()
+    manifest_sha = hashlib.sha256(raw).hexdigest()
+
+    # F2: la exigencia del feed de ingesta vale para cualquier manifiesto, lleve o no `identity`.
+    feed_problems = _ingestion_feed_problems(manifest, manifest_sha)
 
     if "identity" not in manifest:
-        return _legacy_bridge_problems(manifest, hashlib.sha256(raw).hexdigest(), card_sha)
+        return _legacy_bridge_problems(manifest, manifest_sha, card_sha) + feed_problems
 
     identity = manifest["identity"]
-    problems = _identity_shape_problems(identity)
+    problems = _identity_shape_problems(identity) + feed_problems
     if problems:
         return problems
 

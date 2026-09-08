@@ -60,6 +60,9 @@ artifacts:
   ]
 
 forbidden:
+  - pattern: 'actualiza este feed autom|updates this feed automatically|se actualiza autom\w+ (en cuanto|as soon)'
+    in: [web]
+    reason: 'F2: la fuente está tras un WAF desde el 6-ago-2026 y los dos últimos boletines entraron a mano; el sitio NO puede prometer ingesta automática'
   - pattern: 'holgura|holgada'
     in: [deliverable, paper]
     reason: 'el deep NO gana DFF "con holgura"; es ventaja modesta ~11% y frágil'
