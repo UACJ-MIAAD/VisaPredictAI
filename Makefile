@@ -214,6 +214,9 @@ check-catalog:  ## D2: catálogo de modelos (baselines obligatorias; manifiesto 
 check-loc:  ## C9: cada archivo gobernado con un rol único; el tooling bajo el techo del autor
 	$(PY) tools/check_loc_by_role.py
 
+propagate-check:  ## F8: precondiciones de DATA -> WEB -> PROD (SOLO LECTURA; no publica nada)
+	$(PY) tools/check_propagation.py
+
 check: validate consistency check-debt check-inventory check-catalog check-loc lint typecheck test
 
 all: freeze scrape panel db test figures audit
