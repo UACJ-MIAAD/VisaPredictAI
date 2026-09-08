@@ -14,14 +14,14 @@ import numpy as np
 import pandas as pd
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-from statsmodels.graphics.tsaplots import plot_acf, plot_pacf  # noqa: E402
-from statsmodels.tsa.seasonal import STL  # noqa: E402
+import matplotlib.pyplot as plt
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+from statsmodels.tsa.seasonal import STL
 
-from vp_model import config, dataset, eda, preprocess  # noqa: E402
-from vp_model import series_characterization as features  # noqa: E402
-from vp_model.config import DAYS_PER_YEAR  # noqa: E402
-from vp_model.palette import BLUE, COUNTRY, COUNTRY_NAME, DIV, GOLD, GRAY, INK, MID, SEQ, WINE, YELLOW  # noqa: E402
+from vp_model import config, dataset, eda, preprocess
+from vp_model import series_characterization as features
+from vp_model.config import DAYS_PER_YEAR
+from vp_model.palette import BLUE, COUNTRY, COUNTRY_NAME, DIV, GOLD, GRAY, INK, MID, SEQ, WINE, YELLOW
 
 log = config.get_logger(__name__)
 

@@ -9,7 +9,7 @@ actualizar la baseline en el mismo PR (decisión visible, nunca automática).
     python tools/check_debt.py --update   # reescribe la baseline con los conteos actuales
 
 Métricas: capturas amplias totales y SIN razón declarada (la política del repo:
-toda captura amplia lleva ``noqa: BLE001`` + comentario de continuidad),
+toda captura amplia lleva ``noqa: BLE001`` o ``broad-catch:`` + su razón),
 ``type: ignore``, ``noqa`` y marcadores TODO/FIXME/HACK/XXX. Solo capas de
 producto (vp_data, pipeline, vp_model, tools, experiments). Stdlib puro.
 
@@ -38,6 +38,11 @@ LAYERS = ("vp_data", "pipeline", "vp_model", "tools", "experiments")
 # El regex anterior (que aceptaba tambien un guion doble o una raya) daba por
 # justificada casi cualquier linea comentada en espanol: un gate fail-open.
 SUPPRESSION = re.compile(r"^#\s*(type:\s*ignore|noqa)\b")
+# Una captura amplia se justifica con la directiva que REALMENTE la silencia (`noqa: BLE001`)
+# o, cuando el linter no dispara ahí, con el marcador explícito `broad-catch:`. Depender solo
+# del `noqa` ataba este gate a las condiciones de disparo de una regla ajena: BLE001 no marca
+# los handlers que re-lanzan, así que su directiva era inservible justo donde la razón importa.
+JUSTIFICATION = re.compile(r"^#\s*(noqa:\s*[A-Z0-9, ]*\bBLE001\b|broad-catch:\s*\S)")
 TODOISH = re.compile(r"\b(TODO|FIXME|HACK|XXX)\b")
 # `except_exception` mide exactamente lo que su nombre dice. Un `except:` desnudo o
 # un `except BaseException` son peores, pero contarlos aqui cambiaria la unidad de
@@ -70,7 +75,7 @@ def count_file(source: str) -> dict[str, int]:
             # ir en cualquiera de ellas, así que se mira el rango completo del handler.
             end = node.body[0].lineno - 1 if node.body else node.lineno
             span = "\n".join(lines[node.lineno - 1 : max(end, node.lineno)])
-            if not any(SUPPRESSION.match(c) for c in _comments_in(span)):
+            if not any(JUSTIFICATION.match(c) for c in _comments_in(span)):
                 c["except_exception_unjustified"] += 1
     for token in tokenize.generate_tokens(io.StringIO(source).readline):
         # Solo comentarios: una directiva citada dentro de una cadena es texto, no una

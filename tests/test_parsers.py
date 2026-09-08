@@ -15,9 +15,9 @@ se rompería o saltaría en el cron sin que nadie lo note.
 
 import sys
 
-from pipeline.scrape_family_visa_bulletins import classify_family_category  # noqa: E402
-from pipeline.scrape_visa_bulletins import classify_eb_category  # noqa: E402
-from vp_data.visa_common import (  # noqa: E402
+from pipeline.scrape_family_visa_bulletins import classify_family_category
+from pipeline.scrape_visa_bulletins import classify_eb_category
+from vp_data.visa_common import (
     classify_status,
     extract_datetime_from_link,
     norm_label,

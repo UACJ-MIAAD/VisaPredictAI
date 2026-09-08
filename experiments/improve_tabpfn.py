@@ -77,7 +77,7 @@ def main() -> None:
             try:
                 out = pipe.predict_df(ctx, fut).reset_index()
                 break
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # broad-catch: la API tipa el 409 solo en el texto; lo demás se re-lanza
                 if "409" not in str(e) or attempt == 4:
                     raise
                 import time

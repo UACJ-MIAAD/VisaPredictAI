@@ -29,7 +29,7 @@ import pytest
 
 pytest.importorskip("darts")  # la rejilla corre sobre la capa de modelado (extra `model`)
 
-from vp_model import config, walkforward  # noqa: E402  (tras el importorskip a propósito)
+from vp_model import config, walkforward  # (tras el importorskip a propósito)
 
 BASELINE_PATH = Path(__file__).with_name("model_regression_baseline.json")
 

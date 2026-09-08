@@ -14,7 +14,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vp_model import ledger  # noqa: E402
+from vp_model import ledger
 
 ROW = {
     "origin": "2026-07",

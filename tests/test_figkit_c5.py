@@ -18,8 +18,8 @@ from types import MappingProxyType
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import pytest  # noqa: E402
+import matplotlib.pyplot as plt
+import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GENERATORS = (

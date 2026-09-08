@@ -65,7 +65,7 @@ DAYS_PER_YEAR = 365.25
 BIG_JUMP_YEARS = 8  # umbral "salto grande" del ledger de limpieza + mega_audit d9
 
 
-def days_to_year(days):  # noqa: ANN001, ANN201 — escalar/Series/ndarray por igual
+def days_to_year(days):  # escalar/Series/ndarray por igual
     """días desde BASE_EPOCH -> año calendario fraccional (ejes de figuras)."""
     return BASE_EPOCH_YEAR + days / DAYS_PER_YEAR
 

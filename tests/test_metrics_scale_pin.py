@@ -16,8 +16,8 @@ import pytest
 # (mismo patrón que test_web_publish/test_scoring_modes).
 pytest.importorskip("darts")
 
-from vp_model.config import SEASONAL_PERIOD  # noqa: E402
-from vp_model.metrics import naive_scale_before, seasonal_naive_mae  # noqa: E402
+from vp_model.config import SEASONAL_PERIOD
+from vp_model.metrics import naive_scale_before, seasonal_naive_mae
 
 
 def test_seasonal_period_is_twelve() -> None:

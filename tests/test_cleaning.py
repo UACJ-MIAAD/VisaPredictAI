@@ -16,7 +16,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vp_data.cleaning import CLEANING_DECISIONS, LEDGER_PATH  # noqa: E402
+from vp_data.cleaning import CLEANING_DECISIONS, LEDGER_PATH
 
 ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.csv"

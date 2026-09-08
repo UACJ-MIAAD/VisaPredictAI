@@ -14,14 +14,14 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
-from matplotlib.offsetbox import AnnotationBbox, OffsetImage  # noqa: E402
-from PIL import Image, ImageDraw  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.offsetbox import AnnotationBbox, OffsetImage
+from PIL import Image, ImageDraw
 
-from vp_model.config import DAYS_PER_YEAR  # noqa: E402
-from vp_model.palette import BLUE, GRAY, INK, MID, MUTE, style  # noqa: E402
+from vp_model.config import DAYS_PER_YEAR
+from vp_model.palette import BLUE, GRAY, INK, MID, MUTE, style
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"

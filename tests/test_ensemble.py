@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("darts")  # capa de modelado: se salta sin el extra `model`
 
-from vp_model import dataset, ensemble  # noqa: E402
+from vp_model import dataset, ensemble
 
 
 def _write_forecasts(path, model_to_fc, actual=11.0):

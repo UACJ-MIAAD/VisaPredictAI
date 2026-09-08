@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("darts")
 
-from vp_model import champion  # noqa: E402
+from vp_model import champion
 
 
 def test_champion_recipe_mase_finite_and_beats_naive() -> None:

@@ -27,8 +27,8 @@ pytest.importorskip("lightgbm")
 pytest.importorskip("darts")
 pytest.importorskip("statsmodels")
 
-from vp_model import metrics, models  # noqa: E402
-from vp_model.config import HOLDOUT, MIN_BACKTEST_BUFFER, MIN_TRAIN, SEASONAL_PERIOD  # noqa: E402
+from vp_model import metrics, models
+from vp_model.config import HOLDOUT, MIN_BACKTEST_BUFFER, MIN_TRAIN, SEASONAL_PERIOD
 
 ROOT = Path(__file__).resolve().parent.parent
 

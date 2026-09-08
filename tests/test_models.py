@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-darts = pytest.importorskip("darts")  # noqa: F841
+darts = pytest.importorskip("darts")
 
 from vp_model import dataset, models  # noqa: E402
 

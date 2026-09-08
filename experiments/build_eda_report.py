@@ -30,15 +30,15 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import make_gallery_figures as gallery  # noqa: E402
-import matplotlib.pyplot as plt  # noqa: E402
-import pandas as pd  # noqa: E402
+import make_gallery_figures as gallery
+import matplotlib.pyplot as plt
+import pandas as pd
 from _figkit import figure_style
-from make_latinometrics_figures import MES  # noqa: E402  (sys.path[0] = experiments/)
-from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
+from make_latinometrics_figures import MES  # (sys.path[0] = experiments/)
+from matplotlib.backends.backend_pdf import PdfPages
 
-from vp_data.config import DAYS_PER_YEAR  # noqa: E402
-from vp_model.palette import BLUE, GRAY, INK, STRIPE, YELLOW  # noqa: E402
+from vp_data.config import DAYS_PER_YEAR
+from vp_model.palette import BLUE, GRAY, INK, STRIPE, YELLOW
 
 ROOT = Path(__file__).resolve().parents[1]
 EDA_DIR = ROOT / "reports" / "eda"

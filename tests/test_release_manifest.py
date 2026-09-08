@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
 
-import build_release_manifest as brm  # noqa: E402
+import build_release_manifest as brm
 
 
 def _seed_tree(root: Path, skip: set[str] | None = None) -> None:
@@ -239,7 +239,7 @@ def test_identity_is_idempotent_with_two_controlled_timestamps(tmp_path, monkeyp
 
     class _FixedClock(datetime.datetime):
         @classmethod
-        def now(cls, tz=None):  # noqa: ARG003 - firma de datetime.datetime.now
+        def now(cls, tz=None):  # firma de datetime.datetime.now
             return next(stamps)
 
     monkeypatch.setattr(brm.datetime, "datetime", _FixedClock)

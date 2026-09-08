@@ -9,8 +9,8 @@ import pytest
 
 pytest.importorskip("darts")
 
-from vp_model import dataset, horizon, metrics  # noqa: E402
-from vp_model.config import HOLDOUT, HORIZONS, MIN_TRAIN  # noqa: E402
+from vp_model import dataset, horizon, metrics
+from vp_model.config import HOLDOUT, HORIZONS, MIN_TRAIN
 
 pytestmark = pytest.mark.skipif(not dataset.DB_PATH.exists(), reason="almacén DuckDB ausente")
 

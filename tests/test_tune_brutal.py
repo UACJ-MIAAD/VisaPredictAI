@@ -22,10 +22,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 pytest.importorskip("darts")
 pytest.importorskip("optuna")
 
-import optuna  # noqa: E402
-from darts import TimeSeries  # noqa: E402
+import optuna
+from darts import TimeSeries
 
-from vp_model import config, confirm_tuning, metrics, run_tuning, tune  # noqa: E402
+from vp_model import config, confirm_tuning, metrics, run_tuning, tune
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -44,13 +44,13 @@ class _Canned:
     def __init__(self, raw: pd.Series, err_f: float = 0.0, err_interp: float = 1e6) -> None:
         self.raw, self.err_f, self.err_interp = raw, err_f, err_interp
 
-    def fit(self, series, **kwargs):  # noqa: ANN001, ANN003
+    def fit(self, series, **kwargs):
         return self
 
-    def predict(self, n, **kwargs):  # noqa: ANN001, ANN003 — no usado por _val_mase
+    def predict(self, n, **kwargs):  # no usado por _val_mase
         raise NotImplementedError
 
-    def historical_forecasts(self, series, *, start, **kwargs):  # noqa: ANN001, ANN003
+    def historical_forecasts(self, series, *, start, **kwargs):
         fc = series[start:]
         vals = fc.values().copy()
         interp = ~fc.time_index.isin(self.raw.index)
@@ -92,7 +92,7 @@ def test_tuning_window_never_sees_confirm_nor_holdout(monkeypatch):
     seen: dict[str, pd.Timestamp] = {}
 
     class Spy(_Canned):
-        def historical_forecasts(self, series, *, start, **kwargs):  # noqa: ANN001, ANN003
+        def historical_forecasts(self, series, *, start, **kwargs):
             seen["end"] = series.time_index[-1]
             seen["start"] = series.time_index[start]
             return super().historical_forecasts(series, start=start, **kwargs)
