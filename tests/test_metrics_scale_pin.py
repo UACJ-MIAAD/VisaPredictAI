@@ -12,12 +12,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-# vp_model.metrics importa darts a nivel módulo; el job dev de CI no lo instala
-# (mismo patrón que test_web_publish/test_scoring_modes).
-pytest.importorskip("darts")
-
+# E0: la escala vive en vp_model.scale (dependency-light), así que este ancla — de la que
+# cuelga toda cifra MASE publicada — corre TAMBIÉN en el job base, sin el extra ``model``.
+# Antes hacía importorskip("darts") porque vp_model.metrics lo importa a nivel de módulo.
 from vp_model.config import SEASONAL_PERIOD
-from vp_model.metrics import naive_scale_before, seasonal_naive_mae
+from vp_model.scale import naive_scale_before, seasonal_naive_mae
 
 
 def test_seasonal_period_is_twelve() -> None:

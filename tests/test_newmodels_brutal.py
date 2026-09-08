@@ -27,7 +27,7 @@ pytest.importorskip("lightgbm")
 pytest.importorskip("darts")
 pytest.importorskip("statsmodels")
 
-from vp_model import metrics, models
+from vp_model import metrics, models, scale
 from vp_model.config import HOLDOUT, MIN_BACKTEST_BUFFER, MIN_TRAIN, SEASONAL_PERIOD
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -101,19 +101,16 @@ def test_statsforecast_bridge_pinned_to_config():
 
 
 def test_statsforecast_mask_replicas_match_metrics():
+    """E0: el puente ya no REPLICA la escala — la importa. Comparar valores dejó de
+    discriminar (dos copias idénticas pasan igual), así que se exige IDENTIDAD de objeto
+    con la fuente única; una réplica resucitada rompe aquí y en test_scale_single_source."""
     sf = _load_module(ROOT / "experiments" / "run_statsforecast.py", "sf_bridge2")
-    rng = np.random.default_rng(3)
-    idx = pd.date_range("2010-01-01", periods=90, freq="MS")
-    full = pd.Series(rng.normal(30, 40, 90).cumsum() + 12_000, index=idx)
-    gappy = full.drop(full.index[[10, 11, 40]])  # C/U-style holes
-    cutoff = full.index[-24]
-    got = sf.naive_scale_before(gappy, cutoff)
-    want = metrics.naive_scale_before(gappy, cutoff)
-    assert got == pytest.approx(want), "ante_nf replica diverged from vp_model.metrics"
-    # Degenerate scale: both sides must say NaN (never a silent 1.0).
-    const = pd.Series(np.full(30, 7.0), index=idx[:30])
-    assert math.isnan(sf.seasonal_naive_mae(const.to_numpy()))
-    assert math.isnan(metrics.seasonal_naive_mae(const.to_numpy()))
+    assert sf.naive_scale_before is scale.naive_scale_before
+    assert metrics.naive_scale_before is scale.naive_scale_before
+    # El contrato de la escala degenerada sigue vigente: NaN, nunca 1.0.
+    idx = pd.date_range("2010-01-01", periods=30, freq="MS")
+    const = pd.Series(np.full(30, 7.0), index=idx)
+    assert math.isnan(scale.seasonal_naive_mae(const.to_numpy()))
 
 
 def test_statsforecast_densify_keeps_f_values():
