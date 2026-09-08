@@ -10,8 +10,17 @@ actualizar la baseline en el mismo PR (decisión visible, nunca automática).
 
 Métricas: capturas amplias totales y SIN razón declarada (la política del repo:
 toda captura amplia lleva ``noqa: BLE001`` o ``broad-catch:`` + su razón),
-``type: ignore``, ``noqa`` y marcadores TODO/FIXME/HACK/XXX. Solo capas de
+``except:`` desnudos y ``except BaseException`` por separado, ``type: ignore``,
+las supresiones **por regla** y marcadores TODO/FIXME/HACK/XXX. Solo capas de
 producto (vp_data, pipeline, vp_model, tools, experiments). Stdlib puro.
+
+C8 lo hizo comparable. El total agregado de ``noqa`` sumaba naturalezas distintas
+(un orden de imports deliberado y una captura amplia justificada no son la misma
+deuda), así que bajarlo no significaba nada y subirlo tampoco: ahora cada regla
+lleva su propio contador y no existe el total. Y ``except:`` / ``except
+BaseException`` —peores que ``except Exception``— dejaron de ser invisibles: van
+como métricas INDEPENDIENTES, jamás mezcladas hacia atrás con ``except_exception``,
+que sigue midiendo exactamente lo que su nombre dice.
 
 C4 lo hizo honesto. Antes buscaba subcadenas línea a línea, así que se contaba a
 sí mismo dos veces (el texto de este docstring y la comparación de su propia
@@ -44,24 +53,49 @@ SUPPRESSION = re.compile(r"^#\s*(type:\s*ignore|noqa)\b")
 # los handlers que re-lanzan, así que su directiva era inservible justo donde la razón importa.
 JUSTIFICATION = re.compile(r"^#\s*(noqa:\s*[A-Z0-9, ]*\bBLE001\b|broad-catch:\s*\S)")
 TODOISH = re.compile(r"\b(TODO|FIXME|HACK|XXX)\b")
-# `except_exception` mide exactamente lo que su nombre dice. Un `except:` desnudo o
-# un `except BaseException` son peores, pero contarlos aqui cambiaria la unidad de
-# medida y haria incomparable la baseline; van como hallazgo aparte.
+# `except_exception` mide exactamente lo que su nombre dice y NO cambia de unidad: un
+# `except:` desnudo y un `except BaseException` son peores y se cuentan aparte (C8/#52).
 BROAD = {"Exception"}
-METRICS = ("except_exception", "except_exception_unjustified", "type_ignore", "noqa", "todo_class")
+BASE_EXC = {"BaseException"}
+# Las reglas HABILITADAS hoy que todavía se suprimen en alguna parte. Cada una es su propia
+# deuda: mezclarlas en un total daba un número que no significaba nada (C8/#51).
+NOQA_CODES = ("BLE001", "E402", "F401", "E731")
+NOQA_METRICS = tuple(f"noqa_{code}" for code in NOQA_CODES)
+METRICS = (
+    "except_exception",
+    "except_exception_unjustified",
+    "bare_except",
+    "base_exception",
+    "type_ignore",
+    "todo_class",
+    *NOQA_METRICS,
+    # Una supresión SIN código suprime CUALQUIER regla, presente o futura.
+    "noqa_bare",
+    # Supresiones que nombran una regla que este repo no tiene encendida: no silencian nada.
+    # RUF100 las caza en el lint; aquí quedan contadas para que no vuelvan por la puerta de atrás.
+    "noqa_other",
+)
+NOQA_DIRECTIVE = re.compile(r"^#\s*noqa\b(?::\s*(?P<codes>[A-Z]+[0-9]+(?:\s*,\s*[A-Z]+[0-9]+)*))?")
 
 
-def _is_broad(handler: ast.ExceptHandler) -> bool:
-    """Una captura amplia: `except Exception` o `except (A, Exception)`."""
+def _catches(handler: ast.ExceptHandler, names_wanted: set[str]) -> bool:
+    """¿El handler nombra alguno de esos tipos, suelto o dentro de una tupla?"""
     node = handler.type
     if node is None:
         return False
     names = node.elts if isinstance(node, ast.Tuple) else [node]
-    return any(isinstance(n, ast.Name) and n.id in BROAD for n in names)
+    return any(isinstance(n, ast.Name) and n.id in names_wanted for n in names)
+
+
+def _is_broad(handler: ast.ExceptHandler) -> bool:
+    """Una captura amplia: `except Exception` o `except (A, Exception)`."""
+    return _catches(handler, BROAD)
 
 
 def _source_files() -> list[Path]:
-    return [f for layer in LAYERS for f in sorted((ROOT / layer).glob("*.py"))]
+    # `rglob`, no `glob`: con `glob("*.py")` un módulo dentro de un subpaquete (hoy
+    # tools/mlflow_shim/) quedaba fuera de la medida sin que nada lo dijera.
+    return [f for layer in LAYERS for f in sorted((ROOT / layer).rglob("*.py"))]
 
 
 def count_file(source: str) -> dict[str, int]:
@@ -69,13 +103,19 @@ def count_file(source: str) -> dict[str, int]:
     c = dict.fromkeys(METRICS, 0)
     lines = source.splitlines()
     for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.ExceptHandler) and _is_broad(node):
+        if not isinstance(node, ast.ExceptHandler):
+            continue
+        if node.type is None:
+            c["bare_except"] += 1
+        if _catches(node, BASE_EXC):
+            c["base_exception"] += 1
+        if _is_broad(node):
             c["except_exception"] += 1
             # Un `except` puede escribirse en varias líneas; la justificación puede
             # ir en cualquiera de ellas, así que se mira el rango completo del handler.
             end = node.body[0].lineno - 1 if node.body else node.lineno
             span = "\n".join(lines[node.lineno - 1 : max(end, node.lineno)])
-            if not any(JUSTIFICATION.match(c) for c in _comments_in(span)):
+            if not any(JUSTIFICATION.match(comment) for comment in _comments_in(span)):
                 c["except_exception_unjustified"] += 1
     for token in tokenize.generate_tokens(io.StringIO(source).readline):
         # Solo comentarios: una directiva citada dentro de una cadena es texto, no una
@@ -85,11 +125,24 @@ def count_file(source: str) -> dict[str, int]:
             continue
         comment = token.string.strip()
         if SUPPRESSION.match(comment):
-            key = "type_ignore" if comment.lstrip("# ").startswith("type") else "noqa"
-            c[key] += 1
+            if comment.lstrip("# ").startswith("type"):
+                c["type_ignore"] += 1
+            else:
+                _count_noqa(comment, c)
         if TODOISH.search(comment):
             c["todo_class"] += 1
     return c
+
+
+def _count_noqa(comment: str, c: dict[str, int]) -> None:
+    """Una supresión suma a la métrica de SU regla; sin total agregado (C8/#51)."""
+    match = NOQA_DIRECTIVE.match(comment)
+    codes = match.group("codes") if match else None
+    if not codes:
+        c["noqa_bare"] += 1
+        return
+    for code in (part.strip() for part in codes.split(",")):
+        c[f"noqa_{code}" if code in NOQA_CODES else "noqa_other"] += 1
 
 
 def _comments_in(span: str) -> list[str]:

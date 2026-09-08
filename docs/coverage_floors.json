@@ -48,5 +48,14 @@
   "global": {
     "floor": 30,
     "measured_2026_07_12": 38.56
+  },
+  "parsing_gate": {
+    "why": "El `fail_under` de pytest gobierna SOLO los modulos de parseo que addopts instrumenta. Su titular ('Total coverage: ~77%') se lee como cobertura del repo y no lo es: el denominador son ~236 sentencias. La cobertura del PRODUCTO vive en `layers` y `global`, que se miden con instrumentacion amplia en el job de modelado. C8 deja la diferencia por escrito y la fija con una prueba: si addopts cambia de alcance sin actualizar esta lista, la prueba falla.",
+    "modules": [
+      "vp_data.visa_common",
+      "pipeline.scrape_visa_bulletins",
+      "pipeline.scrape_family_visa_bulletins"
+    ],
+    "fail_under": 65
   }
 }

@@ -1,7 +1,14 @@
 {
   "except_exception": 29,
   "except_exception_unjustified": 0,
+  "bare_except": 0,
+  "base_exception": 12,
   "type_ignore": 11,
-  "noqa": 52,
-  "todo_class": 2
+  "todo_class": 2,
+  "noqa_BLE001": 25,
+  "noqa_E402": 21,
+  "noqa_F401": 5,
+  "noqa_E731": 1,
+  "noqa_bare": 0,
+  "noqa_other": 0
 }
