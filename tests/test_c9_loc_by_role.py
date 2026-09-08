@@ -198,10 +198,17 @@ class TestTheRealRepositoryIsFullyClassified:
         assert problemas == [], f"{len(problemas)} problemas: {problemas[:5]}"
         assert sum(v["files"] for v in medicion["por_rol"].values()) == medicion["archivos"]
 
-    def test_the_environments_are_not_governed(self) -> None:
-        """Se comprueba, no se supone: `ante/` existe en disco y NO debe estar versionado."""
-        assert (ROOT / "ante").exists()
-        assert not [p for p in loc.governed_files(ROOT) if p.startswith(loc.ENV_PREFIXES)]
+    def test_no_governed_path_lives_in_an_environment(self) -> None:
+        """Recorre lo gobernado y exige que ninguna ruta empiece por un prefijo de entorno.
+
+        La versión anterior comprobaba primero que `ante/` existiera en disco, para que la
+        aserción no fuera vacua; eso ataba la prueba a la máquina del autor y en el runner no hay
+        venv. La guarda contra la vacuidad es ahora la lista misma, tomada del módulo para que
+        ampliarla no deje la prueba sin objeto, y el caso discriminante vive donde debe: en la
+        mutación sintética que mete una ruta de entorno y exige que el contrato se rompa."""
+        assert loc.ENV_PREFIXES, "sin prefijos declarados, esta comprobación no afirmaría nada"
+        intrusos = [p for p in loc.governed_files(ROOT) for pre in loc.ENV_PREFIXES if p.startswith(pre)]
+        assert intrusos == [], f"entornos versionados: {intrusos[:5]}"
 
     def test_the_tooling_is_under_the_ceiling(self) -> None:
         medicion, _ = loc.report()
