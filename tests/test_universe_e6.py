@@ -14,6 +14,7 @@ import ast
 import json
 import re
 import sys
+from importlib.util import find_spec
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,13 @@ def test_la_autoridad_deriva_el_universo_del_panel_canonico() -> None:
     assert set(claves) <= set(universe.structural_keys())
 
 
+PROFUNDO = pytest.mark.skipif(
+    find_spec("darts") is None or find_spec("scipy") is None,
+    reason="vp_model.horizon importa scipy y darts; el job base instala solo .[dev]",
+)
+
+
+@PROFUNDO
 def test_todas_las_derivaciones_vivas_coinciden_con_la_autoridad() -> None:
     """RED de universo duplicado: si alguna se separa, aquí se ve, con nombre y diferencia."""
     from vp_model import dataset, horizon, universe
@@ -59,6 +67,16 @@ def test_todas_las_derivaciones_vivas_coinciden_con_la_autoridad() -> None:
     }
     for nombre, vista in vistas.items():
         assert vista == autoridad, f"{nombre} difiere de la autoridad en {sorted(vista ^ autoridad)[:3]}"
+
+
+def test_los_artefactos_sellados_coinciden_con_la_autoridad_sin_el_extra() -> None:
+    """La parte que NO necesita el extra corre en los dos jobs: los sellados contra la autoridad."""
+    from vp_model import universe
+
+    autoridad = set(universe.evaluable_keys())
+    for nombre, ruta in (("series_cohorts.json", COHORTES), ("e4_router_pool.json", POOL)):
+        vista = {(s["country"], s["category"], s["table"]) for s in json.loads(ruta.read_text())["series"]}
+        assert vista == autoridad, f"{nombre} difiere en {sorted(vista ^ autoridad)[:3]}"
 
 
 def test_los_artefactos_sellados_son_salidas_no_fuentes() -> None:
