@@ -69,6 +69,10 @@ reports/latex/*.aux
 reports/latex/*.log
 reports/latex/*.out
 reports/latex/*.toc
+# La subsección de E5 añadió una tabla y una figura: pdflatex empieza a emitir los
+# índices de figuras/tablas, que son subproductos de compilación como el .aux o el .toc.
+reports/latex/*.lof
+reports/latex/*.lot
 reports/latex/*.synctex.gz
 
 # Reportes de auditoría regenerables — mega_audit SÍ se versiona (fuente RAG del VisaBot

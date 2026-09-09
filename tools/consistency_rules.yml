@@ -111,6 +111,52 @@ tex_json:
     # conteos grandes. Tiene la MISMA autoridad y se declara, en vez de quedar sin vigilar.
     formatted_suffix: Fmt
     generator: experiments/build_key_facts.py
+  # E5: las cifras de la epica de cohortes. Autoridad = los escalares de nivel superior del
+  # JSON derivado; las claves con digito se deletrean en el generador (LaTeX no admite digitos
+  # en un nombre de macro), asi que `schema_version` es la unica sin macro y se declara.
+  - kind: macros
+    tex: reports/latex/cohorts_facts.tex
+    json: reports/governance/e5_facts.json
+    prefix: cohortFact
+    # `explicit` y no `top_level_scalars`: esa autoridad deriva el nombre con la regla de
+    # `build_key_facts` (snake_case -> CamelCase con prefijo `fact`) y solo cuadra con el prefijo
+    # `fact`. Declarar el mapa cierra el contrato en los dos sentidos sin tocar el checker.
+    authority: explicit
+    map:
+      CampanaBate: CampanaBate
+      CampanaLanes: CampanaLanes
+      CampanaOk: CampanaOk
+      CampanaPrimarias: CampanaPrimarias
+      NEstable: NEstable
+      NNoEstable: NNoEstable
+      NSeriesEvaluable: NSeriesEvaluable
+      RetroRateMax: RetroRateMax
+      RouterAlfa: RouterAlfa
+      RouterCeldas: RouterCeldas
+      RouterDffEstableMejorHDoce: RouterDffEstableMejorHDoce
+      RouterDffEstablePeorHTres: RouterDffEstablePeorHTres
+      RouterDffNoEstableN: RouterDffNoEstableN
+      RouterFadCortosSignificativos: RouterFadCortosSignificativos
+      RouterFadLargosSignificativos: RouterFadLargosSignificativos
+      RouterGana: RouterGana
+      RouterMargen: RouterMargen
+      RouterPierde: RouterPierde
+      RouterSinEvidencia: RouterSinEvidencia
+      RuleVersion: RuleVersion
+      ScanBate: ScanBate
+      ScanPeor: ScanPeor
+      ScanSinDatos: ScanSinDatos
+      WorstRetroScaledMax: WorstRetroScaledMax
+      status: status
+    generator: experiments/build_e5_facts.py
+  - kind: table
+    tex: reports/latex/cohortes.tex
+    json: reports/governance/e5_facts.json
+    generator: experiments/build_e5_facts.py
+    sticky_first_column: true
+    rows_from: '{group}.rows'
+    groups: ['DFF/estable', 'DFF/inestable', 'FAD/estable', 'FAD/inestable']
+    columns: [cell, h, model, n_pairs, router_mase, naive1_mase, effect, sig]
   - kind: macros
     tex: reports/latex/fe_facts.tex
     json: reports/fe/fe_facts.json

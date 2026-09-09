@@ -1,0 +1,352 @@
+{
+  "CampanaBate": 0,
+  "CampanaLanes": 42,
+  "CampanaOk": 42,
+  "CampanaPrimarias": 18,
+  "DFF/estable": {
+    "rows": [
+      {
+        "effect": -0.0115,
+        "h": 3,
+        "model": "ets",
+        "n_pairs": 28,
+        "naive1_mase": 0.2195,
+        "router_mase": 0.231,
+        "sig": false
+      },
+      {
+        "effect": 0.0086,
+        "h": 6,
+        "model": "ets",
+        "n_pairs": 28,
+        "naive1_mase": 0.4143,
+        "router_mase": 0.4057,
+        "sig": false
+      },
+      {
+        "effect": 0.1352,
+        "h": 12,
+        "model": "ets",
+        "n_pairs": 28,
+        "naive1_mase": 0.9333,
+        "router_mase": 0.798,
+        "sig": false
+      }
+    ]
+  },
+  "DFF/inestable": {
+    "rows": [
+      {
+        "effect": 0.0,
+        "h": 3,
+        "model": "naive1",
+        "n_pairs": 5,
+        "naive1_mase": 0.2608,
+        "router_mase": 0.2608,
+        "sig": false
+      },
+      {
+        "effect": 0.0,
+        "h": 6,
+        "model": "naive1",
+        "n_pairs": 5,
+        "naive1_mase": 0.4592,
+        "router_mase": 0.4592,
+        "sig": false
+      },
+      {
+        "effect": 0.0,
+        "h": 12,
+        "model": "naive",
+        "n_pairs": 5,
+        "naive1_mase": 0.7843,
+        "router_mase": 0.7843,
+        "sig": false
+      }
+    ]
+  },
+  "FAD/estable": {
+    "rows": [
+      {
+        "effect": 0.0294,
+        "h": 3,
+        "model": "drift",
+        "n_pairs": 11,
+        "naive1_mase": 0.2394,
+        "router_mase": 0.2099,
+        "sig": false
+      },
+      {
+        "effect": 0.1125,
+        "h": 6,
+        "model": "drift",
+        "n_pairs": 11,
+        "naive1_mase": 0.4424,
+        "router_mase": 0.3299,
+        "sig": false
+      },
+      {
+        "effect": 0.452,
+        "h": 12,
+        "model": "drift",
+        "n_pairs": 11,
+        "naive1_mase": 1.0489,
+        "router_mase": 0.5969,
+        "sig": true
+      }
+    ]
+  },
+  "FAD/inestable": {
+    "rows": [
+      {
+        "effect": 0.0115,
+        "h": 3,
+        "model": "drift",
+        "n_pairs": 30,
+        "naive1_mase": 0.2398,
+        "router_mase": 0.2283,
+        "sig": false
+      },
+      {
+        "effect": 0.1039,
+        "h": 6,
+        "model": "drift",
+        "n_pairs": 30,
+        "naive1_mase": 0.4533,
+        "router_mase": 0.3495,
+        "sig": true
+      },
+      {
+        "effect": 0.3471,
+        "h": 12,
+        "model": "drift",
+        "n_pairs": 30,
+        "naive1_mase": 0.9817,
+        "router_mase": 0.6346,
+        "sig": true
+      }
+    ]
+  },
+  "NEstable": 39,
+  "NNoEstable": 35,
+  "NSeriesEvaluable": 74,
+  "RetroRateMax": 0.02,
+  "RouterAlfa": 0.05,
+  "RouterCeldas": 4,
+  "RouterDffEstableMejorHDoce": 0.1352,
+  "RouterDffEstablePeorHTres": -0.0115,
+  "RouterDffNoEstableN": 5,
+  "RouterFadCortosSignificativos": 0,
+  "RouterFadLargosSignificativos": 3,
+  "RouterGana": 0,
+  "RouterMargen": 0.005,
+  "RouterPierde": 1,
+  "RouterSinEvidencia": 3,
+  "RuleVersion": "1.0.0",
+  "ScanBate": 0,
+  "ScanPeor": 68,
+  "ScanSinDatos": 24,
+  "WorstRetroScaledMax": 5,
+  "_doc": "Fuente ÚNICA de las cifras de la épica E. Todo lo demás (macros, tabla, figura, texto académico, tarjeta del modelo y contratos web/RAG) se deriva de aquí.",
+  "cohorts_by_table": {
+    "DFF": {
+      "estable": 28,
+      "no_estable": 5
+    },
+    "FAD": {
+      "estable": 11,
+      "no_estable": 30
+    }
+  },
+  "narrative": {
+    "claim": "ningún router gana; las mejoras largas de FAD no satisfacen el corto plazo; DFF/estable pierde materialmente; DFF/no_estable no aporta evidencia",
+    "router_gana": false
+  },
+  "provenance": {
+    "campaign": "f764a123c4cb88242c3d0232291ada36cfd8de8ab3715a29fa3407eb5e4892d6",
+    "cohorts": "f94b1684436f540acd2efcc26055024d6de78a33b98a97f490c63be336da211d",
+    "pool": "f63c29461897fad89345306f5d0114cfd4a14609210d805facdc12048d41b18d",
+    "router": "588e331298af8dcae1ceba474236e48faa9db5f06304865e8527953e1c465294",
+    "scan": "806b3fed1a0303aca4522b16d17002f816fc0836902a543b02d39855d63e9f9d"
+  },
+  "router_rows": [
+    {
+      "cohort": "estable",
+      "effect": -0.0115233196704,
+      "h": 3,
+      "holm_p": 0.153589508736,
+      "model": "ets",
+      "n_pairs": 28,
+      "n_series": 28,
+      "naive1_mase": 0.219488727107,
+      "router_mase": 0.231012046777,
+      "significant": false,
+      "table": "DFF",
+      "verdict": "pierde_material"
+    },
+    {
+      "cohort": "estable",
+      "effect": 0.00860611633591,
+      "h": 6,
+      "holm_p": 0.95141323984,
+      "model": "ets",
+      "n_pairs": 28,
+      "n_series": 28,
+      "naive1_mase": 0.414280664068,
+      "router_mase": 0.405674547732,
+      "significant": false,
+      "table": "DFF",
+      "verdict": "pierde_material"
+    },
+    {
+      "cohort": "estable",
+      "effect": 0.135219869405,
+      "h": 12,
+      "holm_p": 0.74209184466,
+      "model": "ets",
+      "n_pairs": 28,
+      "n_series": 28,
+      "naive1_mase": 0.933255783629,
+      "router_mase": 0.798035914224,
+      "significant": false,
+      "table": "DFF",
+      "verdict": "pierde_material"
+    },
+    {
+      "cohort": "no_estable",
+      "effect": 0.0,
+      "h": 3,
+      "holm_p": 1.0,
+      "model": "naive1",
+      "n_pairs": 5,
+      "n_series": 5,
+      "naive1_mase": 0.260778026109,
+      "router_mase": 0.260778026109,
+      "significant": false,
+      "table": "DFF",
+      "verdict": "sin_evidencia"
+    },
+    {
+      "cohort": "no_estable",
+      "effect": 0.0,
+      "h": 6,
+      "holm_p": 1.0,
+      "model": "naive1",
+      "n_pairs": 5,
+      "n_series": 5,
+      "naive1_mase": 0.459231303827,
+      "router_mase": 0.459231303827,
+      "significant": false,
+      "table": "DFF",
+      "verdict": "sin_evidencia"
+    },
+    {
+      "cohort": "no_estable",
+      "effect": 0.0,
+      "h": 12,
+      "holm_p": 1.0,
+      "model": "naive",
+      "n_pairs": 5,
+      "n_series": 5,
+      "naive1_mase": 0.784282026908,
+      "router_mase": 0.784282026908,
+      "significant": false,
+      "table": "DFF",
+      "verdict": "sin_evidencia"
+    },
+    {
+      "cohort": "estable",
+      "effect": 0.0294145578313,
+      "h": 3,
+      "holm_p": 0.2783203125,
+      "model": "drift",
+      "n_pairs": 11,
+      "n_series": 11,
+      "naive1_mase": 0.239351930057,
+      "router_mase": 0.209937372226,
+      "significant": false,
+      "table": "FAD",
+      "verdict": "sin_evidencia"
+    },
+    {
+      "cohort": "estable",
+      "effect": 0.112461211407,
+      "h": 6,
+      "holm_p": 0.166015625,
+      "model": "drift",
+      "n_pairs": 11,
+      "n_series": 11,
+      "naive1_mase": 0.442356636381,
+      "router_mase": 0.329895424973,
+      "significant": false,
+      "table": "FAD",
+      "verdict": "sin_evidencia"
+    },
+    {
+      "cohort": "estable",
+      "effect": 0.452044926974,
+      "h": 12,
+      "holm_p": 0.0029296875,
+      "model": "drift",
+      "n_pairs": 11,
+      "n_series": 11,
+      "naive1_mase": 1.04894680352,
+      "router_mase": 0.596901876547,
+      "significant": true,
+      "table": "FAD",
+      "verdict": "sin_evidencia"
+    },
+    {
+      "cohort": "no_estable",
+      "effect": 0.0115264216586,
+      "h": 3,
+      "holm_p": 0.439966766164,
+      "model": "drift",
+      "n_pairs": 30,
+      "n_series": 30,
+      "naive1_mase": 0.239825170319,
+      "router_mase": 0.22829874866,
+      "significant": false,
+      "table": "FAD",
+      "verdict": "sin_evidencia"
+    },
+    {
+      "cohort": "no_estable",
+      "effect": 0.103877256884,
+      "h": 6,
+      "holm_p": 0.000566527247428,
+      "model": "drift",
+      "n_pairs": 30,
+      "n_series": 30,
+      "naive1_mase": 0.453327969184,
+      "router_mase": 0.3494507123,
+      "significant": true,
+      "table": "FAD",
+      "verdict": "sin_evidencia"
+    },
+    {
+      "cohort": "no_estable",
+      "effect": 0.347131353257,
+      "h": 12,
+      "holm_p": 6.14672899245e-07,
+      "model": "drift",
+      "n_pairs": 30,
+      "n_series": 30,
+      "naive1_mase": 0.981702120656,
+      "router_mase": 0.634570767399,
+      "significant": true,
+      "table": "FAD",
+      "verdict": "sin_evidencia"
+    }
+  ],
+  "router_verdicts": {
+    "pierde_material": 1,
+    "sin_evidencia": 3
+  },
+  "scan_verdicts": {
+    "peor_que_naive1": 68,
+    "sin_datos_suficientes": 24
+  },
+  "schema_version": "1.0.0",
+  "status": "exploratorio"
+}

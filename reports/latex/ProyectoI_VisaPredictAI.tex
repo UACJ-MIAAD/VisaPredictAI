@@ -126,6 +126,8 @@
 \input{key_facts}
 % --- Catálogo de FE (fe_facts.tex lo genera build_fe_facts.py): selección FRESH/mRMR. ---
 \input{fe_facts}
+% E5: cifras de la épica de cohortes, derivadas de reports/governance/e5_facts.json
+\input{cohorts_facts}
 
 \begin{document}
 
@@ -3158,6 +3160,68 @@ en vivo se acumulan mes con mes.
 El trabajo futuro prioriza la evidencia prospectiva multi-horizonte frente al retador
 ingenuo, el tratamiento explícito de los cambios de régimen, la extensión por país de las
 categorías de empleo y la integración del archivo histórico 1992--2001.
+
+\paragraph{Cohortes de estabilidad y enrutado por cohorte: un resultado negativo documentado.}
+La dirección de tesis planteó segmentar el panel en series estables e inestables y entrenar cada
+grupo por separado. La pregunta se respondió en cuatro tiempos, con la partición y el criterio de
+decisión escritos \textbf{antes} de mirar ningún resultado, para que ninguna conclusión pudiera
+acomodarse a lo observado.
+
+La partición se calcula únicamente con información anterior a la ventana de evaluación: sobre las
+\cohortFactNSeriesEvaluable{} series evaluables quedan \cohortFactNEstable{} estables y
+\cohortFactNNoEstable{} no estables, bajo una regla congelada que declara inestable a la serie
+cuya tasa de retrogresión supera \cohortFactRetroRateMax{} o cuya peor retrogresión excede
+\cohortFactWorstRetroScaledMax{} veces la escala naïve de la propia serie. La quietud no decide:
+viaja como anotación, porque una serie congelada es fácil de predecir por construcción y llamarla
+«estable» sería confundir dos cosas distintas.
+
+El barrido de lo ya puntuado dio \cohortFactScanPeor{} comparaciones concluyentes por debajo del
+naïve-1 de su propia cohorte y \cohortFactScanBate{} por encima, con
+\cohortFactScanSinDatos{} celdas sin evidencia suficiente. La campaña de entrenamiento real, con
+\cohortFactCampanaLanes{} corridas aisladas de las que \cohortFactCampanaOk{} terminaron,
+tampoco produjo ninguna receta que batiera ese piso (\cohortFactCampanaBate{} de
+\cohortFactCampanaPrimarias{} recetas primarias). Finalmente, el enrutador por cohorte, que
+escoge el método con la evidencia anterior al hold-out y se evalúa solo sobre él, se sometió al
+mismo gate del sistema: mejora material de al menos \cohortFactRouterMargen{} en MASE, contraste
+bilateral con corrección de Holm al \cohortFactRouterAlfa{} y ninguna pérdida material, exigidos
+\textbf{en los tres horizontes} evaluados.
+
+El veredicto es negativo y se conserva: de \cohortFactRouterCeldas{} celdas,
+\cohortFactRouterGana{} ganan. La tabla~\ref{tab:cohortes} y la figura~\ref{fig:cohortes} lo
+muestran con el detalle que importa. En la tabla de fechas de acción final el enrutador mejora de
+forma material en los tres horizontes y resulta significativo en
+\cohortFactRouterFadLargosSignificativos{} de ellos, todos largos, pero en
+\cohortFactRouterFadCortosSignificativos{} de los cortos: \textbf{la ventaja a horizonte largo no
+satisface el corto plazo}, y la regla pide los tres. En la cohorte estable de fechas de
+presentación la mejora a doce meses alcanza \cohortFactRouterDffEstableMejorHDoce{} y aun así la
+celda \textbf{pierde de forma material}, porque a tres meses cae a
+\cohortFactRouterDffEstablePeorHTres{}. Y la cohorte inestable de esa misma tabla, con
+\cohortFactRouterDffNoEstableN{} series, \textbf{no aporta evidencia}: el propio enrutador elige
+allí el piso ingenuo, de modo que se compara consigo mismo.
+
+Segmentar por estabilidad, por sí solo, no cambia quién gana a corto plazo. El hallazgo se
+publica igual: un experimento que solo se reporta cuando confirma la hipótesis deja de ser un
+experimento. Las cifras de este párrafo, la tabla y la figura se derivan del mismo archivo
+versionado y ninguna se teclea a mano.
+
+\begin{table}[H]
+\centering
+\caption[Enrutado por cohorte contra el naïve-1 de cada cohorte]{Enrutado por cohorte frente al
+naïve-1 de la propia cohorte, por tabla, cohorte y horizonte. El efecto es positivo cuando el
+enrutador mejora; la significancia es la del contraste bilateral tras la corrección de Holm sobre
+los tres horizontes de la celda. Retrospectivo, con selección disjunta del hold-out.}
+\label{tab:cohortes}
+\input{cohortes.tex}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{e5_router_effect.pdf}
+\caption[Efecto del enrutado por cohorte y horizonte]{Efecto del enrutado frente al naïve-1 de
+cada cohorte, por celda y horizonte. Las líneas discontinuas marcan el margen material exigido en
+ambos sentidos; las barras llenas señalan los contrastes que sobreviven a la corrección de Holm.}
+\label{fig:cohortes}
+\end{figure}
 
 % ============================================================
 % GLOSARIO

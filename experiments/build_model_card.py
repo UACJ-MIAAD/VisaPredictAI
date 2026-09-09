@@ -58,6 +58,39 @@ def _fmt(v) -> str:  # accepts int or the "n/d" degradation sentinel
     return f"{v:,}" if isinstance(v, int) else str(v)
 
 
+E5_FACTS = ROOT / "reports" / "governance" / "e5_facts.json"
+
+
+def _e5_block() -> str:
+    """Bloque de cohortes DERIVADO de e5_facts.json. Si el corte no lo trae, se dice así.
+
+    Ni una cifra se teclea: o sale del artefacto o la tarjeta declara que no está disponible.
+    """
+    if not E5_FACTS.exists():
+        return "- No disponible en este corte: `reports/governance/e5_facts.json` no viaja en él."
+    f = json.loads(E5_FACTS.read_text())
+    return "\n".join(
+        [
+            f"- **Partición (regla v{f['RuleVersion']}, pre-registrada):** {f['NSeriesEvaluable']} series "
+            f"evaluables · {f['NEstable']} estables · {f['NNoEstable']} no estables. Calculada solo con "
+            "información anterior al hold-out.",
+            f"- **Barrido de lo ya puntuado:** {f['ScanBate']} recetas baten al naïve-1 de su cohorte; "
+            f"{f['ScanPeor']} quedan por debajo y {f['ScanSinDatos']} sin evidencia suficiente.",
+            f"- **Campaña por cohorte (CPU):** {f['CampanaLanes']} corridas, {f['CampanaOk']} completadas; "
+            f"{f['CampanaBate']} de {f['CampanaPrimarias']} recetas primarias baten ese piso.",
+            f"- **Enrutado por cohorte:** de {f['RouterCeldas']} celdas, {f['RouterGana']} superan el gate "
+            f"(mejora ≥ {f['RouterMargen']} en MASE, contraste bilateral con Holm al {f['RouterAlfa']} y sin "
+            "pérdida material, exigidos en los tres horizontes). Las mejoras largas de FAD no satisfacen el "
+            f"corto plazo ({f['RouterFadCortosSignificativos']} horizontes cortos significativos); la cohorte "
+            f"estable de DFF pierde de forma material ({f['RouterDffEstablePeorHTres']} a tres meses pese a "
+            f"{f['RouterDffEstableMejorHDoce']} a doce); y la inestable de DFF, con "
+            f"{f['RouterDffNoEstableN']} series, no aporta evidencia.",
+            "- **Estado:** exploratorio. El enrutador **no está desplegado ni promovido**: su autorización "
+            "exigiría sombra prospectiva, igual que cualquier retador.",
+        ]
+    )
+
+
 def render(release_id: str) -> str:
     """Bytes de la tarjeta para un ``release_id`` dado. PURA: no lee ni escribe el id en disco.
 
@@ -116,6 +149,9 @@ def render(release_id: str) -> str:
 **Hold-out leakage-free (MASE media):** FAD campeón `{recipe("FAD")}` = **{champ_mean("FAD")}** · DFF campeón `{recipe("DFF")}` = **{champ_mean("DFF")}**.
 **Model Confidence Set (90 %):** FAD = {{{mcs("FAD")}}} · DFF = {{{mcs("DFF")}}} (Friedman–Nemenyi).
 **Prospectiva (backfill sin fuga de información; añadas servidas en vivo desde jul-2026):** n={kf.get("prosp_n_scored", "n/d")} · MAE={kf.get("prosp_mae_days", "n/d")} días · MASE={kf.get("prosp_mase", "n/d")} · cobertura 95 %={kf.get("prosp_cov95", "n/d")} · 80 % (out-of-sample)={kf.get("prosp_cov80_heldout", "n/d")}.
+
+## 5.1 Cohortes de estabilidad y enrutado (épica E, exploratorio)
+{_e5_block()}
 
 ## 6. Linaje y reproducibilidad
 - **Receta:** `champion_manifest.json` (cambia solo vía `run_champion_challenger.py --promote`, auditado).

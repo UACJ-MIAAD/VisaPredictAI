@@ -177,6 +177,15 @@ PRE_F2_MANIFEST_SHA256 = "8c362dbbacc245fdf4ba4b9835af096f81257ebc8f0a03c12a0654
 PRE_F2_RELEASE_ID = "2026-09-158ec972c234"
 PRE_F2_VINTAGE = "2026-09"
 PRE_F2_N_ARTIFACTS = 111
+#: E5: las cifras de cohortes y el catálogo entran al spec, pero el corte YA PUBLICADO se emitió
+#: sin ellos y no se regenera (cambiaría `release_id` y el corte que sirve producción). La
+#: excepción es NOMINAL y CERRADA: solo este corte, por sus cuatro valores exactos. Cualquier
+#: otro manifiesto que los omita falla, y con el próximo corte deja de aplicarse sola.
+E5_PATHS = ("reports/governance/e5_facts.json", "reports/eval/series_cohorts.json")
+PRE_E5_MANIFEST_SHA256 = "8c362dbbacc245fdf4ba4b9835af096f81257ebc8f0a03c12a065484fbed3145"
+PRE_E5_RELEASE_ID = "2026-09-158ec972c234"
+PRE_E5_VINTAGE = "2026-09"
+PRE_E5_N_ARTIFACTS = 111
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
@@ -232,6 +241,31 @@ def _ingestion_feed_problems(manifest: dict, manifest_sha: str) -> list[str]:
     return []
 
 
+def _e5_facts_problems(manifest: dict, manifest_sha: str) -> list[str]:
+    """El manifiesto debe publicar las cifras de cohortes; solo el corte PRE-E5 se salva."""
+    presentes = {a.get("path") for a in manifest.get("artifacts", [])}
+    faltan = [p for p in E5_PATHS if p not in presentes]
+    if not faltan:
+        return []
+    checks = {
+        "sha256 del manifiesto": (manifest_sha, PRE_E5_MANIFEST_SHA256),
+        "release_id": (manifest.get("release_id"), PRE_E5_RELEASE_ID),
+        "panel_vintage": (manifest.get("panel_vintage"), PRE_E5_VINTAGE),
+        "n_artifacts": (manifest.get("n_artifacts"), PRE_E5_N_ARTIFACTS),
+    }
+    wrong = [f"{name}: {got!r} != {want!r}" for name, (got, want) in checks.items() if got != want]
+    if wrong:
+        return [
+            f"manifiesto sin {faltan} que NO es el corte PRE-E5 acreditado "
+            f"({'; '.join(wrong)}): todo corte nuevo debe publicar las cifras de cohortes"
+        ]
+    print(
+        f"  · cifras de cohortes: corte PRE-E5 {PRE_E5_RELEASE_ID} acreditado por sus cuatro "
+        "valores exactos (excepción cerrada); el próximo corte ya las publica"
+    )
+    return []
+
+
 def _identity_shape_problems(identity: object) -> list[str]:
     """El bloque `identity` se valida entero antes de usarlo. Nunca se degrada a 'no verificable'."""
     if not isinstance(identity, dict):
@@ -282,8 +316,8 @@ def release_identity_problems(root: Path = ROOT) -> list[str]:
     card_sha = hashlib.sha256(card.encode()).hexdigest()
     manifest_sha = hashlib.sha256(raw).hexdigest()
 
-    # F2: la exigencia del feed de ingesta vale para cualquier manifiesto, lleve o no `identity`.
-    feed_problems = _ingestion_feed_problems(manifest, manifest_sha)
+    # F2/E5: estas exigencias valen para cualquier manifiesto, lleve o no `identity`.
+    feed_problems = _ingestion_feed_problems(manifest, manifest_sha) + _e5_facts_problems(manifest, manifest_sha)
 
     if "identity" not in manifest:
         return _legacy_bridge_problems(manifest, manifest_sha, card_sha) + feed_problems
