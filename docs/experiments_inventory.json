@@ -176,6 +176,10 @@
     "clase": "investigacion",
     "consumidor": "PI del deep (CQR)"
   },
+  "run_e4_router.py": {
+    "clase": "producto",
+    "consumidor": "reports/eval/e4_router.json (gate retrospectivo del router por cohorte; no promueve ni despliega)"
+  },
   "run_ensembles.py": {
     "clase": "investigacion",
     "consumidor": "best-K/stacking (tabla 24 modelos)"

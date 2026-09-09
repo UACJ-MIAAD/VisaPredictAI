@@ -1,0 +1,535 @@
+{
+  "_doc": "Pool EXACTO de E4, persistido para que ningún lane pueda ensancharlo ni encogerlo. Igualdad de conjuntos verificada contra vp_model.dataset.evaluable_series().",
+  "by_cohort": {
+    "estable": 39,
+    "no_estable": 35
+  },
+  "by_table": {
+    "DFF": 33,
+    "FAD": 41
+  },
+  "n": 74,
+  "rule_version": "1.0.0",
+  "series": [
+    {
+      "block": "family",
+      "category": "F1",
+      "cohort": "estable",
+      "country": "all_chargeability",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F2A",
+      "cohort": "estable",
+      "country": "all_chargeability",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F2B",
+      "cohort": "estable",
+      "country": "all_chargeability",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F3",
+      "cohort": "estable",
+      "country": "all_chargeability",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F4",
+      "cohort": "estable",
+      "country": "all_chargeability",
+      "table": "DFF"
+    },
+    {
+      "block": "employment",
+      "category": "EB2",
+      "cohort": "estable",
+      "country": "china",
+      "table": "DFF"
+    },
+    {
+      "block": "employment",
+      "category": "EB3",
+      "cohort": "no_estable",
+      "country": "china",
+      "table": "DFF"
+    },
+    {
+      "block": "employment",
+      "category": "EB3_OW",
+      "cohort": "estable",
+      "country": "china",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F1",
+      "cohort": "estable",
+      "country": "china",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F2A",
+      "cohort": "estable",
+      "country": "china",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F2B",
+      "cohort": "estable",
+      "country": "china",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F3",
+      "cohort": "estable",
+      "country": "china",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F4",
+      "cohort": "estable",
+      "country": "china",
+      "table": "DFF"
+    },
+    {
+      "block": "employment",
+      "category": "EB2",
+      "cohort": "no_estable",
+      "country": "india",
+      "table": "DFF"
+    },
+    {
+      "block": "employment",
+      "category": "EB3",
+      "cohort": "no_estable",
+      "country": "india",
+      "table": "DFF"
+    },
+    {
+      "block": "employment",
+      "category": "EB3_OW",
+      "cohort": "no_estable",
+      "country": "india",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F1",
+      "cohort": "estable",
+      "country": "india",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F2A",
+      "cohort": "estable",
+      "country": "india",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F2B",
+      "cohort": "estable",
+      "country": "india",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F3",
+      "cohort": "estable",
+      "country": "india",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F4",
+      "cohort": "estable",
+      "country": "india",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F1",
+      "cohort": "estable",
+      "country": "mexico",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F2A",
+      "cohort": "estable",
+      "country": "mexico",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F2B",
+      "cohort": "estable",
+      "country": "mexico",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F3",
+      "cohort": "estable",
+      "country": "mexico",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F4",
+      "cohort": "estable",
+      "country": "mexico",
+      "table": "DFF"
+    },
+    {
+      "block": "employment",
+      "category": "EB3",
+      "cohort": "estable",
+      "country": "philippines",
+      "table": "DFF"
+    },
+    {
+      "block": "employment",
+      "category": "EB3_OW",
+      "cohort": "no_estable",
+      "country": "philippines",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F1",
+      "cohort": "estable",
+      "country": "philippines",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F2A",
+      "cohort": "estable",
+      "country": "philippines",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F2B",
+      "cohort": "estable",
+      "country": "philippines",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F3",
+      "cohort": "estable",
+      "country": "philippines",
+      "table": "DFF"
+    },
+    {
+      "block": "family",
+      "category": "F4",
+      "cohort": "estable",
+      "country": "philippines",
+      "table": "DFF"
+    },
+    {
+      "block": "employment",
+      "category": "EB3",
+      "cohort": "no_estable",
+      "country": "all_chargeability",
+      "table": "FAD"
+    },
+    {
+      "block": "employment",
+      "category": "EB3_OW",
+      "cohort": "no_estable",
+      "country": "all_chargeability",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F1",
+      "cohort": "no_estable",
+      "country": "all_chargeability",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F2A",
+      "cohort": "no_estable",
+      "country": "all_chargeability",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F2B",
+      "cohort": "estable",
+      "country": "all_chargeability",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F3",
+      "cohort": "estable",
+      "country": "all_chargeability",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F4",
+      "cohort": "estable",
+      "country": "all_chargeability",
+      "table": "FAD"
+    },
+    {
+      "block": "employment",
+      "category": "EB1",
+      "cohort": "no_estable",
+      "country": "china",
+      "table": "FAD"
+    },
+    {
+      "block": "employment",
+      "category": "EB2",
+      "cohort": "no_estable",
+      "country": "china",
+      "table": "FAD"
+    },
+    {
+      "block": "employment",
+      "category": "EB3",
+      "cohort": "no_estable",
+      "country": "china",
+      "table": "FAD"
+    },
+    {
+      "block": "employment",
+      "category": "EB3_OW",
+      "cohort": "no_estable",
+      "country": "china",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F1",
+      "cohort": "no_estable",
+      "country": "china",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F2A",
+      "cohort": "no_estable",
+      "country": "china",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F2B",
+      "cohort": "estable",
+      "country": "china",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F3",
+      "cohort": "estable",
+      "country": "china",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F4",
+      "cohort": "no_estable",
+      "country": "china",
+      "table": "FAD"
+    },
+    {
+      "block": "employment",
+      "category": "EB1",
+      "cohort": "no_estable",
+      "country": "india",
+      "table": "FAD"
+    },
+    {
+      "block": "employment",
+      "category": "EB2",
+      "cohort": "no_estable",
+      "country": "india",
+      "table": "FAD"
+    },
+    {
+      "block": "employment",
+      "category": "EB3",
+      "cohort": "no_estable",
+      "country": "india",
+      "table": "FAD"
+    },
+    {
+      "block": "employment",
+      "category": "EB3_OW",
+      "cohort": "no_estable",
+      "country": "india",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F1",
+      "cohort": "no_estable",
+      "country": "india",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F2A",
+      "cohort": "no_estable",
+      "country": "india",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F2B",
+      "cohort": "estable",
+      "country": "india",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F3",
+      "cohort": "estable",
+      "country": "india",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F4",
+      "cohort": "estable",
+      "country": "india",
+      "table": "FAD"
+    },
+    {
+      "block": "employment",
+      "category": "EB3",
+      "cohort": "no_estable",
+      "country": "mexico",
+      "table": "FAD"
+    },
+    {
+      "block": "employment",
+      "category": "EB3_OW",
+      "cohort": "no_estable",
+      "country": "mexico",
+      "table": "FAD"
+    },
+    {
+      "block": "employment",
+      "category": "EB4",
+      "cohort": "no_estable",
+      "country": "mexico",
+      "table": "FAD"
+    },
+    {
+      "block": "employment",
+      "category": "EB4_RW",
+      "cohort": "no_estable",
+      "country": "mexico",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F1",
+      "cohort": "no_estable",
+      "country": "mexico",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F2A",
+      "cohort": "no_estable",
+      "country": "mexico",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F2B",
+      "cohort": "no_estable",
+      "country": "mexico",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F3",
+      "cohort": "no_estable",
+      "country": "mexico",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F4",
+      "cohort": "no_estable",
+      "country": "mexico",
+      "table": "FAD"
+    },
+    {
+      "block": "employment",
+      "category": "EB3",
+      "cohort": "no_estable",
+      "country": "philippines",
+      "table": "FAD"
+    },
+    {
+      "block": "employment",
+      "category": "EB3_OW",
+      "cohort": "no_estable",
+      "country": "philippines",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F1",
+      "cohort": "estable",
+      "country": "philippines",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F2A",
+      "cohort": "no_estable",
+      "country": "philippines",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F2B",
+      "cohort": "estable",
+      "country": "philippines",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F3",
+      "cohort": "no_estable",
+      "country": "philippines",
+      "table": "FAD"
+    },
+    {
+      "block": "family",
+      "category": "F4",
+      "cohort": "estable",
+      "country": "philippines",
+      "table": "FAD"
+    }
+  ],
+  "source": "reports/eval/series_cohorts.json",
+  "source_sha256": "f94b1684436f540acd2efcc26055024d6de78a33b98a97f490c63be336da211d"
+}

@@ -1,0 +1,148 @@
+{
+  "_doc": "Baraja de retadores del gate canonico, EXTERNALIZADA desde vp_model.champion.CHALLENGERS sin cambiar una sola receta, mas el pre-registro del router de E4. Se lee unicamente por champion.load_deck().",
+  "challengers": {
+    "DFF": [
+      {
+        "agg": "median",
+        "models": [
+          "naive1"
+        ]
+      },
+      {
+        "agg": "median",
+        "models": [
+          "drift"
+        ]
+      },
+      {
+        "agg": "median",
+        "models": [
+          "ets"
+        ]
+      },
+      {
+        "agg": "median",
+        "models": [
+          "catboost"
+        ]
+      },
+      {
+        "agg": "median",
+        "models": [
+          "sarima",
+          "ets"
+        ]
+      },
+      {
+        "agg": "median",
+        "models": [
+          "sarima",
+          "ets",
+          "theta"
+        ]
+      }
+    ],
+    "FAD": [
+      {
+        "agg": "median",
+        "models": [
+          "naive1"
+        ]
+      },
+      {
+        "agg": "median",
+        "models": [
+          "drift"
+        ]
+      },
+      {
+        "agg": "median",
+        "models": [
+          "theta"
+        ]
+      },
+      {
+        "agg": "median",
+        "models": [
+          "ets"
+        ]
+      },
+      {
+        "agg": "median",
+        "models": [
+          "theta",
+          "ets"
+        ]
+      },
+      {
+        "agg": "mean",
+        "models": [
+          "theta",
+          "ets",
+          "sarima"
+        ]
+      },
+      {
+        "agg": "median",
+        "models": [
+          "theta",
+          "ets",
+          "sarima",
+          "arima"
+        ]
+      }
+    ]
+  },
+  "gate": {
+    "_frozen_since": "julio de 2026, en vp_model/champion.py (MATERIAL_MARGIN, HOLM_ALPHA)",
+    "holm_alpha": 0.05,
+    "material_margin": 0.005,
+    "one_sided": "solo como sensibilidad; NUNCA como gate primario",
+    "test": "wilcoxon pareado por serie, BILATERAL"
+  },
+  "inputs": {
+    "commit": "850d4bd61385a80aefb50d3cf3fc64b94a2b9dad",
+    "e3_cohort_campaign.json": "f764a123c4cb88242c3d0232291ada36cfd8de8ab3715a29fa3407eb5e4892d6",
+    "series_cohorts.json": "f94b1684436f540acd2efcc26055024d6de78a33b98a97f490c63be336da211d",
+    "vp_model/champion.py": "415c1a19e4a397f988fff3873421d353f9813df5c823b018f732fb8f86041378",
+    "vp_model/config.py": "679fc9853c1b83bd415b4860843d59e5d5efea0b3ec5a89abf651ead6a55b3f7",
+    "vp_model/horizon.py": "84ad14a223b500441c8ce7aadd8c0c543baf5db40164630854dad9eb614855fb"
+  },
+  "pool": {
+    "_doc": "el pool exacto se persiste en reports/eval/e4_router_pool.json y se compara por igualdad de conjuntos",
+    "n_expected": 74,
+    "source": "reports/eval/series_cohorts.json (RULE v1.0.0, E1)"
+  },
+  "registered": "2026-09-09, ANTES de calcular ningun resultado multi-horizonte del router",
+  "router": {
+    "_allowed_material_loss_doc": "perdida material = el naive-1 mejor que el router por >= 0.005 de MASE medio. Se permiten CERO horizontes con perdida material entre {3,6,12}.",
+    "_candidates_frozen_since": "julio de 2026, en config.HORIZON_CANDIDATES; NO incluye ningun modelo profundo",
+    "_horizons_frozen_since": "julio de 2026, en config.HORIZONS = [1, 3, 6, 12, 24, 36, 48, 60]",
+    "allowed_material_loss": 0.0,
+    "candidates": [
+      "naive1",
+      "drift",
+      "naive",
+      "theta",
+      "ets"
+    ],
+    "forbidden": [
+      "incorporar AutoDeepAR o AutoBiTCN",
+      "escoger control-bitcn por su 0.0721 en DFF/no_estable (celda de 5 series, insuficiente)",
+      "elegir la receta ganadora de E3 despues de conocer su resultado",
+      "usar el hold-out para SELECCIONAR",
+      "promover o desplegar el router"
+    ],
+    "holm_family": "los horizontes {3,6,12} de una misma tabla x cohorte",
+    "horizons": [
+      3,
+      6,
+      12
+    ],
+    "question": "¿enrutar por cohorte de estabilidad bate al naive-1 DE CADA COHORTE a 3, 6 y 12 meses?",
+    "reference": "naive1, dentro de la MISMA cohorte, pareado serie a serie",
+    "selection_rule": "por (tabla, cohorte, horizonte) se elige el candidato con menor MASE medio sobre los objetivos ANTERIORES al hold-out (ventana de seleccion). La evaluacion usa SOLO objetivos del hold-out: seleccion y evaluacion son disjuntas en el tiempo.",
+    "win_rule": "el router GANA solo si, en los tres horizontes: (a) el efecto medio a favor es >= 0.005, (b) el Wilcoxon BILATERAL pareado sobrevive a Holm con alpha 0.05 dentro de su familia, y (c) no pierde de forma material en ninguno."
+  },
+  "version": "1.0.0"
+}
