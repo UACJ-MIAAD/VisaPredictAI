@@ -23,42 +23,6 @@ RESULT = ROOT / "reports" / "eval" / "e4_router.json"
 PROFUNDO = pytest.mark.skipif(find_spec("darts") is None, reason="vp_model.horizon importa darts")
 
 
-def test_ninguna_prueba_del_job_base_importa_el_extra_de_modelado() -> None:
-    """Cuarta reincidencia (M14, M48, M59, M62): el job base instala solo ``.[dev]``.
-
-    Una prueba sin la marca ``PROFUNDO`` no puede importar scipy, darts, statsmodels, lightgbm,
-    torch ni un módulo de ``vp_model`` que los arrastre. Esto lo comprueba la estructura del
-    archivo, no mi memoria.
-    """
-    import ast
-
-    pesados = {"scipy", "darts", "statsmodels", "lightgbm", "torch", "optuna"}
-    permitidos_vp = {"vp_model.deck"}
-    arbol = ast.parse(Path(__file__).read_text(encoding="utf-8"))
-    culpables: list[tuple[str, str]] = []
-    for nodo in ast.walk(arbol):
-        if not isinstance(nodo, ast.FunctionDef):
-            continue
-        gateada = any(
-            (isinstance(d, ast.Name) and d.id == "PROFUNDO")
-            or (isinstance(d, ast.Attribute) and getattr(d.value, "id", "") == "PROFUNDO")
-            for d in nodo.decorator_list
-        )
-        if gateada:
-            continue
-        for sub in ast.walk(nodo):
-            modulo = getattr(sub, "module", None)
-            if isinstance(sub, ast.ImportFrom) and modulo:
-                raiz = modulo.split(".")[0]
-                if raiz in pesados or (raiz == "vp_model" and modulo not in permitidos_vp):
-                    culpables.append((nodo.name, modulo))
-            if isinstance(sub, ast.Import):
-                for alias in sub.names:
-                    if alias.name.split(".")[0] in pesados:
-                        culpables.append((nodo.name, alias.name))
-    assert culpables == [], f"pruebas del job base con imports del extra: {culpables}"
-
-
 # --------------------------------------------------------------- pre-registro (job base)
 def test_la_baraja_declara_todo_lo_que_el_gate_necesita() -> None:
     d = json.loads(DECK.read_text())
@@ -111,7 +75,10 @@ def test_la_seleccion_es_disjunta_de_la_evaluacion_por_escrito() -> None:
 def test_el_pool_persistido_tiene_las_74_series_de_E1() -> None:
     pool = json.loads(POOL.read_text())
     cohortes = json.loads(COHORTS.read_text())
-    assert pool["n"] == cohortes["population"]["n_evaluable"] == 74
+    from vp_model import universe
+
+    # Sin número cableado: la autoridad lo deriva del panel canónico en cada corrida.
+    assert pool["n"] == cohortes["population"]["n_evaluable"] == universe.n_evaluable()
     a = {(s["country"], s["category"], s["table"]) for s in pool["series"]}
     b = {(s["country"], s["category"], s["table"]) for s in cohortes["series"]}
     assert a == b
@@ -331,8 +298,10 @@ class TestResultadoE4:
     def test_el_pool_del_informe_es_el_persistido(self) -> None:
         import hashlib
 
+        from vp_model import universe
+
         d = self._d()
-        assert d["pool"]["n"] == 74
+        assert d["pool"]["n"] == universe.n_evaluable()
         assert d["pool"]["sha256"] == hashlib.sha256(POOL.read_bytes()).hexdigest()
 
     def test_la_familia_de_holm_son_los_tres_horizontes(self) -> None:

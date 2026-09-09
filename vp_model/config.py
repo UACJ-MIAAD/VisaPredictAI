@@ -30,7 +30,7 @@ TABLES = ("FAD", "DFF")
 
 # --- Catálogo de modelos ---------------------------------------------------
 # Pool ampliado tras la investigación de 181 fuentes: además de los 8 originales se
-# añaden el "centro parsimonioso" que gana este régimen (ETS damped, Theta, lineales)
+# añaden el "centro parsimonioso" del régimen (ETS damped, Theta, lineales)
 # y candidatos modernos defendibles (DLinear/NLinear, GBMs, N-BEATS/N-HiTS/TiDE).
 MODEL_NAMES = (
     "naive",
@@ -177,7 +177,10 @@ MIN_BACKTEST_BUFFER = 6  # colchón extra para que una serie sea evaluable
 # Campeón POR HORIZONTE (vp_model.horizon): grid de horizontes evaluados con orígenes
 # RODANTES sobre todo el span (no la ventana fija de holdout) para desconfundir el
 # horizonte de la época — la corrección de la auditoría del showdown deep GPU (jul-2026):
-# a h=1 el random walk es piso; de h>=6-12 la parsimonia (Theta) lo bate ~13-35% F-only.
+# A h=1 el random walk es el piso. Qué modelo lo bate a horizontes largos, y por cuánto, NO se
+# escribe aquí: se lee de reports/eval/horizon_facts.json (`champion_by_h`), que es quien lo
+# mide. Nombrar un ganador en un comentario lo deja fósil en cuanto cambia el corte — y de
+# hecho ya estaba fósil: el artefacto dice `drift`, no Theta.
 HORIZONS: tuple[int, ...] = (
     1,
     3,

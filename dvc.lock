@@ -230,8 +230,8 @@ stages:
       size: 9913
     - path: vp_model/config.py
       hash: md5
-      md5: 765c68d8ea12c34b606fc6b3a64669cb
-      size: 16919
+      md5: 30ddb386aeead7275873fa7f2b330185
+      size: 17168
     outs:
     - path: reports/governance/key_facts.json
       hash: md5

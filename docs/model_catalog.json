@@ -10,7 +10,7 @@
   "arima": {"clase": "research", "nota": "clásico; CRPS nativo citado en A.8"},
   "kalman": {"clase": "research", "nota": "filtro de Kalman"},
   "prophet": {"clase": "research", "nota": "evaluado; no destrona"},
-  "arima_lstm": {"clase": "research", "nota": "híbrido Zhang; evaluado"},
+  "arima_lstm": {"clase": "research", "nota": "hibrido Zhang; evaluado. LIMITACION OBSERVADA: en DFF no produce ningun MASE finito — 89 de 89 filas vacias en reports/eval/model_comparison_DFF21.csv (25) y model_comparison_EB_DFF21.csv (64), medido el 9-sep-2026. En FAD si puntua (25/25 filas finitas en model_comparison_FAD21.csv), asi que el alcance del fallo es la tabla DFF, no el modelo entero. No se imputa, no se borra y no se reinterpreta: la ausencia se reporta como ausencia"},
   "lstm": {"clase": "research", "nota": "recurrente local; n pequeño lo castiga"},
   "catboost": {"clase": "research", "nota": "GBM con covariables FE; tuneado (deploy-select)"},
   "lightgbm": {"clase": "research", "nota": "GBM tuneado"},
@@ -23,5 +23,5 @@
   "tft": {"clase": "research", "nota": "temporal fusion transformer (solo glosario/bib en el cuerpo del anteproyecto)"},
   "tide": {"clase": "research", "nota": "deep global evaluado"},
   "chronos": {"clase": "research", "nota": "foundation zero-shot 0.207 sel; no entra al ciclo mensual"},
-  "deepar": {"clase": "retired", "nota": "diverge/no funciona en este panel (documentado desde 18-jun y confirmado en el frontier GPU)"}
+  "deepar": {"clase": "research", "nota": "E3 (9-sep-2026) desmintio el motivo del retiro: la receta deepar-robust NO diverge (DFF/all 0.110 y DFF/no_estable 0.079, frente a 0.518 y 0.814 de la configuracion historica deepar-legacy, reports/eval/e3_cohort_campaign.json). Sigue sin batir al naive-1 de ninguna cohorte, asi que queda como research: evaluado, EXCLUIDO de promocion y despliegue, y sin entrar al ciclo mensual sin beneficio prospectivo demostrado"}
 }

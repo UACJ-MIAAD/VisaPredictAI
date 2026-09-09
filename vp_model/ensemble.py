@@ -1,7 +1,7 @@
 """Selección de modelo por serie y combinaciones (US-N1, patrón EpiForecast-MX).
 
-El hallazgo del marco comparativo es que NINGÚN modelo domina todas las series
-(ETS/Theta ganan FAD en promedio, CatBoost gana la mayoría individual y DFF). La
+El hallazgo del marco comparativo es que NINGÚN modelo domina todas las series; qué modelo
+lidera cada tabla se lee de ``reports/governance/champion_challenger.json``, no de aquí. La
 estrategia que mueve la aguja no es un solo ganador global sino **seleccionar por
 serie** con un criterio leakage-free: elegir el modelo con menor MASE en la región de
 SELECCIÓN (que nunca ve el hold-out) y reportar su MASE de HOLD-OUT. Se compara contra:

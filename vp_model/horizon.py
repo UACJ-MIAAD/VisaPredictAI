@@ -9,8 +9,9 @@ span (no solo el hold-out de 24 meses) el horizonte queda desacoplado de la épo
 
 Se puntúa SOLO sobre fechas F reales (mismo contrato que ``walkforward``) con la MISMA
 escala MASE canónica (:func:`metrics.naive_scale_before`, naïve estacional train-before).
-El campeón se elige por horizonte. Verdad medida (F-only, insesgado): a h=1 el random
-walk (``naive1``) es piso; de h≈6-12 en adelante la parsimonia (Theta) lo bate ~13-35%.
+El campeón se elige por horizonte. A h=1 el random walk (``naive1``) es el piso; **cuál gana a
+horizontes largos se lee de ``reports/eval/horizon_facts.json``** (`champion_by_h`), no de este
+docstring: escribir aquí un nombre lo vuelve fósil en cuanto el corte cambia.
 
 Alcance: modelos CLÁSICOS (:data:`config.HORIZON_CANDIDATES`). El frontier deep no
 aportó skill honesto (misma memoria); además los clásicos reentrenan en cada origen
