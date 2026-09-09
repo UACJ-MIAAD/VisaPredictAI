@@ -23,6 +23,42 @@ RESULT = ROOT / "reports" / "eval" / "e4_router.json"
 PROFUNDO = pytest.mark.skipif(find_spec("darts") is None, reason="vp_model.horizon importa darts")
 
 
+def test_ninguna_prueba_del_job_base_importa_el_extra_de_modelado() -> None:
+    """Cuarta reincidencia (M14, M48, M59, M62): el job base instala solo ``.[dev]``.
+
+    Una prueba sin la marca ``PROFUNDO`` no puede importar scipy, darts, statsmodels, lightgbm,
+    torch ni un módulo de ``vp_model`` que los arrastre. Esto lo comprueba la estructura del
+    archivo, no mi memoria.
+    """
+    import ast
+
+    pesados = {"scipy", "darts", "statsmodels", "lightgbm", "torch", "optuna"}
+    permitidos_vp = {"vp_model.deck"}
+    arbol = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    culpables: list[tuple[str, str]] = []
+    for nodo in ast.walk(arbol):
+        if not isinstance(nodo, ast.FunctionDef):
+            continue
+        gateada = any(
+            (isinstance(d, ast.Name) and d.id == "PROFUNDO")
+            or (isinstance(d, ast.Attribute) and getattr(d.value, "id", "") == "PROFUNDO")
+            for d in nodo.decorator_list
+        )
+        if gateada:
+            continue
+        for sub in ast.walk(nodo):
+            modulo = getattr(sub, "module", None)
+            if isinstance(sub, ast.ImportFrom) and modulo:
+                raiz = modulo.split(".")[0]
+                if raiz in pesados or (raiz == "vp_model" and modulo not in permitidos_vp):
+                    culpables.append((nodo.name, modulo))
+            if isinstance(sub, ast.Import):
+                for alias in sub.names:
+                    if alias.name.split(".")[0] in pesados:
+                        culpables.append((nodo.name, alias.name))
+    assert culpables == [], f"pruebas del job base con imports del extra: {culpables}"
+
+
 # --------------------------------------------------------------- pre-registro (job base)
 def test_la_baraja_declara_todo_lo_que_el_gate_necesita() -> None:
     d = json.loads(DECK.read_text())
@@ -300,15 +336,20 @@ class TestResultadoE4:
         assert d["pool"]["sha256"] == hashlib.sha256(POOL.read_bytes()).hexdigest()
 
     def test_la_familia_de_holm_son_los_tres_horizontes(self) -> None:
-        """RED de Holm incorrecto: cada celda ajusta sobre exactamente {3,6,12}."""
-        from vp_model import significance
+        """RED de Holm incorrecto: cada celda ajusta sobre exactamente {3,6,12}.
 
+        Holm se recalcula AQUÍ, en Python puro, en vez de llamar a la misma función que produjo
+        el artefacto: una prueba que invoca la implementación que quiere verificar solo comprueba
+        que esa función es determinista. Y de paso corre en el job base, que no trae scipy.
+        """
         for c in self._d()["cells"]:
             assert [f["h"] for f in c["horizons"]] == [3, 6, 12]
-            esperado = significance.holm({str(f["h"]): f["wilcoxon_p_two_sided"] for f in c["horizons"]}, alpha=0.05)
-            for f in c["horizons"]:
-                assert f["holm_p"] == pytest.approx(float(esperado[str(f["h"])][0]), abs=1e-9)
-                assert f["holm_reject"] is bool(esperado[str(f["h"])][1])
+            orden = sorted(c["horizons"], key=lambda f: f["wilcoxon_p_two_sided"])
+            m, previo = len(orden), 0.0
+            for i, f in enumerate(orden):
+                previo = max(previo, min(1.0, (m - i) * f["wilcoxon_p_two_sided"]))
+                assert f["holm_p"] == pytest.approx(previo, abs=1e-9), (c["cohort"], f["h"])
+                assert f["holm_reject"] is bool(previo < 0.05)
 
     def test_un_efecto_insuficiente_no_es_ganancia_material(self) -> None:
         """RED de efecto insuficiente: por debajo de 0.005 no cuenta, aunque sea positivo."""
