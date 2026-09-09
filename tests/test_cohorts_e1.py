@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+from importlib.util import find_spec
 from pathlib import Path
 
 import numpy as np
@@ -26,8 +27,7 @@ from vp_model import stability
 from vp_model.config import HOLDOUT
 
 ROOT = Path(__file__).resolve().parent.parent
-PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
-PANEL_CSV = ROOT / "data" / "processed" / "visa_panel_long.csv"  # versionado: existe siempre
+PANEL_PARQUET = ROOT / "data" / "processed" / "visa_panel_long.parquet"  # lo escribe DuckDB
 KEY_FACTS = ROOT / "reports" / "governance" / "key_facts.json"
 
 
@@ -293,13 +293,13 @@ def test_una_serie_elegible_no_clasificable_detiene_el_catalogo(tmp_path: Path) 
 
 # ------------------------------------------------------------------ panel real (cruce)
 class TestPanelReal:
-    """Sobre el panel VERSIONADO (CSV): corre en los dos jobs, sin motor de parquet."""
+    """Sobre el panel CANÓNICO (el CSV versionado): corre en los dos jobs de CI."""
 
     def test_poblacion_cruzada_contra_key_facts(self) -> None:
         """Dos derivaciones independientes del mismo panel deben coincidir."""
         import experiments.build_cohorts as bc
 
-        cat = bc.build(PANEL_CSV)
+        cat = bc.build()
         kf = json.loads(KEY_FACTS.read_text())
         assert cat["population"]["n_structural"] == kf["n_series_structural"]
         assert cat["population"]["n_with_F"] == kf["n_series_with_F"]
@@ -310,26 +310,20 @@ class TestPanelReal:
     def test_cohortes_reales_no_degeneradas(self) -> None:
         import experiments.build_cohorts as bc
 
-        cat = bc.build(PANEL_CSV)
+        cat = bc.build()
         assert set(cat["cohorts"]) == {"estable", "no_estable"}
         assert min(cat["cohorts"].values()) >= 10, cat["cohorts"]
         assert sum(cat["cohorts"].values()) == cat["population"]["n_evaluable"]
 
-
-# El .parquet sólo existe donde alguien lo construyó, y construirlo ya exigió un motor de
-# parquet: no hay entorno real con el archivo presente y sin motor. El job base no lo tiene.
-@pytest.mark.skipif(not PANEL.exists(), reason="el panel .parquet se construye en el job de modelado")
-class TestCatalogoPublicado:
-    """Contra el panel que produjo el artefacto: el .parquet del job de modelado."""
-
-    def test_las_dos_serializaciones_dan_el_mismo_catalogo(self) -> None:
-        """Si CSV y parquet divergieran, la clase de arriba estaría midiendo otro panel."""
+    def test_la_quietud_viaja_aparte_de_la_estabilidad(self) -> None:
+        """La trampa del 26-ago: si toda la cohorte estable estuviera congelada, la
+        partición estaría midiendo quietud y no regularidad."""
         import experiments.build_cohorts as bc
 
-        a, b = bc.build(PANEL_CSV), bc.build(PANEL)
-        for cat in (a, b):
-            cat["provenance"] = {k: v for k, v in cat["provenance"].items() if k not in {"panel", "panel_sha256"}}
-        assert a == b
+        estables = [s for s in bc.build()["series"] if s["cohort"] == "estable"]
+        con_avance = [s for s in estables if s["median_step_pre"] > 0]
+        assert con_avance, "la cohorte estable sería sólo series congeladas"
+        assert any(s["congelada"] for s in estables), "la anotación no distinguiría nada"
 
     def test_el_catalogo_commiteado_esta_al_dia(self, tmp_path: Path) -> None:
         """Maestro dorado: el archivo del repo es EXACTAMENTE lo que produce el panel de hoy.
@@ -346,12 +340,16 @@ class TestCatalogoPublicado:
                 f"{publicado.name} está rancio: corre `python experiments/build_cohorts.py`"
             )
 
-    def test_la_quietud_viaja_aparte_de_la_estabilidad(self) -> None:
-        """La trampa del 26-ago: si toda la cohorte estable estuviera congelada, la
-        partición estaría midiendo quietud y no regularidad."""
-        import experiments.build_cohorts as bc
 
-        estables = [s for s in bc.build(PANEL_CSV)["series"] if s["cohort"] == "estable"]
-        con_avance = [s for s in estables if s["median_step_pre"] > 0]
-        assert con_avance, "la cohorte estable sería sólo series congeladas"
-        assert any(s["congelada"] for s in estables), "la anotación no distinguiría nada"
+@pytest.mark.skipif(
+    not (PANEL_PARQUET.exists() and (find_spec("pyarrow") or find_spec("fastparquet"))),
+    reason="el .parquet lo escribe DuckDB; ningún job instala un motor de parquet para pandas",
+)
+def test_las_dos_serializaciones_dan_el_mismo_catalogo() -> None:
+    """Si el .parquet de DuckDB divergiera del CSV canónico, serían paneles distintos."""
+    import experiments.build_cohorts as bc
+
+    a, b = bc.build(), bc.build(PANEL_PARQUET)
+    for cat in (a, b):
+        cat["provenance"] = {k: v for k, v in cat["provenance"].items() if k not in {"panel", "panel_sha256"}}
+    assert a == b

@@ -21,12 +21,16 @@ from pathlib import Path
 
 import pandas as pd
 
+from vp_data.config import PANEL_PATH
 from vp_model import stability
 from vp_model.config import HOLDOUT, SEASONAL_PERIOD
 from vp_model.dataset import is_evaluable
 
 ROOT = Path(__file__).resolve().parent.parent
-PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
+#: El panel CANÓNICO del repositorio es el CSV versionado (``vp_data.config.PANEL_PATH``);
+#: el .parquet lo produce DuckDB para el modelado y ni siquiera se lee con pandas en el
+#: producto. Por eso el catálogo se deriva del CSV, que existe en cualquier checkout.
+PANEL = PANEL_PATH
 OUT_DIR = ROOT / "reports" / "eval"
 CLAVE = ("country", "block", "category", "table")
 DECIMALES = 6
@@ -87,10 +91,11 @@ def _poblacion(panel: pd.DataFrame) -> pd.DataFrame:
 def _leer_panel(ruta: Path) -> pd.DataFrame:
     """Lee el panel por su extensión.
 
-    El panel vive en el repositorio en dos serializaciones gobernadas: ``.parquet`` (la que
-    consume el modelado, out de DVC) y ``.csv`` (versionada). Aceptar las dos evita exigir
-    un motor de parquet donde no hace falta: el job base de CI instala solo ``.[dev]``, sin
-    pyarrow.
+    El panel vive en el repositorio en dos serializaciones gobernadas: el ``.csv``
+    versionado (``PANEL_PATH``, el canónico) y el ``.parquet`` que DuckDB produce para el
+    modelado. Aceptar las dos no cuesta nada; el ``.parquet``, además, ningún consumidor
+    del producto lo lee con pandas, así que **ningún job de CI instala un motor de
+    parquet** aunque el archivo esté en disco.
     """
     if ruta.suffix == ".parquet":
         panel = pd.read_parquet(ruta)

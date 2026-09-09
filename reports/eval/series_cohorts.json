@@ -19,11 +19,11 @@
       "step_cv_pre",
       "retro36_pre"
     ],
-    "panel": "data/processed/visa_panel_long.parquet",
+    "panel": "data/processed/visa_panel_long.csv",
     "panel_last_month": "2026-09",
     "panel_months": 298,
     "panel_rows": 27911,
-    "panel_sha256": "c3ae3d7a964f445bf7931cfb619a69b1a139a0dd0c357ca481fc39e7ca5fbdae"
+    "panel_sha256": "3ae64f3dd714668b7726ae75c95620f2e5542faa3e843e76123581610f00a0b8"
   },
   "rule": {
     "annotations": [
