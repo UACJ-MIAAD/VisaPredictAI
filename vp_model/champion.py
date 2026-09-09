@@ -25,7 +25,8 @@ from scipy.stats import wilcoxon
 from vp_model import dataset, significance
 from vp_model.metrics import naive_scale_before
 
-REPORTS = Path(__file__).resolve().parent.parent / "reports"
+ROOT = Path(__file__).resolve().parent.parent
+REPORTS = ROOT / "reports"
 MANIFEST = REPORTS / "governance" / "champion_manifest.json"
 
 # Baraja de retadores por tabla: cada uno es (modelos, agregación). Un modelo único = receta
@@ -55,6 +56,11 @@ CHALLENGERS: dict[str, list[tuple[tuple[str, ...], str]]] = {
 MATERIAL_MARGIN = 0.005  # mejora media mínima en MASE para considerarla material
 HOLM_ALPHA = 0.05
 
+#: Baraja pre-registrada (E4). El diccionario ``CHALLENGERS`` de arriba se conserva como
+#: respaldo legible, pero la ÚNICA lectura autorizada es :func:`load_deck`, que además trae el
+#: pre-registro del router y falla cerrado si el archivo no cuadra con el código.
+DECK_PATH = ROOT / "docs" / "challenger_deck.json"
+
 
 @dataclass
 class Recipe:
@@ -64,6 +70,40 @@ class Recipe:
     @property
     def name(self) -> str:
         return self.models[0] if len(self.models) == 1 else f"{self.agg}({'+'.join(self.models)})"
+
+
+def load_deck(ruta: Path | None = None) -> dict:
+    """Lee y VALIDA la baraja pre-registrada. Única puerta de lectura.
+
+    Fail-closed: si el archivo no declara el margen material, el alfa de Holm, los horizontes o
+    los candidatos del router —o si contradice lo que el código tiene congelado desde julio—, no
+    se devuelve nada. Una baraja que se pueda editar sin que nadie lo note no es un pre-registro.
+    """
+    from vp_model.config import HORIZON_CANDIDATES, HORIZONS
+
+    crudo = json.loads((ruta or DECK_PATH).read_text())
+    faltan = {"version", "challengers", "gate", "router", "pool", "inputs"} - set(crudo)
+    if faltan:
+        raise ValueError(f"la baraja no declara {sorted(faltan)}")
+    gate, router = crudo["gate"], crudo["router"]
+    if gate["material_margin"] != MATERIAL_MARGIN:
+        raise ValueError(f"margen material {gate['material_margin']} != {MATERIAL_MARGIN} del código")
+    if gate["holm_alpha"] != HOLM_ALPHA:
+        raise ValueError(f"alfa de Holm {gate['holm_alpha']} != {HOLM_ALPHA} del código")
+    if "BILATERAL" not in gate["test"].upper():
+        raise ValueError("el contraste primario declarado no es bilateral")
+    if tuple(router["candidates"]) != tuple(HORIZON_CANDIDATES):
+        raise ValueError("los candidatos del router no son los congelados en config.HORIZON_CANDIDATES")
+    if not set(router["horizons"]) <= set(HORIZONS):
+        raise ValueError("los horizontes del router no están en config.HORIZONS")
+    if router["allowed_material_loss"] != 0.0:
+        raise ValueError("la pérdida material permitida declarada no es cero")
+    return crudo
+
+
+def deck_challengers(table: str, ruta: Path | None = None) -> list[Recipe]:
+    """Retadores de una tabla, leídos por la única puerta."""
+    return [recipe_from_dict(d) for d in load_deck(ruta)["challengers"].get(table, [])]
 
 
 def recipe_from_dict(d: dict) -> Recipe:

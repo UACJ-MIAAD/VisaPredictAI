@@ -72,3 +72,65 @@ siguiente. El resultado agregado, positivo o negativo, se publica tal cual salga
 `docs/cohort_deck.json` registra el commit y el sha256 de: el catálogo de cohortes, el barrido de
 E2, las dos serializaciones del panel, la configuración canónica, el módulo de estabilidad y los
 locks. Si una entrada cambia, la baraja deja de describir la campaña que se corrió.
+
+
+---
+
+# E4 · Router por estabilidad (pre-registro)
+
+> Escrito y commiteado **antes** de calcular ningún resultado multi-horizonte del router.
+> Autoridad legible por máquina: [`docs/challenger_deck.json`](challenger_deck.json), leído
+> **únicamente** por `champion.load_deck()`, que falla cerrado si el archivo contradice lo que el
+> código tiene congelado.
+
+## Corrección a lo publicado en E3
+
+La redacción de E3 decía que StudentT, la mediana, el escalado robusto y el recorte de gradiente
+«eran la causa» de la divergencia histórica. **El diseño no permite esa atribución**: `legacy` y
+`robust` difieren en **dos** cosas a la vez (el paquete de robustez y el espacio de
+entrenamiento), y los elementos del paquete cambian **juntos**. Descompuesto en comparaciones de
+un solo factor: el **espacio diferenciado** mejora en **6/6** celdas, y el **paquete robusto**, a
+espacio fijo, mejora solo en **3/6** —las de DFF— y **empeora en las tres de FAD**. Ningún
+elemento individual queda identificado, y separarlos pediría un diseño factorial que E3 no corrió.
+
+## Pregunta
+
+¿Enrutar por cohorte de estabilidad bate al naïve-1 **de cada cohorte** a 3, 6 y 12 meses?
+
+## Lo que ya estaba congelado desde julio
+
+| | valor | dónde |
+|---|---|---|
+| efecto material mínimo | **0.005** de MASE medio | `champion.MATERIAL_MARGIN` |
+| alfa de Holm | **0.05** | `champion.HOLM_ALPHA` |
+| contraste primario | Wilcoxon pareado **bilateral** | `champion._compare` |
+| horizontes | {3, 6, 12} ⊂ `HORIZONS` | `config.HORIZONS` |
+| candidatos del router | `naive1`, `drift`, `naive`, `theta`, `ets` | `config.HORIZON_CANDIDATES` |
+
+Los candidatos son **clásicos**: la lista no incluye ningún modelo profundo, así que el router
+**no puede** escoger la receta ganadora de E3 ni `control-bitcn`. No se incorporan `AutoDeepAR`
+ni `AutoBiTCN`.
+
+## Regla de selección — leakage-free por construcción
+
+Por (tabla, cohorte, horizonte) se elige el candidato con **menor MASE medio sobre los objetivos
+anteriores al hold-out**. La evaluación usa **solo objetivos del hold-out**. Selección y
+evaluación son **disjuntas en el tiempo**: el router nunca ve el dato con el que se le juzga.
+
+## Regla de victoria
+
+El router **gana** solo si, **en los tres horizontes**: el efecto medio a su favor es **≥ 0.005**,
+el Wilcoxon **bilateral** pareado sobrevive a **Holm** dentro de su familia —los horizontes
+{3,6,12} de una misma tabla × cohorte—, y **no pierde de forma material en ninguno**
+(`allowed_material_loss = 0`). Cualquier prueba unilateral se reporta **como sensibilidad**,
+nunca como gate.
+
+## Pool
+
+Las **74** series de E1, persistidas en `reports/eval/e4_router_pool.json` y comparadas por
+**igualdad de conjuntos** contra `dataset.evaluable_series()`.
+
+## Frontera
+
+**El resultado negativo también cierra E4.** Pase o no pase el gate retrospectivo, el router
+**no se promueve ni se despliega**: eso exige sombra prospectiva y una autorización aparte.
