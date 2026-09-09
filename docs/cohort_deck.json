@@ -1,0 +1,172 @@
+{
+  "cohorts": [
+    "estable",
+    "no_estable",
+    "all"
+  ],
+  "controls_predeclared_not_scheduled": {
+    "AutoBiTCN": "predeclarado como control secundario; NO se programa en esta campana, por la misma razon",
+    "AutoDeepAR": "predeclarado como control secundario; NO se programa en esta campana (la busqueda HPO en CPU no cabe en el presupuesto del lote)"
+  },
+  "device": "cpu",
+  "forbidden": [
+    "EC2",
+    "A10G",
+    "CUDA",
+    "GPU",
+    "MPS",
+    "promocion",
+    "despliegue",
+    "reintento silencioso",
+    "sustitucion de receta",
+    "ampliar la familia primaria",
+    "pesos grandes en git o en el remoto DVC"
+  ],
+  "frozen": {
+    "accelerator": "cpu",
+    "cv": {
+      "n_windows": 24,
+      "refit": false,
+      "step_size": 1,
+      "val_size": 24
+    },
+    "early_stop_patience_steps": 5,
+    "gradient_clip_val": 1.0,
+    "horizon": 1,
+    "input_size": {
+      "DFF": 18,
+      "FAD": 36
+    },
+    "learning_rate": 0.0001,
+    "loss": "DistributionLoss(distribution='StudentT', level=[95])",
+    "max_steps": 1000,
+    "prediction_column": "DeepAR-median",
+    "scaler_type": "robust",
+    "torch_num_threads": 1,
+    "valid_loss": "MAE()"
+  },
+  "inputs": {
+    "cohort_scan.json": "806b3fed1a0303aca4522b16d17002f816fc0836902a543b02d39855d63e9f9d",
+    "commit": "e8b46298432aa4ea9ae341e9e517d9dd4a042405",
+    "locks/deep-macos-arm64.txt": "a75c7d097352bad8c1d833af5ee80500d511190d90caa96f3c27dedc697afac9",
+    "locks/lockset.json": "07a66e2d7d6d17c8bb42e117895019e2c1a340a2a8cafd717035af3ec0a34db7",
+    "series_cohorts.json": "f94b1684436f540acd2efcc26055024d6de78a33b98a97f490c63be336da211d",
+    "visa_panel_long.csv": "3ae64f3dd714668b7726ae75c95620f2e5542faa3e843e76123581610f00a0b8",
+    "visa_panel_long.parquet": "c3ae3d7a964f445bf7931cfb619a69b1a139a0dd0c357ca481fc39e7ca5fbdae",
+    "vp_model/config.py": "679fc9853c1b83bd415b4860843d59e5d5efea0b3ec5a89abf651ead6a55b3f7",
+    "vp_model/stability.py": "e7cee3281febdecfe672d21c95d616135407a0cc6b88096af1c650ef8ac0ef44"
+  },
+  "max_primary_per_cohort": 3,
+  "recipes": {
+    "control-bitcn": {
+      "model": "BiTCN",
+      "notes": "control secundario predeclarado; no responde la pregunta de E3.",
+      "params": {
+        "distribution": "StudentT",
+        "early_stop_patience_steps": 5,
+        "gradient_clip_val": 1.0,
+        "learning_rate": 0.0001,
+        "max_steps": 1000,
+        "scaler_type": "robust",
+        "valid_loss": "MAE"
+      },
+      "role": "control",
+      "space": "diff"
+    },
+    "control-gbm-lightgbm": {
+      "model": "lightgbm",
+      "notes": "control secundario predeclarado; corre en su propio lane y en el venv del producto.",
+      "params": {
+        "runner": "run_global_gbm.py"
+      },
+      "role": "control",
+      "space": "levels"
+    },
+    "control-patchtst": {
+      "model": "PatchTST",
+      "notes": "control secundario predeclarado.",
+      "params": {
+        "distribution": "StudentT",
+        "early_stop_patience_steps": 5,
+        "gradient_clip_val": 1.0,
+        "learning_rate": 0.0001,
+        "max_steps": 1000,
+        "scaler_type": "robust",
+        "valid_loss": "MAE"
+      },
+      "role": "control",
+      "space": "diff"
+    },
+    "control-tide": {
+      "model": "TiDE",
+      "notes": "control secundario predeclarado.",
+      "params": {
+        "distribution": "StudentT",
+        "early_stop_patience_steps": 5,
+        "gradient_clip_val": 1.0,
+        "learning_rate": 0.0001,
+        "max_steps": 1000,
+        "scaler_type": "robust",
+        "valid_loss": "MAE"
+      },
+      "role": "control",
+      "space": "diff"
+    },
+    "deepar-legacy": {
+      "model": "DeepAR",
+      "notes": "la configuracion historica que divergio (~3.3): loss Normal, escalado estandar, sin valid_loss ni recorte de gradiente. Entra como primaria porque es la hipotesis que E3 pone a prueba.",
+      "params": {
+        "distribution": "Normal",
+        "early_stop_patience_steps": null,
+        "gradient_clip_val": null,
+        "learning_rate": null,
+        "max_steps": 1000,
+        "scaler_type": "standard",
+        "valid_loss": null
+      },
+      "role": "primary",
+      "space": "levels"
+    },
+    "deepar-robust": {
+      "model": "DeepAR",
+      "notes": "StudentT + escalado robusto + valid_loss MAE + lr 1e-4 + parada temprana + recorte de gradiente, entrenada sobre la primera diferencia.",
+      "params": {
+        "distribution": "StudentT",
+        "early_stop_patience_steps": 5,
+        "gradient_clip_val": 1.0,
+        "learning_rate": 0.0001,
+        "max_steps": 1000,
+        "scaler_type": "robust",
+        "valid_loss": "MAE"
+      },
+      "role": "primary",
+      "space": "diff"
+    },
+    "deepar-robust-levels": {
+      "model": "DeepAR",
+      "notes": "identica a deepar-robust pero sobre el nivel: separa el efecto del espacio de entrenamiento del de la robustez.",
+      "params": {
+        "distribution": "StudentT",
+        "early_stop_patience_steps": 5,
+        "gradient_clip_val": 1.0,
+        "learning_rate": 0.0001,
+        "max_steps": 1000,
+        "scaler_type": "robust",
+        "valid_loss": "MAE"
+      },
+      "role": "primary",
+      "space": "levels"
+    }
+  },
+  "registered": "2026-09-09, antes de entrenar",
+  "seeds": [
+    1
+  ],
+  "tables": [
+    "FAD",
+    "DFF"
+  ],
+  "universe": "evaluable",
+  "universe_source": "reports/eval/series_cohorts.json (RULE v1.0.0, E1)",
+  "version": "1.0.0"
+}
