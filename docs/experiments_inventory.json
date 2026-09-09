@@ -228,6 +228,10 @@
     "clase": "investigacion",
     "consumidor": "persistencia de finalistas deep"
   },
+  "scan_cohorts.py": {
+    "clase": "producto",
+    "consumidor": "reports/eval/cohort_scan.json (barrido EXPLORATORIO de lo ya puntuado por cohorte de estabilidad; no entrena ni promueve)"
+  },
   "score_forecasts.py": {
     "clase": "producto",
     "consumidor": "cron 4c -> scorecards campeon+sombra + head-to-head (A3)"

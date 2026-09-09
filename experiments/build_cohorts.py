@@ -25,6 +25,7 @@ from vp_data.config import PANEL_PATH
 from vp_model import stability
 from vp_model.config import HOLDOUT, SEASONAL_PERIOD
 from vp_model.dataset import is_evaluable
+from vp_model.provenance import ruta_legible
 
 ROOT = Path(__file__).resolve().parent.parent
 #: El panel CANÓNICO del repositorio es el CSV versionado (``vp_data.config.PANEL_PATH``);
@@ -47,14 +48,6 @@ COLUMNAS = [
     "evaluable",
     "holdout_start",
 ]
-
-
-def _ruta_legible(ruta: Path) -> str:
-    """Relativa al repositorio cuando vive dentro; si no, su nombre (panel de prueba)."""
-    try:
-        return str(ruta.resolve().relative_to(ROOT))
-    except ValueError:
-        return ruta.name
 
 
 def _raw_f(g: pd.DataFrame) -> pd.Series:
@@ -163,7 +156,7 @@ def build(panel_path: Path = PANEL) -> dict:
         },
         "cohorts": dict(sorted(reparto.items())),
         "provenance": {
-            "panel": _ruta_legible(panel_path),
+            "panel": ruta_legible(panel_path),
             "panel_sha256": hashlib.sha256(panel_path.read_bytes()).hexdigest(),
             "panel_rows": int(len(panel)),
             "panel_months": int(panel.bulletin_date.dt.to_period("M").nunique()),
@@ -242,7 +235,7 @@ def main() -> None:
         f"{catalogo['cohorts']} · corte por serie"
     )
     for r in rutas:
-        print(f"  → {_ruta_legible(r)}")
+        print(f"  → {ruta_legible(r)}")
     if args.diagnostics:
         print(json.dumps(diagnostics(catalogo), indent=2, sort_keys=True))
 
