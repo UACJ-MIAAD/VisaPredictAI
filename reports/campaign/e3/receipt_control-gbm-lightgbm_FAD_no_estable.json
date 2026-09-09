@@ -1,0 +1,51 @@
+{
+  "cohort": "no_estable",
+  "deck_version": "1.0.0",
+  "device": "cpu",
+  "env": {
+    "platform": "macOS-26.7-arm64-arm-64bit-Mach-O",
+    "prefix": "/Users/haowei/Documents/Anteproyecto/VisaPredictAI/ante",
+    "python": "3.14.7"
+  },
+  "exception": null,
+  "inputs": {
+    "cohort_scan.json": "806b3fed1a0303aca4522b16d17002f816fc0836902a543b02d39855d63e9f9d",
+    "commit": "e8b46298432aa4ea9ae341e9e517d9dd4a042405",
+    "locks/deep-macos-arm64.txt": "a75c7d097352bad8c1d833af5ee80500d511190d90caa96f3c27dedc697afac9",
+    "locks/lockset.json": "07a66e2d7d6d17c8bb42e117895019e2c1a340a2a8cafd717035af3ec0a34db7",
+    "series_cohorts.json": "f94b1684436f540acd2efcc26055024d6de78a33b98a97f490c63be336da211d",
+    "visa_panel_long.csv": "3ae64f3dd714668b7726ae75c95620f2e5542faa3e843e76123581610f00a0b8",
+    "visa_panel_long.parquet": "c3ae3d7a964f445bf7931cfb619a69b1a139a0dd0c357ca481fc39e7ca5fbdae",
+    "vp_model/config.py": "679fc9853c1b83bd415b4860843d59e5d5efea0b3ec5a89abf651ead6a55b3f7",
+    "vp_model/stability.py": "e7cee3281febdecfe672d21c95d616135407a0cc6b88096af1c650ef8ac0ef44"
+  },
+  "lane": "control-gbm-lightgbm|FAD|no_estable",
+  "models": {
+    "lightgbm": {
+      "forecasts": 0
+    }
+  },
+  "n_rows_panel": 14540,
+  "n_rows_written": 6273,
+  "n_series": 30,
+  "outputs": [
+    {
+      "bytes": 1442,
+      "path": "reports/eval/e3_gbm_no_estable_FAD.csv",
+      "sha256": "495e23acc23a5529656ff744eab97c8a2bc9fb30574ce3dd10d919041b838674"
+    }
+  ],
+  "recipe": "control-gbm-lightgbm",
+  "recipe_model": "lightgbm",
+  "recipe_role": "control",
+  "recipe_space": "levels",
+  "rss_max_bytes": 507985920,
+  "seed": 42,
+  "status": "ok",
+  "table": "FAD",
+  "timing": {
+    "seconds": 28.586
+  },
+  "universe": "evaluable",
+  "warnings": []
+}

@@ -66,6 +66,8 @@ import xgboost  # noqa: F401
 from vp_model import config, dataset, metrics, preprocess
 
 ROOT = Path(__file__).resolve().parent.parent
+_T0 = __import__("time").time()
+COHORTS = ROOT / "reports" / "eval" / "series_cohorts.json"
 OUT_DIR = ROOT / "reports" / "eval"
 TUNED = OUT_DIR / "tuned_params.json"
 log = config.get_logger("global_gbm")
@@ -144,7 +146,20 @@ def _load_level(country: str, category: str, table: str) -> pd.Series | None:
         return None
 
 
-def build_panel_frame(table: str, limit: int | None) -> tuple[pd.DataFrame, set[tuple[str, str]]]:
+def cohorte_keys(table: str, cohort: str) -> set[tuple[str, str]] | None:
+    """``(país, categoría)`` del universo evaluable de E1 para esa tabla y cohorte.
+
+    ``None`` = sin restricción (comportamiento histórico). Con una cohorte, el conjunto
+    PUNTUADO se restringe a ella; los donantes del modelo global no cambian, porque acotar el
+    aprendizaje a la cohorte sería otro experimento y no el declarado.
+    """
+    if cohort == "all":
+        return None
+    catalogo = json.loads(COHORTS.read_text())["series"]
+    return {(s["country"], s["category"]) for s in catalogo if s["table"] == table and s["cohort"] == cohort}
+
+
+def build_panel_frame(table: str, limit: int | None, cohort: str = "all") -> tuple[pd.DataFrame, set[tuple[str, str]]]:
     """Stacked feature table for ``table`` + the set of (country, category) to score.
 
     Donors: every pilot series with >= MIN_DONOR_F real F observations.
@@ -154,6 +169,9 @@ def build_panel_frame(table: str, limit: int | None) -> tuple[pd.DataFrame, set[
     eligible = dataset.evaluable_series()
     eligible = eligible[eligible["table"] == table]
     eval_keys = {(r.country, r.category) for r in eligible.itertuples()}
+    permitidas = cohorte_keys(table, cohort)
+    if permitidas is not None:
+        eval_keys &= permitidas
     if limit:
         eval_keys = set(sorted(eval_keys)[:limit])
 
@@ -268,6 +286,66 @@ def score_and_write(fc: pd.DataFrame, table: str, out_name: str) -> pd.DataFrame
     return df
 
 
+def _receipt_gbm(args, table: str, panel, eval_keys, fc) -> None:
+    """Recibo del lane de control GBM: mismo contrato que los lanes profundos."""
+    import hashlib
+    import platform
+    import resource
+    import sys
+    import time
+
+    from vp_model.deck import cargar_deck
+
+    deck = cargar_deck()
+    salidas = sorted((ROOT / "reports" / "eval").glob(f"e3_gbm_{args.cohort}_{table}*.csv"))
+    ruta = Path(str(args.receipt).replace("{table}", table))
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    ruta.write_text(
+        json.dumps(
+            {
+                "lane": f"control-gbm-lightgbm|{table}|{args.cohort}",
+                "recipe": "control-gbm-lightgbm",
+                "recipe_role": deck.receta("control-gbm-lightgbm").role,
+                "recipe_model": ",".join(args.models),
+                "recipe_space": "levels",
+                "deck_version": deck.version,
+                "cohort": args.cohort,
+                "table": table,
+                "universe": "evaluable",
+                "seed": args.seed,
+                "device": "cpu",
+                "n_series": len(eval_keys),
+                "n_rows_panel": int(len(panel)),
+                "n_rows_written": int(len(fc)),
+                "inputs": deck.inputs,
+                "env": {"python": platform.python_version(), "platform": platform.platform(), "prefix": sys.prefix},
+                "timing": {"seconds": round(time.time() - _T0, 3)},
+                "rss_max_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                "status": "ok" if len(fc) else "failed",
+                "models": {
+                    m: {"forecasts": int(fc[fc.model == m].shape[0]) if "model" in fc else int(len(fc))}
+                    for m in args.models
+                },
+                "warnings": [],
+                "exception": None,
+                "outputs": [
+                    {
+                        "path": str(f.resolve().relative_to(ROOT)),
+                        "bytes": f.stat().st_size,
+                        "sha256": hashlib.sha256(f.read_bytes()).hexdigest(),
+                    }
+                    for f in salidas
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
+    log.info("receipt %s escrita", ruta.name)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Global GBM on the stacked panel (AL2)")
     ap.add_argument("--table", default="both", choices=["FAD", "DFF", "both"])
@@ -275,17 +353,24 @@ def main() -> None:
     ap.add_argument("--retrain-months", type=int, default=12)
     ap.add_argument("--seed", type=int, default=config.RANDOM_SEED)
     ap.add_argument("--limit", type=int, default=None, help="cap the number of SCORED series (smoke)")
+    ap.add_argument("--cohort", default="all", choices=["estable", "no_estable", "all"])
+    ap.add_argument("--receipt", type=Path, default=None, help="ruta de la receipt del lane")
     args = ap.parse_args()
     config.seed_everything(args.seed)
     log.info("gap_policy=locf_causal (F1)")  # procedencia de campaña: rejilla causal LOCF
     for table in ("FAD", "DFF") if args.table == "both" else (args.table,):
-        panel, eval_keys = build_panel_frame(table, args.limit)
+        panel, eval_keys = build_panel_frame(table, args.limit, args.cohort)
         log.info("[%s] pooled rows=%d, scored series=%d", table, len(panel), len(eval_keys))
         fc = pd.concat(
             [walk_forward(panel, name, table, args.retrain_months, args.seed) for name in args.models],
             ignore_index=True,
         )
-        score_and_write(fc, table, "global_gbm")
+        # Un lane de E3 (el que pide receipt) escribe SIEMPRE bajo su propia etiqueta, también
+        # con cohorte `all`: la salida histórica `global_gbm_*` es procedencia sellada.
+        etiqueta = f"e3_gbm_{args.cohort}" if args.receipt is not None else "global_gbm"
+        score_and_write(fc, table, etiqueta)
+        if args.receipt is not None:
+            _receipt_gbm(args, table, panel, eval_keys, fc)
 
 
 if __name__ == "__main__":

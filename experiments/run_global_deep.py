@@ -31,9 +31,12 @@ Uso:  ante_nf/bin/python experiments/run_global_deep.py --table FAD --block both
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
+import time
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -47,9 +50,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from vp_data.config import BASE_EPOCH  # noqa: E402
 from vp_model.config import HOLDOUT  # noqa: E402
+from vp_model.deck import cargar_deck  # noqa: E402
 from vp_model.preprocess import to_regular_monthly_causal  # noqa: E402
 
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
+COHORTS = ROOT / "reports" / "eval" / "series_cohorts.json"
 PILOT = ("mexico", "india", "china", "philippines", "all_chargeability")
 BASE = pd.Timestamp(BASE_EPOCH)  # t0 de days_since_base (build_panel)
 MAX_STEPS_HPO = 2000  # techo fijo alto: el presupuesto REAL es el early stopping (AK8b)
@@ -89,7 +94,23 @@ def regular_monthly(s: pd.Series) -> pd.Series:
     return to_regular_monthly_causal(s.dropna())
 
 
-def load_panel(table: str, block: str) -> pd.DataFrame:
+def cohorte_uids(table: str, cohort: str, ruta: Path = COHORTS) -> set[str]:
+    """``unique_id`` del universo EVALUABLE de E1 para esa tabla y cohorte.
+
+    Siempre devuelve un conjunto; quien decide si restringir es el llamador, según
+    ``--universe``. Con ``--universe evaluable`` el lane solo ve las series del catálogo
+    congelado de E1, así que una serie ajena a la cohorte no puede colarse ni en el
+    entrenamiento ni en la evaluación.
+    """
+    catalogo = json.loads(ruta.read_text())["series"]
+    return {
+        f"{s['country']}/{s['block']}/{s['category']}"
+        for s in catalogo
+        if s["table"] == table and (cohort == "all" or s["cohort"] == cohort)
+    }
+
+
+def load_panel(table: str, block: str, *, cohort: str = "all", universe: str = "pilot") -> pd.DataFrame:
     """Panel largo neuralforecast (unique_id, ds, y), F-only, mensual regular.
 
     ``block='both'`` apila familiar + empleo (más series → mejor aprendizaje global).
@@ -103,6 +124,9 @@ def load_panel(table: str, block: str) -> pd.DataFrame:
     df["unique_id"] = df["country"] + "/" + df["block"] + "/" + df["category"]
     df["ds"] = pd.to_datetime(df["bulletin_date"])
     min_len = (60 if table == "FAD" else 36) + HOLDOUT + 6
+    permitidos = cohorte_uids(table, cohort) if universe == "evaluable" else None
+    if permitidos is not None:
+        df = df[df["unique_id"].isin(permitidos)]
     out = []
     for uid, g in df.groupby("unique_id"):
         # exige un mínimo de meses F REALES (no solo largo C-encoded): una serie con <24 F
@@ -165,6 +189,42 @@ def _build_models(input_size: int, max_steps: int, n_series: int, seed: int = 1)
         "TimesNet": lambda: TimesNet(**c),
     }
     return builders
+
+
+def build_recipe(receta, input_size: int, seed: int):
+    """Construye EXACTAMENTE el modelo que declara la baraja. Nada más entra por aquí.
+
+    El acelerador se fija a ``cpu`` a mano: esta máquina tiene MPS y ``_accelerator()`` lo
+    elegiría, pero la campaña de E3 es de CPU y eso se comprueba en las pruebas.
+    """
+    from neuralforecast.losses.pytorch import MAE, DistributionLoss
+    from neuralforecast.models import NHITS, BiTCN, DeepAR, PatchTST, TiDE
+
+    p = receta.params
+    comun = dict(
+        h=1,
+        input_size=input_size,
+        max_steps=int(p.get("max_steps") or 1000),
+        scaler_type=p.get("scaler_type") or "standard",
+        random_seed=seed,
+        enable_progress_bar=False,
+        enable_model_summary=False,
+        logger=False,
+        accelerator="cpu",
+    )
+    for clave in ("learning_rate", "early_stop_patience_steps", "gradient_clip_val"):
+        if p.get(clave) is not None:
+            comun[clave] = p[clave]
+    if p.get("valid_loss") == "MAE":
+        comun["valid_loss"] = MAE()
+    clases = {"DeepAR": DeepAR, "BiTCN": BiTCN, "PatchTST": PatchTST, "TiDE": TiDE, "NHITS": NHITS}
+    if receta.model not in clases:
+        raise ValueError(f"la baraja pide un modelo que este corredor no construye: {receta.model}")
+    if receta.model == "DeepAR":
+        distro = p.get("distribution") or "Normal"
+        return clases[receta.model](**comun, loss=DistributionLoss(distribution=distro, level=[95]))
+    comun.pop("valid_loss", None)
+    return clases[receta.model](**comun)
 
 
 def _base_config(trial):
@@ -343,6 +403,72 @@ def _optuna_sampler(seed: int):
     return optuna.samplers.TPESampler(seed=seed, multivariate=True)
 
 
+def _escribir_receipt(args, deck, receta, panel, merged, salida: Path, estado: dict, t0: float) -> Path:
+    """Recibo del lane: qué se corrió, con qué, cuánto costó y qué quedó escrito.
+
+    Un fallo o una no convergencia también se escriben: son resultado, no un intento fallido que
+    se repita en silencio.
+    """
+    import platform
+    import resource
+
+    import torch
+
+    escritos = [
+        {
+            "path": str(f.resolve().relative_to(ROOT)),
+            "bytes": f.stat().st_size,
+            "sha256": hashlib.sha256(f.read_bytes()).hexdigest(),
+        }
+        for f in [salida]
+        if f.exists()
+    ]
+    recibo = {
+        "lane": f"{args.recipe or 'legacy-cli'}|{args.table}|{args.cohort}",
+        "recipe": args.recipe,
+        "recipe_role": receta.role if receta else None,
+        "recipe_model": receta.model if receta else None,
+        "recipe_space": receta.space if receta else None,
+        "recipe_params": receta.params if receta else None,
+        "deck_version": deck.version,
+        "cohort": args.cohort,
+        "table": args.table,
+        "block": args.block,
+        "universe": args.universe,
+        "seed": args.seed,
+        "device": "cpu",
+        "accelerator_requested": "cpu",
+        "cuda_available": bool(torch.cuda.is_available()),
+        "mps_available": bool(torch.backends.mps.is_available()),
+        "torch_num_threads": torch.get_num_threads(),
+        "n_series": int(panel["unique_id"].nunique()),
+        "n_rows_panel": int(len(panel)),
+        "n_rows_written": int(len(merged)),
+        "inputs": deck.inputs,
+        "env": {
+            "python": platform.python_version(),
+            "platform": platform.platform(),
+            "torch": torch.__version__,
+            "prefix": sys.prefix,
+        },
+        "lock": {
+            "path": "locks/deep-macos-arm64.txt",
+            "sha256": deck.inputs.get("locks/deep-macos-arm64.txt"),
+        },
+        "timing": {"seconds": round(time.time() - t0, 3)},
+        "rss_max_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+        "status": estado["status"],
+        "models": estado["models"],
+        "warnings": sorted(set(estado["warnings"])),
+        "exception": estado["exception"],
+        "outputs": escritos,
+    }
+    args.receipt.parent.mkdir(parents=True, exist_ok=True)
+    args.receipt.write_text(json.dumps(recibo, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
+    print(f"receipt {args.receipt.name}: status={recibo['status']} {recibo['timing']['seconds']}s")
+    return args.receipt
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--table", default="FAD")
@@ -356,6 +482,10 @@ def main() -> None:
     ap.add_argument("--num-samples", type=int, default=40, help="trials de HPO por modelo Auto (AK8c: 1 búsqueda)")
     ap.add_argument("--suffix", default=None, help="sufijo del CSV de salida (p.ej. 'auto', 'ls')")
     ap.add_argument("--seed", type=int, default=1, help="semilla (init de pesos + sampler Optuna)")
+    ap.add_argument("--cohort", default="all", choices=["estable", "no_estable", "all"])
+    ap.add_argument("--universe", default="pilot", choices=["pilot", "evaluable"])
+    ap.add_argument("--recipe", default=None, help="receta de docs/cohort_deck.json (lane de E3)")
+    ap.add_argument("--receipt", type=Path, default=None, help="ruta de la receipt del lane")
     ap.add_argument(
         "--config",
         default=None,
@@ -369,7 +499,17 @@ def main() -> None:
     from neuralforecast import NeuralForecast
 
     print("gap_policy=locf_causal (F1)")  # procedencia de campaña: rejilla causal LOCF
-    panel = load_panel(args.table, args.block)
+    deck = cargar_deck() if args.recipe or args.receipt else None
+    receta = deck.receta(args.recipe) if (deck and args.recipe) else None
+    congelado = deck.frozen if deck else {}
+    if receta is not None:
+        # La receta manda: el espacio de entrenamiento sale de la baraja, no de la línea de
+        # órdenes, para que un lane no pueda correr en un espacio distinto del pre-registrado.
+        args.diff = receta.space == "diff"
+        args.models = None
+        args.auto = False
+        args.config = None
+    panel = load_panel(args.table, args.block, cohort=args.cohort, universe=args.universe)
     uids = panel["unique_id"].nunique()
     print(f"panel: {uids} series, {len(panel)} filas ({args.table}/{args.block}), diff={args.diff}")
 
@@ -392,6 +532,8 @@ def main() -> None:
         builders = _build_from_config(args.models or ["BiTCN", "TiDE", "NHITS"], args.config, args.seed)
     elif args.auto:
         builders = _build_auto_models(2 if args.fast else args.num_samples, args.seed)
+    elif receta is not None:
+        builders = {receta.name: lambda: build_recipe(receta, input_size, args.seed)}
     else:
         builders = _build_models(input_size, max_steps, uids, args.seed)
     if args.models and not args.config:
@@ -400,22 +542,35 @@ def main() -> None:
     # AK8b: el early stopping (Auto* y re-entrenos --config) exige una cola de
     # validación por serie; las corridas deterministas clásicas siguen sin ella.
     val_size = VAL_SIZE if (args.auto or args.config) else 0
+    if receta is not None:
+        # La baraja congela la cola de validación del lane (cv.val_size): sin ella la parada
+        # temprana no tiene métrica que vigilar y el ajuste revienta.
+        val_size = int(congelado["cv"]["val_size"])
 
     lvl = level.set_index(["unique_id", "ds"])["y"]  # mapa (serie, mes) -> nivel real, para reintegrar
     merged = level[["unique_id", "ds", "y"]].copy()  # base en NIVEL con la y real
+    estado: dict = {"status": "ok", "models": {}, "warnings": [], "exception": None}
+    t0 = time.time()
     for name, build in builders.items():
+        capturados: list[str] = []
         try:
-            nf = NeuralForecast(models=[build()], freq="MS", local_scaler_type=local)
-            cv = nf.cross_validation(
-                df=train, n_windows=HOLDOUT, step_size=1, refit=False, val_size=val_size
-            ).reset_index()
+            with warnings.catch_warnings(record=True) as capturas:
+                warnings.simplefilter("always")
+                nf = NeuralForecast(models=[build()], freq="MS", local_scaler_type=local)
+                cv = nf.cross_validation(
+                    df=train, n_windows=HOLDOUT, step_size=1, refit=False, val_size=val_size
+                ).reset_index()
+            capturados = sorted({f"{w.category.__name__}: {str(w.message)[:90]}" for w in capturas})
             if args.auto:
                 _dump_best_config(nf, name, args.table)  # AK8c: ganadora + trials (procedencia)
             # OJO: reset_index puede crear una columna 'index'; el pronóstico es la columna del
             # modelo (no quantiles -lo-/-hi-). Excluir todas las meta para no agarrar 'index'.
             meta = {"index", "unique_id", "ds", "cutoff", "y"}
             cands = [c for c in cv.columns if c not in meta and "-lo-" not in c and "-hi-" not in c]
-            col = cands[0]
+            # Congelado en la baraja: para DeepAR se puntúa la MEDIANA, no la media de las
+            # trayectorias — que es lo que hizo divergir a la corrida histórica a escala 10^4.
+            mediana = f"{name}-median" if receta is None else "DeepAR-median"
+            col = mediana if mediana in cv.columns else cands[0]
             out = cv[["unique_id", "ds", col]].copy()
             if args.diff:  # reintegrar: nivel_pred[t] = nivel_real[t-1] + Δpred[t] (1 paso, sin leakage)
                 prev_ds = out["ds"] - pd.DateOffset(months=1)
@@ -423,21 +578,52 @@ def main() -> None:
                 out[col] = prev + out[col].to_numpy()
             out = out.rename(columns={col: name})[["unique_id", "ds", name]]
             merged = merged.merge(out, on=["unique_id", "ds"], how="left")
-            ok = merged[name].notna().sum()
-            print(f"  ✓ {name}: {ok} pronósticos")
+            ok = int(merged[name].notna().sum())
+            # NaN/Inf SOBRE LO PRODUCIDO por el modelo. Contarlos sobre el marco completo daría
+            # miles de «NaN» que solo son filas de entrenamiento sin pronóstico, y eso no es un
+            # problema numérico: es el diseño (solo el hold-out lleva pronóstico).
+            producido = out[name].to_numpy(dtype="float64")
+            estado["models"][name] = {
+                "forecasts": ok,
+                "column_used": col,
+                "n_predicted": int(len(producido)),
+                "n_nan": int(np.isnan(producido).sum()),
+                "n_inf": int(np.isinf(producido).sum()),
+                "converged": bool(ok > 0),
+                "warnings": capturados,
+            }
+            estado["warnings"].extend(capturados)
+            print(f"  ✓ {name}: {ok} pronósticos (columna {col})")
         except Exception as e:  # noqa: BLE001 — un modelo que falle no aborta el resto
             import traceback
 
+            estado["status"] = "failed"
+            estado["exception"] = f"{type(e).__name__}: {str(e)[:300]}"
+            estado["models"][name] = {
+                "forecasts": 0,
+                "converged": False,
+                "warnings": capturados,
+                "exception": estado["exception"],
+            }
             print(f"  ✗ {name} FALLO: {type(e).__name__}: {str(e)[:120]}")
             traceback.print_exc()
 
-    suffix = args.suffix or ("diff" if args.diff else "levels")
-    out = ROOT / "reports" / "campaign" / f"global_{args.table}_{suffix}.csv"
+    suffix = args.suffix or (receta.name if receta else ("diff" if args.diff else "levels"))
+    # Los lanes de E3 escriben en su PROPIO directorio: pisar `reports/campaign/global_*.csv`
+    # destruiría la procedencia de la campaña sellada, que es la línea base de la comparación.
+    destino = (
+        ROOT / "reports" / "campaign" / "e3" / f"e3_{args.table}_{args.cohort}_{suffix}.csv"
+        if receta is not None
+        else ROOT / "reports" / "campaign" / f"global_{args.table}_{suffix}.csv"
+    )
+    out = destino
     # solo las filas de hold-out (las últimas 24 por serie) llevan pronóstico
     merged = merged[merged.drop(columns=["unique_id", "ds", "y"]).notna().any(axis=1)]
     out.parent.mkdir(parents=True, exist_ok=True)
     merged.to_csv(out, index=False)
     print(f"guardado {out.relative_to(ROOT)} ({len(merged)} filas)")
+    if args.receipt is not None:
+        _escribir_receipt(args, deck, receta, panel, merged, out, estado, t0)
 
 
 def _selfcheck() -> None:

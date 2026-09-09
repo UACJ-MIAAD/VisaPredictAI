@@ -1,0 +1,12 @@
+model,country,category,table,sel_mase,hold_mase
+global_lightgbm,all_chargeability,F2B,FAD,0.1048,0.1323
+global_lightgbm,all_chargeability,F3,FAD,0.0961,0.3149
+global_lightgbm,all_chargeability,F4,FAD,0.0648,0.2001
+global_lightgbm,china,F2B,FAD,0.062,0.1292
+global_lightgbm,china,F3,FAD,0.0765,0.3137
+global_lightgbm,india,F2B,FAD,0.0955,0.1306
+global_lightgbm,india,F3,FAD,0.0835,0.3131
+global_lightgbm,india,F4,FAD,0.0531,0.0598
+global_lightgbm,philippines,F1,FAD,0.2512,0.0669
+global_lightgbm,philippines,F2B,FAD,0.108,0.119
+global_lightgbm,philippines,F4,FAD,0.1133,0.1476
