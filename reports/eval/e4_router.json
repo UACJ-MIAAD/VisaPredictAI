@@ -1,0 +1,347 @@
+{
+  "candidates": [
+    "naive1",
+    "drift",
+    "naive",
+    "theta",
+    "ets"
+  ],
+  "cells": [
+    {
+      "cohort": "estable",
+      "horizons": [
+        {
+          "_sensitivity_note": "unilateral SOLO como sensibilidad; el gate es el bilateral",
+          "effect": -0.0115233196704,
+          "h": 3,
+          "holm_p": 0.153589508736,
+          "holm_reject": false,
+          "material_gain": false,
+          "material_loss": true,
+          "model": "ets",
+          "n_pairs": 28,
+          "reference_mean_mase": 0.219488727107,
+          "router_mean_mase": 0.231012046777,
+          "sensitivity_one_sided_p": 0.974401748544,
+          "wilcoxon_p_two_sided": 0.0511965029121
+        },
+        {
+          "_sensitivity_note": "unilateral SOLO como sensibilidad; el gate es el bilateral",
+          "effect": 0.00860611633591,
+          "h": 6,
+          "holm_p": 0.95141323984,
+          "holm_reject": false,
+          "material_gain": true,
+          "material_loss": false,
+          "model": "ets",
+          "n_pairs": 28,
+          "reference_mean_mase": 0.414280664068,
+          "router_mean_mase": 0.405674547732,
+          "sensitivity_one_sided_p": 0.47570661992,
+          "wilcoxon_p_two_sided": 0.95141323984
+        },
+        {
+          "_sensitivity_note": "unilateral SOLO como sensibilidad; el gate es el bilateral",
+          "effect": 0.135219869405,
+          "h": 12,
+          "holm_p": 0.74209184466,
+          "holm_reject": false,
+          "material_gain": true,
+          "material_loss": false,
+          "model": "ets",
+          "n_pairs": 28,
+          "reference_mean_mase": 0.933255783629,
+          "router_mean_mase": 0.798035914224,
+          "sensitivity_one_sided_p": 0.185522961165,
+          "wilcoxon_p_two_sided": 0.37104592233
+        }
+      ],
+      "material_loss_horizons": [
+        3
+      ],
+      "n_series": 28,
+      "promotion": "NO — el gate retrospectivo no autoriza producción (sombra prospectiva aparte)",
+      "reference": "naive1",
+      "router_by_horizon": {
+        "12": "ets",
+        "3": "ets",
+        "6": "ets"
+      },
+      "selection_picks": {
+        "12": {
+          "estable": "ets",
+          "no_estable": "naive"
+        },
+        "3": {
+          "estable": "ets",
+          "no_estable": "naive1"
+        },
+        "6": {
+          "estable": "ets",
+          "no_estable": "naive1"
+        }
+      },
+      "table": "DFF",
+      "verdict": "pierde_material"
+    },
+    {
+      "cohort": "no_estable",
+      "horizons": [
+        {
+          "_sensitivity_note": "unilateral SOLO como sensibilidad; el gate es el bilateral",
+          "effect": 0.0,
+          "h": 3,
+          "holm_p": 1.0,
+          "holm_reject": false,
+          "material_gain": false,
+          "material_loss": false,
+          "model": "naive1",
+          "n_pairs": 5,
+          "reference_mean_mase": 0.260778026109,
+          "router_mean_mase": 0.260778026109,
+          "sensitivity_one_sided_p": 1.0,
+          "wilcoxon_p_two_sided": 1.0
+        },
+        {
+          "_sensitivity_note": "unilateral SOLO como sensibilidad; el gate es el bilateral",
+          "effect": 0.0,
+          "h": 6,
+          "holm_p": 1.0,
+          "holm_reject": false,
+          "material_gain": false,
+          "material_loss": false,
+          "model": "naive1",
+          "n_pairs": 5,
+          "reference_mean_mase": 0.459231303827,
+          "router_mean_mase": 0.459231303827,
+          "sensitivity_one_sided_p": 1.0,
+          "wilcoxon_p_two_sided": 1.0
+        },
+        {
+          "_sensitivity_note": "unilateral SOLO como sensibilidad; el gate es el bilateral",
+          "effect": 0.0,
+          "h": 12,
+          "holm_p": 1.0,
+          "holm_reject": false,
+          "material_gain": false,
+          "material_loss": false,
+          "model": "naive",
+          "n_pairs": 5,
+          "reference_mean_mase": 0.784282026908,
+          "router_mean_mase": 0.784282026908,
+          "sensitivity_one_sided_p": 1.0,
+          "wilcoxon_p_two_sided": 1.0
+        }
+      ],
+      "material_loss_horizons": [],
+      "n_series": 5,
+      "promotion": "NO — el gate retrospectivo no autoriza producción (sombra prospectiva aparte)",
+      "reference": "naive1",
+      "router_by_horizon": {
+        "12": "naive",
+        "3": "naive1",
+        "6": "naive1"
+      },
+      "selection_picks": {
+        "12": {
+          "estable": "ets",
+          "no_estable": "naive"
+        },
+        "3": {
+          "estable": "ets",
+          "no_estable": "naive1"
+        },
+        "6": {
+          "estable": "ets",
+          "no_estable": "naive1"
+        }
+      },
+      "table": "DFF",
+      "verdict": "sin_evidencia"
+    },
+    {
+      "cohort": "estable",
+      "horizons": [
+        {
+          "_sensitivity_note": "unilateral SOLO como sensibilidad; el gate es el bilateral",
+          "effect": 0.0294145578313,
+          "h": 3,
+          "holm_p": 0.2783203125,
+          "holm_reject": false,
+          "material_gain": true,
+          "material_loss": false,
+          "model": "drift",
+          "n_pairs": 11,
+          "reference_mean_mase": 0.239351930057,
+          "router_mean_mase": 0.209937372226,
+          "sensitivity_one_sided_p": 0.13916015625,
+          "wilcoxon_p_two_sided": 0.2783203125
+        },
+        {
+          "_sensitivity_note": "unilateral SOLO como sensibilidad; el gate es el bilateral",
+          "effect": 0.112461211407,
+          "h": 6,
+          "holm_p": 0.166015625,
+          "holm_reject": false,
+          "material_gain": true,
+          "material_loss": false,
+          "model": "drift",
+          "n_pairs": 11,
+          "reference_mean_mase": 0.442356636381,
+          "router_mean_mase": 0.329895424973,
+          "sensitivity_one_sided_p": 0.04150390625,
+          "wilcoxon_p_two_sided": 0.0830078125
+        },
+        {
+          "_sensitivity_note": "unilateral SOLO como sensibilidad; el gate es el bilateral",
+          "effect": 0.452044926974,
+          "h": 12,
+          "holm_p": 0.0029296875,
+          "holm_reject": true,
+          "material_gain": true,
+          "material_loss": false,
+          "model": "drift",
+          "n_pairs": 11,
+          "reference_mean_mase": 1.04894680352,
+          "router_mean_mase": 0.596901876547,
+          "sensitivity_one_sided_p": 0.00048828125,
+          "wilcoxon_p_two_sided": 0.0009765625
+        }
+      ],
+      "material_loss_horizons": [],
+      "n_series": 11,
+      "promotion": "NO — el gate retrospectivo no autoriza producción (sombra prospectiva aparte)",
+      "reference": "naive1",
+      "router_by_horizon": {
+        "12": "drift",
+        "3": "drift",
+        "6": "drift"
+      },
+      "selection_picks": {
+        "12": {
+          "estable": "drift",
+          "no_estable": "drift"
+        },
+        "3": {
+          "estable": "drift",
+          "no_estable": "drift"
+        },
+        "6": {
+          "estable": "drift",
+          "no_estable": "drift"
+        }
+      },
+      "table": "FAD",
+      "verdict": "sin_evidencia"
+    },
+    {
+      "cohort": "no_estable",
+      "horizons": [
+        {
+          "_sensitivity_note": "unilateral SOLO como sensibilidad; el gate es el bilateral",
+          "effect": 0.0115264216586,
+          "h": 3,
+          "holm_p": 0.439966766164,
+          "holm_reject": false,
+          "material_gain": true,
+          "material_loss": false,
+          "model": "drift",
+          "n_pairs": 30,
+          "reference_mean_mase": 0.239825170319,
+          "router_mean_mase": 0.22829874866,
+          "sensitivity_one_sided_p": 0.219983383082,
+          "wilcoxon_p_two_sided": 0.439966766164
+        },
+        {
+          "_sensitivity_note": "unilateral SOLO como sensibilidad; el gate es el bilateral",
+          "effect": 0.103877256884,
+          "h": 6,
+          "holm_p": 0.000566527247428,
+          "holm_reject": true,
+          "material_gain": true,
+          "material_loss": false,
+          "model": "drift",
+          "n_pairs": 30,
+          "reference_mean_mase": 0.453327969184,
+          "router_mean_mase": 0.3494507123,
+          "sensitivity_one_sided_p": 0.000141631811857,
+          "wilcoxon_p_two_sided": 0.000283263623714
+        },
+        {
+          "_sensitivity_note": "unilateral SOLO como sensibilidad; el gate es el bilateral",
+          "effect": 0.347131353257,
+          "h": 12,
+          "holm_p": 6.14672899245e-07,
+          "holm_reject": true,
+          "material_gain": true,
+          "material_loss": false,
+          "model": "drift",
+          "n_pairs": 30,
+          "reference_mean_mase": 0.981702120656,
+          "router_mean_mase": 0.634570767399,
+          "sensitivity_one_sided_p": 1.02445483208e-07,
+          "wilcoxon_p_two_sided": 2.04890966415e-07
+        }
+      ],
+      "material_loss_horizons": [],
+      "n_series": 30,
+      "promotion": "NO — el gate retrospectivo no autoriza producción (sombra prospectiva aparte)",
+      "reference": "naive1",
+      "router_by_horizon": {
+        "12": "drift",
+        "3": "drift",
+        "6": "drift"
+      },
+      "selection_picks": {
+        "12": {
+          "estable": "drift",
+          "no_estable": "drift"
+        },
+        "3": {
+          "estable": "drift",
+          "no_estable": "drift"
+        },
+        "6": {
+          "estable": "drift",
+          "no_estable": "drift"
+        }
+      },
+      "table": "FAD",
+      "verdict": "sin_evidencia"
+    }
+  ],
+  "deck_version": "1.0.0",
+  "gate": {
+    "allowed_material_loss": 0.0,
+    "holm_alpha": 0.05,
+    "holm_family": "los horizontes {3,6,12} de una misma tabla × cohorte",
+    "material_margin": 0.005,
+    "test": "wilcoxon pareado BILATERAL"
+  },
+  "horizons": [
+    3,
+    6,
+    12
+  ],
+  "inputs": {
+    "commit": "850d4bd61385a80aefb50d3cf3fc64b94a2b9dad",
+    "e3_cohort_campaign.json": "f764a123c4cb88242c3d0232291ada36cfd8de8ab3715a29fa3407eb5e4892d6",
+    "series_cohorts.json": "f94b1684436f540acd2efcc26055024d6de78a33b98a97f490c63be336da211d",
+    "vp_model/champion.py": "415c1a19e4a397f988fff3873421d353f9813df5c823b018f732fb8f86041378",
+    "vp_model/config.py": "679fc9853c1b83bd415b4860843d59e5d5efea0b3ec5a89abf651ead6a55b3f7",
+    "vp_model/horizon.py": "84ad14a223b500441c8ce7aadd8c0c543baf5db40164630854dad9eb614855fb"
+  },
+  "pool": {
+    "n": 74,
+    "sha256": "f63c29461897fad89345306f5d0114cfd4a14609210d805facdc12048d41b18d"
+  },
+  "reference": "naive1",
+  "rule_version": "1.0.0",
+  "scope": "gate RETROSPECTIVO por cohorte; no promueve, no despliega y no elige la receta después de ver el resultado",
+  "selection": "MASE medio sobre objetivos ANTERIORES al hold-out; evaluación solo en hold-out",
+  "status": "exploratorio",
+  "summary": {
+    "pierde_material": 1,
+    "sin_evidencia": 3
+  }
+}

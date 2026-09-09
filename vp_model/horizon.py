@@ -19,6 +19,9 @@ aportó skill honesto (misma memoria); además los clásicos reentrenan en cada 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 from scipy.stats import wilcoxon
@@ -82,13 +85,26 @@ def forecasts_by_horizon(model_name: str, country: str, category: str, table: st
     return {h: pd.Series(d).sort_index() for h, d in out.items() if d}
 
 
-def mase_by_horizon(model_name: str, country: str, category: str, table: str, hmax: int) -> dict[int, float]:
+def mase_by_horizon(
+    model_name: str,
+    country: str,
+    category: str,
+    table: str,
+    hmax: int,
+    window: str = "all",
+) -> dict[int, float]:
     """``{h: MASE}`` F-only de un modelo sobre una serie, escala canónica train-before.
 
     La escala del MASE es la ÚNICA fuente del proyecto: naïve estacional in-sample
     sobre la serie F cruda anterior al hold-out (idéntica a ``walkforward.backtest``),
     de modo que los MASE por horizonte son comparables con las cifras canónicas.
+
+    ``window`` parte los OBJETIVOS en el tiempo, que es lo que hace posible un router
+    leakage-free (E4): ``"selection"`` puntúa solo objetivos anteriores al hold-out y
+    ``"holdout"`` solo los del hold-out. ``"all"`` conserva el comportamiento histórico.
     """
+    if window not in {"all", "selection", "holdout"}:
+        raise ValueError(f"window debe ser all, selection u holdout, no {window!r}")
     raw = dataset.load_series(country, category, table).astype("float64")
     ts = FeatureBuilder(model_name).to_timeseries(dataset.load_series(country, category, table))
     split = ts.time_index[-HOLDOUT]
@@ -99,6 +115,10 @@ def mase_by_horizon(model_name: str, country: str, category: str, table: str, hm
     res: dict[int, float] = {}
     for h, s in forecasts_by_horizon(model_name, country, category, table, hmax).items():
         common = [d for d in s.index if d in fmask]
+        if window == "selection":
+            common = [d for d in common if d < split]
+        elif window == "holdout":
+            common = [d for d in common if d >= split]
         if not common:
             continue
         pred = s.loc[common].to_numpy()
@@ -148,6 +168,112 @@ def champion_by_horizon(
     df = pd.DataFrame(rows).set_index("h")
     df["champion"] = df[list(candidates)].idxmin(axis=1)
     return df
+
+
+@dataclass(frozen=True)
+class RouterRecipe:
+    """Router por cohorte: qué candidato usa cada cohorte a un horizonte dado.
+
+    La elección sale de la ventana de SELECCIÓN (objetivos anteriores al hold-out) y se evalúa
+    solo sobre el hold-out, así que el router nunca ve el dato con el que se le juzga. La receta
+    es un dato inmutable: quien la construye no puede reabrirla después de ver el resultado.
+    """
+
+    table: str
+    horizon: int
+    by_cohort: Mapping[str, str]
+    selection_window: str = "selection"
+
+    @property
+    def name(self) -> str:
+        elegidos = ", ".join(f"{c}→{m}" for c, m in sorted(self.by_cohort.items()))
+        return f"router[{self.table}|h={self.horizon}|{elegidos}]"
+
+
+def mase_grid(
+    table: str,
+    series: list[tuple[str, str]],
+    candidates: tuple[str, ...],
+    hmax: int,
+) -> dict[tuple[str, str, str], dict[str, dict[int, float]]]:
+    """``{(modelo, país, categoría): {ventana: {h: MASE}}}`` con UNA sola pasada de pronóstico.
+
+    Calcular selección y hold-out por separado duplicaría el ajuste de cada modelo en cada
+    origen; aquí los pronósticos se producen una vez y las dos ventanas se derivan de ellos.
+    """
+    fuera: dict[tuple[str, str, str], dict[str, dict[int, float]]] = {}
+    for modelo in candidates:
+        for país, categoría in series:
+            try:
+                raw = dataset.load_series(país, categoría, table).astype("float64")
+                ts = FeatureBuilder(modelo).to_timeseries(dataset.load_series(país, categoría, table))
+                split = ts.time_index[-HOLDOUT]
+                escala = metrics.naive_scale_before(raw, split)
+                if not np.isfinite(escala) or escala == 0:
+                    continue
+                fmask = set(raw.index)
+                por_ventana: dict[str, dict[int, float]] = {"selection": {}, "holdout": {}}
+                for h, serie in forecasts_by_horizon(modelo, país, categoría, table, hmax).items():
+                    objetivos = [d for d in serie.index if d in fmask]
+                    for ventana, sel in (
+                        ("selection", [d for d in objetivos if d < split]),
+                        ("holdout", [d for d in objetivos if d >= split]),
+                    ):
+                        if not sel:
+                            continue
+                        pred = serie.loc[sel].to_numpy()
+                        real = raw.loc[sel].to_numpy()
+                        por_ventana[ventana][h] = float(np.mean(np.abs(real - pred)) / escala)
+                fuera[(modelo, país, categoría)] = por_ventana
+            except (ValueError, IndexError, KeyError) as exc:
+                log.warning("rejilla %s/%s/%s/%s omitida (%s)", modelo, país, categoría, table, exc)
+    return fuera
+
+
+def fit_router(
+    table: str,
+    h: int,
+    cohorts: Mapping[tuple[str, str], str],
+    grid: dict[tuple[str, str, str], dict[str, dict[int, float]]],
+    candidates: tuple[str, ...] = HORIZON_CANDIDATES,
+) -> RouterRecipe:
+    """Elige, por cohorte, el candidato de MENOR MASE medio en la ventana de SELECCIÓN.
+
+    Nunca mira el hold-out: esa es toda la diferencia entre un router y una elección
+    retrospectiva.
+    """
+    elegido: dict[str, str] = {}
+    for cohorte in sorted(set(cohorts.values())):
+        miembros = [k for k, c in cohorts.items() if c == cohorte]
+        medias: dict[str, float] = {}
+        for modelo in candidates:
+            vals = [
+                grid[(modelo, p, c)]["selection"][h]
+                for (p, c) in miembros
+                if (modelo, p, c) in grid and h in grid[(modelo, p, c)]["selection"]
+            ]
+            if vals:
+                medias[modelo] = float(np.mean(vals))
+        if medias:
+            elegido[cohorte] = min(sorted(medias), key=lambda m: medias[m])
+    return RouterRecipe(table=table, horizon=h, by_cohort=elegido)
+
+
+def router_series_mase(
+    recipe: RouterRecipe,
+    cohorts: Mapping[tuple[str, str], str],
+    grid: dict[tuple[str, str, str], dict[str, dict[int, float]]],
+) -> pd.Series:
+    """MASE de HOLD-OUT por serie del router: cada serie puntuada por el modelo de SU cohorte."""
+    fuera: dict[tuple[str, str], float] = {}
+    for (país, categoría), cohorte in cohorts.items():
+        modelo = recipe.by_cohort.get(cohorte)
+        if modelo is None:
+            continue
+        v = grid.get((modelo, país, categoría), {}).get("holdout", {}).get(recipe.horizon)
+        if v is not None and np.isfinite(v):
+            fuera[(país, categoría)] = v
+    return pd.Series(fuera, name=recipe.name, dtype="float64")
 
 
 def _series_mase(

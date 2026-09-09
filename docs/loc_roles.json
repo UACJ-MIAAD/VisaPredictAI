@@ -93,6 +93,11 @@
    "why": "La emite experiments/make_mlops_architecture.py desde las fuentes canónicas."
   },
   {
+   "glob": "docs/challenger_deck.json",
+   "role": "documentacion",
+   "why": "Baraja de retadores y pre-registro del router de E4: contrato mantenido a mano y commiteado antes de calcular."
+  },
+  {
    "glob": "docs/cohort_deck.json",
    "role": "documentacion",
    "why": "Baraja pre-registrada de E3: contrato mantenido a mano y commiteado ANTES de entrenar."
