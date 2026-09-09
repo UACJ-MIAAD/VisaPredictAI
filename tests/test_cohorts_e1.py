@@ -27,6 +27,7 @@ from vp_model.config import HOLDOUT
 
 ROOT = Path(__file__).resolve().parent.parent
 PANEL = ROOT / "data" / "processed" / "visa_panel_long.parquet"
+PANEL_CSV = ROOT / "data" / "processed" / "visa_panel_long.csv"  # versionado: existe siempre
 KEY_FACTS = ROOT / "reports" / "governance" / "key_facts.json"
 
 
@@ -178,9 +179,27 @@ def catalogo_sintetico(tmp_path: Path) -> tuple[dict, Path]:
             ("china", "employment", "EB2", "DFF"): casi_congelada(largo),
         }
     )
-    ruta = tmp_path / "panel.parquet"
-    panel.to_parquet(ruta)
+    # CSV y no parquet a propósito: el job base de CI no instala pyarrow.
+    ruta = tmp_path / "panel.csv"
+    panel.to_csv(ruta, index=False)
     return bc.build(ruta), ruta
+
+
+def test_el_panel_se_lee_en_sus_dos_serializaciones(tmp_path: Path) -> None:
+    """Las dos serializaciones gobernadas del panel dan el MISMO catálogo."""
+    import experiments.build_cohorts as bc
+
+    panel = panel_sintetico({("mexico", "family", "F1", "FAD"): rampa(141, retros=(30, 60))})
+    csv, parquet = tmp_path / "p.csv", tmp_path / "p.parquet"
+    panel.to_csv(csv, index=False)
+    pytest.importorskip("pyarrow")
+    panel.to_parquet(parquet)
+    desde_csv, desde_parquet = bc.build(csv), bc.build(parquet)
+    for cat in (desde_csv, desde_parquet):
+        cat["provenance"] = {k: v for k, v in cat["provenance"].items() if k not in {"panel", "panel_sha256"}}
+    assert desde_csv == desde_parquet
+    with pytest.raises(ValueError, match="panel no reconocido"):
+        bc.build(tmp_path / "p.txt")
 
 
 def test_esquema_cerrado(catalogo_sintetico: tuple[dict, Path]) -> None:
@@ -266,20 +285,21 @@ def test_una_serie_elegible_no_clasificable_detiene_el_catalogo(tmp_path: Path) 
     """No hay tercera cohorte: una serie sin escala medible PARA el catálogo, nombrada."""
     import experiments.build_cohorts as bc
 
-    ruta = tmp_path / "panel.parquet"
-    panel_sintetico({("mexico", "family", "F1", "FAD"): serie([7.0] * 141)}).to_parquet(ruta)
+    ruta = tmp_path / "panel.csv"
+    panel_sintetico({("mexico", "family", "F1", "FAD"): serie([7.0] * 141)}).to_csv(ruta, index=False)
     with pytest.raises(ValueError, match="no finito"):
         bc.build(ruta)
 
 
 # ------------------------------------------------------------------ panel real (cruce)
-@pytest.mark.skipif(not PANEL.exists(), reason="el panel se construye en el job de modelado")
 class TestPanelReal:
+    """Sobre el panel VERSIONADO (CSV): corre en los dos jobs, sin motor de parquet."""
+
     def test_poblacion_cruzada_contra_key_facts(self) -> None:
         """Dos derivaciones independientes del mismo panel deben coincidir."""
         import experiments.build_cohorts as bc
 
-        cat = bc.build()
+        cat = bc.build(PANEL_CSV)
         kf = json.loads(KEY_FACTS.read_text())
         assert cat["population"]["n_structural"] == kf["n_series_structural"]
         assert cat["population"]["n_with_F"] == kf["n_series_with_F"]
@@ -290,10 +310,26 @@ class TestPanelReal:
     def test_cohortes_reales_no_degeneradas(self) -> None:
         import experiments.build_cohorts as bc
 
-        cat = bc.build()
+        cat = bc.build(PANEL_CSV)
         assert set(cat["cohorts"]) == {"estable", "no_estable"}
         assert min(cat["cohorts"].values()) >= 10, cat["cohorts"]
         assert sum(cat["cohorts"].values()) == cat["population"]["n_evaluable"]
+
+
+# El .parquet sólo existe donde alguien lo construyó, y construirlo ya exigió un motor de
+# parquet: no hay entorno real con el archivo presente y sin motor. El job base no lo tiene.
+@pytest.mark.skipif(not PANEL.exists(), reason="el panel .parquet se construye en el job de modelado")
+class TestCatalogoPublicado:
+    """Contra el panel que produjo el artefacto: el .parquet del job de modelado."""
+
+    def test_las_dos_serializaciones_dan_el_mismo_catalogo(self) -> None:
+        """Si CSV y parquet divergieran, la clase de arriba estaría midiendo otro panel."""
+        import experiments.build_cohorts as bc
+
+        a, b = bc.build(PANEL_CSV), bc.build(PANEL)
+        for cat in (a, b):
+            cat["provenance"] = {k: v for k, v in cat["provenance"].items() if k not in {"panel", "panel_sha256"}}
+        assert a == b
 
     def test_el_catalogo_commiteado_esta_al_dia(self, tmp_path: Path) -> None:
         """Maestro dorado: el archivo del repo es EXACTAMENTE lo que produce el panel de hoy.
@@ -315,7 +351,7 @@ class TestPanelReal:
         partición estaría midiendo quietud y no regularidad."""
         import experiments.build_cohorts as bc
 
-        estables = [s for s in bc.build()["series"] if s["cohort"] == "estable"]
+        estables = [s for s in bc.build(PANEL_CSV)["series"] if s["cohort"] == "estable"]
         con_avance = [s for s in estables if s["median_step_pre"] > 0]
         assert con_avance, "la cohorte estable sería sólo series congeladas"
         assert any(s["congelada"] for s in estables), "la anotación no distinguiría nada"

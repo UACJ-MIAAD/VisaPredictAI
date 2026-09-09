@@ -84,10 +84,27 @@ def _poblacion(panel: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(filas).sort_values(list(CLAVE)).reset_index(drop=True)
 
 
+def _leer_panel(ruta: Path) -> pd.DataFrame:
+    """Lee el panel por su extensión.
+
+    El panel vive en el repositorio en dos serializaciones gobernadas: ``.parquet`` (la que
+    consume el modelado, out de DVC) y ``.csv`` (versionada). Aceptar las dos evita exigir
+    un motor de parquet donde no hace falta: el job base de CI instala solo ``.[dev]``, sin
+    pyarrow.
+    """
+    if ruta.suffix == ".parquet":
+        panel = pd.read_parquet(ruta)
+    elif ruta.suffix == ".csv":
+        panel = pd.read_csv(ruta)
+    else:
+        raise ValueError(f"panel no reconocido: {ruta.name} (se espera .parquet o .csv)")
+    panel["bulletin_date"] = pd.to_datetime(panel["bulletin_date"])
+    return panel
+
+
 def build(panel_path: Path = PANEL) -> dict:
     """Catálogo completo: provenance + población + una fila por serie elegible."""
-    panel = pd.read_parquet(panel_path)
-    panel["bulletin_date"] = pd.to_datetime(panel["bulletin_date"])
+    panel = _leer_panel(panel_path)
     censo = _poblacion(panel)
     grupos = dict(list(panel.groupby(list(CLAVE), sort=True)))
 
