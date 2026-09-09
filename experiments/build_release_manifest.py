@@ -102,6 +102,11 @@ def artifact_spec(root: Path = ROOT) -> list[tuple[str, str]]:
         # 6-ago-2026. `required`: sin él, el consumidor no puede distinguir «no lo sé» de «ok».
         ("reports/governance/ingestion_state.json", "required"),
         ("reports/governance/promotion_decision.json", "required"),
+        # E5: la fuente ÚNICA de las cifras de la épica de cohortes y el catálogo del que sale
+        # la cohorte de cada serie. `required`: sin ellos el sitio no inventa cohortes ni cifras,
+        # simplemente no las muestra. El corte YA PUBLICADO se emitió sin ambos y no se regenera.
+        ("reports/governance/e5_facts.json", "required"),
+        ("reports/eval/series_cohorts.json", "required"),
         ("reports/governance/MODEL_CARD.md", "required"),
         ("reports/governance/mega_audit_report.md", "optional"),
     ]

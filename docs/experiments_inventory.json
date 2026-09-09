@@ -28,6 +28,10 @@
     "clase": "producto",
     "consumidor": "reports/eval/series_cohorts.json y .csv (cohortes de estabilidad RULE v1.0.0, features pre-split; insumo de la epica E)"
   },
+  "build_e5_facts.py": {
+    "clase": "producto",
+    "consumidor": "reports/governance/e5_facts.json + reports/latex/cohorts_facts.tex y cohortes.tex (fuente unica de las cifras de la epica E)"
+  },
   "build_eda_facts.py": {
     "clase": "producto",
     "consumidor": "stage DVC eda_facts + cron 4g + web #eda"
@@ -103,6 +107,10 @@
   "improve_timesfm.py": {
     "clase": "investigacion",
     "consumidor": "TimesFM (evaluado)"
+  },
+  "make_cohort_figure.py": {
+    "clase": "producto",
+    "consumidor": "reports/figures/cohorts/ + reports/latex/Figures/e5_router_effect.pdf (figura del router, derivada de e5_facts.json)"
   },
   "make_data_figures.py": {
     "clase": "deliverable",
