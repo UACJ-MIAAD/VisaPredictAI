@@ -33,7 +33,9 @@ def test_ninguna_prueba_del_job_base_importa_el_extra_de_modelado() -> None:
     import ast
 
     pesados = {"scipy", "darts", "statsmodels", "lightgbm", "torch", "optuna"}
-    permitidos_vp = {"vp_model.deck"}
+    # Módulos de vp_model demostrablemente ligeros: solo stdlib/pandas al importarse. La lista
+    # se amplía SOLO tras comprobarlo, y la prueba de abajo lo comprueba de verdad.
+    permitidos_vp = {"vp_model.deck", "vp_model.universe"}
     arbol = ast.parse(Path(__file__).read_text(encoding="utf-8"))
     culpables: list[tuple[str, str]] = []
     for nodo in ast.walk(arbol):
@@ -50,13 +52,24 @@ def test_ninguna_prueba_del_job_base_importa_el_extra_de_modelado() -> None:
             modulo = getattr(sub, "module", None)
             if isinstance(sub, ast.ImportFrom) and modulo:
                 raiz = modulo.split(".")[0]
-                if raiz in pesados or (raiz == "vp_model" and modulo not in permitidos_vp):
+                if raiz in pesados:
                     culpables.append((nodo.name, modulo))
+                elif raiz == "vp_model":
+                    # `from vp_model import universe` trae module='vp_model': el submódulo real
+                    # está en los alias, y sin resolverlo la lista de permitidos no sirve de nada.
+                    nombres = [f"{modulo}.{a.name}" for a in sub.names] if modulo == "vp_model" else [modulo]
+                    culpables += [(nodo.name, m) for m in nombres if m not in permitidos_vp]
             if isinstance(sub, ast.Import):
                 for alias in sub.names:
                     if alias.name.split(".")[0] in pesados:
                         culpables.append((nodo.name, alias.name))
     assert culpables == [], f"pruebas del job base con imports del extra: {culpables}"
+    # Y la lista de permitidos no es una promesa: ninguno de esos módulos puede arrastrar el
+    # extra al importarse. Si alguno lo hiciera, la excepción aparecería aquí.
+    for modulo in sorted(permitidos_vp):
+        cabecera = (ROOT / Path(modulo.replace(".", "/") + ".py")).read_text().split("\ndef ", 1)[0]
+        for pesado in pesados:
+            assert f"import {pesado}" not in cabecera, f"{modulo} importa {pesado} al cargarse"
 
 
 # --------------------------------------------------------------- pre-registro (job base)
@@ -111,7 +124,10 @@ def test_la_seleccion_es_disjunta_de_la_evaluacion_por_escrito() -> None:
 def test_el_pool_persistido_tiene_las_74_series_de_E1() -> None:
     pool = json.loads(POOL.read_text())
     cohortes = json.loads(COHORTS.read_text())
-    assert pool["n"] == cohortes["population"]["n_evaluable"] == 74
+    from vp_model import universe
+
+    # Sin número cableado: la autoridad lo deriva del panel canónico en cada corrida.
+    assert pool["n"] == cohortes["population"]["n_evaluable"] == universe.n_evaluable()
     a = {(s["country"], s["category"], s["table"]) for s in pool["series"]}
     b = {(s["country"], s["category"], s["table"]) for s in cohortes["series"]}
     assert a == b
@@ -331,8 +347,10 @@ class TestResultadoE4:
     def test_el_pool_del_informe_es_el_persistido(self) -> None:
         import hashlib
 
+        from vp_model import universe
+
         d = self._d()
-        assert d["pool"]["n"] == 74
+        assert d["pool"]["n"] == universe.n_evaluable()
         assert d["pool"]["sha256"] == hashlib.sha256(POOL.read_bytes()).hexdigest()
 
     def test_la_familia_de_holm_son_los_tres_horizontes(self) -> None:

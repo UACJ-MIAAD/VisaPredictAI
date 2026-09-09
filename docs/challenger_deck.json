@@ -110,7 +110,7 @@
   },
   "pool": {
     "_doc": "el pool exacto se persiste en reports/eval/e4_router_pool.json y se compara por igualdad de conjuntos",
-    "n_expected": 74,
+    "n_authority": "vp_model.universe.n_evaluable() — derivado del panel canónico; NO se cablea",
     "source": "reports/eval/series_cohorts.json (RULE v1.0.0, E1)"
   },
   "registered": "2026-09-09, ANTES de calcular ningun resultado multi-horizonte del router",
