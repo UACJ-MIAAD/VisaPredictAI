@@ -31,22 +31,49 @@ LATEX_ROOT = (
 )
 LATEX_ROOT = LATEX_ROOT.resolve()
 
-IGNORE = shutil.ignore_patterns(
-    ".git",
-    "ante",
-    "ante_nf",
-    ".vp_envs",
-    "data",
-    "models",
-    "mlartifacts",
-    "mlruns_staging",
-    "node_modules",
-    ".dvc",
-    "__pycache__",
-    ".mypy_cache",
-    ".ruff_cache",
-    ".pytest_cache",
-)
+
+def _nombre_si_cuelga_del_repo(destino: Path) -> str | None:
+    """Nombre de primer nivel de `destino` si vive DENTRO de `ROOT`; `None` si es hermano.
+
+    En local el repositorio LaTeX es hermano del de datos; en CI se hace checkout en
+    `ROOT/latex_repo` (`VP_LATEX_DIR`). Se deriva del valor efectivo en vez de teclear el
+    nombre: si el workflow cambia la ruta del checkout, esto la sigue.
+    """
+    try:
+        partes = destino.relative_to(ROOT).parts
+    except ValueError:
+        return None
+    return partes[0] if partes else None
+
+
+def _ignore_para(latex_root: Path):
+    """Qué se deja fuera de la copia del repositorio de datos.
+
+    Cuando el repositorio LaTeX cuelga del de datos hay que excluirlo de la PRIMERA copia: la
+    SEGUNDA lo copia a propósito a `work/latex_repo` y, si ya estaba, `copytree` revienta con
+    `FileExistsError`. En local no pasaba porque allí el repositorio es hermano.
+    """
+    anidado = _nombre_si_cuelga_del_repo(latex_root)
+    return shutil.ignore_patterns(
+        ".git",
+        "ante",
+        "ante_nf",
+        ".vp_envs",
+        "data",
+        "models",
+        "mlartifacts",
+        "mlruns_staging",
+        "node_modules",
+        ".dvc",
+        "__pycache__",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".pytest_cache",
+        *((anidado,) if anidado else ()),
+    )
+
+
+IGNORE = _ignore_para(LATEX_ROOT)
 
 
 def _n_months() -> int:
@@ -115,6 +142,21 @@ def test_the_rule_no_longer_requires_a_determiner() -> None:
     label = loose[0]["label"]
     assert "los|the" not in label, "la regla seguía exigiendo determinante"
     assert "(?<![0-9])" in label, "sin la guarda, mordería los últimos dígitos de un número mayor"
+
+
+def test_el_checkout_latex_anidado_queda_fuera_de_la_primera_copia() -> None:
+    """M66-R1: en CI el repositorio LaTeX se clona en `ROOT/latex_repo`, dentro del de datos.
+
+    La primera copia lo arrastraba y la segunda —la deliberada— moría con `FileExistsError`,
+    seis veces, una por parametrización. Se comprueban los dos montajes: anidado (CI) y
+    hermano (local), porque excluirlo siempre dejaría la copia incompleta en local.
+    """
+    entradas = ["reports", "tests", "tools", "latex_repo"]
+    anidado = _ignore_para(ROOT / "latex_repo")(str(ROOT), entradas)
+    assert "latex_repo" in anidado, "el checkout anidado debe quedar fuera de la primera copia"
+    hermano = _ignore_para(ROOT.parent / "VisaPredictAI_LaTeX")(str(ROOT), entradas)
+    assert "latex_repo" not in hermano, "con el repositorio hermano no hay nada que excluir"
+    assert "reports" not in anidado and "tests" not in anidado, "no puede excluir de más"
 
 
 def test_no_historical_literal_survives_in_the_rule_reasons() -> None:
