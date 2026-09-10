@@ -61,10 +61,10 @@ VisaPredictAI/
 │   ├── generate_web_forecasts.py       # pronósticos a 12 m por serie para la web + archiva la añada en el ledger (make web-forecasts)
 │   ├── score_forecasts.py              # evaluación PROSPECTIVA: ledger vs cortes reales (make score-forecasts; ver docs/FORECAST_EVAL.md)
 │   ├── backfill_vintages.sh            # siembra reproducible del ledger (añada viva + históricas leakage-free + scoring)
-│   ├── make_*_figures.py               # generadores de figuras del .tex → reports/latex/Figures/ (data/eda/fe/result/hero/latinometrics)
+│   ├── make_*_figures.py               # generadores de figuras; sus exportaciones LaTeX se sincronizan al repo documental
 │   └── visualize_wait_times.py         # gráficas por país → reports/figures/wait_times/ (no versionadas)
 ├── tools/validate_structure.sh         # valida el contrato estructural propio, adaptado de CCDS (make validate; gate de CI)
-├── reports/latex/                      # ★ fuente LaTeX del entregable (Overleaf importa de aquí) + Figures/
+├── reports/latex/                      # sólo cinco exportaciones .tex generadas; el proyecto compilable vive en VisaPredictAI_LaTeX
 ├── reports/campaign/                   # procedencia de la campaña de modelado (pools 21 modelos + barridos deep por semilla)
 ├── reports/eval/                       # evaluación retrospectiva (comparaciones, significancia, tuning, PI, CRPS, holdouts)
 ├── reports/prospective/                # ledger prospectivo (web_forecasts, forecast_log, scorecard, vs_actual)

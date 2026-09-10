@@ -52,6 +52,7 @@ edita después de aceptarse: se supera con uno nuevo.
 | [`0001-project-boundaries.md`](adr/0001-project-boundaries.md) | los límites del proyecto y sus puertos |
 | [`0002-supply-chain-gates-retired.md`](adr/0002-supply-chain-gates-retired.md) | el retiro de los gates de cadena de suministro y la seguridad al mínimo viable |
 | [`0003-campaign-transaction.md`](adr/0003-campaign-transaction.md) | la campaña como transacción con máquina de estados y publicación gobernada |
+| [`0004-dedicated-latex-repository.md`](adr/0004-dedicated-latex-repository.md) | el repositorio documental independiente y su contrato cross-repo |
 
 ## Lo que este índice no gobierna
 

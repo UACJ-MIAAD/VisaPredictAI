@@ -19,14 +19,16 @@ pytest.importorskip("statsmodels")
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "experiments"))
+sys.path.insert(0, str(ROOT / "tools"))
 
 from vp_model import dataset  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not dataset.DB_PATH.exists(), reason="almacén DuckDB ausente")
 
+import check_consistency as cc  # noqa: E402
 import make_tex_tables as mtt  # noqa: E402
 
-TEX = (ROOT / "reports" / "latex" / "ProyectoI_VisaPredictAI.tex").read_text()
+TEX = cc._repo_path("reports/latex/ProyectoI_VisaPredictAI.tex").read_text()
 
 
 def _data_rows(block: str) -> list[str]:

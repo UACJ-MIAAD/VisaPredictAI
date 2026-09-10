@@ -12,6 +12,15 @@
 # Nota: las forbidden se aplican SOLO a los artefactos publicados (deliverable, paper, web),
 # NO a las meta-docs (reports/paper_micai/PAPER_PROSPECTIVE_DRAFT) que citan los claims-malos como ejemplo.
 
+# M66: estas cinco exportaciones siguen naciendo en el pipeline de datos, pero el repo
+# compilable es VisaPredictAI_LaTeX. El guardián exige igualdad byte a byte entre ambos.
+latex_exports:
+  - reports/latex/key_facts.tex
+  - reports/latex/fe_facts.tex
+  - reports/latex/horizon_champion.tex
+  - reports/latex/cohorts_facts.tex
+  - reports/latex/cohortes.tex
+
 artifacts:
   deliverable: ["reports/latex/ProyectoI_VisaPredictAI.tex"]
   paper: ["reports/paper_micai/paper.tex", "reports/paper_micai/README.md"]

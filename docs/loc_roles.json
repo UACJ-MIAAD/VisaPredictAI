@@ -215,11 +215,6 @@
    "why": "El .gitignore anidado de reports/paper_micai declara qué NO se versiona ahí."
   },
   {
-   "glob": "reports/paper_micai/make_paper_figures.py",
-   "role": "experimentos",
-   "why": "Generador de figuras del paper; vive bajo reports/ por historia, no es evidencia."
-  },
-  {
    "glob": "requirements/*.in",
    "role": "configuracion"
   },

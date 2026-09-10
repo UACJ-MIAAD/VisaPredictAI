@@ -24,8 +24,12 @@ import pytest
 from vp_model import stability
 
 RAIZ = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(RAIZ / "tools"))
+
+import check_consistency as cc  # noqa: E402
+
 FACTS = RAIZ / "reports" / "governance" / "e5_facts.json"
-TABLA = RAIZ / "reports" / "latex" / "cohortes.tex"
+TABLA = cc._repo_path("reports/latex/cohortes.tex")
 
 
 @pytest.fixture(scope="module")

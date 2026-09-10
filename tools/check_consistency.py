@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Guardián de consistencia entre TODOS los artefactos (la máxima del proyecto).
 
-Verifica que web / LaTeX entregable / paper / READMEs / docs digan el MISMO número y no
+Verifica que web / repo LaTeX / READMEs / docs digan el MISMO número y no
 arrastren claims viejos. Fuente de verdad: ``reports/governance/key_facts.json`` (generada por
 ``experiments/build_key_facts.py``). Reglas: ``tools/consistency_rules.yml``.
 
@@ -25,8 +25,30 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-# En CI el repo web se checkouta en otra ruta; VP_WEB_DIR la reubica (default: hermano local).
+# En CI los repos hermanos se checkoutan en otra ruta; las variables los reubican.
 WEB_DIR = os.environ.get("VP_WEB_DIR", "../VisaPredictAI_web")
+_latex_env = os.environ.get("VP_LATEX_DIR")
+LATEX_DIR = Path(_latex_env) if _latex_env else ROOT.parent / "VisaPredictAI_LaTeX"
+if not LATEX_DIR.is_absolute():
+    LATEX_DIR = ROOT / LATEX_DIR
+LATEX_DIR = LATEX_DIR.resolve()
+LATEX_PREFIXES = ("reports/latex/", "reports/paper_micai/")
+
+
+def _repo_path(rel: str) -> Path:
+    """Resuelve documentos compilables en su repo; conserva fallback para fixtures antiguos."""
+    if rel.startswith(LATEX_PREFIXES) and LATEX_DIR.exists():
+        return LATEX_DIR / rel
+    return ROOT / rel
+
+
+def _display_path(path: Path) -> str:
+    """Ruta estable en diagnósticos, incluso cuando el archivo vive en el repo LaTeX."""
+    if path.is_relative_to(ROOT):
+        return str(path.relative_to(ROOT))
+    if path.is_relative_to(LATEX_DIR):
+        return f"latex_repo/{path.relative_to(LATEX_DIR)}"
+    return str(path)
 
 
 def _digits(s: str) -> str:
@@ -66,7 +88,8 @@ def _resolve(globs: list[str]) -> list[Path]:
     out: list[Path] = []
     for g in globs:
         g = g.replace("../VisaPredictAI_web", WEB_DIR)
-        pattern = g if Path(g).is_absolute() else str(ROOT / g)
+        base = LATEX_DIR if g.startswith(LATEX_PREFIXES) and LATEX_DIR.exists() else ROOT
+        pattern = g if Path(g).is_absolute() else str(base / g)
         for p in glob.glob(pattern):
             fp = Path(p)
             if fp.is_file():
@@ -210,7 +233,7 @@ def _tex_json_violations(rules: dict) -> list[str]:
     """Los contratos declarados en `tex_json`. Un contrato cuyo .tex o .json falte es un fallo."""
     out: list[str] = []
     for contract in rules.get("tex_json", []):
-        tex_path, json_path = ROOT / contract["tex"], ROOT / contract["json"]
+        tex_path, json_path = _repo_path(contract["tex"]), _repo_path(contract["json"])
         if not tex_path.exists() or not json_path.exists():
             falta = contract["tex"] if not tex_path.exists() else contract["json"]
             out.append(f"TEXJSON    contrato roto: falta {falta}")
@@ -218,6 +241,22 @@ def _tex_json_violations(rules: dict) -> list[str]:
         data = json.loads(json_path.read_text())
         tex_text = tex_path.read_text()
         out += (_macros_contract if contract["kind"] == "macros" else _table_contract)(contract, tex_text, data)
+    return out
+
+
+def _latex_export_violations(rules: dict) -> list[str]:
+    """Las exportaciones generadas en datos y las consumidas por LaTeX son los mismos bytes."""
+    if not LATEX_DIR.exists() and not _latex_env:
+        return []
+    out: list[str] = []
+    for rel in rules.get("latex_exports", []):
+        source, consumed = ROOT / rel, LATEX_DIR / rel
+        if not source.is_file():
+            out.append(f"LATEXSYNC  falta la exportación del pipeline: {rel}")
+        if not consumed.is_file():
+            out.append(f"LATEXSYNC  falta la exportación en el repo LaTeX: {rel}")
+        if source.is_file() and consumed.is_file() and source.read_bytes() != consumed.read_bytes():
+            out.append(f"LATEXSYNC  {rel} diverge entre datos y repo LaTeX")
     return out
 
 
@@ -240,18 +279,18 @@ def _provisional_caveat_violations(rules: dict) -> list[str]:
     rx = re.compile(caveat["pattern"], re.IGNORECASE)
     out = []
     for rel in caveat["files"]:
-        f = ROOT / rel
+        f = _repo_path(rel)
         if not f.exists():
             out.append(f"CAVEAT     {rel}: declarado en las reglas pero ausente del árbol")
             continue
         cuerpo = [ln for ln in f.read_text(errors="ignore").splitlines() if not ln.lstrip().startswith("%")]
         presente = any(rx.search(ln) for ln in cuerpo)
         if protocolo == "pre-F1" and not presente:
-            out.append(f"CAVEAT     {f.relative_to(ROOT)}  falta /{caveat['pattern']}/ — {caveat['reason_required']}")
+            out.append(f"CAVEAT     {_display_path(f)}  falta /{caveat['pattern']}/ — {caveat['reason_required']}")
         if protocolo == "f2-causal" and presente:
             linea = next(i for i, ln in enumerate(cuerpo, 1) if rx.search(ln))
             out.append(
-                f"CAVEAT     {f.relative_to(ROOT)}:{linea}  sobra /{caveat['pattern']}/ — {caveat['reason_forbidden']}"
+                f"CAVEAT     {_display_path(f)}:{linea}  sobra /{caveat['pattern']}/ — {caveat['reason_forbidden']}"
             )
     return out
 
@@ -273,10 +312,13 @@ def main() -> int:
     rules = yaml.safe_load(RULES_PATH.read_text())
     sets = {name: _resolve(globs) for name, globs in rules["artifacts"].items()}
 
-    # aviso si el repo web no está montado (CI del repo de datos solo, p. ej.)
+    # Avisos en entornos parciales. El job `consistency` de CI monta ambos repos y no omite nada.
     web_missing = "web" in rules["artifacts"] and not sets.get("web")
     if web_missing and not quiet:
         print("⚠ repo web ausente (../VisaPredictAI_web) — se omiten sus chequeos.")
+    latex_missing = not LATEX_DIR.exists()
+    if latex_missing and not quiet:
+        print("⚠ repo LaTeX ausente (../VisaPredictAI_LaTeX) — se omiten sus superficies compilables.")
 
     def files_for(groups: list[str]) -> list[Path]:
         return [f for g in groups for f in sets.get(g, [])]
@@ -291,6 +333,7 @@ def main() -> int:
     # desalinearse sin que nada lo dijera, porque ninguna regla de texto mira dentro de
     # un archivo generado. Ahora los contratos se declaran y se validan por igual.
     violations += _tex_json_violations(rules)
+    violations += _latex_export_violations(rules)
 
     # 0b) CAVEAT CONDICIONAL (F5) — el descargo provisional depende del protocolo vigente.
     violations += _provisional_caveat_violations(rules)
@@ -304,7 +347,7 @@ def main() -> int:
                     continue
                 if rx.search(line):
                     violations.append(
-                        f"FORBIDDEN  {f.relative_to(ROOT)}:{i}  /{r['pattern']}/  — {r['reason']}\n    > {line.strip()[:120]}"
+                        f"FORBIDDEN  {_display_path(f)}:{i}  /{r['pattern']}/  — {r['reason']}\n    > {line.strip()[:120]}"
                     )
 
     # 2) REQUIRED — al menos una forma debe aparecer en el grupo
@@ -357,7 +400,7 @@ def main() -> int:
                     got = _digits(m.group(1))
                     if got and int(got) != int(want):
                         violations.append(
-                            f"NUMERIC    {f.relative_to(ROOT)}:{i}  '{r['fact']}' esperado {want}, encontrado {got}  — {r['reason']}\n    > {line.strip()[:120]}"
+                            f"NUMERIC    {_display_path(f)}:{i}  '{r['fact']}' esperado {want}, encontrado {got}  — {r['reason']}\n    > {line.strip()[:120]}"
                         )
 
     # 4) DECIMAL — como numeric pero para hechos con decimales (MASE, coberturas):
@@ -380,7 +423,7 @@ def main() -> int:
                         continue
                     if abs(got_f - want) > 5e-4:  # tolera el redondeo del 3er decimal
                         violations.append(
-                            f"DECIMAL    {f.relative_to(ROOT)}:{i}  '{r['fact']}' esperado {want}, encontrado {got_f}  — {r['reason']}\n    > {line.strip()[:120]}"
+                            f"DECIMAL    {_display_path(f)}:{i}  '{r['fact']}' esperado {want}, encontrado {got_f}  — {r['reason']}\n    > {line.strip()[:120]}"
                         )
 
     n_files = sum(len(v) for v in sets.values())

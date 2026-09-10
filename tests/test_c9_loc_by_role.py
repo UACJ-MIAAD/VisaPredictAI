@@ -224,7 +224,12 @@ class TestTheRealRepositoryIsFullyClassified:
         for rol in ("evidencia", "vendor", "datos"):
             assert rol in data["roles"], f"{rol} debe estar declarado, no excluido en silencio"
 
-    def test_vendor_code_is_named_file_by_file(self) -> None:
+    def test_vendor_files_left_with_the_latex_repository(self) -> None:
         medicion, _ = loc.report()
         assert medicion["por_rol"]["vendor"]["code_lines"] == 0
-        assert medicion["por_rol"]["vendor"]["files"] > 0
+        assert medicion["por_rol"]["vendor"]["files"] == 0
+        latex = ROOT / "latex_repo"
+        if not latex.exists():
+            latex = ROOT.parent / "VisaPredictAI_LaTeX"
+        assert (latex / "reports/paper_micai/llncs.cls").is_file()
+        assert (latex / "reports/paper_micai/splncs04.bst").is_file()

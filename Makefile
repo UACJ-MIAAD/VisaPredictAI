@@ -3,7 +3,7 @@
 PY ?= ante/bin/python
 DVC ?= ante/bin/dvc
 
-.PHONY: help install model-install freeze ingest-manual scrape panel db news repro repro-force dag challenger shadow model-card drift figures audit test test-model lint typecheck check all update eda eda-facts eda-all eda-report fe-facts fe-figures fe-report fe-all compare report validate key-facts consistency web-forecasts score-forecasts derive-band80 significance horizon-facts horizon-figure auto-arima paper-figures sync mlflow-sync
+.PHONY: help install model-install freeze ingest-manual scrape panel db news repro repro-force dag challenger shadow model-card drift figures audit test test-model lint typecheck check all update eda eda-facts eda-all eda-report fe-facts fe-figures fe-report fe-all compare report validate key-facts consistency web-forecasts score-forecasts derive-band80 significance horizon-facts horizon-figure auto-arima sync mlflow-sync
 
 help:
 	@echo "install  - editable install with pinned runtime + dev tools (pip install -e .[dev])"
@@ -175,22 +175,19 @@ derive-band80:  ## re-deriva BAND80_RATIO en split disjunto (read-only; imprime 
 significance:  ## Friedman-Nemenyi + MCS + DM para el paper (read-only; figura CD)
 	$(PY) experiments/significance_tables.py
 
-horizon-facts:  ## campeón POR HORIZONTE + significancia (rolling, F-only, hasta 5 años) -> reports/eval/horizon_facts.json + reports/latex/horizon_champion.tex
+horizon-facts:  ## campeón POR HORIZONTE + significancia; emite JSON + exportación para el repo LaTeX
 	$(PY) experiments/build_horizon_facts.py
 
-horizon-figure:  ## figura MASE vs horizonte (deriva vs naïve-1, rolling) -> reports/latex/Figures/horizon_mase_curves.pdf
+horizon-figure:  ## figura MASE vs horizonte (deriva vs naïve-1, rolling); salida LaTeX local ignorada
 	$(PY) experiments/make_horizon_figure.py
 
 auto-arima:  ## baseline Auto-ARIMA (AICc) bajo el walk-forward del pool -> reports/eval/auto_arima_baseline.csv
 	$(PY) experiments/auto_arima_baseline.py
 
-paper-figures:  ## regenera las figuras del paper MICAI desde el pipeline -> reports/paper_micai/Figures/
-	$(PY) reports/paper_micai/make_paper_figures.py
-
 key-facts:  ## regenera la fuente única de verdad reports/governance/key_facts.json (+ macros .tex) del pipeline
 	$(PY) experiments/build_key_facts.py
 
-consistency:  ## GUARDIÁN: web/LaTeX/paper/README/docs deben dar el MISMO número (vs key_facts.json)
+consistency:  ## GUARDIÁN: web/repo LaTeX/README/docs deben coincidir con key_facts.json
 	$(PY) tools/check_consistency.py
 
 

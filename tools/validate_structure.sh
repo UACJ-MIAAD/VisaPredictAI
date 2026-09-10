@@ -17,12 +17,12 @@ fail=0
 required=(
   data/raw data/processed docs tests tools experiments
   pipeline vp_data vp_model
-  reports/latex/Figures reports/campaign reports/eval reports/prospective reports/governance reports/eda .github/workflows
+  reports/campaign reports/eval reports/prospective reports/governance reports/eda .github/workflows
   Makefile pyproject.toml README.md schema.sql dvc.yaml
   pipeline/freeze_snapshots.py pipeline/scrape_all.py
   pipeline/build_panel.py pipeline/build_database.py pipeline/mega_audit.py
   vp_data/config.py vp_data/visa_common.py vp_data/tracking.py
-  reports/latex/ProyectoI_VisaPredictAI.tex reports/governance/key_facts.json
+  reports/governance/key_facts.json
   reports/eda/eda_facts.json
 )
 for p in "${required[@]}"; do
@@ -36,7 +36,7 @@ allowed_root=(
   .gitignore .mypy_cache .pre-commit-config.yaml .pytest_cache .python-version
   .ruff.toml
   .ruff_cache __pycache__ htmlcov lightning_logs
-  ante ante_nf ante_tab ante_tfm aws_gpu data docs experiments locks pipeline
+  ante ante_nf ante_tab ante_tfm aws_gpu data docs experiments latex_repo locks pipeline
   reports requirements security tests tools vp_data vp_model
   mlartifacts mlflow.db mlflow.db.dvc mlruns mlruns_staging models models.dvc
   visapredictai.egg-info

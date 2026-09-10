@@ -19,7 +19,7 @@ desarrollo local `du` incluye además regenerables gitignored — para el tamañ
 | Manifiesto + contratos | git (`reports/release/`, `vp_data/contracts/`) | <1 MB | permanente | loader web (B2/B3) | `make release-manifest` |
 | Modelo de embeddings (~118 MB q8) + ORT wasm | `public/` del web (gitignored el modelo; ORT vendorizado) | web public/ 190 MB | por versión de modelo | VisaBot (consent-gated) | HF hub / re-vendorizar |
 | Locks por perfil + SBOM | git (`locks/`) + artefacto CI semanal (30 días) | ~0 | por upgrade auditado | instalaciones/audit | `make lock` |
-| PDFs LaTeX compilados | artefactos del gate CI (14 días) — NUNCA en git | — | 14 días | revisión del autor | re-run del gate / Overleaf |
+| Proyectos y PDFs LaTeX | `UACJ-MIAAD/VisaPredictAI_LaTeX`; PDFs como artefactos de CI (14 días), nunca en git | — | fuentes permanentes; PDFs 14 días | revisión del autor / Overleaf | clone / re-run del gate |
 
 ## Reglas
 
@@ -28,8 +28,10 @@ desarrollo local `du` incluye además regenerables gitignored — para el tamañ
    externo (S3) o receta de regeneración.
 2. **El web no duplica historia**: consume el corte VIGENTE por manifiesto+hashes (B2);
    sus `public/data/` son fallbacks del último corte, reemplazados, no acumulados.
-3. **Overleaf compila desde git** — `reports/latex/` completo (fuentes+figuras) permanece
-   en git sin excepción (crítico: Figures/ no se mueve, don't #7 del proyecto).
+3. **Overleaf compila desde el repo documental** — fuentes, figuras y paper viven en
+   `UACJ-MIAAD/VisaPredictAI_LaTeX`; el repo de datos conserva sólo cinco exportaciones
+   generadas hasta que exista un protocolo transaccional para mover también su producción
+   (ADR 0004).
 4. **Jamás reescribir historia sin decisión y backup** — el único rewrite sancionado fue
    el 20-jun-2026 (limpieza de autoría, con backup en `~/visapredict_backup_20jun/`).
 5. **Crecimiento vigilado, poda deliberada**: si reports/ o .git crecen material y

@@ -51,7 +51,7 @@ def _f3_existe() -> None:
 
 
 def _tex(nombre: str) -> str:
-    return (ROOT / CONTRACTS[nombre]["tex"]).read_text()
+    return cc._repo_path(CONTRACTS[nombre]["tex"]).read_text()
 
 
 def _json(nombre: str) -> dict:
@@ -213,7 +213,7 @@ class TestTheFrozenProposalIsNotRewritten:
 class TestTheBenignCasesStaySilent:
     def test_a_contract_whose_files_exist_and_agree_reports_nothing(self) -> None:
         for contrato in RULES["tex_json"]:
-            tex = (ROOT / contrato["tex"]).read_text()
+            tex = cc._repo_path(contrato["tex"]).read_text()
             data = json.loads((ROOT / contrato["json"]).read_text())
             fn = cc._macros_contract if contrato["kind"] == "macros" else cc._table_contract
             assert fn(contrato, tex, data) == []

@@ -1,6 +1,6 @@
 # Guardián de consistencia — la máxima del proyecto
 
-> **TODO 100% alineado SIEMPRE.** web · LaTeX entregable · paper MICAI · RAG · README · docs
+> **TODO 100% alineado SIEMPRE.** web · repo LaTeX · RAG · README · docs
 > deben dar el **mismo número y claim**. Una cifra desalineada es una grieta que un revisor
 > explota. Este mecanismo lo **automatiza**: una fuente única de verdad + un linter que rompe
 > el build si cualquier artefacto deriva.
@@ -8,12 +8,10 @@
 ## Cómo funciona
 
 ```
-datos/reportes ──► experiments/build_key_facts.py ──► reports/governance/key_facts.json   (FUENTE DE VERDAD)
-                                                  └──► reports/latex/key_facts.tex (macros \factXxx)
-                                                              │
-tools/consistency_rules.yml ──► tools/check_consistency.py ──┤ compara los artefactos
-                                                              ▼
-        web / ProyectoI.tex / paper.tex / README / docs  ──► ✓ o ✗ (falla el build)
+datos/reportes ──► key_facts.json ──► cinco exportaciones .tex del pipeline
+                                          │ igualdad byte a byte
+                                          ▼
+tools/consistency_rules.yml ──► repo LaTeX / web / README / docs ──► ✓ o ✗
 ```
 
 - **`reports/governance/key_facts.json`** — cifras canónicas **computadas del pipeline** (n series, obs,
@@ -36,15 +34,15 @@ tools/consistency_rules.yml ──► tools/check_consistency.py ──┤ compa
 
 ```bash
 make key-facts     # regenera la fuente de verdad desde los datos
-make consistency   # verifica que TODO esté alineado (incluye el repo web si está como hermano)
+make consistency   # verifica TODO; usa los repos web y LaTeX cuando están montados
 make check         # validate + consistency + lint + typecheck + test
 ```
 
 ## Dónde se aplica
 
-- **CI** (`ci.yml`, job `consistency`): en cada push/PR; hace checkout best-effort del repo
-  web (`UACJ-MIAAD/VisaPredictAI_WEB`) para chequeo cross-repo (si es inaccesible, valida solo
-  el repo de datos y avisa). Variable `VP_WEB_DIR` reubica el repo web.
+- **CI** (`ci.yml`, job `consistency`): en cada push/PR; monta el web como best-effort y el
+  repo `UACJ-MIAAD/VisaPredictAI_LaTeX` como dependencia requerida. `VP_WEB_DIR` y
+  `VP_LATEX_DIR` reubican ambos checkouts.
 - **Action del boletín** (`freeze_and_rebuild.yml`): tras un boletín nuevo regenera
   `key_facts.json` con las cifras frescas, de modo que el guardián siga siendo significativo.
 
