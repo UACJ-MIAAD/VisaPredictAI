@@ -194,6 +194,11 @@ forbidden:
   - pattern: 'actualiza este feed autom|updates this feed automatically|se actualiza autom\w+ (en cuanto|as soon)'
     in: [web]
     reason: 'F2: la fuente está tras un WAF desde el 6-ago-2026 y los dos últimos boletines entraron a mano; el sitio NO puede prometer ingesta automática'
+  # G2: la misma amenaza, del lado de los documentos. `\S*n` cubre las dos escrituras del
+  # acento que conviven en el .tex (intervención e intervenci\'on) sin necesitar una comilla.
+  - pattern: 'sin (necesidad de )?intervenci\S*n (manual|humana)'
+    in: [deliverable, paper, proposal, docs, readmes, governance]
+    reason: 'G2: la fuente publica tras un cortafuegos que rechaza clientes automatizados y la ingesta del mes es semiautomática; ningún documento puede prometer operación desatendida (el estado vigente lo publica reports/governance/ingestion_state.json)'
   - pattern: 'holgura|holgada'
     in: [deliverable, paper, proposal, docs]
     reason: 'el deep NO gana DFF "con holgura"; es ventaja modesta ~11% y frágil'

@@ -9,6 +9,13 @@ se omiten de la colección (en el job de modelado sí están y se ejecutan).
 """
 
 import importlib.util
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
 
 # D2-C: los warnings de la suite son un CONTRATO. `error` global = cualquier warning nuevo hace
 # fallar su test, SIN supresión global (prohibido `ignore::Warning`). Las únicas excepciones son
@@ -70,3 +77,88 @@ _MODEL_TESTS = [
 # `statsmodels` es del extra `model`; su ausencia marca el job base sin la capa de modelado.
 if importlib.util.find_spec("statsmodels") is None:
     collect_ignore = _MODEL_TESTS
+
+
+# ---------------------------------------------------------------------------
+# Andamiaje compartido para las pruebas que corren el guardián de verdad sobre una COPIA
+# del repositorio. Vive aquí y no en un archivo de pruebas porque ya lo usan dos, y una
+# copia divergente es justo como se coló el defecto del checkout anidado de M66.
+# ---------------------------------------------------------------------------
+RAIZ = Path(__file__).resolve().parents[1]
+DELIVERABLE = "reports/latex/ProyectoI_VisaPredictAI.tex"
+
+_latex_raw = os.environ.get("VP_LATEX_DIR")
+LATEX_ROOT = (
+    ((RAIZ / _latex_raw) if _latex_raw and not Path(_latex_raw).is_absolute() else Path(_latex_raw))
+    if _latex_raw
+    else RAIZ.parent / "VisaPredictAI_LaTeX"
+)
+LATEX_ROOT = LATEX_ROOT.resolve()
+
+
+def nombre_si_cuelga_del_repo(destino: Path) -> str | None:
+    """Nombre de primer nivel de `destino` si vive DENTRO de `RAIZ`; `None` si es hermano.
+
+    En local el repositorio LaTeX es hermano del de datos; en CI se hace checkout en
+    `RAIZ/latex_repo` (`VP_LATEX_DIR`). Se deriva del valor efectivo en vez de teclear el
+    nombre: si el workflow cambia la ruta del checkout, esto la sigue.
+    """
+    try:
+        partes = destino.relative_to(RAIZ).parts
+    except ValueError:
+        return None
+    return partes[0] if partes else None
+
+
+def ignore_para(latex_root: Path):
+    """Qué se deja fuera de la copia del repositorio de datos.
+
+    Cuando el repositorio LaTeX cuelga del de datos hay que excluirlo de la PRIMERA copia: la
+    SEGUNDA lo copia a propósito a `work/latex_repo` y, si ya estaba, `copytree` revienta con
+    `FileExistsError`. En local no pasaba porque allí el repositorio es hermano.
+    """
+    anidado = nombre_si_cuelga_del_repo(latex_root)
+    return shutil.ignore_patterns(
+        ".git",
+        "ante",
+        "ante_nf",
+        ".vp_envs",
+        "data",
+        "models",
+        "mlartifacts",
+        "mlruns_staging",
+        "node_modules",
+        ".dvc",
+        "__pycache__",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".pytest_cache",
+        *((anidado,) if anidado else ()),
+    )
+
+
+@pytest.fixture(scope="session")
+def repo_guardian(tmp_path_factory) -> Path:
+    """Copia del repositorio de datos con el documental montado en `latex_repo`."""
+    work = tmp_path_factory.mktemp("guard") / "repo"
+    shutil.copytree(RAIZ, work, symlinks=True, ignore=ignore_para(LATEX_ROOT))
+    shutil.copytree(
+        LATEX_ROOT,
+        work / "latex_repo",
+        ignore=shutil.ignore_patterns(".git", "*.pdf", "*.log", "*.aux", "*.out", "*.toc", "*.lof", "*.lot"),
+    )
+    return work
+
+
+def sembrar_y_correr(repo: Path, frase: str) -> subprocess.CompletedProcess:
+    """Añade `frase` al entregable de la copia, corre el guardián y restaura el archivo."""
+    target = repo / "latex_repo" / DELIVERABLE
+    original = target.read_text(encoding="utf-8")
+    try:
+        target.write_text(original + f"\n\n{frase}\n", encoding="utf-8")
+        env = {**os.environ, "VP_LATEX_DIR": "latex_repo"}
+        return subprocess.run(
+            [sys.executable, "tools/check_consistency.py"], cwd=repo, env=env, capture_output=True, text=True
+        )
+    finally:
+        target.write_text(original, encoding="utf-8")
