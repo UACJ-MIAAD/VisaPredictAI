@@ -8,11 +8,16 @@ lleva unidad/población/fuente/añada, y la vista anidada jamás emite macros La
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+
+import check_consistency as cc  # noqa: E402
+
 KF = json.loads((ROOT / "reports" / "governance" / "key_facts.json").read_text())
-TEX = (ROOT / "reports" / "latex" / "key_facts.tex").read_text()
+TEX = cc._repo_path("reports/latex/key_facts.tex").read_text()
 
 NAMESPACES = {"data", "eda", "model", "backfill", "prospective", "governance"}
 

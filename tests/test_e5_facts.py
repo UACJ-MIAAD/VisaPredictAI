@@ -19,12 +19,15 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tools"))
+
+import check_consistency as cc  # noqa: E402
 
 FACTS = ROOT / "reports" / "governance" / "e5_facts.json"
-MACROS = ROOT / "reports" / "latex" / "cohorts_facts.tex"
-TABLA = ROOT / "reports" / "latex" / "cohortes.tex"
-TEX = ROOT / "reports" / "latex" / "ProyectoI_VisaPredictAI.tex"
-FIGURA = ROOT / "reports" / "latex" / "Figures" / "e5_router_effect.pdf"
+MACROS = cc._repo_path("reports/latex/cohorts_facts.tex")
+TABLA = cc._repo_path("reports/latex/cohortes.tex")
+TEX = cc._repo_path("reports/latex/ProyectoI_VisaPredictAI.tex")
+FIGURA = cc._repo_path("reports/latex/Figures/e5_router_effect.pdf")
 FUENTES = {
     "cohorts": ROOT / "reports" / "eval" / "series_cohorts.json",
     "scan": ROOT / "reports" / "eval" / "cohort_scan.json",

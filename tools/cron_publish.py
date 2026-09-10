@@ -48,14 +48,11 @@ ALLOWLIST: dict[str, tuple[str, ...]] = {
         "dvc.lock",
         "reports/prospective/",
         "reports/governance/",
-        "reports/latex/key_facts.tex",
     ),
     "eda": (
         "dvc.lock",
         "reports/eda/",
         "reports/fe/",
-        "reports/latex/fe_facts.tex",
-        "reports/latex/Figures/",
     ),
     # A-01 (auditoria ciega 11-jul): el manifiesto de release se emite en su PROPIO paso
     # BLOQUEANTE del cron (tras datos+modelo+EDA), nunca dentro del bloque opcional.

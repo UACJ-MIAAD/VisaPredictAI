@@ -11,6 +11,7 @@ el guardián de verdad: dos que deben tumbarlo y dos controles que deben pasar.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,13 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 RULES = ROOT / "tools" / "consistency_rules.yml"
 DELIVERABLE = "reports/latex/ProyectoI_VisaPredictAI.tex"
+_latex_raw = os.environ.get("VP_LATEX_DIR")
+LATEX_ROOT = (
+    ((ROOT / _latex_raw) if _latex_raw and not Path(_latex_raw).is_absolute() else Path(_latex_raw))
+    if _latex_raw
+    else ROOT.parent / "VisaPredictAI_LaTeX"
+)
+LATEX_ROOT = LATEX_ROOT.resolve()
 
 IGNORE = shutil.ignore_patterns(
     ".git",
@@ -49,15 +57,23 @@ def _n_months() -> int:
 def repo(tmp_path_factory) -> Path:
     work = tmp_path_factory.mktemp("guard") / "repo"
     shutil.copytree(ROOT, work, symlinks=True, ignore=IGNORE)
+    shutil.copytree(
+        LATEX_ROOT,
+        work / "latex_repo",
+        ignore=shutil.ignore_patterns(".git", "*.pdf", "*.log", "*.aux", "*.out", "*.toc", "*.lof", "*.lot"),
+    )
     return work
 
 
 def _seed_and_run(repo: Path, phrase: str) -> subprocess.CompletedProcess:
-    target = repo / DELIVERABLE
+    target = repo / "latex_repo" / DELIVERABLE
     original = target.read_text(encoding="utf-8")
     try:
         target.write_text(original + f"\n\n{phrase}\n", encoding="utf-8")
-        return subprocess.run([sys.executable, "tools/check_consistency.py"], cwd=repo, capture_output=True, text=True)
+        env = {**os.environ, "VP_LATEX_DIR": "latex_repo"}
+        return subprocess.run(
+            [sys.executable, "tools/check_consistency.py"], cwd=repo, env=env, capture_output=True, text=True
+        )
     finally:
         target.write_text(original, encoding="utf-8")
 

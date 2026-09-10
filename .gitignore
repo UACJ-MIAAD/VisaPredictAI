@@ -5,13 +5,11 @@ __pycache__/
 
 # Generated figures: regenerate with `make figures` (not versioned -- avoids binary git bloat)
 figures/
-# ...pero las figuras del proyecto LaTeX SÍ se versionan: Overleaf las compila desde GitHub.
-!reports/latex/Figures/
-!reports/latex/Figures/**
-reports/latex/Figures/.DS_Store
-# Figuras del paper MICAI (PDF vectoriales; Overleaf las importa de GitHub igual que el deliverable)
-!reports/paper_micai/Figures/
-!reports/paper_micai/Figures/**
+# M66: los proyectos compilables viven en UACJ-MIAAD/VisaPredictAI_LaTeX. El pipeline
+# aún puede materializar estas rutas como efectos locales, pero este repo no las versiona.
+reports/latex/Figures/
+reports/paper_micai/
+/latex_repo/
 
 # Tooling caches / coverage artifacts
 .coverage

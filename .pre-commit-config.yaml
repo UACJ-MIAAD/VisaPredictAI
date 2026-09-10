@@ -37,20 +37,6 @@ repos:
         language: system
         stages: [commit-msg]
 
-  # ── tipografía del entregable: proscribe la raya larga (—) en ProyectoI ──
-  # Corre en commit Y push. Solo el .tex del ProyectoI; MICAI y otros quedan fuera.
-  - repo: local
-    hooks:
-      - id: no-emdash-proyecto-i
-        name: sin raya larga (—) como inciso en ProyectoI_VisaPredictAI.tex
-        # A5: `python` del PATH (venv activo), no `ante/bin/python` — portable a CI y
-        # a clones sin el venv local; activar `source ante/bin/activate` antes de commitear.
-        entry: python tools/check_no_emdash.py
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [pre-commit, pre-push]
-
   # ── fast offline tests + typecheck (alineado con CI: cierra el gap pre-commit↔CI) ──
   - repo: local
     hooks:

@@ -29,7 +29,7 @@ import check_consistency as cc  # noqa: E402
 
 RULES = yaml.safe_load((ROOT / "tools" / "consistency_rules.yml").read_text())
 FACTS = json.loads((ROOT / "reports" / "governance" / "key_facts.json").read_text())
-PAPER = ROOT / "reports" / "paper_micai" / "paper.tex"
+PAPER = cc._repo_path("reports/paper_micai/paper.tex")
 CUERPO = [ln for ln in PAPER.read_text().splitlines() if not ln.lstrip().startswith("%")]
 NUEVAS = ("prosp_mase", "prosp_cov95", "ets_fad_mean")
 

@@ -8,7 +8,7 @@ imports, no grep de substrings). La dirección solo apunta hacia abajo:
 ```
 experiments/   entrypoints y orquestación (campañas, generadores, runners del cron)
     │  puede importar cualquiera
-tools/         gates y CLIs (consistencia, contratos, publish, locks, LaTeX log)
+tools/         gates y CLIs (consistencia, contratos, publish, locks)
     │  → vp_data, vp_model
 vp_model/      dominio de modelado: métricas, walk-forward, intervalos, ledger,
     │          promoción, significancia, paleta        → vp_data
@@ -37,18 +37,20 @@ vp_data/       dominio de datos: parseo, limpieza, config, contratos, tracking
 3. **Dominio sin MLflow/DVC**: reglas de visas, métricas y postproceso se importan y
    prueban sin ninguno de los dos (el DAG los orquesta desde fuera).
 
-## Fronteras del workspace (ADR-0001)
+## Fronteras del workspace (ADR-0001 + ADR-0004)
 
-Las fronteras del proyecto completo — este mapa de capas, el porqué de **dos repos +
-una superficie documental** (no "tres repos" ni monorepo), el contrato del repo web
+Las fronteras del proyecto completo — este mapa de capas, el contrato del repo web
 (consume EXCLUSIVAMENTE releases content-addressed vía `release_manifest.json` +
 verificación SHA-256; jamás importa código) y el estado PROPUESTA de la migración a
 `src/visapredictai` (US B2) con sus prerequisitos — están decididas y justificadas en
-**[`docs/adr/0001-project-boundaries.md`](adr/0001-project-boundaries.md)**. Ese ADR
-es la fuente de verdad de las fronteras; este documento solo detalla el mapa de capas
+**[`docs/adr/0001-project-boundaries.md`](adr/0001-project-boundaries.md)**. La antigua
+decisión de conservar la superficie documental dentro de datos fue reemplazada por
+**[`docs/adr/0004-dedicated-latex-repository.md`](adr/0004-dedicated-latex-repository.md)**:
+el workspace tiene ahora tres repositorios y Overleaf compila exclusivamente
+`UACJ-MIAAD/VisaPredictAI_LaTeX`. Este documento solo detalla el mapa de capas
 y los puertos del repo de datos. La regla "ningún paquete de dominio nuevo en la
 raíz" la hace cumplir el whitelist de `tools/validate_structure.sh` (`make validate`,
-CI); el ADR la registra, el test de arquitectura la referencia sin duplicarla.
+CI); los ADR la registran, el test de arquitectura la referencia sin duplicarla.
 
 ## Decisiones deliberadas (no "faltantes")
 

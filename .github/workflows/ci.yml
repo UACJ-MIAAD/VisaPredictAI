@@ -66,6 +66,8 @@ jobs:
 
   lint-and-test:
     runs-on: ubuntu-latest
+    env:
+      VP_LATEX_DIR: latex_repo
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
         with:
@@ -73,6 +75,12 @@ jobs:
           # llama check() sobre el repo real) y el check del sha es fail-closed en
           # shallow — SU ESTRENO cazó este checkout depth-1 en el primer run.
           fetch-depth: 0
+
+      - name: Checkout the canonical LaTeX repo
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          repository: UACJ-MIAAD/VisaPredictAI_LaTeX
+          path: latex_repo
 
       - name: Validate project structure contract
         run: bash tools/validate_structure.sh
@@ -110,6 +118,8 @@ jobs:
   # aparte. Sin él, los tests de vp_model se saltan en silencio (importorskip).
   model-tests:
     runs-on: ubuntu-latest
+    env:
+      VP_LATEX_DIR: latex_repo
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
         with:
@@ -117,6 +127,12 @@ jobs:
           # test_contracts, cuyo check del sha del manifiesto es fail-closed en
           # clones shallow) — mismo motivo que lint-and-test.
           fetch-depth: 0
+
+      - name: Checkout the canonical LaTeX repo
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          repository: UACJ-MIAAD/VisaPredictAI_LaTeX
+          path: latex_repo
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
@@ -221,6 +237,11 @@ jobs:
         with:
           repository: UACJ-MIAAD/VisaPredictAI_WEB
           path: web_repo
+      - name: Checkout the canonical LaTeX repo (required)
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          repository: UACJ-MIAAD/VisaPredictAI_LaTeX
+          path: latex_repo
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: '3.14'
@@ -228,6 +249,7 @@ jobs:
       - name: Check artifact consistency
         env:
           VP_WEB_DIR: web_repo
+          VP_LATEX_DIR: latex_repo
         run: python tools/check_consistency.py
       # B3 (plan auditoría 2026-07-11): contratos cross-repo — columnas/llaves requeridas
       # de cada artefacto publicado + corte de añada única. Cero dependencias.

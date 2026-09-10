@@ -44,7 +44,7 @@ def test_data_stage_owns_the_cleaning_ledger() -> None:
     assert "reports/governance/key_facts.json" in reject  # eso lo publica el bloque de modelado
 
 
-def test_eda_stage_covers_galleries_reports_and_tex_figures() -> None:
+def test_eda_stage_publishes_data_reports_but_not_latex_outputs() -> None:
     dirty = [
         "reports/eda/eda_facts.json",
         "reports/eda/gallery/en/dark/g01_panel.png",
@@ -54,8 +54,12 @@ def test_eda_stage_covers_galleries_reports_and_tex_figures() -> None:
         "reports/latex/ProyectoI_VisaPredictAI.tex",  # el .tex del deliverable NO lo toca el cron
     ]
     publish, reject = cp.partition(dirty, "eda")
-    assert len(publish) == 5
-    assert reject == ["reports/latex/ProyectoI_VisaPredictAI.tex"]
+    assert len(publish) == 3
+    assert reject == [
+        "reports/latex/fe_facts.tex",
+        "reports/latex/Figures/eda3_g01.pdf",
+        "reports/latex/ProyectoI_VisaPredictAI.tex",
+    ]
 
 
 def test_out_of_scope_paths_are_ignored_entirely() -> None:
