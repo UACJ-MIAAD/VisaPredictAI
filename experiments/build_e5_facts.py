@@ -20,7 +20,11 @@ import json
 import re
 from pathlib import Path
 
+# `etiqueta_celda` es la autoridad ÚNICA del nombre visible de una cohorte: la comparten este
+# JSON, la tabla del `.tex` y la figura. En M65 cada superficie se la construía por su cuenta y
+# la misma celda salía como «inestable» en una y «no_estable» en la otra.
 from vp_model.provenance import ruta_legible
+from vp_model.stability import etiqueta_celda
 
 ROOT = Path(__file__).resolve().parent.parent
 EVAL = ROOT / "reports" / "eval"
@@ -154,7 +158,7 @@ def construir() -> dict:
         # Vista agrupada para el contrato `table` del guardián (F3), que indexa por (grupo, h):
         # con las cuatro celdas como grupos, la clave es única y no hace falta tocar el checker.
         **{
-            etiqueta(t, c): {
+            etiqueta_celda(t, c): {
                 "rows": [
                     {
                         "h": f["h"],
@@ -198,16 +202,6 @@ def macros(facts: dict) -> str:
     return "\n".join(lineas) + "\n"
 
 
-def etiqueta(table: str, cohort: str) -> str:
-    """Nombre de la celda usado a la vez como clave del JSON y como texto del `.tex`.
-
-    Se escribe «inestable» y no «no_estable» porque el guion bajo obliga a escaparlo en LaTeX, y
-    entonces la celda del `.tex` deja de ser literalmente igual a la clave del JSON — que es
-    justo lo que el contrato compara. La etiqueta se DERIVA de la cohorte, no se teclea.
-    """
-    return f"{table}/{'inestable' if cohort == 'no_estable' else cohort}"
-
-
 def _tex(texto: str) -> str:
     """Escapa lo que LaTeX trata como especial. El guion bajo de ``no_estable`` rompía la
     compilación con «Missing $ inserted»: en modo texto, `_` abre un subíndice."""
@@ -219,7 +213,7 @@ def tabla(facts: dict) -> str:
     filas = []
     previa = None
     for f in facts["router_rows"]:
-        celda = etiqueta(f["table"], f["cohort"])
+        celda = etiqueta_celda(f["table"], f["cohort"])
         primera = _tex(celda) if celda != previa else ""
         previa = celda
         # El contrato `table` de F3 espera el booleano como $\checkmark$ / --; se respeta tal cual.

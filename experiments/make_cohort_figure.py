@@ -25,6 +25,11 @@ from make_latinometrics_figures import MES  # sys.path[0] = experiments/
 
 from vp_model import palette as _palette
 
+# El nombre visible de la cohorte sale de la MISMA autoridad que usa la tabla del `.tex`.
+# Construirlo aquí por separado es lo que hizo que la tabla dijera «inestable» y la figura
+# «no_estable» para la misma celda, dos páginas seguidas (M65).
+from vp_model.stability import etiqueta_celda
+
 ROOT = Path(__file__).resolve().parent.parent
 FACTS = ROOT / "reports" / "governance" / "e5_facts.json"
 PNG_ROOT = ROOT / "reports" / "figures" / "cohorts"
@@ -81,7 +86,7 @@ def context_for(lang: str, theme: str) -> FigureContext:
 def fig_router_effect(facts: dict, ctx: FigureContext) -> plt.Figure:
     """Barras horizontales del efecto por celda × horizonte, con el margen material."""
     filas = facts["router_rows"]
-    etiquetas = [f"{f['table']}/{f['cohort']}  h={f['h']}" for f in filas]
+    etiquetas = [f"{etiqueta_celda(f['table'], f['cohort'])}  h={f['h']}" for f in filas]
     efectos = np.array([f["effect"] for f in filas], dtype="float64")
     signif = [f["significant"] for f in filas]
     pal = ctx.theme.colors
@@ -102,16 +107,21 @@ def fig_router_effect(facts: dict, ctx: FigureContext) -> plt.Figure:
         ax.axvline(signo * facts["RouterMargen"], lw=0.9, ls="--", color=pal["GOLD"])
     ax.set_yticks(y, etiquetas, fontsize=8)
     ax.invert_yaxis()
+    # Banda reservada ARRIBA, derivada del número de filas, para la leyenda del margen. Antes
+    # el texto se anclaba en `len(filas) - 0.2`, es decir FUERA del área de trazado, y la línea
+    # del eje lo atravesaba (M65: sólo se ve abriendo el PDF).
+    ax.set_ylim(len(filas) - 0.5, -1.25)
     ax.set_xlabel(ctx.lang.txt["x"], fontsize=9)
     ax.tick_params(axis="x", labelsize=8)
     ax.spines[["top", "right"]].set_visible(False)
     ax.text(
         facts["RouterMargen"],
-        len(filas) - 0.2,
+        -0.85,
         f"  {ctx.lang.txt['margin']}",
         fontsize=7.5,
         color=pal["GOLD"],
-        va="top",
+        va="center",
+        ha="left",
     )
     header(fig, ctx.lang.txt["headline"], ctx.lang.txt["sub"], ctx)
     footer(fig, VINTAGE, ctx, extra=ctx.lang.txt["foot"])

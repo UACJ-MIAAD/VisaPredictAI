@@ -37,6 +37,7 @@ from vp_model.preprocess import to_regular_monthly_causal
 from vp_model.scale import naive_scale_before
 
 __all__ = [
+    "COHORTES",
     "FEATURE_NAMES",
     "RECENT_WINDOW_MONTHS",
     "RETRO_RATE_MAX",
@@ -45,7 +46,9 @@ __all__ = [
     "PreSplitFeatures",
     "annotate",
     "classify",
+    "etiqueta_celda",
     "holdout_start",
+    "nombre_visible",
     "pre_split",
     "pre_split_features",
 ]
@@ -56,6 +59,12 @@ RULE_VERSION = "1.0.0"
 #: Umbrales de RULE v1.0.0, registrados ANTES de mirar ningún resultado de modelado.
 RETRO_RATE_MAX = 0.02
 WORST_RETRO_SCALED_MAX = 5.0
+
+#: Las DOS cohortes que produce ``classify``. No hay una tercera (ver su docstring).
+COHORTES = frozenset({"estable", "no_estable"})
+
+#: Identificador -> nombre visible. Sólo cambia el que lleva guion bajo; ver ``nombre_visible``.
+_NOMBRE_VISIBLE = {"no_estable": "inestable"}
 
 #: Ventana de recencia de la anotación ``retro_reciente`` (meses antes del corte).
 RECENT_WINDOW_MONTHS = 36
@@ -168,6 +177,30 @@ def classify(f: PreSplitFeatures) -> str:
             raise ValueError(f"{nombre} no finito ({valor!r}): la serie no es clasificable por RULE v{RULE_VERSION}")
     inestable = f.retro_rate_pre > RETRO_RATE_MAX or f.worst_retro_scaled_pre > WORST_RETRO_SCALED_MAX
     return "no_estable" if inestable else "estable"
+
+
+def nombre_visible(cohort: str) -> str:
+    """Cómo se PRESENTA una cohorte en la tabla, en la figura y en el texto.
+
+    ``no_estable`` se muestra como «inestable» porque el guion bajo obliga a escaparlo en
+    LaTeX (``no\\_estable``) y entonces la celda del `.tex` deja de ser literalmente igual a
+    la clave del JSON, que es justo lo que compara el contrato `table` del guardián.
+
+    El mapa vive aquí, junto a ``classify``, y no en cada consumidor: en M65 la tabla decía
+    «inestable» y la figura «no_estable» para la MISMA celda, dos páginas seguidas, porque
+    cada superficie se lo construía por su cuenta.
+
+    Falla cerrado ante una cohorte desconocida: si algún día hay una tercera, la surface
+    que no sepa nombrarla debe romperse, no imprimir el identificador crudo.
+    """
+    if cohort not in COHORTES:
+        raise ValueError(f"cohorte desconocida {cohort!r}: RULE v{RULE_VERSION} solo produce {sorted(COHORTES)}")
+    return _NOMBRE_VISIBLE.get(cohort, cohort)
+
+
+def etiqueta_celda(table: str, cohort: str) -> str:
+    """Nombre de una celda tabla×cohorte, único para el JSON, la tabla y la figura."""
+    return f"{table}/{nombre_visible(cohort)}"
 
 
 def annotate(f: PreSplitFeatures) -> dict[str, bool]:
