@@ -134,11 +134,19 @@ módulo es la **única** implementación del gate: el paso E2 lo invoca en vez d
   cacheado. Con la caché DVC vacía —el caso de CI, que nunca hace `dvc pull`— `dvc status`
   responde `not in cache` para ese out **igual de correcto que corrupto que ausente**: ahí esa
   línea no lleva información. Con la caché presente —el hook local— responde `{}`, `modified` o
-  `deleted`. Por eso el gate tolera, **sólo en `database` y sólo con ese texto exacto**, un
-  residuo formado únicamente por outs `not in cache`, y vigila sus **deps**, que es donde el lock
-  llevó semanas desfasado (desde M49/C8) sin que nada lo viera. En local el out queda cubierto.
-  El desfase era **inocuo** —los dos deps sólo cambiaron comentarios y el parquet se reconstruyó
-  byte-idéntico— pero un stage que nadie vigila deja de ser un contrato.
+  `deleted`. Por eso el gate tolera, **sólo en `database`, sólo con ese texto exacto y sólo para
+  el out declarado por nombre** en `CACHE_BACKED_OUTS`, un residuo formado únicamente por outs
+  `not in cache`, y vigila sus **deps**, que es donde el lock llevó semanas desfasado (desde
+  M49/C8) sin que nada lo viera. En local el out queda cubierto. El desfase era **inocuo** —los
+  dos deps sólo cambiaron comentarios y el parquet se reconstruyó byte-idéntico— pero un stage
+  que nadie vigila deja de ser un contrato.
+- ⚠️ **La ruta importa tanto como el texto (M72-R2).** La primera versión de la excepción
+  comprobaba el stage y el valor pero **no el nombre del out**, así que un out cacheado cualquiera
+  —uno añadido al DAG, o el esperado acompañado de otro— se colaba por ella; lo encontró la
+  auditoría del autor. Ahora el conjunto de rutas del residuo debe ser **exactamente** el
+  declarado —sin extras, sin ausentes y sin repetidos entre entradas—, las claves JSON duplicadas
+  se rechazan, y una prueba ancla la declaración a `dvc.yaml` y `dvc.lock`: **añadir un out
+  cacheado al DAG sin decidirlo en el gate lo pone en rojo** en vez de ampliarle la excepción.
 - **Fail-closed:** usa el DVC gobernado (`ante/bin/dvc`, o la ruta en `$VP_DVC`); si falta, si
   `dvc status` termina con error, si la salida no es JSON, no es un objeto o no es `{}`, el push
   se **bloquea** y se listan los stages desfasados. No toca la red ni modifica nada.

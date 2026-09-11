@@ -148,6 +148,35 @@ def test_cache_only_residue_of_database_is_tolerated(tmp_path: Path) -> None:
             {"database": [{"changed outs": {_PARQUET: gate.NOT_IN_CACHE, "otro.parquet": "modified"}}]},
             "un out tolerable no arrastra a otro que no lo es",
         ),
+        # ★ M72-R2: la ruta importa tanto como el texto. Los tres casos que la auditoría del autor
+        # demostró aceptados por la primera versión de la excepción.
+        (
+            {"database": [{"changed outs": {"otro.parquet": gate.NOT_IN_CACHE}}]},
+            "RED del autor: un out AJENO con el texto tolerable",
+        ),
+        (
+            {"database": [{"changed outs": {_PARQUET: gate.NOT_IN_CACHE, "otro.parquet": gate.NOT_IN_CACHE}}]},
+            "RED del autor: el esperado ACOMPAÑADO de otro también not in cache (misma entrada)",
+        ),
+        (
+            {
+                "database": [
+                    {"changed outs": {_PARQUET: gate.NOT_IN_CACHE}},
+                    {"changed outs": {"otro.parquet": gate.NOT_IN_CACHE}},
+                ]
+            },
+            "RED del autor: el esperado y un ajeno en entradas DISTINTAS",
+        ),
+        (
+            {
+                "database": [
+                    {"changed outs": {_PARQUET: gate.NOT_IN_CACHE}},
+                    {"changed outs": {_PARQUET: gate.NOT_IN_CACHE}},
+                ]
+            },
+            "la ruta esperada DUPLICADA entre entradas",
+        ),
+        ({"database": [{"changed outs": {123: gate.NOT_IN_CACHE}}]}, "ruta que no es cadena"),
         ({"panel": [{"changed outs": {"x": gate.NOT_IN_CACHE}}]}, "la excepción NO se extiende a otros stages"),
         ({"database": [{"changed outs": {}}]}, "forma vacía"),
         ({"database": [{"changed outs": {_PARQUET: gate.NOT_IN_CACHE}, "changed deps": {"a": "b"}}]}, "clave extra"),
@@ -161,6 +190,61 @@ def test_anything_beyond_the_cache_residue_still_fails(tmp_path: Path, salida: d
     ok, message = gate.evaluate(root, _fake_runner(json.dumps(salida)), env)
     assert not ok, f"debía bloquear: {motivo}"
     assert "desfasado" in message
+
+
+def test_the_tolerable_out_is_declared_by_name_and_matches_the_dag() -> None:
+    """El out tolerable no se infiere: se declara, y debe coincidir con `dvc.yaml` y `dvc.lock`.
+
+    Así, añadir un out cacheado al DAG sin decidirlo aquí pone el gate en rojo en vez de colarse
+    por la excepción — que es exactamente lo que la primera versión permitía.
+    """
+    declarado = gate.CACHE_BACKED_OUTS["database"]
+    assert declarado == frozenset({_PARQUET})
+    assert gate.CACHE_BACKED_STAGES == frozenset(gate.CACHE_BACKED_OUTS)
+
+    yaml_outs = set(yaml.safe_load((ROOT / "dvc.yaml").read_text(encoding="utf-8"))["stages"]["database"]["outs"])
+    assert yaml_outs == set(declarado), f"dvc.yaml declara {yaml_outs}, el gate {set(declarado)}"
+
+    lock_outs = {
+        o["path"] for o in yaml.safe_load((ROOT / "dvc.lock").read_text(encoding="utf-8"))["stages"]["database"]["outs"]
+    }
+    assert lock_outs == set(declarado), f"dvc.lock declara {lock_outs}, el gate {set(declarado)}"
+
+
+def test_every_declared_cache_backed_out_is_really_cached_in_the_dag() -> None:
+    """Un out `cache: false` vive en git y NO puede acogerse a esta excepción."""
+    dag = yaml.safe_load((ROOT / "dvc.yaml").read_text(encoding="utf-8"))["stages"]
+    for stage, outs in gate.CACHE_BACKED_OUTS.items():
+        declarados = dag[stage]["outs"]
+        for out in declarados:
+            # forma `ruta` (cacheado) frente a `{ruta: {cache: false}}` (git-only)
+            assert not isinstance(out, dict), f"{stage}: {out} no es un out cacheado"
+        assert set(declarados) == set(outs)
+
+
+def test_duplicate_json_keys_are_rejected(tmp_path: Path) -> None:
+    """`json` se queda la ÚLTIMA clave repetida; sin rechazarlas, un `modified` se disfrazaría."""
+    root, env = _fake_dvc(tmp_path)
+    crudo = f'{{"database": [{{"changed outs": {{"{_PARQUET}": "{gate.NOT_IN_CACHE}", "{_PARQUET}": "modified"}}}}]}}'
+    ok, message = gate.evaluate(root, _fake_runner(crudo), env)
+    assert not ok and "duplicadas" in message
+
+
+def test_red_a_foreign_cached_out_no_longer_slips_through(tmp_path: Path) -> None:
+    """RED nominal del hallazgo de M72-R1, con su contraparte benigna al lado.
+
+    La versión anterior comprobaba stage y texto pero no la ruta: `otro.parquet` con el texto
+    tolerable salía aceptado. Aquí se exige que bloquee, y que el out DECLARADO siga pasando.
+    """
+    root, env = _fake_dvc(tmp_path)
+    ajeno = json.dumps({"database": [{"changed outs": {"otro.parquet": gate.NOT_IN_CACHE}}]})
+    ok_ajeno, message = gate.evaluate(root, _fake_runner(ajeno), env)
+    assert not ok_ajeno, "un out cacheado ajeno no puede acogerse a la excepción"
+    assert "database" in message
+
+    esperado = json.dumps({"database": [{"changed outs": {_PARQUET: gate.NOT_IN_CACHE}}]})
+    ok_esperado, _ = gate.evaluate(root, _fake_runner(esperado), env)
+    assert ok_esperado, "el out declarado sí debe seguir tolerándose"
 
 
 def test_red_the_drift_that_this_gate_was_blind_to(tmp_path: Path) -> None:

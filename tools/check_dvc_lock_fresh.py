@@ -14,9 +14,15 @@ artefacto CACHEADO. Con la caché DVC vacía —el caso de CI, que nunca hace ``
 ``dvc status`` responde ``not in cache`` para ese out **igual de correcto que corrupto que
 ausente**: ahí esa línea no lleva información. Con la caché presente —el caso del hook local—
 responde ``{}``, ``modified`` o ``deleted``, y entonces sí la lleva. Medido en ambos contextos.
-Por eso el gate tolera, **sólo en ``database`` y sólo con ese texto exacto**, un residuo formado
-únicamente por outs ``not in cache``, y vigila sus DEPS, que es donde el lock llevó semanas
-desfasado sin que nada lo viera. En local el out queda cubierto de todas formas.
+Por eso el gate tolera, **sólo en ``database``, sólo con ese texto exacto y sólo para el out
+DECLARADO POR NOMBRE en ``CACHE_BACKED_OUTS``**, un residuo formado únicamente por outs
+``not in cache``; vigila sus DEPS, que es donde el lock llevó semanas desfasado sin que nada lo
+viera. En local el out queda cubierto de todas formas.
+
+⚠️ La ruta importa tanto como el texto: M72-R1 comprobaba stage y valor pero no el nombre del out,
+así que un out cacheado cualquiera pasaba por la excepción. Ahora el conjunto de rutas del residuo
+debe ser **exactamente** el declarado —sin extras, sin ausentes y sin repetidos entre entradas— y
+una prueba lo fija contra ``dvc.yaml`` y ``dvc.lock``.
 
 El gate E2 detonó cuatro veces en julio por locks desfasados; este hook lo frena ANTES de
 publicar (ver ``docs/DVC.md``).
@@ -25,9 +31,9 @@ Contrato (fail-closed):
 - Usa el DVC gobernado del proyecto (``ante/bin/dvc`` relativo a la raíz, o la ruta en
   ``$VP_DVC``); si no existe o no es ejecutable, falla.
 - Si ``dvc status`` termina con código distinto de cero, falla.
-- Acepta ``{}`` o, como único residuo, el de caché descrito arriba; JSON inválido, un tipo
-  distinto de objeto, cualquier ``changed deps``, cualquier otro estado de out y cualquier stage
-  distinto de ``database`` fallan y se listan.
+- Acepta ``{}`` o, como único residuo, el de caché descrito arriba; JSON inválido, claves JSON
+  duplicadas, un tipo distinto de objeto, cualquier ``changed deps``, cualquier otro estado de
+  out, una ruta no declarada y cualquier stage sin outs cacheados declarados fallan y se listan.
 - No toca la red ni modifica nada; el remedio se imprime, nunca se aplica.
 
 Uso: ``python tools/check_dvc_lock_fresh.py`` (sale 0 si el lock está al día, 1 si no).
@@ -47,8 +53,15 @@ ROOT = Path(__file__).resolve().parent.parent
 STAGES: tuple[str, ...] = ("panel", "bulletins", "key_facts", "eda_facts", "fe_facts", "database")
 #: `scrape` queda fuera: depende de `data/snapshots`, privado y ausente en un clon limpio.
 EXCLUDED_STAGES: frozenset[str] = frozenset({"scrape"})
-#: Único stage cuyo out vive en la caché DVC y no en git.
-CACHE_BACKED_STAGES: frozenset[str] = frozenset({"database"})
+#: Los outs cacheados tolerables, **declarados por nombre y stage**. No basta con que el stage sea
+#: `database` y el texto sea el esperado: el conjunto de rutas del residuo debe ser EXACTAMENTE
+#: éste. `tests/test_dvc_lock_fresh.py` lo fija contra `dvc.yaml` y `dvc.lock`, así que añadir un
+#: out cacheado al DAG sin decidirlo aquí pone el gate en rojo en vez de colarse por la excepción.
+CACHE_BACKED_OUTS: Mapping[str, frozenset[str]] = {
+    "database": frozenset({"data/processed/visa_panel_long.parquet"}),
+}
+#: Único stage cuyo out vive en la caché DVC y no en git (derivado, no escrito dos veces).
+CACHE_BACKED_STAGES: frozenset[str] = frozenset(CACHE_BACKED_OUTS)
 #: Texto EXACTO de DVC cuando el objeto del out no está en la caché de este clon.
 NOT_IN_CACHE = "not in cache"
 DVC_ENV = "VP_DVC"
@@ -76,24 +89,50 @@ def default_runner(cmd: Sequence[str], cwd: Path) -> subprocess.CompletedProcess
     return subprocess.run(list(cmd), cwd=cwd, capture_output=True, text=True, env=env, check=False)
 
 
+def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Una clave repetida en el JSON no puede colapsarse en silencio: `json` se queda la última.
+
+    Sin esto, un `{"ruta": "not in cache", "ruta": "modified"}` llegaría al gate como una sola
+    entrada tolerable. Mismo criterio que `tools/check_warnings.py` con el registro.
+    """
+    claves = [k for k, _ in pairs]
+    repetidas = sorted({k for k in claves if claves.count(k) > 1})
+    if repetidas:
+        raise ValueError(f"la salida de `dvc status --json` trae claves duplicadas: {repetidas}")
+    return dict(pairs)
+
+
 def _is_cache_only_residue(stage: str, entries: object) -> bool:
-    """¿El residuo de `stage` es SÓLO «el out no está en la caché de este clon»?
+    """¿El residuo de `stage` es SÓLO «el out DECLARADO no está en la caché de este clon»?
+
+    Se exigen tres cosas, y las tres: el stage tiene outs cacheados declarados, **cada valor** es
+    el texto exacto de DVC, y **el conjunto de rutas es EXACTAMENTE el declarado** — sin rutas de
+    más, sin rutas de menos y sin repetir una ruta entre entradas.
+
+    ⚠️ La primera versión (M72-R1) comprobaba stage y texto pero **no la ruta**, así que un out
+    cacheado cualquiera —uno añadido al DAG, o el esperado acompañado de otro— pasaba por la
+    excepción. Lo encontró la auditoría del autor; el RED vive en `tests/test_dvc_lock_fresh.py`.
 
     Fail-closed por construcción: cualquier `changed deps`, cualquier otro valor de out
-    (`modified`, `deleted`, …), una forma inesperada o un stage que no sea de caché devuelven
-    ``False`` y el gate falla. La tolerancia no puede crecer por accidente.
+    (`modified`, `deleted`, …), una forma inesperada o un stage sin outs cacheados declarados
+    devuelven ``False`` y el gate falla. La tolerancia no puede crecer por accidente.
     """
-    if stage not in CACHE_BACKED_STAGES or not isinstance(entries, list) or not entries:
+    esperados = CACHE_BACKED_OUTS.get(stage)
+    if esperados is None or not isinstance(entries, list) or not entries:
         return False
+    vistas: list[str] = []
     for entry in entries:
         if not isinstance(entry, dict) or set(entry) != {"changed outs"}:
             return False
         outs = entry["changed outs"]
         if not isinstance(outs, dict) or not outs:
             return False
-        if any(value != NOT_IN_CACHE for value in outs.values()):
-            return False
-    return True
+        for path, value in outs.items():
+            if not isinstance(path, str) or value != NOT_IN_CACHE:
+                return False
+            vistas.append(path)
+    # igualdad EXACTA del conjunto y sin duplicados entre entradas
+    return len(vistas) == len(esperados) and set(vistas) == esperados
 
 
 def _blocking(status: Mapping[str, object]) -> dict[str, object]:
@@ -123,9 +162,11 @@ def evaluate(root: Path, runner: Runner, env: Mapping[str, str]) -> tuple[bool, 
         err = (result.stderr or result.stdout or "").strip()
         return False, f"✗ dvc-lock-fresh: `dvc status` terminó con código {result.returncode}\n  {err[:400]}"
     try:
-        status = json.loads(result.stdout)
+        status = json.loads(result.stdout, object_pairs_hook=_reject_duplicate_keys)
     except json.JSONDecodeError as exc:
         return False, f"✗ dvc-lock-fresh: la salida de `dvc status --json` no es JSON válido ({exc})"
+    except ValueError as exc:
+        return False, f"✗ dvc-lock-fresh: {exc}"
     if not isinstance(status, dict):
         return False, f"✗ dvc-lock-fresh: la salida de `dvc status --json` no es un objeto ({type(status).__name__})"
     blocking = _blocking(status)

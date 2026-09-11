@@ -170,8 +170,9 @@ jobs:
         # database SÍ entra (M72-R1, #57): el paso anterior lo construye, y su lock llevaba
         # semanas desfasado sin que nada lo viera porque nadie lo vigilaba. ⚠️ Su OUT no es
         # verificable aquí —con la caché vacía DVC dice "not in cache" tanto si el parquet es
-        # correcto como si está corrupto o ausente—, así que el checker tolera ESE residuo exacto
-        # y vigila sus DEPS; en local, con caché, el out también queda cubierto.
+        # correcto como si está corrupto o ausente—, así que el checker tolera ESE residuo exacto,
+        # y SÓLO para el out declarado por nombre, y vigila sus DEPS; en local, con caché, el out
+        # también queda cubierto.
         run: |
           pip install "dvc==3.67.1"
           VP_DVC="$(command -v dvc)" python tools/check_dvc_lock_fresh.py
