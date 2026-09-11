@@ -390,6 +390,74 @@ def test_the_detector_separates_broad_from_narrow(tmp_path: Path, llamada: str, 
     assert bool(encontrado) is amplia, f"{llamada!r} clasificada al revés: {encontrado}"
 
 
+@pytest.mark.parametrize(
+    "llamada,amplia,motivo",
+    [
+        # ── H12: huecos que el detector de M72-R2 dejaba pasar ──────────────────────────────
+        ("warnings.filterwarnings(action='ignore')", True, "`action` por keyword"),
+        ("warnings.simplefilter('ignore', Warning)", True, "2.º posicional de simplefilter es la CATEGORÍA"),
+        ("warnings.filterwarnings('ignore', '.*')", True, "patrón de mensaje universal"),
+        ("warnings.filterwarnings('ignore', '^')", True, "patrón que casa con todo"),
+        ("warnings.filterwarnings('ignore', message='.*')", True, "universal por keyword"),
+        ("warnings.catch_warnings(action='ignore')", True, "catch_warnings(action=…) de 3.11+"),
+        ("warnings.filterwarnings('ignore', *opciones)", True, "posicionales opacos"),
+        ("warnings.filterwarnings('ignore', category=builtins.Warning)", True, "categoría raíz por atributo"),
+        # ── y lo que SIGUE siendo estrecho, para que el endurecimiento no se pase de frenada ──
+        ("warnings.simplefilter('ignore', DeprecationWarning)", False, "categoría concreta en simplefilter"),
+        ("warnings.filterwarnings('ignore', 'boom concreto')", False, "mensaje literal como 2.º posicional"),
+        ("warnings.filterwarnings('ignore', message='boom', category=Warning)", False, "mensaje acota"),
+        ("warnings.catch_warnings(action='ignore', category=DeprecationWarning)", False, "categoría acota"),
+        ("warnings.catch_warnings()", False, "sin acción no filtra nada"),
+        ("warnings.filterwarnings('always')", False, "no suprime"),
+    ],
+)
+def test_the_detector_understands_each_signature(tmp_path: Path, llamada: str, amplia: bool, motivo: str) -> None:
+    """Cada firma se liga por su nombre real; un patrón universal no acota aunque lo parezca."""
+    (tmp_path / "vp_model").mkdir()
+    (tmp_path / "vp_model" / "s.py").write_text(
+        f"import builtins\nimport warnings\n\nopciones = ()\n{llamada}\n", encoding="utf-8"
+    )
+    encontrado = cw.detect_broad_suppressions(tmp_path)
+    assert bool(encontrado) is amplia, f"{motivo}: {llamada!r} clasificada al revés ({encontrado})"
+
+
+def test_the_detector_reaches_nested_packages(tmp_path: Path) -> None:
+    """`rglob`: un paquete anidado también es productor; el `glob` plano no lo veía."""
+    (tmp_path / "vp_model" / "sub").mkdir(parents=True)
+    (tmp_path / "vp_model" / "sub" / "hondo.py").write_text(
+        "import warnings\n\nwarnings.simplefilter('ignore')\n", encoding="utf-8"
+    )
+    assert cw.detect_broad_suppressions(tmp_path) == ["vp_model/sub/hondo.py:3"]
+
+
+@pytest.mark.parametrize(
+    "linea,detecta",
+    [
+        ("export PYTHONWARNINGS=ignore", True),
+        ('export PYTHONWARNINGS="ignore"', True),
+        ("$PY -W ignore experiments/x.py", True),
+        ("# export PYTHONWARNINGS=ignore  (histórico)", False),
+        ("export PYTHONWARNINGS=error", False),
+        ("echo 'sin filtros'", False),
+    ],
+)
+def test_environment_suppression_is_caught_where_no_ast_can_see_it(tmp_path: Path, linea: str, detecta: bool) -> None:
+    """`PYTHONWARNINGS=ignore` en un `.sh` apaga todo lo que ese guion lance, y el AST no lo ve.
+
+    Existían dos en el árbol (`run_experiments.sh`, `run_overnight_global.sh`) desde antes de M72:
+    el inventario las declaraba en cero porque miraba sólo Python.
+    """
+    (tmp_path / "experiments").mkdir()
+    (tmp_path / "experiments" / "x.sh").write_text(f"#!/bin/bash\n{linea}\n", encoding="utf-8")
+    encontrado = cw.detect_broad_suppressions(tmp_path)
+    assert bool(encontrado) is detecta, f"{linea!r} → {encontrado}"
+
+
+def test_the_real_tree_has_no_environment_suppression_left() -> None:
+    """Las dos históricas se retiraron en M74-B; el inventario real queda en cero."""
+    assert cw.detect_env_suppressions(ROOT) == []
+
+
 def test_the_detector_fails_closed_on_unparseable_code(tmp_path: Path) -> None:
     """Un productor que no compila no puede pasar por «sin supresiones»."""
     (tmp_path / "pipeline").mkdir()

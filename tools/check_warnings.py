@@ -65,10 +65,25 @@ TOP_LEVEL_FIELDS = {"schema_version", "note", "scope", "deferred_debt", "warning
 DEBT_FIELDS = {"id", "count", "sites", "note"}
 #: Capas de producto donde se inventarían las supresiones amplias vivas.
 PRODUCER_LAYERS = ("vp_model", "vp_data", "pipeline", "experiments", "tools")
-#: Las dos funciones del módulo `warnings` capaces de instalar un filtro.
-SUPPRESSION_CALLS = frozenset({"filterwarnings", "simplefilter"})
+#: Funciones capaces de instalar un filtro. `catch_warnings(action=...)` existe desde 3.11 y
+#: silencia igual que las otras dos.
+SUPPRESSION_CALLS = frozenset({"filterwarnings", "simplefilter", "catch_warnings"})
+#: Firmas posicionales REALES, que NO son la misma: `filterwarnings(action, message, category, …)`
+#: frente a `simplefilter(action, category, …)`. Tratarlas igual dejaba pasar
+#: `simplefilter("ignore", Warning)`, donde el segundo posicional es la CATEGORÍA (H12).
+POSITIONAL_ARGS = {
+    "filterwarnings": ("action", "message", "category", "module", "lineno", "append"),
+    "simplefilter": ("action", "category", "lineno", "append"),
+    "catch_warnings": (),  # sólo admite keywords
+}
 #: Categoría raíz: `category=Warning` sin mensaje NO acota nada, silencia todo.
 ROOT_CATEGORY = "Warning"
+#: Patrones de mensaje que casan con CUALQUIER aviso: no acotan, aunque lo parezcan.
+UNIVERSAL_MESSAGES = frozenset({"", ".*", "^", ".*?", "(?s).*"})
+#: Silenciamiento por ENTORNO o bandera, que ningún AST de Python puede ver.
+ENV_SUPPRESSION = re.compile(r"""PYTHONWARNINGS\s*=\s*["']?ignore|(?<!\w)-W\s+["']?ignore""")
+#: Dónde puede esconderse ese silenciamiento.
+ENV_SCAN_GLOBS = ("experiments/*.sh", "tools/*.sh", "Makefile", ".github/workflows/*.yml")
 #: Un pin exacto termina aquí; `1.9.0.post1` o `1.9.0+local` NO son el mismo pin.
 PIN_TERMINATOR = r"(?=[\s\"',;\\]|$)"
 #: Un prefijo más corto que esto no identifica un warning concreto: se considera amplio.
@@ -136,31 +151,64 @@ def _called_name(func: ast.expr) -> str | None:
     return None
 
 
+def _bind_arguments(call: ast.Call, nombre: str) -> dict[str, ast.expr] | None:
+    """Liga posicionales y keywords a los nombres REALES de cada firma.
+
+    ``None`` si la llamada es opaca (``*args``/``**kwargs``, o más posicionales que la firma): lo
+    que no se puede acreditar que acote cuenta como amplio.
+    """
+    if any(isinstance(a, ast.Starred) for a in call.args) or any(k.arg is None for k in call.keywords):
+        return None
+    nombres = POSITIONAL_ARGS[nombre]
+    ligados: dict[str, ast.expr] = {}
+    for indice, valor in enumerate(call.args):
+        if indice >= len(nombres):
+            return None
+        ligados[nombres[indice]] = valor
+    for kw in call.keywords:
+        if kw.arg is not None:
+            ligados[kw.arg] = kw.value
+    return ligados
+
+
+def _sin_acotar(mensaje: ast.expr | None, categoria: ast.expr | None) -> bool:
+    """Amplia sólo si NO acota **ni** por mensaje **ni** por categoría.
+
+    Un mensaje literal acota aunque la categoría sea la raíz; una categoría concreta acota aunque
+    no haya mensaje. Un patrón universal (``""``, ``".*"``, ``"^"``) **no** acota, aunque lo parezca.
+    """
+    sin_mensaje = mensaje is None or (isinstance(mensaje, ast.Constant) and mensaje.value in UNIVERSAL_MESSAGES)
+    if categoria is None:
+        categoria_raiz = True
+    elif isinstance(categoria, ast.Name):
+        categoria_raiz = categoria.id == ROOT_CATEGORY
+    elif isinstance(categoria, ast.Attribute):
+        categoria_raiz = categoria.attr == ROOT_CATEGORY  # `builtins.Warning`, `bi.Warning`, …
+    else:
+        # Categoría que no es un nombre simple (llamada, subíndice, ternario…): no acreditable.
+        categoria_raiz = True
+    return sin_mensaje and categoria_raiz
+
+
 def _suppresses_everything(call: ast.Call) -> bool:
     """¿Esta llamada instala un filtro que se traga CUALQUIER aviso?
 
     Se mira la llamada, no su texto: un patrón citado en un docstring o en un comentario para
     explicarlo no es una supresión, y una llamada partida en varias líneas sí lo es.
+
+    ⚠️ Cada función tiene su FIRMA, y no es la misma (ver ``POSITIONAL_ARGS``): tratarlas igual
+    dejaba pasar ``simplefilter("ignore", Warning)``, que silencia absolutamente todo.
     """
-    if _called_name(call.func) not in SUPPRESSION_CALLS:
+    nombre = _called_name(call.func)
+    if nombre not in SUPPRESSION_CALLS:
         return False
-    if not call.args:
-        return False
-    accion = call.args[0]
+    ligados = _bind_arguments(call, nombre)
+    if ligados is None:
+        return True  # opaca: fail-closed
+    accion = ligados.get("action")
     if not (isinstance(accion, ast.Constant) and accion.value == "ignore"):
         return False
-    posicionales = call.args[1:]
-    palabras = {kw.arg: kw.value for kw in call.keywords if kw.arg is not None}
-    if any(kw.arg is None for kw in call.keywords):
-        # `**kwargs` opaco: no se puede acreditar que acote, así que cuenta como amplia.
-        return True
-    mensaje = palabras.get("message") or (posicionales[0] if posicionales else None)
-    categoria = palabras.get("category") or (posicionales[1] if len(posicionales) > 1 else None)
-    sin_mensaje = mensaje is None or (isinstance(mensaje, ast.Constant) and mensaje.value == "")
-    categoria_raiz = categoria is None or (isinstance(categoria, ast.Name) and categoria.id == ROOT_CATEGORY)
-    # Un mensaje literal acota aunque la categoría sea la raíz; una categoría concreta acota
-    # aunque no haya mensaje. Sólo es amplia cuando NO acota por ninguna de las dos vías.
-    return sin_mensaje and categoria_raiz
+    return _sin_acotar(ligados.get("message"), ligados.get("category"))
 
 
 def detect_broad_suppressions(root: Path) -> list[str]:
@@ -171,7 +219,8 @@ def detect_broad_suppressions(root: Path) -> list[str]:
     """
     found: list[str] = []
     for layer in PRODUCER_LAYERS:
-        for path in sorted((root / layer).glob("*.py")):
+        # `rglob`: un paquete anidado también es productor (el `glob` plano no lo veía).
+        for path in sorted((root / layer).rglob("*.py")):
             try:
                 source = path.read_text(encoding="utf-8")
             except OSError as exc:
@@ -182,7 +231,24 @@ def detect_broad_suppressions(root: Path) -> list[str]:
                 raise ContractError(f"no se pudo analizar {path}: {exc}") from exc
             for node in ast.walk(tree):
                 if isinstance(node, ast.Call) and _suppresses_everything(node):
-                    found.append(f"{layer}/{path.name}:{node.lineno}")
+                    found.append(f"{path.relative_to(root)}:{node.lineno}")
+    return found + detect_env_suppressions(root)
+
+
+def detect_env_suppressions(root: Path) -> list[str]:
+    """Silenciamiento por ENTORNO (`PYTHONWARNINGS=ignore`, `-W ignore`), invisible al AST.
+
+    Un `export PYTHONWARNINGS=ignore` en un `.sh` apaga los avisos de todo lo que ese guion lance,
+    y ningún árbol sintáctico de Python lo ve. Se busca por texto porque **es** texto.
+    """
+    found: list[str] = []
+    for patron in ENV_SCAN_GLOBS:
+        for path in sorted(root.glob(patron)):
+            if not path.is_file():
+                continue
+            for numero, linea in enumerate(path.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+                if ENV_SUPPRESSION.search(linea.split("#", 1)[0]):
+                    found.append(f"{path.relative_to(root)}:{numero}")
     return found
 
 

@@ -35,11 +35,21 @@ NECESITA_EXTRA = pytest.mark.skipif(find_spec("scipy") is None, reason="requiere
 
 
 # --------------------------------------------------------------- entradas derivadas
-def test_entrypoints_come_from_the_runbook_and_ignore_its_comments() -> None:
+def test_entrypoints_come_from_the_runbook_and_follow_its_nested_shells() -> None:
+    """El descubrimiento sigue los shells anidados; antes leía sólo el guion de arriba (H1)."""
     eps = pf.runbook_entrypoints()
-    assert "run_champion_challenger.py" in eps["scripts"]
+    assert "experiments/run_champion_challenger.py" in eps["scripts"]  # directo
     assert "vp_model.confirm_tuning" in eps["modules"]
-    assert "run_campaign.sh" in eps["shell"]
+    assert "experiments/run_campaign.sh" in eps["shell"]
+    # ★ alcanzados SÓLO por recursión: los invoca `run_campaign.sh` / `save_finalists.sh`
+    for anidado in (
+        "experiments/run_global_deep.py",
+        "experiments/aggregate_seeds.py",
+        "experiments/save_finalists_deep.py",
+        "experiments/export_forecasts.py",
+    ):
+        assert anidado in eps["scripts"], f"{anidado} sólo se alcanza siguiendo los shells"
+    assert "vp_model.run_comparison" in eps["modules"]
     # Los comentarios del runbook nombran scripts en su cabecera; la lectura los ignora. Se
     # comprueba con un guion sembrado, no sobre el archivo real, para que discrimine de verdad.
     sembrado = ROOT / "experiments" / "run_rederivation.sh"
@@ -58,24 +68,22 @@ def test_code_closure_is_transitive() -> None:
     assert "experiments/run_campaign.sh" in cierre and "experiments/run_rederivation.sh" in cierre
 
 
-def test_the_campaign_does_not_touch_the_cohort_chain_and_that_is_a_decision_not_an_oversight() -> None:
-    """★ Hallazgo de M74-A, fijado como prueba: el runbook NO ejecuta la cadena E.
+def test_which_of_the_cohort_chain_the_campaign_reaches_and_which_it_does_not() -> None:
+    """★ Corregido en M74-B: mi afirmación de M74-A era **falsa en un módulo**.
 
-    `run_rederivation.sh` re-deriva la cadena retrospectiva (campaña, significancia, campeón,
-    key_facts, figuras). **No** ejecuta E1-E5 ni el campeón por horizonte: `stability`, `deck`,
-    `universe`, `horizon` y `exact_tests` quedan fuera de su cierre.
+    Dije «el runbook no alcanza la cadena E». Cierto para `stability`, `universe`, `horizon` y
+    `exact_tests`… pero **`deck` SÍ entra**, por `run_global_deep.py`, que `run_campaign.sh`
+    invoca. No lo vi porque el descubrimiento no seguía los shells anidados (H1), de modo que un
+    defecto del sello estaba sosteniendo una afirmación del recibo. La auditoría ciega lo cazó.
 
-    Esto importa porque la campaña **sí reescribe** `model_comparison_*21.csv`, y el barrido de
-    cohortes (E2) los sella en su procedencia: tras la campaña, la cadena E queda desfasada de sus
-    propias entradas aunque nadie la haya tocado. Es una **decisión del autor** para M74 (re-derivar
-    la cadena E en la misma campaña o declarar el desfase), no un descuido que esta prueba deba
-    tapar. Si algún día el runbook la incorpora, esta prueba falla y el texto tendrá que cambiar.
+    Lo que sigue siendo cierto —y es lo que hace material a #58— es que la campaña **reescribe**
+    `model_comparison_*21.csv`, que es lo que `cohort_scan.json` (E2) sella en su procedencia.
     """
     cierre = set(pf.code_closure(pf.runbook_entrypoints()))
-    fuera = {"vp_model/stability.py", "vp_model/deck.py", "vp_model/universe.py", "vp_model/horizon.py"}
-    assert fuera.isdisjoint(cierre), (
-        f"el runbook ya alcanza la cadena E ({sorted(fuera & cierre)}): actualizar el texto"
-    )
+    dentro = {"vp_model/deck.py"}
+    fuera = {"vp_model/stability.py", "vp_model/universe.py", "vp_model/horizon.py", "vp_model/exact_tests.py"}
+    assert dentro <= cierre, "`deck` entra por run_global_deep: si dejara de entrar, revisar el texto"
+    assert fuera.isdisjoint(cierre), f"la cadena E entró al cierre ({sorted(fuera & cierre)}): actualizar el texto"
 
     # …y la dependencia que lo vuelve material: E2 sella los scorecards que la campaña regenera
     scan = json.loads((ROOT / "reports/eval/cohort_scan.json").read_text(encoding="utf-8"))
@@ -90,12 +98,14 @@ def test_data_inputs_come_from_the_dag_not_from_a_hand_list() -> None:
     dag = yaml.safe_load((ROOT / "dvc.yaml").read_text(encoding="utf-8"))
     datos = pf.data_inputs(dag)
     assert "data/processed/visa_panel_long.csv" in datos and "data/raw" in datos
-    # y son exactamente los outs declarados de esos tres stages
-    esperados = set()
+    esperados = {pf.RAW_SNAPSHOTS}
     for stage in ("scrape", "panel", "bulletins"):
         for out in dag["stages"][stage]["outs"]:
             esperados.add(next(iter(out)) if isinstance(out, dict) else out)
     assert set(datos) == esperados
+    # ★ H4: el congelado crudo es DEPENDENCIA del stage `scrape`, no salida de ninguno, así que
+    # no aparecía por el DAG y quedaba fuera del sello aunque sea la entrada de todo el pipeline.
+    assert pf.RAW_SNAPSHOTS in datos
 
 
 @NECESITA_EXTRA
@@ -116,6 +126,31 @@ def test_seal_fails_closed_when_an_anchor_is_broken(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(champion, "MANIFEST", ROOT / "reports" / "governance" / "no_existe.json")
     with pytest.raises(pf.PreflightError, match="ancla"):
         pf.seal()
+
+
+def test_the_mutable_inputs_that_govern_stages_are_sealed() -> None:
+    """★ H4: entradas que gobiernan etapas y estaban FUERA del sello.
+
+    `tuned_params.json` parametriza el pool de la etapa 1 y lo reescribe la 6; `schema.sql` y
+    `pipeline/migrations` gobiernan la etapa 0; `consistency_rules.yml` decide la 10 —incluido
+    `retro_protocol`—. Ninguna estaba sellada.
+    """
+    planas = set(pf.GOVERNANCE_PLAIN)
+    for rel in (
+        "reports/eval/tuned_params.json",
+        "schema.sql",
+        "pipeline/migrations",
+        "tools/consistency_rules.yml",
+    ):
+        assert rel in planas, f"{rel} gobierna una etapa y debe estar sellada"
+
+
+def test_the_sealed_locks_are_the_ones_each_interpreter_really_uses() -> None:
+    """★ H4: `locks/runtime.txt` no gobierna a `ante` ni a `ante_nf`; cada perfil tiene el suyo."""
+    venvs = {v for v, _ in pf.INTERPRETER_LOCKS}
+    assert venvs == {"ante", "ante_nf"}, "los dos intérpretes que el runbook invoca"
+    for _venv, lock in pf.INTERPRETER_LOCKS:
+        assert (ROOT / lock).is_file(), f"el lock declarado no existe: {lock}"
 
 
 # --------------------------------------------------------------- protocolo
@@ -218,6 +253,7 @@ def test_hermetic_rehearsal_only_opens_publication_after_human_validation(tmp_pa
     cs.mark_validated(
         ruta,
         validation_receipt_sha256=txn.sha256_file(recibo),
+        validation_receipt_path=str(recibo),
         reviewed_by="ensayo M74-A",
         validated_at=txn.now_rfc3339(),
         decision="ensayo, no publica nada",

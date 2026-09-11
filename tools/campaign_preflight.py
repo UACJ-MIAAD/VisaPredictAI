@@ -8,12 +8,16 @@ escribe en `reports/` y no toca artefactos publicados**.
 **Las entradas se DERIVAN, no se listan a mano** (un inventario escrito a mano envejece):
 
 * ``code`` — el cierre transitivo de imports locales a partir de los entrypoints que el runbook
-  invoca, leídos del propio ``run_rederivation.sh`` por AST y regex, más los guiones de shell.
+  invoca, **siguiendo recursivamente los shells anidados**, más los propios guiones.
+  ⚠️ El hash de cada archivo es sobre sus **bytes**: los comentarios se descartan al **descubrir**
+  entrypoints, no al hashear. Un cambio de comentario cambia el sello, y eso es lo conservador.
 * ``data`` — las salidas *git-only* de los stages de datos del DAG, tomadas de ``dvc.yaml``.
-* ``governance`` — la configuración que la campaña **lee y no reescribe**. Ésta sí se **declara
-  por nombre**, y cada entrada queda **anclada a la constante del módulo que la nombra**: así, si
-  alguien mueve `champion.MANIFEST`, el ancla falla en vez de sellar un archivo que ya nadie lee.
-  (La lección de M72-R2: lo que se tolera o se sella se declara por identidad, no por forma.)
+* ``governance`` — la configuración que la campaña **lee**, declarada **por nombre**. Tres entradas
+  están **ancladas a la constante del módulo que las nombra** (si alguien mueve
+  `champion.MANIFEST`, el ancla falla en vez de sellar un archivo que ya nadie lee); las demás son
+  **planas**, porque ninguna constante las nombra: `dvc.yaml`/`dvc.lock`, la política de cohortes,
+  y las entradas mutables que gobiernan etapas (`tuned_params`, `schema.sql`,
+  `pipeline/migrations`, `consistency_rules.yml`) más los **locks reales de cada intérprete**.
 
 El ``protocol`` no se teclea: se lee de sus autoridades vivas (`vp_model.config`,
 `vp_model.stability`, `vp_model.deck`, …) y se emite tal cual, para que el recibo de la campaña
@@ -52,9 +56,19 @@ GOVERNANCE_INPUTS: tuple[tuple[str, str, str], ...] = (
 #: Entradas sin constante que las nombre (prosa normativa y cierre de dependencias del runtime).
 GOVERNANCE_PLAIN: tuple[str, ...] = (
     "docs/COHORT_POLICY.md",
-    "locks/runtime.txt",
     "dvc.lock",
     "dvc.yaml",
+    # H4 · entradas MUTABLES que gobiernan etapas y estaban fuera del sello:
+    "reports/eval/tuned_params.json",  # parametriza el pool de la etapa 1 y lo reescribe la 6
+    "schema.sql",  # gobierna la etapa 0 (almacén)
+    "pipeline/migrations",  # idem, como árbol
+    "tools/consistency_rules.yml",  # decide la etapa 10, incluido `retro_protocol`
+)
+#: Locks REALES de cada intérprete que la campaña usa. `locks/runtime.txt` no gobierna a ninguno:
+#: el runbook llama a `ante/bin/python` y a `ante_nf/bin/python`, cada uno con su perfil (H4).
+INTERPRETER_LOCKS: tuple[tuple[str, str], ...] = (
+    ("ante", "locks/model-cpu.txt"),
+    ("ante_nf", "locks/deep-macos-arm64.txt"),
 )
 
 
@@ -82,15 +96,49 @@ class PreflightError(RuntimeError):
 
 
 # --------------------------------------------------------------------------- entradas: código
+#: Cómo se invoca un ejecutable en estos guiones. Se cubren las formas REALES medidas en el
+#: árbol: `$ANTE x.py`, `$NF x.py`, `ante_nf/bin/python x.py`, `python tools/x.py` y `-m paquete.mod`.
+SCRIPT_CALL = re.compile(r"(?:^|\s)((?:experiments|tools|pipeline)/[a-z0-9_]+\.py)")
+MODULE_CALL = re.compile(r"-m\s+((?:vp_model|pipeline|tools|experiments)\.[a-z0-9_.]+)")
+SHELL_CALL = re.compile(r"(?:^|\s)(?:bash|zsh|sh)\s+((?:experiments|tools)/[a-z0-9_]+\.sh)")
+
+
+def _strip_comments(texto: str) -> str:
+    """Quita los comentarios de un guion de shell: lo que está comentado no se ejecuta."""
+    return "\n".join(linea.split("#", 1)[0] for linea in texto.splitlines())
+
+
 def runbook_entrypoints(runbook: Path = RUNBOOK) -> dict[str, list[str]]:
-    """Entrypoints que el runbook invoca, leídos del guion y **sin contar sus comentarios**."""
+    """Entrypoints que el runbook invoca, **siguiendo recursivamente los shells anidados**.
+
+    ⚠️ La primera versión leía SÓLO el guion de arriba y sellaba 54 archivos cuando la campaña
+    ejecuta 66: `run_campaign.sh`, `save_finalists.sh` y `sync_all.sh` invocan a su vez
+    `run_comparison`, `run_global_deep`, `aggregate_seeds`, `save_finalists_deep`,
+    `export_forecasts`, `sync_mlflow`… Ninguno entraba al sello, así que el pool F1 o la campaña
+    deep podían alterarse sin que el recibo lo delatara (H1 de la auditoría ciega).
+    """
     if not runbook.is_file():
         raise PreflightError(f"no existe el runbook {runbook}")
-    codigo = "\n".join(linea.split("#", 1)[0] for linea in runbook.read_text(encoding="utf-8").splitlines())
+    scripts: set[str] = set()
+    modules: set[str] = set()
+    shells: set[str] = set()
+    pendientes = [runbook]
+    vistos: set[Path] = set()
+    while pendientes:
+        actual = pendientes.pop()
+        if actual in vistos or not actual.is_file():
+            continue
+        vistos.add(actual)
+        codigo = _strip_comments(actual.read_text(encoding="utf-8"))
+        scripts |= set(SCRIPT_CALL.findall(codigo))
+        modules |= set(MODULE_CALL.findall(codigo))
+        for rel in SHELL_CALL.findall(codigo):
+            shells.add(rel)
+            pendientes.append(ROOT / rel)
     return {
-        "scripts": sorted(set(re.findall(r"experiments/([a-z0-9_]+\.py)", codigo))),
-        "modules": sorted(set(re.findall(r"-m\s+((?:vp_model|pipeline|tools)\.[a-z0-9_.]+)", codigo))),
-        "shell": sorted(set(re.findall(r"bash\s+experiments/([a-z0-9_]+\.sh)", codigo))),
+        "scripts": sorted(scripts),
+        "modules": sorted(modules),
+        "shell": sorted(shells),
     }
 
 
@@ -101,7 +149,8 @@ def _module_path(module: str) -> Path | None:
 
 def code_closure(entrypoints: Mapping[str, Iterable[str]]) -> list[str]:
     """Cierre transitivo de imports LOCALES desde los entrypoints. Rutas relativas, ordenadas."""
-    pendientes = [f"experiments.{n[:-3]}" for n in entrypoints["scripts"]] + list(entrypoints["modules"])
+    # `scripts` ya trae rutas relativas completas (`experiments/x.py`, `tools/y.py`)
+    pendientes = [n[:-3].replace("/", ".") for n in entrypoints["scripts"]] + list(entrypoints["modules"])
     encontrados: dict[str, Path] = {}
     while pendientes:
         modulo = pendientes.pop()
@@ -118,14 +167,19 @@ def code_closure(entrypoints: Mapping[str, Iterable[str]]) -> list[str]:
             elif isinstance(nodo, ast.Import):
                 pendientes += [a.name for a in nodo.names if a.name.split(".")[0] in LOCAL_LAYERS]
     rutas = [str(ruta.relative_to(ROOT)) for ruta in encontrados.values()]
-    rutas += [f"experiments/{n}" for n in entrypoints["shell"]] + [str(RUNBOOK.relative_to(ROOT))]
+    rutas += list(entrypoints["shell"]) + [str(RUNBOOK.relative_to(ROOT))]
     return sorted(set(rutas))
 
 
 # --------------------------------------------------------------------------- entradas: datos
+#: La entrada CRUDA del pipeline: los boletines congelados. Es **dependencia** del stage `scrape`,
+#: no salida de ninguno, así que no aparecía por el DAG y quedaba fuera del sello (H4).
+RAW_SNAPSHOTS = "data/snapshots"
+
+
 def data_inputs(dag: Mapping[str, Any]) -> list[str]:
-    """Salidas *git-only* de los stages de datos, tomadas del DAG (no escritas a mano)."""
-    fuera: set[str] = set()
+    """Entradas de datos: las salidas *git-only* de los stages de datos, **más el congelado crudo**."""
+    fuera: set[str] = {RAW_SNAPSHOTS}
     for stage in ("scrape", "panel", "bulletins"):
         for out in dag["stages"][stage].get("outs", []):
             fuera.add(next(iter(out)) if isinstance(out, dict) else out)
@@ -222,7 +276,13 @@ def seal(root: Path = ROOT) -> dict[str, Any]:
         if real != (root / rel).resolve():
             faltantes.append(f"{rel} (ancla {modulo}.{atributo} apunta a {real})")
         anclas[rel] = f"{modulo}.{atributo}"
-    gobernanza = hashes([rel for rel, _, _ in GOVERNANCE_INPUTS] + list(GOVERNANCE_PLAIN))
+    # los locks REALES: uno por intérprete, anclado al venv que la campaña usa de verdad
+    locks: list[str] = []
+    for venv, lock in INTERPRETER_LOCKS:
+        if not (root / venv).exists():
+            faltantes.append(f"{venv}/ (intérprete de la campaña ausente)")
+        locks.append(lock)
+    gobernanza = hashes([rel for rel, _, _ in GOVERNANCE_INPUTS] + list(GOVERNANCE_PLAIN) + locks)
 
     if faltantes:
         raise PreflightError("entradas ausentes o anclas rotas: " + "; ".join(sorted(faltantes)))

@@ -47,10 +47,17 @@ def _filter_category_available(filt: str) -> bool:
     return importlib.util.find_spec(parts[-1].split(".")[0]) is not None
 
 
+#: Marcadores propios. Se registran AQUÍ y no en `pyproject.toml`, que `locks/lockset.json`
+#: pinnea por sha256: bajo el contrato `error`, un marcador sin registrar es un fallo de colección.
+MARKERS = ("slow: barrido completo sobre el catálogo real; sólo corre con VP_FULL_SWEEP=1",)
+
+
 def pytest_configure(config):
     for _filt in FILTERWARNINGS:
         if _filter_category_available(_filt):
             config.addinivalue_line("filterwarnings", _filt)
+    for _marker in MARKERS:
+        config.addinivalue_line("markers", _marker)
 
 
 _MODEL_TESTS = [

@@ -256,12 +256,19 @@ def advanced(country: str, category: str, table: str) -> AdvancedFeatures:
         lam = 1.0
     diff = s.diff().dropna()
     with warnings.catch_warnings():
-        # Zivot-Andrews cae en un `sqrt` de argumento negativo en 4 de las 114 series medidas
-        # (EB2/DFF de tres áreas y EB5 de India) y devuelve un p NO FINITO. El NaN ya es la
-        # convención declarada de esta feature (igual que en la rama `except` de abajo), así que
-        # lo que se silencia es el aviso de numpy, no el resultado: sigue saliendo NaN y así se
-        # publica. Cualquier OTRO aviso de esta llamada llega a la superficie.
-        warnings.filterwarnings("ignore", message="invalid value encountered in sqrt", category=RuntimeWarning)
+        # Zivot-Andrews cae en aritmética no finita en **6 de las 116** series medidas (sonda
+        # `tests/test_zivot_andrews_surface.py`, que fija el universo: catálogo completo con >=24
+        # observaciones tras `_clean`, NO las 74 evaluables). Devuelve un p NO FINITO, y el NaN ya
+        # es la convención declarada de esta feature (igual que la rama `except` de abajo), así que
+        # lo que se silencia es el AVISO de numpy, no el resultado.
+        #
+        # Son DOS mensajes, no uno: cinco series emiten `invalid value encountered in sqrt` y
+        # `mexico/EB4_RW/DFF` emite además `divide by zero encountered in divide`. M72 midió sobre
+        # un universo distinto, contó 4 y dejó el segundo mensaje sin cubrir: bajo el contrato
+        # `error` de la suite, cualquier prueba que tocara empleo reventaba ahí.
+        # Cualquier OTRO aviso de esta llamada sigue llegando a la superficie.
+        for _mensaje in ("invalid value encountered in sqrt", "divide by zero encountered in divide"):
+            warnings.filterwarnings("ignore", message=_mensaje, category=RuntimeWarning)
         try:
             za_p = float(zivot_andrews(diff, trim=0.15)[1])
         except ValueError, np.linalg.LinAlgError:

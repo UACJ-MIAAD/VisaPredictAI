@@ -104,10 +104,17 @@ campaign_abort() {
   [ "$rc" -eq 0 ] && return 0
   txn fail --if-open --stage "salida anormal del runbook" --exit-code "$rc" \
       --reason "el runbook terminó con exit $rc sin alcanzar un estado terminal" >&2 || true
+  # H14: matar el GRUPO entero. Sin esto, al colgarse la terminal el padre muere y los hijos
+  # (python de 8-11 h) siguen escribiendo artefactos sobre una campaña ya marcada como fallida.
+  kill -- -$$ 2>/dev/null || true
 }
 trap campaign_abort EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+# H14: cerrar la terminal de `caffeinate -is bash …` mandaba SIGHUP, que no estaba atrapado:
+# la transacción quedaba en `running` para siempre y el hijo, huérfano. Lánzalo con
+# `nohup`/`setsid` si vas a desconectarte.
+trap 'exit 129' HUP
 
 FAILS=0
 REQ_FAILS=0
@@ -124,7 +131,10 @@ stage() {
 }
 # run(): best-effort — un fallo se cuenta pero la corrida sigue (para modelos que
 # fallan legítimamente en series cortas dentro de un pool).
-run()   { "$@" || { echo "##### ETAPA FALLIDA (exit $?): $*"; FAILS=$((FAILS+1)); }; }
+# H16: además de contarlas, se RECUERDAN. Diez etapas tolerables podían fallar sin dejar rastro
+# en la transacción, y la revisión humana tenía que descubrirlo leyendo 8-11 h de bitácora.
+BEST_EFFORT_FAILED=()
+run()   { "$@" || { echo "##### ETAPA FALLIDA (exit $?): $*"; FAILS=$((FAILS+1)); BEST_EFFORT_FAILED+=("$*"); }; }
 # run_req(): OBLIGATORIA — su fallo hace que la campaña termine en rojo (aunque
 # el resto siga para diagnóstico). Sin esto, un build_database/significance/key_facts
 # roto pasaba desapercibido y el runbook "terminaba en verde".
@@ -217,16 +227,22 @@ if [ "$REQ_FAILS" -gt 0 ]; then
   echo "✗ CAMPAÑA FALLIDA: $REQ_FAILS etapa(s) obligatoria(s) rota(s). NO publicar." >&2
   exit 1
 fi
+# ★ H2: que las cifras cambien es el resultado ESPERADO de una re-derivación, no un fallo. Antes
+# esto marcaba `failed`, que es TERMINAL, y dejaba la campaña sin salida salvo repetir 8-11 h.
+# Ahora llega a `computed` con la consistencia PENDIENTE, y es `txn validate` quien la vuelve a
+# exigir —re-ejecutando el guardián— después de propagar.
+CONSISTENCY_STATE=$([ "$CONSISTENCY_OK" = 1 ] && echo passed || echo pending)
+BE_ARGS=()
+for etapa in ${BEST_EFFORT_FAILED[@]+"${BEST_EFFORT_FAILED[@]}"}; do
+  BE_ARGS+=(--best-effort-failure "$etapa")
+done
+txn compute --input-gate passed --output-gate passed --consistency "$CONSISTENCY_STATE" \
+    ${BE_ARGS[@]+"${BE_ARGS[@]}"} || exit 7
 if [ "$CONSISTENCY_OK" = 0 ]; then
-  # ⚠️ El enum de ADR 0003 no tiene estado para «completa pero con cifras por propagar», y este
-  # runbook NO inventa uno: se registra `failed` con la razón exacta. El nombre del estado es
-  # impreciso; el efecto —no se publica— es el correcto, y la razón lo deja por escrito.
-  txn fail --if-open --stage "consistencia" --exit-code 2 \
-      --reason "cómputo completo; las cifras cambiaron y faltan por propagar (regla #0)" >&2
-  echo "⚠ Campaña OK pero cifras cambiaron: propagar (regla #0) y validar antes de publicar." >&2
+  echo "⚠ Campaña COMPLETA con cifras nuevas: propaga (regla #0) y valida. La transacción queda" >&2
+  echo "  en 'computed' con consistency=pending; 'txn validate' re-ejecuta el guardián." >&2
   exit 2
 fi
-txn compute --input-gate passed --output-gate passed --consistency passed || exit 7
 echo "✓ Campaña completa y consistente. Queda en 'computed': publicar exige validación humana"
 echo "  explícita y después el publicador:"
 echo "    $ANTE -m tools.campaign_txn validate --receipt <recibo> --reviewed-by <persona> --decision <texto>"

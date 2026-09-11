@@ -37,7 +37,11 @@ publishable() { ante_nf/bin/python -m tools.campaign_manifest --assert-publishab
 # `published` bloquean, y la ausencia de transacción también. Antes de M73 nadie escribía
 # `campaign.json`, así que esta puerta no podía existir.
 CAMPAIGN_TXN="${CAMPAIGN_TXN:-reports/campaign/campaign.json}"
-txn_guard() { ante_nf/bin/python -m tools.campaign_txn --path "$CAMPAIGN_TXN" guard; }
+txn_guard() { ante_nf/bin/python -m tools.campaign_txn --path "$CAMPAIGN_TXN" guard --manifest "$MANIFEST"; }
+# H3/H10: publicar CONSUME el permiso. `validated` era un permiso permanente y repetible, y
+# `published` no se escribía nunca: la máquina de estados terminaba a medias y nada distinguía
+# una campaña ya publicada de una pendiente de publicar.
+txn_publish() { ante_nf/bin/python -m tools.campaign_txn --path "$CAMPAIGN_TXN" publish --release-sha "$(git rev-parse HEAD)"; }
 manifest_sha() { ante_nf/bin/python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$MANIFEST"; }
 if [ "$PUBLISH" = 1 ]; then
   publishable || exit 7
@@ -67,7 +71,11 @@ elif [ "$PUBLISH" = 1 ]; then
     dvc push
     git commit -q -m "$MSG"
     git push
-    echo "    ✓ PUBLICADO: dvc push + commit + git push"
+    # El permiso se consume DESPUÉS de publicar de verdad: si el push falla, la campaña sigue
+    # en `validated` y puede reintentarse; si se consumiera antes, un fallo la dejaría sin
+    # permiso y sin publicación.
+    txn_publish || { echo "ERROR: publicado pero la transacción no pasó a 'published'" >&2; exit 9; }
+    echo "    ✓ PUBLICADO: dvc push + commit + git push + transacción en 'published'"
 else
     echo "    ⏸ LOCAL-ONLY: pointers .dvc staged, sin commit/push/dvc-push."
     echo "      Revisa (consistencia, cobertura, identidad) y publica con: bash experiments/sync_all.sh --publish"

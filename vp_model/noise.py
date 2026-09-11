@@ -18,23 +18,38 @@ filtro sigue siendo estrecho: cualquier otro aviso, de la categoría que sea, ll
 
 from __future__ import annotations
 
+import json
 import re
 import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
+from functools import lru_cache
+from pathlib import Path
 
-#: Prefijos EXACTOS de los avisos que el ajuste emite sobre este panel. Cada uno tiene su entrada
-#: en `security/warnings_registry.json` con paquete, versión y fecha de revisión.
-KNOWN_FIT_WARNINGS: tuple[str, ...] = (
-    # medidos: 5 de 25 series (SARIMAX) · registro `statsmodels-nonstationary-ar-start`
-    "Non-stationary starting autoregressive parameters found",
-    # medidos: 3 de 25 series (SARIMAX) · registro `statsmodels-noninvertible-ma-start`
-    "Non-invertible starting MA parameters found",
-    # registro `statsmodels-mle-convergence`
-    "Maximum Likelihood optimization failed to converge",
-    # registro `statsmodels-holtwinters-convergence`
-    "Optimization failed to converge",
+#: Ids del registro cuyos mensajes silencia el ajuste. **Los prefijos NO se copian aquí**: se leen
+#: de `security/warnings_registry.json`, que es su autoridad.
+#:
+#: ⚠️ Antes estaban transcritos y **recortados** (31 de 51 caracteres, 50 de 69, 55 de 92, 43 de 80).
+#: Con `category=Warning`, un prefijo corto silencia variantes que el contrato de la suite exige NO
+#: silenciar: el recorte convertía un filtro estrecho en uno más ancho que su propia entrada.
+FIT_WARNING_IDS: tuple[str, ...] = (
+    "statsmodels-nonstationary-ar-start",  # medidos: 5 de 25 series (SARIMAX)
+    "statsmodels-noninvertible-ma-start",  # medidos: 3 de 25 series (SARIMAX)
+    "statsmodels-mle-convergence",
+    "statsmodels-holtwinters-convergence",
 )
+
+_REGISTRY = Path(__file__).resolve().parent.parent / "security" / "warnings_registry.json"
+
+
+@lru_cache(maxsize=1)
+def known_fit_warnings() -> tuple[str, ...]:
+    """Los prefijos ÍNTEGROS de `FIT_WARNING_IDS`, leídos del registro. Falla cerrado."""
+    entradas = {e["id"]: e["message_prefix"] for e in json.loads(_REGISTRY.read_text(encoding="utf-8"))["warnings"]}
+    faltan = [i for i in FIT_WARNING_IDS if i not in entradas]
+    if faltan:
+        raise RuntimeError(f"vp_model.noise: ids ausentes del registro de warnings: {faltan}")
+    return tuple(entradas[i] for i in FIT_WARNING_IDS)
 
 
 @contextmanager
@@ -45,6 +60,6 @@ def silenced_fit_warnings() -> Iterator[None]:
     superficie: ése es el punto de haber retirado las supresiones amplias.
     """
     with warnings.catch_warnings():
-        for prefijo in KNOWN_FIT_WARNINGS:
+        for prefijo in known_fit_warnings():
             warnings.filterwarnings("ignore", message=re.escape(prefijo), category=Warning)
         yield

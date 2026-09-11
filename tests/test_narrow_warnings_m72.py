@@ -30,7 +30,7 @@ from typing import Any
 
 import pytest
 
-from vp_model.noise import KNOWN_FIT_WARNINGS, silenced_fit_warnings
+from vp_model.noise import known_fit_warnings, silenced_fit_warnings
 
 RAIZ = Path(__file__).resolve().parents[1]
 MODELADO = pytest.mark.skipif(find_spec("statsmodels") is None, reason="requiere el extra `model` (statsmodels)")
@@ -94,8 +94,8 @@ def _serie_sintetica(n: int = 60):
 # ===========================================================================================
 def test_la_envoltura_silencia_los_cuatro_avisos_declarados() -> None:
     """Control benigno del helper: los cuatro mensajes registrados no salen."""
-    for prefijo in KNOWN_FIT_WARNINGS:
-        registro, _ = _capturado(lambda p=prefijo: _emite(p + ". Check mle_retvals."))
+    for prefijo in known_fit_warnings():
+        registro, _ = _capturado(lambda p=prefijo: _emite(p))
         assert _mensajes(registro) == [], f"{prefijo!r} debería estar silenciado"
 
 
@@ -138,7 +138,7 @@ def test_los_cuatro_mensajes_estan_registrados_como_excepciones_upstream() -> No
 
     registro = json.loads((RAIZ / "security" / "warnings_registry.json").read_text(encoding="utf-8"))
     prefijos = [e["message_prefix"] for e in registro["warnings"]]
-    for conocido in KNOWN_FIT_WARNINGS:
+    for conocido in known_fit_warnings():
         assert any(p.startswith(conocido) for p in prefijos), f"{conocido!r} se silencia sin registrar"
 
 
@@ -411,9 +411,7 @@ class TestCorredoresDeAjuste:
     def test_control_benigno_auto_arima_calla_los_avisos_de_ajuste(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from experiments import auto_arima_baseline as aab
 
-        salida = self._corre(
-            aab, "dataset.list_series", KNOWN_FIT_WARNINGS[0] + ". Using zeros.", UserWarning, monkeypatch, aab.run
-        )
+        salida = self._corre(aab, "dataset.list_series", known_fit_warnings()[0], UserWarning, monkeypatch, aab.run)
         assert salida == []
 
     def test_red_freeze_shadow_deja_pasar_un_aviso_ajeno(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -428,7 +426,7 @@ class TestCorredoresDeAjuste:
         salida = self._corre(
             fs,
             "config.seed_everything",
-            KNOWN_FIT_WARNINGS[2] + ". Check mle_retvals.",
+            known_fit_warnings()[2],
             UserWarning,
             monkeypatch,
             fs.main,
@@ -449,7 +447,7 @@ class TestCorredoresDeAjuste:
         salida = self._corre(
             gwf,
             "config.seed_everything",
-            KNOWN_FIT_WARNINGS[3] + ". Check mle_retvals.",
+            known_fit_warnings()[3],
             UserWarning,
             monkeypatch,
             gwf.run,
@@ -493,6 +491,7 @@ def test_ningun_corredor_instala_filtros_al_importarse(modulo: str) -> None:
                 )
 
 
+@MODELADO  # el subproceso importa el corredor, y los tres arrastran `darts` (H9)
 @pytest.mark.parametrize("modulo", CORREDORES)
 def test_importar_un_corredor_no_instala_un_filtro_universal(modulo: str) -> None:
     """CONDUCTUAL: importar el corredor no deja instalado un filtro que se trague TODO.
@@ -510,15 +509,26 @@ def test_importar_un_corredor_no_instala_un_filtro_universal(modulo: str) -> Non
     import subprocess
     import sys
 
+    # ⚠️ Códigos DISTINTOS para causas distintas: antes, un `ModuleNotFoundError` del subproceso
+    # se reportaba como «instaló un filtro universal», que es un diagnóstico falso. Es la sexta
+    # reincidencia de la clase M14 y la que rompía el job base (H9 de la auditoría ciega).
     guion = (
         "import warnings, importlib, sys\n"
-        f"importlib.import_module('experiments.{modulo}')\n"
+        "try:\n"
+        f"    importlib.import_module('experiments.{modulo}')\n"
+        "except ModuleNotFoundError as exc:\n"
+        "    print(f'IMPORT_FALLIDO {exc}')\n"
+        "    sys.exit(2)\n"
         "universal = [f for f in warnings.filters\n"
         "             if f[0] == 'ignore' and f[1] is None and f[2] is Warning and f[3] is None]\n"
         "print(len(universal))\n"
         "sys.exit(1 if universal else 0)\n"
     )
     fin = subprocess.run([sys.executable, "-c", guion], cwd=RAIZ, capture_output=True, text=True, timeout=600)
+    assert fin.returncode != 2, (
+        f"el subproceso no pudo importar experiments.{modulo}: {fin.stdout.strip()}. "
+        "Esta prueba necesita el extra `model` y por eso lleva la marca MODELADO"
+    )
     assert fin.returncode == 0, (
         f"importar experiments.{modulo} instaló un filtro universal "
         f"({fin.stdout.strip()} encontrados)\n{fin.stderr[-2000:]}"

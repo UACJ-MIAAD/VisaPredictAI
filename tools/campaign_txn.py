@@ -33,11 +33,13 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from tools import campaign_state as cs
 
@@ -104,20 +106,74 @@ def fail_if_open(path: str | Path, *, stage: str, reason: str, exit_code: int | 
     return cs.mark_failed(path, failed_stage=stage, failed_at=now_rfc3339(), reason=reason, exit_code=exit_code)
 
 
-def publishable(path: str | Path) -> tuple[bool, str]:
-    """¿Autoriza este estado a publicar? Sólo ``validated``. Fail-closed ante ausencia."""
-    if not Path(path).exists():
-        return False, f"no hay transacción de campaña en {path} — publicar exige una campaña validada"
-    actual = cs.read(path)
+def publishable(path: str | Path, *, manifest: str | Path | None = None) -> tuple[bool, str]:
+    """¿Autoriza este estado a publicar? Sólo ``validated``, y sólo si TODO lo acredita.
+
+    Comprueba, además del estado: esquema íntegro (que desde M74-B exige gates con valor, revisión
+    ≥ 1, cadenas no vacías y claves compatibles), **árbol limpio** (``git_dirty=False``: la ruta
+    diagnóstica `ALLOW_DIRTY` llegaba a `validated` y publicaba), el **recibo de validación por
+    ruta, existencia y hash** (un sha suelto no acredita nada si el archivo no está) y, si se
+    pasa el manifiesto de campaña, que su ``campaign_id`` **coincida** con el de la transacción.
+    """
+    ruta = Path(path)
+    if not ruta.exists():
+        return False, f"no hay transacción de campaña en {ruta} — publicar exige una campaña validada"
+    actual = cs.read(ruta)
     if actual is None:
-        return False, f"{path} ilegible o no es un objeto JSON"
+        return False, f"{ruta} ilegible o no es un objeto JSON"
     problems = cs.validate_schema(actual)
     if problems:
-        return False, f"{path} no cumple el esquema: {problems}"
+        return False, f"{ruta} no cumple el esquema: {problems}"
     estado = actual["status"]
     if estado != cs.PUBLISHABLE:
         return False, f"estado '{estado}' NO autoriza publicar (sólo '{cs.PUBLISHABLE}')"
+    if actual.get("git_dirty") is not False:
+        return False, "la campaña se selló con el árbol SUCIO (git_dirty): es diagnóstica y no se publica"
+    ok_recibo, motivo = _receipt_matches(ruta, actual)
+    if not ok_recibo:
+        return False, motivo
+    if manifest is not None:
+        ok_id, motivo = _manifest_matches(manifest, actual)
+        if not ok_id:
+            return False, motivo
     return True, f"campaña {actual['campaign_id']} en '{estado}': autoriza publicar"
+
+
+def _receipt_matches(txn_path: Path, obj: Mapping[str, Any]) -> tuple[bool, str]:
+    """El recibo de validación debe EXISTIR y seguir teniendo el hash que se validó."""
+    rel = obj.get("validation_receipt_path")
+    esperado = obj.get("validation_receipt_sha256")
+    if not rel or not esperado:
+        return False, "la transacción no liga un recibo de validación (ruta + sha256)"
+    recibo = Path(rel)
+    if not recibo.is_absolute():
+        recibo = txn_path.resolve().parent.parent.parent / rel
+    if not recibo.is_file():
+        return False, f"el recibo de validación no existe: {rel}"
+    real = sha256_file(recibo)
+    if real != esperado:
+        return False, f"el recibo {rel} cambió desde la validación (sha {real[:12]}… ≠ {str(esperado)[:12]}…)"
+    return True, ""
+
+
+def _manifest_matches(manifest: str | Path, obj: Mapping[str, Any]) -> tuple[bool, str]:
+    """El manifiesto de campaña y la transacción deben hablar de la MISMA campaña.
+
+    Antes cada uno acreditaba por su lado y dos `campaign_id` distintos pasaban ambos gates (H15).
+    """
+    ruta = Path(manifest)
+    if not ruta.is_file():
+        return False, f"no existe el manifiesto de campaña {ruta}"
+    try:
+        datos = json.loads(ruta.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return False, f"manifiesto de campaña ilegible ({exc})"
+    if datos.get("campaign_id") != obj.get("campaign_id"):
+        return False, (
+            f"el manifiesto describe la campaña {datos.get('campaign_id')!r} y la transacción "
+            f"{obj.get('campaign_id')!r}: no son la misma corrida"
+        )
+    return True, ""
 
 
 def archive_if_terminal(path: str | Path, destino: str | Path) -> Path | None:
@@ -128,6 +184,9 @@ def archive_if_terminal(path: str | Path, destino: str | Path) -> Path | None:
     justamente donde se pierde la procedencia. Aquí se mueve con su ``campaign_id`` por nombre, y
     **sólo** si terminó: una campaña en ``running``/``computed``/``validated`` NO se archiva —
     lanzar otra encima de una abierta es el error que la máquina existe para impedir.
+
+    ⚠️ Valida el esquema antes de decidir (H23): un `campaign.json` corrupto no puede archivarse
+    como si se entendiera, ni tratarse como «no hay ninguna».
     """
     origen = Path(path)
     if not origen.exists():
@@ -135,6 +194,9 @@ def archive_if_terminal(path: str | Path, destino: str | Path) -> Path | None:
     actual = cs.read(origen)
     if actual is None:
         raise ValueError(f"{origen} existe pero es ilegible: archívala o bórrala a mano")
+    problemas = cs.validate_schema(actual)
+    if problemas:
+        raise ValueError(f"{origen} no cumple el esquema y no se archiva a ciegas: {problemas}")
     if actual["status"] not in cs.TERMINAL:
         raise ValueError(
             f"{origen} sigue ABIERTA en '{actual['status']}' ({actual['campaign_id']}): "
@@ -185,9 +247,18 @@ def _parser() -> argparse.ArgumentParser:
     o.add_argument("--dirty", required=True, choices=("true", "false"), help="literal exacto; no se coerciona")
     o.add_argument("--panel", required=True, help="ruta del panel del que se deriva panel_sha256")
 
-    c = sub.add_parser("compute", help="running -> computed (exige los tres gates en passed)")
+    c = sub.add_parser(
+        "compute", help="running -> computed (input/output en passed; consistency puede quedar pendiente)"
+    )
     for gate in ("input-gate", "output-gate", "consistency"):
         c.add_argument(f"--{gate}", required=True)
+    c.add_argument(
+        "--best-effort-failure",
+        action="append",
+        default=[],
+        dest="best_effort",
+        help="etapa tolerable que falló; repetible. Queda en el recibo para la revisión humana",
+    )
 
     f = sub.add_parser("fail", help="-> failed (terminal)")
     f.add_argument("--stage", required=True)
@@ -199,10 +270,15 @@ def _parser() -> argparse.ArgumentParser:
         help="no hacer nada si la campaña ya es terminal (para traps de shell)",
     )
 
-    v = sub.add_parser("validate", help="computed -> validated (revisión humana)")
+    v = sub.add_parser("validate", help="computed -> validated (revisión humana + consistencia acreditada)")
     v.add_argument("--receipt", required=True, help="archivo del recibo; su sha256 se deriva, no se teclea")
     v.add_argument("--reviewed-by", required=True)
     v.add_argument("--decision", required=True)
+    v.add_argument(
+        "--skip-consistency-check",
+        action="store_true",
+        help="NO recomendado: omite la re-ejecución de tools/check_consistency.py (debe justificarse)",
+    )
 
     pu = sub.add_parser("publish", help="validated -> published (sólo el publicador)")
     pu.add_argument("--release-sha", required=True)
@@ -210,9 +286,23 @@ def _parser() -> argparse.ArgumentParser:
     a = sub.add_parser("archive", help="aparta una transacción YA terminal para la siguiente campaña")
     a.add_argument("--dir", default="reports/campaign/transactions", help="carpeta destino")
 
-    sub.add_parser("guard", help="sale != 0 salvo que el estado autorice publicar")
+    g = sub.add_parser("guard", help="sale != 0 salvo que el estado autorice publicar")
+    g.add_argument("--manifest", default=None, help="manifiesto de campaña, para cruzar su campaign_id")
+
     sub.add_parser("status", help="imprime el estado actual")
     return p
+
+
+def _run_consistency(txn_path: Path) -> tuple[bool, str]:
+    """Re-ejecuta el guardián de consistencia del repositorio. Fail-closed si no se puede."""
+    raiz = txn_path.resolve().parent.parent.parent
+    guardian = raiz / "tools" / "check_consistency.py"
+    if not guardian.is_file():
+        return False, f"no se encontró {guardian}"
+    fin = subprocess.run(
+        [sys.executable, str(guardian)], cwd=raiz, capture_output=True, text=True, check=False, timeout=1800
+    )
+    return fin.returncode == 0, (fin.stdout or "") + (fin.stderr or "")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -235,8 +325,15 @@ def main(argv: list[str] | None = None) -> int:
                 input_gate=args.input_gate,
                 output_gate=args.output_gate,
                 consistency=args.consistency,
+                best_effort_failures=args.best_effort or None,
             )
-            print(f"✓ campaña {obj['campaign_id']} → 'computed' (revision {obj['revision']})")
+            nota = "" if obj["consistency"] == cs._GATE_OK else " — consistencia PENDIENTE de propagar"
+            print(f"✓ campaña {obj['campaign_id']} → 'computed' (revision {obj['revision']}){nota}")
+            if obj.get("best_effort_failures"):
+                print(
+                    f"  ⚠️ etapas tolerables fallidas ({len(obj['best_effort_failures'])}): "
+                    f"{', '.join(obj['best_effort_failures'])}"
+                )
         elif args.cmd == "fail":
             if args.if_open:
                 quizas = fail_if_open(path, stage=args.stage, reason=args.reason, exit_code=args.exit_code)
@@ -256,9 +353,22 @@ def main(argv: list[str] | None = None) -> int:
                 )
             print(f"✗ campaña {obj['campaign_id']} → 'failed' en {args.stage}: {args.reason}")
         elif args.cmd == "validate":
+            # ★ H2: validar EXIGE la consistencia acreditada. Si el cómputo la dejó en `pending`
+            # porque las cifras cambiaron, aquí se vuelve a ejecutar el guardián: propagar es la
+            # precondición de validar, no un paso de buena fe.
+            if not args.skip_consistency_check:
+                ok_cons, salida = _run_consistency(path)
+                if not ok_cons:
+                    print(f"✗ la consistencia NO está acreditada; propaga y reintenta:\n{salida}", file=sys.stderr)
+                    return EXIT_ERROR
+            recibo = Path(args.receipt)
+            if not recibo.is_file():
+                print(f"✗ el recibo {recibo} no existe", file=sys.stderr)
+                return EXIT_ERROR
             obj = cs.mark_validated(
                 path,
-                validation_receipt_sha256=sha256_file(args.receipt),
+                validation_receipt_sha256=sha256_file(recibo),
+                validation_receipt_path=str(recibo),
                 reviewed_by=args.reviewed_by,
                 validated_at=now_rfc3339(),
                 decision=args.decision,
@@ -271,12 +381,20 @@ def main(argv: list[str] | None = None) -> int:
             final = archive_if_terminal(path, args.dir)
             print(f"· sin transacción previa en {path}" if final is None else f"✓ transacción archivada → {final}")
         elif args.cmd == "guard":
-            ok, motivo = publishable(path)
+            ok, motivo = publishable(path, manifest=args.manifest)
             print(("✓ " if ok else "✗ PUBLICACIÓN BLOQUEADA: ") + motivo, file=sys.stdout if ok else sys.stderr)
             return EXIT_OK if ok else EXIT_BLOCKED
         elif args.cmd == "status":
             actual = cs.read(path)
-            print(json.dumps(actual, ensure_ascii=False, indent=2, sort_keys=True) if actual else "ausente")
+            if actual is None:
+                # ⚠️ Distinguir «no hay» de «hay y no se entiende» (H23): antes ambos decían «ausente».
+                print("ausente" if not path.exists() else f"ILEGIBLE o con claves duplicadas: {path}")
+                return EXIT_OK if not path.exists() else EXIT_ERROR
+            problemas = cs.validate_schema(actual)
+            print(json.dumps(actual, ensure_ascii=False, indent=2, sort_keys=True))
+            if problemas:
+                print(f"✗ esquema inválido: {problemas}", file=sys.stderr)
+                return EXIT_ERROR
     except (ValueError, OSError) as exc:
         print(f"✗ transacción de campaña: {exc}", file=sys.stderr)
         return EXIT_ERROR

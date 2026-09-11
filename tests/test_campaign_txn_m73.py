@@ -145,7 +145,7 @@ def test_solo_validated_autoriza_publicar(runbook, lanes) -> None:
     recibo = lanes / "recibo.md"
     recibo.write_text("revisión de la campaña sintética\n", encoding="utf-8")
     assert _txn(lanes, "validate", "--receipt", str(recibo), "--reviewed-by", "Javier Rebull",
-                "--decision", "aprobada").returncode == 0  # fmt: skip
+                "--decision", "aprobada", "--skip-consistency-check").returncode == 0  # fmt: skip
     assert _estado(lanes) == "validated"
     assert _txn(lanes, "guard").returncode == txn.EXIT_OK
     # el hash del recibo se DERIVA del archivo, no se teclea
@@ -379,9 +379,15 @@ def test_el_runbook_canonico_conduce_la_transaccion() -> None:
     assert "trap campaign_abort EXIT" in guion
     # `computed` sólo con las tres puertas en passed, y NUNCA antes del desenlace
     assert guion.index("txn open") < guion.index("txn compute")
-    assert "--input-gate passed --output-gate passed --consistency passed" in guion
-    # los dos desenlaces rojos registran la causa antes de salir
-    assert guion.count("txn fail --if-open") >= 3
+    assert '--input-gate passed --output-gate passed --consistency "$CONSISTENCY_STATE"' in guion
+    # ★ H2: la consistencia ya NO se cablea a `passed`; puede quedar pendiente sin ser terminal
+    assert "CONSISTENCY_STATE=" in guion and "pending" in guion
+    # Los desenlaces que SÍ son fallo registran su causa: la salida anormal (trap) y las etapas
+    # obligatorias rotas. ⚠️ Son DOS, no tres: desde H2 la consistencia rota ya no manda a `failed`
+    # —es el resultado esperado de una re-derivación— sino a `computed` con la consistencia
+    # pendiente. Si algún día vuelven a ser tres, hay que mirar cuál se volvió terminal.
+    assert guion.count("txn fail --if-open") == 2
+    assert 'txn fail --if-open --stage "consistencia"' not in guion
 
 
 def _bloque_de_transaccion() -> str:
