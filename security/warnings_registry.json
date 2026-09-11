@@ -1,22 +1,12 @@
 {
   "schema_version": 2,
   "note": "Registro POSITIVO de los warnings UPSTREAM inevitables de la SUITE. La batería corre con `error` global (tests/conftest.py, FILTERWARNINGS): todo warning nuevo es un fallo salvo estas excepciones, cada una por un filtro ESTRECHO (prefijo de mensaje + categoría). Prohibida cualquier supresión amplia. Cada excepción EXPIRA (`review`) y su `version` debe coincidir con el pin EXACTO declarado en `pin_source`. Los warnings del código PROPIO se corrigen, no se registran. `tools/check_warnings.py` valida esquema, tipos, duplicados, amplitud, expiración, pines y la BIYECCIÓN registro<->FILTERWARNINGS.",
-  "scope": "D2-C gobierna la SUITE de pruebas y su gate de CI. NO gobierna los warnings de ejecución de los productores: 9 supresiones amplias siguen vivas ahí (ver deferred_debt) y quedan como deuda posterior, fuera del alcance de este contrato.",
+  "scope": "D2-C gobierna la SUITE de pruebas y su gate de CI. Desde M72 gobierna además el camino de ejecución de los productores por la vía negativa: deferred_debt está en cero y el inventario por AST de tools/check_warnings.py falla si vuelve a aparecer una supresión amplia. Lo que este contrato sigue SIN gobernar es qué avisos emite cada dependencia: eso se acota en el punto de uso y se registra abajo.",
   "deferred_debt": {
     "id": "broad-suppressions-in-producers",
-    "count": 9,
-    "sites": [
-      "vp_model/eda.py:79",
-      "vp_model/missingness.py:97",
-      "vp_model/series_characterization.py:120",
-      "vp_model/series_characterization.py:136",
-      "vp_model/series_characterization.py:258",
-      "experiments/auto_arima_baseline.py:30",
-      "experiments/build_eda_facts.py:116",
-      "experiments/freeze_shadow.py:174",
-      "experiments/generate_web_forecasts.py:674"
-    ],
-    "note": "Supresiones amplias (`simplefilter(\"ignore\")` / `filterwarnings(\"ignore\")`) en el camino de ejecución de los productores. Estrecharlas exige tocar productores y re-verificar artefactos canónicos, así que NO entra en D2-C. `vp_model/walkforward.py:148` usa `simplefilter(\"always\")`, que no suprime nada y por eso no cuenta."
+    "count": 0,
+    "sites": [],
+    "note": "CERRADA en M72 (10-sep-2026). Las nueve supresiones amplias del camino de ejecución de los productores se retiraron una por una, midiendo antes qué avisaba cada llamada sobre las 115 series reales del panel: seis no emitían NADA y quedaron sin supresión; dos se acotaron a `InterpolationWarning` (KPSS satura el p-valor y lo dice); una a `invalid value encountered in sqrt` de numpy en Zivot-Andrews (4 series, cuyo p no finito ya era la convención declarada). Los tres corredores de ajuste usan `vp_model.noise.silenced_fit_warnings()`, que filtra por mensaje literal los cuatro avisos de arranque y convergencia ya registrados aquí abajo. El inventario que sostiene este cero se hace por AST en `tools/check_warnings.py`, así que una supresión amplia nueva —aunque se escriba partida en varias líneas— vuelve a poner el contrato en rojo. `vp_model/walkforward.py:148` usa `simplefilter(\"always\")`, que no suprime nada y nunca contó."
   },
   "warnings": [
     {

@@ -16,7 +16,6 @@ Uso (ante):  ante/bin/python experiments/auto_arima_baseline.py
 
 from __future__ import annotations
 
-import warnings
 from itertools import product
 from pathlib import Path
 
@@ -26,8 +25,8 @@ from darts.models import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 from vp_model import config, dataset, models, walkforward
+from vp_model.noise import silenced_fit_warnings
 
-warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
 log = config.get_logger("auto_arima")
@@ -65,80 +64,82 @@ def _select_order(y: np.ndarray) -> tuple[int, int, int]:
 
 
 def run() -> Path:
-    rows = []
-    dropped: list[tuple[str, str, str, str]] = []  # (tabla, país, categoría, excepción): no convergió
-    for table in config.TABLES:
-        cat = dataset.list_series(table=table, block="family", countries=config.PILOT_COUNTRIES)
-        for r in cat.itertuples():
-            try:
-                # AI3: order selection runs on the RAW F series (real observations
-                # only). Selecting on the interpolated `to_timeseries` grid let the
-                # continuity filler shape the AICc; the densified series is used
-                # only to locate the protocol's hold-out cutoff.
-                raw = dataset.load_series(r.country, r.category, table).astype("float64")
-                ts = models.to_timeseries(raw)
-                split = ts.time_index[-config.HOLDOUT]
-                insample = raw[raw.index < split].to_numpy()
-                order = _select_order(insample)
-                trend = _trend_for(order[1])
-                res = walkforward.backtest(
-                    "auto_arima",
-                    r.country,
-                    r.category,
-                    table,
-                    model=ARIMA(p=order[0], d=order[1], q=order[2], trend=trend),
-                )
-                rows.append(
-                    {
-                        "country": r.country,
-                        "category": r.category,
-                        "table": table,
-                        "order": f"{order}",
-                        "trend": trend,
-                        "hold_mase": round(res.holdout["mase"], 4),
-                    }
-                )
-                log.info(
-                    "%s/%s/%s order=%s trend=%s mase=%.3f",
-                    table,
-                    r.country,
-                    r.category,
-                    order,
-                    trend,
-                    res.holdout["mase"],
-                )
-            except Exception as e:  # noqa: BLE001 — orden inestable → se DECLARA, no se descarta en silencio
-                dropped.append((table, r.country, r.category, type(e).__name__))
-                log.warning(
-                    "DROP %s/%s/%s (Auto-ARIMA no convergió): %s: %s",
-                    table,
-                    r.country,
-                    r.category,
-                    type(e).__name__,
-                    e,
-                )
-    df = pd.DataFrame(rows)
-    out = REPORTS / "eval" / "auto_arima_baseline.csv"
-    df.to_csv(out, index=False)
-    # FIX #21c: la media/mediana por tabla (y el mean que build_key_facts publica como
-    # \factAutoarimaFadMean) se computan SOLO sobre las series que convergieron. Una serie
-    # descartada —hoy india/F2A/FAD: el orden (3,1,3) que elige AICc revienta con LinAlgError
-    # en la reinicialización estacionaria del filtro de Kalman al reajustarse en el walk-forward—
-    # NO debe desaparecer en silencio (el 25→24). Aquí se DECLARA la n por tabla y qué series
-    # faltan; el CSV escrito es idéntico (solo se añade el reporte).
-    summary = df.groupby("table")["hold_mase"].agg(["median", "mean", "count"]).round(4)
-    log.info("Auto-ARIMA hold MASE por tabla (count = series convergidas):\n%s", summary.to_string())
-    if dropped:
-        log.warning(
-            "Auto-ARIMA descartó %d serie(s) por no convergencia: %s",
-            len(dropped),
-            ", ".join(f"{t}/{c}/{k}" for t, c, k, _ in dropped),
-        )
-    print("AUTO-ARIMA hold MASE por tabla (median/mean/count = series convergidas):")
-    print(summary.to_string())
-    if dropped:
-        print("DESCARTADAS (no convergieron):", ", ".join(f"{t}/{c}/{k}" for t, c, k, _ in dropped))
-    return out
+    # Los avisos conocidos del ajuste, y sólo ésos: ver vp_model/noise.py
+    with silenced_fit_warnings():
+        rows = []
+        dropped: list[tuple[str, str, str, str]] = []  # (tabla, país, categoría, excepción): no convergió
+        for table in config.TABLES:
+            cat = dataset.list_series(table=table, block="family", countries=config.PILOT_COUNTRIES)
+            for r in cat.itertuples():
+                try:
+                    # AI3: order selection runs on the RAW F series (real observations
+                    # only). Selecting on the interpolated `to_timeseries` grid let the
+                    # continuity filler shape the AICc; the densified series is used
+                    # only to locate the protocol's hold-out cutoff.
+                    raw = dataset.load_series(r.country, r.category, table).astype("float64")
+                    ts = models.to_timeseries(raw)
+                    split = ts.time_index[-config.HOLDOUT]
+                    insample = raw[raw.index < split].to_numpy()
+                    order = _select_order(insample)
+                    trend = _trend_for(order[1])
+                    res = walkforward.backtest(
+                        "auto_arima",
+                        r.country,
+                        r.category,
+                        table,
+                        model=ARIMA(p=order[0], d=order[1], q=order[2], trend=trend),
+                    )
+                    rows.append(
+                        {
+                            "country": r.country,
+                            "category": r.category,
+                            "table": table,
+                            "order": f"{order}",
+                            "trend": trend,
+                            "hold_mase": round(res.holdout["mase"], 4),
+                        }
+                    )
+                    log.info(
+                        "%s/%s/%s order=%s trend=%s mase=%.3f",
+                        table,
+                        r.country,
+                        r.category,
+                        order,
+                        trend,
+                        res.holdout["mase"],
+                    )
+                except Exception as e:  # noqa: BLE001 — orden inestable → se DECLARA, no se descarta en silencio
+                    dropped.append((table, r.country, r.category, type(e).__name__))
+                    log.warning(
+                        "DROP %s/%s/%s (Auto-ARIMA no convergió): %s: %s",
+                        table,
+                        r.country,
+                        r.category,
+                        type(e).__name__,
+                        e,
+                    )
+        df = pd.DataFrame(rows)
+        out = REPORTS / "eval" / "auto_arima_baseline.csv"
+        df.to_csv(out, index=False)
+        # FIX #21c: la media/mediana por tabla (y el mean que build_key_facts publica como
+        # \factAutoarimaFadMean) se computan SOLO sobre las series que convergieron. Una serie
+        # descartada —hoy india/F2A/FAD: el orden (3,1,3) que elige AICc revienta con LinAlgError
+        # en la reinicialización estacionaria del filtro de Kalman al reajustarse en el walk-forward—
+        # NO debe desaparecer en silencio (el 25→24). Aquí se DECLARA la n por tabla y qué series
+        # faltan; el CSV escrito es idéntico (solo se añade el reporte).
+        summary = df.groupby("table")["hold_mase"].agg(["median", "mean", "count"]).round(4)
+        log.info("Auto-ARIMA hold MASE por tabla (count = series convergidas):\n%s", summary.to_string())
+        if dropped:
+            log.warning(
+                "Auto-ARIMA descartó %d serie(s) por no convergencia: %s",
+                len(dropped),
+                ", ".join(f"{t}/{c}/{k}" for t, c, k, _ in dropped),
+            )
+        print("AUTO-ARIMA hold MASE por tabla (median/mean/count = series convergidas):")
+        print(summary.to_string())
+        if dropped:
+            print("DESCARTADAS (no convergieron):", ", ".join(f"{t}/{c}/{k}" for t, c, k, _ in dropped))
+        return out
 
 
 if __name__ == "__main__":

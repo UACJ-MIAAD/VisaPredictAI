@@ -28,12 +28,14 @@ que un prefijo con ``.*`` jamás se convierte en comodín.
 
 Uso:  python tools/check_warnings.py   (sale 0 si el contrato se cumple, 1 si no)
 
-Alcance honesto: gobierna la SUITE y su gate de CI. Los productores conservan supresiones
-amplias en tiempo de ejecución (ver ``deferred_debt`` del registro); eso es deuda posterior.
+Alcance honesto: gobierna la SUITE y su gate de CI. Desde M72 los productores **no** conservan
+supresiones amplias en tiempo de ejecución (``deferred_debt`` quedó en cero) y este inventario es
+lo que impide que vuelvan.
 """
 
 from __future__ import annotations
 
+import ast
 import datetime as _dt
 import json
 import re
@@ -63,8 +65,10 @@ TOP_LEVEL_FIELDS = {"schema_version", "note", "scope", "deferred_debt", "warning
 DEBT_FIELDS = {"id", "count", "sites", "note"}
 #: Capas de producto donde se inventarían las supresiones amplias vivas.
 PRODUCER_LAYERS = ("vp_model", "vp_data", "pipeline", "experiments", "tools")
-#: `simplefilter("ignore")` / `filterwarnings("ignore")` sin mensaje ni categoría: supresión amplia.
-BROAD_SUPPRESSION = re.compile(r"(?:simplefilter|filterwarnings)\(\s*[\"']ignore[\"']\s*\)")
+#: Las dos funciones del módulo `warnings` capaces de instalar un filtro.
+SUPPRESSION_CALLS = frozenset({"filterwarnings", "simplefilter"})
+#: Categoría raíz: `category=Warning` sin mensaje NO acota nada, silencia todo.
+ROOT_CATEGORY = "Warning"
 #: Un pin exacto termina aquí; `1.9.0.post1` o `1.9.0+local` NO son el mismo pin.
 PIN_TERMINATOR = r"(?=[\s\"',;\\]|$)"
 #: Un prefijo más corto que esto no identifica un warning concreto: se considera amplio.
@@ -123,22 +127,62 @@ def filter_expression(entry: dict[str, Any]) -> str:
     return f"ignore:{re.escape(entry['message_prefix'])}:{entry['category']}"
 
 
+def _called_name(func: ast.expr) -> str | None:
+    """Nombre de la función invocada, venga por atributo (`warnings.x`) o suelta (`x`)."""
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    if isinstance(func, ast.Name):
+        return func.id
+    return None
+
+
+def _suppresses_everything(call: ast.Call) -> bool:
+    """¿Esta llamada instala un filtro que se traga CUALQUIER aviso?
+
+    Se mira la llamada, no su texto: un patrón citado en un docstring o en un comentario para
+    explicarlo no es una supresión, y una llamada partida en varias líneas sí lo es.
+    """
+    if _called_name(call.func) not in SUPPRESSION_CALLS:
+        return False
+    if not call.args:
+        return False
+    accion = call.args[0]
+    if not (isinstance(accion, ast.Constant) and accion.value == "ignore"):
+        return False
+    posicionales = call.args[1:]
+    palabras = {kw.arg: kw.value for kw in call.keywords if kw.arg is not None}
+    if any(kw.arg is None for kw in call.keywords):
+        # `**kwargs` opaco: no se puede acreditar que acote, así que cuenta como amplia.
+        return True
+    mensaje = palabras.get("message") or (posicionales[0] if posicionales else None)
+    categoria = palabras.get("category") or (posicionales[1] if len(posicionales) > 1 else None)
+    sin_mensaje = mensaje is None or (isinstance(mensaje, ast.Constant) and mensaje.value == "")
+    categoria_raiz = categoria is None or (isinstance(categoria, ast.Name) and categoria.id == ROOT_CATEGORY)
+    # Un mensaje literal acota aunque la categoría sea la raíz; una categoría concreta acota
+    # aunque no haya mensaje. Sólo es amplia cuando NO acota por ninguna de las dos vías.
+    return sin_mensaje and categoria_raiz
+
+
 def detect_broad_suppressions(root: Path) -> list[str]:
-    """Inventario `archivo:línea` de las supresiones amplias VIVAS en los productores."""
+    """Inventario `archivo:línea` de las supresiones amplias VIVAS en los productores.
+
+    Se recorre el **árbol sintáctico**, no el texto: este módulo puede nombrar el patrón que
+    prohíbe sin acusarse a sí mismo, y ninguna capa necesita exención.
+    """
     found: list[str] = []
-    myself = Path(__file__).resolve()
     for layer in PRODUCER_LAYERS:
         for path in sorted((root / layer).glob("*.py")):
-            # Este módulo DEFINE el patrón; su propia línea no es una supresión.
-            if path.resolve() == myself:
-                continue
             try:
-                lines = path.read_text(encoding="utf-8").splitlines()
+                source = path.read_text(encoding="utf-8")
             except OSError as exc:
                 raise ContractError(f"no se pudo inventariar {path}: {exc}") from exc
-            for number, line in enumerate(lines, 1):
-                if BROAD_SUPPRESSION.search(line):
-                    found.append(f"{layer}/{path.name}:{number}")
+            try:
+                tree = ast.parse(source, filename=str(path))
+            except SyntaxError as exc:
+                raise ContractError(f"no se pudo analizar {path}: {exc}") from exc
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and _suppresses_everything(node):
+                    found.append(f"{layer}/{path.name}:{node.lineno}")
     return found
 
 

@@ -84,6 +84,31 @@ printf '{"campaign_id":"%s","sha":"%s","git_sha":"%s","dirty":%s,"started_at":"%
   "$CAMPAIGN_ID" "$CAMPAIGN_SHA" "$CAMPAIGN_SHA" "$CAMPAIGN_DIRTY" "$(date -u +%FT%TZ)" \
   > reports/campaign/campaign_manifest.json
 
+# ── Transacción de campaña (ADR 0003, pendiente #56) ─────────────────────────
+# Hasta M73 la máquina de estados existía y NADIE la conducía. Ahora este runbook la
+# conduce por `tools/campaign_txn.py`: sella al arrancar, marca `failed` ante CUALQUIER
+# salida anormal (incluido un Ctrl-C o un SIGTERM) y sólo llega a `computed` si las tres
+# puertas pasaron. Publicar exige después una validación humana explícita.
+CAMPAIGN_TXN="${CAMPAIGN_TXN:-reports/campaign/campaign.json}"
+txn() { $ANTE -m tools.campaign_txn --path "$CAMPAIGN_TXN" "$@"; }
+# Una campaña anterior YA TERMINADA se archiva con su id; una abierta ABORTA aquí, que es
+# justo lo que la máquina existe para impedir.
+txn archive --dir reports/campaign/transactions || exit 7
+txn open --campaign-id "$CAMPAIGN_ID" --sha "$CAMPAIGN_SHA" --dirty "$CAMPAIGN_DIRTY" \
+    --panel data/processed/visa_panel_long.csv || exit 7
+# El trap cubre TODAS las salidas: los `exit 1/3/4/5/6` de más abajo, una excepción del
+# intérprete y las señales. `--if-open` lo hace idempotente: si el estado ya es terminal no
+# toca nada, para que un fallo registrado no quede tapado por el error de una transición ilegal.
+campaign_abort() {
+  local rc=$?
+  [ "$rc" -eq 0 ] && return 0
+  txn fail --if-open --stage "salida anormal del runbook" --exit-code "$rc" \
+      --reason "el runbook terminó con exit $rc sin alcanzar un estado terminal" >&2 || true
+}
+trap campaign_abort EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 FAILS=0
 REQ_FAILS=0
 # stage(): además de rotular, verifica que HEAD NO cambió desde el sellado — si alguien
@@ -187,12 +212,23 @@ echo "etapas fallidas: $FAILS (obligatorias: $REQ_FAILS) · consistencia: $([ $C
 # error del run (es la señal de que hay que propagar), pero se reporta en exit 2 para
 # que un publicador automático jamás la confunda con verde.
 if [ "$REQ_FAILS" -gt 0 ]; then
+  txn fail --if-open --stage "etapas obligatorias" --exit-code 1 \
+      --reason "$REQ_FAILS etapa(s) obligatoria(s) rota(s)" >&2
   echo "✗ CAMPAÑA FALLIDA: $REQ_FAILS etapa(s) obligatoria(s) rota(s). NO publicar." >&2
   exit 1
 fi
 if [ "$CONSISTENCY_OK" = 0 ]; then
+  # ⚠️ El enum de ADR 0003 no tiene estado para «completa pero con cifras por propagar», y este
+  # runbook NO inventa uno: se registra `failed` con la razón exacta. El nombre del estado es
+  # impreciso; el efecto —no se publica— es el correcto, y la razón lo deja por escrito.
+  txn fail --if-open --stage "consistencia" --exit-code 2 \
+      --reason "cómputo completo; las cifras cambiaron y faltan por propagar (regla #0)" >&2
   echo "⚠ Campaña OK pero cifras cambiaron: propagar (regla #0) y validar antes de publicar." >&2
   exit 2
 fi
-echo "✓ Campaña completa y consistente. Publicar es un paso humano: sync_all.sh --publish"
+txn compute --input-gate passed --output-gate passed --consistency passed || exit 7
+echo "✓ Campaña completa y consistente. Queda en 'computed': publicar exige validación humana"
+echo "  explícita y después el publicador:"
+echo "    $ANTE -m tools.campaign_txn validate --receipt <recibo> --reviewed-by <persona> --decision <texto>"
+echo "    bash experiments/sync_all.sh --publish"
 exit 0

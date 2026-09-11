@@ -112,6 +112,63 @@ def read(path: str | Path) -> dict | None:
         return None
 
 
+#: Lo que cada estado DEBE llevar ya relleno. Un estado no es una etiqueta: es su evidencia.
+_STATE_REQUIRES: dict[str, tuple[str, ...]] = {
+    "running": (),
+    "computed": ("completed_at", "input_gate", "output_gate", "consistency"),
+    "failed": ("failed_at", "failed_stage", "reason"),
+    "validated": (
+        "completed_at",
+        "input_gate",
+        "output_gate",
+        "consistency",
+        "validated_at",
+        "reviewed_by",
+        "decision",
+        "validation_receipt_sha256",
+    ),
+    "published": (
+        "completed_at",
+        "input_gate",
+        "output_gate",
+        "consistency",
+        "validated_at",
+        "reviewed_by",
+        "decision",
+        "validation_receipt_sha256",
+        "published_at",
+        "release_sha",
+    ),
+}
+
+
+def _state_invariants(obj: dict) -> list[str]:
+    """Invariantes POR ESTADO, exigidas al leer y no solo al transicionar.
+
+    El ADR 0003 las declara ("no se llega a computed ni a validated con gates, revisor, recibo o
+    marcas de tiempo en null"), pero hasta M73 solo las imponian los argumentos de ``mark_*``. Un
+    ``campaign.json`` escrito por CUALQUIER otra via podia declararse ``validated`` con todo en
+    ``null`` y pasar el esquema — y desde M73 hay un publicador que LEE este archivo para decidir
+    si publica. Aqui la declaracion del ADR pasa a ser cierta tambien en el camino de lectura.
+    """
+    probs: list[str] = []
+    estado = obj.get("status")
+    if not isinstance(estado, str) or estado not in STATUSES:
+        return probs  # ya lo reporta validate_schema
+    for campo in _STATE_REQUIRES[estado]:
+        if obj.get(campo) is None:
+            probs.append(f"campaign.json: estado '{estado}' exige {campo} no nulo")
+    if estado in {"validated", "published"}:
+        recibo = obj.get("validation_receipt_sha256")
+        if recibo is not None and (not isinstance(recibo, str) or not _HEX64.match(recibo)):
+            probs.append("campaign.json: validation_receipt_sha256 debe ser 64 hex")
+    if estado == "published":
+        rel = obj.get("release_sha")
+        if rel is not None and (not isinstance(rel, str) or not _HEX40.match(rel)):
+            probs.append("campaign.json: release_sha debe ser hex de 40")
+    return probs
+
+
 def validate_schema(obj: object) -> list[str]:
     """Esquema ESTRICTO: tipos exactos, formatos canonicos, sin claves desconocidas."""
     probs: list[str] = []
@@ -144,6 +201,7 @@ def validate_schema(obj: object) -> list[str]:
         probs.append("campaign.json: git_dirty debe ser booleano exacto")
     if not _valid_ts(obj.get("started_at")):
         probs.append("campaign.json: started_at debe ser timestamp RFC 3339 con tz")
+    probs += _state_invariants(obj)
     return probs
 
 

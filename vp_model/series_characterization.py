@@ -26,6 +26,7 @@ import pandas as pd
 from scipy.signal import periodogram
 from scipy.stats import kurtosis, skew
 from statsmodels.stats.diagnostic import acorr_ljungbox
+from statsmodels.tools.sm_exceptions import InterpolationWarning
 from statsmodels.tsa.seasonal import STL
 from statsmodels.tsa.stattools import acf, kpss
 
@@ -117,7 +118,8 @@ def ndiffs(s: pd.Series, alpha: float = 0.05, max_d: int = 2) -> int:
     d = 0
     cur = s.copy()
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        # Único aviso medido de esta llamada: KPSS satura el p-valor y lo dice (99 de 115 series).
+        warnings.filterwarnings("ignore", category=InterpolationWarning)
         while d < max_d:
             try:
                 p = kpss(cur.dropna(), regression="c", nlags="auto")[1]
@@ -132,9 +134,8 @@ def ndiffs(s: pd.Series, alpha: float = 0.05, max_d: int = 2) -> int:
 
 def ljung_box_pvalue(s: pd.Series, lags: int = LJUNG_BOX_LAGS) -> float:
     """Prueba de Ljung-Box (FPP3 §2.9). H0: la serie es ruido blanco."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        lb = acorr_ljungbox(s.dropna(), lags=[min(lags, len(s) // 2)], return_df=True)
+    # Sin supresión: medido, Ljung-Box no avisa en ninguna serie del panel.
+    lb = acorr_ljungbox(s.dropna(), lags=[min(lags, len(s) // 2)], return_df=True)
     return float(lb["lb_pvalue"].iloc[0])
 
 
@@ -255,7 +256,12 @@ def advanced(country: str, category: str, table: str) -> AdvancedFeatures:
         lam = 1.0
     diff = s.diff().dropna()
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        # Zivot-Andrews cae en un `sqrt` de argumento negativo en 4 de las 114 series medidas
+        # (EB2/DFF de tres áreas y EB5 de India) y devuelve un p NO FINITO. El NaN ya es la
+        # convención declarada de esta feature (igual que en la rama `except` de abajo), así que
+        # lo que se silencia es el aviso de numpy, no el resultado: sigue saliendo NaN y así se
+        # publica. Cualquier OTRO aviso de esta llamada llega a la superficie.
+        warnings.filterwarnings("ignore", message="invalid value encountered in sqrt", category=RuntimeWarning)
         try:
             za_p = float(zivot_andrews(diff, trim=0.15)[1])
         except ValueError, np.linalg.LinAlgError:

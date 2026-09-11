@@ -25,12 +25,34 @@ PESADOS = {"scipy", "darts", "statsmodels", "lightgbm", "xgboost", "torch", "opt
 #: Qué módulos del producto son pesados NO se mantiene a mano: se DERIVA leyendo sus imports de
 #: nivel de módulo y siguiendo los de ``vp_model`` en cascada. Una lista escrita a mano se queda
 #: rancia igual que cualquier otro literal.
+def _imports_de_nivel_de_modulo(arbol: ast.AST) -> list[ast.stmt]:
+    """Los `import` que se ejecutan AL IMPORTAR: los de nivel de módulo, `if`/`try` incluidos.
+
+    ⚠️ Antes esto se hacía recortando la fuente en el primer ``"\ndef "`` y analizando el trozo.
+    El recorte deja colgando el decorador de la primera función cuando la hay
+    (``@contextmanager`` + ``def``), y `ast.parse` revienta con `SyntaxError`. `vp_model/noise.py`
+    fue el primer módulo del repositorio cuya única función está decorada, y destapó el defecto.
+    Se recorre el árbol completo saltando los cuerpos de funciones y clases, que es lo que el
+    recorte quería aproximar: un import dentro de una función NO se ejecuta al importar.
+    """
+    fuera: list[ast.stmt] = []
+    pila: list[ast.AST] = [arbol]
+    while pila:
+        nodo = pila.pop()
+        for hijo in ast.iter_child_nodes(nodo):
+            if isinstance(hijo, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                continue
+            if isinstance(hijo, ast.Import | ast.ImportFrom):
+                fuera.append(hijo)
+            pila.append(hijo)
+    return fuera
+
+
 def _pesado_por_cascada(modulo: str, visto: frozenset[str] = frozenset()) -> bool:
     ruta = ROOT / Path(modulo.replace(".", "/") + ".py")
     if modulo in visto or not ruta.exists():
         return False
-    cabecera = ast.parse(ruta.read_text(encoding="utf-8").split("\ndef ", 1)[0])
-    for nodo in ast.walk(cabecera):
+    for nodo in _imports_de_nivel_de_modulo(ast.parse(ruta.read_text(encoding="utf-8"))):
         nombres: list[str] = []
         if isinstance(nodo, ast.ImportFrom) and nodo.module:
             nombres = [f"{nodo.module}.{a.name}" for a in nodo.names] if nodo.module == "vp_model" else [nodo.module]
@@ -158,5 +180,26 @@ def test_la_cascada_distingue_ligeros_de_pesados() -> None:
     assert not _pesado_por_cascada("vp_model.universe")
     assert not _pesado_por_cascada("vp_model.scale")
     assert not _pesado_por_cascada("vp_model.deck")
+    assert not _pesado_por_cascada("vp_model.noise")  # M72: stdlib puro, y por eso importable en el job base
     assert _pesado_por_cascada("vp_model.metrics"), "metrics importa darts"
     assert _pesado_por_cascada("vp_model.horizon"), "horizon importa scipy y arrastra models"
+
+
+def test_la_cascada_soporta_un_modulo_cuya_primera_funcion_esta_decorada(tmp_path: Path) -> None:
+    """RED del recorte por `"\ndef "`: dejaba el decorador colgando y `ast.parse` reventaba.
+
+    Se comprueba además que el veredicto es el correcto en los dos sentidos, no sólo que no
+    explota: un módulo decorado ligero da `False` y uno decorado que importa el extra da `True`.
+    """
+    import ast as _ast
+
+    ligero = _ast.parse("from contextlib import contextmanager\n\n\n@contextmanager\ndef f():\n    yield\n")
+    assert _imports_de_nivel_de_modulo(ligero) != []
+    pesado = _ast.parse(
+        "import statsmodels\nfrom contextlib import contextmanager\n\n\n@contextmanager\ndef f():\n    yield\n"
+    )
+    nombres = {a.name for n in _imports_de_nivel_de_modulo(pesado) if isinstance(n, _ast.Import) for a in n.names}
+    assert "statsmodels" in nombres
+    # …y un import DENTRO de una función no cuenta: no se ejecuta al importar el módulo
+    local = _ast.parse("def f():\n    import statsmodels\n    return statsmodels\n")
+    assert _imports_de_nivel_de_modulo(local) == []

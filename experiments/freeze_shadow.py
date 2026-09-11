@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import json
 import sys
-import warnings
 from pathlib import Path
 
 import numpy as np
@@ -36,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from experiments import generate_web_forecasts as gwf  # band method single-source
 from vp_data import tracking
 from vp_model import champion, config, dataset, intervals, ledger, metrics, models
+from vp_model.noise import silenced_fit_warnings
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
@@ -171,79 +171,80 @@ def append_shadow(rows: list[dict]) -> Path:
 
 
 def main() -> int:
-    warnings.filterwarnings("ignore")
-    config.seed_everything()
-    if not VERDICT.exists():
-        log.warning("no hay %s — corre run_champion_challenger primero; nada que congelar", VERDICT)
-        return 0
-    verdict = json.loads(VERDICT.read_text())
-    champions = champion.load_manifest()
-    all_rows: list[dict] = []
-    n_series = 0
-    for table in config.TABLES:
-        entry = verdict.get(table)
-        if not entry:
-            continue
-        rec_dict = best_challenger(entry)
-        if rec_dict is None:
-            log.info("[%s] verdict sin recetas serializadas de retador — nada que sombrear", table)
-            continue
-        recipe = champion.recipe_from_dict(rec_dict)
-        if any(m in config.DIFFERENCED for m in recipe.models):
-            # ponytail: covariate plumbing for GBM recipes isn't wired here yet —
-            # skip LOUDLY instead of dying per-series and aborting the vintage.
-            # Upgrade path: FeatureBuilder covariates over an extended calendar.
-            log.warning("[%s] retador %s incluye GBM — sombra no soportada aún, se omite", table, recipe.name)
-            continue
-        if recipe.name == champions[table].name:
-            log.info("[%s] el mejor retador ES el campeón desplegado — no se sombrea", table)
-            continue
-        log.info("[%s] sombra = %s", table, recipe.name)
-        for block in ("family", "employment"):
-            cat = dataset.list_series(table=table, block=block, countries=config.PILOT_COUNTRIES)
-            for r in cat.itertuples():
-                try:
-                    all_rows += _series_shadow(recipe, r.country, r.category, table)
-                    n_series += 1
-                except Exception as e:  # noqa: BLE001 — one failing series must not kill the vintage
-                    log.info("skip %s/%s/%s: %s", table, r.country, r.category, e)
-        tracking.log_run(
-            "shadow_forecasts",
-            f"{table}-{recipe.name}",
-            params={"table": table, "recipe": recipe.name, "models": "+".join(recipe.models), "agg": recipe.agg},
-            metrics={"n_rows": float(sum(1 for x in all_rows if x["table"] == table))},
-            tags={"shadow": "true"},
-        )
-    if not all_rows:
-        log.info("sin filas sombra este run (sin retador distinto o todas las series fallaron)")
-        return 0
-    # A-05 (auditoria ciega 11-jul): gate por tabla FAIL-CLOSED por set de claves — el
-    # `if got and expected` anterior dejaba pasar got==0 (una tabla completa ausente se
-    # archivaba callada si la otra producia filas). Ahora una tabla ausente o parcial
-    # ABORTA el freeze sombra entero: una añada sombra incompleta congelada contamina la
-    # evidencia de promocion para siempre (el ledger es inmutable).
-    if WEB_META.exists():
-        meta_series = json.loads(WEB_META.read_text()).get("series", {})
-        allowed = ledger.load_completeness_allowlist()
-        problems: list[str] = []
+    # Los avisos conocidos del ajuste, y sólo ésos: ver vp_model/noise.py
+    with silenced_fit_warnings():
+        config.seed_everything()
+        if not VERDICT.exists():
+            log.warning("no hay %s — corre run_champion_challenger primero; nada que congelar", VERDICT)
+            return 0
+        verdict = json.loads(VERDICT.read_text())
+        champions = champion.load_manifest()
+        all_rows: list[dict] = []
+        n_series = 0
         for table in config.TABLES:
-            expected = {k for k in meta_series if k.endswith(f"/{table}")}
-            got = {f"{r['country']}/{r['category']}/{table}" for r in all_rows if r["table"] == table}
-            problems += ledger.completeness_problems(expected, got, label=f"sombra {table}", allowed=allowed)
-            for k in sorted(expected - got):
-                if k in allowed:
-                    log.warning("[sombra %s] omision permitida por allowlist: %s (%s)", table, k, allowed[k])
-                    with open("/tmp/completeness.txt", "a") as fh:
-                        fh.write(f"[sombra {table}] omitida con excepcion nominal: {k} ({allowed[k]})\n")
-        if problems:
-            raise SystemExit("ABORT (completitud sombra fail-closed): " + " | ".join(problems))
-    path = append_shadow(all_rows)
-    # A-05: validar el ledger PERSISTIDO tras el append — violacion del contrato v2 aborta.
-    violations = ledger.validate(pd.read_csv(path))
-    if violations:
-        raise SystemExit("ABORT (ledger sombra viola el contrato v2 tras el append): " + "; ".join(violations))
-    log.info("shadow ledger -> %s (+%d filas de %d series)", path, len(all_rows), n_series)
-    return 0
+            entry = verdict.get(table)
+            if not entry:
+                continue
+            rec_dict = best_challenger(entry)
+            if rec_dict is None:
+                log.info("[%s] verdict sin recetas serializadas de retador — nada que sombrear", table)
+                continue
+            recipe = champion.recipe_from_dict(rec_dict)
+            if any(m in config.DIFFERENCED for m in recipe.models):
+                # ponytail: covariate plumbing for GBM recipes isn't wired here yet —
+                # skip LOUDLY instead of dying per-series and aborting the vintage.
+                # Upgrade path: FeatureBuilder covariates over an extended calendar.
+                log.warning("[%s] retador %s incluye GBM — sombra no soportada aún, se omite", table, recipe.name)
+                continue
+            if recipe.name == champions[table].name:
+                log.info("[%s] el mejor retador ES el campeón desplegado — no se sombrea", table)
+                continue
+            log.info("[%s] sombra = %s", table, recipe.name)
+            for block in ("family", "employment"):
+                cat = dataset.list_series(table=table, block=block, countries=config.PILOT_COUNTRIES)
+                for r in cat.itertuples():
+                    try:
+                        all_rows += _series_shadow(recipe, r.country, r.category, table)
+                        n_series += 1
+                    except Exception as e:  # noqa: BLE001 — one failing series must not kill the vintage
+                        log.info("skip %s/%s/%s: %s", table, r.country, r.category, e)
+            tracking.log_run(
+                "shadow_forecasts",
+                f"{table}-{recipe.name}",
+                params={"table": table, "recipe": recipe.name, "models": "+".join(recipe.models), "agg": recipe.agg},
+                metrics={"n_rows": float(sum(1 for x in all_rows if x["table"] == table))},
+                tags={"shadow": "true"},
+            )
+        if not all_rows:
+            log.info("sin filas sombra este run (sin retador distinto o todas las series fallaron)")
+            return 0
+        # A-05 (auditoria ciega 11-jul): gate por tabla FAIL-CLOSED por set de claves — el
+        # `if got and expected` anterior dejaba pasar got==0 (una tabla completa ausente se
+        # archivaba callada si la otra producia filas). Ahora una tabla ausente o parcial
+        # ABORTA el freeze sombra entero: una añada sombra incompleta congelada contamina la
+        # evidencia de promocion para siempre (el ledger es inmutable).
+        if WEB_META.exists():
+            meta_series = json.loads(WEB_META.read_text()).get("series", {})
+            allowed = ledger.load_completeness_allowlist()
+            problems: list[str] = []
+            for table in config.TABLES:
+                expected = {k for k in meta_series if k.endswith(f"/{table}")}
+                got = {f"{r['country']}/{r['category']}/{table}" for r in all_rows if r["table"] == table}
+                problems += ledger.completeness_problems(expected, got, label=f"sombra {table}", allowed=allowed)
+                for k in sorted(expected - got):
+                    if k in allowed:
+                        log.warning("[sombra %s] omision permitida por allowlist: %s (%s)", table, k, allowed[k])
+                        with open("/tmp/completeness.txt", "a") as fh:
+                            fh.write(f"[sombra {table}] omitida con excepcion nominal: {k} ({allowed[k]})\n")
+            if problems:
+                raise SystemExit("ABORT (completitud sombra fail-closed): " + " | ".join(problems))
+        path = append_shadow(all_rows)
+        # A-05: validar el ledger PERSISTIDO tras el append — violacion del contrato v2 aborta.
+        violations = ledger.validate(pd.read_csv(path))
+        if violations:
+            raise SystemExit("ABORT (ledger sombra viola el contrato v2 tras el append): " + "; ".join(violations))
+        log.info("shadow ledger -> %s (+%d filas de %d series)", path, len(all_rows), n_series)
+        return 0
 
 
 if __name__ == "__main__":

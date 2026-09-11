@@ -18,7 +18,6 @@ imputation-free con máscaras y time-since-observation para series irregulares (
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import asdict, dataclass
 
 import numpy as np
@@ -93,11 +92,10 @@ def kalman_impute(series: pd.Series) -> pd.Series:
     reg = _raw_monthly(series)
     if reg.notna().sum() < 10 or reg.isna().sum() == 0:
         return reg.interpolate(limit_direction="both")
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        model = UnobservedComponents(reg, level="local linear trend")
-        res = model.fit(disp=False)
-        smoothed = res.smoothed_state[0]  # nivel suavizado
+    # Sin supresión: medido sobre las 115 series con >=24 obs, el ajuste no emite un solo aviso.
+    model = UnobservedComponents(reg, level="local linear trend")
+    res = model.fit(disp=False)
+    smoothed = res.smoothed_state[0]  # nivel suavizado
     out = reg.copy()
     out[reg.isna()] = pd.Series(smoothed, index=reg.index)[reg.isna()]
     return out

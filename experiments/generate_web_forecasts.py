@@ -61,6 +61,7 @@ from darts import TimeSeries
 
 from vp_data import tracking
 from vp_model import champion, cone, config, dataset, intervals, ledger, metrics, models
+from vp_model.noise import silenced_fit_warnings
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
@@ -669,141 +670,141 @@ def _append_log(rows: list[dict], model_version: str | dict[str, str] | None = "
 
 
 def run(as_of: str | None = None) -> tuple[Path, Path]:
-    import warnings
-
-    warnings.filterwarnings("ignore")  # AP5: scoped to the run, not an import side effect
-    config.seed_everything()  # reproducibilidad: misma semilla para todo lo estocástico
-    # Receta de producción por tabla — leída del MANIFIESTO campeón (champion_manifest.json),
-    # que es la receta desplegada versionada. El harness campeón-retador
-    # (experiments/run_champion_challenger.py --promote) es lo ÚNICO que la cambia, de forma
-    # auditada. Punto = mediana del conjunto (1 elemento = ese modelo). Fallback a la receta
-    # histórica si el manifiesto no existe. (AP5: loaded here, not at import time.)
-    manifest = champion.load_manifest()
-    prod: dict[str, tuple[str, ...]] = {t: r.models for t, r in manifest.items()}
-    pi_scales = _load_pi_scales()
-    aci_gamma = _load_aci_gamma()
-    hits = _ledger_hits()
-    csv_path = REPORTS / "prospective" / "web_forecasts.csv"
-    meta_path = REPORTS / "prospective" / "web_forecasts_meta.json"
-    catalogue, expected_keys, structural = _forecast_universe(as_of)
-    eligibility_snapshot = _eligibility_payload(set(catalogue), expected_keys, structural)
-    if as_of is None:
-        previous_catalogue, previous_eligible = _previous_universe(meta_path)
-        universe_problems = _universe_problems(
-            set(catalogue),
-            expected_keys,
-            previous_catalogue,
-            previous_eligible,
-        )
-        if universe_problems:
-            raise SystemExit("ABORT (contracción del universo de forecasts): " + " | ".join(universe_problems))
-    for table in config.TABLES:
-        table_catalogue = sum(key.endswith(f"/{table}") for key in catalogue)
-        table_eligible = sum(key.endswith(f"/{table}") for key in expected_keys)
-        table_structural = Counter(item.reason for item in structural.values() if item.table == table)
-        log.info(
-            "universo %s: catálogo=%d elegibles=%d estructurales=%d (%s)",
-            table,
-            table_catalogue,
-            table_eligible,
-            table_catalogue - table_eligible,
-            dict(sorted(table_structural.items())),
-        )
-    all_rows: list[dict] = []
-    all_meta: dict = {}
-    for key, (country, category, table) in catalogue.items():
-        if key not in expected_keys:
-            continue
-        out = _series_forecast(country, category, table, as_of, prod, pi_scales, aci_gamma, hits)
-        if out is None:
-            continue
-        rows, meta = out
-        all_rows += rows
-        all_meta.update(meta)
-        log.info("✓ %s (%d series acumuladas)", key, len(all_meta))
-
-    # C2 + A-05 (auditoria ciega 11-jul): gate de salida por TABLA y SET DE CLAVES contra
-    # el catalogo VIGENTE (antes: n_series del meta del run ANTERIOR con 10% de tolerancia
-    # global — una tabla completa ausente pasaba si la otra producia filas). Un env roto a
-    # medias NO publica ni archiva: el ledger es inmutable (C3).
-    got_keys = set(all_meta)
-    allowed = ledger.load_completeness_allowlist()
-    problems: list[str] = []
-    for table in config.TABLES:
-        exp_t = {k for k in expected_keys if k.endswith(f"/{table}")}
-        got_t = {k for k in got_keys if k.endswith(f"/{table}")}
-        problems += ledger.completeness_problems(exp_t, got_t, label=table, allowed=allowed)
-        for k in sorted(exp_t - got_t):
-            if k in allowed:  # eximida NOMINALMENTE — visible en log Y en el correo SES
-                log.warning("[%s] omision permitida por allowlist: %s (%s)", table, k, allowed[k])
-                with open("/tmp/completeness.txt", "a") as fh:
-                    fh.write(f"[{table}] omitida con excepcion nominal: {k} ({allowed[k]})\n")
-    if problems:
-        raise SystemExit("ABORT (completitud fail-closed): " + " | ".join(problems))
-
-    # AL5/F1: proyección al cono de coherencia ANTES de serializar — el ledger congela
-    # exactamente la añada que se publica (misma proyección para punto y bandas; ver
-    # _project_rows). El contador pre-proyección es la métrica que vigilan meta/SES.
-    all_rows, cone_meta = _project_rows(all_rows)
-    log.info(
-        "cono de coherencia: %d violaciones pre-proyección -> %d post (detalle: %s)",
-        cone_meta["cone_violations_pre"],
-        cone_meta["cone_violations_post"],
-        cone_meta["cone_violations_detail"],
-    )
-
-    # A2: la añada se archiva con identidad de freeze — receta desplegada por tabla y
-    # modo honesto (as_of explícito ⇒ backfill; en vivo, live solo si el target es futuro).
-    log_path = _append_log(all_rows, model_version={t: r.name for t, r in manifest.items()}, as_of=as_of)
-    # A-05: validar el ledger PERSISTIDO inmediatamente tras el append — una violacion
-    # del contrato v2 (sello nulo, hash que no re-deriva, live imposible) impide publicar.
-    violations = ledger.validate(pd.read_csv(log_path))
-    if violations:
-        raise SystemExit("ABORT (ledger campeon viola el contrato v2 tras el append): " + "; ".join(violations))
-    # La añada en vivo (as_of=None) es además la que sirve la web; el meta describe el
-    # CSV vivo, así que un backfill histórico NO debe reescribirlo (C3).
-    if as_of is None:
-        pd.DataFrame(all_rows)[WEB_COLS].to_csv(csv_path, index=False)
-        # método derivado del manifiesto campeón (prod), no prosa congelada (C3)
-        pretty = {"theta": "Theta", "ets": "ETS", "sarima": "SARIMA", "arima": "ARIMA", "kalman": "Kalman"}
-        band_txt = (
-            "bandas por cuantil empírico por horizonte (ledger prospectivo)"
-            if pi_scales is not None
-            else "ensanchado por √h"
-        )
-        method = {
-            t: (("Mediana de " if len(prod[t]) > 1 else "") + " + ".join(pretty.get(m, m) for m in prod[t]))
-            + f" · intervalo conforme (95 %/80 %) {band_txt}"
-            for t in config.TABLES
-        }
-
-        # Literal NaN is invalid JSON — the browser's JSON.parse dies and takes the
-        # whole forecasts/scorecard section with it (caught live by the web render
-        # check). Sanitize to null and make json.dumps refuse any future NaN.
-        def _no_nan(obj):
-            if isinstance(obj, dict):
-                return {k: _no_nan(v) for k, v in obj.items()}
-            if isinstance(obj, list):
-                return [_no_nan(v) for v in obj]
-            if isinstance(obj, float) and obj != obj:
-                return None
-            return obj
-
-        meta_path.write_text(
-            json.dumps(
-                _no_nan(_meta_payload(method, all_meta, cone_meta, eligibility_snapshot)),
-                ensure_ascii=False,
-                indent=2,
-                allow_nan=False,
+    # Los avisos conocidos del ajuste, y sólo ésos: ver vp_model/noise.py. Antes esta línea
+    # silenciaba cualquier aviso durante la publicación del corte, que es donde menos conviene.
+    with silenced_fit_warnings():
+        config.seed_everything()  # reproducibilidad: misma semilla para todo lo estocástico
+        # Receta de producción por tabla — leída del MANIFIESTO campeón (champion_manifest.json),
+        # que es la receta desplegada versionada. El harness campeón-retador
+        # (experiments/run_champion_challenger.py --promote) es lo ÚNICO que la cambia, de forma
+        # auditada. Punto = mediana del conjunto (1 elemento = ese modelo). Fallback a la receta
+        # histórica si el manifiesto no existe. (AP5: loaded here, not at import time.)
+        manifest = champion.load_manifest()
+        prod: dict[str, tuple[str, ...]] = {t: r.models for t, r in manifest.items()}
+        pi_scales = _load_pi_scales()
+        aci_gamma = _load_aci_gamma()
+        hits = _ledger_hits()
+        csv_path = REPORTS / "prospective" / "web_forecasts.csv"
+        meta_path = REPORTS / "prospective" / "web_forecasts_meta.json"
+        catalogue, expected_keys, structural = _forecast_universe(as_of)
+        eligibility_snapshot = _eligibility_payload(set(catalogue), expected_keys, structural)
+        if as_of is None:
+            previous_catalogue, previous_eligible = _previous_universe(meta_path)
+            universe_problems = _universe_problems(
+                set(catalogue),
+                expected_keys,
+                previous_catalogue,
+                previous_eligible,
             )
-            + "\n"
-        )
-        log.info("escrito -> %s (%d filas, %d series)", csv_path, len(all_rows), len(all_meta))
-    else:
+            if universe_problems:
+                raise SystemExit("ABORT (contracción del universo de forecasts): " + " | ".join(universe_problems))
+        for table in config.TABLES:
+            table_catalogue = sum(key.endswith(f"/{table}") for key in catalogue)
+            table_eligible = sum(key.endswith(f"/{table}") for key in expected_keys)
+            table_structural = Counter(item.reason for item in structural.values() if item.table == table)
+            log.info(
+                "universo %s: catálogo=%d elegibles=%d estructurales=%d (%s)",
+                table,
+                table_catalogue,
+                table_eligible,
+                table_catalogue - table_eligible,
+                dict(sorted(table_structural.items())),
+            )
+        all_rows: list[dict] = []
+        all_meta: dict = {}
+        for key, (country, category, table) in catalogue.items():
+            if key not in expected_keys:
+                continue
+            out = _series_forecast(country, category, table, as_of, prod, pi_scales, aci_gamma, hits)
+            if out is None:
+                continue
+            rows, meta = out
+            all_rows += rows
+            all_meta.update(meta)
+            log.info("✓ %s (%d series acumuladas)", key, len(all_meta))
+
+        # C2 + A-05 (auditoria ciega 11-jul): gate de salida por TABLA y SET DE CLAVES contra
+        # el catalogo VIGENTE (antes: n_series del meta del run ANTERIOR con 10% de tolerancia
+        # global — una tabla completa ausente pasaba si la otra producia filas). Un env roto a
+        # medias NO publica ni archiva: el ledger es inmutable (C3).
+        got_keys = set(all_meta)
+        allowed = ledger.load_completeness_allowlist()
+        problems: list[str] = []
+        for table in config.TABLES:
+            exp_t = {k for k in expected_keys if k.endswith(f"/{table}")}
+            got_t = {k for k in got_keys if k.endswith(f"/{table}")}
+            problems += ledger.completeness_problems(exp_t, got_t, label=table, allowed=allowed)
+            for k in sorted(exp_t - got_t):
+                if k in allowed:  # eximida NOMINALMENTE — visible en log Y en el correo SES
+                    log.warning("[%s] omision permitida por allowlist: %s (%s)", table, k, allowed[k])
+                    with open("/tmp/completeness.txt", "a") as fh:
+                        fh.write(f"[{table}] omitida con excepcion nominal: {k} ({allowed[k]})\n")
+        if problems:
+            raise SystemExit("ABORT (completitud fail-closed): " + " | ".join(problems))
+
+        # AL5/F1: proyección al cono de coherencia ANTES de serializar — el ledger congela
+        # exactamente la añada que se publica (misma proyección para punto y bandas; ver
+        # _project_rows). El contador pre-proyección es la métrica que vigilan meta/SES.
+        all_rows, cone_meta = _project_rows(all_rows)
         log.info(
-            "añada histórica %s archivada en el ledger (%d series); web_forecasts.csv intacto", as_of, len(all_meta)
+            "cono de coherencia: %d violaciones pre-proyección -> %d post (detalle: %s)",
+            cone_meta["cone_violations_pre"],
+            cone_meta["cone_violations_post"],
+            cone_meta["cone_violations_detail"],
         )
-    return csv_path, meta_path
+
+        # A2: la añada se archiva con identidad de freeze — receta desplegada por tabla y
+        # modo honesto (as_of explícito ⇒ backfill; en vivo, live solo si el target es futuro).
+        log_path = _append_log(all_rows, model_version={t: r.name for t, r in manifest.items()}, as_of=as_of)
+        # A-05: validar el ledger PERSISTIDO inmediatamente tras el append — una violacion
+        # del contrato v2 (sello nulo, hash que no re-deriva, live imposible) impide publicar.
+        violations = ledger.validate(pd.read_csv(log_path))
+        if violations:
+            raise SystemExit("ABORT (ledger campeon viola el contrato v2 tras el append): " + "; ".join(violations))
+        # La añada en vivo (as_of=None) es además la que sirve la web; el meta describe el
+        # CSV vivo, así que un backfill histórico NO debe reescribirlo (C3).
+        if as_of is None:
+            pd.DataFrame(all_rows)[WEB_COLS].to_csv(csv_path, index=False)
+            # método derivado del manifiesto campeón (prod), no prosa congelada (C3)
+            pretty = {"theta": "Theta", "ets": "ETS", "sarima": "SARIMA", "arima": "ARIMA", "kalman": "Kalman"}
+            band_txt = (
+                "bandas por cuantil empírico por horizonte (ledger prospectivo)"
+                if pi_scales is not None
+                else "ensanchado por √h"
+            )
+            method = {
+                t: (("Mediana de " if len(prod[t]) > 1 else "") + " + ".join(pretty.get(m, m) for m in prod[t]))
+                + f" · intervalo conforme (95 %/80 %) {band_txt}"
+                for t in config.TABLES
+            }
+
+            # Literal NaN is invalid JSON — the browser's JSON.parse dies and takes the
+            # whole forecasts/scorecard section with it (caught live by the web render
+            # check). Sanitize to null and make json.dumps refuse any future NaN.
+            def _no_nan(obj):
+                if isinstance(obj, dict):
+                    return {k: _no_nan(v) for k, v in obj.items()}
+                if isinstance(obj, list):
+                    return [_no_nan(v) for v in obj]
+                if isinstance(obj, float) and obj != obj:
+                    return None
+                return obj
+
+            meta_path.write_text(
+                json.dumps(
+                    _no_nan(_meta_payload(method, all_meta, cone_meta, eligibility_snapshot)),
+                    ensure_ascii=False,
+                    indent=2,
+                    allow_nan=False,
+                )
+                + "\n"
+            )
+            log.info("escrito -> %s (%d filas, %d series)", csv_path, len(all_rows), len(all_meta))
+        else:
+            log.info(
+                "añada histórica %s archivada en el ledger (%d series); web_forecasts.csv intacto", as_of, len(all_meta)
+            )
+        return csv_path, meta_path
 
 
 if __name__ == "__main__":

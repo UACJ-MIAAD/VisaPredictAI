@@ -97,10 +97,11 @@ def test_the_statsmodels_exceptions_are_registered() -> None:
 
 
 def test_registry_documents_the_deferred_producer_debt() -> None:
-    """D2-C gobierna la suite y su CI; NO afirma gobernar los warnings de los productores."""
+    """M72 cerró la deuda: cero supresiones amplias, y el cero se deriva del código."""
     data = _registry(ROOT)
     debt = data["deferred_debt"]
-    assert debt["count"] == 9 and len(debt["sites"]) == 9
+    assert debt["count"] == 0 and debt["sites"] == []
+    assert cw.detect_broad_suppressions(ROOT) == []
     assert "suite" in data["scope"].lower() and "productores" in data["scope"].lower()
 
 
@@ -305,7 +306,8 @@ def test_top_level_types_are_closed(tmp_path: Path, field: str, value) -> None:
         (lambda d: d["deferred_debt"].update(count=8), "count 8"),
         (lambda d: d["deferred_debt"].update(count=True), "entero"),
         (
-            lambda d: d["deferred_debt"].update(sites=d["deferred_debt"]["sites"] + [d["deferred_debt"]["sites"][0]]),
+            # la deuda vigente está vacía: el duplicado se declara aquí, no se toma de ella
+            lambda d: d["deferred_debt"].update(sites=["vp_model/eda.py:79"] * 2, count=2),
             "duplicados",
         ),
         (lambda d: d["deferred_debt"].pop("note"), "faltan"),
@@ -326,9 +328,74 @@ def test_debt_detected_from_code_matches_the_declared_sites() -> None:
     """La deuda no se cree por lo escrito: se lee del código de los productores."""
     live = cw.detect_broad_suppressions(ROOT)
     declared = _registry(ROOT)["deferred_debt"]["sites"]
-    assert sorted(live) == sorted(declared) and len(live) == 9
-    assert not any(s.startswith("tools/check_warnings.py") for s in live), "el detector no se cuenta a sí mismo"
+    assert sorted(live) == sorted(declared) and live == []
     assert not any("walkforward" in s for s in live), 'simplefilter("always") no suprime nada'
+
+
+def test_the_detector_still_finds_a_planted_suppression(tmp_path: Path) -> None:
+    """Un cero sólo vale si el detector sigue cazando: se siembra y debe aparecer, con su línea."""
+    (tmp_path / "vp_model").mkdir()
+    (tmp_path / "vp_model" / "x.py").write_text(
+        "import warnings\n\n\nwarnings.simplefilter('ignore')\n", encoding="utf-8"
+    )
+    assert cw.detect_broad_suppressions(tmp_path) == ["vp_model/x.py:4"]
+
+
+def test_the_detector_reads_the_syntax_tree_not_the_text(tmp_path: Path) -> None:
+    """Nombrar el patrón en un docstring o en un comentario NO es suprimir.
+
+    Es el defecto que cazó M72 en su primera corrida: el inventario por texto acusaba a
+    `vp_model/noise.py` por su propia documentación, y obligaba a que este módulo se eximiera a
+    sí mismo. Leyendo el AST, ninguna exención hace falta.
+    """
+    (tmp_path / "vp_model").mkdir()
+    (tmp_path / "vp_model" / "doc.py").write_text(
+        '''"""Explica que warnings.filterwarnings("ignore") está prohibido."""\n'''
+        '# tampoco cuenta en un comentario: warnings.simplefilter("ignore")\n'
+        "PATRON = 'warnings.filterwarnings(\"ignore\")'\n",
+        encoding="utf-8",
+    )
+    assert cw.detect_broad_suppressions(tmp_path) == []
+    # …y el propio verificador, que cita el patrón en su documentación, no se acusa.
+    assert not any(s.startswith("tools/check_warnings.py") for s in cw.detect_broad_suppressions(ROOT))
+
+
+def test_the_detector_catches_a_call_split_across_lines(tmp_path: Path) -> None:
+    """RED del detector viejo: partida en varias líneas, la regex no la veía y el AST sí."""
+    (tmp_path / "experiments").mkdir()
+    (tmp_path / "experiments" / "y.py").write_text(
+        "import warnings\n\nwarnings.filterwarnings(\n    'ignore',\n)\n", encoding="utf-8"
+    )
+    assert cw.detect_broad_suppressions(tmp_path) == ["experiments/y.py:3"]
+
+
+@pytest.mark.parametrize(
+    "llamada,amplia",
+    [
+        ("warnings.filterwarnings('ignore', category=Warning)", True),  # categoría raíz: lo traga todo
+        ("warnings.filterwarnings('ignore', message='')", True),  # mensaje vacío: casa con todo
+        ("warnings.filterwarnings('ignore', **opciones)", True),  # opaco: no se puede acreditar
+        ("warnings.filterwarnings('ignore', message='boom', category=Warning)", False),
+        ("warnings.filterwarnings('ignore', category=DeprecationWarning)", False),
+        ("warnings.simplefilter('ignore', DeprecationWarning)", False),
+        ("warnings.simplefilter('always')", False),  # no suprime nada
+        ("warnings.filterwarnings('error')", False),
+    ],
+)
+def test_the_detector_separates_broad_from_narrow(tmp_path: Path, llamada: str, amplia: bool) -> None:
+    """La frontera se prueba por casos, no se afirma: acotar por mensaje O por categoría basta."""
+    (tmp_path / "vp_data").mkdir()
+    (tmp_path / "vp_data" / "z.py").write_text(f"import warnings\n\nopciones = {{}}\n{llamada}\n", encoding="utf-8")
+    encontrado = cw.detect_broad_suppressions(tmp_path)
+    assert bool(encontrado) is amplia, f"{llamada!r} clasificada al revés: {encontrado}"
+
+
+def test_the_detector_fails_closed_on_unparseable_code(tmp_path: Path) -> None:
+    """Un productor que no compila no puede pasar por «sin supresiones»."""
+    (tmp_path / "pipeline").mkdir()
+    (tmp_path / "pipeline" / "roto.py").write_text("def (:\n", encoding="utf-8")
+    with pytest.raises(cw.ContractError, match="no se pudo analizar"):
+        cw.detect_broad_suppressions(tmp_path)
 
 
 def test_message_prefix_is_literal_not_a_regex(tmp_path: Path) -> None:
@@ -446,10 +513,10 @@ def test_each_convergence_message_has_its_own_narrow_entry() -> None:
     assert holt != mle and not mle.startswith(holt) and not holt.startswith(mle)
 
 
-def test_deferred_debt_is_unchanged_by_this_fix() -> None:
-    """M13-R1 no toca productores: los nueve sitios de deuda siguen iguales."""
+def test_deferred_debt_matches_the_code_exactly() -> None:
+    """La deuda declarada y la viva son el mismo conjunto; desde M72, el vacío."""
     debt = _registry(ROOT)["deferred_debt"]
-    assert debt["count"] == 9 and len(debt["sites"]) == 9
+    assert debt["count"] == len(debt["sites"])
     assert sorted(debt["sites"]) == sorted(cw.detect_broad_suppressions(ROOT))
 
 

@@ -31,9 +31,17 @@ MANIFEST=reports/campaign/campaign_manifest.json
 # 13-jul-2026 ronda 8: el grep '"dirty": *true' era FAIL-OPEN — no cubría ausencia/malformado/
 # `{"dirty" : true}` con espacios ni cambios TOCTOU). CAMPAIGN_DIAGNOSTIC NO llega a producción.
 publishable() { ante_nf/bin/python -m tools.campaign_manifest --assert-publishable "$MANIFEST"; }
+# ⚠️ SEGUNDA puerta, y la que manda (ADR 0003 · pendiente #56, adoptada en M73): el manifiesto
+# acredita la IDENTIDAD de la campaña; la transacción acredita su ESTADO. Sólo `validated`
+# autoriza publicar — `running` (incluido el que deja un SIGKILL), `computed`, `failed` y
+# `published` bloquean, y la ausencia de transacción también. Antes de M73 nadie escribía
+# `campaign.json`, así que esta puerta no podía existir.
+CAMPAIGN_TXN="${CAMPAIGN_TXN:-reports/campaign/campaign.json}"
+txn_guard() { ante_nf/bin/python -m tools.campaign_txn --path "$CAMPAIGN_TXN" guard; }
 manifest_sha() { ante_nf/bin/python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$MANIFEST"; }
 if [ "$PUBLISH" = 1 ]; then
   publishable || exit 7
+  txn_guard || exit 8
   PUB_SHA0="$(manifest_sha)"
 fi
 
@@ -51,6 +59,7 @@ elif [ "$PUBLISH" = 1 ]; then
     # Re-valida el manifiesto JUSTO antes de publicar (cierra TOCTOU: pudo cambiar entre el
     # gate inicial y aquí) y exige que su contenido siga BYTE-idéntico al validado.
     publishable || exit 7
+    txn_guard || exit 8
     [ "$(manifest_sha)" = "$PUB_SHA0" ] || {
         echo "ERROR: el manifiesto de campaña cambió durante sync_all (TOCTOU). Aborta." >&2
         exit 7
