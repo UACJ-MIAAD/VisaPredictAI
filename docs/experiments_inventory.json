@@ -8,6 +8,10 @@
     "clase": "investigacion",
     "consumidor": "campañas multi-semilla (tablas del deliverable via make_tex_tables)"
   },
+  "analyze_paper_promises.py": {
+    "clase": "producto",
+    "consumidor": "reports/eval/paper_promises.json — etapa 8d del runbook: los dos analisis que paper.tex promete y la campana no producia (efecto del cono antes/despues y naive estacional OOS en los mismos origenes del scorecard); no entrena ni promueve"
+  },
   "apply_cone_constraints.py": {
     "clase": "producto",
     "consumidor": "generate_web_forecasts (cono FAD<=DFF/pais<=mundial)"
@@ -183,6 +187,10 @@
   "run_deep_pi.py": {
     "clase": "investigacion",
     "consumidor": "PI del deep (CQR)"
+  },
+  "run_e3_campaign.py": {
+    "clase": "producto",
+    "consumidor": "reports/campaign/e3/ — etapa 8c del runbook: deriva los 42 lanes de E3 del deck congelado (docs/cohort_deck.json) por su unica puerta vp_model/deck.py; no inventa recetas ni promueve"
   },
   "run_e4_router.py": {
     "clase": "producto",

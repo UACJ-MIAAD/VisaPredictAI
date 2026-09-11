@@ -424,7 +424,7 @@ def _compute_series_forecast(
     return rows, {f"{country}/{category}/{table}": meta}
 
 
-def _project_rows(rows: list[dict]) -> tuple[list[dict], dict]:
+def _project_rows(rows: list[dict], *, precone: Path | None = None) -> tuple[list[dict], dict]:
     """AL5/F1: proyecta la añada al cono (país≤AllCharg, FAD≤DFF) antes de serializar.
 
     Single-source en ``vp_model.cone`` (la misma proyección que audita
@@ -434,7 +434,20 @@ def _project_rows(rows: list[dict]) -> tuple[list[dict], dict]:
     redondeo de vuelta es sin pérdida y, sin violaciones, el passthrough es
     byte-estable. Devuelve ``(filas, contadores pre/post)`` para el meta/SES.
     """
-    frame, counters = cone.project(pd.DataFrame(rows))
+    previo = pd.DataFrame(rows)
+    # H8: el paper promete cuantificar el efecto de la proyección «comparando la misma cohorte
+    # antes y después». Eso exige conservar el ANTES: hasta ahora sólo se publicaba el después, así
+    # que el efecto no era medible ni siquiera en principio. Los pares maduran mes a mes y
+    # `analyze_paper_promises.py` los compara cuando hay actual.
+    #
+    # ⚠️ La escritura es del LLAMADOR, no de esta función. Al persistirla aquí, proyectar dejaba de
+    # ser una operación pura: cualquiera que llamara a `_project_rows` —incluidas cuatro pruebas de
+    # `test_web_publish.py`— escribía en `reports/prospective/` del árbol vivo. Con `precone=None`
+    # se proyecta y no se toca el disco.
+    if precone is not None:
+        precone.parent.mkdir(parents=True, exist_ok=True)
+        previo.to_csv(precone, index=False)
+    frame, counters = cone.project(previo.copy())
     if counters["cone_violations_pre"]:  # _shift_row pudo promover a float; restaurar int
         for col in ("days", *cone.BAND_COLS):
             frame[col] = frame[col].round().astype("int64")
@@ -745,7 +758,7 @@ def run(as_of: str | None = None) -> tuple[Path, Path]:
         # AL5/F1: proyección al cono de coherencia ANTES de serializar — el ledger congela
         # exactamente la añada que se publica (misma proyección para punto y bandas; ver
         # _project_rows). El contador pre-proyección es la métrica que vigilan meta/SES.
-        all_rows, cone_meta = _project_rows(all_rows)
+        all_rows, cone_meta = _project_rows(all_rows, precone=REPORTS / "prospective" / "web_forecasts_precone.csv")
         log.info(
             "cono de coherencia: %d violaciones pre-proyección -> %d post (detalle: %s)",
             cone_meta["cone_violations_pre"],

@@ -21,8 +21,14 @@
 #   7. significancia          Friedman-Nemenyi + MCS + DM · champion-challenger
 #   8. fuente de verdad       key_facts.json/.tex + model card + drift
 #   9. figuras de resultados  results_* + hero (las EDA no cambian: el panel es el mismo)
+#   8b. horizonte             build_horizon_facts (estaba PRE-F1 y fuera de la transacción)
+#   8c. cohortes E1–E5        build_cohorts · scan_cohorts · los 42 lanes de E3 · score_e3 ·
+#                             run_e4_router · build_e5_facts (decisión #58 opción A: la campaña
+#                             reescribe los scorecards que E2 sella, así que la cadena se re-deriva
+#                             DENTRO de la misma transacción, no en un corte aparte)
 #  10. verificación           guardián de consistencia (si FALLA => hay cifras que propagar a
-#                             .tex/paper/web; eso es una decisión editorial, no un error del run)
+#                             .tex/paper/web; NO es terminal: la transacción queda en `computed`
+#                             con la consistencia PENDIENTE y `txn validate` la vuelve a exigir)
 #
 # Uso (desde la raíz; ~8-11 h; caffeinate evita que macOS duerma a mitad de campaña):
 #   caffeinate -is bash experiments/run_rederivation.sh > reports/rederivation.log 2>&1
@@ -90,12 +96,17 @@ printf '{"campaign_id":"%s","sha":"%s","git_sha":"%s","dirty":%s,"started_at":"%
 # salida anormal (incluido un Ctrl-C o un SIGTERM) y sólo llega a `computed` si las tres
 # puertas pasaron. Publicar exige después una validación humana explícita.
 CAMPAIGN_TXN="${CAMPAIGN_TXN:-reports/campaign/campaign.json}"
+# H29: el archivo de transacciones y el panel son rutas REALES del repo. El ensayo hermético de
+# la suite ejecuta este mismo bloque, así que necesita poder apuntarlas a un temporal; por
+# defecto no cambian nada. Sin esto, una prueba que un día escriba tocaría `reports/`.
+CAMPAIGN_TXN_ARCHIVE="${CAMPAIGN_TXN_ARCHIVE:-reports/campaign/transactions}"
+CAMPAIGN_TXN_PANEL="${CAMPAIGN_TXN_PANEL:-data/processed/visa_panel_long.csv}"
 txn() { $ANTE -m tools.campaign_txn --path "$CAMPAIGN_TXN" "$@"; }
 # Una campaña anterior YA TERMINADA se archiva con su id; una abierta ABORTA aquí, que es
 # justo lo que la máquina existe para impedir.
-txn archive --dir reports/campaign/transactions || exit 7
+txn archive --dir "$CAMPAIGN_TXN_ARCHIVE" || exit 7
 txn open --campaign-id "$CAMPAIGN_ID" --sha "$CAMPAIGN_SHA" --dirty "$CAMPAIGN_DIRTY" \
-    --panel data/processed/visa_panel_long.csv || exit 7
+    --panel "$CAMPAIGN_TXN_PANEL" || exit 7
 # El trap cubre TODAS las salidas: los `exit 1/3/4/5/6` de más abajo, una excepción del
 # intérprete y las señales. `--if-open` lo hace idempotente: si el estado ya es terminal no
 # toca nada, para que un fallo registrado no quede tapado por el error de una transición ilegal.
@@ -201,6 +212,30 @@ stage 8 "fuente única de verdad: key_facts + model card + drift"
 run_req $ANTE experiments/build_key_facts.py
 run_req $ANTE experiments/build_model_card.py
 run $ANTE experiments/check_drift.py
+
+stage 8b "campeón por horizonte (horizon_facts) — estaba PRE-F1 y fuera de la transacción"
+# H5: `horizon_facts.json` tenía un único commit, de julio, sobre el panel de 27 611 filas y FE
+# 1.1.0: exactamente el régimen que `retro_protocol: pre-F1` describe. El guardián sólo comparaba
+# tex↔json, así que nadie miraba json↔panel. Ahora se re-deriva con la campaña.
+run_req $ANTE experiments/build_horizon_facts.py
+
+stage 8c "cadena de cohortes E1–E5 (decisión #58, opción A: dentro de la MISMA transacción)"
+# ★ La etapa 2 reescribe `model_comparison_*21.csv`, que es lo que `cohort_scan.json` (E2) sella en
+# su procedencia: sin re-derivar la cadena, E2→E4→E5 quedarían midiendo sobre scorecards que ya no
+# existen, y el guardián no lo detecta. El resultado negativo publicado no es una constante a
+# proteger: si cambian sus entradas, vuelve a someterse a prueba.
+run_req $ANTE experiments/build_cohorts.py
+run_req $ANTE experiments/scan_cohorts.py
+run_req $ANTE experiments/run_e3_campaign.py     # 42 lanes derivados del deck congelado (~78 min)
+run_req $ANTE experiments/score_e3_campaign.py
+run_req $ANTE experiments/run_e4_router.py
+run_req $ANTE experiments/build_e5_facts.py
+
+stage 8d "las dos promesas del paper (efecto del cono · naïve estacional OOS en los mismos orígenes)"
+# H8: `paper.tex` ata a «the causal re-derivation» dos análisis que NADIE producía. Retirar las
+# frases era el camino corto; se producen. El efecto del cono sólo es medible sobre pares maduros
+# —el marco pre-proyección no se persistía hasta M74-B— y el módulo lo DECLARA en vez de fabricarlo.
+run_req $ANTE experiments/analyze_paper_promises.py
 
 stage 8.5 "GATE de OUTPUTS (significancia/champion/key_facts frescos + identidad)"
 run_req $ANTE -m tools.check_campaign_completeness --phase outputs
