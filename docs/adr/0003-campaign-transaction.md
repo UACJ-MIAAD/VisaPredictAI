@@ -61,11 +61,17 @@ secuencia de llamadas y su propio criterio ante un estado terminal.
 
 - **`experiments/run_rederivation.sh`** —el runbook canónico de la re-derivación— archiva la
   transacción anterior **sólo si terminó**, sella la nueva, instala un `trap` que registra
-  cualquier salida anormal (incluidas señales) y llega a `computed` únicamente con las tres
-  puertas en `passed`.
+  cualquier salida anormal (incluidas señales) y llega a `computed` con las puertas de entrada y
+  salida en `passed`; la consistencia puede quedar en `pending` —cómputo completo, cifras por
+  propagar— y es `validate` quien vuelve a exigirla re-ejecutando el guardián.
 - **`experiments/sync_all.sh --publish`** consulta la transacción antes de cada `dvc push` y cada
-  `git push`. Es la **segunda** puerta: el manifiesto de campaña acredita la *identidad*, la
-  transacción acredita el *estado*.
+  `git push`, y **consume el permiso** con `txn publish` después del push. Es la **segunda**
+  puerta: el manifiesto de campaña acredita la *identidad*, la transacción acredita el *estado*.
+- **`validate` no acepta revisor ni decisión por argumento** (M74-B-R1). Los lee de un **recibo
+  JSON de esquema cerrado** (`campaign-validation-receipt/1`, siete claves exactas) ligado a la
+  campaña por `campaign_id`, SHA de origen y `panel_sha256`, con decisión de vocabulario cerrado,
+  revisor que no puede declararse automatizado y fecha posterior al cómputo que revisa. **No hay
+  bandera para saltarse el guardián de consistencia**: la que había era un bypass de producción.
 - Relanzar sobre una campaña abierta **aborta**: `seal_running` es create-only y el archivado
   exige un estado terminal.
 

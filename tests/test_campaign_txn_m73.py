@@ -54,6 +54,28 @@ def _txn(raiz: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _recibo(raiz: Path, **cambios: str) -> Path:
+    """Un recibo de revisión humana VÁLIDO para la campaña abierta en `raiz`, salvo lo que se mute.
+
+    Se deriva del estado real —`campaign_id`, SHA de origen y hash del panel— porque ése es el
+    punto: el recibo ya no puede ser un archivo cualquiera con tres argumentos tecleados.
+    """
+    estado = cs.read(raiz / "reports/campaign/campaign.json") or {}
+    acta = {
+        "schema": txn.RECEIPT_SCHEMA,
+        "campaign_id": estado.get("campaign_id", "sintetica_0001"),
+        "source_git_sha": estado.get("source_git_sha", SHA),
+        "panel_sha256": estado.get("panel_sha256", ""),
+        "reviewed_by": "Javier Rebull",
+        "decision": "aprobada",
+        "reviewed_at": txn.now_rfc3339(),
+    }
+    acta.update(cambios)
+    destino = raiz / f"recibo_{len(list(raiz.glob('recibo_*.json')))}.json"
+    destino.write_text(json.dumps(acta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return destino
+
+
 def _abrir(raiz: Path, campaign_id: str = "sintetica_0001") -> subprocess.CompletedProcess[str]:
     return _txn(raiz, "open", "--campaign-id", campaign_id, "--sha", SHA, "--dirty", "false",
                 "--panel", str(raiz / "panel.csv"))  # fmt: skip
@@ -142,10 +164,9 @@ def test_una_corrida_limpia_llega_a_computed_y_todavia_no_autoriza_publicar(runb
 
 def test_solo_validated_autoriza_publicar(runbook, lanes) -> None:
     assert _correr(runbook, lanes, 3, timeout=300).returncode == 0
-    recibo = lanes / "recibo.md"
-    recibo.write_text("revisión de la campaña sintética\n", encoding="utf-8")
-    assert _txn(lanes, "validate", "--receipt", str(recibo), "--reviewed-by", "Javier Rebull",
-                "--decision", "aprobada", "--skip-consistency-check").returncode == 0  # fmt: skip
+    recibo = _recibo(lanes)
+    fin = _txn(lanes, "validate", "--receipt", str(recibo))
+    assert fin.returncode == 0, fin.stderr
     assert _estado(lanes) == "validated"
     assert _txn(lanes, "guard").returncode == txn.EXIT_OK
     # el hash del recibo se DERIVA del archivo, no se teclea

@@ -280,6 +280,11 @@ if [ "$CONSISTENCY_OK" = 0 ]; then
 fi
 echo "✓ Campaña completa y consistente. Queda en 'computed': publicar exige validación humana"
 echo "  explícita y después el publicador:"
-echo "    $ANTE -m tools.campaign_txn validate --receipt <recibo> --reviewed-by <persona> --decision <texto>"
+echo "    # 1. escribe el recibo de revisión (esquema cerrado, ligado a ESTA campaña):"
+echo "    #    {\"schema\":\"campaign-validation-receipt/1\", \"campaign_id\":\"$CAMPAIGN_ID\","
+echo "    #     \"source_git_sha\":\"$CAMPAIGN_SHA\", \"panel_sha256\":\"<el del estado>\","
+echo "    #     \"reviewed_by\":\"<persona>\", \"decision\":\"aprobada\", \"reviewed_at\":\"<RFC3339>\"}"
+echo "    $ANTE -m tools.campaign_txn status   # de ahí sale panel_sha256"
+echo "    $ANTE -m tools.campaign_txn validate --receipt <recibo.json>"
 echo "    bash experiments/sync_all.sh --publish"
 exit 0

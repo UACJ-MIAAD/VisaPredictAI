@@ -18,13 +18,16 @@ cerrando.
 bloquean. Un publicador que no llame a ``guard`` no está protegido: la envoltura no puede
 interceptar lo que no pasa por ella.
 
-⚠️ **Límite declarado, heredado de la máquina:** el enum de ADR 0003 no tiene un estado para
-«técnicamente completa pero con cifras por propagar». ``mark_computed`` exige los tres gates en
-``passed``, así que una campaña cuya consistencia queda rota **no puede** llegar a ``computed``.
-Este envoltorio NO inventa un estado: el runner la marca ``failed`` con una razón que dice
-literalmente que el cómputo terminó y lo que falta es propagar. El nombre del estado es impreciso;
-la razón es exacta, y el efecto —no se publica— es el correcto. Alternativa descartada: dejarla en
-``running``, que la volvería indistinguible de una campaña muerta a mitad.
+**Cómputo completo con propagación pendiente** llega a ``computed`` con ``consistency`` en
+``'pending'`` (M74-B): el resultado que la campaña existe para producir —que las cifras cambien— ya
+no manda la corrida a ``failed``, que es terminal. Es ``validate`` quien vuelve a exigir la
+consistencia en ``'passed'``, re-ejecutando el guardián.
+
+⚠️ **Validar es un acto humano y por eso no se teclea.** ``validate`` no acepta revisor ni decisión
+por argumento: los lee de un **recibo JSON de esquema cerrado** ligado a la campaña por
+``campaign_id``, SHA de origen y hash del panel. Un archivo cualquiera, un revisor vacío o una
+identidad automatizada **no validan**. Y no existe bandera para saltarse el guardián de
+consistencia: la que había (``--skip-consistency-check``) era un bypass de producción y se retiró.
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Iterator, Mapping
@@ -45,11 +49,112 @@ from tools import campaign_state as cs
 
 #: Ruta convenida, junto al manifiesto de campaña que ya vive ahí.
 DEFAULT_PATH = Path("reports/campaign/campaign.json")
+#: Raíz del repositorio que publica. Nombrada aparte para que el camino fail-closed de
+#: `_run_consistency` —guardián ausente ⇒ NO se valida— sea comprobable sin mover archivos.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 #: Códigos de salida propios, para que un runner los distinga sin leer el texto.
 EXIT_OK = 0
 EXIT_ERROR = 1  #: la transición pedida es ilegal o los datos no validan
 EXIT_BLOCKED = 3  #: `guard`: el estado NO autoriza publicar
 EXIT_ALREADY_TERMINAL = 4  #: `fail --if-open`: ya había estado terminal, no se tocó nada
+
+
+#: ─────────────────────────────────────────────────────────────── recibo de revisión humana
+#: Esquema **cerrado** del recibo que `validate` exige. Antes, la revisión humana se acreditaba
+#: con tres argumentos libres (`--receipt <cualquier archivo> --reviewed-by X --decision Y`): un
+#: `cron-bot` podía teclearlos y la máquina no tenía forma de contradecirle. Ahora el revisor y la
+#: decisión **se leen del recibo**, y el recibo está ligado a ESTA campaña.
+RECEIPT_SCHEMA = "campaign-validation-receipt/1"
+RECEIPT_KEYS = frozenset(
+    {"schema", "campaign_id", "source_git_sha", "panel_sha256", "reviewed_by", "decision", "reviewed_at"}
+)
+#: Vocabulario cerrado: sólo `aprobada` transiciona. `rechazada` es un recibo válido cuyo desenlace
+#: correcto es `fail`, no `validated` — una campaña rechazada que quedara `validated` autorizaría
+#: publicar exactamente lo que el revisor acaba de rechazar.
+RECEIPT_DECISIONS = ("aprobada", "rechazada")
+#: Identidades que **declaran** automatización. ⚠️ Esto NO prueba humanidad y no pretende hacerlo:
+#: obliga a la automatización a mentir en un artefacto firmado por su hash en vez de acreditarse
+#: por omisión. Falsificar el recibo es otra clase de problema que dejar la puerta abierta.
+_AUTOMATION = re.compile(
+    r"(?i)(?:^|[^a-z])(?:bot|cron|ci|cd|runner|robot|automat\w*|github[-_ ]?actions?|jenkins|"
+    r"pipeline|daemon|service[-_ ]?account|no[-_]?reply|system|agent|script)(?:[^a-z]|$)"
+)
+#: Un nombre de persona no cabe en dos caracteres; y un revisor de una sola palabra genérica
+#: («admin») no identifica a nadie que pueda responder de la decisión.
+_MIN_REVISOR = 4
+
+
+class ReceiptError(ValueError):
+    """El recibo de revisión no acredita una validación humana de ESTA campaña."""
+
+
+def load_validation_receipt(path: str | Path, estado: Mapping[str, Any]) -> dict[str, str]:
+    """Lee y **acredita** el recibo contra la campaña abierta. Fail-closed en todo lo demás.
+
+    Devuelve el recibo ya validado. Lanza :class:`ReceiptError` nombrando exactamente qué falló,
+    para que el operador no tenga que adivinar cuál de los siete campos no cuadra.
+    """
+    ruta = Path(path)
+    if not ruta.is_file():
+        raise ReceiptError(f"el recibo {ruta} no existe")
+    try:
+        #: `cs.loads` rechaza claves duplicadas: nadie esconde un segundo `decision`.
+        datos = cs.loads(ruta.read_text(encoding="utf-8"))
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        raise ReceiptError(f"recibo ilegible, no es un objeto o tiene claves duplicadas: {exc}") from exc
+
+    faltan = sorted(RECEIPT_KEYS - set(datos))
+    sobran = sorted(set(datos) - RECEIPT_KEYS)
+    if faltan or sobran:
+        raise ReceiptError(f"esquema del recibo: faltan {faltan}, sobran {sobran}")
+    for clave, valor in sorted(datos.items()):
+        if not isinstance(valor, str) or not valor.strip():
+            raise ReceiptError(f"el campo {clave!r} del recibo debe ser una cadena no vacía")
+    if datos["schema"] != RECEIPT_SCHEMA:
+        raise ReceiptError(f"esquema {datos['schema']!r}; se esperaba {RECEIPT_SCHEMA!r}")
+
+    # ── ligado a ESTA campaña: tres identidades, no una
+    for clave in ("campaign_id", "source_git_sha", "panel_sha256"):
+        if datos[clave] != estado.get(clave):
+            raise ReceiptError(
+                f"el recibo dice {clave}={datos[clave]!r} y la campaña abierta tiene "
+                f"{estado.get(clave)!r}: no revisan la misma corrida"
+            )
+
+    # ── la decisión, del vocabulario cerrado
+    if datos["decision"] not in RECEIPT_DECISIONS:
+        raise ReceiptError(f"decision {datos['decision']!r} fuera del vocabulario {RECEIPT_DECISIONS}")
+    if datos["decision"] != "aprobada":
+        raise ReceiptError(
+            "el recibo RECHAZA la campaña: el desenlace correcto es `fail`, no `validated` "
+            "(validarla autorizaría publicar justo lo que la revisión rechaza)"
+        )
+
+    # ── el revisor: una persona que pueda responder de la decisión
+    revisor = datos["reviewed_by"].strip()
+    if len(revisor) < _MIN_REVISOR:
+        raise ReceiptError(f"reviewed_by {revisor!r} es demasiado corto para identificar a nadie")
+    if _AUTOMATION.search(revisor):
+        raise ReceiptError(
+            f"reviewed_by {revisor!r} declara una identidad automatizada; la validación de una "
+            "campaña es un acto humano y responde una persona"
+        )
+
+    # ── la fecha: una revisión no puede preceder a lo que revisa
+    if not cs._valid_ts(datos["reviewed_at"]):
+        raise ReceiptError(f"reviewed_at {datos['reviewed_at']!r} no es una marca RFC3339 válida")
+    piso_clave = "completed_at" if estado.get("completed_at") else "started_at"
+    piso = estado.get(piso_clave)
+    if isinstance(piso, str) and _parse_ts(datos["reviewed_at"]) < _parse_ts(piso):
+        raise ReceiptError(
+            f"reviewed_at ({datos['reviewed_at']}) precede a {piso_clave} ({piso}): "
+            "un recibo escrito antes del cómputo no puede ser su revisión"
+        )
+    return {k: str(v) for k, v in datos.items()}
+
+
+def _parse_ts(valor: str) -> datetime:
+    return datetime.fromisoformat(valor.replace("Z", "+00:00"))
 
 
 def now_rfc3339() -> str:
@@ -129,7 +234,7 @@ def publishable(path: str | Path, *, manifest: str | Path | None = None) -> tupl
         return False, f"estado '{estado}' NO autoriza publicar (sólo '{cs.PUBLISHABLE}')"
     if actual.get("git_dirty") is not False:
         return False, "la campaña se selló con el árbol SUCIO (git_dirty): es diagnóstica y no se publica"
-    ok_recibo, motivo = _receipt_matches(ruta, actual)
+    ok_recibo, motivo = _receipt_matches(actual)
     if not ok_recibo:
         return False, motivo
     if manifest is not None:
@@ -139,7 +244,7 @@ def publishable(path: str | Path, *, manifest: str | Path | None = None) -> tupl
     return True, f"campaña {actual['campaign_id']} en '{estado}': autoriza publicar"
 
 
-def _receipt_matches(txn_path: Path, obj: Mapping[str, Any]) -> tuple[bool, str]:
+def _receipt_matches(obj: Mapping[str, Any]) -> tuple[bool, str]:
     """El recibo de validación debe EXISTIR y seguir teniendo el hash que se validó."""
     rel = obj.get("validation_receipt_path")
     esperado = obj.get("validation_receipt_sha256")
@@ -147,7 +252,10 @@ def _receipt_matches(txn_path: Path, obj: Mapping[str, Any]) -> tuple[bool, str]
         return False, "la transacción no liga un recibo de validación (ruta + sha256)"
     recibo = Path(rel)
     if not recibo.is_absolute():
-        recibo = txn_path.resolve().parent.parent.parent / rel
+        # ⚠️ Antes se resolvía subiendo tres niveles desde `campaign.json`, así que mover el estado
+        # cambiaba QUÉ archivo se verificaba. `validate` guarda ya la ruta absoluta; una relativa
+        # sólo puede venir de un estado escrito a mano, y adivinar su raíz sería fail-open.
+        return False, f"el recibo se liga por una ruta relativa ({rel}) y no puede verificarse sin ambigüedad"
     if not recibo.is_file():
         return False, f"el recibo de validación no existe: {rel}"
     real = sha256_file(recibo)
@@ -271,13 +379,15 @@ def _parser() -> argparse.ArgumentParser:
     )
 
     v = sub.add_parser("validate", help="computed -> validated (revisión humana + consistencia acreditada)")
-    v.add_argument("--receipt", required=True, help="archivo del recibo; su sha256 se deriva, no se teclea")
-    v.add_argument("--reviewed-by", required=True)
-    v.add_argument("--decision", required=True)
     v.add_argument(
-        "--skip-consistency-check",
-        action="store_true",
-        help="NO recomendado: omite la re-ejecución de tools/check_consistency.py (debe justificarse)",
+        "--receipt",
+        required=True,
+        help=(
+            f"recibo JSON de esquema cerrado ({RECEIPT_SCHEMA}) con las siete claves "
+            f"{sorted(RECEIPT_KEYS)}. El revisor y la decisión se LEEN de ahí y el recibo se liga a "
+            "la campaña por campaign_id, SHA de origen y hash del panel. No hay forma de saltarse "
+            "el guardián de consistencia."
+        ),
     )
 
     pu = sub.add_parser("publish", help="validated -> published (sólo el publicador)")
@@ -293,14 +403,19 @@ def _parser() -> argparse.ArgumentParser:
     return p
 
 
-def _run_consistency(txn_path: Path) -> tuple[bool, str]:
-    """Re-ejecuta el guardián de consistencia del repositorio. Fail-closed si no se puede."""
-    raiz = txn_path.resolve().parent.parent.parent
-    guardian = raiz / "tools" / "check_consistency.py"
+def _run_consistency() -> tuple[bool, str]:
+    """Re-ejecuta el guardián de consistencia del repositorio. Fail-closed si no se puede.
+
+    ⚠️ La raíz sale de la ubicación de **este módulo**, no de dónde viva `campaign.json`. Antes se
+    derivaba subiendo tres niveles desde la transacción, así que mover el archivo —o apuntarlo a un
+    temporal— cambiaba qué guardián se ejecutaba, o hacía que no se encontrara ninguno. El guardián
+    pertenece al repositorio que publica, no al directorio del estado.
+    """
+    guardian = _REPO_ROOT / "tools" / "check_consistency.py"
     if not guardian.is_file():
         return False, f"no se encontró {guardian}"
     fin = subprocess.run(
-        [sys.executable, str(guardian)], cwd=raiz, capture_output=True, text=True, check=False, timeout=1800
+        [sys.executable, str(guardian)], cwd=_REPO_ROOT, capture_output=True, text=True, check=False, timeout=1800
     )
     return fin.returncode == 0, (fin.stdout or "") + (fin.stderr or "")
 
@@ -356,24 +471,28 @@ def main(argv: list[str] | None = None) -> int:
             # ★ H2: validar EXIGE la consistencia acreditada. Si el cómputo la dejó en `pending`
             # porque las cifras cambiaron, aquí se vuelve a ejecutar el guardián: propagar es la
             # precondición de validar, no un paso de buena fe.
-            if not args.skip_consistency_check:
-                ok_cons, salida = _run_consistency(path)
-                if not ok_cons:
-                    print(f"✗ la consistencia NO está acreditada; propaga y reintenta:\n{salida}", file=sys.stderr)
-                    return EXIT_ERROR
-            recibo = Path(args.receipt)
-            if not recibo.is_file():
-                print(f"✗ el recibo {recibo} no existe", file=sys.stderr)
+            ok_cons, salida = _run_consistency()
+            if not ok_cons:
+                print(f"✗ la consistencia NO está acreditada; propaga y reintenta:\n{salida}", file=sys.stderr)
                 return EXIT_ERROR
+            abierta = cs.read(path)
+            if abierta is None:
+                print(f"✗ no hay transacción legible en {path}", file=sys.stderr)
+                return EXIT_ERROR
+            recibo = Path(args.receipt).resolve()
+            acta = load_validation_receipt(recibo, abierta)
             obj = cs.mark_validated(
                 path,
                 validation_receipt_sha256=sha256_file(recibo),
+                #: ★ ABSOLUTA: antes se guardaba tal cual se tecleó y `publishable` tenía que
+                #: adivinar la raíz contra la que resolverla. Mover `campaign.json` cambiaba qué
+                #: archivo se verificaba.
                 validation_receipt_path=str(recibo),
-                reviewed_by=args.reviewed_by,
+                reviewed_by=acta["reviewed_by"],
                 validated_at=now_rfc3339(),
-                decision=args.decision,
+                decision=acta["decision"],
             )
-            print(f"✓ campaña {obj['campaign_id']} → 'validated' por {obj['reviewed_by']}")
+            print(f"✓ campaña {obj['campaign_id']} → 'validated' por {obj['reviewed_by']} ({acta['reviewed_at']})")
         elif args.cmd == "publish":
             obj = cs.mark_published(path, published_at=now_rfc3339(), release_sha=args.release_sha)
             print(f"✓ campaña {obj['campaign_id']} → 'published' ({obj['release_sha']})")

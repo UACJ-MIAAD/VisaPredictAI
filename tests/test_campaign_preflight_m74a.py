@@ -290,7 +290,9 @@ def test_hermetic_rehearsal_of_the_three_outcomes(tmp_path: Path, desenlace, rc,
         assert razon in obj["reason"]
 
 
-def test_hermetic_rehearsal_only_opens_publication_after_human_validation(tmp_path: Path) -> None:
+def test_hermetic_rehearsal_only_opens_publication_after_human_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """El camino completo: ni siquiera `computed` autoriza publicar; sólo `validated` lo hace."""
     from tools import campaign_txn as txn
 
@@ -299,17 +301,28 @@ def test_hermetic_rehearsal_only_opens_publication_after_human_validation(tmp_pa
     assert codigo == 0 and obj is not None and obj["status"] == "computed"
     assert not txn.publishable(ruta)[0], "`computed` NO puede autorizar publicar"
 
-    recibo = tmp_path / "recibo.md"
-    recibo.write_text("revisión humana del ensayo\n", encoding="utf-8")
-    cs.mark_validated(
-        ruta,
-        validation_receipt_sha256=txn.sha256_file(recibo),
-        validation_receipt_path=str(recibo),
-        reviewed_by="ensayo M74-A",
-        validated_at=txn.now_rfc3339(),
-        decision="ensayo, no publica nada",
+    # ★ M74-B-R1: la validación se acredita por el camino REAL —recibo de esquema cerrado ligado a
+    # esta campaña— y no llamando a `mark_validated` con un `.md` cualquiera y un revisor tecleado,
+    # que es lo que hacía esta prueba y lo que la revisión del autor señaló como no acreditado.
+    estado = cs.read(ruta) or {}
+    recibo = tmp_path / "recibo.json"
+    recibo.write_text(
+        json.dumps(
+            {
+                "schema": txn.RECEIPT_SCHEMA,
+                "campaign_id": estado["campaign_id"],
+                "source_git_sha": estado["source_git_sha"],
+                "panel_sha256": estado["panel_sha256"],
+                "reviewed_by": "Javier Rebull",
+                "decision": "aprobada",
+                "reviewed_at": txn.now_rfc3339(),
+            }
+        ),
+        encoding="utf-8",
     )
-    assert txn.publishable(ruta)[0], "sólo tras la validación humana se abre la publicación"
+    monkeypatch.setattr(txn, "_run_consistency", lambda: (True, ""))
+    assert txn.main(["--path", str(ruta), "validate", "--receipt", str(recibo)]) == txn.EXIT_OK
+    assert txn.publishable(ruta)[0], "sólo tras la validación humana acreditada se abre la publicación"
 
 
 def test_a_killed_campaign_stays_open_and_blocks_the_next_one(tmp_path: Path) -> None:
