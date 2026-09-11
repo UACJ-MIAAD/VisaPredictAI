@@ -122,14 +122,23 @@ forecasts no son stage DVC y los facts sí (byte-exactos).
 
 ## Hook pre-push `dvc-lock-fresh` (D1, plan MLOps v2 · 2-sep-2026)
 
-El paso **E2** de CI (`dvc status --json panel bulletins key_facts eda_facts fe_facts` debe dar
-`{}`) detonó cuatro veces en julio porque `dvc.lock` se pusheaba desfasado. El hook
+El paso **E2** de CI detonó cuatro veces en julio porque `dvc.lock` se pusheaba desfasado. El hook
 `dvc-lock-fresh` (`.pre-commit-config.yaml`, stage **pre-push** únicamente) corre exactamente
-esa comprobación **antes** de publicar, con `tools/check_dvc_lock_fresh.py`:
+esa comprobación **antes** de publicar, con `tools/check_dvc_lock_fresh.py`. Desde M72-R1 ese
+módulo es la **única** implementación del gate: el paso E2 lo invoca en vez de repetirlo en bash.
 
-- **Mismos cinco stages git-only** que E2, en el mismo orden (un test lo verifica contra el YAML
-  del workflow). `scrape` y `database` quedan fuera a propósito: dependen de `data/snapshots`
-  (privado) y de la caché DVC (S3), que no existen en un clon limpio.
+- **Seis stages vigilados**: los cinco *git-only* (`panel bulletins key_facts eda_facts fe_facts`)
+  y **`database`** (#57). `scrape` sigue fuera a propósito: sus deps son `data/snapshots`, privado
+  y ausente en un clon limpio.
+- ⚠️ **La excepción acotada de `database`, medida y no supuesta.** Su out es un artefacto
+  cacheado. Con la caché DVC vacía —el caso de CI, que nunca hace `dvc pull`— `dvc status`
+  responde `not in cache` para ese out **igual de correcto que corrupto que ausente**: ahí esa
+  línea no lleva información. Con la caché presente —el hook local— responde `{}`, `modified` o
+  `deleted`. Por eso el gate tolera, **sólo en `database` y sólo con ese texto exacto**, un
+  residuo formado únicamente por outs `not in cache`, y vigila sus **deps**, que es donde el lock
+  llevó semanas desfasado (desde M49/C8) sin que nada lo viera. En local el out queda cubierto.
+  El desfase era **inocuo** —los dos deps sólo cambiaron comentarios y el parquet se reconstruyó
+  byte-idéntico— pero un stage que nadie vigila deja de ser un contrato.
 - **Fail-closed:** usa el DVC gobernado (`ante/bin/dvc`, o la ruta en `$VP_DVC`); si falta, si
   `dvc status` termina con error, si la salida no es JSON, no es un objeto o no es `{}`, el push
   se **bloquea** y se listan los stages desfasados. No toca la red ni modifica nada.

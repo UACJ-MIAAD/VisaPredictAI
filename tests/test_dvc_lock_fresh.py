@@ -7,8 +7,8 @@ instala dvc; E2 lo instala solo en su propio paso). Los tests de lógica corren 
 
 from __future__ import annotations
 
+import json
 import os
-import re
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -80,12 +80,105 @@ def test_missing_governed_dvc_fails_closed(tmp_path: Path) -> None:
     assert not ok and "fail-closed" in msg
 
 
-def test_targets_match_ci_e2_exactly() -> None:
+def test_ci_e2_delegates_to_this_gate_instead_of_reimplementing_it() -> None:
+    """CI ya no repite la comprobación en bash: invoca ESTE módulo, así que no pueden divergir.
+
+    Antes había dos implementaciones —una lista de targets en el YAML y otra en Python— atadas
+    sólo por una prueba de igualdad. Ahora el paso corre el checker, y lo que se exige es
+    precisamente eso: que lo invoque, que le pase el DVC del runner y que NO quede ningún
+    `dvc status` suelto evaluando el lock por su cuenta.
+    """
     ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    m = re.search(r"dvc status --json ([a-z_ ]+?)\)", ci)
-    assert m, "paso E2 no encontrado en ci.yml"
-    assert m.group(1).split() == list(gate.STAGES)
-    assert "scrape" not in gate.STAGES and "database" not in gate.STAGES
+    paso = ci[ci.index("DVC lock matches the committed pipeline (E2)") :]
+    paso = paso[: paso.index("\n      - name:")]
+    assert "tools/check_dvc_lock_fresh.py" in paso, "el paso E2 debe invocar el checker"
+    assert f"{gate.DVC_ENV}=" in paso, "debe pasarle el DVC del runner por $VP_DVC"
+    assert "dvc status" not in paso, "no puede quedar una segunda implementación en bash"
+
+
+def test_watched_and_excluded_stages_are_explicit() -> None:
+    """`database` entra (#57) y `scrape` sigue fuera; ambas decisiones son declaradas."""
+    assert "database" in gate.STAGES
+    assert "scrape" not in gate.STAGES and "scrape" in gate.EXCLUDED_STAGES
+    assert gate.CACHE_BACKED_STAGES == frozenset({"database"})
+    # el DAG real no tiene más stages que los vigilados o los excluidos a propósito
+    dag = yaml.safe_load((ROOT / "dvc.yaml").read_text(encoding="utf-8"))["stages"]
+    assert set(dag) == set(gate.STAGES) | gate.EXCLUDED_STAGES
+
+
+def test_the_database_stage_is_built_before_the_gate_runs_in_ci() -> None:
+    """La razón por la que `database` PUEDE vigilarse en CI: el paso anterior lo construye."""
+    ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert ci.index("pipeline.build_database") < ci.index("DVC lock matches the committed pipeline (E2)")
+
+
+# --- la excepción de caché: acotada, y probada en los dos sentidos -------------------------
+_PARQUET = "data/processed/visa_panel_long.parquet"
+
+
+def test_cache_only_residue_of_database_is_tolerated(tmp_path: Path) -> None:
+    """En un clon sin caché DVC, el out de `database` sale `not in cache` y eso NO es desfase.
+
+    Medido: con la caché vacía DVC responde ese mismo texto tanto si el parquet es correcto como
+    si está corrupto o ausente, así que ahí la línea no lleva información; lo que sí la lleva, y
+    se sigue exigiendo, son sus `changed deps`.
+    """
+    root, env = _fake_dvc(tmp_path)
+    salida = json.dumps({"database": [{"changed outs": {_PARQUET: gate.NOT_IN_CACHE}}]})
+    ok, message = gate.evaluate(root, _fake_runner(salida), env)
+    assert ok and "sin caché local" in message and "DEPS sí quedan verificadas" in message
+
+
+@pytest.mark.parametrize(
+    "salida,motivo",
+    [
+        ({"database": [{"changed deps": {"vp_data/config.py": "modified"}}]}, "una dep desfasada"),
+        (
+            {
+                "database": [
+                    {"changed deps": {"vp_data/config.py": "modified"}},
+                    {"changed outs": {_PARQUET: gate.NOT_IN_CACHE}},
+                ]
+            },
+            "dep desfasada aunque falte la caché",
+        ),
+        ({"database": [{"changed outs": {_PARQUET: "modified"}}]}, "out modificado de verdad"),
+        ({"database": [{"changed outs": {_PARQUET: "deleted"}}]}, "out borrado"),
+        (
+            {"database": [{"changed outs": {_PARQUET: gate.NOT_IN_CACHE, "otro.parquet": "modified"}}]},
+            "un out tolerable no arrastra a otro que no lo es",
+        ),
+        ({"panel": [{"changed outs": {"x": gate.NOT_IN_CACHE}}]}, "la excepción NO se extiende a otros stages"),
+        ({"database": [{"changed outs": {}}]}, "forma vacía"),
+        ({"database": [{"changed outs": {_PARQUET: gate.NOT_IN_CACHE}, "changed deps": {"a": "b"}}]}, "clave extra"),
+        ({"database": "texto"}, "forma inesperada"),
+        ({"database": []}, "lista vacía"),
+    ],
+)
+def test_anything_beyond_the_cache_residue_still_fails(tmp_path: Path, salida: dict, motivo: str) -> None:
+    """La tolerancia no puede crecer por accidente: todo lo demás sigue bloqueando."""
+    root, env = _fake_dvc(tmp_path)
+    ok, message = gate.evaluate(root, _fake_runner(json.dumps(salida)), env)
+    assert not ok, f"debía bloquear: {motivo}"
+    assert "desfasado" in message
+
+
+def test_red_the_drift_that_this_gate_was_blind_to(tmp_path: Path) -> None:
+    """RED de #57: el desfase REAL que vivió en `main` semanas sin que nada lo viera.
+
+    Los dos hashes son los que `dvc.lock` arrastraba desde M49/C8 hasta M72-R1. Con `database`
+    fuera del gate, este estado salía verde; ahora bloquea.
+    """
+    root, env = _fake_dvc(tmp_path)
+    salida = json.dumps(
+        {"database": [{"changed deps": {"pipeline/db_migrations.py": "modified", "vp_data/config.py": "modified"}}]}
+    )
+    ok, message = gate.evaluate(root, _fake_runner(salida), env)
+    assert not ok
+    assert "database" in message and "db_migrations" in message
+    # y con el stage fresco, el mismo gate pasa: el control benigno del RED
+    ok_fresco, _ = gate.evaluate(root, _fake_runner("{}"), env)
+    assert ok_fresco
 
 
 def test_hook_is_pre_push_only_with_expected_flags() -> None:
@@ -156,6 +249,51 @@ def test_isolated_mutation_turns_red(dag_copy: tuple[Path, dict[str, str]]) -> N
     ok, msg = gate.evaluate(repo, gate.default_runner, env)
     assert not ok and "bulletins" in msg and "make repro" in msg
     assert "mutación aislada" not in (ROOT / "pipeline/build_bulletins_json.py").read_text(encoding="utf-8")
+
+
+@needs_dvc
+def test_isolated_database_drift_turns_red_and_the_old_target_list_missed_it(
+    dag_copy: tuple[Path, dict[str, str]],
+) -> None:
+    """RED REAL de #57, con el DVC de verdad sobre una copia aislada del DAG.
+
+    Se ensucia una dep de `database` y se compara el gate de hoy con la lista de targets que
+    tenía antes de M72-R1. El desfase que vivió semanas en `main` **salía verde** con aquella
+    lista; con ésta, bloquea. La comparación es lo que hace la prueba discriminante: sin ella
+    sólo se estaría comprobando que un `dvc status` no vacío falla, que ya era cierto.
+    """
+    repo, env = dag_copy
+    dep = repo / "vp_data/config.py"
+    dep.write_text(dep.read_text(encoding="utf-8") + "\n# mutación aislada del stage database\n", encoding="utf-8")
+
+    ok, msg = gate.evaluate(repo, gate.default_runner, env)
+    assert not ok, "el gate de hoy debe cazar el desfase de database"
+    assert "database" in msg and "config.py" in msg and "make repro" in msg
+
+    # la lista ANTERIOR (sin `database`) sobre el MISMO árbol sucio: verde, que es el defecto
+    anterior = tuple(x for x in gate.STAGES if x != "database")
+    original, gate.STAGES = gate.STAGES, anterior
+    try:
+        ok_antes, _ = gate.evaluate(repo, gate.default_runner, env)
+    finally:
+        gate.STAGES = original
+    assert ok_antes, "con la lista anterior el desfase pasaba desapercibido: ése era el agujero"
+
+    # el worktree real no se tocó
+    assert "mutación aislada" not in (ROOT / "vp_data/config.py").read_text(encoding="utf-8")
+
+
+@needs_dvc
+def test_isolated_copy_without_cache_reports_only_the_tolerated_residue(
+    dag_copy: tuple[Path, dict[str, str]],
+) -> None:
+    """La copia aislada NO tiene caché DVC, así que ejercita el residuo tolerado de verdad."""
+    repo, env = dag_copy
+    salida = gate.default_runner([str(REAL_DVC), "status", "--json", "database"], repo)
+    estado = json.loads(salida.stdout)
+    assert estado == {} or gate._is_cache_only_residue("database", estado.get("database")), estado
+    ok, _ = gate.evaluate(repo, gate.default_runner, env)
+    assert ok
 
 
 @needs_dvc

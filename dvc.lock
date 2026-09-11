@@ -117,8 +117,8 @@ stages:
       size: 15999
     - path: pipeline/db_migrations.py
       hash: md5
-      md5: 403164eae7d6f7f8737fdb19fe29ca6c
-      size: 8847
+      md5: 410b8f9136cadf4808a2f0d19878f7d0
+      size: 8844
     - path: pipeline/migrations
       hash: md5
       md5: eec79b4aeac7140a0e7305c44e7eb5de.dir
@@ -134,8 +134,8 @@ stages:
       size: 7233
     - path: vp_data/config.py
       hash: md5
-      md5: e02918da63ffd69554f95fdac9550339
-      size: 4593
+      md5: bcff71549585d0c5348da82f336b07df
+      size: 4568
     - path: vp_data/visa_common.py
       hash: md5
       md5: bd627bfa46172b99bfe9ef900d7ba6e5

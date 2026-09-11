@@ -1,19 +1,33 @@
 #!/usr/bin/env python3
 """Gate pre-push D1: bloquea el push si ``dvc.lock`` está desfasado del pipeline commiteado.
 
-Reproduce EXACTAMENTE el paso «DVC lock matches the committed pipeline (E2)» de
-``.github/workflows/ci.yml``: ``dvc status --json`` sobre los cinco stages *git-only*
-(``panel bulletins key_facts eda_facts fe_facts``). ``scrape`` y ``database`` quedan fuera a
-propósito: dependen de ``data/snapshots`` (privado) y de la caché DVC (S3), que no existen en
-un clon limpio. El gate E2 detonó cuatro veces en julio por locks desfasados; este hook lo
-frena ANTES de publicar (ver ``docs/DVC.md``).
+Es la ÚNICA implementación del gate: el paso «DVC lock matches the committed pipeline (E2)»
+de ``.github/workflows/ci.yml`` lo invoca en vez de repetir la comprobación en bash, así que los
+dos no pueden separarse (lo fija ``tests/test_dvc_lock_fresh.py``).
+
+Vigila **seis** stages: los cinco *git-only* (``panel bulletins key_facts eda_facts fe_facts``)
+y ``database`` (M72-R1, pendiente #57). ``scrape`` sigue fuera a propósito: sus dependencias son
+``data/snapshots``, que es privado y no existe en un clon limpio.
+
+⚠️ **Por qué ``database`` necesita una excepción acotada, medida y no supuesta.** Su out es un
+artefacto CACHEADO. Con la caché DVC vacía —el caso de CI, que nunca hace ``dvc pull``—
+``dvc status`` responde ``not in cache`` para ese out **igual de correcto que corrupto que
+ausente**: ahí esa línea no lleva información. Con la caché presente —el caso del hook local—
+responde ``{}``, ``modified`` o ``deleted``, y entonces sí la lleva. Medido en ambos contextos.
+Por eso el gate tolera, **sólo en ``database`` y sólo con ese texto exacto**, un residuo formado
+únicamente por outs ``not in cache``, y vigila sus DEPS, que es donde el lock llevó semanas
+desfasado sin que nada lo viera. En local el out queda cubierto de todas formas.
+
+El gate E2 detonó cuatro veces en julio por locks desfasados; este hook lo frena ANTES de
+publicar (ver ``docs/DVC.md``).
 
 Contrato (fail-closed):
 - Usa el DVC gobernado del proyecto (``ante/bin/dvc`` relativo a la raíz, o la ruta en
   ``$VP_DVC``); si no existe o no es ejecutable, falla.
 - Si ``dvc status`` termina con código distinto de cero, falla.
-- Solo acepta un objeto JSON vacío (``{}``); JSON inválido, un tipo distinto de objeto o
-  cualquier estado no vacío fallan y listan los stages desfasados.
+- Acepta ``{}`` o, como único residuo, el de caché descrito arriba; JSON inválido, un tipo
+  distinto de objeto, cualquier ``changed deps``, cualquier otro estado de out y cualquier stage
+  distinto de ``database`` fallan y se listan.
 - No toca la red ni modifica nada; el remedio se imprime, nunca se aplica.
 
 Uso: ``python tools/check_dvc_lock_fresh.py`` (sale 0 si el lock está al día, 1 si no).
@@ -29,9 +43,14 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-# Mismos cinco targets, en el mismo orden, que el paso E2 de CI (tests/test_dvc_lock_fresh.py
-# verifica la igualdad contra el YAML del workflow).
-STAGES: tuple[str, ...] = ("panel", "bulletins", "key_facts", "eda_facts", "fe_facts")
+#: Stages vigilados. CI invoca este mismo módulo, así que la lista no puede divergir del workflow.
+STAGES: tuple[str, ...] = ("panel", "bulletins", "key_facts", "eda_facts", "fe_facts", "database")
+#: `scrape` queda fuera: depende de `data/snapshots`, privado y ausente en un clon limpio.
+EXCLUDED_STAGES: frozenset[str] = frozenset({"scrape"})
+#: Único stage cuyo out vive en la caché DVC y no en git.
+CACHE_BACKED_STAGES: frozenset[str] = frozenset({"database"})
+#: Texto EXACTO de DVC cuando el objeto del out no está en la caché de este clon.
+NOT_IN_CACHE = "not in cache"
 DVC_ENV = "VP_DVC"
 DEFAULT_DVC = Path("ante/bin/dvc")
 REMEDY = "corre `make repro` y commitea dvc.lock junto con las salidas git-only que cambien"
@@ -55,6 +74,31 @@ def default_runner(cmd: Sequence[str], cwd: Path) -> subprocess.CompletedProcess
     env = dict(os.environ)
     env["DVC_NO_ANALYTICS"] = "1"
     return subprocess.run(list(cmd), cwd=cwd, capture_output=True, text=True, env=env, check=False)
+
+
+def _is_cache_only_residue(stage: str, entries: object) -> bool:
+    """¿El residuo de `stage` es SÓLO «el out no está en la caché de este clon»?
+
+    Fail-closed por construcción: cualquier `changed deps`, cualquier otro valor de out
+    (`modified`, `deleted`, …), una forma inesperada o un stage que no sea de caché devuelven
+    ``False`` y el gate falla. La tolerancia no puede crecer por accidente.
+    """
+    if stage not in CACHE_BACKED_STAGES or not isinstance(entries, list) or not entries:
+        return False
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {"changed outs"}:
+            return False
+        outs = entry["changed outs"]
+        if not isinstance(outs, dict) or not outs:
+            return False
+        if any(value != NOT_IN_CACHE for value in outs.values()):
+            return False
+    return True
+
+
+def _blocking(status: Mapping[str, object]) -> dict[str, object]:
+    """Lo que de verdad bloquea: todo menos el residuo de caché tolerado."""
+    return {stage: detail for stage, detail in status.items() if not _is_cache_only_residue(stage, detail)}
 
 
 def _describe(status: Mapping[str, object]) -> str:
@@ -84,10 +128,17 @@ def evaluate(root: Path, runner: Runner, env: Mapping[str, str]) -> tuple[bool, 
         return False, f"✗ dvc-lock-fresh: la salida de `dvc status --json` no es JSON válido ({exc})"
     if not isinstance(status, dict):
         return False, f"✗ dvc-lock-fresh: la salida de `dvc status --json` no es un objeto ({type(status).__name__})"
-    if status:
+    blocking = _blocking(status)
+    if blocking:
         return False, (
-            f"✗ dvc.lock desfasado del pipeline commiteado — stages: {', '.join(sorted(status))}\n"
-            f"{_describe(status)}\n  Remedio: {REMEDY}"
+            f"✗ dvc.lock desfasado del pipeline commiteado — stages: {', '.join(sorted(blocking))}\n"
+            f"{_describe(blocking)}\n  Remedio: {REMEDY}"
+        )
+    if status:
+        tolerado = ", ".join(sorted(status))
+        return True, (
+            f"✓ dvc.lock al día ({' '.join(STAGES)})"
+            f" — sin caché local para el out de {tolerado}: sus DEPS sí quedan verificadas"
         )
     return True, f"✓ dvc.lock al día ({' '.join(STAGES)})"
 
