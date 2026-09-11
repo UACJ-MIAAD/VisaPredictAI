@@ -217,8 +217,9 @@ def publishable(path: str | Path, *, manifest: str | Path | None = None) -> tupl
     Comprueba, además del estado: esquema íntegro (que desde M74-B exige gates con valor, revisión
     ≥ 1, cadenas no vacías y claves compatibles), **árbol limpio** (``git_dirty=False``: la ruta
     diagnóstica `ALLOW_DIRTY` llegaba a `validated` y publicaba), el **recibo de validación por
-    ruta, existencia y hash** (un sha suelto no acredita nada si el archivo no está) y, si se
-    pasa el manifiesto de campaña, que su ``campaign_id`` **coincida** con el de la transacción.
+    ruta, existencia, hash y acreditación completa** —esquema cerrado, ligado a ESTA campaña, con
+    revisor y decisión que coinciden con los que el estado declara— y, si se pasa el manifiesto de
+    campaña, que su ``campaign_id`` **coincida** con el de la transacción.
     """
     ruta = Path(path)
     if not ruta.exists():
@@ -245,7 +246,18 @@ def publishable(path: str | Path, *, manifest: str | Path | None = None) -> tupl
 
 
 def _receipt_matches(obj: Mapping[str, Any]) -> tuple[bool, str]:
-    """El recibo de validación debe EXISTIR y seguir teniendo el hash que se validó."""
+    """El recibo debe existir, conservar su hash **y volver a acreditarse** contra la campaña.
+
+    ⚠️ Hasta M74-B-R1 esto sólo comprobaba ruta, existencia y hash, y ahí estaba el agujero: la
+    acreditación del recibo vivía en `validate`, es decir en el camino de ESCRITURA. Un
+    `campaign.json` en `validated` escrito a mano —o por cualquier vía que no pase por esta CLI—
+    publicaba con **cualquier archivo** cuya ruta y hash cuadraran: un markdown de texto libre, o un
+    recibo válido pero **de otra campaña**. La propia suite lo demostraba sin saberlo.
+
+    Es la misma lección que M73 dejó escrita sobre las invariantes de estado y que aquí no se aplicó
+    al recibo: **lo que decide publicar es un LECTOR, así que la acreditación tiene que vivir en la
+    lectura**, no sólo en la escritura.
+    """
     rel = obj.get("validation_receipt_path")
     esperado = obj.get("validation_receipt_sha256")
     if not rel or not esperado:
@@ -261,6 +273,20 @@ def _receipt_matches(obj: Mapping[str, Any]) -> tuple[bool, str]:
     real = sha256_file(recibo)
     if real != esperado:
         return False, f"el recibo {rel} cambió desde la validación (sha {real[:12]}… ≠ {str(esperado)[:12]}…)"
+    # ★ R2: se vuelve a ACREDITAR, no sólo a comparar el hash. Esquema cerrado, ligado a esta
+    # campaña por campaign_id + SHA de origen + panel_sha256, decisión del vocabulario, revisor no
+    # automatizado y fecha posterior al cómputo.
+    try:
+        acta = load_validation_receipt(recibo, obj)
+    except ReceiptError as exc:
+        return False, f"el recibo ligado NO acredita esta validación: {exc}"
+    # ★ y el estado no puede contar una historia distinta de la del recibo que dice sostenerlo
+    for clave in ("reviewed_by", "decision"):
+        if acta[clave] != obj.get(clave):
+            return False, (
+                f"el estado dice {clave}={obj.get(clave)!r} y el recibo {acta[clave]!r}: "
+                "la transacción no describe la revisión que liga"
+            )
     return True, ""
 
 

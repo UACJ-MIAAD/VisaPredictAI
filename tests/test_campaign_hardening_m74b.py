@@ -155,7 +155,7 @@ def test_manifest_and_transaction_must_describe_the_same_campaign(tmp_path: Path
 def test_the_validation_receipt_must_still_exist_and_match(tmp_path: Path) -> None:
     """Un sha suelto no acredita nada si el archivo no está, o si cambió después."""
     p = _validada(tmp_path)
-    recibo = tmp_path / "recibo.md"
+    recibo = Path((cs.read(p) or {})["validation_receipt_path"])
     assert txn.publishable(p)[0]
 
     recibo.write_text("MANIPULADO después de validar\n", encoding="utf-8")
@@ -167,18 +167,42 @@ def test_the_validation_receipt_must_still_exist_and_match(tmp_path: Path) -> No
     assert not ok and "no existe" in motivo
 
 
+def escribir_recibo(tmp_path: Path, estado_path: Path, **cambios: str) -> Path:
+    """Un recibo de revisión REAL, de esquema cerrado y ligado a la campaña de `estado_path`.
+
+    ⚠️ Antes este andamiaje escribía un `recibo.md` de texto libre y llamaba a `mark_validated`
+    directamente. Pasaba —y ahí estaba el hueco— porque la puerta de publicación sólo miraba ruta
+    y hash. Ahora el andamiaje usa el camino real: si el recibo deja de acreditar, estas pruebas
+    caen, que es lo que se quiere de un andamiaje.
+    """
+    estado = cs.read(estado_path) or {}
+    acta = {
+        "schema": txn.RECEIPT_SCHEMA,
+        "campaign_id": estado["campaign_id"],
+        "source_git_sha": estado["source_git_sha"],
+        "panel_sha256": estado["panel_sha256"],
+        "reviewed_by": "Javier Rebull",
+        "decision": "aprobada",
+        "reviewed_at": txn.now_rfc3339(),
+    }
+    acta.update(cambios)
+    destino = tmp_path / f"recibo_{len(list(tmp_path.glob('recibo_*.json')))}.json"
+    destino.write_text(json.dumps(acta, ensure_ascii=False), encoding="utf-8")
+    return destino
+
+
 def _validada(tmp_path: Path) -> Path:
     p = _sellada(tmp_path)
-    recibo = tmp_path / "recibo.md"
-    recibo.write_text("revisión humana\n", encoding="utf-8")
     cs.mark_computed(p, completed_at=txn.now_rfc3339(), input_gate="passed", output_gate="passed", consistency="passed")
+    recibo = escribir_recibo(tmp_path, p)
+    acta = txn.load_validation_receipt(recibo, cs.read(p) or {})
     cs.mark_validated(
         p,
         validation_receipt_sha256=txn.sha256_file(recibo),
-        validation_receipt_path=str(recibo),
-        reviewed_by="Javier Rebull",
+        validation_receipt_path=str(recibo.resolve()),
+        reviewed_by=acta["reviewed_by"],
         validated_at=txn.now_rfc3339(),
-        decision="aprobada",
+        decision=acta["decision"],
     )
     return p
 
