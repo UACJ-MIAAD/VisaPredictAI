@@ -105,6 +105,10 @@ EXPECTED_INPUTS: list[tuple[str, int, int]] = [
     ("reports/eval/finalist_forecasts_DFF.csv", 1, 2),
     ("reports/eval/holdout_forecasts_FAD.csv", 1, 2),
     ("reports/eval/holdout_forecasts_DFF.csv", 1, 2),
+    # ★ M74-E-R2 · los RECIBOS, no sólo los CSV. El gate contaba filas de un artefacto que nadie
+    # acreditaba: con el productor cableado, el recibo es la mitad que prueba de QUÉ campaña es.
+    ("reports/eval/holdout_forecasts_FAD.csv.receipt.json", 1, 0),
+    ("reports/eval/holdout_forecasts_DFF.csv.receipt.json", 1, 0),
     ("reports/eval/tuned_params.json", 1, 0),
     ("models/manifest.jsonl", 1, MANIFEST_LOCAL_FLOOR),
 ]
@@ -390,6 +394,44 @@ def validate_seed_group(table: str, variant: str, camp_dir: Path, *, sealed_sha:
     return probs
 
 
+def _check_holdout_receipt(path: Path, sealed_sha: str | None) -> list[str]:
+    """El recibo de `holdout_forecasts_*` cierra con su CSV y con la campaña sellada.
+
+    ★ M74-E-R2 · el gate de completitud contaba filas y nada más. Un CSV con dos filas «útiles»
+    pasaba, y el artefacto del que cuelgan todos los combinadores entraba al corte sin que nadie
+    comprobara de qué corrida era. Aquí se exige: esquema exacto, cobertura declarada coherente con
+    el conjunto esperado que el propio recibo fija, y el sha256 del CSV que tiene al lado.
+    """
+    probs: list[str] = []
+    rel = path.relative_to(ROOT)
+    try:
+        acta = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"RECIBO {rel}: ilegible ({type(exc).__name__})"]
+    if acta.get("schema") != "holdout-forecasts-receipt/1":
+        probs.append(f"RECIBO {rel}: esquema {acta.get('schema')!r}")
+    for campo in ("campaign_id", "code_sha", "panel_sha256", "expected_keys_sha256"):
+        if not isinstance(acta.get(campo), str) or not acta.get(campo):
+            probs.append(f"RECIBO {rel}: sin {campo}")
+    if sealed_sha and acta.get("code_sha") != sealed_sha:
+        probs.append(f"RECIBO {rel}: code_sha {str(acta.get('code_sha'))[:8]} ≠ sellado {sealed_sha[:8]}")
+    cobertura = acta.get("coverage") or {}
+    n_esperadas = acta.get("n_expected_keys")
+    if cobertura.get("n_keys") != n_esperadas:
+        probs.append(f"RECIBO {rel}: cubre {cobertura.get('n_keys')!r} claves y declara esperar {n_esperadas!r}")
+    csv = path.with_name(path.name.removesuffix(".receipt.json"))
+    if not csv.is_file():
+        probs.append(f"RECIBO {rel}: no existe el CSV que acredita ({csv.name})")
+    else:
+        h = hashlib.sha256()
+        with open(csv, "rb") as fh:
+            for b in iter(lambda: fh.read(1 << 20), b""):
+                h.update(b)
+        if acta.get("artifact_sha256") != h.hexdigest():
+            probs.append(f"RECIBO {rel}: {csv.name} cambió desde el sellado")
+    return probs
+
+
 def _check_list(
     expected: list[tuple[str, int, int]],
     started: dt.datetime | None,
@@ -413,6 +455,8 @@ def _check_list(
                 probs += _check_hpo(m)
             if m.name == "tuned_params.json":
                 probs += _check_tuned(m)
+            if m.name.startswith("holdout_forecasts_") and m.name.endswith(".receipt.json"):
+                probs += _check_holdout_receipt(m, sealed_sha)
             if m.name == "manifest.jsonl":
                 probs += _check_manifest(m, sealed_sha, sealed_dirty, strict_identity=not preflight)
             if not preflight and started is not None and _stale(m, started):

@@ -20,7 +20,6 @@ import pytest
 
 pytest.importorskip("darts")  # capa de modelado: se salta sin el extra `model`
 
-from tests import holdout_fixture
 from vp_model import dataset, ensemble
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -80,12 +79,16 @@ def synthetic_reports(tmp_path, monkeypatch):
     (tmp_path / "eval").mkdir()
     _holdout_frame().to_csv(tmp_path / "eval" / "holdout_forecasts_FAD.csv", index=False)
     _comparison_frame().to_csv(tmp_path / "eval" / "model_comparison_FAD21.csv", index=False)
-    holdout_fixture.acredita(tmp_path, "FAD", monkeypatch)
     # serie cruda: rampa mensual que CONTIENE las fechas del hold-out (máscara F-only) y
     # cuya escala naïve estacional previa a 2024-01 es exactamente 12.
     s = pd.Series(np.arange(124.0), index=pd.date_range("2014-01-01", periods=124, freq="MS"))
     monkeypatch.setattr(dataset, "load_series", lambda *a, **k: s)
-    return tmp_path
+    # ★ M74-E-R2 · el marco se pasa por la costura `fc=` en vez de leerse del disco.
+    # Desde R2 el lector RECALCULA el conjunto esperado contra el panel real (25 series × 9
+    # modelos × 24 meses), así que un fixture sintético de tres series y tres modelos no puede
+    # acreditarse — ni debe: estas pruebas son de la ARITMÉTICA de las combinaciones. El camino
+    # acreditado tiene su propia batería, que es donde corresponde ejercitarlo.
+    return _holdout_frame()
 
 
 # --- AM1: median-of-best-K por serie --------------------------------------------------
@@ -93,7 +96,7 @@ def synthetic_reports(tmp_path, monkeypatch):
 
 def test_best_k_selects_by_selection_not_holdout(synthetic_reports):
     """best-2 elige m1+m2 (mejor sel_mase) aunque m3 sea perfecto en el hold-out."""
-    strat, per_series = ensemble.best_k_combination("FAD", 2)
+    strat, per_series = ensemble.best_k_combination("FAD", 2, fc=synthetic_reports)
     assert set(per_series.models) == {"m1+m2"}
     # mediana(10, 14) = 12; |11-12| = 1; escala = 12 -> MASE 1/12 por serie deduplicada
     assert per_series.hold_mase.iloc[0] != pytest.approx(0.0)
@@ -103,13 +106,13 @@ def test_best_k_selects_by_selection_not_holdout(synthetic_reports):
 
 def test_best_k_dedups_replicas(synthetic_reports):
     """El denominador es el de representantes: 3 series crudas -> 2 efectivas (AM4b)."""
-    strat, per_series = ensemble.best_k_combination("FAD", 2)
+    strat, per_series = ensemble.best_k_combination("FAD", 2, fc=synthetic_reports)
     assert len(per_series) == 2  # china + una representante de {mexico, india}
     assert "2 series efectivas" in strat.detail
 
 
 def test_best_k_report_aggregate_rows(synthetic_reports):
-    report = ensemble.best_k_report("FAD", ks=(2, 3))
+    report = ensemble.best_k_report("FAD", ks=(2, 3), fc=synthetic_reports)
     agg = report[report.country == "ALL"]
     assert list(agg.k) == [2, 3]
     # k=3 mediana(10,14,11)=11 = actual de mexico/india -> mejor que k=2 en las réplicas
@@ -120,9 +123,9 @@ def test_best_k_report_aggregate_rows(synthetic_reports):
 
 def test_curated_and_combinations_use_dedup_denominator(synthetic_reports):
     """AM4b: TODOS los reportes de combinaciones puntúan sobre las series efectivas."""
-    strat = ensemble.curated_combination("FAD", subset=("m1", "m2", "m3"))
+    strat = ensemble.curated_combination("FAD", subset=("m1", "m2", "m3"), fc=synthetic_reports)
     assert "2 series efectivas" in strat.detail
-    for s in ensemble.combinations("FAD"):
+    for s in ensemble.combinations("FAD", fc=synthetic_reports):
         assert "2 series efectivas" in s.detail
 
 

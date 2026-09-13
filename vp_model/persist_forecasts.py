@@ -31,6 +31,7 @@ cambia es que ahora está acreditado.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import pandas as pd
@@ -73,6 +74,12 @@ def artifact_path(table: str, reports: Path | None = None) -> Path:
 def _grid(country: str, category: str, table: str):
     """La rejilla causal regular de la serie. La MISMA que usa el walk-forward."""
     return models.to_timeseries(dataset.load_series(country, category, table))
+
+
+#: Memoria del conjunto esperado por (tabla, bloque, pool, panel). Recalcularlo en CADA lectura
+#: sería recorrer el catálogo entero por consumidor; la clave incluye el hash del panel, así que un
+#: panel distinto no reutiliza nada. No es un respaldo: si no está, se deriva.
+_MEMORIA_ESPERADO: dict[tuple, set[tuple[str, str, str, str]]] = {}
 
 
 def expected_keys(
@@ -155,6 +162,24 @@ def audit(filas: list[dict], esperado: set[tuple]) -> dict:
         problemas.append(f"{len(sobran)} NO ESPERADA(s), p. ej. {sorted(sobran)[:2]}")
     if problemas:
         raise HoldoutForecastsError("cobertura rota: " + " · ".join(problemas))
+    # ★ R2 · los VALORES también se auditan. `audit()` aceptaba `actual=NaN` y `forecast=inf`:
+    #   comprobaba que las filas correctas estuvieran y no que dijeran algo. Un NaN se propaga a la
+    #   media del ensemble y un inf revienta el MASE, y ambos llegaban con el recibo en regla.
+    malos = [
+        f"{f['model']}/{f['country']}/{f['category']}@{f['date']}"
+        for f in filas
+        if not (
+            isinstance(f["actual"], (int, float))
+            and isinstance(f["forecast"], (int, float))
+            and math.isfinite(float(f["actual"]))
+            and math.isfinite(float(f["forecast"]))
+        )
+    ]
+    if malos:
+        raise HoldoutForecastsError(
+            f"{len(malos)} fila(s) con actual/forecast no finito, p. ej. {malos[:3]}. "
+            "Un NaN se propaga a la media del ensemble y un infinito revienta el MASE"
+        )
     modelos = sorted({f["model"] for f in filas})
     return {"n_rows": len(filas), "n_keys": len(vistos), "models": modelos, "n_models": len(modelos)}
 
@@ -199,18 +224,22 @@ def read_accredited(
     code_sha: str | None = None,
     panel_sha256: str | None = None,
     block: str = "family",
+    pool: tuple[str, ...] = HOLDOUT_POOL_MODELS,
+    code_root: Path | None = None,
 ) -> pd.DataFrame:
     """★ La ÚNICA puerta de entrada de los consumidores. Re-acredita en cada lectura.
 
-    Los ocho `pd.read_csv` repartidos por combinadores, campeón y tablas de significancia leían el
-    archivo que hubiera. Ahora pasan por aquí y un artefacto de otra campaña, sin recibo o tocado
+    Los NUEVE `pd.read_csv` repartidos por combinadores, campeón y tablas de significancia leían el
+    archivo que hubiera. (⚠️ R1 dijo «ocho»: recontado sobre `41cb225` son **nueve** — siete con el
+    literal en el argumento de la lectura y dos por una variable a la que se le asignaba la ruta,
+    en `run_ensembles.py` y `ensemble.py`. La auditoría del autor corrigió el conteo.) Ahora pasan por aquí y un artefacto de otra campaña, sin recibo o tocado
     después del sellado **no se consume**.
     """
     reports = reports or REPORTS
     if campaign_id is None or code_sha is None or panel_sha256 is None:
-        campaign_id, code_sha, panel_sha256 = ar.campaign_identity(reports)
+        campaign_id, code_sha, panel_sha256 = ar.campaign_identity(reports, code_root=code_root or ROOT)
     destino = artifact_path(table, reports)
-    ar.verify(
+    acta = ar.verify(
         destino,
         schema=SCHEMA,
         campaign_id=campaign_id,
@@ -218,7 +247,39 @@ def read_accredited(
         panel_sha256=panel_sha256,
         protocol={**PROTOCOL, "block": block},
     )
-    return pd.read_csv(destino, parse_dates=["date"])
+    # ── la CABECERA exacta: un CSV con columnas de más, de menos o en otro orden no es este
+    #    artefacto aunque su hash cuadre con un recibo que también se haya escrito para él.
+    with open(destino, encoding="utf-8") as fh:
+        cabecera = fh.readline().strip()
+    if cabecera != ",".join(COLUMNS):
+        raise HoldoutForecastsError(f"cabecera {cabecera!r}; el esquema exacto es {','.join(COLUMNS)!r}")
+
+    marco = pd.read_csv(destino, parse_dates=["date"])
+    filas = [{**r, "date": pd.Timestamp(r["date"]).strftime("%Y-%m-%d")} for r in marco.to_dict(orient="records")]
+    # ★ R2 · EL punto. Hasta aquí el lector verificaba procedencia y hash y luego **daba por buena
+    #   la cobertura que declaraba el escritor**: un CSV de una sola fila con un recibo que decía
+    #   5 400 pasaba entero. El conjunto esperado se RECALCULA del panel y se vuelve a auditar.
+    clave = (table, block, pool, panel_sha256)
+    esperado = _MEMORIA_ESPERADO.get(clave)
+    if esperado is None:
+        esperado = expected_keys(table, block=block, pool=pool)
+        _MEMORIA_ESPERADO[clave] = esperado
+    censo = audit(filas, esperado)
+
+    # ── y el recibo tiene que estar de acuerdo con lo que acabamos de medir
+    sello = ar.expected_keys_sha256(esperado)
+    if acta.get("expected_keys_sha256") != sello:
+        raise HoldoutForecastsError(
+            f"el recibo fija un conjunto esperado {str(acta.get('expected_keys_sha256'))[:12]}… y el "
+            f"panel de hoy exige {sello[:12]}…: se acreditó contra otro universo"
+        )
+    declarada = acta.get("coverage") or {}
+    for campo in ("n_rows", "n_keys"):
+        if declarada.get(campo) != censo[campo]:
+            raise HoldoutForecastsError(
+                f"el recibo declara {campo}={declarada.get(campo)!r} y el artefacto tiene {censo[campo]}"
+            )
+    return marco
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -227,7 +288,7 @@ def main(argv: list[str] | None = None) -> int:
     import sys
 
     try:
-        campaign_id, code_sha, panel = ar.campaign_identity(REPORTS)
+        campaign_id, code_sha, panel = ar.campaign_identity(REPORTS, code_root=ROOT)
     except ar.ReceiptError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return 1

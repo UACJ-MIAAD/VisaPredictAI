@@ -39,7 +39,7 @@ from xgboost import XGBRegressor
 
 from vp_data import tracking
 
-# ★ M74-E-R1: por la puerta acreditada, no por `pd.read_csv`. Ocho lugares leían el archivo
+# ★ M74-E-R1: por la puerta acreditada, no por `pd.read_csv`. NUEVE lugares leían el archivo
 # que hubiera, sin recibo ni identidad de campaña; medido, el artefacto vivo (26-ago) tenía
 # 472+448 claves mal en FAD y 754+346 en DFF contra el panel de hoy, y ninguno lo notaba.
 from vp_model import dataset, ensemble, persist_forecasts

@@ -97,7 +97,7 @@ def _dm_deep_vs_parsimony(table: str) -> dict:
     deep_src = pd.read_csv(REPORTS / "eval" / f"finalist_forecasts_{table}.csv")
     cols = ["model", "country", "category", "date", "forecast", "actual"]
     f_deep = deep_src[deep_src.model.isin({"BiTCN", "AutoBiTCN", "NHITS", "PatchTST", "TiDE"})][cols]
-    # ★ M74-E-R1: por la puerta acreditada, no por `pd.read_csv`. Ocho lugares leían el archivo
+    # ★ M74-E-R1: por la puerta acreditada, no por `pd.read_csv`. NUEVE lugares leían el archivo
     # que hubiera, sin recibo ni identidad de campaña; medido, el artefacto vivo (26-ago) tenía
     # 472+448 claves mal en FAD y 754+346 en DFF contra el panel de hoy, y ninguno lo notaba.
     # El import va aquí dentro: este guion manipula `sys.path` antes de importar, así que arriba

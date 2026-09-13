@@ -89,7 +89,12 @@ def main() -> None:
                     model.fit(ts, **fit_kwargs)  # type: ignore[attr-defined]
                     out = MODELS / table / "local" / name / f"{r.country}_{r.category}"
                     out.mkdir(parents=True, exist_ok=True)
-                    joblib.dump(model, out / "model.pkl")
+                    # ★ M74-E-R2 · compresión nivel 3, decisión del autor con su medición:
+                    # 50/50 modelos SARIMA ajustaron, cargaron y predijeron; sin comprimir el
+                    # árbol pesa 462.99 MiB y con `compress=3` 180.71 MiB — **61 % menos**, con
+                    # 50/50 conservando su predicción. No toca el protocolo estadístico: cambia
+                    # cómo se guarda el objeto, no lo que el objeto calcula.
+                    joblib.dump(model, out / "model.pkl", compress=3)
                     _manifest(
                         {
                             "model": name,

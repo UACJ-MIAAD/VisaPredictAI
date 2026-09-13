@@ -171,7 +171,10 @@ def test_sin_identidad_de_campana_el_productor_aborta() -> None:
         env={"PATH": "/usr/bin:/bin", "HOME": "/tmp", "PYTHONPATH": str(RAIZ)},
     )
     assert fin.returncode != 0
-    assert "CAMPAIGN_ID" in (fin.stdout + fin.stderr)
+    # ⚠️ M74-E-R2 cambió el mensaje, y a mejor: la identidad ya no se le pide al entorno sino a la
+    # TRANSACCIÓN, así que lo primero que falta es ella. La prueba sigue el hecho, no la cadena.
+    salida = fin.stdout + fin.stderr
+    assert "transacción de campaña" in salida or "CAMPAIGN_ID" in salida, salida
 
 
 # ═══════════════════════════════ 3 · ★ el RED end-to-end contra el insumo anterior
@@ -188,7 +191,9 @@ def escena(tmp_path: Path):
     panel.write_text("country,category,table,value\nmexico,F1,FAD,1\n", encoding="utf-8")
     panel_sha = "sha256:" + hashlib.sha256(panel.read_bytes()).hexdigest()
     (raiz / "reports" / "campaign" / "campaign.json").write_text(
-        json.dumps({"campaign_id": "camp_r1", "source_git_sha": "b" * 40, "panel_sha256": panel_sha}),
+        json.dumps(
+            {"campaign_id": "camp_r1", "source_git_sha": "b" * 40, "panel_sha256": panel_sha, "status": "running"}
+        ),
         encoding="utf-8",
     )
     # el artefacto de la añada anterior: existe, es legible, y NO tiene recibo
@@ -250,12 +255,14 @@ def test_un_csv_tocado_despues_del_sellado_no_acredita(escena) -> None:
         protocol={**pf.PROTOCOL, "block": "family"},
         coverage={"n_rows": 1},
     )
-    pf.read_accredited(
-        "FAD", reports=raiz / "reports", campaign_id=cid, code_sha=sha, panel_sha256=panel_sha
-    )  # control: pasa
+    protocolo = {**pf.PROTOCOL, "block": "family"}
+    # ⚠️ El control se hace sobre `ar.verify`, no sobre `read_accredited`: desde M74-E-R2 el lector
+    # RECALCULA la cobertura contra el panel real, y este artefacto sintético —correctamente— ya no
+    # la satisface. Lo que esta prueba fija es la detección del CAMBIO tras el sellado.
+    ar.verify(destino, schema=pf.SCHEMA, campaign_id=cid, code_sha=sha, panel_sha256=panel_sha, protocol=protocolo)
     destino.write_text(destino.read_text(encoding="utf-8") + "ets,mexico,F1,2019-02-01,9,9\n", encoding="utf-8")
     with pytest.raises(ar.ReceiptError, match="cambió desde el sellado"):
-        pf.read_accredited("FAD", reports=raiz / "reports", campaign_id=cid, code_sha=sha, panel_sha256=panel_sha)
+        ar.verify(destino, schema=pf.SCHEMA, campaign_id=cid, code_sha=sha, panel_sha256=panel_sha, protocol=protocolo)
 
 
 @MODELADO
@@ -290,7 +297,7 @@ def test_fuera_de_una_campana_leer_es_un_error_explicito(escena) -> None:
     guardado = {k: os.environ.pop(k, None) for k in ("CAMPAIGN_ID", "CAMPAIGN_SHA")}
     try:
         with pytest.raises(ar.ReceiptError, match="CAMPAIGN_ID"):
-            ar.campaign_identity(raiz / "reports")
+            ar.campaign_identity(raiz / "reports", code_root=RAIZ)
     finally:
         for k, v in guardado.items():
             if v is not None:
@@ -299,7 +306,7 @@ def test_fuera_de_una_campana_leer_es_un_error_explicito(escena) -> None:
 
 # ═══════════════════════════════ 4 · ningún consumidor se salta la puerta
 def test_ningun_consumidor_lee_el_csv_a_pelo() -> None:
-    """★ Eran OCHO `pd.read_csv` repartidos. Por AST: un docstring que lo mencione no cuenta."""
+    """★ Eran NUEVE `pd.read_csv` repartidos (7 con el literal en el argumento + 2 por variable). Por AST: un docstring que lo mencione no cuenta."""
     import ast
 
     culpables = []

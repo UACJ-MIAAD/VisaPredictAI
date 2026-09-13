@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 import pytest
@@ -93,6 +94,23 @@ def _write_inputs(root):
                 (camp / f"global_{t}_{variant}_s{seed}.csv").write_text(_seed(("NHITS", "PatchTST", "TiDE", "BiTCN")))
         for seed in range(1, 6):
             (camp / f"global_{t}_camp_auto_s{seed}.csv").write_text(_seed(("AutoBiTCN", "AutoTiDE", "AutoNHITS")))
+    # ★ M74-E-R2: los dos recibos entran al gate, así que el escenario realista los trae.
+    for t in ("FAD", "DFF"):
+        csv = ev / f"holdout_forecasts_{t}.csv"
+        (ev / f"holdout_forecasts_{t}.csv.receipt.json").write_text(
+            json.dumps(
+                {
+                    "schema": "holdout-forecasts-receipt/1",
+                    "campaign_id": "c1",
+                    "code_sha": "abc",
+                    "panel_sha256": "sha256:h",
+                    "expected_keys_sha256": "e" * 64,
+                    "n_expected_keys": 2,
+                    "coverage": {"n_rows": 2, "n_keys": 2},
+                    "artifact_sha256": hashlib.sha256(csv.read_bytes()).hexdigest(),
+                }
+            )
+        )
     (ev / "tuned_params.json").write_text(json.dumps(TUNED))
     # manifest con locales+globales cuyas rutas EXISTEN
     (root / "models" / "FAD" / "local" / "m.pkl").write_text("x")
