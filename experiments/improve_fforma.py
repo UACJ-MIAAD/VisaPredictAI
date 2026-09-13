@@ -38,7 +38,11 @@ import pandas as pd
 from xgboost import XGBRegressor
 
 from vp_data import tracking
-from vp_model import dataset, ensemble
+
+# ★ M74-E-R1: por la puerta acreditada, no por `pd.read_csv`. Ocho lugares leían el archivo
+# que hubiera, sin recibo ni identidad de campaña; medido, el artefacto vivo (26-ago) tenía
+# 472+448 claves mal en FAD y 754+346 en DFF contra el panel de hoy, y ninguno lo notaba.
+from vp_model import dataset, ensemble, persist_forecasts
 from vp_model.metrics import mase_by_series
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
@@ -75,7 +79,7 @@ def _meta_features(country: str, category: str, table: str, before: pd.Timestamp
 
 
 def _evaluate(table: str) -> dict:
-    fc = pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
+    fc = persist_forecasts.read_accredited(table, reports=REPORTS)
     mc = pd.read_csv(REPORTS / "eval" / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
     avail = sorted(set(fc.model.unique()) & set(mc.model.unique()))
     err = mc[mc.model.isin(avail)].pivot_table(index=["country", "category"], columns="model", values="sel_mase")

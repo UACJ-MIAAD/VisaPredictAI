@@ -24,6 +24,7 @@ import pandas as pd
 from vp_model import significance
 
 ROOT = Path(__file__).resolve().parent.parent
+
 REPORTS = ROOT / "reports"
 FIGS = ROOT / "reports" / "paper_micai" / "Figures"
 
@@ -96,7 +97,16 @@ def _dm_deep_vs_parsimony(table: str) -> dict:
     deep_src = pd.read_csv(REPORTS / "eval" / f"finalist_forecasts_{table}.csv")
     cols = ["model", "country", "category", "date", "forecast", "actual"]
     f_deep = deep_src[deep_src.model.isin({"BiTCN", "AutoBiTCN", "NHITS", "PatchTST", "TiDE"})][cols]
-    f_pars = pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv")[cols]
+    # ★ M74-E-R1: por la puerta acreditada, no por `pd.read_csv`. Ocho lugares leían el archivo
+    # que hubiera, sin recibo ni identidad de campaña; medido, el artefacto vivo (26-ago) tenía
+    # 472+448 claves mal en FAD y 754+346 en DFF contra el panel de hoy, y ninguno lo notaba.
+    # El import va aquí dentro: este guion manipula `sys.path` antes de importar, así que arriba
+    # dispararía `E402` y con él un marcador de deuda que justificar.
+    from vp_model import persist_forecasts
+
+    f_pars = persist_forecasts.read_accredited(table, reports=REPORTS).assign(
+        date=lambda d: d.date.dt.strftime("%Y-%m-%d")
+    )[cols]
     f = pd.concat([f_deep, f_pars], ignore_index=True)
     n_raw = int(f.groupby(["country", "category"]).ngroups)
     keep = _distinct_series(f)

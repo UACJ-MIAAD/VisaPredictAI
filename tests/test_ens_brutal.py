@@ -20,6 +20,7 @@ import pytest
 
 pytest.importorskip("darts")  # capa de modelado: se salta sin el extra `model`
 
+from tests import holdout_fixture
 from vp_model import dataset, ensemble
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -79,6 +80,7 @@ def synthetic_reports(tmp_path, monkeypatch):
     (tmp_path / "eval").mkdir()
     _holdout_frame().to_csv(tmp_path / "eval" / "holdout_forecasts_FAD.csv", index=False)
     _comparison_frame().to_csv(tmp_path / "eval" / "model_comparison_FAD21.csv", index=False)
+    holdout_fixture.acredita(tmp_path, "FAD", monkeypatch)
     # serie cruda: rampa mensual que CONTIENE las fechas del hold-out (máscara F-only) y
     # cuya escala naïve estacional previa a 2024-01 es exactamente 12.
     s = pd.Series(np.arange(124.0), index=pd.date_range("2014-01-01", periods=124, freq="MS"))

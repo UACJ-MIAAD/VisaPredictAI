@@ -52,15 +52,13 @@ def expected_models() -> dict[str, tuple[str, ...]]:
     ⚠️ La primera versión de este promotor derivaba las listas por AST de `save_finalists.py` y
     `save_finalists_deep.py`. Eso habría **trasladado** la divergencia que M74-E encontró —tres
     autoridades que ya discrepaban en `sarima`— en vez de cerrarla. La autoridad es
-    `experiments/model_registry.py` y aquí sólo se consulta.
+    `vp_model/model_registry.py` y aquí sólo se consulta.
 
     ★ El promotor exige **sólo los persistibles**. `ets` y `theta` no lo son (AutoETS/AutoTheta no
     conservan estado reutilizable), y su ausencia del árbol **no** los vuelve opcionales: su
     cobertura la exige el EXPORTADOR sobre `REQUIRED_FORECAST_MODELS`.
     """
-    # Vive JUNTO al registro (`experiments/`), así que al ejecutarse como guion su propio
-    # directorio ya es `sys.path[0]` y el parche de ruta que había aquí sobra.
-    from model_registry import GLOBAL_MODELS, LOCAL_MODELS, PERSISTED_MODELS
+    from vp_model.model_registry import GLOBAL_MODELS, LOCAL_MODELS, PERSISTED_MODELS
 
     persistidos = set(PERSISTED_MODELS)
     return {

@@ -71,8 +71,15 @@ for table in FAD DFF; do
   done
 done
 
-# ---------- F2: ensembles (combinaciones) -> MLflow ----------
-step "F2 ensembles" $ANTE experiments/run_ensembles.py --mlflow
+# ---------- F2: ensembles ---------- ★ RETIRADO en M74-E-R1
+# Corría AQUÍ, en la etapa 1 de la re-derivación, sobre `holdout_forecasts_*` que la etapa 3.5
+# todavía no había reconstruido: es decir, SIEMPRE sobre la añada anterior. El propio encabezado
+# del runbook lo admitía («usa holdouts previos y queda superseded»), y quedarse en «superseded»
+# significaba gastar cómputo para publicar en MLflow un resultado calculado sobre datos viejos
+# que nadie volvía a mirar. No se difiere: la etapa 4 ya hace esto mismo con el insumo correcto.
+#
+# ⚠️ Además, desde que los consumidores se re-acreditan al leer, dejarlo aquí ABORTARÍA la etapa 1:
+# en este punto de la campaña no existe todavía un `holdout_forecasts` acreditado para ella.
 
 # ---------- MLflow + DVC re-hash LOCAL (NO publica; auditoría 12-jul-2026) ----------
 # sync_all sin --publish: sincroniza MLflow y re-hashea con dvc add, pero NO hace

@@ -83,9 +83,8 @@ def recoger_filas(
 
 
 def main(argv: list[str] | None = None) -> int:
-    from model_registry import TRANSPORTED_FORECAST_MODELS
-
     from vp_model import transported_forecasts as tf
+    from vp_model.model_registry import TRANSPORTED_FORECAST_MODELS
 
     campaign_id = os.environ.get("CAMPAIGN_ID", "")
     code_sha = os.environ.get("CAMPAIGN_SHA", "")

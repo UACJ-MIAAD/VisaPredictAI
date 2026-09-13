@@ -37,7 +37,11 @@ import pandas as pd
 from scipy.optimize import minimize
 
 from vp_data import tracking
-from vp_model import dataset, ensemble
+
+# ★ M74-E-R1: por la puerta acreditada, no por `pd.read_csv`. Ocho lugares leían el archivo
+# que hubiera, sin recibo ni identidad de campaña; medido, el artefacto vivo (26-ago) tenía
+# 472+448 claves mal en FAD y 754+346 en DFF contra el panel de hoy, y ninguno lo notaba.
+from vp_model import dataset, ensemble, persist_forecasts
 from vp_model.metrics import mase_by_series, naive_scale_before
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
@@ -76,7 +80,7 @@ def _split_frames(table: str) -> tuple[pd.DataFrame, pd.DataFrame, str]:
     Prefers the AQ selection-region artifact; falls back to the first/second half of the
     persisted hold-out (per series, by date order) with an explicit provisional note.
     """
-    hold = pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
+    hold = persist_forecasts.read_accredited(table, reports=REPORTS)
     sel_path = REPORTS / "eval" / f"selection_forecasts_{table}.csv"
     if sel_path.exists():
         return pd.read_csv(sel_path, parse_dates=["date"]), hold, "train=selection region (AQ), test=full hold-out"

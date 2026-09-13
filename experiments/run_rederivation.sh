@@ -10,10 +10,10 @@
 #   2. proyección de pools    campaign_pool_* -> model_comparison_*21.csv (mismo cómputo;
 #                             los consumen ensemble/figuras — un solo entrenamiento; el "21"
 #                             del nombre es histórico, el pool ya trae 23 modelos)
-#   3. save_finalists.sh      modelos finalistas (deep+locales) + holdout_forecasts_* frescos
-#   4. combinadores           ensembles / conformal / stacking / FFORMA (sobre holdouts frescos;
-#                             la corrida de ensembles dentro de run_campaign usa holdouts previos
-#                             y queda superseded por esta)
+#   3. save_finalists.sh      modelos finalistas (deep+locales) + transporte de ETS/Theta
+#   3.5 persist_forecasts     ★ holdout_forecasts_{FAD,DFF} RECONSTRUIDOS y acreditados
+#   4. combinadores           ensembles / conformal / stacking / FFORMA, sobre los holdouts
+#                             de 3.5 — que ahora se re-acreditan al leerse
 #   5. baselines prob./clásicos  Auto-ARIMA (AICc) · deep-PI · CRPS
 #   6. tuning GBMs (AK)       run_tuning (Optuna persistente, 150 trials, familia+empleo,
 #                             candidatos) + confirm_tuning (aceptación en val-confirm
@@ -30,7 +30,12 @@
 #                             .tex/paper/web; NO es terminal: la transacción queda en `computed`
 #                             con la consistencia PENDIENTE y `txn validate` la vuelve a exigir)
 #
-# Uso (desde la raíz; ~8-11 h; caffeinate evita que macOS duerma a mitad de campaña):
+# ⚠️ Duración: ≥16 h, no las «8-11 h» que este encabezado anunciaba desde julio. La estimación
+# vieja no incluía la reconstrucción completa de `holdout_forecasts_{FAD,DFF}` (etapa 3.5: 2 tablas
+# × 25 series × 9 modelos de walk-forward con reajuste en cada paso) ni el transporte de ETS/Theta,
+# y se tomó cuando la etapa 1 aún calculaba ensembles que ahora se retiraron. Es una cota inferior.
+#
+# Uso (desde la raíz; ≥16 h; caffeinate evita que macOS duerma a mitad de campaña):
 #   caffeinate -is bash experiments/run_rederivation.sh > reports/rederivation.log 2>&1
 #
 # Fail-closed (auditoría 12-jul-2026): las etapas OBLIGATORIAS (run_req) hacen que el runbook
@@ -135,7 +140,7 @@ campaign_abort() {
   txn fail --if-open --stage "salida anormal del runbook" --exit-code "$rc" \
       --reason "el runbook terminó con exit $rc sin alcanzar un estado terminal" >&2 || true
   # H14: matar el GRUPO entero. Sin esto, al colgarse la terminal el padre muere y los hijos
-  # (python de 8-11 h) siguen escribiendo artefactos sobre una campaña ya marcada como fallida.
+  # (python de ≥16 h) siguen escribiendo artefactos sobre una campaña ya marcada como fallida.
   kill -- -$$ 2>/dev/null || true
 }
 trap campaign_abort EXIT
@@ -173,7 +178,7 @@ stage() {
 # run(): best-effort — un fallo se cuenta pero la corrida sigue (para modelos que
 # fallan legítimamente en series cortas dentro de un pool).
 # H16: además de contarlas, se RECUERDAN. Diez etapas tolerables podían fallar sin dejar rastro
-# en la transacción, y la revisión humana tenía que descubrirlo leyendo 8-11 h de bitácora.
+# en la transacción, y la revisión humana tenía que descubrirlo leyendo ≥16 h de bitácora.
 BEST_EFFORT_FAILED=()
 run()   { "$@" || { echo "##### ETAPA FALLIDA (exit $?): $*"; FAILS=$((FAILS+1)); BEST_EFFORT_FAILED+=("$*"); }; }
 # run_req(): OBLIGATORIA — su fallo DETIENE la campaña AQUÍ MISMO (M74-E, punto 6).
@@ -213,10 +218,20 @@ for t in FAD DFF; do
   run_req cp "reports/campaign/campaign_pool_${t}_employment.csv" "reports/eval/model_comparison_EB_${t}21.csv"
 done
 
-stage 3 "finalistas (modelos deep+locales) + holdout_forecasts frescos"
+stage 3 "finalistas (modelos deep+locales) + transporte de ETS/Theta"
 run_req bash experiments/save_finalists.sh
 
-stage 4 "combinadores sobre holdouts frescos (supersede el ensembles de la campaña)"
+# ★ M74-E-R1 · el productor que faltaba, y la etiqueta que mentía.
+# La etapa 3 ANUNCIABA «holdout_forecasts frescos» y la 4 «combinadores sobre holdouts frescos».
+# Nadie los escribía: el único escritor es `vp_model.persist_forecasts` y este runbook no lo
+# invocaba nunca. Medido contra el panel de hoy, el artefacto vivo (26-ago) tenía 472 claves
+# ausentes y 448 no esperadas en FAD, y 754/346 en DFF — no sólo era de otra añada, es que su
+# ventana de hold-out ya no existe. Sobre eso se calculaban ensembles, conformal, stacking,
+# FFORMA, el campeón y las tablas de significancia, y el runbook terminaba en verde.
+stage 3.5 "holdout_forecasts RECONSTRUIDOS y acreditados (insumo de TODOS los combinadores)"
+run_req $ANTE -m vp_model.persist_forecasts
+
+stage 4 "combinadores sobre los holdouts de 3.5 (re-acreditados al leerse)"
 run_req $ANTE experiments/run_ensembles.py --mlflow
 run_req $ANTE experiments/improve_conformal.py --mlflow
 run $ANTE experiments/improve_stacking.py --mlflow
@@ -309,7 +324,7 @@ if [ "$REQ_FAILS" -gt 0 ]; then
   exit 1
 fi
 # ★ H2: que las cifras cambien es el resultado ESPERADO de una re-derivación, no un fallo. Antes
-# esto marcaba `failed`, que es TERMINAL, y dejaba la campaña sin salida salvo repetir 8-11 h.
+# esto marcaba `failed`, que es TERMINAL, y dejaba la campaña sin salida salvo repetir ≥16 h.
 # Ahora llega a `computed` con la consistencia PENDIENTE, y es `txn validate` quien la vuelve a
 # exigir —re-ejecutando el guardián— después de propagar.
 CONSISTENCY_STATE=$([ "$CONSISTENCY_OK" = 1 ] && echo passed || echo pending)

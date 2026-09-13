@@ -9,8 +9,11 @@
 # `rederiv_1022c9d_20260911T212150`: el paso [1/4] (globales deep) murió por un ImportError y los
 # pasos [2/4], [3/4] y [4/4] corrieron IGUAL. Consecuencias reales, todas con aspecto de éxito:
 #
-#   · `models/` quedó como un árbol MIXTO: 300 entradas locales nuevas y CERO globales, con los
-#     cinco directorios globales del 26-ago intactos y disponibles;
+#   · `models/` quedó como un árbol MIXTO: 301 archivos nuevos y CERO globales, con los globales
+#     anteriores intactos y disponibles. ⚠️ Este comentario decía «del 26-ago»: al clasificar la
+#     escena se MIDIERON las añadas reales y son **2026-06-18, 06-19 y 07-03** (46 archivos). La
+#     fecha de agosto era el mtime de los DIRECTORIOS, que cambia con cualquier alta o baja de un
+#     hijo directo y no dice nada del contenido;
 #   · `export_forecasts.py` leyó esos globales viejos y los metió en el CSV junto a los locales
 #     nuevos, mezclando dos añadas en un mismo artefacto;
 #   · `sync_all LOCAL` re-hasheó y stageó ese árbol mixto en `models.dvc`;

@@ -6,10 +6,12 @@ import pytest
 
 pytest.importorskip("darts")
 
+from tests import holdout_fixture
 from vp_model import champion
 
 
 def test_champion_recipe_mase_finite_and_beats_naive() -> None:
+    holdout_fixture.salta_si_no_hay_artefacto_acreditado("FAD")
     champ = champion.load_manifest()["FAD"]
     s = champion.recipe_series_mase("FAD", champ)
     assert len(s) > 10
@@ -18,6 +20,7 @@ def test_champion_recipe_mase_finite_and_beats_naive() -> None:
 
 
 def test_evaluate_wellformed_and_gated() -> None:
+    holdout_fixture.salta_si_no_hay_artefacto_acreditado("FAD")
     champs = champion.load_manifest()
     for table in ("FAD", "DFF"):
         v = champion.evaluate(table, champs[table])

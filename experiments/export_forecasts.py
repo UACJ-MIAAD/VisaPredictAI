@@ -27,12 +27,11 @@ REPORTS = ROOT / "reports"
 # ★ M74-E: las listas salen del REGISTRO CANÓNICO, no de aquí. Había tres autoridades y ya
 # discrepaban: este archivo esperaba 7 locales y `save_finalists.py` persistía 6 (sin `sarima`).
 #
-# El import va DENTRO de las funciones, no arriba: `model_registry` vive junto a este guion y sólo
-# resuelve con `experiments/` en el path, lo que exigiría un `sys.path.insert` previo y, con él,
-# tres `noqa: E402`. Diferirlo cuesta una línea y no deja marcadores que justificar.
+# El import va DENTRO de la función, no arriba: arriba dispararía el trinquete de `noqa: E402`
+# por el orden de imports de este guion. Diferirlo cuesta una línea y no deja marcadores.
 def _registro():
     """Las tres vistas del registro canónico que este exportador consume."""
-    from model_registry import (
+    from vp_model.model_registry import (
         RECOMPUTED_FORECAST_MODELS,
         REQUIRED_FORECAST_MODELS,
         TRANSPORTED_FORECAST_MODELS,

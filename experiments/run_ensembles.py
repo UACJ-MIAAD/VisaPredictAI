@@ -22,7 +22,11 @@ from pathlib import Path
 import pandas as pd
 
 from vp_data import tracking
-from vp_model import ensemble
+
+# ★ M74-E-R1: por la puerta acreditada, no por `pd.read_csv`. Ocho lugares leían el archivo
+# que hubiera, sin recibo ni identidad de campaña; medido, el artefacto vivo (26-ago) tenía
+# 472+448 claves mal en FAD y 754+346 en DFF contra el panel de hoy, y ninguno lo notaba.
+from vp_model import ensemble, persist_forecasts
 from vp_model.metrics import mase_by_series
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
@@ -91,12 +95,13 @@ def deep_plus_parsimony(table: str, deep_glob: str, deep_col: str, stat_models: 
     combinar (AM4a). El MASE sale de ``metrics.mase_by_series`` (AM4d; los reales vienen
     del almacén, F-only) sobre representantes de pseudo-réplica (AM4b).
     """
-    hf = REPORTS / "eval" / f"holdout_forecasts_{table}.csv"
     seed_paths = sorted((REPORTS / "campaign").glob(deep_glob))
-    if not hf.exists() or not seed_paths:
-        print(f"  deep+parsimony {table}: faltan CSV ({hf.name} / {deep_glob}) — omitido")
+    if not seed_paths:
+        print(f"  deep+parsimony {table}: faltan los CSV de {deep_glob} — omitido")
         return
-    fc = pd.read_csv(hf, parse_dates=["date"])
+    # ⚠️ El hold-out YA NO se omite por ausencia: se exige acreditado. «Omitido» y «no aporta»
+    # se leían igual en la bitácora, y con el artefacto de otra añada nadie miraba cuál era.
+    fc = persist_forecasts.read_accredited(table, reports=REPORTS)
     stat = fc[fc.model.isin(stat_models)][["country", "category", "date", "model", "forecast"]]
     deep = load_deep_median(seed_paths, deep_col)
     if deep.empty:

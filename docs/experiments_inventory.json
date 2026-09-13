@@ -164,10 +164,6 @@
     "clase": "archivo",
     "consumidor": "migracion A2 ya ejecutada (idempotente; --force para re-derivar actas); citada como referencia historica en vp_model/ledger.py y docs/FORECAST_EVAL.md"
   },
-  "model_registry.py": {
-    "clase": "producto",
-    "consumidor": "autoridad canonica de modelos por identificador logico; la consumen save_finalists, save_finalists_deep, export_forecasts y experiments/promote_finalists. Sustituye a tres listas independientes que ya divergian en sarima"
-  },
   "persist_transported_forecasts.py": {
     "clase": "producto",
     "consumidor": "reports/eval/transported_forecasts.csv + su recibo — paso 2c de save_finalists.sh: recoge del walk-forward las filas de ETS/Theta (AutoETS/AutoTheta no admiten historical_forecasts(retrain=False), asi que nadie puede recalcularlas despues) y las persiste con cobertura acreditada ANTES del exportador"

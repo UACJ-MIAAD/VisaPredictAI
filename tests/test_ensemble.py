@@ -9,6 +9,7 @@ import pytest
 
 pytest.importorskip("darts")  # capa de modelado: se salta sin el extra `model`
 
+from tests import holdout_fixture
 from vp_model import dataset, ensemble
 
 
@@ -28,6 +29,7 @@ def test_curated_combination_median(tmp_path, monkeypatch):
     """La combinación toma la MEDIANA por fecha y escala por el naïve estacional previo."""
     monkeypatch.setattr(ensemble, "REPORTS", tmp_path)
     _write_forecasts(tmp_path / "eval" / "holdout_forecasts_FAD.csv", {"theta": 10.0, "ets": 12.0, "sarima": 20.0})
+    holdout_fixture.acredita(tmp_path, "FAD", monkeypatch)
     # serie con escala naïve conocida: incrementos de 1 -> seasonal_naive_mae sobre tramo previo.
     # AM4d: el scorer canónico (mase_by_series) aplica la máscara F-only por fecha, así que
     # la serie cruda debe CONTENER las fechas del hold-out sintético (2024-01/02).
@@ -41,10 +43,19 @@ def test_curated_combination_median(tmp_path, monkeypatch):
     assert "median" in strat.name
 
 
-def test_combinations_returns_empty_without_csv(tmp_path, monkeypatch):
-    """Sin CSV persistido, combinations() devuelve [] (no explota)."""
+def test_combinations_aborta_sin_artefacto_acreditado(tmp_path, monkeypatch):
+    """★ M74-E-R1 · el contrato CAMBIÓ, y a propósito.
+
+    Antes devolvía `[]` «sin explotar». El problema es que `[]` se leía igual que «las
+    combinaciones no aportan nada», y el runbook lo daba por un resultado. Un insumo ausente o sin
+    acreditar no es un resultado: aborta nombrando la causa.
+    """
+    from vp_model import artifact_receipt as ar
+
     monkeypatch.setattr(ensemble, "REPORTS", tmp_path)
-    assert ensemble.combinations("FAD") == []
+    monkeypatch.delenv("CAMPAIGN_ID", raising=False)
+    with pytest.raises(ar.ReceiptError):
+        ensemble.combinations("FAD")
 
 
 if __name__ == "__main__":

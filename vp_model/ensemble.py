@@ -20,6 +20,11 @@ que usa el gate campeón-retador.
 
 Todo se deriva de ``model_comparison_*21.csv`` (métricas por modelo×serie) y de
 ``holdout_forecasts_*.csv`` (pronósticos persistidos del hold-out).
+
+★ M74-E-R1 · el hold-out entra por `persist_forecasts.read_accredited`, que re-acredita en cada
+lectura; y todas las funciones que lo consumen aceptan `fc` por parámetro para que la E/S viva en
+el BORDE y la aritmética quede pura. Antes había cuatro `pd.read_csv` aquí que leían el archivo
+que hubiera —y el que había era de otra añada, con la ventana de hold-out ya desplazada—.
 """
 
 from __future__ import annotations
@@ -29,7 +34,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from vp_model import significance
+# ★ M74-E-R1: por la puerta acreditada, no por `pd.read_csv`. Ocho lugares leían el archivo
+# que hubiera, sin recibo ni identidad de campaña; medido, el artefacto vivo (26-ago) tenía
+# 472+448 claves mal en FAD y 754+346 en DFF contra el panel de hoy, y ninguno lo notaba.
+from vp_model import persist_forecasts, significance
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
 
@@ -109,7 +117,12 @@ def analyze(table: str = "FAD") -> list[Strategy]:
         n_raw = df.groupby(["country", "category"]).ngroups
         df = df[[(c, cat) in reps for c, cat in zip(df.country, df.category, strict=True)]]
         n_eff = df.groupby(["country", "category"]).ngroups
-    except FileNotFoundError:  # sin holdout_forecasts_*: fallback a la firma métrica
+    except FileNotFoundError:
+        # ⚠️ Este respaldo se conserva SÓLO para la firma métrica cuando el propio
+        # `model_comparison` no permite la firma por `actual`; lo que YA NO se tolera es llegar
+        # aquí porque falte `holdout_forecasts_*`: eso ahora levanta `ReceiptError`, que no es
+        # `FileNotFoundError` y por tanto NO lo captura este bloque. La degradación silenciosa
+        # ante un insumo ausente era la mitad del agujero.
         df, n_raw, n_eff = significance.dedup_series(df, value="hold_mase")
     if n_eff < n_raw:
         print(f"[ensemble] dedup pseudo-réplicas: {n_raw} series -> {n_eff} efectivas")
@@ -141,12 +154,18 @@ def analyze(table: str = "FAD") -> list[Strategy]:
 STRONG_SET = ("theta", "ets", "sarima")
 
 
-def curated_combination(table: str = "FAD", subset: tuple[str, ...] = STRONG_SET, agg: str = "median") -> Strategy:
+def curated_combination(
+    table: str = "FAD",
+    subset: tuple[str, ...] = STRONG_SET,
+    agg: str = "median",
+    fc: pd.DataFrame | None = None,
+) -> Strategy:
     """Combinación de un subconjunto curado de modelos fuertes (mediana por defecto).
 
     AM4b/AM4d: scored with ``metrics.mase_by_series`` over deduplicated replica
     representatives (same denominator as the champion gate)."""
-    fc = pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
+    if fc is None:
+        fc = persist_forecasts.read_accredited(table, reports=REPORTS)
     sub = fc[fc.model.isin(subset)]
     comb = (
         sub.groupby(["country", "category", "date"])
@@ -163,7 +182,7 @@ def curated_combination(table: str = "FAD", subset: tuple[str, ...] = STRONG_SET
     )
 
 
-def combinations(table: str = "FAD") -> list[Strategy]:
+def combinations(table: str = "FAD", fc: pd.DataFrame | None = None) -> list[Strategy]:
     """Evalúa combinaciones de pronósticos (media/mediana) sobre los forecasts persistidos.
 
     Requiere ``reports/eval/holdout_forecasts_{table}.csv`` (de ``persist_forecasts``). La media
@@ -171,10 +190,11 @@ def combinations(table: str = "FAD") -> list[Strategy]:
     ``metrics.mase_by_series`` (F-only, escala naïve leakage-free) sobre el denominador
     deduplicado (AM4b/AM4d). Devuelve [] si no existe el CSV (aún no persistido).
     """
-    path = REPORTS / "eval" / f"holdout_forecasts_{table}.csv"
-    if not path.exists():
-        return []
-    fc = pd.read_csv(path, parse_dates=["date"])
+    # ⚠️ Se retira el `if not path.exists(): return []`. Devolver «no hay combinaciones» cuando
+    # falta el insumo es indistinguible de «las combinaciones no aportan», y el runbook lo daba
+    # por bueno. Sin artefacto acreditado no hay resultado: aborta.
+    if fc is None:
+        fc = persist_forecasts.read_accredited(table, reports=REPORTS)
     out = []
     for agg_name, agg in (("media", "mean"), ("mediana", "median")):
         comb = (
@@ -209,7 +229,7 @@ def best_k_combination(
     Returns (aggregate Strategy, per-series frame with the chosen models and MASE).
     """
     if fc is None:
-        fc = pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
+        fc = persist_forecasts.read_accredited(table, reports=REPORTS)
     if mc is None:
         mc = pd.read_csv(REPORTS / "eval" / f"model_comparison_{table}21.csv").pipe(
             lambda d: d[d.run_id == d.run_id.max()]
@@ -250,13 +270,14 @@ def best_k_combination(
     return strat, per_series
 
 
-def best_k_report(table: str, ks: tuple[int, ...] = (2, 3, 5)) -> pd.DataFrame:
+def best_k_report(table: str, ks: tuple[int, ...] = (2, 3, 5), fc: pd.DataFrame | None = None) -> pd.DataFrame:
     """Per-series + aggregate best-K results for ``ks`` (long frame, ready for CSV).
 
     Aggregate rows carry ``country == "ALL"`` (same convention as the CRPS report) with
     the mean hold-out MASE/MAE over the deduplicated effective series.
     """
-    fc = pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
+    if fc is None:
+        fc = persist_forecasts.read_accredited(table, reports=REPORTS)
     mc = pd.read_csv(REPORTS / "eval" / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
     rows = []
     for k in ks:

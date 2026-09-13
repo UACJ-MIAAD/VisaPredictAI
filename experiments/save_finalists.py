@@ -32,10 +32,28 @@ ROOT = Path(__file__).resolve().parent.parent
 MODELS = ROOT / "models"
 MANIFEST = MODELS / "manifest.jsonl"
 PANEL_CSV = ROOT / "data" / "processed" / "visa_panel_long.csv"
-# Finalistas locales (top del barrido): parsimonia + árbol + clásicos. SARIMA se omite del
-# pickle por serie (darts/statsmodels lo serializa en ~10 MB; su forecast vive en los CSV y
-# re-ajustarlo es barato). Se persiste con joblib (uniforme, sirve para el wrapper Differenced).
-LOCAL = ("ets", "theta", "arima", "kalman", "catboost", "lightgbm")
+
+
+# ★ M74-E-R1: DERIVADA del registro canónico, no escrita a mano.
+#
+# Esta lista es una de las tres que motivaron `vp_model/model_registry.py` — y hasta hoy seguía
+# escrita a mano y divergente. Producía `ets` y `theta`, que el registro declara NO persistibles
+# (AutoETS/AutoTheta no conservan estado reutilizable: persistirlos es trabajo tirado e invita a
+# consumirlos), y **omitía `sarima`**, que el promotor SÍ exige. El paso [2b] habría rechazado su
+# propia tubería por falta de cobertura.
+#
+# ⚠️ La omisión de SARIMA tenía un motivo de tamaño escrito aquí (darts/statsmodels lo serializa
+# en ~10 MB por serie). M74-E MIDIÓ que sí es persistible y lo declaró en el registro; si el coste
+# en disco pesa más que la reutilización, la decisión se cambia EN EL REGISTRO y esta lista la
+# sigue sola. Lo que no puede volver a pasar es que productor y gate declaren cosas distintas.
+def _locales_persistibles() -> tuple[str, ...]:
+    from vp_model.model_registry import LOCAL_MODELS, PERSISTED_MODELS
+
+    persistidos = set(PERSISTED_MODELS)
+    return tuple(m for m in LOCAL_MODELS if m in persistidos)
+
+
+LOCAL = _locales_persistibles()
 
 
 def _manifest(entry: dict) -> None:

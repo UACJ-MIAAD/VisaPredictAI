@@ -124,8 +124,14 @@ class Verdict:
 
 
 def load_holdout_forecasts(table: str) -> pd.DataFrame:
-    """Persisted hold-out forecasts for a table (AP5: load ONCE per evaluate, not 7x)."""
-    return pd.read_csv(REPORTS / "eval" / f"holdout_forecasts_{table}.csv", parse_dates=["date"])
+    """Pronósticos de hold-out ACREDITADOS (AP5: se cargan UNA vez por evaluate, no 7).
+
+    ★ M74-E-R1: pasa por la puerta acreditada. Antes leía el archivo que hubiera, y el campeón
+    se decidía sobre él.
+    """
+    from vp_model import persist_forecasts
+
+    return persist_forecasts.read_accredited(table, reports=REPORTS)
 
 
 def replica_representatives(table: str, fc: pd.DataFrame | None = None) -> list[tuple[str, str]]:
