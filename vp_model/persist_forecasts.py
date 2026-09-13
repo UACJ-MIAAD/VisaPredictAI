@@ -216,28 +216,51 @@ def rebuild(
     return destino
 
 
-def read_accredited(
-    table: str,
-    *,
-    reports: Path | None = None,
-    campaign_id: str | None = None,
-    code_sha: str | None = None,
-    panel_sha256: str | None = None,
-    block: str = "family",
-    pool: tuple[str, ...] = HOLDOUT_POOL_MODELS,
-    code_root: Path | None = None,
-) -> pd.DataFrame:
+#: Claves EXACTAS del recibo. Cerrado en ambos sentidos: ni de más ni de menos.
+RECEIPT_KEYS = frozenset(
+    {
+        "schema",
+        "campaign_id",
+        "code_sha",
+        "panel_sha256",
+        "protocol",
+        "coverage",
+        "artifact_sha256",
+        "expected_keys_sha256",
+        "n_expected_keys",
+        "pool",
+        "table",
+    }
+)
+#: Claves EXACTAS del censo de cobertura dentro del recibo.
+COVERAGE_KEYS = frozenset({"n_rows", "n_keys", "models", "n_models"})
+
+
+def read_accredited(table: str, *, reports: Path | None = None) -> pd.DataFrame:
     """★ La ÚNICA puerta de entrada de los consumidores. Re-acredita en cada lectura.
 
     Los NUEVE `pd.read_csv` repartidos por combinadores, campeón y tablas de significancia leían el
     archivo que hubiera. (⚠️ R1 dijo «ocho»: recontado sobre `41cb225` son **nueve** — siete con el
-    literal en el argumento de la lectura y dos por una variable a la que se le asignaba la ruta,
-    en `run_ensembles.py` y `ensemble.py`. La auditoría del autor corrigió el conteo.) Ahora pasan por aquí y un artefacto de otra campaña, sin recibo o tocado
+    literal en el argumento y dos por una variable con la ruta, en `run_ensembles.py` y
+    `ensemble.py`.) Ahora pasan por aquí, y un artefacto de otra campaña, sin recibo o tocado
     después del sellado **no se consume**.
+
+    ★ **M74-E-R3 · aquí NO se pasa identidad.** R2 admitía `campaign_id`, `code_sha` y
+    `panel_sha256` por parámetro, y con los tres puestos **nunca se llamaba a `campaign_identity`**:
+    un artefacto con las 5 400 claves reales, valores finitos y un recibo coherente con identidades
+    **inventadas** pasaba entero **sin que existiera `campaign.json`**. Los nueve consumidores no
+    usaban el atajo —el camino canónico estaba protegido—, pero la frontera pública no.
+
+    ⚠️ Y el atajo existía **porque mis propias pruebas dependían de él**. Es la forma exacta que
+    ya conocía este repositorio: un bypass sobrevive porque algo lo usa, y casi siempre es una
+    prueba. Ahora las pruebas montan una transacción coherente, como hace la campaña.
+
+    Tampoco se admiten `pool`, `block` ni `code_root`: cada uno era una palanca para encoger lo que
+    se comprueba. Todo sale de las constantes canónicas y del registro.
     """
     reports = reports or REPORTS
-    if campaign_id is None or code_sha is None or panel_sha256 is None:
-        campaign_id, code_sha, panel_sha256 = ar.campaign_identity(reports, code_root=code_root or ROOT)
+    campaign_id, code_sha, panel_sha256 = ar.campaign_identity(reports, code_root=ROOT)
+    block, pool = str(PROTOCOL["block"]), HOLDOUT_POOL_MODELS
     destino = artifact_path(table, reports)
     acta = ar.verify(
         destino,
@@ -266,19 +289,37 @@ def read_accredited(
         _MEMORIA_ESPERADO[clave] = esperado
     censo = audit(filas, esperado)
 
-    # ── y el recibo tiene que estar de acuerdo con lo que acabamos de medir
+    # ── y el recibo tiene que estar de acuerdo ENTERO con lo que acabamos de medir
+    #    ★ R3: R2 sólo comparaba `n_rows` y `n_keys`. Un recibo puede mentir en cualquier otro
+    #    campo con la misma facilidad, y un esquema abierto admite campos que nadie mira.
+    if set(acta) != RECEIPT_KEYS:
+        sobran, faltan = sorted(set(acta) - RECEIPT_KEYS), sorted(RECEIPT_KEYS - set(acta))
+        raise HoldoutForecastsError(f"recibo con esquema abierto — sobran {sobran}, faltan {faltan}")
+    if acta.get("table") != table:
+        raise HoldoutForecastsError(f"el recibo es de la tabla {acta.get('table')!r} y se pide {table!r}")
+    if tuple(acta.get("pool") or ()) != pool:
+        raise HoldoutForecastsError(
+            f"el recibo declara el pool {acta.get('pool')!r} y el registro canónico fija {list(pool)}"
+        )
     sello = ar.expected_keys_sha256(esperado)
     if acta.get("expected_keys_sha256") != sello:
         raise HoldoutForecastsError(
             f"el recibo fija un conjunto esperado {str(acta.get('expected_keys_sha256'))[:12]}… y el "
             f"panel de hoy exige {sello[:12]}…: se acreditó contra otro universo"
         )
+    if acta.get("n_expected_keys") != len(esperado):
+        raise HoldoutForecastsError(
+            f"el recibo dice esperar {acta.get('n_expected_keys')!r} claves y el panel exige {len(esperado)}"
+        )
     declarada = acta.get("coverage") or {}
-    for campo in ("n_rows", "n_keys"):
-        if declarada.get(campo) != censo[campo]:
-            raise HoldoutForecastsError(
-                f"el recibo declara {campo}={declarada.get(campo)!r} y el artefacto tiene {censo[campo]}"
-            )
+    if set(declarada) != COVERAGE_KEYS:
+        raise HoldoutForecastsError(
+            f"censo de cobertura con claves {sorted(declarada)}, se exigen {sorted(COVERAGE_KEYS)}"
+        )
+    for campo in sorted(COVERAGE_KEYS):
+        declarado, medido = declarada.get(campo), censo[campo]
+        if (list(declarado) if isinstance(declarado, list) else declarado) != medido:
+            raise HoldoutForecastsError(f"el recibo declara {campo}={declarado!r} y el artefacto mide {medido!r}")
     return marco
 
 

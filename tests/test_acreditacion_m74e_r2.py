@@ -88,9 +88,9 @@ def test_un_csv_de_una_fila_con_recibo_que_declara_5400_no_pasa(escena) -> None:
     """★ EL ataque. Contra `d7b9686` devolvía la única fila y el llamador seguía tan contento."""
     from vp_model import persist_forecasts as pf
 
-    reports, cid, sha, psha = escena()
+    reports, _cid, _sha, _psha = escena()
     with pytest.raises(pf.HoldoutForecastsError, match="cobertura rota"):
-        pf.read_accredited("FAD", reports=reports, campaign_id=cid, code_sha=sha, panel_sha256=psha)
+        pf.read_accredited("FAD", reports=reports)
 
 
 @MODELADO
@@ -219,10 +219,12 @@ def test_una_cabecera_distinta_no_pasa(escena) -> None:
         code_sha=sha,
         panel_sha256=psha,
         protocol={**pf.PROTOCOL, "block": "family"},
-        coverage={"n_rows": 1, "n_keys": 1},
+        coverage={"n_rows": 1, "n_keys": 1, "models": ["ets"], "n_models": 1},
+        expected_keys={("ets", "mexico", "F1", "2024-01-01")},
+        extra={"pool": list(pf.HOLDOUT_POOL_MODELS), "table": "FAD"},
     )
     with pytest.raises(pf.HoldoutForecastsError, match="cabecera"):
-        pf.read_accredited("FAD", reports=reports, campaign_id=cid, code_sha=sha, panel_sha256=psha)
+        pf.read_accredited("FAD", reports=reports)
 
 
 def test_el_gate_de_completitud_exige_los_dos_recibos() -> None:

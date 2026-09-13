@@ -204,38 +204,40 @@ def escena(tmp_path: Path):
 
 
 @MODELADO
-def test_RED_el_consumidor_rechaza_el_holdout_de_la_anada_anterior(escena) -> None:
+def test_RED_el_consumidor_rechaza_el_holdout_de_la_anada_anterior(tmp_path, monkeypatch) -> None:
     """★ EL RED: contra `41cb225` esto PASABA — se leía con `pd.read_csv` y se puntuaba.
 
     El archivo está ahí, se abre y tiene columnas correctas. Lo único que le falta es proceder de
     esta campaña, y eso es exactamente lo que nadie comprobaba.
+
+    ⚠️ M74-E-R3: la escena es ahora COHERENTE con el repositorio vivo (transacción `running`, HEAD
+    y panel reales) y lo único que falta es el recibo. Antes se pasaba la identidad por parámetro,
+    que resultó ser el atajo que R3 tuvo que cerrar.
     """
+    from tests import holdout_fixture as hf
     from vp_model import artifact_receipt as ar
     from vp_model import persist_forecasts as pf
 
-    raiz, cid, sha, panel_sha = escena
+    reports = hf.escena_coherente(tmp_path, monkeypatch)
+    (reports / "eval" / "holdout_forecasts_FAD.csv").write_text(
+        "model,country,category,date,actual,forecast\nets,mexico,F1,2019-01-01,1,2\n", encoding="utf-8"
+    )
     with pytest.raises(ar.ReceiptError, match="recibo"):
-        pf.read_accredited("FAD", reports=raiz / "reports", campaign_id=cid, code_sha=sha, panel_sha256=panel_sha)
+        pf.read_accredited("FAD", reports=reports)
 
 
 @MODELADO
-def test_un_recibo_de_OTRA_campana_no_acredita(escena) -> None:
+def test_un_recibo_de_OTRA_campana_no_acredita(tmp_path, monkeypatch) -> None:
+    """El artefacto es impecable; el recibo dice que lo produjo otra corrida."""
+    from tests import holdout_fixture as hf
     from vp_model import artifact_receipt as ar
     from vp_model import persist_forecasts as pf
 
-    raiz, cid, sha, panel_sha = escena
-    destino = pf.artifact_path("FAD", raiz / "reports")
-    ar.seal(
-        destino,
-        schema=pf.SCHEMA,
-        campaign_id="otra_campana",
-        code_sha=sha,
-        panel_sha256=panel_sha,
-        protocol={**pf.PROTOCOL, "block": "family"},
-        coverage={"n_rows": 1},
-    )
+    reports = hf.escena_coherente(tmp_path, monkeypatch)
+    destino = hf.artefacto_completo(reports, "FAD", campaign_id="otra_campana")
+    assert destino.is_file()
     with pytest.raises(ar.ReceiptError, match="otra corrida"):
-        pf.read_accredited("FAD", reports=raiz / "reports", campaign_id=cid, code_sha=sha, panel_sha256=panel_sha)
+        pf.read_accredited("FAD", reports=reports)
 
 
 @MODELADO
@@ -266,24 +268,22 @@ def test_un_csv_tocado_despues_del_sellado_no_acredita(escena) -> None:
 
 
 @MODELADO
-def test_un_recibo_con_otro_regimen_no_acredita(escena) -> None:
+def test_un_recibo_con_otro_regimen_no_acredita(tmp_path, monkeypatch) -> None:
     """Cambiar el hold-out o el bloque y reutilizar el artefacto sería comparar otra cosa."""
+    import json
+
+    from tests import holdout_fixture as hf
     from vp_model import artifact_receipt as ar
     from vp_model import persist_forecasts as pf
 
-    raiz, cid, sha, panel_sha = escena
-    destino = pf.artifact_path("FAD", raiz / "reports")
-    ar.seal(
-        destino,
-        schema=pf.SCHEMA,
-        campaign_id=cid,
-        code_sha=sha,
-        panel_sha256=panel_sha,
-        protocol={**pf.PROTOCOL, "holdout_months": 12},
-        coverage={"n_rows": 1},
-    )
+    reports = hf.escena_coherente(tmp_path, monkeypatch)
+    destino = hf.artefacto_completo(reports, "FAD")
+    recibo = destino.with_name(destino.name + ".receipt.json")
+    acta = json.loads(recibo.read_text(encoding="utf-8"))
+    acta["protocol"]["holdout_months"] = 12
+    recibo.write_text(json.dumps(acta), encoding="utf-8")
     with pytest.raises(ar.ReceiptError, match="otro régimen"):
-        pf.read_accredited("FAD", reports=raiz / "reports", campaign_id=cid, code_sha=sha, panel_sha256=panel_sha)
+        pf.read_accredited("FAD", reports=reports)
 
 
 def test_fuera_de_una_campana_leer_es_un_error_explicito(escena) -> None:
