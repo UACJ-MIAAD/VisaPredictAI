@@ -336,7 +336,10 @@ def _dump_best_config(nf, name: str, table: str) -> None:
     """AK8c: persiste la config ganadora del Auto* + su historial de trials.
 
     ``reports/campaign/hpo_deep_best_{table}_{name}.json`` alimenta los
-    re-entrenos multi-semilla (``--config``); el CSV de trials es procedencia.
+    re-entrenos multi-semilla (``--config``) y la finalización; el CSV de trials es procedencia.
+
+    **Obligatorio desde M74-E (§8.6.4):** si no se puede escribir la ganadora o sellar su recibo,
+    el paso HPO **falla**. Antes era un WARN y la corrida seguía sin ganadora.
     """
     out_dir = ROOT / "reports" / "campaign"
     try:
@@ -353,11 +356,41 @@ def _dump_best_config(nf, name: str, table: str) -> None:
             for k, v in best.items()
             if k not in _CONFIG_DROP and (v is None or isinstance(v, (bool, int, float, str, list, tuple)))
         }
-        (out_dir / f"hpo_deep_best_{table}_{name}.json").write_text(json.dumps(best, indent=2))
+        ganadora = out_dir / f"hpo_deep_best_{table}_{name}.json"
+        # staging + promoción atómica, igual que el recibo: una caída entre ambos ya queda
+        # fail-closed por el hash, pero un JSON truncado confundiría el diagnóstico.
+        _tmp = ganadora.with_suffix(".json.tmp")
+        _tmp.write_text(json.dumps(best, indent=2))
+        os.replace(_tmp, ganadora)
         study.trials_dataframe().to_csv(out_dir / f"hpo_deep_trials_{table}_{name}.csv", index=False)
-        print(f"  · config ganadora -> hpo_deep_best_{table}_{name}.json ({len(study.trials)} trials)")
-    except Exception as e:  # noqa: BLE001 — el dump no debe tirar la corrida
-        print(f"  · WARN sin dump de config para {name}: {type(e).__name__}: {str(e)[:100]}")
+        # ★ §8.6.4 · quien BUSCA sella el recibo; quien CONSUME lo vuelve a acreditar. Sin esto, un
+        # JSON de ganadora es un diccionario plano sin identidad: se lee igual venga de esta campaña
+        # o de la de agosto, que es exactamente cómo `save_finalists_deep` acabó entrenando un
+        # modelo que no era el evaluado.
+        from hpo_winner_receipt import campaign_identity, write_receipt
+
+        ident = campaign_identity(ROOT)
+        recibo = write_receipt(
+            ganadora,
+            campaign_id=ident["campaign_id"],
+            code_sha=ident["source_git_sha"],  # 40 chars: truncar es parecerse, no ser
+            panel_sha256=ident["panel_sha256"],
+            table=table,
+            model=name,
+            accelerator_in_artifact=str(best.get("accelerator", "")),
+        )
+        print(f"  · config ganadora -> {ganadora.name} ({len(study.trials)} trials) · recibo {recibo.name}")
+    except Exception as e:
+        # broad-catch: se re-lanza SIEMPRE como RuntimeError; no traga nada. BLE001 no marca los
+        # handlers que re-lanzan, así que la justificación va por marcador explícito.
+        # ⚠️ ESTO YA NO ES UN WARN. Hasta M74-E, cualquier fallo del dump —incluido no escribir la
+        # ganadora— salía por aquí como aviso y la corrida seguía: el consumidor descubría la
+        # ausencia DIEZ HORAS después, cuando ya no hay nada que hacer salvo repetirlo todo. La
+        # ganadora y su recibo son obligatorios (§8.6.4), así que el paso HPO muere aquí y ahora.
+        raise RuntimeError(
+            f"HPO {table}/{name}: no se pudo sellar la config ganadora ni su recibo "
+            f"({type(e).__name__}: {str(e)[:160]})"
+        ) from e
 
 
 def _build_from_config(names: list[str], template: str, seed: int):

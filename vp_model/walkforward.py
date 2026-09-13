@@ -21,7 +21,7 @@ from typing import cast
 
 from darts import TimeSeries
 
-from vp_model import dataset, intervals, metrics, models
+from vp_model import dataset, holdout_rows, intervals, metrics, models
 from vp_model.config import (
     HOLDOUT,
     LIKELIHOOD_MODELS,
@@ -46,6 +46,10 @@ class BacktestResult:
     table: str
     selection: dict[str, float]  # métricas en la región de selección (pre-holdout)
     holdout: dict[str, float]  # métricas en los 24 meses reservados
+    # §8.7: las filas punto a punto del hold-out, para que `ets`/`theta` puedan TRANSPORTARSE
+    # (AutoETS/AutoTheta rechazan historical_forecasts(retrain=False), así que nadie puede
+    # recalcularlos después). Se DERIVAN de objetos ya computados: no tocan ninguna métrica.
+    holdout_rows: list[dict] = field(default_factory=list)
     # E5: warnings de ajuste (p. ej. ConvergenceWarning de statsmodels en SARIMA)
     # CAPTURADOS durante el walk-forward de esta serie y contados por mensaje único
     # ("Categoria: mensaje" -> n folds que lo emitieron). Registrados aquí, no
@@ -210,6 +214,18 @@ def backtest(model_name: str, country: str, category: str, table: str, model: ob
         selection=metrics.compute(sel_actual, sel_fc, insample, dates=fdates, scale=scale, scale1=scale1),
         holdout=holdout,
         warnings=fit_warnings,
+        # ★ construidas DESPUÉS de las métricas y a partir de los mismos objetos: por construcción
+        # no pueden alterarlas (§8.7.4). Nacen de `hold_fc`, no del cruce con los reales.
+        holdout_rows=holdout_rows.build_rows(
+            hold_fc=hold_fc,
+            actual=ts,
+            fdates=fdates,
+            scale=scale,
+            model=model_name,
+            table=table,
+            country=country,
+            category=category,
+        ),
     )
 
 

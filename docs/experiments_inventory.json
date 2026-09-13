@@ -92,6 +92,10 @@
     "clase": "producto",
     "consumidor": "cron 4b -> web_forecasts + ledger campeon"
   },
+  "hpo_winner_receipt.py": {
+    "clase": "producto",
+    "consumidor": "recibo cerrado de la config ganadora del HPO profundo (§8.6.4): lo sella run_global_deep al buscar y lo re-acredita save_finalists_deep antes de construir el finalista"
+  },
   "improve_conformal.py": {
     "clase": "investigacion",
     "consumidor": "aci_gamma.json (calibracion ACI)"
@@ -159,6 +163,18 @@
   "migrate_ledger_v2.py": {
     "clase": "archivo",
     "consumidor": "migracion A2 ya ejecutada (idempotente; --force para re-derivar actas); citada como referencia historica en vp_model/ledger.py y docs/FORECAST_EVAL.md"
+  },
+  "model_registry.py": {
+    "clase": "producto",
+    "consumidor": "autoridad canonica de modelos por identificador logico; la consumen save_finalists, save_finalists_deep, export_forecasts y experiments/promote_finalists. Sustituye a tres listas independientes que ya divergian en sarima"
+  },
+  "persist_transported_forecasts.py": {
+    "clase": "producto",
+    "consumidor": "reports/eval/transported_forecasts.csv + su recibo — paso 2c de save_finalists.sh: recoge del walk-forward las filas de ETS/Theta (AutoETS/AutoTheta no admiten historical_forecasts(retrain=False), asi que nadie puede recalcularlas despues) y las persiste con cobertura acreditada ANTES del exportador"
+  },
+  "promote_finalists.py": {
+    "clase": "producto",
+    "consumidor": "models/ + models/coverage_receipt.json — paso 2b de save_finalists.sh: acredita cobertura exacta del arbol en staging y solo entonces lo promueve, retirando el anterior con su fecha. Vivia en tools/ por error mio de clasificacion (no es un guardian del repositorio sino un paso de campana); el gate de LOC por rol de C9 lo destapo"
   },
   "run_campaign.sh": {
     "clase": "investigacion",

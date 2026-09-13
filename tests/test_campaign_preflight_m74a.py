@@ -230,7 +230,12 @@ def test_the_frozen_cohort_deck_is_summarised_by_identity_not_by_result() -> Non
 def _bloque_transaccion() -> str:
     guion = (ROOT / "experiments" / "run_rederivation.sh").read_text(encoding="utf-8")
     ini = guion.index("# ── Transacción de campaña")
-    fin = guion.index("trap 'exit 143' TERM") + len("trap 'exit 143' TERM")
+    # ⚠️ El ancla es la ÚLTIMA línea del cableado (el trap de SIGHUP), no una intermedia. Anclar a
+    # `trap 'exit 143' TERM` hizo que estas pruebas se rompieran en cuanto M74-E lo sustituyó por
+    # `campaign_stop SIGTERM 143`, y peor: si el ancla intermedia hubiera sobrevivido, el ensayo
+    # habría ejecutado un bloque TRUNCADO sin avisar. El final del bloque es el final del bloque.
+    ancla = "trap 'exit 129' HUP"
+    fin = guion.index(ancla) + len(ancla)
     return guion[ini:fin]
 
 

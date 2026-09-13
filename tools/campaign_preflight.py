@@ -24,8 +24,13 @@ El ``protocol`` no se teclea: se lee de sus autoridades vivas (`vp_model.config`
 pueda compararse contra él y cualquier deriva salte.
 
 Uso:
-    python tools/campaign_preflight.py --out <ruta.json>     # sella y reconcilia
-    python tools/campaign_preflight.py --print               # sólo imprime la reconciliación
+    python -m tools.campaign_preflight --out <ruta.json>     # sella y reconcilia
+    python -m tools.campaign_preflight --print               # sólo imprime la reconciliación
+
+⚠️ Se invoca como MÓDULO, no como guion: ejecutar `python tools/campaign_preflight.py` deja `tools`
+fuera del `sys.path` y el import del verificador de entorno revienta. Es la convención que ya usan
+`sync_all.sh` y el runbook con `tools.campaign_txn`; escribirla aquí evita repetir la trampa de
+M41-R1 y M60 con un `try/except` que sólo la disimularía.
 """
 
 from __future__ import annotations
@@ -40,6 +45,8 @@ import sys
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
+
+from tools import check_env_matches_lock as _envlock
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNBOOK = ROOT / "experiments" / "run_rederivation.sh"
@@ -64,12 +71,11 @@ GOVERNANCE_PLAIN: tuple[str, ...] = (
     "pipeline/migrations",  # idem, como árbol
     "tools/consistency_rules.yml",  # decide la etapa 10, incluido `retro_protocol`
 )
-#: Locks REALES de cada intérprete que la campaña usa. `locks/runtime.txt` no gobierna a ninguno:
-#: el runbook llama a `ante/bin/python` y a `ante_nf/bin/python`, cada uno con su perfil (H4).
-INTERPRETER_LOCKS: tuple[tuple[str, str], ...] = (
-    ("ante", "locks/model-cpu.txt"),
-    ("ante_nf", "locks/deep-macos-arm64.txt"),
-)
+#: Locks REALES de cada intérprete que la campaña usa. ★ La pareja vive en
+#: `tools/check_env_matches_lock.py`, que es quien la comprueba: tenerla escrita aquí TAMBIÉN era
+#: dejar que las dos copias divergieran sin que nada lo notara. Se reexporta porque varias pruebas
+#: y el propio sello la nombran por este camino.
+INTERPRETER_LOCKS = _envlock.INTERPRETER_LOCKS
 
 
 # --------------------------------------------------------------------------- utilidades
@@ -306,6 +312,13 @@ def seal(root: Path = ROOT) -> dict[str, Any]:
             "governance_anchors": anclas,
         },
         "counts": {"code": len(codigo), "data": len(datos), "governance": len(gobernanza)},
+        # ★ M74-E: el sello MIDE el entorno, no lo supone. Hasta aquí hasheaba los ARCHIVOS de lock
+        # y comprobaba que los directorios de los venv existieran — es decir, sellaba la
+        # declaración del entorno y jamás el entorno. Medido el 13-sep-2026, los dos intérpretes
+        # corrían `torch` 2.12.0 contra un lock que sella 2.13.0. El veredicto entra EN el sello:
+        # una campaña sellada sobre un entorno divergente lo lleva escrito para siempre, y el
+        # runbook se niega a arrancar (`run_rederivation.sh`), que es donde se pierden las 11 horas.
+        "environment": _envlock.auditar(root),
         "protocol": reconcile_protocol(),
     }
 

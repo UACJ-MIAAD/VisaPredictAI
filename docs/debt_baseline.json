@@ -5,7 +5,7 @@
   "base_exception": 12,
   "type_ignore": 11,
   "todo_class": 2,
-  "noqa_BLE001": 25,
+  "noqa_BLE001": 24,
   "noqa_E402": 23,
   "noqa_F401": 5,
   "noqa_E731": 1,

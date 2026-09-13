@@ -407,7 +407,12 @@ def test_el_runbook_canonico_conduce_la_transaccion() -> None:
     # obligatorias rotas. ⚠️ Son DOS, no tres: desde H2 la consistencia rota ya no manda a `failed`
     # —es el resultado esperado de una re-derivación— sino a `computed` con la consistencia
     # pendiente. Si algún día vuelven a ser tres, hay que mirar cuál se volvió terminal.
-    assert guion.count("txn fail --if-open") == 2
+    # M74-E subió de 2 a 4 los `txn fail --if-open`, y cada uno existe por una razón distinta:
+    # el trap de salida anormal, el de SIGINT, el de SIGTERM y el fail-fast de etapa obligatoria.
+    # Un conteo desnudo sólo dice cuántos hay; esto dice POR QUÉ.
+    assert guion.count("txn fail --if-open") == 4
+    for razon in ("salida anormal del runbook", "detención autorizada", "etapa obligatoria fallida"):
+        assert razon in guion, f"falta el registro de {razon!r}"
     assert 'txn fail --if-open --stage "consistencia"' not in guion
 
 
@@ -415,7 +420,12 @@ def _bloque_de_transaccion() -> str:
     """Extrae del runbook REAL sus líneas de transacción, para ejecutarlas tal cual."""
     guion = (RAIZ / "experiments" / "run_rederivation.sh").read_text(encoding="utf-8")
     ini = guion.index("# ── Transacción de campaña")
-    fin = guion.index("trap 'exit 143' TERM") + len("trap 'exit 143' TERM")
+    # ⚠️ El ancla es la ÚLTIMA línea del cableado (el trap de SIGHUP), no una intermedia. Anclar a
+    # `trap 'exit 143' TERM` hizo que estas pruebas se rompieran en cuanto M74-E lo sustituyó por
+    # `campaign_stop SIGTERM 143`, y peor: si el ancla intermedia hubiera sobrevivido, el ensayo
+    # habría ejecutado un bloque TRUNCADO sin avisar. El final del bloque es el final del bloque.
+    ancla = "trap 'exit 129' HUP"
+    fin = guion.index(ancla) + len(ancla)
     return guion[ini:fin]
 
 

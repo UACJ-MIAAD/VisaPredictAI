@@ -47,6 +47,21 @@ ANTE=ante/bin/python
 NF=ante_nf/bin/python
 [ -x "$ANTE" ] && [ -x "$NF" ] || { echo "ERROR: faltan venvs ante/ y/o ante_nf/ en la raíz" >&2; exit 1; }
 
+# ★ M74-E · que los venvs EXISTAN no es que sean los CORRECTOS: el entorno tiene que reproducir su lock, medido y no supuesto.
+# El preflight sellaba `locks/model-cpu.txt` y `locks/deep-macos-arm64.txt` y comprobaba que los
+# directorios `ante/` y `ante_nf/` EXISTIERAN: sellaba la declaración del entorno, nunca el
+# entorno. Medido el 13-sep-2026, los dos intérpretes corrían `torch` 2.12.0 contra un lock que
+# sella 2.13.0, y con ellos `numba`/`llvmlite` —que compilan al vuelo el núcleo de statsforecast—
+# y `coreforecast`. Once horas de cálculo habrían producido cifras que `locks/` no reconstruye,
+# presentadas por el recibo como selladas.
+# ⚠️ Sin bypass, y a propósito: un `SKIP_ENV_CHECK=1` aquí sería el mismo agujero que M74-B-R1
+# tuvo que arrancar de raíz. La salida es reconstruir el entorno desde su lock.
+if ! "$ANTE" -m tools.check_env_matches_lock; then
+  echo "ERROR: el entorno no reproduce locks/. La campaña se detiene ANTES de calcular nada." >&2
+  exit 8
+fi
+
+
 # ── Identidad fija + árbol limpio (auditoría 12-jul-2026) ────────────────────
 # La campaña DEBE arrancar sobre un árbol limpio y sella UN solo SHA + campaign_id
 # para toda la corrida. Si el árbol está sucio, se aborta: commitear código a mitad
@@ -74,6 +89,10 @@ CAMPAIGN_DIRTY="${ALLOW_DIRTY:+true}"; CAMPAIGN_DIRTY="${CAMPAIGN_DIRTY:-false}"
 # y los ledgers (tracking.py/config.py) leían "false" por defecto y estampaban git_dirty=false
 # aunque la campaña fuese diagnóstica — la identidad mentía. Ahora todos los productores ven
 # el mismo dirty sellado.
+# ★ Enmienda §8 (2026-09-12): F2 corre ÍNTEGRAMENTE en CPU. `_accelerator()` prefiere MPS si la
+# máquina lo tiene, y en la corrida del 11/12-sep eso repartió la etapa [1] entre 130 226 líneas en
+# CPU y 846 en MPS. El protocolo no declaraba acelerador; ahora sí, y se declara aquí.
+export VP_DEEP_ACCEL=cpu
 export CAMPAIGN_SHA CAMPAIGN_ID CAMPAIGN_DIRTY
 export CAMPAIGN_GIT_SHA="$CAMPAIGN_SHA"
 echo "campaign_id=$CAMPAIGN_ID  ·  sha=$CAMPAIGN_SHA  ·  dirty=$CAMPAIGN_DIRTY"
@@ -120,8 +139,19 @@ campaign_abort() {
   kill -- -$$ 2>/dev/null || true
 }
 trap campaign_abort EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
+# ★ M74-E punto 10: una detención AUTORIZADA se registra como tal, con su motivo. Hasta ahora un
+# Ctrl-C del operador y una muerte por presión de memoria quedaban idénticos en el estado:
+# «salida anormal del runbook», exit 130/143. Dos corridas se detuvieron así y el estado no sabía
+# decir cuál fue decisión de alguien.
+campaign_stop() {
+  local senal="$1" rc="$2"
+  echo "##### DETENCIÓN AUTORIZADA ($senal): la campaña se cierra a petición, no por fallo." >&2
+  txn fail --if-open --stage "detención autorizada ($senal)" --exit-code "$rc" \
+      --reason "la corrida se detuvo deliberadamente con $senal; no es un fallo de cómputo" >&2 || true
+  exit "$rc"
+}
+trap 'campaign_stop SIGINT 130' INT
+trap 'campaign_stop SIGTERM 143' TERM
 # H14: cerrar la terminal de `caffeinate -is bash …` mandaba SIGHUP, que no estaba atrapado:
 # la transacción quedaba en `running` para siempre y el hijo, huérfano. Lánzalo con
 # `nohup`/`setsid` si vas a desconectarte.
@@ -146,10 +176,26 @@ stage() {
 # en la transacción, y la revisión humana tenía que descubrirlo leyendo 8-11 h de bitácora.
 BEST_EFFORT_FAILED=()
 run()   { "$@" || { echo "##### ETAPA FALLIDA (exit $?): $*"; FAILS=$((FAILS+1)); BEST_EFFORT_FAILED+=("$*"); }; }
-# run_req(): OBLIGATORIA — su fallo hace que la campaña termine en rojo (aunque
-# el resto siga para diagnóstico). Sin esto, un build_database/significance/key_facts
-# roto pasaba desapercibido y el runbook "terminaba en verde".
-run_req() { "$@" || { echo "##### ETAPA OBLIGATORIA FALLIDA (exit $?): $*"; FAILS=$((FAILS+1)); REQ_FAILS=$((REQ_FAILS+1)); }; }
+# run_req(): OBLIGATORIA — su fallo DETIENE la campaña AQUÍ MISMO (M74-E, punto 6).
+#
+# ⚠️ Hasta M74-E acumulaba y seguía «para diagnóstico», con un corte en la etapa 7. Medido en la
+# corrida `rederiv_1022c9d_20260911T212150`: la etapa [3] (finalistas) falló y las etapas [4] y [5]
+# corrieron IGUAL, consumiendo `holdout_forecasts_*.csv` del 26-ago que [3] debía haber refrescado.
+# Produjeron MASE de aspecto normal (0.1413, 0.1003…) sobre entradas de otra añada, anunciándose en
+# el log como «holdouts frescos». Eso no es diagnóstico: es fabricar cifras contaminadas que en el
+# log no se distinguen de las buenas.
+#
+# El diagnóstico se hace ANTES, en segundos, con `tools/check_entrypoint_smoke.py`.
+run_req() {
+  "$@" && return 0
+  local rc=$?
+  echo "##### ETAPA OBLIGATORIA FALLIDA (exit $rc): $*" >&2
+  echo "##### FAIL-FAST: se detiene aquí para que NINGÚN consumidor lea artefactos a medias." >&2
+  FAILS=$((FAILS+1)); REQ_FAILS=$((REQ_FAILS+1))
+  txn fail --if-open --stage "$*" --exit-code "$rc" \
+      --reason "etapa obligatoria fallida; detenida antes de ejecutar sus consumidores" >&2 || true
+  exit "$rc"
+}
 
 echo "=== RE-DERIVACIÓN arranca $(date) ==="
 run $ANTE -c "import pandas as pd; p=pd.read_csv('data/processed/visa_panel_long.csv'); \

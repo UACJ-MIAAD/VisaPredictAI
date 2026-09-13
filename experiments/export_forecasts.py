@@ -22,7 +22,25 @@ from vp_model.feature_builder import FeatureBuilder
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
-LOCAL = ("ets", "theta", "sarima", "arima", "kalman", "catboost", "lightgbm")
+
+
+# ★ M74-E: las listas salen del REGISTRO CANÓNICO, no de aquí. Había tres autoridades y ya
+# discrepaban: este archivo esperaba 7 locales y `save_finalists.py` persistía 6 (sin `sarima`).
+#
+# El import va DENTRO de las funciones, no arriba: `model_registry` vive junto a este guion y sólo
+# resuelve con `experiments/` en el path, lo que exigiría un `sys.path.insert` previo y, con él,
+# tres `noqa: E402`. Diferirlo cuesta una línea y no deja marcadores que justificar.
+def _registro():
+    """Las tres vistas del registro canónico que este exportador consume."""
+    from model_registry import (
+        RECOMPUTED_FORECAST_MODELS,
+        REQUIRED_FORECAST_MODELS,
+        TRANSPORTED_FORECAST_MODELS,
+    )
+
+    return RECOMPUTED_FORECAST_MODELS, REQUIRED_FORECAST_MODELS, TRANSPORTED_FORECAST_MODELS
+
+
 # variante ganadora por modelo deep (de la campaña): diff salvo PatchTST (nivel).
 DEEP = {
     "BiTCN": "camp_diff_s1",
@@ -41,7 +59,7 @@ def _local_rows(table: str) -> list[dict]:
         ts = models.to_timeseries(raw)
         split = ts.time_index[-walkforward.HOLDOUT]
         actual = ts[split:]
-        for name in LOCAL:
+        for name in _registro()[0]:
             try:
                 m = models.build_model(name, table=table)  # tuned per-table params for GBMs (Wave-1)
                 fcov = FeatureBuilder(name).covariates(ts, raw)  # política por modelo (AD1/AD8/F1)
@@ -110,12 +128,82 @@ def _deep_rows(table: str) -> list[dict]:
     return rows
 
 
-def main() -> None:
+def _expected_transport_keys() -> set:
+    """Las claves que el transporte DEBE traer. Del universo vigente y del registro, no de las filas.
+
+    Derivarlo de lo producido sería preguntarle al sospechoso si el conjunto está completo.
+    """
+    import os
+
+    from vp_model import transported_forecasts as tf
+
+    universo: list[tuple[str, str, str]] = []
+    objetivos: dict[tuple[str, str, str], list[tuple[str, str]]] = {}
     for table in config.TABLES:
-        rows = _local_rows(table) + _deep_rows(table)
+        cat = dataset.list_series(table=table, block="family", countries=config.PILOT_COUNTRIES)
+        for r in cat.itertuples():
+            ts = models.to_timeseries(dataset.load_series(r.country, r.category, table))
+            fechas = ts.time_index[-walkforward.HOLDOUT :]
+            clave = (table, r.country, r.category)
+            universo.append(clave)
+            objetivos[clave] = [
+                ((pd.Timestamp(d).to_period("M") - 1).to_timestamp().strftime("%Y-%m-%d"),
+                 pd.Timestamp(d).strftime("%Y-%m-%d"))
+                for d in fechas
+            ]  # fmt: skip
+    return tf.expected_keys(
+        campaign_id=os.environ.get("CAMPAIGN_ID", ""),
+        universe=universo,
+        models=_registro()[2],
+        targets=objetivos,
+    )
+
+
+def _transported_rows(table: str, esperado: set) -> list[dict]:
+    """Los pronósticos TRANSPORTADOS (`ets`, `theta`) del walk-forward oficial. Fail-closed.
+
+    ⚠️ Sin respaldo a un archivo anterior y **sin caer a `retrain=True`**. Que AutoETS/AutoTheta no
+    puedan recalcularse aquí no los vuelve opcionales: sin transporte acreditado, no hay exportación.
+    """
+    import os
+
+    from vp_model import transported_forecasts as tf
+
+    filas = tf.load_and_accredit(
+        root=ROOT,
+        campaign_id=os.environ.get("CAMPAIGN_ID", ""),
+        code_sha=os.environ.get("CAMPAIGN_SHA", ""),
+        panel_sha256=tf.panel_sha256_of(ROOT),
+        esperado=esperado,
+    )
+    return [
+        {
+            "model": f["model"], "type": "local_transported", "country": f["country"],
+            "category": f["category"], "date": f["target"], "forecast": f["y_pred"], "actual": f["y_true"],
+        }
+        for f in filas
+        if f["table"] == table and f["observed"]
+    ]  # fmt: skip
+
+
+def main() -> None:
+    # ★ M74-E: la cobertura se acredita ANTES de escribir, contra el registro canónico. El
+    # exportador terminaba en verde ocultando 50 eventos gobernados fallidos (`ets`/`theta`).
+    _, requeridos, _ = _registro()
+    esperado = _expected_transport_keys()
+    for table in config.TABLES:
+        rows = _local_rows(table) + _deep_rows(table) + _transported_rows(table, esperado)
+        presentes = {r["model"] for r in rows}
+        faltan = [m for m in requeridos if m not in presentes]
+        sobran = sorted(presentes - set(requeridos))
+        if faltan or sobran:
+            raise SystemExit(
+                f"✗ {table}: cobertura de pronósticos ROTA — faltan {faltan}, sobran {sobran}. "
+                f"El registro exige exactamente {list(requeridos)}. NO se escribe nada."
+            )
         out = REPORTS / "eval" / f"finalist_forecasts_{table}.csv"
         pd.DataFrame(rows).to_csv(out, index=False)
-        print(f"{table}: {len(rows)} filas, {pd.DataFrame(rows)['model'].nunique()} modelos -> {out.name}")
+        print(f"{table}: {len(rows)} filas, {len(presentes)} modelos (cobertura completa) -> {out.name}")
 
 
 if __name__ == "__main__":
