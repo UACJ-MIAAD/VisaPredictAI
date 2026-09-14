@@ -70,6 +70,7 @@ GOVERNANCE_PLAIN: tuple[str, ...] = (
     "schema.sql",  # gobierna la etapa 0 (almacén)
     "pipeline/migrations",  # idem, como árbol
     "tools/consistency_rules.yml",  # decide la etapa 10, incluido `retro_protocol`
+    "locks/lockset.json",  # ★ M74-E-R8 · la procedencia de la matriz que construyó los entornos
 )
 #: Locks REALES de cada intérprete que la campaña usa. ★ La pareja vive en
 #: `tools/check_env_matches_lock.py`, que es quien la comprueba: tenerla escrita aquí TAMBIÉN era
@@ -256,6 +257,14 @@ def reconcile_protocol() -> dict[str, Any]:
 def seal(root: Path = ROOT) -> dict[str, Any]:
     """Construye el sello completo. Fail-closed ante cualquier entrada ausente o ancla rota."""
     import yaml
+
+    from tools import lock_contracts
+
+    # ★ M74-E-R8 · la procedencia de los locks es PRECONDICIÓN del sello (auditoría `e6c76896…`): un
+    # preflight verde y byte-idéntico sobre un checkout cuyo contrato falla no sella nada que sirva.
+    procedencia = lock_contracts.validate_all(root)
+    if procedencia:
+        raise PreflightError("contrato de locks incumplido: " + "; ".join(procedencia))
 
     dag = yaml.safe_load((root / "dvc.yaml").read_text(encoding="utf-8"))
     entrypoints = runbook_entrypoints()

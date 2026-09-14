@@ -80,6 +80,20 @@ if ! "$ANTE" tools/check_entrypoint_smoke.py; then
   echo "ERROR: el smoke de entrypoints falló. La campaña se detiene ANTES del primer artefacto." >&2
   exit 9
 fi
+# ★ M74-E-R8 · la PROCEDENCIA de la matriz y el SELLO de entradas son puertas, no pasos manuales
+# (auditoría `e6c76896…`). Un preflight doble verde convivía con un checkout cuyo contrato de locks
+# fallaba, y el sello que la campaña debía consumir era un archivo que nadie le pasaba. El sello se
+# emite aquí, antes de que el runbook cree nada en el árbol, y su hash entra al manifiesto.
+if ! "$ANTE" -m tools.lock_contracts; then
+  echo "ERROR: el contrato de procedencia de locks falla. La campaña se detiene ANTES del primer artefacto." >&2
+  exit 10
+fi
+PREFLIGHT_TMP="$(mktemp "${TMPDIR:-/tmp}/vp_preflight.XXXXXX")"
+if ! "$ANTE" -m tools.campaign_preflight --out "$PREFLIGHT_TMP"; then
+  rm -f "$PREFLIGHT_TMP"
+  echo "ERROR: el preflight de la campaña falló. La campaña se detiene ANTES del primer artefacto." >&2
+  exit 11
+fi
 
 
 # ── Identidad fija + árbol limpio (auditoría 12-jul-2026) ────────────────────
@@ -129,6 +143,9 @@ if [ -n "${ALLOW_DIRTY:-}" ] && [ -z "${CAMPAIGN_DIAGNOSTIC:-}" ]; then
   exit 6
 fi
 mkdir -p reports/campaign reports/logs
+PREFLIGHT="reports/logs/preflight_${CAMPAIGN_ID}.json"
+mv "$PREFLIGHT_TMP" "$PREFLIGHT"
+PREFLIGHT_SHA256="$(shasum -a 256 "$PREFLIGHT" | cut -d' ' -f1)"
 # ★ M74-E-R5 (B7) · una bitácora POR CAMPAÑA, y la campaña es su dueña.
 # Redirigir a `reports/rederivation.log` hacía que un relanzamiento SOBRESCRIBIERA la bitácora de
 # la corrida anterior, que es la única evidencia de una campaña que no terminó. Un enlace a un
@@ -136,8 +153,9 @@ mkdir -p reports/campaign reports/logs
 # que escribe la suya con `tee`, sin quitarle al operador la que él eligió.
 exec > >(tee -a "reports/logs/${CAMPAIGN_ID}.log") 2>&1
 echo "bitácora de esta campaña: reports/logs/${CAMPAIGN_ID}.log"
-printf '{"campaign_id":"%s","sha":"%s","git_sha":"%s","dirty":%s,"started_at":"%s"}\n' \
-  "$CAMPAIGN_ID" "$CAMPAIGN_SHA" "$CAMPAIGN_SHA" "$CAMPAIGN_DIRTY" "$(date -u +%FT%TZ)" \
+echo "sello de entradas de esta campaña: $PREFLIGHT (sha256 $PREFLIGHT_SHA256)"
+printf '{"campaign_id":"%s","sha":"%s","git_sha":"%s","dirty":%s,"started_at":"%s","preflight_sha256":"%s"}\n' \
+  "$CAMPAIGN_ID" "$CAMPAIGN_SHA" "$CAMPAIGN_SHA" "$CAMPAIGN_DIRTY" "$(date -u +%FT%TZ)" "$PREFLIGHT_SHA256" \
   > reports/campaign/campaign_manifest.json
 
 # ── Transacción de campaña (ADR 0003, pendiente #56) ─────────────────────────
