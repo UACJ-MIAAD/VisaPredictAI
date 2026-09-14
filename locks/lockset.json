@@ -107,7 +107,7 @@
     "requirements/deep-linux-cpu.in": "sha256:31a69d2407e771faf50b2190a62576d45b117bb3788a940cd704fa589297a4dd",
     "requirements/deep-linux-cu126.in": "sha256:c08c113f24a6367961a5f8b1a3a22a88d13684f05c9354f2bf8a858ef23ad5fe",
     "requirements/deep.in": "sha256:66f71ed981944982e6276be13e7a89c6321d975ec5d6a0f444db7ee25fbb86e2",
-    "tools/lock_contracts.py": "sha256:5eb40830e93313952144b9706b38d8512ae36cb65673451f935eef1ee092086d",
+    "tools/lock_contracts.py": "sha256:707bb46474ae09dcfb6083a57be2abe9964955ef06933727e8d5375f476064dd",
     "tools/make_locks.sh": "sha256:48ecdfb2748409b9330092f28171b96979d22cd2c1995469c498fb7a5b6a80df",
     "tools/promote_lockset.py": "sha256:ec6f632071545972613f1d9c50e75b21ac1c1cf2852d025e08c35d35b867f1ba"
   }

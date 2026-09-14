@@ -333,13 +333,38 @@ def validate_deep_cross_platform(root: Path = ROOT, locks_dir: Path | None = Non
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _HEADER_PY_RE = re.compile(r"^# Python (3\.14\.\d+) ", re.M)
 PROVENANCE_METHODS = ("generated", "restored", "resolved")
+FULL_COMMAND = "bash tools/make_locks.sh"
 
 
-def validate_provenance(manifest: dict, root: Path = ROOT) -> list[str]:
-    """Procedencia POR LOCK (M74-E-R6). Una matriz restaurada + resuelta no es una generación uniforme.
+def _git(repo: Path, *args: str) -> bytes | None:
+    """Salida de ``git`` en ``repo``; ``None`` si falla. Un objeto inexistente no es una excepción."""
+    import subprocess
 
-    `generated`/`resolved` los produjo el toolchain de ESTE manifiesto; `restored` viene byte a byte
-    de `base` y conserva su Python. Donde la cabecera declara Python, debe coincidir.
+    try:
+        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, timeout=30, check=False)
+    except OSError, subprocess.TimeoutExpired:
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def _heredado(repo: Path, base: str, rel: str) -> tuple[object, object]:
+    """Python y orden que ``rel`` tenía en el lockset de ``base``: lo que un `restored` hereda."""
+    try:
+        previo = json.loads(_git(repo, "show", f"{base}:{MANIFEST_REL}") or b"{}")
+    except ValueError:
+        previo = {}
+    propia = (previo.get("provenance") or {}).get(rel)
+    if propia:
+        return propia.get("python"), propia.get("command")
+    return (previo.get("generator") or {}).get("python"), (FULL_COMMAND if previo else None)
+
+
+def validate_provenance(manifest: dict, root: Path = ROOT, repo: Path = ROOT) -> list[str]:
+    """Procedencia POR LOCK (M74-E-R6), DEMOSTRADA contra git (M74-E-R7, auditoría `a23c878e…`).
+
+    `generated` y `resolved` los produjo el toolchain de ESTE manifiesto con su orden exacta;
+    `restored` es byte a byte ``git show <base>:<lock>`` y hereda Python y orden del lockset de esa
+    base. Una base inexistente, unos bytes distintos o una orden con sufijo no se aceptan.
     """
     probs: list[str] = []
     prov, gen_py = manifest.get("provenance"), (manifest.get("generator") or {}).get("python")
@@ -350,19 +375,27 @@ def validate_provenance(manifest: dict, root: Path = ROOT) -> list[str]:
         if not isinstance(e, dict) or set(e) != {"method", "base", "python", "command"}:
             probs.append(f"{tag}: claves {sorted(e) if isinstance(e, dict) else e!r} != {{method,base,python,command}}")
             continue
-        if e["method"] not in PROVENANCE_METHODS:
-            probs.append(f"{tag}: method {e['method']!r} fuera de {PROVENANCE_METHODS}")
-        if (e["method"] == "generated") != (e["base"] is None) or (
-            e["base"] is not None and not _SHA40_RE.match(str(e["base"]))
-        ):
-            probs.append(f"{tag}: base {e['base']!r} incoherente con method {e['method']!r}")
-        if not _PY_RE.match(str(e["python"])):
-            probs.append(f"{tag}: python {e['python']!r} no es 3.14.Z")
-        elif e["method"] != "restored" and e["python"] != gen_py:
-            probs.append(f"{tag}: {e['method']} con python {e['python']} != generator {gen_py}")
-        if not str(e["command"]).startswith("bash tools/make_locks.sh"):
-            probs.append(f"{tag}: command {e['command']!r} no es una orden versionada del generador")
-        path = root / rel
+        metodo, base, path = e["method"], e["base"], root / rel
+        if metodo not in PROVENANCE_METHODS:
+            probs.append(f"{tag}: method {metodo!r} fuera de {PROVENANCE_METHODS}")
+            continue
+        if (metodo == "generated") != (base is None) or (base is not None and not _SHA40_RE.match(str(base))):
+            probs.append(f"{tag}: base {base!r} incoherente con method {metodo!r}")
+            continue
+        if base is not None and _git(repo, "cat-file", "-e", f"{base}^{{commit}}") is None:
+            probs.append(f"{tag}: base {base} NO existe como commit en el repositorio")
+            continue
+        if metodo == "restored":
+            if not path.exists() or _git(repo, "show", f"{base}:{rel}") != path.read_bytes():
+                probs.append(f"{tag}: restored, pero sus bytes != git show {base[:12]}:{rel}")
+            quiere_py, quiere_cmd = _heredado(repo, base, rel)
+        else:
+            quiere_py = gen_py
+            quiere_cmd = FULL_COMMAND if metodo == "generated" else f"{FULL_COMMAND} --selective-model {base}"
+        if not _PY_RE.match(str(e["python"])) or e["python"] != quiere_py:
+            probs.append(f"{tag}: {metodo} con python {e['python']!r} != {quiere_py!r}")
+        if e["command"] != quiere_cmd:
+            probs.append(f"{tag}: command {e['command']!r} != la orden exacta {quiere_cmd!r}")
         cab = _HEADER_PY_RE.search(path.read_text()) if path.exists() else None
         if cab and cab.group(1) != e["python"]:
             probs.append(f"{tag}: la cabecera declara Python {cab.group(1)} y la procedencia {e['python']}")
