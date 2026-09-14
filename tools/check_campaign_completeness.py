@@ -441,6 +441,10 @@ def check(phase: str, preflight: bool = False) -> list[str]:
         )
         if not preflight:
             return probs
+    if not preflight:  # ★ M74-E-R9 · el sello de entradas se acredita, no se da por hecho
+        from tools import campaign_manifest
+
+        probs += [f"SELLO {x}" for x in campaign_manifest.seal_problems(MANIFEST)]
     sealed_sha = _sealed("git_sha")
     sealed_dirty = _sealed("dirty")
     if phase == "inputs":

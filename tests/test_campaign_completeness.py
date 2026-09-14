@@ -25,6 +25,24 @@ def _seal(root, started="2000-01-01T00:00:00+00:00", cid="camp1", sha="abc"):
     )
 
 
+def _sello_valido(root, campana_sellada, cid="camp1"):
+    """★ M74-E-R9 · el gate acredita el sello de entradas: el camino feliz necesita una identidad coherente.
+
+    El SHA falso `abc` no es un commit de 40 hex. Se sella uno válido y los artefactos que lo portan se
+    alinean con él: el manifiesto de modelos por prefijo corto y los recibos por SHA completo.
+    """
+    head = "abc1234" + "0" * 33
+    for rel, viejo, nuevo in [("models/manifest.jsonl", '"git_sha": "abc"', f'"git_sha": "{head[:7]}"')] + [
+        (f"reports/eval/holdout_forecasts_{t}.csv.receipt.json", '"code_sha": "abc"', f'"code_sha": "{head}"')
+        for t in ("FAD", "DFF")
+    ]:
+        f = root / rel
+        if f.exists():
+            f.write_text(f.read_text().replace(viejo, nuevo))
+    campana_sellada(root, campaign_id=cid, head=head)
+    return head
+
+
 def _pool(n_series=25, n_models=24, nan=3):
     hdr = "country,category,table,model,hold_mase"
     rows = [f"c{s},F{s % 5},FAD,m{m},{0.1 + 0.01 * m}" for s in range(n_series) for m in range(n_models)]
@@ -140,15 +158,14 @@ def _write_outputs(root, cid="camp1", sha="abc"):
 
 
 # ── happy path: sin falsos rechazos ──
-def test_inputs_pass_with_realistic_artifacts(sandbox):
+def test_inputs_pass_with_realistic_artifacts(sandbox, campana_sellada):
     _write_inputs(sandbox)
-    _seal(sandbox)
+    _sello_valido(sandbox, campana_sellada)
     assert gate.check("inputs", preflight=False) == []
 
 
-def test_outputs_pass_with_realistic_artifacts(sandbox):
-    _seal(sandbox)
-    _write_outputs(sandbox)
+def test_outputs_pass_with_realistic_artifacts(sandbox, campana_sellada):
+    _write_outputs(sandbox, sha=_sello_valido(sandbox, campana_sellada))
     assert gate.check("outputs", preflight=False) == []
 
 

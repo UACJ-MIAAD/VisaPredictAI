@@ -375,7 +375,7 @@ def test_the_rehearsal_archives_into_the_fixture_and_never_into_the_repo(tmp_pat
 def _bloque_guarda() -> str:
     """El bloque REAL de identidad + árbol limpio, recortado del runbook."""
     guion = (ROOT / "experiments" / "run_rederivation.sh").read_text(encoding="utf-8")
-    return guion[guion.index("tree_dirty() {") : guion.index("mkdir -p reports/campaign")]
+    return guion[guion.index("tree_dirty() {") : guion.index('PREFLIGHT_TMP="$(mktemp')]
 
 
 def _ejecuta_guarda(tmp_path: Path, ensuciar: str | None, extra: dict[str, str]) -> subprocess.CompletedProcess[str]:

@@ -1,36 +1,22 @@
 """Sella las ENTRADAS de una campaña y reconcilia su protocolo, antes de calcular nada.
 
-La campaña causal (#33) re-deriva todas las cifras retrospectivas del proyecto. Lo que decide si
-su resultado es creíble no es la corrida: es **qué entró** y **bajo qué reglas**, sellado *antes*
-de mirar un número. Este módulo produce esas dos cosas y nada más — **no ejecuta la campaña, no
-escribe en `reports/` y no toca artefactos publicados**.
+Lo que decide si la re-derivación causal (#33) es creíble es **qué entró** y **bajo qué reglas**,
+sellado antes de mirar un número. Este módulo produce esas dos cosas y nada más: no ejecuta la
+campaña, no escribe en `reports/` y no toca artefactos publicados.
 
-**Las entradas se DERIVAN, no se listan a mano** (un inventario escrito a mano envejece):
+Las entradas se DERIVAN, no se listan a mano:
 
-* ``code`` — el cierre transitivo de imports locales a partir de los entrypoints que el runbook
-  invoca, **siguiendo recursivamente los shells anidados**, más los propios guiones.
-  ⚠️ El hash de cada archivo es sobre sus **bytes**: los comentarios se descartan al **descubrir**
-  entrypoints, no al hashear. Un cambio de comentario cambia el sello, y eso es lo conservador.
-* ``data`` — las salidas *git-only* de los stages de datos del DAG, tomadas de ``dvc.yaml``.
-* ``governance`` — la configuración que la campaña **lee**, declarada **por nombre**. Tres entradas
-  están **ancladas a la constante del módulo que las nombra** (si alguien mueve
-  `champion.MANIFEST`, el ancla falla en vez de sellar un archivo que ya nadie lee); las demás son
-  **planas**, porque ninguna constante las nombra: `dvc.yaml`/`dvc.lock`, la política de cohortes,
-  y las entradas mutables que gobiernan etapas (`tuned_params`, `schema.sql`,
-  `pipeline/migrations`, `consistency_rules.yml`) más los **locks reales de cada intérprete**.
+* ``code`` — cierre transitivo de imports locales desde los entrypoints del runbook, siguiendo los
+  shells anidados. El hash es sobre los **bytes**: un cambio de comentario cambia el sello.
+* ``data`` — las salidas *git-only* de los stages de datos de ``dvc.yaml``.
+* ``governance`` — la configuración que la campaña **lee**, declarada por nombre: tres entradas
+  ancladas a la constante del módulo que las nombra, más los locks de cada intérprete y el lockset.
 
-El ``protocol`` no se teclea: se lee de sus autoridades vivas (`vp_model.config`,
-`vp_model.stability`, `vp_model.deck`, …) y se emite tal cual, para que el recibo de la campaña
-pueda compararse contra él y cualquier deriva salte.
+El ``protocol`` se lee de sus autoridades vivas (`vp_model.config`, `vp_model.stability`, …).
 
-Uso:
+Uso, como MÓDULO (como guion, `tools` queda fuera del `sys.path`):
     python -m tools.campaign_preflight --out <ruta.json>     # sella y reconcilia
     python -m tools.campaign_preflight --print               # sólo imprime la reconciliación
-
-⚠️ Se invoca como MÓDULO, no como guion: ejecutar `python tools/campaign_preflight.py` deja `tools`
-fuera del `sys.path` y el import del verificador de entorno revienta. Es la convención que ya usan
-`sync_all.sh` y el runbook con `tools.campaign_txn`; escribirla aquí evita repetir la trampa de
-M41-R1 y M60 con un `try/except` que sólo la disimularía.
 """
 
 from __future__ import annotations
@@ -39,6 +25,7 @@ import argparse
 import ast
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -354,7 +341,10 @@ def main(argv: list[str] | None = None) -> int:
     texto = json.dumps(sello, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(texto, encoding="utf-8")
+        with open(args.out, "w", encoding="utf-8") as fh:  # ★ M74-E-R9 · el sello llega a disco o falla
+            fh.write(texto)
+            fh.flush()
+            os.fsync(fh.fileno())
         print(f"✓ entradas selladas → {args.out}")
     if args.mostrar or not args.out:
         print(texto)

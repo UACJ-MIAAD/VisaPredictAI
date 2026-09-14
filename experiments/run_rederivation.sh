@@ -82,17 +82,11 @@ if ! "$ANTE" tools/check_entrypoint_smoke.py; then
 fi
 # ★ M74-E-R8 · la PROCEDENCIA de la matriz y el SELLO de entradas son puertas, no pasos manuales
 # (auditoría `e6c76896…`). Un preflight doble verde convivía con un checkout cuyo contrato de locks
-# fallaba, y el sello que la campaña debía consumir era un archivo que nadie le pasaba. El sello se
-# emite aquí, antes de que el runbook cree nada en el árbol, y su hash entra al manifiesto.
+# fallaba, y el sello que la campaña debía consumir era un archivo que nadie le pasaba. ★ M74-E-R9: el
+# sello se emite DESPUÉS de fijar la identidad (árbol limpio y CAMPAIGN_SHA) y se acredita al registrarlo.
 if ! "$ANTE" -m tools.lock_contracts; then
   echo "ERROR: el contrato de procedencia de locks falla. La campaña se detiene ANTES del primer artefacto." >&2
   exit 10
-fi
-PREFLIGHT_TMP="$(mktemp "${TMPDIR:-/tmp}/vp_preflight.XXXXXX")"
-if ! "$ANTE" -m tools.campaign_preflight --out "$PREFLIGHT_TMP"; then
-  rm -f "$PREFLIGHT_TMP"
-  echo "ERROR: el preflight de la campaña falló. La campaña se detiene ANTES del primer artefacto." >&2
-  exit 11
 fi
 
 
@@ -142,10 +136,20 @@ if [ -n "${ALLOW_DIRTY:-}" ] && [ -z "${CAMPAIGN_DIAGNOSTIC:-}" ]; then
   echo "       para una corrida de depuracion que NO se publicara. Aborta." >&2
   exit 6
 fi
+PREFLIGHT_TMP="$(mktemp "${TMPDIR:-/tmp}/vp_preflight.XXXXXX")" || exit 12
+if ! "$ANTE" -m tools.campaign_preflight --out "$PREFLIGHT_TMP"; then
+  rm -f "$PREFLIGHT_TMP"
+  echo "ERROR: el preflight de la campaña falló. La campaña se detiene ANTES del primer artefacto." >&2
+  exit 11
+fi
 mkdir -p reports/campaign reports/logs
+# ★ M74-E-R9 · promover y hashear son pasos que pueden fallar, y sin `set -e` nada los detenía.
 PREFLIGHT="reports/logs/preflight_${CAMPAIGN_ID}.json"
-mv "$PREFLIGHT_TMP" "$PREFLIGHT"
-PREFLIGHT_SHA256="$(shasum -a 256 "$PREFLIGHT" | cut -d' ' -f1)"
+if ! mv "$PREFLIGHT_TMP" "$PREFLIGHT" || ! PREFLIGHT_SHA256="$(shasum -a 256 "$PREFLIGHT" | cut -d' ' -f1)" \
+   || ! [[ "$PREFLIGHT_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "ERROR: no se pudo promover o hashear el sello de entradas ($PREFLIGHT). Aborta." >&2
+  exit 12
+fi
 # ★ M74-E-R5 (B7) · una bitácora POR CAMPAÑA, y la campaña es su dueña.
 # Redirigir a `reports/rederivation.log` hacía que un relanzamiento SOBRESCRIBIERA la bitácora de
 # la corrida anterior, que es la única evidencia de una campaña que no terminó. Un enlace a un
@@ -154,9 +158,15 @@ PREFLIGHT_SHA256="$(shasum -a 256 "$PREFLIGHT" | cut -d' ' -f1)"
 exec > >(tee -a "reports/logs/${CAMPAIGN_ID}.log") 2>&1
 echo "bitácora de esta campaña: reports/logs/${CAMPAIGN_ID}.log"
 echo "sello de entradas de esta campaña: $PREFLIGHT (sha256 $PREFLIGHT_SHA256)"
-printf '{"campaign_id":"%s","sha":"%s","git_sha":"%s","dirty":%s,"started_at":"%s","preflight_sha256":"%s"}\n' \
-  "$CAMPAIGN_ID" "$CAMPAIGN_SHA" "$CAMPAIGN_SHA" "$CAMPAIGN_DIRTY" "$(date -u +%FT%TZ)" "$PREFLIGHT_SHA256" \
+printf '{"campaign_id":"%s","sha":"%s","git_sha":"%s","dirty":%s,"started_at":"%s","preflight":"%s","preflight_sha256":"%s"}\n' \
+  "$CAMPAIGN_ID" "$CAMPAIGN_SHA" "$CAMPAIGN_SHA" "$CAMPAIGN_DIRTY" "$(date -u +%FT%TZ)" "$PREFLIGHT" "$PREFLIGHT_SHA256" \
   > reports/campaign/campaign_manifest.json
+# ★ M74-E-R9 · el hash anotado no es una puerta hasta que alguien lo comprueba: se acredita AQUÍ, con la
+# misma función que usan el gate de completitud y la publicación (sello vacío, `{}`, otro HEAD u otro dirty).
+if ! "$ANTE" -m tools.campaign_manifest --assert-sealed reports/campaign/campaign_manifest.json; then
+  echo "ERROR: el sello de entradas no se acredita contra el manifiesto de esta campaña. Aborta." >&2
+  exit 13
+fi
 
 # ── Transacción de campaña (ADR 0003, pendiente #56) ─────────────────────────
 # Hasta M73 la máquina de estados existía y NADIE la conducía. Ahora este runbook la

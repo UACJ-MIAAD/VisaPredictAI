@@ -69,12 +69,15 @@ def _stub(ruta: Path) -> None:
 
 @pytest.mark.parametrize(
     "falla,rc,artefacto",
-    [("LOCKS_FALLA", 10, False), ("PREFLIGHT_FALLA", 11, False), ("NINGUNA", 0, True)],
+    [("LOCKS_FALLA", 10, False), ("NINGUNA", 0, True)],
 )
 def test_RED_una_procedencia_o_un_preflight_rotos_impiden_el_primer_artefacto(
     tmp_path: Path, falla: str, rc: int, artefacto: bool
 ) -> None:
-    """★ Conductual sobre el bloque de arranque REAL, con intérpretes de mentira (patrón de R6)."""
+    """★ Conductual sobre el bloque de arranque REAL, con intérpretes de mentira (patrón de R6).
+
+    El preflight roto se prueba desde M74-E-R9 en `test_sello_campana_m74e_r9.py`: ahora corre después de
+    fijar la identidad, fuera de este bloque."""
     guion = RUNBOOK.read_text(encoding="utf-8")
     bloque = guion[guion.index("set -uo pipefail") : guion.index("tree_dirty() {")]
     (tmp_path / "experiments").mkdir()
