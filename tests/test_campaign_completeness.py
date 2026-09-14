@@ -25,7 +25,10 @@ def _seal(root, started="2000-01-01T00:00:00+00:00", cid="camp1", sha="abc"):
     )
 
 
-def _sello_valido(root, campana_sellada, cid="camp1"):
+CID_SELLADO = "rederiv_abc1234_20000101T000000"
+
+
+def _sello_valido(root, campana_sellada, cid=CID_SELLADO):
     """★ M74-E-R9 · el gate acredita el sello de entradas: el camino feliz necesita una identidad coherente.
 
     El SHA falso `abc` no es un commit de 40 hex. Se sella uno válido y los artefactos que lo portan se
@@ -165,7 +168,7 @@ def test_inputs_pass_with_realistic_artifacts(sandbox, campana_sellada):
 
 
 def test_outputs_pass_with_realistic_artifacts(sandbox, campana_sellada):
-    _write_outputs(sandbox, sha=_sello_valido(sandbox, campana_sellada))
+    _write_outputs(sandbox, cid=CID_SELLADO, sha=_sello_valido(sandbox, campana_sellada))
     assert gate.check("outputs", preflight=False) == []
 
 

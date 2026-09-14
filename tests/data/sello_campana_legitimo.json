@@ -1,0 +1,489 @@
+{
+  "counts": {
+    "code": 93,
+    "data": 5,
+    "governance": 13
+  },
+  "entrypoints": {
+    "modules": [
+      "pipeline.build_database",
+      "tools.campaign_manifest",
+      "tools.campaign_preflight",
+      "tools.campaign_txn",
+      "tools.check_campaign_completeness",
+      "tools.check_env_matches_lock",
+      "tools.lock_contracts",
+      "vp_model.confirm_tuning",
+      "vp_model.persist_forecasts",
+      "vp_model.run_comparison",
+      "vp_model.run_tuning"
+    ],
+    "scripts": [
+      "experiments/aggregate_seeds.py",
+      "experiments/analyze_paper_promises.py",
+      "experiments/auto_arima_baseline.py",
+      "experiments/build_cohorts.py",
+      "experiments/build_e5_facts.py",
+      "experiments/build_horizon_facts.py",
+      "experiments/build_key_facts.py",
+      "experiments/build_model_card.py",
+      "experiments/check_drift.py",
+      "experiments/eval_deep_pi.py",
+      "experiments/export_forecasts.py",
+      "experiments/improve_conformal.py",
+      "experiments/improve_fforma.py",
+      "experiments/improve_stacking.py",
+      "experiments/make_hero_figures.py",
+      "experiments/make_result_figures.py",
+      "experiments/persist_transported_forecasts.py",
+      "experiments/promote_finalists.py",
+      "experiments/run_champion_challenger.py",
+      "experiments/run_crps_baseline.py",
+      "experiments/run_deep_pi.py",
+      "experiments/run_e3_campaign.py",
+      "experiments/run_e4_router.py",
+      "experiments/run_ensembles.py",
+      "experiments/run_global_deep.py",
+      "experiments/save_finalists.py",
+      "experiments/save_finalists_deep.py",
+      "experiments/scan_cohorts.py",
+      "experiments/score_e3_campaign.py",
+      "experiments/significance_tables.py",
+      "experiments/sync_mlflow.py",
+      "tools/check_consistency.py",
+      "tools/check_entrypoint_smoke.py",
+      "tools/check_source_lineage.py"
+    ],
+    "shell": [
+      "experiments/run_campaign.sh",
+      "experiments/save_finalists.sh",
+      "experiments/sync_all.sh"
+    ]
+  },
+  "environment": {
+    "ante": {
+      "accreditation": [],
+      "extra": [
+        "pip",
+        "visapredictai"
+      ],
+      "extra_versions": {
+        "pip": "26.1.2",
+        "visapredictai": "1.0.0"
+      },
+      "freeze_sha256": "c64249acdf8c27325c53804e8b3870da674c3c13bf06872236229f6e5be33c08",
+      "lock": "model-cpu.txt",
+      "missing": [],
+      "n_installed": 117,
+      "n_pins": 115,
+      "reproduces_lock": true,
+      "undeclared": [],
+      "venv": "ante",
+      "version_mismatch": []
+    },
+    "ante_nf": {
+      "accreditation": [],
+      "extra": [
+        "pip"
+      ],
+      "extra_versions": {
+        "pip": "26.1.2"
+      },
+      "freeze_sha256": "bf8c357c5af3dbc1aad63d743a8c43fe3a5ab9dbd1892985b205db60d53734d6",
+      "lock": "deep-macos-arm64.txt",
+      "missing": [],
+      "n_installed": 132,
+      "n_pins": 131,
+      "reproduces_lock": true,
+      "undeclared": [],
+      "venv": "ante_nf",
+      "version_mismatch": []
+    }
+  },
+  "git": {
+    "dirty": false,
+    "head": "490befbe0118c2b4f5480d8aa78735def2aa29fe"
+  },
+  "inputs": {
+    "code": {
+      "experiments/_figkit.py": "4c469f03090fbe0425d4c17d716db300a1c7d1a93c91ed8db07bd6f18cdf3990",
+      "experiments/aggregate_seeds.py": "47150a78bc2f5c4fc1ef2f77c63cde9471dd6d88320eb368b91d7405329fd69e",
+      "experiments/analyze_paper_promises.py": "ea4cd6c0486b907961aee6ade9ce0c7c2c9ef7cb20504be8685d52494f98438e",
+      "experiments/auto_arima_baseline.py": "8c4efa511b22263de2dea1b6115b96bd2e29f639efb4d37627556c33bfe0ab37",
+      "experiments/build_cohorts.py": "9a6ef9351e52f123c471f5883c00a338c8e7aad1b952e0648d53ec38098153fb",
+      "experiments/build_e5_facts.py": "92341a1932333a9ec7e3590f4336dbce8276abf4550d5baa590bd52aad1442a7",
+      "experiments/build_horizon_facts.py": "67011c19df631dfcf215ccdb5c77dbf0d048c7019e8f2dc33ffd8b5fe1b8377e",
+      "experiments/build_key_facts.py": "f8969325af5eea9d0f7a0d0e4a5b4a115f7aa77403b219a518d1191c6ee3a762",
+      "experiments/build_model_card.py": "dce3f3d346a4547e1b88a1f9ce0f0887583d61b0021bf730979583a52e78a786",
+      "experiments/check_drift.py": "b0d7c269bcd1dc53ec741a94edf696ecd1cf5b256a3ccf7ace0a70df478e4232",
+      "experiments/eval_deep_pi.py": "b7775c41e647d20fe6f84e03f5e44603b3a6f25902c28ea7fc0af8883e922365",
+      "experiments/export_forecasts.py": "dde2977dcb3dfd69e683a4661886e341fb52b37240d2c8cfbbf5b1e28b5930d1",
+      "experiments/hpo_winner_receipt.py": "2510424ef7e1c8903631c116788f02c0278066a7beca274fc730c8b2bf7e4747",
+      "experiments/improve_conformal.py": "2ee44ea8f95a46420b845e814888fe49730c25f145024b94ee53f1c06dadf40f",
+      "experiments/improve_fforma.py": "52d14ae9c875390b106ea0a4d2ba29f407e7d58c048fec7b7fcca5054257d6ce",
+      "experiments/improve_stacking.py": "4701a5a686ad541defbb185ebb340daaf9fd46992303947574c021d76282b8a2",
+      "experiments/make_hero_figures.py": "1fe9d3938128063c85d9f0bd1a871fe0dc74d2495fa24a68642c1b5cd098dc3d",
+      "experiments/make_result_figures.py": "eb704258604c2da0ace073b24138b06463af18efbd23b8415af6dca896dab720",
+      "experiments/persist_transported_forecasts.py": "1c6d2f2bb343e26854e94717e522c645e6b35c9f7658e7f23e7e5154234d9d43",
+      "experiments/promote_finalists.py": "1e761d52e31faf7993724469caf2ef2715c90a1ad962be151b8c1ad7f4617a2c",
+      "experiments/run_campaign.sh": "1836e4b90f28e45e191c5919a21552ea0e5c09ac7013535834e6ff8e5a130826",
+      "experiments/run_champion_challenger.py": "d7bc769665316be4565b1c00ab7894b7a591cccbd88b1400a965a060d309733a",
+      "experiments/run_crps_baseline.py": "58b06327772db71e3bd4695546f7bcf139c37b5f95fd25384007cf246d4f7769",
+      "experiments/run_deep_pi.py": "23adcc99d218c7c72bdc70059988a906e2bf4e907cb65d7d690576ffb3f10087",
+      "experiments/run_e3_campaign.py": "1a82769fff385eabd761456d29049c6ceb3cb1eb97851cde6183ec0998258b6a",
+      "experiments/run_e4_router.py": "d69943feb1b57943b5814a7e5771a42be8096515efaef1300133d21a4d4a79dc",
+      "experiments/run_ensembles.py": "52bbf06134e4a65011053fffdebc25e62b7af9e2d850bdf1d2be6713ce2d7929",
+      "experiments/run_global_deep.py": "21bedf3277f6c0fcf9da972323fc2d7b7f0b49c7846e059df2a9d5254adbe2ec",
+      "experiments/run_rederivation.sh": "8d9e703f5bd4c59a48f058eb9773f4ee0876c061978b5cd10bd54ab5e1fa38c0",
+      "experiments/save_finalists.py": "54cfa8dadbf7d1055a2998523372bac35e8795bc0bc0da7f54a88aed0e4c9e1a",
+      "experiments/save_finalists.sh": "12e8177ef6991423fc2ad4a11a18249f3ed46d64633b49ecdf43bca25fc33434",
+      "experiments/save_finalists_deep.py": "6897f019b34e1d999eae7ef990928a519f58ceacc81d23c7a115032cc118f1f4",
+      "experiments/scan_cohorts.py": "a2078f628ea87aa1497a54a52f60035f6389d90cfec00285356c7a91b584443d",
+      "experiments/score_e3_campaign.py": "ac53a4c0c5ff4d1dde8a4f8111295d510761a729f58a052049d0b633567d14a3",
+      "experiments/seed_coverage.py": "6ecc53312d03d5e9a88364e0ce7d5fec20cc1f6b84e83434f0e1ace0949bb126",
+      "experiments/significance_tables.py": "89778217a5abf7ae91d7413eed54fe785b5406ed2a47d6fef7c11aece3ade700",
+      "experiments/sync_all.sh": "57e79e1923282f63b2937b44dab533352a186fba4ec2cb47030c773651e2c8dd",
+      "experiments/sync_mlflow.py": "33d92b2e550f4e05a232c1d06454cad4f06dcd2275bab107875e7e3ceaae8c5a",
+      "pipeline/build_database.py": "9c03264b5095093334e5e5290da8173f5198c876f6e3aa0b79104aa89c24d74f",
+      "pipeline/db_governance.py": "032228c91a291b1291e57e60688a097ee9057adb9e1f5ea8bd1bb3f1aea7f663",
+      "pipeline/db_loaders.py": "3ffc01aa837ce55f3f5053adfab5c1355050c210c77d655e8c63df69818b4174",
+      "pipeline/db_migrations.py": "e3b216c8c44689c89f7ce5423077243ffb3f8f948879db142432a6a3bf117ab2",
+      "tools/campaign_hashing.py": "8f4895f4ddbe33b7628cd4ec1b3e33658a6e2ee0c3ef92cd0c9181d38ed86198",
+      "tools/campaign_manifest.py": "172bd6c59a1501189b2501fdf515915a683c393d72fb0bd92af32df7303961ca",
+      "tools/campaign_preflight.py": "c142ee0220bf4a7384ecc5140e873534c7483e5bdc63fc15106043eea95e6209",
+      "tools/campaign_state.py": "9a58f409f1220c61ed8dac3d6ffa10d2fcf356b882248964249b1ef28afb8107",
+      "tools/campaign_txn.py": "cdd91571e78165ba4cb062b7446858bf7db40ba59f476ca8bada9c0ab73a46e2",
+      "tools/check_campaign_completeness.py": "3e2243595c61c3020d67fb01bd24c378f18c4092c951bbd152052467a245ad64",
+      "tools/check_consistency.py": "426b39c9af12f0e734ed35ce54ba6aaece4811c45fc29834c352b00636e3af8e",
+      "tools/check_entrypoint_smoke.py": "0f15ec25074e018e2424dd81967aa34a19e0547f976fd5abf4123000d5ef253a",
+      "tools/check_env_matches_lock.py": "1a85f2c7edc1ab129626f6aaddda24829d664ffb938750afa508037081a70d78",
+      "tools/check_source_lineage.py": "1704c130694898bbe8f75f18617fca15302084c1e22635fb87873869ea4d4542",
+      "tools/lock_contracts.py": "707bb46474ae09dcfb6083a57be2abe9964955ef06933727e8d5375f476064dd",
+      "vp_data/categories.py": "5bea28dbfeda25d949f166ad88c627404ad1741d75d061d78f139336cd294d96",
+      "vp_data/config.py": "f74367a9b80933df0e0e71011cb2ceefc82dd88fe389b350f61ba2ef5f971d49",
+      "vp_data/errors.py": "badbb79865496bd483931c0f06949618c1837c662a99c0f7e4ea3d6a1302600e",
+      "vp_data/fetchers.py": "4b91fb1a84b5985c11ec1404e094240d9db316c33cdf342550c6d6559bcd2676",
+      "vp_data/tracking.py": "f1254ab67406dcbd87049e956471941ff8914ba09ba3a832c57d82823ca41cfb",
+      "vp_data/tree_dirty.py": "6593d2c84bc8331a2071940653eb13eae61011c42487c3d821c4c6016653db01",
+      "vp_data/visa_common.py": "c2c783a30e47cb0e778488390591d4a37c3357aeacda46f7e2b9cddd9d584997",
+      "vp_model/artifact_receipt.py": "e982695b07b528ef1f509d3c00c6816e00c84432b3cdb72309af3103f251311e",
+      "vp_model/champion.py": "2b831cf1f8780bbe378a6df0f1e03d8b22c5cb251b9fc4c70dd41c54d217a25f",
+      "vp_model/cone.py": "125071c553df611ed9456bab37ea65cc1389a3982a41e763b9d98e7975bb4feb",
+      "vp_model/config.py": "48e597f92efac92ed7fb71c271aced51c911f15e801c6d4904cf575bd7792053",
+      "vp_model/confirm_tuning.py": "30f923ef39716d603942d0f4c47db53bb7e7cd68f0deea0485ff17ce21e55f8c",
+      "vp_model/dataset.py": "5c511b984fe9d18597d6ef188f0ecad1056a8d2ab7546ca3a057608d5bdc3691",
+      "vp_model/deck.py": "466930c7cf34d74b8acb6e3be7dd80028d47318f1c87fd88fb0523994c196847",
+      "vp_model/ensemble.py": "db6ea2a4ff37e4eece327434aacf9501cdd3f5257a1f75602da5869b4424b864",
+      "vp_model/eval_neuralforecast.py": "4b7eebc622fb5a5511f72a8a725661e4d1d62cf108785b0f2a0212e65d0ab40a",
+      "vp_model/exact_tests.py": "fbdc726d32137e39858aef8869252a7708645082036ed6f3674529f430cbe8cf",
+      "vp_model/feature_builder.py": "a2527b03e734ae2134f8d1121541949a4c704cd08b534447626ab7018fd912ac",
+      "vp_model/holdout_rows.py": "1f27a5ca030ceb630cfd336e46f1b11264071b11c945de31a84e353413636f3b",
+      "vp_model/horizon.py": "9137f65595e6c5b3a9563b5483e51d9b3b44d5811c3980b5260c79dec0ec132c",
+      "vp_model/intervals.py": "ebc36508e9c2bd0767aeb71faee96d32a62f57ad47d69d1148fcb18ae577883b",
+      "vp_model/ledger.py": "1d0416379d70d2e3acd2da00bf35db02d4ddb8befeb5fcc5d39232801d30d82a",
+      "vp_model/metrics.py": "9317bb0a8cbc2faadb84868c461f7374c87250fa185a355c9a75d2bb52f8e8fb",
+      "vp_model/missingness.py": "5f133492676d844b7172e14f46b71ee2f9f27c40ee86863debe7fa7f21117de5",
+      "vp_model/model_registry.py": "8b7d1c3e1c5d5060ef38b342a603fe95a3ebd663326320b57d52ebeb35b9cb5c",
+      "vp_model/models.py": "c33d7f86d8aa6542351e93f3fe673e62150ac35df7c9413a2c305f406dc32a4e",
+      "vp_model/noise.py": "0d78834bdb192011b1b8f5c9124d99cb6a22322522ca730b39487bce2b4f3b6c",
+      "vp_model/palette.py": "11a4e16c89ad5a8359a87458c22a6409bad4bc3ee4f8f7593ff24a23559840df",
+      "vp_model/persist_forecasts.py": "843a0d4e6a5f97f299bdd981cc5e5194a61a1b5dd9ddee7540d05c3ff8c01630",
+      "vp_model/preprocess.py": "622dc37f0a630501fcb5e46e5be2883870c27621ec2d4900080af12b616cb376",
+      "vp_model/promotion.py": "aeddb22efc820eee76b78062e17c4a16efe8c2747386108d919360913e1149fc",
+      "vp_model/provenance.py": "ff2027ff6d761ad84a4d28f523f6aa2876887c2f47531e6231b4d42fa67c855a",
+      "vp_model/run_comparison.py": "492d709b48f19e6b0f0cc703ff142ef4058d0c961da4e3fbfcbdc62fbad3ed15",
+      "vp_model/run_tuning.py": "09fbe125e6be2220b408be8cfded06b13e7c362687f46f25f3de1f40b3a1f82d",
+      "vp_model/scale.py": "ac8722c4a241f1bd80136c074591c92a9af2950dd17b5be5c6ddc720e42c5475",
+      "vp_model/significance.py": "90de84996bb90ad0fccbd778e4b672e9da6da21f761ab88400b590b2d14a5364",
+      "vp_model/stability.py": "4d9e632b81fc0f83caca641edb90f2e2171658082818b92a55d5cd3946a179c0",
+      "vp_model/transported_forecasts.py": "fdef3108a751ff28edb50f4a949441e2ac730870ea6141e31d0825d56570f23d",
+      "vp_model/tune.py": "e10aa8d9c9cb4eedd829c50bab8e03ebe011f5aee9cb5e83af1c3ea01cc15c96",
+      "vp_model/walkforward.py": "44b82a8648d51eb90ca8ad5a129908f942ca03e33083d660c13d280d5abf66fe"
+    },
+    "data": {
+      "data/processed/bulletins.json": "cc3d0db0317b3547c90010da95eb83938fa6ace2cbc0974039dbbbb59380d6b5",
+      "data/processed/visa_panel_long.csv": "3ae64f3dd714668b7726ae75c95620f2e5542faa3e843e76123581610f00a0b8",
+      "data/raw": "tree:f19aeeb96d9c51661a28a502937502cd71dae3df8918026fa242fc5157e1a930:11",
+      "data/snapshots": "tree:562c3b3987deab444b23952def37a97410bc6a0d324882c52a6d8096c3470ca3:300",
+      "reports/governance/cleaning_ledger.json": "afee6a7a02c95ef8e3b3e79cc1bdf5469bd7fca6dd8f932f8012d39c43061a60"
+    },
+    "governance": {
+      "docs/COHORT_POLICY.md": "404ea49868c603f9049222c7ebb9c042af460cea26f48542042c888a10f7475f",
+      "docs/challenger_deck.json": "f8b1ff47ed69312572be9b8ae1d9d42e8819683491d580422e5108cba6319aa1",
+      "docs/cohort_deck.json": "46669dc95b13336b58e589ca07eef744c1db5e44aaf00cd7c24595b4562450da",
+      "dvc.lock": "09dd0445e0f6ae9bd43774c45336446abecb3e54cf22091f18e8a7d94f8b1666",
+      "dvc.yaml": "95c60f5f6d3c34999313265b4206efa3641af36aba7e6706080fd133fb2fdccc",
+      "locks/deep-macos-arm64.txt": "a75c7d097352bad8c1d833af5ee80500d511190d90caa96f3c27dedc697afac9",
+      "locks/lockset.json": "e1e09c02698fbb1b356af8569c9cf47d348444f6e56e85db76d21aa3419ad5f3",
+      "locks/model-cpu.txt": "8485c1e58bef59caf2f9585336aa64d143468ea5d7d2a60779339e1f2f8b6c93",
+      "pipeline/migrations": "tree:69914cbdbe7e7ac3685b596f8f42b6d408140df0c132a7e02b8fffe80e02d4df:2",
+      "reports/eval/tuned_params.json": "a0225a872550893f703650084e55d6ede3a116ac0afd38eb84d45c77b454d906",
+      "reports/governance/champion_manifest.json": "9931767d64a8a392cf53429900098893b87379adf040a54ae12634370279f381",
+      "schema.sql": "721298241241cf20e1cd220d325468d993ec11e1bca29a0578c99808a566ffba",
+      "tools/consistency_rules.yml": "462851df599bd517646f1d391c99171f2a5770ca04b4ba5ce50afbc7a6b866c4"
+    },
+    "governance_anchors": {
+      "docs/challenger_deck.json": "vp_model.champion.DECK_PATH",
+      "docs/cohort_deck.json": "vp_model.deck.DECK_PATH",
+      "reports/governance/champion_manifest.json": "vp_model.champion.MANIFEST"
+    }
+  },
+  "protocol": {
+    "cohort_deck": {
+      "cohorts": [
+        "estable",
+        "no_estable",
+        "all"
+      ],
+      "controles": [
+        "control-bitcn",
+        "control-gbm-lightgbm",
+        "control-patchtst",
+        "control-tide"
+      ],
+      "device": "cpu",
+      "frozen": [
+        "accelerator",
+        "cv",
+        "early_stop_patience_steps",
+        "gradient_clip_val",
+        "horizon",
+        "input_size",
+        "learning_rate",
+        "loss",
+        "max_steps",
+        "prediction_column",
+        "scaler_type",
+        "torch_num_threads",
+        "valid_loss"
+      ],
+      "max_primary_per_cohort": 3,
+      "primarias": [
+        "deepar-legacy",
+        "deepar-robust",
+        "deepar-robust-levels"
+      ],
+      "seeds": [
+        1
+      ]
+    },
+    "cohorts": {
+      "names": [
+        "estable",
+        "no_estable"
+      ],
+      "rule_version": "1.0.0"
+    },
+    "gap_policy": "locf_causal",
+    "horizon_candidates": [
+      "naive1",
+      "drift",
+      "naive",
+      "theta",
+      "ets"
+    ],
+    "horizons": [
+      1,
+      3,
+      6,
+      12,
+      24,
+      36,
+      48,
+      60
+    ],
+    "mask_covariates": {
+      "catboost": [
+        "observed",
+        "months_since_obs"
+      ],
+      "lightgbm": [
+        "observed",
+        "months_since_obs"
+      ],
+      "xgboost": [
+        "observed",
+        "months_since_obs"
+      ]
+    },
+    "min_trainable_evaluable": 84,
+    "pilot_countries": [
+      "mexico",
+      "india",
+      "china",
+      "philippines",
+      "all_chargeability"
+    ],
+    "run_metadata": {
+      "data_lineage": {
+        "dvc_lock_md5": "bebede81dca1",
+        "panel_parquet_md5": "8654bebb8d17"
+      },
+      "features": {
+        "base_epoch": "1975-01-01",
+        "covariates": {
+          "catboost": [
+            "month_sin",
+            "month_cos",
+            "fiscal_sin",
+            "fiscal_cos"
+          ],
+          "lightgbm": [
+            "month_sin",
+            "month_cos",
+            "fiscal_sin",
+            "fiscal_cos"
+          ],
+          "xgboost": [
+            "month_sin",
+            "month_cos",
+            "fiscal_sin",
+            "fiscal_cos"
+          ]
+        },
+        "differenced": [
+          "catboost",
+          "lightgbm",
+          "xgboost"
+        ],
+        "gap_policy": "locf_causal",
+        "mask_covariates": {
+          "catboost": [
+            "observed",
+            "months_since_obs"
+          ],
+          "lightgbm": [
+            "observed",
+            "months_since_obs"
+          ],
+          "xgboost": [
+            "observed",
+            "months_since_obs"
+          ]
+        },
+        "max_interpolable_gap": 3,
+        "nn_differenced": [
+          "deepar",
+          "dlinear",
+          "lstm",
+          "nbeats",
+          "nhits",
+          "nlinear",
+          "tft",
+          "tide"
+        ],
+        "scaled": [
+          "deepar",
+          "dlinear",
+          "lstm",
+          "nbeats",
+          "nhits",
+          "nlinear",
+          "tft",
+          "tide"
+        ]
+      },
+      "hyperparams": {
+        "arima": {
+          "d": 1,
+          "p": 2,
+          "q": 2
+        },
+        "mlp": {
+          "input_chunk_length": 24,
+          "n_epochs": 60,
+          "output_chunk_length": 1
+        },
+        "rlinear": {
+          "lags": 24,
+          "output_chunk_length": 1
+        },
+        "rnn": {
+          "hidden_dim": 20,
+          "input_chunk_length": 24,
+          "n_epochs": 60,
+          "n_rnn_layers": 1,
+          "training_length": 36
+        },
+        "rnn_hybrid": {
+          "hidden_dim": 20,
+          "input_chunk_length": 12,
+          "n_epochs": 60,
+          "training_length": 18
+        },
+        "sarima": {
+          "d": 1,
+          "p": 1,
+          "q": 1,
+          "seasonal_order": [
+            1,
+            0,
+            1,
+            12
+          ]
+        },
+        "tft": {
+          "add_relative_index": true,
+          "hidden_size": 16,
+          "input_chunk_length": 24,
+          "lstm_layers": 1,
+          "n_epochs": 60,
+          "num_attention_heads": 4,
+          "output_chunk_length": 1
+        },
+        "trees": {
+          "lags": 24,
+          "lags_future_covariates": {
+            "fiscal_cos": [
+              0
+            ],
+            "fiscal_sin": [
+              0
+            ],
+            "month_cos": [
+              0
+            ],
+            "month_sin": [
+              0
+            ],
+            "months_since_obs": [
+              -1
+            ],
+            "observed": [
+              -1
+            ]
+          },
+          "learning_rate": 0.02,
+          "n_estimators": 200,
+          "output_chunk_length": 1
+        }
+      },
+      "libs": {
+        "darts": "0.44.1",
+        "duckdb": "1.5.3",
+        "pandas": "3.0.0",
+        "prophet": "1.3.0",
+        "scipy": "1.17.1",
+        "statsmodels": "0.14.6",
+        "torch": "2.13.0",
+        "xgboost": "3.2.0"
+      },
+      "python": "3.14.7",
+      "seed": 42,
+      "walkforward": {
+        "holdout": 24,
+        "min_train": {
+          "DFF": 36,
+          "FAD": 60
+        },
+        "nn_retrain": 12
+      }
+    },
+    "tables": [
+      "FAD",
+      "DFF"
+    ]
+  },
+  "purpose": "sello de entradas y protocolo de la campaña causal (#33), previo a calcular",
+  "schema_version": 1
+}

@@ -1,0 +1,284 @@
+{
+ "_doc": "M74-E-R10 · esquema CERRADO y recursivo del manifiesto de campaña y de su sello de entradas. Lo lee tools/campaign_manifest.shape_problems: dict = claves exactas ({'*': x} = mapa no vacío) · [x] lista de x · [] lista vacía · 'int'/'float'/'bool'/'str' tipo exacto · 're:…' cadena que casa entera · {'=': x} o escalar JSON = literal. El bloque protocol se derivó del sello real de 490befb; cambiar el protocolo exige actualizar este archivo.",
+ "manifest": {
+  "campaign_id": "re:rederiv_[0-9a-f]{7,40}_[0-9]{8}T[0-9]{6}",
+  "dirty": "bool",
+  "git_sha": "re:[0-9a-f]{40}",
+  "preflight": "re:reports/logs/preflight_rederiv_[0-9a-f]{7,40}_[0-9]{8}T[0-9]{6}\\.json",
+  "preflight_sha256": "re:[0-9a-f]{64}",
+  "sha": "re:[0-9a-f]{40}",
+  "started_at": "re:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})"
+ },
+ "seal": {
+  "counts": {
+   "code": "int",
+   "data": "int",
+   "governance": "int"
+  },
+  "entrypoints": {
+   "modules": [
+    "re:[a-z_][a-z0-9_]*(\\.[a-z_][a-z0-9_]*)+"
+   ],
+   "scripts": [
+    "re:(experiments|tools|pipeline|vp_model|vp_data)/[A-Za-z0-9_/]+\\.py"
+   ],
+   "shell": [
+    "re:experiments/[A-Za-z0-9_/]+\\.sh"
+   ]
+  },
+  "environment": {
+   "ante": {
+    "accreditation": [],
+    "extra": [
+     "str"
+    ],
+    "extra_versions": {
+     "*": "str"
+    },
+    "freeze_sha256": "re:[0-9a-f]{64}",
+    "lock": {
+     "=": "model-cpu.txt"
+    },
+    "missing": [],
+    "n_installed": "int",
+    "n_pins": "int",
+    "reproduces_lock": true,
+    "undeclared": [],
+    "venv": {
+     "=": "ante"
+    },
+    "version_mismatch": []
+   },
+   "ante_nf": {
+    "accreditation": [],
+    "extra": [
+     "str"
+    ],
+    "extra_versions": {
+     "*": "str"
+    },
+    "freeze_sha256": "re:[0-9a-f]{64}",
+    "lock": {
+     "=": "deep-macos-arm64.txt"
+    },
+    "missing": [],
+    "n_installed": "int",
+    "n_pins": "int",
+    "reproduces_lock": true,
+    "undeclared": [],
+    "venv": {
+     "=": "ante_nf"
+    },
+    "version_mismatch": []
+   }
+  },
+  "git": {
+   "dirty": "bool",
+   "head": "re:[0-9a-f]{40}"
+  },
+  "inputs": {
+   "code": {
+    "*": "re:[0-9a-f]{64}"
+   },
+   "data": {
+    "*": "re:[0-9a-f]{64}|tree:[0-9a-f]{64}:[0-9]+"
+   },
+   "governance": {
+    "*": "re:[0-9a-f]{64}|tree:[0-9a-f]{64}:[0-9]+"
+   },
+   "governance_anchors": {
+    "*": "re:[a-z_][a-z0-9_.]*\\.[A-Z_]+"
+   }
+  },
+  "protocol": {
+   "cohort_deck": {
+    "cohorts": [
+     "str"
+    ],
+    "controles": [
+     "str"
+    ],
+    "device": "str",
+    "frozen": [
+     "str"
+    ],
+    "max_primary_per_cohort": "int",
+    "primarias": [
+     "str"
+    ],
+    "seeds": [
+     "int"
+    ]
+   },
+   "cohorts": {
+    "names": [
+     "str"
+    ],
+    "rule_version": "str"
+   },
+   "gap_policy": "str",
+   "horizon_candidates": [
+    "str"
+   ],
+   "horizons": [
+    "int"
+   ],
+   "mask_covariates": {
+    "catboost": [
+     "str"
+    ],
+    "lightgbm": [
+     "str"
+    ],
+    "xgboost": [
+     "str"
+    ]
+   },
+   "min_trainable_evaluable": "int",
+   "pilot_countries": [
+    "str"
+   ],
+   "run_metadata": {
+    "data_lineage": {
+     "dvc_lock_md5": "str",
+     "panel_parquet_md5": "str"
+    },
+    "features": {
+     "base_epoch": "str",
+     "covariates": {
+      "catboost": [
+       "str"
+      ],
+      "lightgbm": [
+       "str"
+      ],
+      "xgboost": [
+       "str"
+      ]
+     },
+     "differenced": [
+      "str"
+     ],
+     "gap_policy": "str",
+     "mask_covariates": {
+      "catboost": [
+       "str"
+      ],
+      "lightgbm": [
+       "str"
+      ],
+      "xgboost": [
+       "str"
+      ]
+     },
+     "max_interpolable_gap": "int",
+     "nn_differenced": [
+      "str"
+     ],
+     "scaled": [
+      "str"
+     ]
+    },
+    "hyperparams": {
+     "arima": {
+      "d": "int",
+      "p": "int",
+      "q": "int"
+     },
+     "mlp": {
+      "input_chunk_length": "int",
+      "n_epochs": "int",
+      "output_chunk_length": "int"
+     },
+     "rlinear": {
+      "lags": "int",
+      "output_chunk_length": "int"
+     },
+     "rnn": {
+      "hidden_dim": "int",
+      "input_chunk_length": "int",
+      "n_epochs": "int",
+      "n_rnn_layers": "int",
+      "training_length": "int"
+     },
+     "rnn_hybrid": {
+      "hidden_dim": "int",
+      "input_chunk_length": "int",
+      "n_epochs": "int",
+      "training_length": "int"
+     },
+     "sarima": {
+      "d": "int",
+      "p": "int",
+      "q": "int",
+      "seasonal_order": [
+       "int"
+      ]
+     },
+     "tft": {
+      "add_relative_index": "bool",
+      "hidden_size": "int",
+      "input_chunk_length": "int",
+      "lstm_layers": "int",
+      "n_epochs": "int",
+      "num_attention_heads": "int",
+      "output_chunk_length": "int"
+     },
+     "trees": {
+      "lags": "int",
+      "lags_future_covariates": {
+       "fiscal_cos": [
+        "int"
+       ],
+       "fiscal_sin": [
+        "int"
+       ],
+       "month_cos": [
+        "int"
+       ],
+       "month_sin": [
+        "int"
+       ],
+       "months_since_obs": [
+        "int"
+       ],
+       "observed": [
+        "int"
+       ]
+      },
+      "learning_rate": "float",
+      "n_estimators": "int",
+      "output_chunk_length": "int"
+     }
+    },
+    "libs": {
+     "darts": "str",
+     "duckdb": "str",
+     "pandas": "str",
+     "prophet": "str",
+     "scipy": "str",
+     "statsmodels": "str",
+     "torch": "str",
+     "xgboost": "str"
+    },
+    "python": "str",
+    "seed": "int",
+    "walkforward": {
+     "holdout": "int",
+     "min_train": {
+      "DFF": "int",
+      "FAD": "int"
+     },
+     "nn_retrain": "int"
+    }
+   },
+   "tables": [
+    "str"
+   ]
+  },
+  "purpose": {
+   "=": "sello de entradas y protocolo de la campaña causal (#33), previo a calcular"
+  },
+  "schema_version": 1
+ }
+}

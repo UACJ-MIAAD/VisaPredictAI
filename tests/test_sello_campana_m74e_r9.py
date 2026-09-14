@@ -24,7 +24,7 @@ import tools.campaign_manifest as cm  # noqa: E402
 import tools.check_campaign_completeness as gate  # noqa: E402
 
 RUNBOOK = RAIZ / "experiments" / "run_rederivation.sh"
-SELLO_REL = "reports/logs/preflight_rederiv_prueba.json"
+SELLO_REL = "reports/logs/preflight_rederiv_aaaaaaa_20260914T000000.json"
 
 
 # ═══════════════════════════════ la función única
@@ -32,7 +32,9 @@ def test_control_un_sello_legitimo_se_acredita(tmp_path: Path, campana_sellada) 
     assert cm.seal_problems(campana_sellada(tmp_path)) == []
 
 
-@pytest.mark.parametrize("crudo,motivo", [(b"", "sello ilegible"), (b"{}", "esquema cerrado")], ids=["vacio", "llaves"])
+@pytest.mark.parametrize(
+    "crudo,motivo", [(b"", "sello ilegible"), (b"{}", "no cumple las claves")], ids=["vacio", "llaves"]
+)
 def test_RED_un_sello_vacio_o_sin_esquema(tmp_path: Path, campana_sellada, crudo: bytes, motivo: str) -> None:
     assert any(motivo in x for x in cm.seal_problems(campana_sellada(tmp_path, sello=crudo)))
 
@@ -46,7 +48,10 @@ def test_RED_sello_ausente(tmp_path: Path, campana_sellada) -> None:
 def test_RED_bytes_alterados_despues_del_manifiesto(tmp_path: Path, campana_sellada) -> None:
     m = campana_sellada(tmp_path)
     sello = tmp_path / SELLO_REL
-    sello.write_bytes(sello.read_bytes().replace(b'"prueba"', b'"PRUEBA"'))
+    antes = sello.read_bytes()
+    sello.write_bytes(antes + b" ")
+    # ★ M74-E-R10: el `replace` de `"prueba"` dejó de cambiar nada al usar el sello real; se exige el cambio
+    assert sello.read_bytes() != antes
     assert any("sha256 distinto" in x for x in cm.seal_problems(m))
 
 
@@ -87,7 +92,7 @@ def test_RED_sello_por_enlace_simbolico(tmp_path: Path, campana_sellada) -> None
 def test_RED_entorno_que_no_reproduce_su_lock(tmp_path: Path, campana_sellada) -> None:
     sello = campana_sellada.sello()
     sello["environment"]["ante"]["reproduces_lock"] = False
-    assert any("no reproduce" in x for x in cm.seal_problems(campana_sellada(tmp_path, sello=sello)))
+    assert any("reproduces_lock" in x for x in cm.seal_problems(campana_sellada(tmp_path, sello=sello)))
 
 
 def test_la_acreditacion_no_consulta_el_head_vivo(tmp_path: Path, monkeypatch, campana_sellada) -> None:

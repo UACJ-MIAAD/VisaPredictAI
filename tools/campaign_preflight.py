@@ -58,6 +58,7 @@ GOVERNANCE_PLAIN: tuple[str, ...] = (
     "pipeline/migrations",  # idem, como árbol
     "tools/consistency_rules.yml",  # decide la etapa 10, incluido `retro_protocol`
     "locks/lockset.json",  # ★ M74-E-R8 · la procedencia de la matriz que construyó los entornos
+    "tools/campaign_seal_schema.json",  # ★ M74-E-R10 · la forma con que se acredita este mismo sello
 )
 #: Locks REALES de cada intérprete que la campaña usa. ★ La pareja vive en
 #: `tools/check_env_matches_lock.py`, que es quien la comprueba: tenerla escrita aquí TAMBIÉN era

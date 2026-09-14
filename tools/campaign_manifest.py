@@ -1,61 +1,66 @@
 #!/usr/bin/env python
-"""Contrato de PUBLICABILIDAD del manifiesto de campana (fuente unica, fail-closed).
+"""Contrato de PUBLICABILIDAD del manifiesto de campaña y de su sello de entradas (fuente única, fail-closed).
 
-``experiments/sync_all.sh`` y sus tests comparten ESTA logica en vez de un ``grep``.
-Publicar exige un manifiesto de campana que EXISTA, sea JSON valido y selle ``dirty``
-como ``false`` BOOLEANO explicito. Fail-closed ante:
+``experiments/sync_all.sh``, el runbook y el gate de completitud comparten ESTA lógica. Publicar exige un
+manifiesto que exista, sea JSON sin claves duplicadas y selle ``dirty`` como ``false`` booleano (ronda 8: el
+``grep`` era fail-open), y cuyo sello de entradas se acredite por bytes, identidad y CONTENIDO bajo el esquema
+cerrado de ``campaign_seal_schema.json`` (M74-E-R9 y R10).
 
-  * manifiesto ausente (actualmente lo esta y esta gitignored);
-  * ilegible / vacio / malformado;
-  * sin la clave ``dirty``;
-  * ``dirty`` != ``false`` booleano ( ``true`` · ``"false"`` string · ``0`` · ``null`` ).
-
-Motivo (auditoria 13-jul-2026 ronda 8): el ``grep '"dirty": *true'`` era FAIL-OPEN — no
-cubria manifiesto ausente/vacio/malformado, ni ``{"dirty" : true}`` con espacios o saltos,
-ni un cambio TOCTOU entre el chequeo y el ``dvc push``. Una campana CAMPAIGN_DIAGNOSTIC
-(dirty=true) podia llegar a produccion. Este contrato lo cierra.
-
-Uso:  python -m tools.campaign_manifest --assert-publishable reports/campaign/campaign_manifest.json
-       (exit 0 = publicable · exit 7 = BLOQUEADO, con el motivo en stderr)
-      python -m tools.campaign_manifest --assert-sealed <manifiesto>   (M74-E-R9: exit 1 si el sello no se acredita)
+Uso:  python -m tools.campaign_manifest --assert-publishable <manifiesto>   (exit 0 publicable · 7 bloqueado)
+      python -m tools.campaign_manifest --assert-sealed <manifiesto>        (exit 1 si el sello no se acredita)
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
 from vp_model.artifact_receipt import ReceiptError, loads_strict
 
-#: ★ M74-E-R9 · esquemas CERRADOS del manifiesto de campaña y del sello de entradas (preflight).
-MANIFEST_KEYS = frozenset({"campaign_id", "sha", "git_sha", "dirty", "started_at", "preflight", "preflight_sha256"})
-SEAL_KEYS = frozenset(
-    {"schema_version", "purpose", "git", "entrypoints", "inputs", "counts", "environment", "protocol"}
-)
+#: ★ M74-E-R10 · esquema cerrado y recursivo del manifiesto y del sello, como DATOS junto a su lector.
+ESQUEMA = json.loads(Path(__file__).with_name("campaign_seal_schema.json").read_text(encoding="utf-8"))
+_TIPOS = {"int": int, "float": float, "bool": bool, "str": str}
 
 
-def _hex(valor: object, n: int) -> bool:
-    return isinstance(valor, str) and len(valor) == n and all(c in "0123456789abcdef" for c in valor)
+def shape_problems(v: object, f: object, ruta: str) -> list[str]:
+    """Contrasta ``v`` con la forma ``f`` del esquema; la gramática está documentada en el propio JSON."""
+    if isinstance(f, dict) and set(f) == {"="}:
+        return [] if type(v) is type(f["="]) and v == f["="] else [f"{ruta}: {v!r} en vez de {f['=']!r}"]
+    if isinstance(f, dict):
+        if not isinstance(v, dict) or (not v if "*" in f else set(v) != set(f)):
+            return [
+                f"{ruta}: {sorted(v) if isinstance(v, dict) else type(v).__name__} no cumple las claves {sorted(f)}"
+            ]
+        return [p for k, x in v.items() for p in shape_problems(x, f.get(k, f.get("*")), f"{ruta}.{k}")]
+    if isinstance(f, list):
+        if not isinstance(v, list) or (not f and v):
+            return [f"{ruta}: {type(v).__name__} en vez de lista{'' if f else ' vacía'}"]
+        return [p for i, x in enumerate(v) for p in shape_problems(x, f[0], f"{ruta}[{i}]")]
+    if isinstance(f, str) and f in _TIPOS:
+        return [] if type(v) is _TIPOS[f] else [f"{ruta}: {type(v).__name__} en vez de {f}"]
+    if isinstance(f, str) and f.startswith("re:"):
+        return [] if isinstance(v, str) and re.fullmatch(f[3:], v) else [f"{ruta}: {v!r} no casa con {f[3:]}"]
+    return [] if type(v) is type(f) and v == f else [f"{ruta}: {v!r} en vez de {f!r}"]
 
 
-def seal_problems(path: str | Path) -> list[str]:
-    """★ M74-E-R9 · única acreditación manifiesto ↔ sello: sha256 de sus bytes, identidad, esquemas; sin HEAD vivo."""
-    p = Path(path)
-    try:
-        m = loads_strict(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError, ReceiptError) as exc:
-        return [f"manifiesto ilegible: {exc}"]
-    if set(m) != MANIFEST_KEYS:
-        return [f"manifiesto fuera del esquema cerrado {sorted(MANIFEST_KEYS)}"]
+def _acreditar(m: dict, p: Path) -> list[str]:
+    """Acredita un manifiesto YA leído contra su sello: forma, coherencia, bytes, contenido e identidad."""
+    probs = shape_problems(m, ESQUEMA["manifest"], "manifiesto")
+    if probs:
+        return probs
     cid, sha, sucio = m["campaign_id"], m["git_sha"], m["dirty"]
-    if not (isinstance(cid, str) and cid and _hex(sha, 40) and m["sha"] == sha and isinstance(sucio, bool)):
-        return ["manifiesto: campaign_id, sha/git_sha o dirty con tipo o valor inválido"]
     ruta = f"reports/logs/preflight_{cid}.json"
-    if m["preflight"] != ruta or not _hex(m["preflight_sha256"], 64):
-        return [f"manifiesto: el sello debe ser {ruta!r} con un sha256 hexadecimal"]
+    try:
+        dt.datetime.fromisoformat(m["started_at"])
+    except ValueError:
+        return [f"manifiesto: started_at {m['started_at']!r} no es una fecha real"]
+    if m["sha"] != sha or m["preflight"] != ruta or not sha.startswith(cid.split("_")[1]):
+        return ["manifiesto: sha, campaign_id y ruta del sello no describen la misma corrida"]
     sello = p.resolve().parents[2] / ruta
     if sello.is_symlink() or not sello.is_file():
         return [f"sello ausente o no regular: {ruta}"]
@@ -66,23 +71,21 @@ def seal_problems(path: str | Path) -> list[str]:
         s = loads_strict(crudo.decode("utf-8"))
     except (ValueError, ReceiptError) as exc:
         return [f"sello ilegible: {exc}"]
-    if set(s) != SEAL_KEYS or s["schema_version"] != 1 or s["schema_version"] is True:
-        return ["sello fuera del esquema cerrado (claves o schema_version)"]
-    probs: list[str] = []
-    git, cuentas, entradas, entorno = s["git"], s["counts"], s["inputs"], s["environment"]
-    if not isinstance(git, dict) or set(git) != {"head", "dirty"} or git["head"] != sha or git["dirty"] is not sucio:
-        probs.append(f"sello de otra identidad: git={git!r} frente a git_sha {sha} y dirty {sucio}")
-    for k in ("code", "data", "governance"):
-        n = len(entradas[k]) if isinstance(entradas, dict) and isinstance(entradas.get(k), dict) else 0
-        if not n or not isinstance(cuentas, dict) or cuentas.get(k) != n:
-            probs.append(f"sello: inputs.{k} vacío o distinto de counts.{k}")
-    if (
-        not isinstance(entorno, dict)
-        or not entorno
-        or any(not isinstance(e, dict) or e.get("reproduces_lock") is not True for e in entorno.values())
-    ):
-        probs.append("sello: algún entorno no reproduce su lock")
-    return probs
+    probs = shape_problems(s, ESQUEMA["seal"], "sello")
+    if not probs and (s["git"]["head"] != sha or s["git"]["dirty"] is not sucio):
+        probs.append(f"sello de otra identidad: git={s['git']!r} frente a git_sha {sha} y dirty {sucio}")
+    cuentas = [] if probs else [k for k in ("code", "data", "governance") if s["counts"][k] != len(s["inputs"][k])]
+    return probs + [f"sello: counts.{k} no es el número de inputs.{k}" for k in cuentas]
+
+
+def seal_problems(path: str | Path) -> list[str]:
+    """★ M74-E-R9/R10 · la acreditación única manifiesto ↔ sello, leyendo el manifiesto una sola vez."""
+    p = Path(path)
+    try:
+        m = loads_strict(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError, ReceiptError) as exc:
+        return [f"manifiesto ilegible: {exc}"]
+    return _acreditar(m, p)
 
 
 def publish_blocker(path: str | Path) -> str | None:
@@ -91,20 +94,18 @@ def publish_blocker(path: str | Path) -> str | None:
     if not p.exists():
         return f"falta el manifiesto de campana {p} (sin identidad sellada)"
     try:
-        m = json.loads(p.read_text())
-    except (json.JSONDecodeError, ValueError) as e:
+        m = loads_strict(p.read_text())  # ★ M74-E-R10 · UNA lectura: `dirty` y el sello miran el mismo objeto
+    except (ValueError, ReceiptError) as e:
         return f"manifiesto malformado ({type(e).__name__}: {e})"
     except OSError as e:
         return f"manifiesto ilegible ({type(e).__name__})"
-    if not isinstance(m, dict):
-        return "el manifiesto no es un objeto JSON"
     if "dirty" not in m:
         return "el manifiesto no sella la clave `dirty`"
     # `is not False` es DELIBERADO: rechaza true, "false" (string), 0 (== False pero no es
     # False), null. Solo el booleano JSON `false` autoriza publicar.
     if m["dirty"] is not False:
         return f"dirty={m['dirty']!r} (campana diagnostica) — re-lanza OFICIAL desde arbol limpio"
-    problemas = seal_problems(p)
+    problemas = _acreditar(m, p)
     if problemas:
         return "sello de entradas no acreditado: " + " · ".join(problemas)
     return None

@@ -212,45 +212,38 @@ def panel_semillas(tmp_path, monkeypatch):
 
 @pytest.fixture
 def campana_sellada():
-    """M74-E-R9 · fábrica de manifiesto + sello de entradas VÁLIDOS bajo ``root`` (esquemas cerrados).
+    """M74-E-R9/R10 · fábrica de manifiesto + sello LEGÍTIMOS bajo ``root``.
 
-    ``sello`` admite un dict o bytes crudos para construir los ataques; ``fabricar.sello`` da el
-    contenido mínimo válido para una identidad.
+    ★ R10: el sello es el que emitió el preflight real de `490befb` (``tests/data/sello_campana_legitimo.json``)
+    con la identidad sustituida; el «mínimo válido» de R9 consagraba un bypass. ``sello`` admite un dict o bytes
+    crudos para construir ataques, y ``fabricar.sello`` devuelve una copia legítima para una identidad.
     """
+    import copy
     import hashlib
     import json
 
-    def sello_minimo(head: str = "a" * 40, dirty: bool = False) -> dict:
-        return {
-            "schema_version": 1,
-            "purpose": "prueba",
-            "git": {"head": head, "dirty": dirty},
-            "entrypoints": {"modules": [], "scripts": []},
-            "inputs": {
-                "code": {"a.py": "x"},
-                "data": {"d.csv": "x"},
-                "governance": {"g.json": "x"},
-                "governance_anchors": {},
-            },
-            "counts": {"code": 1, "data": 1, "governance": 1},
-            "environment": {"ante": {"reproduces_lock": True}},
-            "protocol": {},
-        }
+    legitimo = json.loads((RAIZ / "tests" / "data" / "sello_campana_legitimo.json").read_text(encoding="utf-8"))
 
-    def fabricar(root, *, campaign_id="rederiv_prueba", head="a" * 40, dirty=False, sello=None):
+    def sello_legitimo(head: str = "a" * 40, dirty: bool = False) -> dict:
+        sello = copy.deepcopy(legitimo)
+        sello["git"] = {"head": head, "dirty": dirty}
+        return sello
+
+    def fabricar(root, *, campaign_id=None, head="a" * 40, dirty=False, sello=None):
         root = Path(root)
-        ruta = f"reports/logs/preflight_{campaign_id}.json"
-        contenido = sello_minimo(head, dirty) if sello is None else sello
+        cid = campaign_id or f"rederiv_{head[:7]}_20260914T000000"
+        ruta = f"reports/logs/preflight_{cid}.json"
+        contenido = sello_legitimo(head, dirty) if sello is None else sello
         crudo = contenido if isinstance(contenido, bytes) else json.dumps(contenido).encode("utf-8")
         (root / ruta).parent.mkdir(parents=True, exist_ok=True)
         (root / ruta).write_bytes(crudo)
         manifiesto = root / "reports" / "campaign" / "campaign_manifest.json"
         manifiesto.parent.mkdir(parents=True, exist_ok=True)
-        datos = {"campaign_id": campaign_id, "sha": head, "git_sha": head, "dirty": dirty}
+        datos = {"campaign_id": cid, "sha": head, "git_sha": head, "dirty": dirty}
         datos |= {"started_at": "2000-01-01T00:00:00+00:00", "preflight": ruta}
         datos["preflight_sha256"] = hashlib.sha256(crudo).hexdigest()
         manifiesto.write_text(json.dumps(datos), encoding="utf-8")
         return manifiesto
 
-    fabricar.sello = sello_minimo  # type: ignore[attr-defined]
+    fabricar.sello = sello_legitimo  # type: ignore[attr-defined]
     return fabricar
