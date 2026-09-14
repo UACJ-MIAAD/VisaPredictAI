@@ -201,11 +201,24 @@ def test_la_cabecera_ya_no_llama_best_effort_al_tuning() -> None:
     assert "BÚSQUEDA DE TUNING" in cabecera, "la enumeración no la declara obligatoria"
 
 
-def test_la_preinscripcion_dice_el_cierre_vigente() -> None:
-    """Afirmaba `77/5/12` y citaba un preflight que dejó de ser el vigente."""
+def test_la_preinscripcion_no_fija_un_cierre_en_prosa() -> None:
+    """Afirmaba `77/5/12` y citaba un preflight que dejó de ser el vigente.
+
+    ⚠️ La primera versión de ESTA prueba exigía `85 / 5 / 12` en la prosa, y caducó dentro del mismo
+    lote: cablear el gate de linaje llevó el cierre a 86. Fijar el número correcto en un documento
+    reproduce el defecto que se corrige. Lo que se exige ahora es la AUSENCIA de un cierre tecleado
+    que se presente como vigente, y que §8.6 conste como desviación.
+    """
+    import re as _re
+
     p = Path("/Users/haowei/Documents/Anteproyecto/Prompts/MLOPS_V2_EJECUCION_2026-09/lote_M74A/M74A_PREINSCRIPCION.md")
     if not p.is_file():
         pytest.skip("la preinscripción vive fuera del repositorio")
     texto = p.read_text(encoding="utf-8")
-    assert "85 / 5 / 12" in texto or "85/5/12" in texto
+    # ⚠️ La FRASE ORIGINAL completa, no un fragmento: la corrección fechada CITA «no cambian el
+    # cierre computacional `77/5/12`» para decir qué afirmaba, y el fragmento acusaba a la cita.
+    # Quinta vez en este lote que una comprobación por texto delata a quien documenta el patrón.
+    assert "Estas decisiones no cambian el cierre computacional" not in texto, "sigue la afirmación original"
+    vigentes = _re.findall(r"cierre vigente es\s*`?\d+\s*/\s*\d+\s*/\s*\d+", texto)
+    assert not vigentes, f"vuelve a fijar un cierre en prosa: {vigentes}"
     assert "DESVIACIÓN REPORTABLE" in texto
