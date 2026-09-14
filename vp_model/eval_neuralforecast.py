@@ -103,7 +103,9 @@ def eval_global_deep(table: str = "FAD") -> pd.DataFrame:
                 f = g[m].to_numpy()[fmask]
                 if np.isnan(f).all():
                     continue
-                mae = float(np.nanmean(np.abs(y - f)))
+                # ★ M74-E-R7 · `mean`, no `nanmean`: un pronóstico parcialmente ausente se promediaba
+                # sobre MENOS meses y salía como un MASE válido. Ahora da NaN y el agregador lo rechaza.
+                mae = float(np.mean(np.abs(y - f)))
                 rows.append(
                     {
                         "variant": variant,
@@ -112,7 +114,7 @@ def eval_global_deep(table: str = "FAD") -> pd.DataFrame:
                         "country": country,
                         "category": category,
                         "hold_mase": mae / scale,
-                        "hold_smape": float(np.nanmean(2 * np.abs(y - f) / (np.abs(y) + np.abs(f) + 1e-9))),
+                        "hold_smape": float(np.mean(2 * np.abs(y - f) / (np.abs(y) + np.abs(f) + 1e-9))),
                         "hold_mae": mae,
                     }
                 )

@@ -274,7 +274,7 @@
   },
   "seed_coverage.py": {
     "clase": "investigacion",
-    "consumidor": "contrato de cobertura por semilla del productor deep (run_global_deep) + gate validate_seed_group"
+    "consumidor": "contrato de cobertura por semilla del productor deep (run_global_deep) + puerta unica accredit_group (aggregate_seeds)"
   },
   "significance_tables.py": {
     "clase": "investigacion",

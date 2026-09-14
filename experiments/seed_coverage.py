@@ -5,9 +5,10 @@ Corre en `ante_nf` (pandas, SIN vp_model/vp_data). Da al productor:
 * una GRILLA CANONICA (las ultimas `holdout` filas por serie), NO 'las filas donde algun
   modelo tiene forecast' -> un modelo que fallo deja NaN en su columna, no borra la fila;
 * escritura ATOMICA del CSV y del sidecar (tmp + ``os.replace``);
-* un SIDECAR de cobertura por semilla (grid/truth/finite-mask sha256 + inventario de modelos)
-  que el gate compara entre las 5 semillas: dos archivos con 600 filas distintas NO son
-  equivalentes; una prediccion parcialmente NaN cambia la finite-mask -> fallo de cobertura.
+* un SIDECAR de cobertura por semilla (grid/truth/finite-mask sha256 + inventario de modelos);
+* ★ M74-E-R7 · `seed_problems` y `accredit_group`: UNA regla de cobertura exacta contra la rejilla
+  del panel, para el productor antes de escribir y para el lector antes de evaluar. Comparar las
+  semillas ENTRE SI no bastaba: cinco copias truncadas igual son identicas entre si.
 
 Stdlib + pandas. El importador (run_global_deep en ante_nf) debe poner la raiz del repo en
 sys.path ANTES de ``import seed_coverage`` para resolver ``tools.campaign_hashing`` (en `ante`
@@ -67,18 +68,32 @@ def build_output(grid: pd.DataFrame, model_forecasts: dict[str, pd.DataFrame], r
     return out
 
 
-def validate_output(out: pd.DataFrame, grid: pd.DataFrame, required: list[str]) -> list[str]:
-    """Contenido correcto ANTES de renombrar: grilla intacta, sin duplicados, columnas presentes."""
+def seed_problems(out: pd.DataFrame, grid: pd.DataFrame, required: list[str]) -> list[str]:
+    """Cobertura EXACTA de una semilla, medida sobre el marco y contra la rejilla canonica.
+
+    Cada clave ``(unique_id, ds)`` de la rejilla exactamente una vez, la verdad del panel en cada
+    una y un pronostico finito de cada modelo declarado. Ni una columna de mas ni de menos.
+    """
+    columnas = sorted(["unique_id", "ds", "y", *required])
+    if sorted(map(str, out.columns)) != columnas:
+        return [f"columnas {sorted(map(str, out.columns))} != {columnas}"]
+    verdad = {(str(u), _iso(d)): float(y) for u, d, y in zip(grid["unique_id"], grid["ds"], grid["y"], strict=True)}
+    claves = list(zip(out["unique_id"].astype(str), out["ds"].map(_iso), strict=True))
     probs: list[str] = []
-    gkey = list(zip(grid["unique_id"].astype(str), grid["ds"].map(_iso), strict=True))
-    okey = list(zip(out["unique_id"].astype(str), out["ds"].map(_iso), strict=True))
-    if len(okey) != len(set(okey)):
-        probs.append("salida: filas (unique_id, ds) duplicadas")
-    if set(okey) != set(gkey):
-        probs.append("salida: la grilla no coincide con la canonica (filas de mas/menos)")
-    missing = [m for m in required if m not in out.columns]
-    if missing:
-        probs.append(f"salida: faltan columnas de modelo {missing}")
+    if len(claves) != len(set(claves)):
+        probs.append(f"{len(claves) - len(set(claves))} clave(s) (unique_id, ds) duplicada(s)")
+    faltan, sobran = set(verdad) - set(claves), set(claves) - set(verdad)
+    if faltan or sobran:
+        probs.append(f"rejilla: faltan {len(faltan)} y sobran {len(sobran)} de las {len(verdad)} claves del panel")
+    distintas = sum(
+        1 for k, y in zip(claves, out["y"], strict=True) if k in verdad and not (_finite(y) and float(y) == verdad[k])
+    )
+    if distintas:
+        probs.append(f"{distintas} fila(s) con y distinta de la verdad del panel")
+    for m in required:
+        malas = sum(1 for v in out[m] if not _finite(v))
+        if malas:
+            probs.append(f"{m}: {malas} pronostico(s) no finito(s)")
     return probs
 
 
@@ -143,7 +158,7 @@ def finalize_seed(
 ) -> dict:
     """Ensambla, VALIDA y promueve atomicamente el CSV + su sidecar. SystemExit si invalido."""
     out = build_output(grid, model_forecasts, required)
-    problems = validate_output(out, grid, required)
+    problems = seed_problems(out, grid, required)
     if problems:
         raise SystemExit(f"seed {table}/{variant}/s{seed}: salida invalida -> {problems}")
     # hashea los BYTES EXACTOS que se escriben (el CSV se escribe desde este mismo texto).
@@ -155,3 +170,54 @@ def finalize_seed(
     _atomic_write(Path(out_path), lambda fh: fh.write(csv_text))
     _atomic_write(Path(sidecar_path), lambda fh: json.dump(sidecar, fh, ensure_ascii=False, indent=2, sort_keys=True))
     return sidecar
+
+
+def accredit_group(
+    table: str,
+    variant: str,
+    camp_dir: Path,
+    *,
+    grid: pd.DataFrame,
+    required: list[str],
+    campaign_id: str,
+    source_git_sha: str,
+    n_seeds: int = 5,
+) -> None:
+    """★ M74-E-R7 · la puerta UNICA del grupo s1..sN, antes de que nadie lo evalue.
+
+    Relee cada CSV, le aplica `seed_problems` contra la rejilla que el LLAMADOR derivo del panel y
+    exige que el sidecar sea EXACTAMENTE el que ese CSV produce: el sidecar es un compromiso que se
+    comprueba, nunca la fuente. Sustituye a `validate_seed_group`, que solo comparaba semillas entre
+    si y no tenia consumidor.
+    """
+    from vp_model.artifact_receipt import ReceiptError, loads_strict
+
+    camp = Path(camp_dir)
+    esperados = {f"global_{table}_{variant}_s{i}.csv" for i in range(1, n_seeds + 1)}
+    presentes = {q.name for q in camp.glob(f"global_{table}_{variant}_s*.csv")}
+    problemas = [] if presentes == esperados else [f"grupo {sorted(presentes)} != {sorted(esperados)}"]
+    identidad = {"campaign_id": campaign_id, "source_git_sha": source_git_sha}
+    for i in range(1, n_seeds + 1):
+        csv, side = camp / f"global_{table}_{variant}_s{i}.csv", camp / f"coverage_{table}_{variant}_s{i}.json"
+        if not csv.is_file() or not side.is_file():
+            problemas.append(f"s{i}: sin CSV o sin sidecar")
+            continue
+        try:
+            out = pd.read_csv(csv, parse_dates=["ds"])
+            propios = seed_problems(out, grid, required)
+            declarado = loads_strict(side.read_text(encoding="utf-8"))
+        except (ValueError, KeyError, ReceiptError) as exc:
+            problemas.append(f"s{i}: ilegible ({exc})")
+            continue
+        if propios:
+            problemas += [f"s{i}: {p}" for p in propios]
+            continue
+        real = "sha256:" + hashlib.sha256(csv.read_bytes()).hexdigest()
+        medido = coverage_sidecar(
+            out, required, campaign=identidad, table=table, variant=variant, seed=i, csv_sha256=real
+        )
+        distintos = sorted(k for k in medido.keys() | declarado.keys() if medido.get(k) != declarado.get(k))
+        if distintos:
+            problemas.append(f"s{i}: el sidecar no es el que produce su CSV en {distintos}")
+    if problemas:
+        raise SystemExit(f"semillas {table}/{variant}: grupo NO acreditado — " + " · ".join(problemas))

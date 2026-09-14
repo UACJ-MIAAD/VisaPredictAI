@@ -4,6 +4,9 @@
 variantes s1..s5 pero no de QUÉ corrida eran. Y la acreditación no podía existir: el productor de
 sidecars (`seed_coverage.coverage_sidecar`) estaba escrito y **ningún productor lo llamaba**. Estas
 pruebas recorren productor → sidecar → lector con las funciones REALES de los dos lados.
+
+★ M74-E-R7 cambia el andamiaje, no la intención: el grupo se escribe con el productor sobre la
+rejilla canónica de un panel sintético, porque el lector ya no acepta marcos de 3 filas.
 """
 
 from __future__ import annotations
@@ -25,72 +28,69 @@ import run_global_deep as rgd  # noqa: E402
 SHA = "b" * 40
 
 
-def _grupo(camp: Path, cid: str, variante: str = "camp_diff", semillas: tuple[int, ...] = (1, 2, 3, 4, 5)) -> None:
+def _grupo(camp: Path, nivel: pd.DataFrame, cid: str, variante: str = "camp_diff", semillas=(1, 2, 3, 4, 5)) -> None:
+    import seed_coverage
+
+    from tools.check_campaign_completeness import SEED_MODELS
+
+    rejilla = seed_coverage.canonical_grid(nivel, 24)
+    for k, m in enumerate(SEED_MODELS[variante]):
+        rejilla[m] = rejilla["y"] + 1.0 + k
+    merged = nivel.merge(rejilla.drop(columns=["y"]), on=["unique_id", "ds"], how="left")
     camp.mkdir(parents=True, exist_ok=True)
     for i in semillas:
-        merged = pd.DataFrame(
-            {
-                "unique_id": ["mexico/family/F1"] * 3,
-                "ds": pd.date_range("2024-01-01", periods=3, freq="MS"),
-                "y": [1.0, 2.0, 3.0],
-                "BiTCN": [1.1, 2.1, 3.1 + i],
-            }
-        )
         out = camp / f"global_FAD_{variante}_s{i}.csv"
-        merged.to_csv(out, index=False)
-        rgd._sellar_semilla(
-            merged, out, "FAD", f"{variante}_s{i}", campaign={"campaign_id": cid, "source_git_sha": SHA}
-        )
+        semilla = rgd._SEMILLA_RE.match(f"{variante}_s{i}")
+        rgd._sellar_semilla(merged, nivel, out, "FAD", semilla, campaign={"campaign_id": cid, "source_git_sha": SHA})
 
 
-def test_control_el_grupo_de_esta_campana_se_acredita(tmp_path: Path) -> None:
-    _grupo(tmp_path / "c", "camp_actual")
+def test_control_el_grupo_de_esta_campana_se_acredita(tmp_path: Path, panel_semillas) -> None:
+    _grupo(tmp_path / "c", panel_semillas, "camp_actual")
     ag.acreditar_grupo("FAD", "camp_diff_s", tmp_path / "c", campaign_id="camp_actual", source_git_sha=SHA)
 
 
-def test_RED_archivos_viejos_con_el_conteo_correcto_no_se_agregan(tmp_path: Path) -> None:
+def test_RED_archivos_viejos_con_el_conteo_correcto_no_se_agregan(tmp_path: Path, panel_semillas) -> None:
     """★ El ataque de la auditoría: cinco semillas completas, pero de OTRA corrida."""
-    _grupo(tmp_path / "c", "camp_vieja")
+    _grupo(tmp_path / "c", panel_semillas, "camp_vieja")
     with pytest.raises(SystemExit, match="campaign_id"):
         ag.acreditar_grupo("FAD", "camp_diff_s", tmp_path / "c", campaign_id="camp_actual", source_git_sha=SHA)
 
 
-def test_RED_un_csv_tocado_despues_de_sellarse(tmp_path: Path) -> None:
-    _grupo(tmp_path / "c", "camp_actual")
+def test_RED_un_csv_tocado_despues_de_sellarse(tmp_path: Path, panel_semillas) -> None:
+    """Un pronóstico cambiado a mano deja la rejilla intacta: lo caza el hash de los bytes."""
+    _grupo(tmp_path / "c", panel_semillas, "camp_actual")
     csv = tmp_path / "c" / "global_FAD_camp_diff_s3.csv"
-    csv.write_text(csv.read_text(encoding="utf-8") + "mexico/family/F1,2024-04-01,4.0,4.4\n", encoding="utf-8")
-    with pytest.raises(SystemExit, match="cambió"):
+    marco = pd.read_csv(csv)
+    marco.loc[0, "BiTCN"] += 1.0
+    marco.to_csv(csv, index=False)
+    with pytest.raises(SystemExit, match="csv_sha256"):
         ag.acreditar_grupo("FAD", "camp_diff_s", tmp_path / "c", campaign_id="camp_actual", source_git_sha=SHA)
 
 
-def test_RED_una_semilla_sin_sidecar(tmp_path: Path) -> None:
-    _grupo(tmp_path / "c", "camp_actual")
+def test_RED_una_semilla_sin_sidecar(tmp_path: Path, panel_semillas) -> None:
+    _grupo(tmp_path / "c", panel_semillas, "camp_actual")
     (tmp_path / "c" / "coverage_FAD_camp_diff_s2.json").unlink()
     with pytest.raises(SystemExit, match="sin sidecar"):
         ag.acreditar_grupo("FAD", "camp_diff_s", tmp_path / "c", campaign_id="camp_actual", source_git_sha=SHA)
 
 
-def test_RED_una_semilla_de_mas(tmp_path: Path) -> None:
-    _grupo(tmp_path / "c", "camp_actual", semillas=(1, 2, 3, 4, 5, 6))
+def test_RED_una_semilla_de_mas(tmp_path: Path, panel_semillas) -> None:
+    _grupo(tmp_path / "c", panel_semillas, "camp_actual", semillas=(1, 2, 3, 4, 5, 6))
     with pytest.raises(SystemExit, match="grupo"):
         ag.acreditar_grupo("FAD", "camp_diff_s", tmp_path / "c", campaign_id="camp_actual", source_git_sha=SHA)
 
 
-def test_RED_otro_sha_de_codigo(tmp_path: Path) -> None:
-    _grupo(tmp_path / "c", "camp_actual")
+def test_RED_otro_sha_de_codigo(tmp_path: Path, panel_semillas) -> None:
+    _grupo(tmp_path / "c", panel_semillas, "camp_actual")
     with pytest.raises(SystemExit, match="source_git_sha"):
         ag.acreditar_grupo("FAD", "camp_diff_s", tmp_path / "c", campaign_id="camp_actual", source_git_sha="c" * 40)
 
 
-def test_fuera_de_las_semillas_de_campana_no_se_sella(tmp_path: Path) -> None:
-    """La búsqueda HPO y las corridas sueltas no son un grupo de semillas."""
-    merged = pd.DataFrame({"unique_id": ["x"], "ds": [pd.Timestamp("2024-01-01")], "y": [1.0], "BiTCN": [1.0]})
-    out = tmp_path / "global_FAD_camp_hposearch.csv"
-    merged.to_csv(out, index=False)
-    assert (
-        rgd._sellar_semilla(merged, out, "FAD", "camp_hposearch", campaign={"campaign_id": "c", "source_git_sha": SHA})
-        is None
-    )
+def test_fuera_de_las_semillas_de_campana_no_se_sella() -> None:
+    """La búsqueda HPO y las corridas sueltas no son un grupo de semillas: no pasan por el sellado."""
+    for sufijo in ("camp_hposearch", "levels", "diff", "camp_diff"):
+        assert rgd._SEMILLA_RE.match(sufijo) is None
+    assert rgd._SEMILLA_RE.match("camp_diff_s3") is not None
 
 
 def test_el_agregador_acredita_ANTES_de_leer() -> None:

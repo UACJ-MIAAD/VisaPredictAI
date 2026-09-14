@@ -111,13 +111,18 @@ def cohorte_uids(table: str, cohort: str, ruta: Path = COHORTS) -> set[str]:
     }
 
 
-def load_panel(table: str, block: str, *, cohort: str = "all", universe: str = "pilot") -> pd.DataFrame:
+def load_panel(
+    table: str, block: str, *, cohort: str = "all", universe: str = "pilot", frame: pd.DataFrame | None = None
+) -> pd.DataFrame:
     """Panel largo neuralforecast (unique_id, ds, y), F-only, mensual regular.
 
     ``block='both'`` apila familiar + empleo (más series → mejor aprendizaje global).
     Solo entran series con largo suficiente para la ventana + hold-out.
+
+    ``frame`` es el panel largo ya leído. ★ M74-E-R7: el lector de semillas corre en ``ante``, sin
+    motor de parquet, y deriva la MISMA rejilla del CSV canónico (medido idéntico en FAD y DFF).
     """
-    df = pd.read_parquet(PANEL)
+    df = pd.read_parquet(PANEL) if frame is None else frame
     blocks = ("family", "employment") if block == "both" else (block,)
     # NO se filtra a status==F: necesitamos las celdas C (y U) para codificar el régimen y
     # darle continuidad REAL a la serie. La EVALUACIÓN sigue siendo F-only (hold-out = fechas).
@@ -651,13 +656,16 @@ def main() -> None:
         else ROOT / "reports" / "campaign" / f"global_{args.table}_{suffix}.csv"
     )
     out = destino
-    # solo las filas de hold-out (las últimas 24 por serie) llevan pronóstico
-    merged = merged[merged.drop(columns=["unique_id", "ds", "y"]).notna().any(axis=1)]
     out.parent.mkdir(parents=True, exist_ok=True)
-    merged.to_csv(out, index=False)
+    semilla = _SEMILLA_RE.match(suffix) if receta is None else None
+    if semilla is not None:
+        # ★ M74-E-R7 · una semilla de campaña parte de la REJILLA CANÓNICA, no de lo que sobrevivió
+        merged = _sellar_semilla(merged, level, out, args.table, semilla)
+    else:
+        # solo las filas de hold-out (las últimas 24 por serie) llevan pronóstico
+        merged = merged[merged.drop(columns=["unique_id", "ds", "y"]).notna().any(axis=1)]
+        merged.to_csv(out, index=False)
     print(f"guardado {out.relative_to(ROOT)} ({len(merged)} filas)")
-    if receta is None:
-        _sellar_semilla(merged, out, args.table, suffix)
     if args.receipt is not None:
         _escribir_receipt(args, deck, receta, panel, merged, out, estado, t0)
 
@@ -666,36 +674,36 @@ _SEMILLA_RE = re.compile(r"^(camp_[a-z]+)_s(\d+)$")
 
 
 def _sellar_semilla(
-    merged: pd.DataFrame, out: Path, table: str, suffix: str, campaign: dict | None = None
-) -> Path | None:
-    """M74-E-R6 · sidecar de cobertura junto a cada CSV por semilla de la campaña.
+    merged: pd.DataFrame, level: pd.DataFrame, out: Path, table: str, semilla: re.Match, campaign: dict | None = None
+) -> pd.DataFrame:
+    """M74-E-R7 · CSV + sidecar de una semilla de campaña, construidos sobre la rejilla canónica.
 
-    `seed_coverage.coverage_sidecar` existía y ningún productor lo llamaba, así que el agregador no
-    podía acreditar de qué corrida era cada `global_*_s<N>.csv`. El CSV no cambia: el sidecar liga
-    sus bytes ya escritos a la transacción en curso.
+    R6 sellaba lo que sobrevivía a borrar las filas sin pronóstico, así que cinco semillas truncadas
+    igual quedaban acreditadas (auditoría `a23c878e…`). Ahora el marco parte de las últimas
+    ``HOLDOUT`` filas de cada serie del panel con el inventario declarado de la variante, y
+    `finalize_seed` aborta ANTES de escribir si falta una clave, una columna o un valor finito.
     """
-    m = _SEMILLA_RE.match(suffix)
-    if m is None:
-        return None
     import seed_coverage
     from hpo_winner_receipt import campaign_identity
 
-    campaign = campaign if campaign is not None else campaign_identity(ROOT)
+    from tools.check_campaign_completeness import SEED_MODELS
+
+    variante, n = semilla.group(1), int(semilla.group(2))
+    if variante not in SEED_MODELS:
+        raise SystemExit(f"semilla {table}/{variante}/s{n}: la variante no tiene inventario de modelos declarado")
     modelos = [c for c in merged.columns if c not in ("unique_id", "ds", "y")]
-    sidecar = seed_coverage.coverage_sidecar(
-        merged,
-        modelos,
-        campaign=campaign,
+    seed_coverage.finalize_seed(
+        seed_coverage.canonical_grid(level, HOLDOUT),
+        {m: merged[["unique_id", "ds", m]] for m in modelos},
+        list(SEED_MODELS[variante]),
+        out_path=out,
+        sidecar_path=out.with_name(f"coverage_{table}_{variante}_s{n}.json"),
+        campaign=campaign if campaign is not None else campaign_identity(ROOT),
         table=table,
-        variant=m.group(1),
-        seed=int(m.group(2)),
-        csv_sha256="sha256:" + hashlib.sha256(out.read_bytes()).hexdigest(),
+        variant=variante,
+        seed=n,
     )
-    destino = out.with_name(f"coverage_{table}_{m.group(1)}_s{m.group(2)}.json")
-    tmp = destino.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(sidecar, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-    os.replace(tmp, destino)
-    return destino
+    return pd.read_csv(out, parse_dates=["ds"])
 
 
 def _selfcheck() -> None:

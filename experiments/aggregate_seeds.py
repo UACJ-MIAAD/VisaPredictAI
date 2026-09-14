@@ -14,7 +14,6 @@ Uso:  ante/bin/python experiments/aggregate_seeds.py --table FAD --prefix auto_s
 from __future__ import annotations
 
 import argparse
-import hashlib
 import math
 from pathlib import Path
 
@@ -25,43 +24,39 @@ ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
 
 
-def acreditar_grupo(table: str, prefix: str, camp_dir: Path, *, campaign_id: str, source_git_sha: str) -> None:
-    """M74-E-R6 · acredita el GRUPO EXACTO de CSV por semilla contra la campaña, ANTES de leerlos.
+def acreditar_grupo(
+    table: str, prefix: str, camp_dir: Path, *, campaign_id: str, source_git_sha: str, block: str = "family"
+) -> None:
+    """M74-E-R7 · puerta ÚNICA del grupo s1..s5, ANTES de que `eval_global_deep` lo lea.
 
-    `eval_global_deep` lee por glob `global_<tabla>_*.csv`: un CSV de otra corrida con el conteo
-    correcto se agregaba igual. Cada semilla necesita su sidecar con la identidad de la campaña en
-    curso y el sha256 de los bytes que hay en disco.
+    R6 acreditaba identidad y bytes y aceptaba cinco semillas truncadas igual (auditoría
+    `a23c878e…`). La rejilla y la verdad salen aquí del PANEL —no del sidecar ni del CSV— y cada
+    semilla se recalcula entera. ``ante`` no tiene motor de parquet: se lee el CSV canónico, que da
+    la misma rejilla que el parquet del productor (medido en FAD y DFF).
     """
-    from vp_model.artifact_receipt import loads_strict
+    import pandas as pd
+    import run_global_deep as rgd
+    import seed_coverage
 
-    if not prefix.endswith("_s"):
-        raise SystemExit(f"agregación {table}/{prefix}*: el prefijo de semilla debe terminar en `_s`")
-    variante = prefix[:-2]
-    esperados = {f"global_{table}_{prefix}{i}.csv" for i in range(1, N_SEEDS + 1)}
-    presentes = {q.name for q in Path(camp_dir).glob(f"global_{table}_{prefix}*.csv")}
-    problemas = [] if presentes == esperados else [f"grupo {sorted(presentes)} != {sorted(esperados)}"]
-    for i in range(1, N_SEEDS + 1):
-        csv, side = (
-            Path(camp_dir) / f"global_{table}_{prefix}{i}.csv",
-            Path(camp_dir) / f"coverage_{table}_{variante}_s{i}.json",
-        )
-        if not csv.is_file() or not side.is_file():
-            problemas.append(f"s{i}: sin CSV o sin sidecar")
-            continue
-        d = loads_strict(side.read_text(encoding="utf-8"))
-        for k, v in {
-            "campaign_id": campaign_id,
-            "source_git_sha": source_git_sha,
-            "table": table,
-            "variant": variante,
-            "seed": i,
-        }.items():
-            if d.get(k) != v:
-                problemas.append(f"s{i}: {k}={d.get(k)!r} ≠ {v!r}")
-        if d.get("csv_sha256") != "sha256:" + hashlib.sha256(csv.read_bytes()).hexdigest():
-            problemas.append(f"s{i}: el CSV cambió después de sellar su sidecar")
-    if problemas:
-        raise SystemExit(f"agregación {table}/{prefix}*: grupo NO acreditado — " + " · ".join(problemas))
+    from tools.check_campaign_completeness import SEED_MODELS
+    from vp_data import config as data_config
+    from vp_model.config import HOLDOUT
+
+    variante = prefix[:-2] if prefix.endswith("_s") else ""
+    if variante not in SEED_MODELS:
+        raise SystemExit(f"agregación {table}/{prefix}*: sin inventario de modelos declarado para {variante!r}")
+    panel = pd.read_csv(ROOT / data_config.PANEL_PATH)
+    rejilla = seed_coverage.canonical_grid(rgd.load_panel(table, block, frame=panel), HOLDOUT)
+    seed_coverage.accredit_group(
+        table,
+        variante,
+        camp_dir,
+        grid=rejilla,
+        required=list(SEED_MODELS[variante]),
+        campaign_id=campaign_id,
+        source_git_sha=source_git_sha,
+        n_seeds=N_SEEDS,
+    )
 
 
 def aggregate(df, *, prefix: str, model: str, block: str, n_seeds: int = N_SEEDS) -> dict:
@@ -160,7 +155,9 @@ def main() -> None:
     from vp_model.eval_neuralforecast import eval_global_deep
 
     campaign_id, sha, _panel = artifact_receipt.campaign_identity(REPORTS, code_root=ROOT)
-    acreditar_grupo(args.table, args.prefix, REPORTS / "campaign", campaign_id=campaign_id, source_git_sha=sha)
+    acreditar_grupo(
+        args.table, args.prefix, REPORTS / "campaign", campaign_id=campaign_id, source_git_sha=sha, block=args.block
+    )
     df = eval_global_deep(args.table)
     st = aggregate(df, prefix=args.prefix, model=args.model, block=args.block)
 

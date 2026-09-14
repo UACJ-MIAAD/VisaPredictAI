@@ -169,3 +169,42 @@ def sembrar_y_correr(repo: Path, frase: str) -> subprocess.CompletedProcess:
         )
     finally:
         target.write_text(original, encoding="utf-8")
+
+
+@pytest.fixture
+def panel_semillas(tmp_path, monkeypatch):
+    """M74-E-R7 · panel largo sintético servido como el CSV canónico: 25 series FAD × 96 meses F.
+
+    Devuelve el NIVEL ``(unique_id, ds, y)`` construido a mano, sin `load_panel`: la rejilla que el
+    lector deriva del panel se contrasta así con una construida por otro camino.
+    """
+    import pandas as pd
+
+    import vp_data.config as data_config
+
+    meses = pd.date_range("2016-01-01", periods=96, freq="MS")
+    paises = ("mexico", "india", "china", "philippines", "all_chargeability")
+    series = [(p, c) for p in paises for c in ("F1", "F2A", "F2B", "F3", "F4")]
+    filas = [
+        {
+            "country": p,
+            "block": "family",
+            "category": c,
+            "table": "FAD",
+            "bulletin_date": d.date().isoformat(),
+            "status": "F",
+            "days_since_base": float(9000 + 31 * i + 7 * j),
+        }
+        for j, (p, c) in enumerate(series)
+        for i, d in enumerate(meses)
+    ]
+    ruta = tmp_path / "visa_panel_long.csv"
+    pd.DataFrame(filas).to_csv(ruta, index=False)
+    monkeypatch.setattr(data_config, "PANEL_PATH", ruta)
+    return pd.DataFrame(
+        {
+            "unique_id": [f"{f['country']}/family/{f['category']}" for f in filas],
+            "ds": pd.to_datetime([f["bulletin_date"] for f in filas]),
+            "y": [f["days_since_base"] for f in filas],
+        }
+    )
