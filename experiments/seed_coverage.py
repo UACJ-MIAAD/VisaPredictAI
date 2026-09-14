@@ -18,6 +18,7 @@ y en los tests ya esta en el path). Ver el wiring en experiments/run_global_deep
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import math
 import os
@@ -182,13 +183,16 @@ def accredit_group(
     campaign_id: str,
     source_git_sha: str,
     n_seeds: int = 5,
-) -> None:
+) -> dict[str, pd.DataFrame]:
     """★ M74-E-R7 · la puerta UNICA del grupo s1..sN, antes de que nadie lo evalue.
 
-    Relee cada CSV, le aplica `seed_problems` contra la rejilla que el LLAMADOR derivo del panel y
-    exige que el sidecar sea EXACTAMENTE el que ese CSV produce: el sidecar es un compromiso que se
-    comprueba, nunca la fuente. Sustituye a `validate_seed_group`, que solo comparaba semillas entre
-    si y no tenia consumidor.
+    Aplica `seed_problems` contra la rejilla que el LLAMADOR derivo del panel y exige que el sidecar
+    sea EXACTAMENTE el que ese CSV produce: el sidecar es un compromiso que se comprueba, nunca la
+    fuente. Sustituye a `validate_seed_group`, que solo comparaba semillas entre si.
+
+    ★ M74-E-R8 (auditoria `e6c76896…`): cada CSV se lee UNA vez; se hashean y se parsean esos mismos
+    bytes, y la puerta DEVUELVE los marcos acreditados por variante. Leer la ruta para validar y
+    otra vez para hashear permitia acreditar A, sellar el hash de B y que el evaluador consumiera B.
     """
     from vp_model.artifact_receipt import ReceiptError, loads_strict
 
@@ -197,27 +201,32 @@ def accredit_group(
     presentes = {q.name for q in camp.glob(f"global_{table}_{variant}_s*.csv")}
     problemas = [] if presentes == esperados else [f"grupo {sorted(presentes)} != {sorted(esperados)}"]
     identidad = {"campaign_id": campaign_id, "source_git_sha": source_git_sha}
+    acreditados: dict[str, pd.DataFrame] = {}
     for i in range(1, n_seeds + 1):
         csv, side = camp / f"global_{table}_{variant}_s{i}.csv", camp / f"coverage_{table}_{variant}_s{i}.json"
         if not csv.is_file() or not side.is_file():
             problemas.append(f"s{i}: sin CSV o sin sidecar")
             continue
         try:
-            out = pd.read_csv(csv, parse_dates=["ds"])
+            crudo = csv.read_bytes()
+            out = pd.read_csv(io.BytesIO(crudo), parse_dates=["ds"])
             propios = seed_problems(out, grid, required)
             declarado = loads_strict(side.read_text(encoding="utf-8"))
-        except (ValueError, KeyError, ReceiptError) as exc:
+        except (OSError, ValueError, KeyError, ReceiptError) as exc:
             problemas.append(f"s{i}: ilegible ({exc})")
             continue
         if propios:
             problemas += [f"s{i}: {p}" for p in propios]
             continue
-        real = "sha256:" + hashlib.sha256(csv.read_bytes()).hexdigest()
+        real = "sha256:" + hashlib.sha256(crudo).hexdigest()
         medido = coverage_sidecar(
             out, required, campaign=identidad, table=table, variant=variant, seed=i, csv_sha256=real
         )
         distintos = sorted(k for k in medido.keys() | declarado.keys() if medido.get(k) != declarado.get(k))
         if distintos:
             problemas.append(f"s{i}: el sidecar no es el que produce su CSV en {distintos}")
+            continue
+        acreditados[f"{variant}_s{i}"] = out
     if problemas:
         raise SystemExit(f"semillas {table}/{variant}: grupo NO acreditado — " + " · ".join(problemas))
+    return acreditados

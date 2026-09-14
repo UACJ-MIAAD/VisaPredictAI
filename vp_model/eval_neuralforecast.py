@@ -9,12 +9,15 @@ evaluación unificada en pandas 3.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from vp_model.metrics import naive_scale_before
+# ★ M74-E-R8 · la escala viene de `vp_model.scale`, que `metrics` sólo reexporta: sin arrastrar `darts`,
+# el evaluador se prueba también en el job base.
+from vp_model.scale import naive_scale_before
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
 CSV = REPORTS / "eval" / "neuralforecast_forecasts.csv"
@@ -67,20 +70,29 @@ def summary(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def eval_global_deep(table: str = "FAD") -> pd.DataFrame:
+def eval_global_deep(table: str = "FAD", frames: Mapping[str, pd.DataFrame] | None = None) -> pd.DataFrame:
     """Evalúa los CSV de ``run_global_deep`` (niveles y/o diff) con MASE por serie.
 
     Lee ``reports/campaign/global_{table}_{levels,diff}.csv`` (unique_id=país/bloque/categoría,
     ds, y real, columnas de modelo en NIVEL) y calcula MASE de hold-out por serie con la
     MISMA escala naïve estacional que el pool local, para comparar de forma justa contra
     ETS/Theta. Devuelve un DataFrame largo (variante, modelo, bloque, serie, MASE, sMAPE).
+
+    ★ M74-E-R8: con ``frames`` (variante → marco) evalúa EXACTAMENTE esos marcos y no abre ningún
+    archivo: es como el agregador consume lo que su puerta acreditó.
     """
     from vp_model import dataset
 
     rows = []
-    for path in sorted((REPORTS / "campaign").glob(f"global_{table}_*.csv")):
-        variant = path.stem.replace(f"global_{table}_", "")
-        df = pd.read_csv(path, parse_dates=["ds"])
+    fuentes = (
+        frames.items()
+        if frames is not None
+        else (
+            (p.stem.replace(f"global_{table}_", ""), pd.read_csv(p, parse_dates=["ds"]))
+            for p in sorted((REPORTS / "campaign").glob(f"global_{table}_*.csv"))
+        )
+    )
+    for variant, df in fuentes:
         models = [c for c in df.columns if c not in ("unique_id", "ds", "y")]
         for uid, g in df.groupby("unique_id"):
             country, block, category = uid.split("/")

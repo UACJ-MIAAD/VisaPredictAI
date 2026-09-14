@@ -26,7 +26,7 @@ REPORTS = ROOT / "reports"
 
 def acreditar_grupo(
     table: str, prefix: str, camp_dir: Path, *, campaign_id: str, source_git_sha: str, block: str = "family"
-) -> None:
+) -> dict:
     """M74-E-R7 · puerta ÚNICA del grupo s1..s5, ANTES de que `eval_global_deep` lo lea.
 
     R6 acreditaba identidad y bytes y aceptaba cinco semillas truncadas igual (auditoría
@@ -47,7 +47,7 @@ def acreditar_grupo(
         raise SystemExit(f"agregación {table}/{prefix}*: sin inventario de modelos declarado para {variante!r}")
     panel = pd.read_csv(ROOT / data_config.PANEL_PATH)
     rejilla = seed_coverage.canonical_grid(rgd.load_panel(table, block, frame=panel), HOLDOUT)
-    seed_coverage.accredit_group(
+    return seed_coverage.accredit_group(
         table,
         variante,
         camp_dir,
@@ -155,10 +155,12 @@ def main() -> None:
     from vp_model.eval_neuralforecast import eval_global_deep
 
     campaign_id, sha, _panel = artifact_receipt.campaign_identity(REPORTS, code_root=ROOT)
-    acreditar_grupo(
+    marcos = acreditar_grupo(
         args.table, args.prefix, REPORTS / "campaign", campaign_id=campaign_id, source_git_sha=sha, block=args.block
     )
-    df = eval_global_deep(args.table)
+    # ★ M74-E-R8 · se evalúan los MARCOS acreditados: el evaluador no vuelve a abrir la ruta, que
+    # entre la puerta y la lectura podía haber cambiado de bytes (auditoría `e6c76896…`).
+    df = eval_global_deep(args.table, frames=marcos)
     st = aggregate(df, prefix=args.prefix, model=args.model, block=args.block)
 
     print(f"\n=== {args.model} · {args.table}/{args.block} · {st['n']} semillas ===")

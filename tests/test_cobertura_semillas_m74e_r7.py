@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -192,7 +191,6 @@ def test_una_sola_puerta_de_cobertura() -> None:
     assert llamadores == ["experiments/aggregate_seeds.py"]
 
 
-@pytest.mark.skipif(importlib.util.find_spec("darts") is None, reason="eval_neuralforecast → vp_model.metrics → darts")
 def test_RED_el_evaluador_no_convierte_una_ausencia_en_metrica(tmp_path: Path, monkeypatch) -> None:
     from vp_model import dataset
     from vp_model import eval_neuralforecast as ev
