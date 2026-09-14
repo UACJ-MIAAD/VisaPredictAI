@@ -34,6 +34,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 import warnings
@@ -655,8 +656,46 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     merged.to_csv(out, index=False)
     print(f"guardado {out.relative_to(ROOT)} ({len(merged)} filas)")
+    if receta is None:
+        _sellar_semilla(merged, out, args.table, suffix)
     if args.receipt is not None:
         _escribir_receipt(args, deck, receta, panel, merged, out, estado, t0)
+
+
+_SEMILLA_RE = re.compile(r"^(camp_[a-z]+)_s(\d+)$")
+
+
+def _sellar_semilla(
+    merged: pd.DataFrame, out: Path, table: str, suffix: str, campaign: dict | None = None
+) -> Path | None:
+    """M74-E-R6 · sidecar de cobertura junto a cada CSV por semilla de la campaña.
+
+    `seed_coverage.coverage_sidecar` existía y ningún productor lo llamaba, así que el agregador no
+    podía acreditar de qué corrida era cada `global_*_s<N>.csv`. El CSV no cambia: el sidecar liga
+    sus bytes ya escritos a la transacción en curso.
+    """
+    m = _SEMILLA_RE.match(suffix)
+    if m is None:
+        return None
+    import seed_coverage
+    from hpo_winner_receipt import campaign_identity
+
+    campaign = campaign if campaign is not None else campaign_identity(ROOT)
+    modelos = [c for c in merged.columns if c not in ("unique_id", "ds", "y")]
+    sidecar = seed_coverage.coverage_sidecar(
+        merged,
+        modelos,
+        campaign=campaign,
+        table=table,
+        variant=m.group(1),
+        seed=int(m.group(2)),
+        csv_sha256="sha256:" + hashlib.sha256(out.read_bytes()).hexdigest(),
+    )
+    destino = out.with_name(f"coverage_{table}_{m.group(1)}_s{m.group(2)}.json")
+    tmp = destino.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(sidecar, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, destino)
+    return destino
 
 
 def _selfcheck() -> None:

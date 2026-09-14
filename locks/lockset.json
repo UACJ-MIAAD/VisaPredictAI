@@ -30,11 +30,11 @@
     },
     "locks/model-cpu-linux-x86_64.txt": {
       "pins": 135,
-      "sha256": "sha256:9763fa6618609c69242131e1310c035b69ae49293bb0b505b47db2ff7649dfba"
+      "sha256": "sha256:b63800fdb74e54df49edabc840d39d1912775f8ad6d2bc2a139d6086c705ef41"
     },
     "locks/model-cpu.txt": {
       "pins": 115,
-      "sha256": "sha256:604a12e4455e4efc400d364146508ed942e80bd41fd2aecc16d6b59f7aa634e9"
+      "sha256": "sha256:5725e552f61747ae77dc301a0f2811f0bfb326e487dcfa3c0d66734e5747368b"
     },
     "locks/runtime-linux-x86_64.txt": {
       "pins": 23,
@@ -45,14 +45,70 @@
       "sha256": "sha256:c9485c5641232f7fdbb37e89648873370c54c5e61fed4e2c4987ac6928f07448"
     }
   },
-  "schema_version": 1,
+  "provenance": {
+    "locks/deep-linux-x86_64-cpu.txt": {
+      "base": "93bc6445ff114d3d9e997397259e03c6b72545e3",
+      "command": "bash tools/make_locks.sh",
+      "method": "restored",
+      "python": "3.14.2"
+    },
+    "locks/deep-linux-x86_64-cu126.txt": {
+      "base": "93bc6445ff114d3d9e997397259e03c6b72545e3",
+      "command": "bash tools/make_locks.sh",
+      "method": "restored",
+      "python": "3.14.2"
+    },
+    "locks/deep-macos-arm64.txt": {
+      "base": "93bc6445ff114d3d9e997397259e03c6b72545e3",
+      "command": "bash tools/make_locks.sh",
+      "method": "restored",
+      "python": "3.14.2"
+    },
+    "locks/dev-linux-x86_64.txt": {
+      "base": "93bc6445ff114d3d9e997397259e03c6b72545e3",
+      "command": "bash tools/make_locks.sh",
+      "method": "restored",
+      "python": "3.14.2"
+    },
+    "locks/dev.txt": {
+      "base": "93bc6445ff114d3d9e997397259e03c6b72545e3",
+      "command": "bash tools/make_locks.sh",
+      "method": "restored",
+      "python": "3.14.2"
+    },
+    "locks/model-cpu-linux-x86_64.txt": {
+      "base": "93bc6445ff114d3d9e997397259e03c6b72545e3",
+      "command": "bash tools/make_locks.sh --selective-model 93bc6445ff114d3d9e997397259e03c6b72545e3",
+      "method": "resolved",
+      "python": "3.14.7"
+    },
+    "locks/model-cpu.txt": {
+      "base": "93bc6445ff114d3d9e997397259e03c6b72545e3",
+      "command": "bash tools/make_locks.sh --selective-model 93bc6445ff114d3d9e997397259e03c6b72545e3",
+      "method": "resolved",
+      "python": "3.14.7"
+    },
+    "locks/runtime-linux-x86_64.txt": {
+      "base": "93bc6445ff114d3d9e997397259e03c6b72545e3",
+      "command": "bash tools/make_locks.sh",
+      "method": "restored",
+      "python": "3.14.2"
+    },
+    "locks/runtime.txt": {
+      "base": "93bc6445ff114d3d9e997397259e03c6b72545e3",
+      "command": "bash tools/make_locks.sh",
+      "method": "restored",
+      "python": "3.14.2"
+    }
+  },
+  "schema_version": 2,
   "sources": {
     "pyproject.toml": "sha256:782d9d107d41f88a89d87661dd6397cd3f1a0c1fcbb76cce24de129cc7c05fad",
     "requirements/deep-linux-cpu.in": "sha256:31a69d2407e771faf50b2190a62576d45b117bb3788a940cd704fa589297a4dd",
     "requirements/deep-linux-cu126.in": "sha256:c08c113f24a6367961a5f8b1a3a22a88d13684f05c9354f2bf8a858ef23ad5fe",
     "requirements/deep.in": "sha256:66f71ed981944982e6276be13e7a89c6321d975ec5d6a0f444db7ee25fbb86e2",
-    "tools/lock_contracts.py": "sha256:feb52901ba28a8dd5413f0a97a5b958a68e88420816726a95eac081074ec74ad",
-    "tools/make_locks.sh": "sha256:96142058af3399f6845f32c486d71ca68b9f81d4129a87b9d73e2fc9249705dd",
-    "tools/promote_lockset.py": "sha256:741c4f65cbe8dc63d5bd6a4c71d90c1b9b1560f97e5a64e1833516b17e9e5485"
+    "tools/lock_contracts.py": "sha256:5eb40830e93313952144b9706b38d8512ae36cb65673451f935eef1ee092086d",
+    "tools/make_locks.sh": "sha256:48ecdfb2748409b9330092f28171b96979d22cd2c1995469c498fb7a5b6a80df",
+    "tools/promote_lockset.py": "sha256:ec6f632071545972613f1d9c50e75b21ac1c1cf2852d025e08c35d35b867f1ba"
   }
 }

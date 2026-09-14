@@ -1,24 +1,9 @@
-"""Smoke de entrypoints: ¿resuelve lo que cada guion importa, y arranca en SU intérprete?
+"""Smoke de entrypoints: detecta en minutos lo que una campaña tarda horas en descubrir.
 
-Motivación medida, no hipotética. La campaña `rederiv_1022c9d_20260911T212150` murió a las **10
-horas** porque `save_finalists_deep.py` hacía ``from run_global_deep import _auto_config`` y ese
-símbolo no existía desde `0a9ebcc`. Coste: una jornada de cómputo para descubrir un `ImportError`.
-
-**Dos comprobaciones, porque una sola no basta:**
-
-1. **Símbolos cruzados (AST, sin ejecutar).** El import roto vivía **dentro de `main()`**, no a
-   nivel de módulo: importar el archivo NO lo habría detectado. Aquí se resuelve cada
-   ``from <hermano> import a, b`` —esté donde esté, incluso anidado en una función— contra los
-   nombres que ese hermano define de verdad. No necesita las dependencias pesadas: es lectura.
-2. **Arranque real en su intérprete (subproceso limpio).** Lo que el AST no ve: dependencias
-   ausentes, errores de sintaxis en el árbol de imports, un paquete que cambió de nombre. Cada
-   guion se importa en `ante` o `ante_nf` según **quién lo invoca en los runners**, no según una
-   lista escrita a mano.
-
-⚠️ **Los subprocesos arrancan limpios a propósito.** Heredar el entorno del proceso padre —sus
-``sys.modules`` parcheados, su ``PYTHONPATH``, sus monkeypatches de pytest— es exactamente la
-falsa cobertura de M72: la prueba pasaba en el padre y el job real fallaba. Aquí se pasa un
-entorno mínimo y explícito, y el intérprete se elige por ruta absoluta.
+Tres comprobaciones: que existan los símbolos importados entre módulos de `experiments/` (AST); que
+cada entrypoint importe en un proceso NUEVO de su intérprete con entorno mínimo; y que cada tercero
+del cierre local de los entrypoints de la campaña —de nivel de módulo o diferido dentro de una
+función— se IMPORTE de verdad en ese intérprete. Es puerta obligatoria del runbook (M74-E-R6).
 """
 
 from __future__ import annotations
@@ -148,13 +133,7 @@ LOCALES = ("vp_model", "vp_data", "pipeline", "tools", "experiments")
 
 
 def _terceros_de(modulo: Path) -> set[str]:
-    """TODOS los paquetes de terceros que el archivo importa, **incluidos los diferidos**.
-
-    ⚠️ `import optuna` dentro de una función no se ejecuta al importar el módulo, así que
-    `import_in_subprocess` sale verde y el fallo llega horas después, en plena campaña. Es
-    exactamente lo que pasó: seis importaciones diferidas en `vp_model/tune.py`, el perfil `model`
-    sin declarar `optuna`, y los dos gates en verde.
-    """
+    """TODOS los paquetes de terceros que el archivo importa, **incluidos los diferidos**."""
     import sys as _sys
 
     fuera: set[str] = set()
@@ -173,17 +152,7 @@ def _terceros_de(modulo: Path) -> set[str]:
 
 
 def _cierre_local(modulo: Path, root: Path, vistos: set[Path] | None = None) -> set[Path]:
-    """El archivo y, recursivamente, los módulos locales que importa **A NIVEL DE MÓDULO**.
-
-    ⚠️ La recursión sigue SÓLO los imports de nivel de módulo, que son los que de verdad se cargan
-    al importar el entrypoint. Seguir también los locales DIFERIDOS daba dos falsos positivos en su
-    estreno: `run_global_deep` alcanzaba `vp_model.dataset` —y con él `duckdb`, ausente del perfil
-    profundo— únicamente a través de `preprocess.demo()`, un autochequeo que ningún runner llama.
-
-    Los TERCEROS sí se recogen diferidos o no (`_terceros_de`), porque cualquier función de un
-    módulo YA CARGADO puede ejecutarse. Es la asimetría correcta: un módulo local que nadie importa
-    no se carga; una función de un módulo cargado sí puede llamarse.
-    """
+    """El archivo y, recursivamente, los módulos locales que importa **A NIVEL DE MÓDULO**."""
     vistos = vistos if vistos is not None else set()
     if modulo in vistos or not modulo.is_file():
         return vistos
@@ -207,12 +176,7 @@ def _cierre_local(modulo: Path, root: Path, vistos: set[Path] | None = None) -> 
 
 
 def deferred_imports_resolve(root: Path = ROOT) -> list[str]:
-    """Cada tercero que el cierre local de un entrypoint importa, ¿existe en SU perfil?
-
-    Recorre el cierre transitivo de módulos locales y reúne los terceros de todos ellos, sin
-    distinguir si el import está arriba o dentro de una función — que es justo la distinción que
-    dejó pasar `optuna`.
-    """
+    """Cada tercero que el cierre local de un entrypoint importa, ¿existe en SU perfil?"""
     fallos: list[str] = []
     cache: dict[tuple[str, str], tuple[bool, str]] = {}
     # ⚠️ SÓLO los que un runner invoca de verdad, y con la ruta COMPLETA.

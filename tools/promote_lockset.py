@@ -63,7 +63,7 @@ def _atomic_write(path: Path, data: bytes) -> None:
         raise
 
 
-def promote(staged: Path, generator: dict) -> dict:
+def promote(staged: Path, generator: dict, provenance: dict) -> dict:
     # el generator se valida ANTES de leer backups o renombrar (no tras promover nueve archivos)
     gen_probs = lc.validate_generator(generator)
     if gen_probs:
@@ -93,8 +93,9 @@ def promote(staged: Path, generator: dict) -> dict:
             promoted.append(name)
         # manifiesto AL FINAL: liga hashes de locks + fuentes (incl. los 3 scripts del contrato).
         manifest = {
-            "schema_version": 1,
+            "schema_version": 2,
             "generator": generator,
+            "provenance": provenance,
             "sources": {s: _sha256((ROOT / s).read_bytes()) for s in SOURCES},
             "locks": {
                 f"locks/{n}": {
@@ -149,6 +150,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--setuptools", required=True)
     ap.add_argument("--wheel", required=True)
     ap.add_argument("--uv", required=True)
+    ap.add_argument("--provenance", required=True, help="JSON de procedencia por lock (M74-E-R6)")
     ns = ap.parse_args(argv[1:])
     gen = {
         "python": ns.python,
@@ -158,7 +160,7 @@ def main(argv: list[str]) -> int:
         "wheel": ns.wheel,
         "uv": ns.uv,
     }
-    m = promote(Path(ns.staged), gen)
+    m = promote(Path(ns.staged), gen, json.loads(Path(ns.provenance).read_text(encoding="utf-8")))
     print(f"✓ lockset promovido: {len(m['locks'])} locks + manifest (locks/lockset.json), contrato OK")
     return 0
 

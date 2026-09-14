@@ -14,11 +14,54 @@ Uso:  ante/bin/python experiments/aggregate_seeds.py --table FAD --prefix auto_s
 from __future__ import annotations
 
 import argparse
+import hashlib
 import math
+from pathlib import Path
 
 import numpy as np
 
 N_SEEDS = 5
+ROOT = Path(__file__).resolve().parent.parent
+REPORTS = ROOT / "reports"
+
+
+def acreditar_grupo(table: str, prefix: str, camp_dir: Path, *, campaign_id: str, source_git_sha: str) -> None:
+    """M74-E-R6 · acredita el GRUPO EXACTO de CSV por semilla contra la campaña, ANTES de leerlos.
+
+    `eval_global_deep` lee por glob `global_<tabla>_*.csv`: un CSV de otra corrida con el conteo
+    correcto se agregaba igual. Cada semilla necesita su sidecar con la identidad de la campaña en
+    curso y el sha256 de los bytes que hay en disco.
+    """
+    from vp_model.artifact_receipt import loads_strict
+
+    if not prefix.endswith("_s"):
+        raise SystemExit(f"agregación {table}/{prefix}*: el prefijo de semilla debe terminar en `_s`")
+    variante = prefix[:-2]
+    esperados = {f"global_{table}_{prefix}{i}.csv" for i in range(1, N_SEEDS + 1)}
+    presentes = {q.name for q in Path(camp_dir).glob(f"global_{table}_{prefix}*.csv")}
+    problemas = [] if presentes == esperados else [f"grupo {sorted(presentes)} != {sorted(esperados)}"]
+    for i in range(1, N_SEEDS + 1):
+        csv, side = (
+            Path(camp_dir) / f"global_{table}_{prefix}{i}.csv",
+            Path(camp_dir) / f"coverage_{table}_{variante}_s{i}.json",
+        )
+        if not csv.is_file() or not side.is_file():
+            problemas.append(f"s{i}: sin CSV o sin sidecar")
+            continue
+        d = loads_strict(side.read_text(encoding="utf-8"))
+        for k, v in {
+            "campaign_id": campaign_id,
+            "source_git_sha": source_git_sha,
+            "table": table,
+            "variant": variante,
+            "seed": i,
+        }.items():
+            if d.get(k) != v:
+                problemas.append(f"s{i}: {k}={d.get(k)!r} ≠ {v!r}")
+        if d.get("csv_sha256") != "sha256:" + hashlib.sha256(csv.read_bytes()).hexdigest():
+            problemas.append(f"s{i}: el CSV cambió después de sellar su sidecar")
+    if problemas:
+        raise SystemExit(f"agregación {table}/{prefix}*: grupo NO acreditado — " + " · ".join(problemas))
 
 
 def aggregate(df, *, prefix: str, model: str, block: str, n_seeds: int = N_SEEDS) -> dict:
@@ -113,8 +156,11 @@ def main() -> None:
     ap.add_argument("--mlflow", action="store_true", help="loguear el agregado multi-semilla a tracking")
     args = ap.parse_args()
 
+    from vp_model import artifact_receipt
     from vp_model.eval_neuralforecast import eval_global_deep
 
+    campaign_id, sha, _panel = artifact_receipt.campaign_identity(REPORTS, code_root=ROOT)
+    acreditar_grupo(args.table, args.prefix, REPORTS / "campaign", campaign_id=campaign_id, source_git_sha=sha)
     df = eval_global_deep(args.table)
     st = aggregate(df, prefix=args.prefix, model=args.model, block=args.block)
 

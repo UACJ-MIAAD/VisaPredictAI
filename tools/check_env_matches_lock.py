@@ -1,33 +1,11 @@
 """¿El intérprete que va a correr la campaña REPRODUCE su lock? Medido, no declarado.
 
-El preflight sellaba `locks/model-cpu.txt` y `locks/deep-macos-arm64.txt` y comprobaba que los
-directorios `ante/` y `ante_nf/` **existieran**. Nada más. Es decir: sellaba la *declaración* del
-entorno y nunca el entorno. Medido el 13-sep-2026, la distancia entre una cosa y la otra era esta:
+Bloquea un pin ausente o a otra versión, toda distribución sin gobernar que no esté declarada en
+`UNGOVERNED_OK`, y las dos excepciones permitidas cuando no se acreditan (pip contra el toolchain
+sellado; el editable apuntando a este worktree). Sella además el freeze completo por hash.
 
-    ante     vs locks/model-cpu.txt        →  3 pines ausentes, 24 a otra versión
-    ante_nf  vs locks/deep-macos-arm64.txt → 18 pines ausentes, 32 a otra versión
-
-y entre ellas **`torch` 2.13.0 en el lock contra 2.12.0 instalado** en los dos intérpretes, más
-`numba`/`llvmlite` —que compilan al vuelo el núcleo de statsforecast— y `coreforecast`. Una campaña
-de once horas lanzada así produce cifras que el lock **no reproduce**, y el recibo las habría
-presentado como selladas. Es exactamente el defecto que este lote persigue: declarar sin verificar.
-
-**Criterio, y por qué está partido en dos:**
-
-* **BLOQUEANTE** — un pin del lock ausente o instalado a otra versión. El lock dice qué entorno
-  produce estas cifras; si no está, no las produce.
-* **BLOQUEANTE también** — cualquier distribución instalada que el lock no nombre y que no esté
-  **declarada por nombre** en `UNGOVERNED_OK`.
-
-  ★ **M74-E-R4 corrige aquí un criterio mío que era un agujero.** R2 clasificó los extras como
-  *informativos*, razonando con `dvc` y `mlflow`, que son **herramientas**. Pero `optuna`
-  **participa en el cálculo**, y esa distinción no estaba en el gate: instalar optuna a mano
-  habría dejado `reproduces_lock: true` con un paquete ungobernado dentro del HPO. Ahora lo no
-  declarado bloquea, y la lista de excepciones es explícita, versionada y corta — si crece, se ve
-  en el diff. Un extra no declarado deja de ser ruido tolerado y pasa a ser una decisión.
-
-⚠️ **Sin bypass.** Un `--skip-…` aquí sería el mismo agujero que M74-B-R1 tuvo que arrancar de
-raíz. La salida es arreglar el entorno, no saltarse la comprobación.
+Origen (M74-E): el preflight hasheaba los archivos de lock y comprobaba que los venv EXISTIERAN
+mientras ambos intérpretes corrían torch 2.12.0 contra un lock que sella 2.13.0. Sin bypass.
 """
 
 from __future__ import annotations
@@ -124,16 +102,7 @@ def instalado_en(venv: Path) -> dict[str, str]:
 
 
 def acreditar_excepciones(venv: Path, root: Path, toolchain: dict[str, str], extras: list[str]) -> list[str]:
-    """Las dos excepciones de `UNGOVERNED_OK` se ACREDITAN, no se creen por su nombre.
-
-    ★ B2 de la auditoría `8656cf44…`: permitir `pip` y `visapredictai` por nombre aceptaba
-    igualmente **otro** `visapredictai==1.0.0` o un editable apuntando a otro checkout, y no decía
-    nada de la versión de `pip` frente al toolchain sellado. Un permiso por nombre es un permiso a
-    cualquiera que se llame así.
-
-    Se exige: `pip` == el del `lockset`; y si el proyecto está presente, que sea **editable**, que
-    su `direct_url.json` apunte a ESTE worktree y que `vp_model` resuelva bajo él.
-    """
+    """Las dos excepciones de `UNGOVERNED_OK` se ACREDITAN, no se creen por su nombre."""
     problemas: list[str] = []
     py = venv / "bin" / "python"
     fin = subprocess.run([str(py), "-c", _ACREDITACION], cwd=str(venv), capture_output=True, text=True, timeout=180)

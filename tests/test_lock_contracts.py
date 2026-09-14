@@ -48,8 +48,17 @@ def _lock_text(rel: str, hashed: bool) -> str:
 
 def _build_manifest(root) -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generator": dict(_GEN),
+        "provenance": {
+            f"locks/{n}": {
+                "method": "generated",
+                "base": None,
+                "python": _GEN["python"],
+                "command": "bash tools/make_locks.sh",
+            }
+            for n in lc.LOCK_NAMES
+        },
         "sources": {s: _sha((root / s).read_bytes()) for s in lc.SOURCES},
         "locks": {
             f"locks/{n}": {
@@ -219,7 +228,7 @@ def test_manifest_wrong_platform_blocks(repo):
 
 def test_json_duplicate_key_blocks(repo):
     # manifiesto con clave duplicada (json.dumps no lo produce; se escribe crudo)
-    (repo / "locks/lockset.json").write_text('{"schema_version": 1, "schema_version": 1}\n')
+    (repo / "locks/lockset.json").write_text('{"schema_version": 2, "schema_version": 2}\n')
     assert any("duplicada" in x for x in lc.validate_all(repo))
 
 
@@ -267,3 +276,49 @@ def test_real_repo_contract_holds():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+# ── M74-E-R6 · procedencia por lock (auditoría `8bc41ff6…`, B4) ─────────────────────────────────
+def _con_prov(repo, rel, **cambios):
+    m = json.loads((repo / "locks/lockset.json").read_text())
+    m["provenance"][rel].update(cambios)
+    (repo / "locks/lockset.json").write_text(json.dumps(m, indent=2, sort_keys=True) + "\n")
+
+
+def test_manifest_without_provenance_blocks(repo):
+    m = json.loads((repo / "locks/lockset.json").read_text())
+    del m["provenance"]
+    (repo / "locks/lockset.json").write_text(json.dumps(m) + "\n")
+    assert any("claves" in x for x in lc.validate_all(repo))
+
+
+def test_restored_without_base_blocks(repo):
+    _con_prov(repo, "locks/dev.txt", method="restored", base=None)
+    assert any("base" in x for x in lc.validate_all(repo))
+
+
+def test_restored_keeps_its_own_python(repo):
+    """★ Lo restaurado conserva el Python de su base: 3.14.2 bajo un generador 3.14.7 es LEGAL."""
+    _con_prov(repo, "locks/dev.txt", method="restored", base="a" * 40, python="3.14.1")
+    assert lc.validate_all(repo) == []
+
+
+def test_resolved_with_other_python_than_generator_blocks(repo):
+    _con_prov(repo, "locks/model-cpu.txt", method="resolved", base="a" * 40, python="3.14.1")
+    assert any("!= generator" in x for x in lc.validate_all(repo))
+
+
+def test_header_python_must_match_provenance(repo):
+    """★ Es la mezcla que la auditoría encontró: cabecera 3.14.2 atribuida a un generador 3.14.7."""
+    p = repo / "locks/dev.txt"
+    p.write_text(
+        "# Lock transitivo del perfil 'dev'\n# Python 3.14.1 · plataforma de referencia macOS arm64.\n" + p.read_text()
+    )
+    m = _build_manifest(repo)
+    (repo / "locks/lockset.json").write_text(json.dumps(m, indent=2, sort_keys=True) + "\n")
+    assert any("la cabecera declara Python 3.14.1" in x for x in lc.validate_all(repo))
+
+
+def test_unversioned_command_blocks(repo):
+    _con_prov(repo, "locks/runtime.txt", command="pip freeze a mano")
+    assert any("orden versionada" in x for x in lc.validate_all(repo))

@@ -1,40 +1,10 @@
-"""Clasifica las salidas de una campaña. Las etiquetas son un CONJUNTO, no una casilla.
+"""Clasifica las salidas de una campaña: completa, incompleta, contaminada o fuera de campaña.
 
-La corrida `rederiv_1022c9d_20260911T212150` dejó 77 entradas tocadas. Llamarlas «salidas
-parciales» sería quedarse corto, y el matiz decide qué se puede tirar y qué hay que mirar dos veces:
-
-* **completa** — la calculó esta campaña, y todas sus entradas también son de esta campaña.
-* **incompleta** — la etapa que la produce falló: el artefacto no existe, está vacío o sólo tiene
-  cabecera.
-* **contaminada** — ★ la escribió esta campaña **sobre entradas de otra añada**. Es la peligrosa:
-  tiene aspecto de resultado completo. En la corrida fallida, la etapa [4] combinó modelos nuevos
-  con `holdout_forecasts_*.csv` de julio —que la etapa [3], fallida, debía haber refrescado— y
-  publicó en el log `MASE 0.1413 / 0.1003` bajo el rótulo «combinadores sobre holdouts frescos».
-  Nada en esa línea la distingue de una cifra buena.
-
-★ **Dos correcciones de M74-E sobre mi propia primera versión, ambas por defectos reales:**
-
-1. **Las etiquetas se acumulan.** La versión anterior decidía con `continue`: el primer veredicto
-   ganaba y los demás no llegaban a evaluarse. Un artefacto **vacío Y con insumos rancios** salía
-   sólo como «incompleta», y quien leyera esa lista creería que basta re-ejecutar su etapa. Son
-   predicados independientes y se evalúan los tres.
-2. **Los punteros DVC entraban como texto y no como artefacto.** `models.dvc` y `mlflow.db.dvc`
-   son las DOS salidas más grandes de la campaña y eran invisibles: el inventario se tomaba de
-   `git status reports/` y luego se filtraba a `.csv/.json/.jsonl`. El puntero no es el artefacto:
-   lo que hay que fechar es su **carga útil**. Medido en la escena real, `models/` tiene **46
-   archivos de junio y julio junto a 301 del día de la campaña**, y `sync_all LOCAL` re-hasheó el
-   puntero sobre ese árbol mezclado — contaminación de libro que ninguna prueba miraba.
-
-**Cómo se decide, sin adivinar:** un artefacto escrito dentro de la ventana de la campaña cuyos
-insumos declarados NO se reescribieron dentro de esa ventana está contaminado; y un ÁRBOL cuyo
-puntero se reescribió en la ventana pero que guarda dentro entradas anteriores está contaminado
-por mezcla de añadas. El mapa consumidor → insumos es **explícito y versionado**; un consumidor
-sin declarar es un fallo del gate, no un «se asume limpio»: preferimos que el mapa envejezca
-ruidosamente.
-
-⚠️ **Lo que este clasificador NO sabe ver**, dicho para que nadie lo suponga: un archivo truncado
-a la mitad que conserve filas válidas pasa como completo. La incompletitud se detecta por ausencia,
-tamaño cero o cabecera sin filas, que es lo que se puede afirmar mirando el artefacto.
+Las etiquetas son un CONJUNTO —un artefacto vacío construido sobre insumos rancios es las dos
+cosas— y alcanzan a los punteros DVC fechando su carga útil, no el puntero. Contaminada = escrita en
+la ventana de la campaña sobre insumos de otra añada, o árbol con archivos de añadas mezcladas. El
+mapa consumidor → insumos es explícito y lo no declarado aborta. No detecta un archivo truncado que
+conserve filas válidas: la incompletitud se ve por ausencia, tamaño cero o cabecera sin filas.
 """
 
 from __future__ import annotations
@@ -129,12 +99,7 @@ def _esta_vacio(p: Path) -> str | None:
 
 
 def classify(rutas: list[str], *, root: Path = ROOT, txn: Path = TXN) -> dict[str, dict]:
-    """Clasifica cada ruta con TODAS las etiquetas que le apliquen. Fail-closed ante lo no declarado.
-
-    Devuelve ``{ruta: {"clases": [...], "razones": {clase: motivo}, "payload": ruta_real}}``.
-    ``clases`` puede traer ``incompleta`` y ``contaminada`` a la vez: son predicados independientes
-    y un artefacto a medias construido sobre insumos rancios es exactamente las dos cosas.
-    """
+    """Clasifica cada ruta con TODAS las etiquetas que le apliquen. Fail-closed ante lo no declarado."""
     _, inicio = _campaign_window(txn)
     veredicto: dict[str, dict] = {}
     for rel in rutas:
@@ -209,12 +174,7 @@ def classify(rutas: list[str], *, root: Path = ROOT, txn: Path = TXN) -> dict[st
 
 
 def _rutas_tocadas(raiz: Path) -> list[str]:
-    """El inventario REAL de lo tocado, del repositorio entero y sin filtrar por extensión.
-
-    ⚠️ La versión anterior hacía `git status --porcelain reports` y luego se quedaba con
-    `.csv/.json/.jsonl`. Las dos salidas mayores de la campaña —el árbol de modelos y la base de
-    MLflow, que viajan como punteros `.dvc` en la RAÍZ— caían por los dos filtros a la vez.
-    """
+    """El inventario REAL de lo tocado, del repositorio entero y sin filtrar por extensión."""
     import subprocess
 
     fin = subprocess.run(["git", "status", "--porcelain", "-z"], cwd=raiz, capture_output=True, text=True, check=False)

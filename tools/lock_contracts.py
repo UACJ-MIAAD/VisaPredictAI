@@ -330,15 +330,55 @@ def validate_deep_cross_platform(root: Path = ROOT, locks_dir: Path | None = Non
     return probs
 
 
+_SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
+_HEADER_PY_RE = re.compile(r"^# Python (3\.14\.\d+) ", re.M)
+PROVENANCE_METHODS = ("generated", "restored", "resolved")
+
+
+def validate_provenance(manifest: dict, root: Path = ROOT) -> list[str]:
+    """Procedencia POR LOCK (M74-E-R6). Una matriz restaurada + resuelta no es una generación uniforme.
+
+    `generated`/`resolved` los produjo el toolchain de ESTE manifiesto; `restored` viene byte a byte
+    de `base` y conserva su Python. Donde la cabecera declara Python, debe coincidir.
+    """
+    probs: list[str] = []
+    prov, gen_py = manifest.get("provenance"), (manifest.get("generator") or {}).get("python")
+    if not isinstance(prov, dict) or set(prov) != {f"locks/{n}" for n in LOCK_NAMES}:
+        return [f"manifiesto.provenance: claves {sorted(prov) if isinstance(prov, dict) else prov!r} != los 9"]
+    for rel, e in sorted(prov.items()):
+        tag = f"manifiesto.provenance[{rel}]"
+        if not isinstance(e, dict) or set(e) != {"method", "base", "python", "command"}:
+            probs.append(f"{tag}: claves {sorted(e) if isinstance(e, dict) else e!r} != {{method,base,python,command}}")
+            continue
+        if e["method"] not in PROVENANCE_METHODS:
+            probs.append(f"{tag}: method {e['method']!r} fuera de {PROVENANCE_METHODS}")
+        if (e["method"] == "generated") != (e["base"] is None) or (
+            e["base"] is not None and not _SHA40_RE.match(str(e["base"]))
+        ):
+            probs.append(f"{tag}: base {e['base']!r} incoherente con method {e['method']!r}")
+        if not _PY_RE.match(str(e["python"])):
+            probs.append(f"{tag}: python {e['python']!r} no es 3.14.Z")
+        elif e["method"] != "restored" and e["python"] != gen_py:
+            probs.append(f"{tag}: {e['method']} con python {e['python']} != generator {gen_py}")
+        if not str(e["command"]).startswith("bash tools/make_locks.sh"):
+            probs.append(f"{tag}: command {e['command']!r} no es una orden versionada del generador")
+        path = root / rel
+        cab = _HEADER_PY_RE.search(path.read_text()) if path.exists() else None
+        if cab and cab.group(1) != e["python"]:
+            probs.append(f"{tag}: la cabecera declara Python {cab.group(1)} y la procedencia {e['python']}")
+    return probs
+
+
 def validate_manifest(manifest: dict, root: Path = ROOT) -> list[str]:
     """Esquema estricto + recálculo de hashes de locks y fuentes + conteos + Python/plataforma/toolchain."""
     probs: list[str] = []
-    if set(manifest) != {"schema_version", "generator", "sources", "locks"}:
+    if set(manifest) != {"schema_version", "generator", "sources", "locks", "provenance"}:
         probs.append(f"manifiesto: claves {sorted(manifest)} != esperado")
         return probs
-    if manifest.get("schema_version") != 1:
-        probs.append(f"manifiesto: schema_version {manifest.get('schema_version')} != 1")
+    if manifest.get("schema_version") != 2:
+        probs.append(f"manifiesto: schema_version {manifest.get('schema_version')} != 2")
     probs += [f"manifiesto.{p}" for p in validate_generator(manifest.get("generator", {}))]
+    probs += validate_provenance(manifest, root)
     # fuentes: exactamente las 7, hash recalculado
     if set(manifest.get("sources", {})) != set(SOURCES):
         probs.append(f"manifiesto.sources {sorted(manifest.get('sources', {}))} != {sorted(SOURCES)}")

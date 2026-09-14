@@ -74,6 +74,12 @@ if ! "$ANTE" -m tools.check_env_matches_lock; then
   echo "ERROR: el entorno no reproduce locks/. La campaña se detiene ANTES de calcular nada." >&2
   exit 8
 fi
+# ★ M74-E-R6 · el smoke completo es PUERTA, no recomendación (decisión del autor tras la auditoría
+# `8bc41ff6…`). Tarda ~2 min y detecta en ese tiempo la clase de defecto que costó once horas.
+if ! "$ANTE" tools/check_entrypoint_smoke.py; then
+  echo "ERROR: el smoke de entrypoints falló. La campaña se detiene ANTES del primer artefacto." >&2
+  exit 9
+fi
 
 
 # ── Identidad fija + árbol limpio (auditoría 12-jul-2026) ────────────────────

@@ -5,8 +5,8 @@
 # F2: deep global — matriz de variantes (espacio-target × normalización × HPO) × multi-semilla.
 #     HPO deep (AK8c): UNA búsqueda de 40 trials por modelo y el ganador re-entrenado
 #     con 5 semillas (antes: 5 búsquedas independientes de 15 = 75 trials desperdiciados).
-# FAIL-CLOSED (auditoría 12-jul-2026): cada PASO acumula su fallo y la campaña TERMINA EN
-# ROJO (exit≠0) si algún paso falló. Antes cada paso llevaba `|| true` y el script salía 0
+# FAIL-CLOSED (auditoría 12-jul-2026; FAIL-FAST desde M74-E-R6): el primer paso roto detiene la
+# campaña con su exit. Antes cada paso llevaba `|| true` y el script salía 0
 # aunque fallaran F1/F2/agregación/ensembles/sync — un falso éxito que el run_req de
 # run_rederivation.sh no podía detectar. Los fallos POR-MODELO en series cortas ocurren
 # DENTRO de run_comparison (que sale 0 con su pool CSV), así que capturar el exit de cada
@@ -22,8 +22,18 @@ NF=ante_nf/bin/python
 # silencioso que imprimía éxito (E1).
 [ -x "$ANTE" ] && [ -x "$NF" ] || { echo "ERROR: faltan venvs ante/ y/o ante_nf/ en la raíz" >&2; exit 1; }
 SEEDS="1 2 3 4 5"
-CAMP_FAILS=0
-step() { local label="$1"; shift; echo ">>> $label $(date)"; "$@" || { echo "##### PASO FALLIDO (exit $?): $label :: $*"; CAMP_FAILS=$((CAMP_FAILS+1)); }; }
+# ★ M74-E-R6 · FAIL-FAST en el punto del fallo (auditoría `8bc41ff6…`, B1). `step` acumulaba el
+# fallo y seguía: tras una semilla deep rota, la agregación leía por glob los `global_*.csv` que
+# hubiera —de esta campaña o de otra— y `sync_all` los re-hasheaba, y el rojo llegaba al final.
+step() {
+  local label="$1"; shift
+  echo ">>> $label $(date)"
+  "$@" && return 0
+  local rc=$?
+  echo "##### PASO FALLIDO (exit $rc): $label :: $*" >&2
+  echo "##### FAIL-FAST: la campaña se detiene aquí; nada posterior agrega ni sincroniza." >&2
+  exit "$rc"
+}
 echo "=== CAMPAÑA arranca $(date) ==="
 echo "campaign_id=${CAMPAIGN_ID:-standalone}  ·  sha=${CAMPAIGN_SHA:-$(git rev-parse --short HEAD)}"
 
@@ -89,9 +99,5 @@ done
 # SYNC_PUBLISH=0 explícito: aunque el entorno lo herede en 1, la campaña NUNCA publica.
 step "sync_all LOCAL (sin push)" env SYNC_PUBLISH=0 bash experiments/sync_all.sh "campaña: MLflow + DVC local ($(date +%Y-%m-%d))"
 
-echo "=== CAMPAÑA termina $(date) · pasos fallidos: $CAMP_FAILS ==="
-if [ "$CAMP_FAILS" -gt 0 ]; then
-  echo "✗ CAMPAÑA FALLIDA: $CAMP_FAILS paso(s) rotos. NO es un éxito." >&2
-  exit 1
-fi
+echo "=== CAMPAÑA termina $(date) · todos los pasos en verde ==="
 exit 0
