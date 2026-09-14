@@ -14,6 +14,8 @@
 #   bash experiments/run_campaign.sh > reports/campaign.log 2>&1
 set -uo pipefail
 cd "$(dirname "$0")/.."   # los intérpretes y las rutas de salida viven en la RAÍZ del repo
+# ★ M74-E-R5 (B7) · misma resolución de imports que el runbook y el smoke, explícita.
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 ANTE=ante/bin/python
 NF=ante_nf/bin/python
 # Guard fail-loud: sin esto, con el cwd/venv equivocado un paso se convertía en un no-op

@@ -33,6 +33,7 @@ raíz. La salida es arreglar el entorno, no saltarse la comprobación.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -66,6 +67,20 @@ _CENSO = (
     "print(json.dumps({(d.metadata['Name'] or '').lower().replace('_','-'): d.version "
     "for d in m.distributions() if d.metadata['Name']}))"
 )
+#: ★ M74-E-R5 (B2) · lo que hace falta para ACREDITAR las dos excepciones, no sólo nombrarlas:
+#: de dónde viene el editable y a qué resuelve `vp_model`. Se pregunta al propio intérprete.
+_ACREDITACION = (
+    "import json,importlib.metadata as m\n"
+    "out={'pip':None,'direct_url':None,'vp_model':None}\n"
+    "try: out['pip']=m.version('pip')\n"
+    "except Exception: pass\n"
+    "try: out['direct_url']=json.loads(m.distribution('visapredictai').read_text('direct_url.json') or '{}')\n"
+    "except Exception: pass\n"
+    "try:\n"
+    "    import vp_model; out['vp_model']=vp_model.__file__\n"
+    "except Exception: pass\n"
+    "print(json.dumps(out))"
+)
 
 
 class EnvLockError(RuntimeError):
@@ -91,6 +106,10 @@ def pines_del_lock(ruta: Path) -> dict[str, str]:
 
 def instalado_en(venv: Path) -> dict[str, str]:
     """Lo que el intérprete tiene DE VERDAD, preguntándoselo a él."""
+    # ⚠️ ABSOLUTO antes de cambiar el cwd. Con `cwd=venv` y una ruta relativa (`ante/bin/python`),
+    # el intérprete se resolvía contra el nuevo directorio y salía `FileNotFoundError`. Lo cazó una
+    # llamada mía con `Path("ante")`; en `auditar()` no salía porque allí la ruta ya viene compuesta.
+    venv = venv.resolve()
     py = venv / "bin" / "python"
     if not py.exists():
         raise EnvLockError(f"{py} no existe: no hay intérprete que verificar")
@@ -104,12 +123,53 @@ def instalado_en(venv: Path) -> dict[str, str]:
     return {normalizar(k): v for k, v in json.loads(fin.stdout).items()}
 
 
+def acreditar_excepciones(venv: Path, root: Path, toolchain: dict[str, str], extras: list[str]) -> list[str]:
+    """Las dos excepciones de `UNGOVERNED_OK` se ACREDITAN, no se creen por su nombre.
+
+    ★ B2 de la auditoría `8656cf44…`: permitir `pip` y `visapredictai` por nombre aceptaba
+    igualmente **otro** `visapredictai==1.0.0` o un editable apuntando a otro checkout, y no decía
+    nada de la versión de `pip` frente al toolchain sellado. Un permiso por nombre es un permiso a
+    cualquiera que se llame así.
+
+    Se exige: `pip` == el del `lockset`; y si el proyecto está presente, que sea **editable**, que
+    su `direct_url.json` apunte a ESTE worktree y que `vp_model` resuelva bajo él.
+    """
+    problemas: list[str] = []
+    py = venv / "bin" / "python"
+    fin = subprocess.run([str(py), "-c", _ACREDITACION], cwd=str(venv), capture_output=True, text=True, timeout=180)
+    if fin.returncode != 0:
+        return [f"{venv.name}: no se pudo acreditar el entorno ({fin.stderr.strip()[:160]})"]
+    datos = json.loads(fin.stdout)
+
+    esperado_pip = str(toolchain.get("pip", ""))
+    if esperado_pip and datos.get("pip") != esperado_pip:
+        problemas.append(f"{venv.name}: pip {datos.get('pip')!r} ≠ el del lockset {esperado_pip!r}")
+
+    if "visapredictai" in extras:
+        du = datos.get("direct_url") or {}
+        if not (du.get("dir_info") or {}).get("editable"):
+            problemas.append(f"{venv.name}: `visapredictai` no está instalado como EDITABLE ({du or 'sin direct_url'})")
+        url = str(du.get("url", ""))
+        real = Path(root).resolve()
+        if not url.startswith("file://") or Path(url[7:]).resolve() != real:
+            problemas.append(f"{venv.name}: el editable apunta a {url!r} y este worktree es {real}")
+        vpm = datos.get("vp_model")
+        if not vpm or real not in Path(vpm).resolve().parents:
+            problemas.append(f"{venv.name}: `vp_model` resuelve a {vpm!r}, fuera de {real}")
+    return problemas
+
+
 def comparar(venv: Path, lock: Path) -> dict:
     """El veredicto de un intérprete. Determinista: todo ordenado, nada dependiente del orden de pip."""
     pines, real = pines_del_lock(lock), instalado_en(venv)
     ausentes = sorted(set(pines) - set(real))
     difieren = sorted(k for k in set(pines) & set(real) if pines[k] != real[k])
     extras = sorted(set(real) - set(pines))
+    # ★ B5 de la auditoría `8656cf44…`: el preflight guardaba el VEREDICTO contra los locks, pero
+    # no el inventario. Se sella el `freeze` completo por hash —un número que cambia si cambia
+    # cualquier versión— y las versiones de los extras permitidos, que hasta ahora sólo aparecían
+    # por su nombre. Sin esto, «reproduces_lock: true» no decía CON QUÉ se corrió.
+    freeze_sha = hashlib.sha256("\n".join(f"{k}=={real[k]}" for k in sorted(real)).encode()).hexdigest()
     return {
         "venv": venv.name,
         "lock": lock.as_posix() if not lock.is_absolute() else lock.name,
@@ -118,6 +178,8 @@ def comparar(venv: Path, lock: Path) -> dict:
         "missing": [{"name": k, "locked": pines[k]} for k in ausentes],
         "version_mismatch": [{"name": k, "locked": pines[k], "installed": real[k]} for k in difieren],
         "extra": extras,
+        "extra_versions": {k: real[k] for k in extras},
+        "freeze_sha256": freeze_sha,
         "undeclared": [k for k in extras if k not in UNGOVERNED_OK.get(venv.name, frozenset())],
         "reproduces_lock": not ausentes
         and not difieren
@@ -125,9 +187,23 @@ def comparar(venv: Path, lock: Path) -> dict:
     }
 
 
+def _toolchain(root: Path) -> dict[str, str]:
+    ruta = Path(root) / "locks" / "lockset.json"
+    if not ruta.is_file():
+        return {}
+    return dict(json.loads(ruta.read_text(encoding="utf-8")).get("generator") or {})
+
+
 def auditar(root: Path = ROOT) -> dict[str, dict]:
     """Todos los intérpretes que la campaña usa, en el orden declarado."""
-    return {venv: comparar(root / venv, root / lock) for venv, lock in INTERPRETER_LOCKS}
+    tc = _toolchain(root)
+    salida: dict[str, dict] = {}
+    for venv, lock in INTERPRETER_LOCKS:
+        r = comparar(root / venv, root / lock)
+        r["accreditation"] = acreditar_excepciones(root / venv, root, tc, r["extra"])
+        r["reproduces_lock"] = r["reproduces_lock"] and not r["accreditation"]
+        salida[venv] = r
+    return salida
 
 
 def exigir_reproducibles(root: Path = ROOT) -> dict[str, dict]:
@@ -136,8 +212,16 @@ def exigir_reproducibles(root: Path = ROOT) -> dict[str, dict]:
     rotos = {k: v for k, v in veredicto.items() if not v["reproduces_lock"]}
     if rotos:
         detalle = "; ".join(
-            f"{k}: {len(v['missing'])} ausente(s), {len(v['version_mismatch'])} a otra versión "
-            f"(p. ej. {', '.join(d['name'] for d in (v['version_mismatch'] or v['missing'])[:3])})"
+            # ⚠️ Conteos Y NOMBRES. Al reescribir este mensaje dejé sólo los conteos y una prueba
+            # lo cazó: «1 a otra versión» sin decir cuál obliga a ir a buscarlo, y un gate que
+            # obliga a investigar para entenderlo se lee por encima.
+            f"{k}: {len(v['missing'])} ausente(s), {len(v['version_mismatch'])} a otra versión, "
+            f"{len(v['undeclared'])} sin gobernar, {len(v.get('accreditation', []))} sin acreditar"
+            + (
+                f" (p. ej. {', '.join(d['name'] for d in (v['version_mismatch'] or v['missing'])[:3])})"
+                if (v["version_mismatch"] or v["missing"])
+                else ""
+            )
             for k, v in sorted(rotos.items())
         )
         raise EnvLockError(
@@ -167,6 +251,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"    OTRA VERSIÓN     {d['name']:28s} lock={d['locked']:14s} real={d['installed']}")
             for nombre in v["undeclared"]:
                 print(f"    SIN GOBERNAR     {nombre:28s} ni en el lock ni en UNGOVERNED_OK")
+            for problema in v.get("accreditation", []):
+                print(f"    SIN ACREDITAR    {problema}")
             declarados = [e for e in v["extra"] if e not in v["undeclared"]]
             if declarados:
                 print(f"    (declarados fuera del lock) {', '.join(declarados)}")

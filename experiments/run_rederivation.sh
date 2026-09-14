@@ -15,7 +15,8 @@
 #   4. combinadores           ensembles / conformal / stacking / FFORMA, sobre los holdouts
 #                             de 3.5 — que ahora se re-acreditan al leerse
 #   5. baselines prob./clásicos  Auto-ARIMA (AICc) · deep-PI · CRPS
-#   6. tuning GBMs (AK)       run_tuning (Optuna persistente, 150 trials, familia+empleo,
+#   6. tuning GBMs (AK)       OBLIGATORIO desde M74-E-R4/R5: run_tuning (Optuna persistente,
+#                             150 trials, familia+empleo,
 #                             candidatos) + confirm_tuning (aceptación en val-confirm
 #                             INDEPENDIENTE; hold-out solo como reporte) + rank-check (AK9)
 #   7. significancia          Friedman-Nemenyi + MCS + DM · champion-challenger
@@ -36,14 +37,22 @@
 # y se tomó cuando la etapa 1 aún calculaba ensembles que ahora se retiraron. Es una cota inferior.
 #
 # Uso (desde la raíz; ≥16 h; caffeinate evita que macOS duerma a mitad de campaña):
-#   caffeinate -is bash experiments/run_rederivation.sh > reports/rederivation.log 2>&1
+#   caffeinate -is bash experiments/run_rederivation.sh > reports/rederivation_$(date +%Y%m%dT%H%M%S).log 2>&1
+#
+# ⚠️ M74-E-R5 (B7): el log lleva marca de tiempo. Redirigir a `reports/rederivation.log` a secas
+# hacía que un relanzamiento SOBRESCRIBIERA la bitácora de la corrida anterior — y la bitácora es
+# la única evidencia de una campaña que no terminó. El propio runbook deja además un enlace por
+# `campaign_id` (ver más abajo), que es el nombre por el que se busca después.
 #
 # Fail-closed (auditoría 12-jul-2026): las etapas OBLIGATORIAS (run_req) hacen que el runbook
-# TERMINE EN ROJO (exit≠0) si fallan: build_database · campaña · proyección de pools ·
-# finalistas · ensembles · conformal · Auto-ARIMA · CRPS · confirm_tuning · significancia ·
-# champion-challenger · key_facts · model_card · figuras de resultados. Quedan best-effort
-# (run) solo las genuinamente tolerables: stacking/FFORMA exploratorios, deep-PI diagnóstico,
-# búsqueda de tuning (confirm sí es obligatoria), drift y hero. La consistencia rota al final
+# TERMINE EN ROJO (exit≠0) si fallan: build_database · LINAJE de procedencia (M74-E-R5) · campaña ·
+# proyección de pools · finalistas · holdout_forecasts · ensembles · conformal · Auto-ARIMA · CRPS ·
+# BÚSQUEDA DE TUNING y confirm_tuning · significancia · champion-challenger · key_facts ·
+# model_card · figuras de resultados. Quedan best-effort (run) solo las genuinamente tolerables:
+# stacking/FFORMA exploratorios, deep-PI diagnóstico, drift y hero.
+# ⚠️ M74-E-R5: esta enumeración decía «búsqueda de tuning» entre las best-effort cuando R4 ya la
+# había vuelto obligatoria. Una documentación que contradice la conducta es peor que ninguna:
+# quien lee el encabezado deja de mirar el código. La consistencia rota al final
 # es exit 2 (hay cifras que propagar). NADA se publica: run_campaign y save_finalists llaman
 # a sync_all con SYNC_PUBLISH=0; publicar exige `sync_all.sh --publish` humano tras validar.
 set -uo pipefail
@@ -98,6 +107,10 @@ CAMPAIGN_DIRTY="${ALLOW_DIRTY:+true}"; CAMPAIGN_DIRTY="${CAMPAIGN_DIRTY:-false}"
 # máquina lo tiene, y en la corrida del 11/12-sep eso repartió la etapa [1] entre 130 226 líneas en
 # CPU y 846 en MPS. El protocolo no declaraba acelerador; ahora sí, y se declara aquí.
 export VP_DEEP_ACCEL=cpu
+# ★ M74-E-R5 (B7) · resolución de imports IDÉNTICA en runbook y smoke. Hoy funciona porque el
+# editable apunta a este worktree y los guiones deep insertan ROOT, pero eso son dos mecanismos
+# distintos para la misma garantía; `PYTHONPATH` la hace explícita y la comparte con el smoke.
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 export CAMPAIGN_SHA CAMPAIGN_ID CAMPAIGN_DIRTY
 export CAMPAIGN_GIT_SHA="$CAMPAIGN_SHA"
 echo "campaign_id=$CAMPAIGN_ID  ·  sha=$CAMPAIGN_SHA  ·  dirty=$CAMPAIGN_DIRTY"
@@ -109,7 +122,14 @@ if [ -n "${ALLOW_DIRTY:-}" ] && [ -z "${CAMPAIGN_DIAGNOSTIC:-}" ]; then
   echo "       para una corrida de depuracion que NO se publicara. Aborta." >&2
   exit 6
 fi
-mkdir -p reports/campaign
+mkdir -p reports/campaign reports/logs
+# ★ M74-E-R5 (B7) · una bitácora POR CAMPAÑA, y la campaña es su dueña.
+# Redirigir a `reports/rederivation.log` hacía que un relanzamiento SOBRESCRIBIERA la bitácora de
+# la corrida anterior, que es la única evidencia de una campaña que no terminó. Un enlace a un
+# nombre adivinado habría quedado colgando: el runbook no sabe adónde redirige el operador. Así
+# que escribe la suya con `tee`, sin quitarle al operador la que él eligió.
+exec > >(tee -a "reports/logs/${CAMPAIGN_ID}.log") 2>&1
+echo "bitácora de esta campaña: reports/logs/${CAMPAIGN_ID}.log"
 printf '{"campaign_id":"%s","sha":"%s","git_sha":"%s","dirty":%s,"started_at":"%s"}\n' \
   "$CAMPAIGN_ID" "$CAMPAIGN_SHA" "$CAMPAIGN_SHA" "$CAMPAIGN_DIRTY" "$(date -u +%FT%TZ)" \
   > reports/campaign/campaign_manifest.json
@@ -208,6 +228,11 @@ print(f'panel: {len(p):,} filas · {p.bulletin_date.nunique()} meses · F={int((
 
 stage 0 "almacén fresco (el modelado lee DuckDB y aborta si está desfasado)"
 run_req $ANTE -m pipeline.build_database
+# ★ M74-E-R5 (B4) · el almacen puede construirse DEGRADADO y salir 0. Sin esta puerta, una campana
+# podia arrancar con `source_artifact` vacia —medido en el worktree de ejecucion: 0 filas— y
+# terminar en verde sin una sola fila de linaje. Un directorio de snapshots vacio se sella igual
+# de bien que uno lleno, asi que el sello no basta: hay que comprobar la COBERTURA.
+run_req $ANTE tools/check_source_lineage.py
 
 stage 1 "campaña F1+F2 (pools 21 modelos + deep global multi-semilla)"
 run_req bash experiments/run_campaign.sh

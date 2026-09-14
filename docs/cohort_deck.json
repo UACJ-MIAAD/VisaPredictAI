@@ -47,8 +47,8 @@
   },
   "inputs": {
     "cohort_scan.json": "806b3fed1a0303aca4522b16d17002f816fc0836902a543b02d39855d63e9f9d",
-    "locks/deep-macos-arm64.txt": "b41039319d2e7fdf29f7ff67c44fc1b2a8078c031813691a63ebe2d8efc485aa",
-    "locks/lockset.json": "b394248ed9de423d132a0f7bdfa94a718fd41cec4077dfc5d45e5a060a918c68",
+    "locks/deep-macos-arm64.txt": "a75c7d097352bad8c1d833af5ee80500d511190d90caa96f3c27dedc697afac9",
+    "locks/lockset.json": "3a56091259473016773913de290bd9b5c34597f220a714792608f5cf806605c3",
     "series_cohorts.json": "f94b1684436f540acd2efcc26055024d6de78a33b98a97f490c63be336da211d",
     "visa_panel_long.csv": "3ae64f3dd714668b7726ae75c95620f2e5542faa3e843e76123581610f00a0b8",
     "visa_panel_long.parquet": "c3ae3d7a964f445bf7931cfb619a69b1a139a0dd0c357ca481fc39e7ca5fbdae",
@@ -180,5 +180,5 @@
     "vp_model/config.py": "679fc9853c1b83bd415b4860843d59e5d5efea0b3ec5a89abf651ead6a55b3f7",
     "vp_model/stability.py": "e7cee3281febdecfe672d21c95d616135407a0cc6b88096af1c650ef8ac0ef44"
   },
-  "inputs_resealed_note": "M74-B · Las entradas se RESELLAN para que el deck describa la campaña que se va a correr dentro de la transacción causal (#58 opción A): `vp_model/config.py` y `vp_model/stability.py` cambiaron desde e8b4629 (comentarios en el primero, ayudantes de presentación en el segundo) y COHORT_POLICY exige que, si una entrada cambia, la baraja deje de describir la campaña. Las RECETAS, cohortes, tablas, semillas y el bloque `frozen` NO se tocan: el pre-registro de E3 es el mismo. La procedencia original queda en `inputs_e3_original`, porque reescribirla sin conservarla borraría de qué corrió E3 en su día — y la equivalencia conductual está medida: clasificando las 74 series con la stability.py de e8b4629 y con la de hoy, la partición es idéntica (39 estables / 35 no estables, cero divergencias). · M74-E-R4: `locks/deep-macos-arm64.txt` y `locks/lockset.json` se resellan porque la regeneración autorizada de los nueve locks (añadir `optuna` al perfil `model`) re-resolvió la matriz contra el índice de hoy. Las RECETAS, cohortes, tablas, semillas y el dispositivo NO se tocan; `inputs_e3_original` conserva intactos los hashes bajo los que corrió E3, así que la campaña publicada sigue siendo auditable contra SUS entradas. Resellar aquí es lo que el propio deck exige: describir la campaña que se va a correr, no una anterior."
+  "inputs_resealed_note": "M74-B · Las entradas se RESELLAN para que el deck describa la campaña que se va a correr dentro de la transacción causal (#58 opción A): `vp_model/config.py` y `vp_model/stability.py` cambiaron desde e8b4629 (comentarios en el primero, ayudantes de presentación en el segundo) y COHORT_POLICY exige que, si una entrada cambia, la baraja deje de describir la campaña. Las RECETAS, cohortes, tablas, semillas y el bloque `frozen` NO se tocan: el pre-registro de E3 es el mismo. La procedencia original queda en `inputs_e3_original`, porque reescribirla sin conservarla borraría de qué corrió E3 en su día — y la equivalencia conductual está medida: clasificando las 74 series con la stability.py de e8b4629 y con la de hoy, la partición es idéntica (39 estables / 35 no estables, cero divergencias). · M74-E-R5: sólo `locks/lockset.json` se resella. La adición de `optuna` al perfil `model` cambia el manifiesto, pero `locks/deep-macos-arm64.txt` vuelve a ser byte-idéntico al de E3 —R5 preservó los pines pre-R4 y no refrescó perfiles ajenos—, así que su hash recupera el valor original. Las RECETAS, cohortes, tablas, semillas y dispositivo NO se tocan."
 }

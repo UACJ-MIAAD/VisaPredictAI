@@ -31,6 +31,8 @@
 # equivocado era un no-op "exitoso" (E1).
 set -uo pipefail
 cd "$(dirname "$0")/.."
+# ★ M74-E-R5 (B7) · misma resolución de imports que el runbook y el smoke, explícita.
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 [ -x ante/bin/python ] && [ -x ante_nf/bin/python ] || { echo "ERROR: faltan venvs ante/ y/o ante_nf/ en la raíz" >&2; exit 1; }
 
 # ── identidad de la campaña: sin ella no hay dónde aislar, y no se adivina

@@ -214,7 +214,7 @@ def deferred_imports_resolve(root: Path = ROOT) -> list[str]:
     dejó pasar `optuna`.
     """
     fallos: list[str] = []
-    cache: dict[tuple[str, str], bool] = {}
+    cache: dict[tuple[str, str], tuple[bool, str]] = {}
     # ⚠️ SÓLO los que un runner invoca de verdad, y con la ruta COMPLETA.
     # Dos falsos positivos míos al estrenarlo: pasé `p.name` donde `interpreter_of` empareja
     # `experiments/x.py`, así que cuatro guiones de `ante_nf` se midieron contra `ante`; y gateé
@@ -262,22 +262,23 @@ def deferred_imports_resolve(root: Path = ROOT) -> list[str]:
         for paquete in sorted(terceros):
             clave = (perfil, paquete)
             if clave not in cache:
+                # ★ B3 de la auditoría `8656cf44…`: se IMPORTA de verdad, no `find_spec`.
+                # Un paquete presente pero roto por una dependencia binaria pasaba el gate y moría
+                # en ejecución; «está instalado» y «se puede usar» no son lo mismo.
                 fin = subprocess.run(
-                    [
-                        str(interp),
-                        "-c",
-                        f"import importlib.util,sys; sys.exit(0 if importlib.util.find_spec({paquete!r}) else 1)",
-                    ],
+                    [str(interp), "-c", f"import {paquete}"],
                     cwd=str(root),
                     env=_clean_env(root),
                     capture_output=True,
                     text=True,
-                    timeout=120,
+                    timeout=300,
                     check=False,
                 )
-                cache[clave] = fin.returncode == 0
-            if not cache[clave]:
-                fallos.append(f"{script} ({perfil}): importa `{paquete}`, que no está en ese perfil")
+                cola = (fin.stderr or fin.stdout or "").strip().splitlines()
+                cache[clave] = (fin.returncode == 0, " / ".join(cola[-2:])[:200])
+            ok, motivo = cache[clave]
+            if not ok:
+                fallos.append(f"{script} ({perfil}): `{paquete}` no se puede importar — {motivo}")
     return fallos
 
 
