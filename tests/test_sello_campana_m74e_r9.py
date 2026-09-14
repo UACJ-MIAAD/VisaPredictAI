@@ -131,6 +131,8 @@ case "$*" in
   *campaign_preflight*)
     [ "$SELLO" = rc1 ] && exit 1
     out=""; previo=""; for a in "$@"; do [ "$previo" = --out ] && out="$a"; previo="$a"; done
+    if [ -e "$TMPDIR/.emitido" ]; then sed "s/__HEAD__/$(git rev-parse HEAD)/" "$SELLO_VIVO" > "$out"; exit 0; fi
+    : > "$TMPDIR/.emitido"
     case "$SELLO" in
       vacio) : ;;
       llaves) echo "{}" > "$out" ;;
@@ -150,7 +152,10 @@ def _ejecutable(ruta: Path, texto: str) -> None:
     ruta.chmod(ruta.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def _arranque(tmp_path: Path) -> Path:
+def _arranque(tmp_path: Path, campana_sellada=None) -> Path:
+    # ★ M74-E-R11: el segundo preflight del arranque (la comparación viva) deriva el sello legítimo
+    if campana_sellada is not None:
+        _plantilla(tmp_path, campana_sellada, nombre="vivo.json")
     repo = tmp_path / "repo"
     guion = RUNBOOK.read_text(encoding="utf-8")
     bloque = guion[guion.index("set -uo pipefail") : guion.index("# ── Transacción de campaña")]
@@ -174,10 +179,10 @@ def _arranque(tmp_path: Path) -> Path:
     return repo
 
 
-def _plantilla(tmp_path: Path, campana_sellada, **git) -> Path:
+def _plantilla(tmp_path: Path, campana_sellada, nombre: str = "plantilla.json", **git) -> Path:
     sello = campana_sellada.sello(head="__HEAD__")
     sello["git"].update(git)
-    ruta = tmp_path / "plantilla.json"
+    ruta = tmp_path / nombre
     ruta.write_text(json.dumps(sello), encoding="utf-8")
     return ruta
 
@@ -189,6 +194,7 @@ def _correr(repo: Path, tmp_path: Path, sello: str, shim: str | None = None) -> 
         _ejecutable(tmp_path / "shim" / shim, "#!/bin/sh\nexit 1\n")
         ruta = f"{tmp_path / 'shim'}:{ruta}"
     entorno = {"PATH": ruta, "HOME": str(tmp_path), "TMPDIR": str(tmp_path / "tmp"), "SELLO": sello}
+    entorno["SELLO_VIVO"] = str(tmp_path / "vivo.json")
     entorno |= {"RAIZ_REAL": str(RAIZ), "PY_REAL": sys.executable}
     guion = str(repo / "experiments" / "arranque.sh")
     return subprocess.run(["bash", guion], capture_output=True, text=True, timeout=120, env=entorno)
@@ -212,7 +218,7 @@ def test_RED_el_arranque_real_no_alcanza_el_primer_productor(
 ) -> None:
     """★ Sello vacío o `{}` con rc 0, preflight roto, otro HEAD, otro dirty, HEAD que se mueve mientras se
     sella, y fallos de promoción o de hash: ninguno llega al primer productor."""
-    repo = _arranque(tmp_path)
+    repo = _arranque(tmp_path, campana_sellada)
     if caso in ("vacio", "llaves", "rc1"):
         sello = caso
     elif caso == "head":
@@ -229,7 +235,7 @@ def test_RED_el_arranque_real_no_alcanza_el_primer_productor(
 
 
 def test_control_el_arranque_real_con_un_sello_legitimo(tmp_path: Path, campana_sellada) -> None:
-    repo = _arranque(tmp_path)
+    repo = _arranque(tmp_path, campana_sellada)
     fin = _correr(repo, tmp_path, str(_plantilla(tmp_path, campana_sellada)))
     assert fin.returncode == 0, fin.stdout + fin.stderr
     assert (repo / "reports" / "campaign" / "PRIMER_PRODUCTOR").exists()

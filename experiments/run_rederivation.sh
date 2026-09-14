@@ -167,6 +167,17 @@ if ! "$ANTE" -m tools.campaign_manifest --assert-sealed reports/campaign/campaig
   echo "ERROR: el sello de entradas no se acredita contra el manifiesto de esta campaña. Aborta." >&2
   exit 13
 fi
+# ★ M74-E-R11 · la forma no es el contenido: rutas inexistentes con SHA válido o una semilla cambiada pasan
+# cualquier esquema. El sello tiene que ser EXACTAMENTE lo que el preflight deriva HOY de este árbol —
+# entrypoints del runbook, rutas y hashes recalculados en disco, reconcile_protocol() y auditar()—, antes
+# de abrir la transacción. `reports/logs/` está ignorado para que la bitácora no cambie el `dirty` medido.
+PREFLIGHT_VIVO="$(mktemp "${TMPDIR:-/tmp}/vp_preflight_vivo.XXXXXX")" || exit 14
+if ! "$ANTE" -m tools.campaign_preflight --out "$PREFLIGHT_VIVO" || ! cmp -s "$PREFLIGHT_VIVO" "$PREFLIGHT"; then
+  rm -f "$PREFLIGHT_VIVO"
+  echo "ERROR: el sello registrado no es el que este árbol deriva hoy (entrypoints, entradas, protocolo o entorno). Aborta." >&2
+  exit 14
+fi
+rm -f "$PREFLIGHT_VIVO"
 
 # ── Transacción de campaña (ADR 0003, pendiente #56) ─────────────────────────
 # Hasta M73 la máquina de estados existía y NADIE la conducía. Ahora este runbook la

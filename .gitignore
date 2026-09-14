@@ -106,3 +106,5 @@ reports/campaign_aq_logs/
 
 # P0R.3: receipt de supply chain (artefacto runtime del cron/audit, regenerable)
 reports/governance/supply_chain_receipt.json
+# ★ M74-E-R11 · bitácoras y sellos por campaña: salidas, no código; si ensucian el árbol, el sello vivo no reproduce
+reports/logs/

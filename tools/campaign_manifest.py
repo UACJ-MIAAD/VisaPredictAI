@@ -32,14 +32,16 @@ def shape_problems(v: object, f: object, ruta: str) -> list[str]:
     if isinstance(f, dict) and set(f) == {"="}:
         return [] if type(v) is type(f["="]) and v == f["="] else [f"{ruta}: {v!r} en vez de {f['=']!r}"]
     if isinstance(f, dict):
-        if not isinstance(v, dict) or (not v if "*" in f else set(v) != set(f)):
+        mala = "*clave" in f and isinstance(v, dict) and any(not re.fullmatch(f["*clave"][3:], k) for k in v)
+        if not isinstance(v, dict) or mala or (not v if "*" in f else set(v) != set(f)):
             return [
                 f"{ruta}: {sorted(v) if isinstance(v, dict) else type(v).__name__} no cumple las claves {sorted(f)}"
             ]
         return [p for k, x in v.items() for p in shape_problems(x, f.get(k, f.get("*")), f"{ruta}.{k}")]
     if isinstance(f, list):
-        if not isinstance(v, list) or (not f and v):
-            return [f"{ruta}: {type(v).__name__} en vez de lista{'' if f else ' vacía'}"]
+        repetida = isinstance(v, list) and all(isinstance(x, str) for x in v) and len(set(v)) != len(v)
+        if not isinstance(v, list) or bool(f) != bool(v) or repetida:
+            return [f"{ruta}: se esperaba una lista {'no vacía y sin repetidos' if f else 'vacía'}"]
         return [p for i, x in enumerate(v) for p in shape_problems(x, f[0], f"{ruta}[{i}]")]
     if isinstance(f, str) and f in _TIPOS:
         return [] if type(v) is _TIPOS[f] else [f"{ruta}: {type(v).__name__} en vez de {f}"]
@@ -68,7 +70,7 @@ def _acreditar(m: dict, p: Path) -> list[str]:
     if hashlib.sha256(crudo).hexdigest() != m["preflight_sha256"]:
         return [f"el sello {ruta} no es el que registró el manifiesto (sha256 distinto)"]
     try:
-        s = loads_strict(crudo.decode("utf-8"))
+        s = loads_strict(crudo.decode("utf-8"), finito=True)
     except (ValueError, ReceiptError) as exc:
         return [f"sello ilegible: {exc}"]
     probs = shape_problems(s, ESQUEMA["seal"], "sello")
@@ -82,7 +84,7 @@ def seal_problems(path: str | Path) -> list[str]:
     """★ M74-E-R9/R10 · la acreditación única manifiesto ↔ sello, leyendo el manifiesto una sola vez."""
     p = Path(path)
     try:
-        m = loads_strict(p.read_text(encoding="utf-8"))
+        m = loads_strict(p.read_text(encoding="utf-8"), finito=True)
     except (OSError, ValueError, ReceiptError) as exc:
         return [f"manifiesto ilegible: {exc}"]
     return _acreditar(m, p)
@@ -94,7 +96,9 @@ def publish_blocker(path: str | Path) -> str | None:
     if not p.exists():
         return f"falta el manifiesto de campana {p} (sin identidad sellada)"
     try:
-        m = loads_strict(p.read_text())  # ★ M74-E-R10 · UNA lectura: `dirty` y el sello miran el mismo objeto
+        m = loads_strict(
+            p.read_text(), finito=True
+        )  # ★ M74-E-R10 · UNA lectura: `dirty` y el sello miran el mismo objeto
     except (ValueError, ReceiptError) as e:
         return f"manifiesto malformado ({type(e).__name__}: {e})"
     except OSError as e:

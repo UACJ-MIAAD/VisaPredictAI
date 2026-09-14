@@ -49,14 +49,19 @@ def _sin_duplicados(pares: list[tuple[str, Any]]) -> dict[str, Any]:
     return dict(pares)
 
 
-def loads_strict(texto: str) -> dict[str, Any]:
+def _no_finita(nombre: str) -> float:
+    raise ReceiptError(f"constante JSON no finita: {nombre}")
+
+
+def loads_strict(texto: str, *, finito: bool = False) -> dict[str, Any]:
     """``json.loads`` que RECHAZA claves duplicadas.
 
     ⚠️ `tools/campaign_state.py` tiene este mismo idioma de cinco líneas, y ADR-0001 prohíbe que
     `vp_model` importe `tools`. Se duplica el IDIOMA, no una autoridad: no hay aquí ninguna
     decisión que pueda divergir, sólo `object_pairs_hook`.
     """
-    obj = json.loads(texto, object_pairs_hook=_sin_duplicados)
+    # ★ M74-E-R11 · con ``finito``, ``NaN``/``Infinity`` se rechazan al parsear, no después.
+    obj = json.loads(texto, object_pairs_hook=_sin_duplicados, parse_constant=_no_finita if finito else None)
     if not isinstance(obj, dict):
         raise ReceiptError("el recibo no es un objeto JSON")
     return obj

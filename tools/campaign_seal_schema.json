@@ -1,5 +1,5 @@
 {
- "_doc": "M74-E-R10 · esquema CERRADO y recursivo del manifiesto de campaña y de su sello de entradas. Lo lee tools/campaign_manifest.shape_problems: dict = claves exactas ({'*': x} = mapa no vacío) · [x] lista de x · [] lista vacía · 'int'/'float'/'bool'/'str' tipo exacto · 're:…' cadena que casa entera · {'=': x} o escalar JSON = literal. El bloque protocol se derivó del sello real de 490befb; cambiar el protocolo exige actualizar este archivo.",
+ "_doc": "M74-E-R10 · esquema CERRADO y recursivo del manifiesto de campaña y de su sello de entradas. Lo lee tools/campaign_manifest.shape_problems: dict = claves exactas ({'*': x} = mapa no vacío; '*clave' = gramática de sus claves) · [x] lista no vacía de x (sin repetidos si son cadenas) · [] lista vacía · 'int'/'float'/'bool'/'str' tipo exacto · 're:…' cadena que casa entera · {'=': x} o escalar JSON = literal. El bloque protocol se derivó del sello real de 490befb; cambiar el protocolo exige actualizar este archivo.",
  "manifest": {
   "campaign_id": "re:rederiv_[0-9a-f]{7,40}_[0-9]{8}T[0-9]{6}",
   "dirty": "bool",
@@ -78,16 +78,20 @@
   },
   "inputs": {
    "code": {
-    "*": "re:[0-9a-f]{64}"
+    "*": "re:[0-9a-f]{64}",
+    "*clave": "re:[A-Za-z0-9_\\-]+(\\.[A-Za-z0-9_\\-]+)*(/[A-Za-z0-9_\\-]+(\\.[A-Za-z0-9_\\-]+)*)*"
    },
    "data": {
-    "*": "re:[0-9a-f]{64}|tree:[0-9a-f]{64}:[0-9]+"
+    "*": "re:[0-9a-f]{64}|tree:[0-9a-f]{64}:[0-9]+",
+    "*clave": "re:[A-Za-z0-9_\\-]+(\\.[A-Za-z0-9_\\-]+)*(/[A-Za-z0-9_\\-]+(\\.[A-Za-z0-9_\\-]+)*)*"
    },
    "governance": {
-    "*": "re:[0-9a-f]{64}|tree:[0-9a-f]{64}:[0-9]+"
+    "*": "re:[0-9a-f]{64}|tree:[0-9a-f]{64}:[0-9]+",
+    "*clave": "re:[A-Za-z0-9_\\-]+(\\.[A-Za-z0-9_\\-]+)*(/[A-Za-z0-9_\\-]+(\\.[A-Za-z0-9_\\-]+)*)*"
    },
    "governance_anchors": {
-    "*": "re:[a-z_][a-z0-9_.]*\\.[A-Z_]+"
+    "*": "re:[a-z_][a-z0-9_.]*\\.[A-Z_]+",
+    "*clave": "re:[A-Za-z0-9_\\-]+(\\.[A-Za-z0-9_\\-]+)*(/[A-Za-z0-9_\\-]+(\\.[A-Za-z0-9_\\-]+)*)*"
    }
   },
   "protocol": {
