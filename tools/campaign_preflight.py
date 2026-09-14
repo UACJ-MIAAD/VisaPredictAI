@@ -172,6 +172,15 @@ def code_closure(entrypoints: Mapping[str, Iterable[str]]) -> list[str]:
                 pendientes += [f"{nodo.module}.{a.name}" for a in nodo.names if _module_path(f"{nodo.module}.{a.name}")]
             elif isinstance(nodo, ast.Import):
                 pendientes += [a.name for a in nodo.names if a.name.split(".")[0] in LOCAL_LAYERS]
+            # M74-E-R6 · imports PLANOS entre hermanos (`import seed_coverage`, `from hpo_winner_receipt
+            # import …`): no empiezan por una capa local y dejaban fuera del sello, entre otros, el
+            # recibo de la ganadora del HPO. Se resuelven contra el directorio del importador.
+            if isinstance(nodo, (ast.Import, ast.ImportFrom)) and getattr(nodo, "level", 0) == 0:
+                planos = [a.name for a in nodo.names] if isinstance(nodo, ast.Import) else [nodo.module or ""]
+                for nombre in planos:
+                    hermano = ruta.parent / f"{nombre}.py"
+                    if "." not in nombre and nombre.split(".")[0] not in LOCAL_LAYERS and hermano.is_file():
+                        pendientes.append(str(hermano.relative_to(ROOT))[:-3].replace("/", "."))
     rutas = [str(ruta.relative_to(ROOT)) for ruta in encontrados.values()]
     rutas += list(entrypoints["shell"]) + [str(RUNBOOK.relative_to(ROOT))]
     return sorted(set(rutas))
