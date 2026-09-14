@@ -223,13 +223,23 @@ class TestMissingnessKalman:
         assert AJENO in _mensajes(registro)
         assert salida.notna().all()
 
-    def test_control_benigno_el_ajuste_real_no_emite_nada(self) -> None:
-        """Medido sobre las 115 series con >=24 obs: cero avisos. Retirar la supresión no hace ruido."""
+    def test_control_benigno_el_ajuste_real_solo_emite_lo_registrado(self) -> None:
+        """Medido sobre las 115 series con >=24 obs: cero avisos PROPIOS. Retirar la supresión no
+        hace ruido.
+
+        ★ M74-E-R4 · el control decía «no emite NADA» y era cierto hasta que la regeneración de
+        locks movió numpy 2.4.6 → 2.5.3: numpy 2.5 deprecia asignar `.shape` y statsmodels 0.14.6
+        todavía lo hace en su capa de espacio de estados. Aflojar el control a «no comprobamos» lo
+        habría vaciado; lo que se hace es **nombrar** la única excepción registrada
+        (`numpy25-statespace-shape-assignment`), de modo que CUALQUIER otro aviso sigue fallando.
+        """
         from vp_model import missingness
 
         serie = self._con_huecos()
         registro, salida = _capturado(lambda: missingness.kalman_impute(serie))
-        assert _mensajes(registro) == []
+        upstream = "Setting the shape on a NumPy array has been deprecated in NumPy 2.5."
+        ajenos = [m for m in _mensajes(registro) if not m.startswith(upstream)]
+        assert ajenos == [], ajenos
         assert salida.notna().all() and len(salida) >= 48
 
 

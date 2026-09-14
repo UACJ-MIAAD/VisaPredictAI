@@ -69,21 +69,27 @@ def _set_filters(root: Path, filters: list[str]) -> None:
 
 # ----------------------------------------------------------------- estado vigente
 def test_real_repository_satisfies_the_contract() -> None:
-    """8 excepciones: las 4 acreditadas en R9 y 4 de statsmodels (arranque AR y MA,
-    convergencia del MLE y convergencia de Holt-Winters). La última entró tras el CI rojo
-    `33844476552`: el mismo árbol pasaba en la PR y fallaba en el push porque la convergencia
-    numérica depende del runner."""
+    """9 excepciones: las 4 acreditadas en R9 y 5 de statsmodels (arranque AR y MA, convergencia
+    del MLE, convergencia de Holt-Winters y la asignación a `.shape` deprecada en numpy 2.5).
+
+    La de Holt-Winters entró tras el CI rojo `33844476552`: el mismo árbol pasaba en la PR y
+    fallaba en el push porque la convergencia numérica depende del runner. La de numpy 2.5 entró
+    en M74-E-R4: la regeneración autorizada de los locks movió numpy 2.4.6 → 2.5.3 y statsmodels
+    0.14.6 todavía asigna `.shape` en su capa de espacio de estados. **No es deriva numérica** —
+    el parquet sigue byte-idéntico a su sello y el golden-master pasa—, es una deprecación upstream
+    que el contrato `error` convierte en fallo.
+    """
     entries = cw.verify(ROOT, TODAY)
-    assert len(entries) == 8
+    assert len(entries) == 9
     assert {e["package"] for e in entries} == {"scikit-learn", "optuna", "scipy", "statsmodels"}
-    assert sum(e["package"] == "statsmodels" for e in entries) == 4
+    assert sum(e["package"] == "statsmodels" for e in entries) == 5
 
 
 def test_error_is_the_global_default_and_no_broad_suppression_exists() -> None:
     filters = cw.conftest_filters(ROOT / "tests" / "conftest.py")
     assert filters[0] == "error"
     assert all(f.startswith("ignore:") and not f.startswith("ignore::") for f in filters[1:])
-    assert len(filters) == 9  # error + 8 excepciones
+    assert len(filters) == 10  # error + 9 excepciones
 
 
 def test_the_statsmodels_exceptions_are_registered() -> None:

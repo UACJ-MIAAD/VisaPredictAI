@@ -104,6 +104,18 @@
       "reason": "La convergencia numerica de Holt-Winters puede variar entre runners: el mismo arbol de codigo converge en un job y no en otro. El ajuste devuelve resultado utilizable y el test valida FUGA TEMPORAL, no certifica la convergencia del optimizador. Sin esta excepcion, `error` global vuelve NO DETERMINISTA a model-tests (CI rojo 33844476552 con la PR verde).",
       "issue": "upstream statsmodels: convergencia de Holt-Winters dependiente del entorno numerico",
       "review": "2027-01-31"
+    },
+    {
+      "id": "numpy25-statespace-shape-assignment",
+      "package": "statsmodels",
+      "version": "0.14.6",
+      "pin_source": "pyproject.toml",
+      "category": "DeprecationWarning",
+      "message_prefix": "Setting the shape on a NumPy array has been deprecated in NumPy 2.5.",
+      "origin": "statsmodels/tsa/statespace/mlemodel.py:174 (prepare_data), alcanzado desde structural.py al construir UnobservedComponents; aflora en el modelo `llt`, en la caracterizacion de series y en la imputacion Kalman de missingness",
+      "reason": "M74-E-R4: la regeneracion autorizada de los locks movio numpy 2.4.6 -> 2.5.3, y numpy 2.5 deprecia asignar `.shape` sobre un ndarray. statsmodels 0.14.6 todavia lo hace en su capa de espacio de estados. NO es deriva numerica: los valores no cambian, el parquet sigue byte-identico a su sello y el golden-master del walk-forward pasa; es una DeprecationWarning upstream que el contrato `error` convierte en fallo. Corregirlo exige un statsmodels nuevo, no codigo propio. ⚠️ numpy la volvera error: la fecha de revision existe para eso.",
+      "issue": "upstream statsmodels: asignacion a .shape deprecada en numpy 2.5",
+      "review": "2027-01-31"
     }
   ]
 }
