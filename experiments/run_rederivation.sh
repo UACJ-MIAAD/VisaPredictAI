@@ -246,9 +246,14 @@ done
 run_req $ANTE experiments/run_crps_baseline.py
 
 stage 6 "tuning GBMs (Optuna persistente + confirmación en val-confirm independiente, AK)"
-run $ANTE -m vp_model.run_tuning --n-trials 150 --mlflow
-run $ANTE -m vp_model.run_tuning --rank-check --mlflow
-run $ANTE -m vp_model.run_tuning --select-by-deploy   # fix #20: re-elige por deploy-score antes de confirmar
+# ★ M74-E-R4 · las tres pasan de `run` (best-effort) a `run_req` (OBLIGATORIAS).
+# Eran best-effort y `optuna` no estaba en el perfil `model`: en un entorno exacto al lock morían
+# con ModuleNotFoundError y el runbook SEGUÍA, terminando en verde con el HPO de los GBM
+# silenciosamente omitido y `confirm_tuning` confirmando el `tuned_params.json` que ya hubiera.
+# Un paso que decide hiperparámetros no puede ser opcional: o corre, o la campaña se detiene.
+run_req $ANTE -m vp_model.run_tuning --n-trials 150 --mlflow
+run_req $ANTE -m vp_model.run_tuning --rank-check --mlflow
+run_req $ANTE -m vp_model.run_tuning --select-by-deploy   # fix #20: re-elige por deploy-score antes de confirmar
 run_req $ANTE -m vp_model.confirm_tuning --holdout-report --mlflow
 
 stage 6.5 "GATE de INPUTS (pools/semillas/HPO/finalists frescos y con métricas finitas)"

@@ -16,10 +16,15 @@ presentado como selladas. Es exactamente el defecto que este lote persigue: decl
 
 * **BLOQUEANTE** — un pin del lock ausente o instalado a otra versión. El lock dice qué entorno
   produce estas cifras; si no está, no las produce.
-* **INFORMATIVO** — distribuciones instaladas que el lock no nombra. `ante` es además el intérprete
-  de `dvc` y `mlflow`, gobernados por otros perfiles (P0R.5), así que sus extras son esperables.
-  Se listan **enteros** para que nadie diga que no se veían, pero no bloquean: bloquear por ellos
-  convertiría el gate en ruido y el ruido se acaba desactivando.
+* **BLOQUEANTE también** — cualquier distribución instalada que el lock no nombre y que no esté
+  **declarada por nombre** en `UNGOVERNED_OK`.
+
+  ★ **M74-E-R4 corrige aquí un criterio mío que era un agujero.** R2 clasificó los extras como
+  *informativos*, razonando con `dvc` y `mlflow`, que son **herramientas**. Pero `optuna`
+  **participa en el cálculo**, y esa distinción no estaba en el gate: instalar optuna a mano
+  habría dejado `reproduces_lock: true` con un paquete ungobernado dentro del HPO. Ahora lo no
+  declarado bloquea, y la lista de excepciones es explícita, versionada y corta — si crece, se ve
+  en el diff. Un extra no declarado deja de ser ruido tolerado y pasa a ser una decisión.
 
 ⚠️ **Sin bypass.** Un `--skip-…` aquí sería el mismo agujero que M74-B-R1 tuvo que arrancar de
 raíz. La salida es arreglar el entorno, no saltarse la comprobación.
@@ -44,6 +49,14 @@ INTERPRETER_LOCKS: tuple[tuple[str, str], ...] = (
     ("ante", "locks/model-cpu.txt"),
     ("ante_nf", "locks/deep-macos-arm64.txt"),
 )
+
+#: Distribuciones que pueden estar sin gobernar por el lock, **declaradas por intérprete**.
+#: `pip` es el instalador; `visapredictai` es el propio proyecto en editable, que por definición no
+#: puede pinnearse a sí mismo. Cualquier otra cosa bloquea.
+UNGOVERNED_OK: dict[str, frozenset[str]] = {
+    "ante": frozenset({"pip", "visapredictai"}),
+    "ante_nf": frozenset({"pip"}),
+}
 
 _PIN = re.compile(r"^([A-Za-z0-9._-]+)==([^\s;]+)")
 #: Programa que se ejecuta DENTRO del intérprete objetivo. `importlib.metadata` va en la biblioteca
@@ -81,7 +94,11 @@ def instalado_en(venv: Path) -> dict[str, str]:
     py = venv / "bin" / "python"
     if not py.exists():
         raise EnvLockError(f"{py} no existe: no hay intérprete que verificar")
-    fin = subprocess.run([str(py), "-c", _CENSO], capture_output=True, text=True, timeout=180)
+    # ⚠️ `cwd=venv`, no la raíz del repositorio. Heredando el cwd, `importlib.metadata` descubre el
+    # `visapredictai.egg-info` que el install editable deja en la RAÍZ, y el proyecto aparecía como
+    # extra en LOS DOS intérpretes — incluido `ante_nf`, donde no está instalado. Con los extras ya
+    # bloqueantes, ese falso positivo rompería el gate: el censo tiene que medir el INTÉRPRETE.
+    fin = subprocess.run([str(py), "-c", _CENSO], cwd=str(venv), capture_output=True, text=True, timeout=180)
     if fin.returncode != 0:
         raise EnvLockError(f"{py} no pudo censar sus distribuciones: {fin.stderr.strip()[:200]}")
     return {normalizar(k): v for k, v in json.loads(fin.stdout).items()}
@@ -101,7 +118,10 @@ def comparar(venv: Path, lock: Path) -> dict:
         "missing": [{"name": k, "locked": pines[k]} for k in ausentes],
         "version_mismatch": [{"name": k, "locked": pines[k], "installed": real[k]} for k in difieren],
         "extra": extras,
-        "reproduces_lock": not ausentes and not difieren,
+        "undeclared": [k for k in extras if k not in UNGOVERNED_OK.get(venv.name, frozenset())],
+        "reproduces_lock": not ausentes
+        and not difieren
+        and not [k for k in extras if k not in UNGOVERNED_OK.get(venv.name, frozenset())],
     }
 
 
@@ -145,10 +165,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"    AUSENTE          {d['name']:28s} lock={d['locked']}")
             for d in v["version_mismatch"]:
                 print(f"    OTRA VERSIÓN     {d['name']:28s} lock={d['locked']:14s} real={d['installed']}")
-            if v["extra"]:
-                print(
-                    f"    (informativo) {len(v['extra'])} distribución(es) fuera del lock: {', '.join(v['extra'][:8])}…"
-                )
+            for nombre in v["undeclared"]:
+                print(f"    SIN GOBERNAR     {nombre:28s} ni en el lock ni en UNGOVERNED_OK")
+            declarados = [e for e in v["extra"] if e not in v["undeclared"]]
+            if declarados:
+                print(f"    (declarados fuera del lock) {', '.join(declarados)}")
 
     rotos = [k for k, v in veredicto.items() if not v["reproduces_lock"]]
     if rotos:

@@ -1,29 +1,29 @@
 # Lock transitivo del perfil 'dev' — tools/make_locks.sh (P0R.4R). NO editar a mano.
-# Python 3.14.2 · plataforma de referencia macOS arm64. Instalar con:
+# Python 3.14.7 · plataforma de referencia macOS arm64. Instalar con:
 #   pip install -r locks/dev.txt && pip install -e . --no-deps   # (macOS base: sin hashes)
-ast_serialize==0.6.0
+ast_serialize==0.11.2
 beautifulsoup4==4.14.3
-certifi==2026.6.17
-charset-normalizer==3.4.9
-contourpy==1.3.3
-coverage==7.15.1
+certifi==2026.7.22
+charset-normalizer==3.5.1
+contourpy==1.4.0
+coverage==7.16.1
 cycler==0.12.1
 duckdb==1.5.3
-fonttools==4.63.0
-idna==3.18
+fonttools==4.65.0
+idna==3.19
 iniconfig==2.3.0
-kiwisolver==1.5.0
-librt==0.13.0
+kiwisolver==1.5.1
+librt==0.15.0
 matplotlib==3.10.8
 mypy==2.1.0
 mypy_extensions==1.1.0
-numpy==2.5.1
-packaging==26.2
+numpy==2.5.3
+packaging==26.3
 pandas==3.0.0
 pathspec==1.1.1
 pillow==12.3.0
 pluggy==1.6.0
-Pygments==2.20.0
+Pygments==2.21.0
 pyparsing==3.3.2
 pytest==9.1.0
 pytest-cov==7.1.0
@@ -34,7 +34,7 @@ requests==2.33.0
 ruff==0.15.17
 setuptools==83.0.0
 six==1.17.0
-soupsieve==2.8.4
+soupsieve==2.9.2
 tqdm==4.67.3
 typing_extensions==4.16.0
 urllib3==2.7.0

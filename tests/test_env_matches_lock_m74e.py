@@ -75,14 +75,20 @@ def test_un_pin_ausente_rompe_la_reproducibilidad(tmp_path: Path) -> None:
     assert not r["reproduces_lock"] and r["missing"] == [{"name": "transformers", "locked": "5.13.1"}]
 
 
-def test_los_extras_se_reportan_pero_NO_bloquean(tmp_path: Path) -> None:
-    """`ante` es también el intérprete de dvc y mlflow: bloquear por sus 127 extras sería ruido,
-    y un gate ruidoso acaba desactivado. Se listan enteros y no vetan."""
+def test_los_extras_sin_declarar_BLOQUEAN(tmp_path: Path) -> None:
+    """★ M74-E-R4 · el contrato CAMBIÓ, y por un defecto mío.
+
+    R2 dejó los extras como informativos razonando con `dvc` y `mlflow`, que son **herramientas**.
+    Pero `optuna` **participa en el cálculo**: instalarlo a mano habría dejado el gate en verde con
+    un paquete ungobernado dentro del HPO. Ahora lo no declarado bloquea, y las excepciones son
+    explícitas y por intérprete (`UNGOVERNED_OK`).
+    """
     v = _venv_falso(tmp_path, "ante", {"torch": "2.13.0", "dvc": "3.0.0", "mlflow": "2.0.0"})
     lk = _lock(tmp_path, "locks/x.txt", {"torch": "2.13.0"})
     r = el.comparar(v, lk)
-    assert r["reproduces_lock"] is True
-    assert r["extra"] == ["dvc", "mlflow"], "los extras tienen que verse, aunque no bloqueen"
+    assert r["reproduces_lock"] is False
+    assert r["extra"] == ["dvc", "mlflow"], "los extras siguen viéndose enteros"
+    assert r["undeclared"] == ["dvc", "mlflow"], "y ahora además vetan"
 
 
 def test_los_nombres_se_normalizan_como_manda_la_PEP_503(tmp_path: Path) -> None:
