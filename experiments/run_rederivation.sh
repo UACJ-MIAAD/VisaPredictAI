@@ -223,11 +223,14 @@ campaign_abort() {
   # ★ R14 · era `kill -- -$$`, que sólo funciona si bash es líder de su grupo (setsid/nohup); bajo
   # `caffeinate -is bash …` desde una terminal con control de trabajos el líder es caffeinate y el
   # kill fallaba en silencio. Se recorre el árbol de procesos, que no depende de cómo se lanzó.
-  kill_descendants "$$"
+  # ★ R15 · el `tee` de la bitácora es hijo de este shell (`exec > >(tee …)`): matarlo perdería las
+  # últimas líneas del propio registro de fallo. Se conserva; muere solo cuando cerramos la salida.
+  kill_descendants "$$" "$(pgrep -P "$$" -f "tee -a reports/logs/${CAMPAIGN_ID}.log" 2>/dev/null | head -1)"
 }
 kill_descendants() {
   local hijo
   for hijo in $(pgrep -P "$1" 2>/dev/null); do
+    [ -n "${2:-}" ] && [ "$hijo" = "$2" ] && continue
     kill_descendants "$hijo"
     kill "$hijo" 2>/dev/null || true
   done
@@ -433,6 +436,11 @@ for etapa in ${BEST_EFFORT_FAILED[@]+"${BEST_EFFORT_FAILED[@]}"}; do
 done
 txn compute --input-gate passed --output-gate passed --consistency "$CONSISTENCY_STATE" \
     ${BE_ARGS[@]+"${BE_ARGS[@]}"} || exit 7
+# ★ R15 · la transacción YA es `computed`: los traps existen para registrar una salida ANTES de ese estado.
+# Dejarlos armados hacía que el `exit 2` de abajo —el desenlace ESPERADO de una re-derivación— disparara
+# `campaign_abort`, y como `computed → failed` es una transición legal, ≥16 h de cómputo terminaban en
+# `failed` con la consistencia pendiente (auditoría ciega sobre 7a03429). Se desarman aquí, no antes.
+trap - EXIT INT TERM HUP
 if [ "$CONSISTENCY_OK" = 0 ]; then
   echo "⚠ Campaña COMPLETA con cifras nuevas: propaga (regla #0) y valida. La transacción queda" >&2
   echo "  en 'computed' con consistency=pending; 'txn validate' re-ejecuta el guardián." >&2

@@ -167,11 +167,30 @@ def test_el_runbook_exige_el_dvc_gobernado_antes_de_sellar() -> None:
 
 
 # ═══════════════════════════════ 3 · los productores escriben en el staging y el promotor lo promueve
-def _limpiar_servido(modelo: str) -> None:
-    """Si un productor viejo escribiera en el árbol servido (RED), no dejar rastro en el repositorio."""
+def _servidos(modelos: tuple[str, ...]) -> set[Path]:
+    """Los directorios del árbol servido que YA existen para esos modelos: jamás se borran."""
+    return {
+        RAIZ / "models" / tabla / clase / m
+        for tabla in ("FAD", "DFF")
+        for clase in ("local", "global")
+        for m in modelos
+        if (RAIZ / "models" / tabla / clase / m).exists()
+    }
+
+
+def _limpiar_servido(modelos: tuple[str, ...], previos: set[Path]) -> None:
+    """Si un productor viejo escribiera en el árbol servido (RED), no dejar rastro en el repositorio.
+
+    ⚠️ R15 · la versión de R14 borraba `models/<tabla>/global/<modelo>` sin mirar si existía ANTES de
+    la prueba: sobre el worktree de ejecución destruyó los 41 archivos de los cinco globales servidos
+    (recuperados con `dvc checkout`). Sólo se retira lo que la prueba pudo haber creado.
+    """
     for tabla in ("FAD", "DFF"):
         for clase in ("local", "global"):
-            shutil.rmtree(RAIZ / "models" / tabla / clase / modelo, ignore_errors=True)
+            for m in modelos:
+                ruta = RAIZ / "models" / tabla / clase / m
+                if ruta not in previos:
+                    shutil.rmtree(ruta, ignore_errors=True)
 
 
 def test_RED_el_productor_local_escribe_en_el_staging_de_la_campana(
@@ -208,10 +227,11 @@ def test_RED_el_productor_local_escribe_en_el_staging_de_la_campana(
     monkeypatch.setattr(sf, "LOCAL", ("modelo_r14",))
     manifiesto_servido = RAIZ / "models" / "manifest.jsonl"
     antes = manifiesto_servido.read_bytes() if manifiesto_servido.is_file() else None
+    previos = _servidos(("modelo_r14",))
     try:
         sf.main()
     finally:
-        _limpiar_servido("modelo_r14")
+        _limpiar_servido(("modelo_r14",), previos)
         if antes is not None and manifiesto_servido.read_bytes() != antes:
             manifiesto_servido.write_bytes(antes)
     entradas = [json.loads(ln) for ln in (staging / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -276,11 +296,13 @@ def test_RED_el_productor_deep_escribe_en_el_staging_de_la_campana(
             }
         ),
     )
+    nombres = (*sfd.DET, "AutoBiTCN")
+    previos = _servidos(nombres)
     try:
         sfd.main()
     finally:
-        for nombre in (*sfd.DET, "AutoBiTCN"):
-            _limpiar_servido(nombre)
+        _limpiar_servido(nombres, previos)
+    assert _servidos(nombres) == previos, "el productor tocó el árbol servido"
     entradas = [json.loads(ln) for ln in (staging / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
     assert {(e["table"], e["model"]) for e in entradas} == {
         (t, m) for t in ("FAD", "DFF") for m in (*sfd.DET, "AutoBiTCN")

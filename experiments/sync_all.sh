@@ -75,7 +75,7 @@ elif [ "$PUBLISH" = 1 ]; then
         echo "ERROR: el manifiesto de campaña cambió durante sync_all (TOCTOU). Aborta." >&2
         exit 7
     }
-    dvc push
+    "$DVC" push
     git commit -q -m "$MSG"
     git push
     # El permiso se consume DESPUÉS de publicar de verdad: si el push falla, la campaña sigue

@@ -242,16 +242,16 @@ def _bloque_transaccion() -> str:
 def _ensayo(tmp_path: Path, desenlace: str, manifiesto: Path | None = None) -> tuple[int, dict | None]:
     """Ejecuta el cableado REAL del runbook con un desenlace sintético. No calcula nada."""
     txn = tmp_path / "campaign.json"
+    # ★ R15 · los desenlaces `ok` y `consistencia` ejecutan la COLA REAL del runbook (de `CONSISTENCY_STATE=`
+    # al final), no una síntesis. La síntesis anterior esperaba `failed` para la consistencia rota, que era
+    # justo la conducta defectuosa: el `exit 2` real disparaba el trap y `computed` pasaba a `failed`.
     cola = {
-        "ok": "txn compute --input-gate passed --output-gate passed --consistency passed || exit 7\nexit 0\n",
+        "ok": "CONSISTENCY_OK=1\nBEST_EFFORT_FAILED=()\n" + _cola_real(),
         "req_fail": (
             'txn fail --if-open --stage "etapas obligatorias" --exit-code 1 '
             '--reason "1 etapa(s) obligatoria(s) rota(s)" >&2\nexit 1\n'
         ),
-        "consistencia": (
-            'txn fail --if-open --stage "consistencia" --exit-code 2 '
-            '--reason "cómputo completo; las cifras cambiaron y faltan por propagar (regla #0)" >&2\nexit 2\n'
-        ),
+        "consistencia": "CONSISTENCY_OK=0\nBEST_EFFORT_FAILED=()\n" + _cola_real(),
         "muerte": "kill -9 $$\n",
     }[desenlace]
     ident = json.loads(manifiesto.read_text(encoding="utf-8")) if manifiesto else {}  # ★ M74-E-R13
@@ -282,19 +282,29 @@ def _ensayo(tmp_path: Path, desenlace: str, manifiesto: Path | None = None) -> t
     return fin.returncode, cs.read(txn)
 
 
+def _cola_real() -> str:
+    """La cola REAL del runbook: desde `CONSISTENCY_STATE=` hasta su último `exit 0`."""
+    guion = (ROOT / "experiments" / "run_rederivation.sh").read_text(encoding="utf-8")
+    ini = guion.index("CONSISTENCY_STATE=")
+    fin = guion.rindex("exit 0") + len("exit 0")
+    return guion[ini:fin] + "\n"
+
+
 @pytest.mark.parametrize(
-    "desenlace,rc,estado,razon",
+    "desenlace,rc,estado,consistencia,razon",
     [
-        ("ok", 0, "computed", None),
-        ("req_fail", 1, "failed", "obligatoria"),
-        ("consistencia", 2, "failed", "propagar"),
+        ("ok", 0, "computed", "passed", None),
+        ("req_fail", 1, "failed", None, "obligatoria"),
+        # ★ R15 · RED contra 7a03429: la cola real dejaba `failed` con `exit_code: 2`
+        ("consistencia", 2, "computed", "pending", None),
     ],
 )
-def test_hermetic_rehearsal_of_the_three_outcomes(tmp_path: Path, desenlace, rc, estado, razon) -> None:
+def test_hermetic_rehearsal_of_the_three_outcomes(tmp_path: Path, desenlace, rc, estado, consistencia, razon) -> None:
     """Los tres desenlaces del runbook, con su cableado real, en un temporal."""
     codigo, obj = _ensayo(tmp_path, desenlace)
     assert codigo == rc
     assert obj is not None and obj["status"] == estado
+    assert obj.get("consistency") == consistencia
     if razon:
         assert razon in obj["reason"]
 
