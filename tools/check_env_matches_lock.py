@@ -91,11 +91,9 @@ def instalado_en(venv: Path) -> dict[str, str]:
     py = venv / "bin" / "python"
     if not py.exists():
         raise EnvLockError(f"{py} no existe: no hay intérprete que verificar")
-    # ⚠️ `cwd=venv`, no la raíz del repositorio. Heredando el cwd, `importlib.metadata` descubre el
-    # `visapredictai.egg-info` que el install editable deja en la RAÍZ, y el proyecto aparecía como
-    # extra en LOS DOS intérpretes — incluido `ante_nf`, donde no está instalado. Con los extras ya
-    # bloqueantes, ese falso positivo rompería el gate: el censo tiene que medir el INTÉRPRETE.
-    fin = subprocess.run([str(py), "-c", _CENSO], cwd=str(venv), capture_output=True, text=True, timeout=180)
+    # ⚠️ `cwd=venv` y `-I`: heredando el cwd o el `PYTHONPATH="$PWD"` del runbook, `importlib.metadata`
+    # veía el `visapredictai.egg-info` de la RAÍZ (sin `direct_url`) y el gate mentía (R14). Se mide el INTÉRPRETE.
+    fin = subprocess.run([str(py), "-I", "-c", _CENSO], cwd=str(venv), capture_output=True, text=True, timeout=180)
     if fin.returncode != 0:
         raise EnvLockError(f"{py} no pudo censar sus distribuciones: {fin.stderr.strip()[:200]}")
     return {normalizar(k): v for k, v in json.loads(fin.stdout).items()}
@@ -105,7 +103,9 @@ def acreditar_excepciones(venv: Path, root: Path, toolchain: dict[str, str], ext
     """Las dos excepciones de `UNGOVERNED_OK` se ACREDITAN, no se creen por su nombre."""
     problemas: list[str] = []
     py = venv / "bin" / "python"
-    fin = subprocess.run([str(py), "-c", _ACREDITACION], cwd=str(venv), capture_output=True, text=True, timeout=180)
+    fin = subprocess.run(
+        [str(py), "-I", "-c", _ACREDITACION], cwd=str(venv), capture_output=True, text=True, timeout=180
+    )
     if fin.returncode != 0:
         return [f"{venv.name}: no se pudo acreditar el entorno ({fin.stderr.strip()[:160]})"]
     datos = json.loads(fin.stdout)

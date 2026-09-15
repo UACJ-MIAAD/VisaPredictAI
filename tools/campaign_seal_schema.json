@@ -70,6 +70,10 @@
      "=": "ante_nf"
     },
     "version_mismatch": []
+   },
+   "dvc": {
+    "executable": "str",
+    "version": "re:[0-9]+(\\.[0-9]+)+"
    }
   },
   "git": {

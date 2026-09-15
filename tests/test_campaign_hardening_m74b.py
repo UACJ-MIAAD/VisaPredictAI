@@ -286,4 +286,5 @@ def test_the_runbook_traps_every_signal_that_can_orphan_a_campaign() -> None:
     # se buscan los traps de VERDAD, no la señal suelta en cualquier comentario
     atrapadas = set(re.findall(r"^trap\s+.*?\b(EXIT|INT|TERM|HUP)\s*$", guion, flags=re.M))
     assert atrapadas == {"EXIT", "INT", "TERM", "HUP"}, f"traps instalados: {sorted(atrapadas)}"
-    assert "kill -- -$$" in guion, "el trap debe matar el grupo de procesos, no sólo al padre"
+    # ★ R14: `kill -- -$$` sólo mataba el grupo si bash era su líder; ahora se recorre el árbol
+    assert 'kill_descendants "$$"' in guion, "el trap debe matar a todos los descendientes, no sólo al padre"

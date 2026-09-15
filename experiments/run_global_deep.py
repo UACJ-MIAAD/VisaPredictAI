@@ -399,7 +399,27 @@ def _dump_best_config(nf, name: str, table: str) -> None:
         ) from e
 
 
-def _build_from_config(names: list[str], template: str, seed: int):
+def _accredited_configs(names: list[str], template: str, table: str, root: Path = ROOT) -> dict[str, dict]:
+    """★ R14 · las ganadoras que los re-entrenos ``--config`` consumen, ACREDITADAS contra la campaña.
+
+    Hasta R14 este camino leía el JSON que hubiera y, si faltaba, imprimía «se omite» y seguía: el
+    finalizador acreditaba el recibo (§8.6.4) pero los cinco re-entrenos multi-semilla no. Ahora
+    los tres términos (transacción, panel en disco, HEAD) y el recibo se exigen aquí también, y una
+    ganadora ausente es un fallo, no una omisión.
+    """
+    from hpo_winner_receipt import load_and_accredit
+
+    salida: dict[str, dict] = {}
+    for name in names:
+        path = Path(template.format(model=name))
+        if not path.is_absolute():
+            path = root / path
+        cfg = load_and_accredit(path, root=root, table=table, model=f"Auto{name}")
+        salida[name] = {k: v for k, v in cfg.items() if k not in _CONFIG_DROP}
+    return salida
+
+
+def _build_from_config(names: list[str], template: str, seed: int, table: str):
     """AK8c: re-construye el ganador del HPO determinísticamente para una semilla.
 
     ``template`` es la ruta del JSON con ``{model}`` como placeholder (p. ej.
@@ -412,14 +432,7 @@ def _build_from_config(names: list[str], template: str, seed: int):
 
     classes = {"BiTCN": BiTCN, "NHITS": NHITS, "TiDE": TiDE, "PatchTST": PatchTST}
     builders = {}
-    for name in names:
-        path = Path(template.format(model=name))
-        if not path.is_absolute():
-            path = ROOT / path
-        if not path.exists():
-            print(f"  ✗ sin config ganadora para {name} ({path.name}) — se omite")
-            continue
-        cfg = {k: v for k, v in json.loads(path.read_text()).items() if k not in _CONFIG_DROP}
+    for name, cfg in _accredited_configs(names, template, table).items():
         params = {
             **cfg,
             "h": 1,
@@ -568,7 +581,7 @@ def main() -> None:
     input_size = 36 if args.table == "FAD" else 18
     max_steps = 5 if args.fast else args.max_steps
     if args.config:  # AK8c: re-entreno determinista del ganador del HPO (columna Auto*)
-        builders = _build_from_config(args.models or ["BiTCN", "TiDE", "NHITS"], args.config, args.seed)
+        builders = _build_from_config(args.models or ["BiTCN", "TiDE", "NHITS"], args.config, args.seed, args.table)
     elif args.auto:
         builders = _build_auto_models(2 if args.fast else args.num_samples, args.seed)
     elif receta is not None:

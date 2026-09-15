@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import joblib
@@ -29,9 +30,34 @@ from vp_model import config, dataset, models
 from vp_model.feature_builder import FeatureBuilder
 
 ROOT = Path(__file__).resolve().parent.parent
-MODELS = ROOT / "models"
-MANIFEST = MODELS / "manifest.jsonl"
 PANEL_CSV = ROOT / "data" / "processed" / "visa_panel_long.csv"
+
+
+def _ruta_env(nombre: str, por_defecto: Path) -> Path:
+    """Una ruta que el orquestador puede fijar por entorno; relativa ⇒ desde la raíz del repo."""
+    raw = os.environ.get(nombre)
+    if not raw:
+        return por_defecto
+    return Path(raw) if os.path.isabs(raw) else ROOT / raw
+
+
+def models_root() -> Path:
+    """★ R14 · dónde se ESCRIBE. `save_finalists.sh` exporta `VP_MODELS_DIR` hacia un staging por
+    campaña y hasta R14 este productor lo ignoraba: escribía en `models/` servido mientras el
+    promotor exigía un manifiesto en el staging que nadie había escrito."""
+    return _ruta_env("VP_MODELS_DIR", ROOT / "models")
+
+
+def manifest_path() -> Path:
+    return _ruta_env("VP_MODELS_MANIFEST", models_root() / "manifest.jsonl")
+
+
+def _ruta_manifiesto(p: Path) -> str:
+    """Relativa a la raíz del repo cuando el destino cuelga de ella (el staging real); si no, absoluta."""
+    try:
+        return str(p.relative_to(ROOT))
+    except ValueError:
+        return str(p)
 
 
 # ★ M74-E-R1: DERIVADA del registro canónico, no escrita a mano.
@@ -57,8 +83,9 @@ LOCAL = _locales_persistibles()
 
 
 def _manifest(entry: dict) -> None:
-    MODELS.mkdir(parents=True, exist_ok=True)
-    with MANIFEST.open("a") as f:
+    manifiesto = manifest_path()
+    manifiesto.parent.mkdir(parents=True, exist_ok=True)
+    with manifiesto.open("a") as f:
         f.write(json.dumps(entry) + "\n")
 
 
@@ -76,6 +103,7 @@ def birth_certificate() -> dict:
 def main() -> None:
     log = config.get_logger("save_finalists")
     birth = birth_certificate()
+    raiz_modelos = models_root()
     for table in config.TABLES:
         cat = dataset.list_series(table=table, block="family", countries=config.PILOT_COUNTRIES)
         for r in cat.itertuples():
@@ -87,7 +115,7 @@ def main() -> None:
                     cov = FeatureBuilder(name).covariates(ts, raw)  # política por modelo (AD1/AD8/F1)
                     fit_kwargs = {"future_covariates": cov} if cov is not None else {}
                     model.fit(ts, **fit_kwargs)  # type: ignore[attr-defined]
-                    out = MODELS / table / "local" / name / f"{r.country}_{r.category}"
+                    out = raiz_modelos / table / "local" / name / f"{r.country}_{r.category}"
                     out.mkdir(parents=True, exist_ok=True)
                     # ★ M74-E-R2 · compresión nivel 3, decisión del autor con su medición:
                     # 50/50 modelos SARIMA ajustaron, cargaron y predijeron; sin comprimir el
@@ -102,7 +130,7 @@ def main() -> None:
                             "type": "local",
                             "country": r.country,
                             "category": r.category,
-                            "path": str((out / "model.pkl").relative_to(ROOT)),
+                            "path": _ruta_manifiesto(out / "model.pkl"),
                             **birth,
                         }
                     )

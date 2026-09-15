@@ -58,6 +58,9 @@ step() {
 echo "=== GUARDAR FINALISTAS $(date) · campaña $CAMPAIGN_ID ==="
 rm -rf "$STAGING"
 mkdir -p "$STAGING"
+# ★ R14 · hasta aquí estas dos variables NO las leía nadie: los productores escribían en `models/`
+# y el paso [2b/4] moría buscando `$STAGING/manifest.jsonl`, tras las horas de la etapa deep.
+# `save_finalists.py` y `save_finalists_deep.py` las honran ahora (`models_root()`/`manifest_path()`).
 export VP_MODELS_DIR="$STAGING"   # los productores escriben AQUÍ, no en models/
 export VP_MODELS_MANIFEST="$STAGING/manifest.jsonl"
 

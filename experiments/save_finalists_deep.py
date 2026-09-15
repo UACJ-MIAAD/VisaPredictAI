@@ -18,10 +18,34 @@ import pandas as pd
 from run_global_deep import HOLDOUT, encode_regime, load_panel, regular_monthly  # noqa: F401
 
 ROOT = Path(__file__).resolve().parent.parent
-MODELS = ROOT / "models"
-MANIFEST = MODELS / "manifest.jsonl"
 PANEL_CSV = ROOT / "data" / "processed" / "visa_panel_long.csv"
 DET = ("BiTCN", "PatchTST", "TiDE", "NHITS")  # deterministas finalistas
+
+
+def _ruta_env(nombre: str, por_defecto: Path) -> Path:
+    """Una ruta que el orquestador puede fijar por entorno; relativa ⇒ desde la raíz del repo."""
+    raw = os.environ.get(nombre)
+    if not raw:
+        return por_defecto
+    return Path(raw) if os.path.isabs(raw) else ROOT / raw
+
+
+def models_root() -> Path:
+    """★ R14 · dónde se ESCRIBE: el staging por campaña de `save_finalists.sh` (`VP_MODELS_DIR`) o,
+    suelto, el árbol servido. Hasta R14 se ignoraba la variable (misma corrección que `save_finalists.py`)."""
+    return _ruta_env("VP_MODELS_DIR", ROOT / "models")
+
+
+def manifest_path() -> Path:
+    return _ruta_env("VP_MODELS_MANIFEST", models_root() / "manifest.jsonl")
+
+
+def _ruta_manifiesto(p: Path) -> str:
+    """Relativa a la raíz del repo cuando el destino cuelga de ella (el staging real); si no, absoluta."""
+    try:
+        return str(p.relative_to(ROOT))
+    except ValueError:
+        return str(p)
 
 
 def _identity() -> dict:
@@ -64,8 +88,9 @@ def _diff(panel: pd.DataFrame) -> pd.DataFrame:
 
 
 def _manifest(entry: dict) -> None:
-    MODELS.mkdir(parents=True, exist_ok=True)
-    with MANIFEST.open("a") as f:
+    manifiesto = manifest_path()
+    manifiesto.parent.mkdir(parents=True, exist_ok=True)
+    with manifiesto.open("a") as f:
         f.write(json.dumps(entry) + "\n")
 
 
@@ -113,7 +138,7 @@ def main() -> None:
             try:
                 nf = NeuralForecast(models=[build()], freq="MS")
                 nf.fit(train)
-                out = MODELS / table / "global" / name
+                out = models_root() / table / "global" / name
                 out.mkdir(parents=True, exist_ok=True)
                 nf.save(str(out), overwrite=True)
                 _manifest(
@@ -126,7 +151,7 @@ def main() -> None:
                         # clase realmente instanciada es BiTCN. El manifiesto las separa.
                         "model_class": type(nf.models[0]).__name__,
                         "selection": "hpo_winner_sealed" if name.startswith("Auto") else "fixed",
-                        "path": str(out.relative_to(ROOT)),
+                        "path": _ruta_manifiesto(out),
                         "n_series": int(panel["unique_id"].nunique()),
                         **_identity(),  # git_sha/git_dirty/panel_hash (exigidos por el gate)
                     }

@@ -19,6 +19,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -x ante_nf/bin/python ] || { echo "ERROR: falta el venv ante_nf/ en la raíz del repo" >&2; exit 1; }
+# ★ R14 · el DVC que re-hashea los punteros es el GOBERNADO (`$VP_DVC` o `ante/bin/dvc`, la misma
+# regla que `tools/check_dvc_lock_fresh.py` y el Makefile), no un `dvc` a secas del PATH del
+# operador: en el worktree de ejecución no hay `ante/bin/dvc` y el PATH resolvía a un Homebrew
+# 3.66.1 que ninguna puerta veía. Sin binario gobernado, fail-closed antes de tocar nada.
+DVC="${VP_DVC:-ante/bin/dvc}"
+[ -x "$DVC" ] || { echo "ERROR: sin DVC gobernado (\$VP_DVC o ante/bin/dvc): no se re-hashea nada" >&2; exit 1; }
 
 PUBLISH="${SYNC_PUBLISH:-0}"
 if [ "${1:-}" = "--publish" ]; then PUBLISH=1; shift; fi
@@ -54,7 +60,7 @@ echo ">>> [1/3] MLflow: staging -> mlflow.db"
 ante_nf/bin/python experiments/sync_mlflow.py
 
 echo ">>> [2/3] DVC: re-hash local (modelos + tracking)"
-dvc add models mlflow.db
+"$DVC" add models mlflow.db
 
 echo ">>> [3/3] git: pointers .dvc"
 git add models.dvc mlflow.db.dvc .gitignore

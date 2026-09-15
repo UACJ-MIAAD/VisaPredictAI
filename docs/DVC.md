@@ -91,6 +91,10 @@ dvc pull        # baja en otro clon
 
 El DVC **gobernado** del proyecto es `ante/bin/dvc` (3.67.1, el mismo pin que instala el paso E2
 de CI); `make` lo usa vía `DVC ?= ante/bin/dvc` y el hook `dvc-lock-fresh` lo exige (abajo).
+Desde M74-E-R14 también `experiments/sync_all.sh` (que re-hashea `models`/`mlflow.db`) y el runbook
+de campaña lo resuelven con la misma regla (`$VP_DVC` o `ante/bin/dvc`, fail-closed) y el preflight
+sella su ruta y versión: en un worktree cuyo `ante/` viene del perfil `model-cpu` (sin `dvc`) hay
+que exportar `VP_DVC` con la ruta absoluta del binario gobernado antes de lanzar.
 
 ## Frontera DAG-determinista vs runner-transaccional (C1/C2, plan auditoría 2026-07-11)
 

@@ -38,6 +38,9 @@
 #
 # Uso (desde la raíz; ≥16 h; caffeinate evita que macOS duerma a mitad de campaña):
 #   caffeinate -is bash experiments/run_rederivation.sh > reports/rederivation_$(date +%Y%m%dT%H%M%S).log 2>&1
+# ★ R14 · en un worktree cuyo `ante/` no trae `dvc` (perfil `model-cpu`), exportar antes
+#   `VP_DVC=/ruta/absoluta/al/dvc/gobernado` (3.67.1): el runbook lo exige, lo sella en el preflight
+#   y `sync_all.sh` lo usa para re-hashear `models.dvc`/`mlflow.db.dvc`.
 #
 # ⚠️ M74-E-R5 (B7): el log lleva marca de tiempo. Redirigir a `reports/rederivation.log` a secas
 # hacía que un relanzamiento SOBRESCRIBIERA la bitácora de la corrida anterior — y la bitácora es
@@ -87,6 +90,15 @@ fi
 if ! "$ANTE" -m tools.lock_contracts; then
   echo "ERROR: el contrato de procedencia de locks falla. La campaña se detiene ANTES del primer artefacto." >&2
   exit 10
+fi
+# ★ R14 · el DVC gobernado es PUERTA y se sella: `sync_all.sh` re-hashea los punteros con él al final
+# de las etapas 1 y 3, y hasta aquí era un `dvc` a secas del PATH del operador que ninguna puerta
+# miraba (en el worktree de ejecución resolvía a un Homebrew 3.66.1; con PATH mínimo, a nada, tras
+# diez horas de etapa deep). Misma regla de resolución que `tools/check_dvc_lock_fresh.py`.
+export VP_DVC="${VP_DVC:-$PWD/ante/bin/dvc}"
+if ! "$ANTE" -m tools.check_dvc_lock_fresh; then
+  echo "ERROR: sin DVC gobernado ejecutable (\$VP_DVC=$VP_DVC) o dvc.lock desfasado. Aborta." >&2
+  exit 15
 fi
 
 
@@ -206,9 +218,19 @@ campaign_abort() {
   [ "$rc" -eq 0 ] && return 0
   txn fail --if-open --stage "salida anormal del runbook" --exit-code "$rc" \
       --reason "el runbook terminó con exit $rc sin alcanzar un estado terminal" >&2 || true
-  # H14: matar el GRUPO entero. Sin esto, al colgarse la terminal el padre muere y los hijos
-  # (python de ≥16 h) siguen escribiendo artefactos sobre una campaña ya marcada como fallida.
-  kill -- -$$ 2>/dev/null || true
+  # H14: matar a TODOS los descendientes. Sin esto, al colgarse la terminal el padre muere y los
+  # hijos (python de ≥16 h) siguen escribiendo artefactos sobre una campaña ya marcada como fallida.
+  # ★ R14 · era `kill -- -$$`, que sólo funciona si bash es líder de su grupo (setsid/nohup); bajo
+  # `caffeinate -is bash …` desde una terminal con control de trabajos el líder es caffeinate y el
+  # kill fallaba en silencio. Se recorre el árbol de procesos, que no depende de cómo se lanzó.
+  kill_descendants "$$"
+}
+kill_descendants() {
+  local hijo
+  for hijo in $(pgrep -P "$1" 2>/dev/null); do
+    kill_descendants "$hijo"
+    kill "$hijo" 2>/dev/null || true
+  done
 }
 trap campaign_abort EXIT
 # ★ M74-E punto 10: una detención AUTORIZADA se registra como tal, con su motivo. Hasta ahora un

@@ -98,6 +98,10 @@
       "undeclared": [],
       "venv": "ante_nf",
       "version_mismatch": []
+    },
+    "dvc": {
+      "executable": "/Users/haowei/Documents/Anteproyecto/VisaPredictAI-m74e/ante/bin/dvc",
+      "version": "3.67.1"
     }
   },
   "git": {

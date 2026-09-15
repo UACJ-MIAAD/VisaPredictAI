@@ -34,6 +34,8 @@ from pathlib import Path
 from typing import Any
 
 from tools import check_env_matches_lock as _envlock
+from tools.check_dvc_lock_fresh import resolve_dvc
+from vp_model.artifact_receipt import sha256_file
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNBOOK = ROOT / "experiments" / "run_rederivation.sh"
@@ -68,12 +70,13 @@ INTERPRETER_LOCKS = _envlock.INTERPRETER_LOCKS
 
 
 # --------------------------------------------------------------------------- utilidades
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for bloque in iter(lambda: fh.read(1 << 20), b""):
-            h.update(bloque)
-    return h.hexdigest()
+def dvc_identity(root: Path = ROOT) -> dict[str, str]:
+    """★ R14 · el DVC que `sync_all.sh` invoca (`$VP_DVC` o `ante/bin/dvc`): ruta y versión MEDIDAS, fail-closed."""
+    dvc = resolve_dvc(root, os.environ)
+    if dvc is None:
+        raise PreflightError("sin DVC gobernado: ni $VP_DVC ni ante/bin/dvc son ejecutables (los invoca sync_all.sh)")
+    salida = subprocess.run([str(dvc), "--version"], capture_output=True, text=True, check=True, timeout=120)
+    return {"executable": str(dvc), "version": salida.stdout.strip()}
 
 
 def sha256_tree(root: Path) -> tuple[str, int]:
@@ -318,13 +321,11 @@ def seal(root: Path = ROOT) -> dict[str, Any]:
             "governance_anchors": anclas,
         },
         "counts": {"code": len(codigo), "data": len(datos), "governance": len(gobernanza)},
-        # ★ M74-E: el sello MIDE el entorno, no lo supone. Hasta aquí hasheaba los ARCHIVOS de lock
-        # y comprobaba que los directorios de los venv existieran — es decir, sellaba la
-        # declaración del entorno y jamás el entorno. Medido el 13-sep-2026, los dos intérpretes
-        # corrían `torch` 2.12.0 contra un lock que sella 2.13.0. El veredicto entra EN el sello:
-        # una campaña sellada sobre un entorno divergente lo lleva escrito para siempre, y el
-        # runbook se niega a arrancar (`run_rederivation.sh`), que es donde se pierden las 11 horas.
-        "environment": _envlock.auditar(root),
+        # ★ M74-E: el sello MIDE el entorno, no lo supone (antes hasheaba los locks y comprobaba que
+        # los venv existieran mientras corrían `torch` 2.12.0 contra un lock de 2.13.0). El veredicto
+        # entra EN el sello y el runbook se niega a arrancar sobre uno divergente. ★ R14: también el
+        # DVC que re-hashea los punteros, que hasta aquí era un `dvc` a secas del PATH del operador.
+        "environment": {**_envlock.auditar(root), "dvc": dvc_identity(root)},
         "protocol": reconcile_protocol(),
     }
 
