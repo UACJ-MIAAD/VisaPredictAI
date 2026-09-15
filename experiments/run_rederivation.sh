@@ -194,8 +194,10 @@ txn() { $ANTE -m tools.campaign_txn --path "$CAMPAIGN_TXN" "$@"; }
 # Una campaña anterior YA TERMINADA se archiva con su id; una abierta ABORTA aquí, que es
 # justo lo que la máquina existe para impedir.
 txn archive --dir "$CAMPAIGN_TXN_ARCHIVE" || exit 7
+# ★ M74-E-R12 · el sello comparado en vivo viaja DENTRO de la transacción, inmutable: sin esto, la publicación
+# no podía demostrar después qué sello se validó al arrancar (un manifiesto bien formado de la misma campaña pasaba).
 txn open --campaign-id "$CAMPAIGN_ID" --sha "$CAMPAIGN_SHA" --dirty "$CAMPAIGN_DIRTY" \
-    --panel "$CAMPAIGN_TXN_PANEL" || exit 7
+    --panel "$CAMPAIGN_TXN_PANEL" --input-seal "$PREFLIGHT_SHA256" || exit 7
 # El trap cubre TODAS las salidas: los `exit 1/3/4/5/6` de más abajo, una excepción del
 # intérprete y las señales. `--if-open` lo hace idempotente: si el estado ya es terminal no
 # toca nada, para que un fallo registrado no quede tapado por el error de una transición ilegal.
@@ -417,10 +419,11 @@ fi
 echo "✓ Campaña completa y consistente. Queda en 'computed': publicar exige validación humana"
 echo "  explícita y después el publicador:"
 echo "    # 1. escribe el recibo de revisión (esquema cerrado, ligado a ESTA campaña):"
-echo "    #    {\"schema\":\"campaign-validation-receipt/1\", \"campaign_id\":\"$CAMPAIGN_ID\","
+echo "    #    {\"schema\":\"campaign-validation-receipt/2\", \"campaign_id\":\"$CAMPAIGN_ID\","
 echo "    #     \"source_git_sha\":\"$CAMPAIGN_SHA\", \"panel_sha256\":\"<el del estado>\","
+echo "    #     \"input_seal_sha256\":\"$PREFLIGHT_SHA256\","
 echo "    #     \"reviewed_by\":\"<persona>\", \"decision\":\"aprobada\", \"reviewed_at\":\"<RFC3339>\"}"
-echo "    $ANTE -m tools.campaign_txn status   # de ahí sale panel_sha256"
+echo "    $ANTE -m tools.campaign_txn status   # de ahí salen panel_sha256 e input_seal_sha256"
 echo "    $ANTE -m tools.campaign_txn validate --receipt <recibo.json>"
 echo "    bash experiments/sync_all.sh --publish"
 exit 0

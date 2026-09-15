@@ -17,6 +17,7 @@ KW = dict(
     git_dirty=False,
     panel_sha256="sha256:" + "b" * 64,
     started_at="2026-07-13T00:00:00+00:00",
+    input_seal_sha256="d" * 64,
 )
 TS = "2026-07-13T01:00:00+00:00"
 RECEIPT = "c" * 64
@@ -180,7 +181,7 @@ def test_seal_rejects_naive_timestamp(tmp_path):
 
 def test_schema_rejects_unknown_key():
     base = {
-        "schema_version": 2,
+        "schema_version": cs.SCHEMA_VERSION,
         "campaign_id": "c",
         "status": "running",
         "revision": 0,
@@ -188,6 +189,7 @@ def test_schema_rejects_unknown_key():
         "git_dirty": False,
         "panel_sha256": "sha256:" + "b" * 64,
         "started_at": TS,
+        "input_seal_sha256": "d" * 64,
     }
     assert cs.validate_schema(base) == []
     assert any("desconocidas" in x for x in cs.validate_schema({**base, "surprise": 1}))

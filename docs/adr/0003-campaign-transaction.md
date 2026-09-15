@@ -68,8 +68,8 @@ secuencia de llamadas y su propio criterio ante un estado terminal.
   `git push`, y **consume el permiso** con `txn publish` después del push. Es la **segunda**
   puerta: el manifiesto de campaña acredita la *identidad*, la transacción acredita el *estado*.
 - **`validate` no acepta revisor ni decisión por argumento** (M74-B-R1). Los lee de un **recibo
-  JSON de esquema cerrado** (`campaign-validation-receipt/1`, siete claves exactas) ligado a la
-  campaña por `campaign_id`, SHA de origen y `panel_sha256`, con decisión de vocabulario cerrado,
+  JSON de esquema cerrado** (`campaign-validation-receipt/2`, ocho claves exactas) ligado a la
+  campaña por `campaign_id`, SHA de origen, `panel_sha256` e `input_seal_sha256` (M74-E-R12), con decisión de vocabulario cerrado,
   revisor que no puede declararse automatizado y fecha posterior al cómputo que revisa. **No hay
   bandera para saltarse el guardián de consistencia**: la que había era un bypass de producción.
 - Relanzar sobre una campaña abierta **aborta**: `seal_running` es create-only y el archivado

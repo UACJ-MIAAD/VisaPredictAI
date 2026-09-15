@@ -28,6 +28,7 @@ from tools import campaign_txn as txn
 
 RAIZ = Path(__file__).resolve().parents[1]
 SHA = "a" * 40
+SELLO = "e" * 64  # ★ M74-E-R12 · sha256 del sello de entradas comparado en vivo
 
 
 @pytest.fixture
@@ -37,7 +38,9 @@ def campana(tmp_path: Path) -> Path:
     panel = tmp_path / "panel.csv"
     panel.write_text("country,category,table,value\nmexico,EB2,FAD,1\n", encoding="utf-8")
     ruta = tmp_path / "reports" / "campaign" / "campaign.json"
-    txn.open_campaign(ruta, campaign_id="r1_sintetica", source_git_sha=SHA, git_dirty=False, panel=panel)
+    txn.open_campaign(
+        ruta, campaign_id="r1_sintetica", source_git_sha=SHA, git_dirty=False, panel=panel, input_seal_sha256=SELLO
+    )
     cs.mark_computed(
         ruta,
         completed_at=txn.now_rfc3339(),
@@ -55,6 +58,7 @@ def _acta(ruta: Path, **cambios) -> Path:
         "campaign_id": estado["campaign_id"],
         "source_git_sha": estado["source_git_sha"],
         "panel_sha256": estado["panel_sha256"],
+        "input_seal_sha256": estado["input_seal_sha256"],
         "reviewed_by": "Javier Rebull",
         "decision": "aprobada",
         "reviewed_at": txn.now_rfc3339(),
@@ -197,6 +201,7 @@ def test_non_string_values_are_refused(campana: Path) -> None:
                 "campaign_id": estado["campaign_id"],
                 "source_git_sha": estado["source_git_sha"],
                 "panel_sha256": estado["panel_sha256"],
+                "input_seal_sha256": estado["input_seal_sha256"],
                 "reviewed_by": "Javier Rebull",
                 "decision": True,
                 "reviewed_at": txn.now_rfc3339(),

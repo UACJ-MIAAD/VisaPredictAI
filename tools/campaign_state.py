@@ -33,7 +33,7 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 STATUSES = ("running", "computed", "failed", "validated", "published")
 TERMINAL = frozenset({"failed", "published"})
 PUBLISHABLE = "validated"
@@ -44,11 +44,10 @@ _ALLOWED = {
     "failed": set(),
     "published": set(),
 }
-# Identidad: NUNCA cambia tras sellar RUNNING.
-_IMMUTABLE = ("schema_version", "campaign_id", "source_git_sha", "git_dirty", "panel_sha256", "started_at")
-_REQUIRED = frozenset(
-    {"schema_version", "campaign_id", "status", "revision", "source_git_sha", "git_dirty", "panel_sha256", "started_at"}
-)
+# Identidad: NUNCA cambia tras sellar RUNNING. ★ M74-E-R12: incluye el sha256 del sello comparado en vivo.
+_IDENTIDAD = ("campaign_id", "source_git_sha", "git_dirty", "panel_sha256", "started_at", "input_seal_sha256")
+_IMMUTABLE = ("schema_version", *_IDENTIDAD)
+_REQUIRED = frozenset({*_IMMUTABLE, "status", "revision"})
 # Toda clave legitima de campaign.json (una clave fuera de aqui = esquema roto).
 ALLOWED_KEYS = _REQUIRED | frozenset(
     {
@@ -249,6 +248,8 @@ def validate_schema(obj: object) -> list[str]:
     ph = obj.get("panel_sha256")
     if not isinstance(ph, str) or not _SHA256.match(ph):
         probs.append("campaign.json: panel_sha256 debe ser 'sha256:'+64 hex (no 'n/d')")
+    if not isinstance(obj.get("input_seal_sha256"), str) or not _HEX64.match(obj["input_seal_sha256"]):
+        probs.append("campaign.json: input_seal_sha256 debe ser el sha256 (64 hex) del sello de entradas")
     # git_dirty EXACTAMENTE bool (isinstance excluye 1/0; bool es subclase de int)
     if not isinstance(obj.get("git_dirty"), bool):
         probs.append("campaign.json: git_dirty debe ser booleano exacto")
@@ -300,25 +301,20 @@ def _campaign_lock(path: Path):
         os.close(fd)
 
 
-def seal_running(
-    path: str | Path, *, campaign_id: str, source_git_sha: str, git_dirty: bool, panel_sha256: str, started_at: str
-) -> dict:
+def seal_running(path: str | Path, **identidad: object) -> dict:
     """Sella la campana en RUNNING. CREATE-ONLY: si ``campaign.json`` ya existe, ABORTA.
 
-    Reiniciar una campana existente (incluida una terminal published/failed) es un error, no un
-    reemplazo. ``git_dirty`` debe ser bool EXACTO (no se coerciona 'false'->True)."""
+    ``identidad`` son EXACTAMENTE los campos inmutables salvo ``schema_version`` (campaign_id,
+    source_git_sha, git_dirty, panel_sha256, started_at, input_seal_sha256): ni uno de más ni de menos.
+    Reiniciar una campana existente es un error, no un reemplazo. ``git_dirty`` debe ser bool EXACTO."""
     p = Path(path)
-    if not isinstance(git_dirty, bool):
-        raise ValueError("seal_running: git_dirty debe ser bool exacto")
+    if set(identidad) != set(_IDENTIDAD) or not isinstance(identidad.get("git_dirty"), bool):
+        raise ValueError(f"seal_running: identidad {sorted(identidad)} incompleta o git_dirty no booleano")
     obj = {
         "schema_version": SCHEMA_VERSION,
-        "campaign_id": campaign_id,
+        **identidad,
         "status": "running",
         "revision": 0,
-        "source_git_sha": source_git_sha,
-        "git_dirty": git_dirty,
-        "panel_sha256": panel_sha256,
-        "started_at": started_at,
         "completed_at": None,
         "failed_at": None,
         "validated_at": None,

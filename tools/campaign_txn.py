@@ -25,7 +25,7 @@ consistencia en ``'passed'``, re-ejecutando el guardián.
 
 ⚠️ **Validar es un acto humano y por eso no se teclea.** ``validate`` no acepta revisor ni decisión
 por argumento: los lee de un **recibo JSON de esquema cerrado** ligado a la campaña por
-``campaign_id``, SHA de origen y hash del panel. Un archivo cualquiera, un revisor vacío o una
+``campaign_id``, SHA, hash del panel y sello de entradas. Un archivo cualquiera, un revisor vacío o una
 identidad automatizada **no validan**. Y no existe bandera para saltarse el guardián de
 consistencia: la que había (``--skip-consistency-check``) era un bypass de producción y se retiró.
 """
@@ -64,10 +64,10 @@ EXIT_ALREADY_TERMINAL = 4  #: `fail --if-open`: ya había estado terminal, no se
 #: con tres argumentos libres (`--receipt <cualquier archivo> --reviewed-by X --decision Y`): un
 #: `cron-bot` podía teclearlos y la máquina no tenía forma de contradecirle. Ahora el revisor y la
 #: decisión **se leen del recibo**, y el recibo está ligado a ESTA campaña.
-RECEIPT_SCHEMA = "campaign-validation-receipt/1"
-RECEIPT_KEYS = frozenset(
-    {"schema", "campaign_id", "source_git_sha", "panel_sha256", "reviewed_by", "decision", "reviewed_at"}
-)
+RECEIPT_SCHEMA = "campaign-validation-receipt/2"  # /2 · M74-E-R12: + input_seal_sha256
+#: ★ M74-E-R12: la revisión humana queda ligada también al sello de entradas comparado en vivo.
+IDENTIDAD_RECIBO = ("campaign_id", "source_git_sha", "panel_sha256", "input_seal_sha256")
+RECEIPT_KEYS = frozenset({*IDENTIDAD_RECIBO, "schema", "reviewed_by", "decision", "reviewed_at"})
 #: Vocabulario cerrado: sólo `aprobada` transiciona. `rechazada` es un recibo válido cuyo desenlace
 #: correcto es `fail`, no `validated` — una campaña rechazada que quedara `validated` autorizaría
 #: publicar exactamente lo que el revisor acaba de rechazar.
@@ -92,7 +92,7 @@ def load_validation_receipt(path: str | Path, estado: Mapping[str, Any]) -> dict
     """Lee y **acredita** el recibo contra la campaña abierta. Fail-closed en todo lo demás.
 
     Devuelve el recibo ya validado. Lanza :class:`ReceiptError` nombrando exactamente qué falló,
-    para que el operador no tenga que adivinar cuál de los siete campos no cuadra.
+    para que el operador no tenga que adivinar cuál de los ocho campos no cuadra.
     """
     ruta = Path(path)
     if not ruta.is_file():
@@ -113,8 +113,8 @@ def load_validation_receipt(path: str | Path, estado: Mapping[str, Any]) -> dict
     if datos["schema"] != RECEIPT_SCHEMA:
         raise ReceiptError(f"esquema {datos['schema']!r}; se esperaba {RECEIPT_SCHEMA!r}")
 
-    # ── ligado a ESTA campaña: tres identidades, no una
-    for clave in ("campaign_id", "source_git_sha", "panel_sha256"):
+    # ── ligado a ESTA campaña: cuatro identidades, no una
+    for clave in IDENTIDAD_RECIBO:
         if datos[clave] != estado.get(clave):
             raise ReceiptError(
                 f"el recibo dice {clave}={datos[clave]!r} y la campaña abierta tiene "
@@ -183,6 +183,7 @@ def open_campaign(
     source_git_sha: str,
     git_dirty: bool,
     panel: str | Path,
+    input_seal_sha256: str,
     started_at: str | None = None,
 ) -> dict:
     """Sella la campaña en ``running``. Create-only: si ya existe, aborta (no se reinicia)."""
@@ -193,6 +194,7 @@ def open_campaign(
         git_dirty=git_dirty,
         panel_sha256=panel_fingerprint(panel),
         started_at=started_at or now_rfc3339(),
+        input_seal_sha256=input_seal_sha256,
     )
 
 
@@ -290,23 +292,23 @@ def _receipt_matches(obj: Mapping[str, Any]) -> tuple[bool, str]:
     return True, ""
 
 
-def _manifest_matches(manifest: str | Path, obj: Mapping[str, Any]) -> tuple[bool, str]:
-    """El manifiesto de campaña y la transacción deben hablar de la MISMA campaña.
+#: ★ M74-E-R12 · manifiesto ↔ transacción: campaña, SHA, `dirty` y el sello comparado en vivo (antes, sólo el id).
+_MANIFIESTO_VS_TXN = {"campaign_id": "campaign_id", "git_sha": "source_git_sha", "dirty": "git_dirty"}
+_MANIFIESTO_VS_TXN["preflight_sha256"] = "input_seal_sha256"
 
-    Antes cada uno acreditaba por su lado y dos `campaign_id` distintos pasaban ambos gates (H15).
-    """
+
+def _manifest_matches(manifest: str | Path, obj: Mapping[str, Any]) -> tuple[bool, str]:
+    """El manifiesto y la transacción deben describir la MISMA corrida, campo a campo y con su tipo (H15)."""
     ruta = Path(manifest)
     if not ruta.is_file():
         return False, f"no existe el manifiesto de campaña {ruta}"
     try:
-        datos = json.loads(ruta.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
+        datos = cs.loads(ruta.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as exc:
         return False, f"manifiesto de campaña ilegible ({exc})"
-    if datos.get("campaign_id") != obj.get("campaign_id"):
-        return False, (
-            f"el manifiesto describe la campaña {datos.get('campaign_id')!r} y la transacción "
-            f"{obj.get('campaign_id')!r}: no son la misma corrida"
-        )
+    for m, t in _MANIFIESTO_VS_TXN.items():
+        if datos.get(m) != obj.get(t) or type(datos.get(m)) is not type(obj.get(t)):
+            return False, f"manifiesto {m}={datos.get(m)!r} ≠ transacción {t}={obj.get(t)!r}: no son la misma corrida"
     return True, ""
 
 
@@ -380,6 +382,7 @@ def _parser() -> argparse.ArgumentParser:
     o.add_argument("--sha", required=True, help="SHA de git de 40 hex sellado para toda la corrida")
     o.add_argument("--dirty", required=True, choices=("true", "false"), help="literal exacto; no se coerciona")
     o.add_argument("--panel", required=True, help="ruta del panel del que se deriva panel_sha256")
+    o.add_argument("--input-seal", required=True, help="sha256 del sello de entradas comparado en vivo al arrancar")
 
     c = sub.add_parser(
         "compute", help="running -> computed (input/output en passed; consistency puede quedar pendiente)"
@@ -409,9 +412,9 @@ def _parser() -> argparse.ArgumentParser:
         "--receipt",
         required=True,
         help=(
-            f"recibo JSON de esquema cerrado ({RECEIPT_SCHEMA}) con las siete claves "
+            f"recibo JSON de esquema cerrado ({RECEIPT_SCHEMA}) con las ocho claves "
             f"{sorted(RECEIPT_KEYS)}. El revisor y la decisión se LEEN de ahí y el recibo se liga a "
-            "la campaña por campaign_id, SHA de origen y hash del panel. No hay forma de saltarse "
+            "la campaña por campaign_id, SHA, hash del panel y sello de entradas. No hay forma de saltarse "
             "el guardián de consistencia."
         ),
     )
@@ -457,6 +460,7 @@ def main(argv: list[str] | None = None) -> int:
                 source_git_sha=args.sha,
                 git_dirty=args.dirty == "true",
                 panel=args.panel,
+                input_seal_sha256=args.input_seal,
             )
             print(f"✓ campaña {obj['campaign_id']} sellada en 'running' → {path}")
         elif args.cmd == "compute":

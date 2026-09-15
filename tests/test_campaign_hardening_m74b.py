@@ -24,13 +24,21 @@ from tools import campaign_txn as txn
 
 SHA = "a" * 40
 RECIBO = "c" * 64
+SELLO = "e" * 64  # ★ M74-E-R12 · sha256 del sello de entradas comparado en vivo
 
 
 def _sellada(tmp_path: Path, **kw) -> Path:
     p = tmp_path / "campaign.json"
     panel = tmp_path / "panel.csv"
     panel.write_text("x\n", encoding="utf-8")
-    txn.open_campaign(p, campaign_id="m74b", source_git_sha=SHA, git_dirty=kw.get("git_dirty", False), panel=panel)
+    txn.open_campaign(
+        p,
+        campaign_id="m74b",
+        source_git_sha=SHA,
+        git_dirty=kw.get("git_dirty", False),
+        panel=panel,
+        input_seal_sha256=SELLO,
+    )
     return p
 
 
@@ -98,13 +106,14 @@ def test_the_hard_gates_still_cannot_be_pending(tmp_path: Path) -> None:
 def test_a_forged_validated_no_longer_passes_the_schema(mutacion: dict, motivo: str) -> None:
     """RED de H3: cada campo del estado se comprueba por VALOR, no por mera presencia."""
     base = {
-        "schema_version": 2,
+        "schema_version": cs.SCHEMA_VERSION,
         "campaign_id": "forjada",
         "status": "validated",
         "revision": 3,
         "source_git_sha": SHA,
         "git_dirty": False,
         "panel_sha256": "sha256:" + "b" * 64,
+        "input_seal_sha256": SELLO,
         "started_at": "2026-09-11T00:00:00Z",
         "completed_at": "2026-09-11T00:00:00Z",
         "validated_at": "2026-09-11T00:00:00Z",
@@ -143,11 +152,13 @@ def test_manifest_and_transaction_must_describe_the_same_campaign(tmp_path: Path
     """RED de H15: dos `campaign_id` distintos pasaban ambos gates por separado."""
     p = _validada(tmp_path)
     manifiesto = tmp_path / "campaign_manifest.json"
-    manifiesto.write_text(json.dumps({"campaign_id": "OTRA"}), encoding="utf-8")
+    # ★ M74-E-R12: el cruce ya no es sólo el id; el manifiesto legítimo trae SHA, dirty y sello de la transacción
+    legitimo = {"campaign_id": "m74b", "git_sha": SHA, "dirty": False, "preflight_sha256": SELLO}
+    manifiesto.write_text(json.dumps({**legitimo, "campaign_id": "OTRA"}), encoding="utf-8")
     ok, motivo = txn.publishable(p, manifest=manifiesto)
     assert not ok and "no son la misma corrida" in motivo
 
-    manifiesto.write_text(json.dumps({"campaign_id": "m74b"}), encoding="utf-8")
+    manifiesto.write_text(json.dumps(legitimo), encoding="utf-8")
     assert txn.publishable(p, manifest=manifiesto)[0]
 
 
@@ -181,6 +192,7 @@ def escribir_recibo(tmp_path: Path, estado_path: Path, **cambios: str) -> Path:
         "campaign_id": estado["campaign_id"],
         "source_git_sha": estado["source_git_sha"],
         "panel_sha256": estado["panel_sha256"],
+        "input_seal_sha256": estado["input_seal_sha256"],
         "reviewed_by": "Javier Rebull",
         "decision": "aprobada",
         "reviewed_at": txn.now_rfc3339(),

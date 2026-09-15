@@ -258,7 +258,10 @@ def _ensayo(tmp_path: Path, desenlace: str) -> tuple[int, dict | None]:
     guion.write_text(
         "#!/bin/bash\nset -uo pipefail\n"
         f'ANTE="{sys.executable}"\nCAMPAIGN_ID="ensayo_m74a"\nCAMPAIGN_SHA="{"a" * 40}"\n'
-        f'CAMPAIGN_DIRTY="false"\nCAMPAIGN_TXN="{txn}"\n' + _bloque_transaccion() + "\n" + cola,
+        f'CAMPAIGN_DIRTY="false"\nCAMPAIGN_TXN="{txn}"\nPREFLIGHT_SHA256="{"e" * 64}"\n'
+        + _bloque_transaccion()
+        + "\n"
+        + cola,
         encoding="utf-8",
     )
     panel = tmp_path / "panel_de_ensayo.csv"
@@ -318,6 +321,7 @@ def test_hermetic_rehearsal_only_opens_publication_after_human_validation(
                 "campaign_id": estado["campaign_id"],
                 "source_git_sha": estado["source_git_sha"],
                 "panel_sha256": estado["panel_sha256"],
+                "input_seal_sha256": estado["input_seal_sha256"],
                 "reviewed_by": "Javier Rebull",
                 "decision": "aprobada",
                 "reviewed_at": txn.now_rfc3339(),

@@ -31,6 +31,7 @@ from tools import campaign_txn as txn
 
 RAIZ = Path(__file__).resolve().parents[1]
 SHA = "a" * 40
+SELLO = "e" * 64  # ★ M74-E-R12 · sha256 del sello de entradas comparado en vivo
 
 
 # ----------------------------------------------------------------- andamiaje de lanes sintéticos
@@ -66,6 +67,7 @@ def _recibo(raiz: Path, **cambios: str) -> Path:
         "campaign_id": estado.get("campaign_id", "sintetica_0001"),
         "source_git_sha": estado.get("source_git_sha", SHA),
         "panel_sha256": estado.get("panel_sha256", ""),
+        "input_seal_sha256": estado.get("input_seal_sha256", ""),
         "reviewed_by": "Javier Rebull",
         "decision": "aprobada",
         "reviewed_at": txn.now_rfc3339(),
@@ -78,7 +80,7 @@ def _recibo(raiz: Path, **cambios: str) -> Path:
 
 def _abrir(raiz: Path, campaign_id: str = "sintetica_0001") -> subprocess.CompletedProcess[str]:
     return _txn(raiz, "open", "--campaign-id", campaign_id, "--sha", SHA, "--dirty", "false",
-                "--panel", str(raiz / "panel.csv"))  # fmt: skip
+                "--panel", str(raiz / "panel.csv"), "--input-seal", SELLO)  # fmt: skip
 
 
 def _estado(raiz: Path) -> str | None:
@@ -101,7 +103,8 @@ RUNBOOK = textwrap.dedent(
     RAIZ="$1"; LANES="$2"; FALLA_EN="${3:-0}"; DUERME="${4:-0}"
     TXN="$RAIZ/reports/campaign/campaign.json"
     txn() { "$PYBIN" -m tools.campaign_txn --path "$TXN" "$@"; }
-    txn open --campaign-id sintetica_0001 --sha AAAA --dirty false --panel "$RAIZ/panel.csv" || exit 7
+    txn open --campaign-id sintetica_0001 --sha AAAA --dirty false --panel "$RAIZ/panel.csv" \\
+        --input-seal eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee || exit 7
     campaign_abort() {
       local rc=$?
       [ "$rc" -eq 0 ] && return 0
@@ -281,6 +284,8 @@ def test_dos_lanzamientos_simultaneos_y_solo_uno_sella_la_campana(lanes) -> None
             "false",
             "--panel",
             str(lanes / "panel.csv"),
+            "--input-seal",
+            SELLO,
         ]  # fmt: skip
         for i in range(6)
     ]
@@ -383,7 +388,14 @@ def test_el_gestor_de_contexto_marca_failed_si_el_cuerpo_lanza(lanes) -> None:
     ruta = lanes / "reports/campaign/campaign.json"
     with (
         pytest.raises(RuntimeError),
-        txn.campaign(ruta, campaign_id="python", source_git_sha=SHA, git_dirty=False, panel=lanes / "panel.csv"),
+        txn.campaign(
+            ruta,
+            campaign_id="python",
+            source_git_sha=SHA,
+            git_dirty=False,
+            panel=lanes / "panel.csv",
+            input_seal_sha256=SELLO,
+        ),
     ):
         raise RuntimeError("lane 3 reventó")
     obj = _leer(ruta)
@@ -445,6 +457,7 @@ def test_el_cableado_real_del_runbook_se_ejecuta_y_registra_la_salida_anormal(tm
         'CAMPAIGN_ID="extraida_0001"\n'
         f'CAMPAIGN_SHA="{SHA}"\n'
         'CAMPAIGN_DIRTY="false"\n'
+        f'PREFLIGHT_SHA256="{SELLO}"\n'
         f'CAMPAIGN_TXN="{txn_path}"\n' + _bloque_de_transaccion() + '\necho "una etapa revienta"\nexit 5\n',
         encoding="utf-8",
     )

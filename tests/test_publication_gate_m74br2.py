@@ -24,6 +24,7 @@ from tools import campaign_txn as txn
 
 SHA = "a" * 40
 OTRO_SHA = "b" * 40
+SELLO = "e" * 64  # ★ M74-E-R12 · sha256 del sello de entradas comparado en vivo
 
 
 def _sellar(tmp_path: Path, *, campaign_id: str = "r2_sintetica", sha: str = SHA, sufijo: str = "") -> Path:
@@ -33,7 +34,9 @@ def _sellar(tmp_path: Path, *, campaign_id: str = "r2_sintetica", sha: str = SHA
     panel = base / "panel.csv"
     panel.write_text(f"country,category,table,value\nmexico,EB2,FAD,1{sufijo}\n", encoding="utf-8")
     ruta = base / "reports" / "campaign" / "campaign.json"
-    txn.open_campaign(ruta, campaign_id=campaign_id, source_git_sha=sha, git_dirty=False, panel=panel)
+    txn.open_campaign(
+        ruta, campaign_id=campaign_id, source_git_sha=sha, git_dirty=False, panel=panel, input_seal_sha256=SELLO
+    )
     cs.mark_computed(
         ruta, completed_at=txn.now_rfc3339(), input_gate="passed", output_gate="passed", consistency="passed"
     )
@@ -47,6 +50,7 @@ def _acta(ruta: Path, destino: Path, **cambios: str) -> Path:
         "campaign_id": estado["campaign_id"],
         "source_git_sha": estado["source_git_sha"],
         "panel_sha256": estado["panel_sha256"],
+        "input_seal_sha256": estado["input_seal_sha256"],
         "reviewed_by": "Javier Rebull",
         "decision": "aprobada",
         "reviewed_at": txn.now_rfc3339(),
