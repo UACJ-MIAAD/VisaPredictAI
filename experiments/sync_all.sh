@@ -41,7 +41,8 @@ txn_guard() { ante_nf/bin/python -m tools.campaign_txn --path "$CAMPAIGN_TXN" gu
 # H3/H10: publicar CONSUME el permiso. `validated` era un permiso permanente y repetible, y
 # `published` no se escribía nunca: la máquina de estados terminaba a medias y nada distinguía
 # una campaña ya publicada de una pendiente de publicar.
-txn_publish() { ante_nf/bin/python -m tools.campaign_txn --path "$CAMPAIGN_TXN" publish --release-sha "$(git rev-parse HEAD)"; }
+# ★ M74-E-R13: `publish` exige el manifiesto y re-acredita la misma puerta que `guard` justo antes de escribir.
+txn_publish() { ante_nf/bin/python -m tools.campaign_txn --path "$CAMPAIGN_TXN" publish --release-sha "$(git rev-parse HEAD)" --manifest "$MANIFEST"; }
 manifest_sha() { ante_nf/bin/python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$MANIFEST"; }
 if [ "$PUBLISH" = 1 ]; then
   publishable || exit 7

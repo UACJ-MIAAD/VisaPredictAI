@@ -239,7 +239,7 @@ def _bloque_transaccion() -> str:
     return guion[ini:fin]
 
 
-def _ensayo(tmp_path: Path, desenlace: str) -> tuple[int, dict | None]:
+def _ensayo(tmp_path: Path, desenlace: str, manifiesto: Path | None = None) -> tuple[int, dict | None]:
     """Ejecuta el cableado REAL del runbook con un desenlace sintético. No calcula nada."""
     txn = tmp_path / "campaign.json"
     cola = {
@@ -254,11 +254,12 @@ def _ensayo(tmp_path: Path, desenlace: str) -> tuple[int, dict | None]:
         ),
         "muerte": "kill -9 $$\n",
     }[desenlace]
+    ident = json.loads(manifiesto.read_text(encoding="utf-8")) if manifiesto else {}  # ★ M74-E-R13
     guion = tmp_path / "ensayo.sh"
     guion.write_text(
         "#!/bin/bash\nset -uo pipefail\n"
-        f'ANTE="{sys.executable}"\nCAMPAIGN_ID="ensayo_m74a"\nCAMPAIGN_SHA="{"a" * 40}"\n'
-        f'CAMPAIGN_DIRTY="false"\nCAMPAIGN_TXN="{txn}"\nPREFLIGHT_SHA256="{"e" * 64}"\n'
+        f'ANTE="{sys.executable}"\nCAMPAIGN_ID="{ident.get("campaign_id", "ensayo_m74a")}"\nCAMPAIGN_SHA="{"a" * 40}"\n'
+        f'CAMPAIGN_DIRTY="false"\nCAMPAIGN_TXN="{txn}"\nPREFLIGHT_SHA256="{ident.get("preflight_sha256", "e" * 64)}"\n'
         + _bloque_transaccion()
         + "\n"
         + cola,
@@ -299,15 +300,16 @@ def test_hermetic_rehearsal_of_the_three_outcomes(tmp_path: Path, desenlace, rc,
 
 
 def test_hermetic_rehearsal_only_opens_publication_after_human_validation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, campana_sellada
 ) -> None:
     """El camino completo: ni siquiera `computed` autoriza publicar; sólo `validated` lo hace."""
     from tools import campaign_txn as txn
 
-    codigo, obj = _ensayo(tmp_path, "ok")
+    manifiesto = campana_sellada(tmp_path / "repo")  # ★ M74-E-R13: publicar exige el manifiesto acreditado
+    codigo, obj = _ensayo(tmp_path, "ok", manifiesto)
     ruta = tmp_path / "campaign.json"
     assert codigo == 0 and obj is not None and obj["status"] == "computed"
-    assert not txn.publishable(ruta)[0], "`computed` NO puede autorizar publicar"
+    assert not txn.publishable(ruta, manifest=manifiesto)[0], "`computed` NO puede autorizar publicar"
 
     # ★ M74-B-R1: la validación se acredita por el camino REAL —recibo de esquema cerrado ligado a
     # esta campaña— y no llamando a `mark_validated` con un `.md` cualquiera y un revisor tecleado,
@@ -331,7 +333,9 @@ def test_hermetic_rehearsal_only_opens_publication_after_human_validation(
     )
     monkeypatch.setattr(txn, "_run_consistency", lambda: (True, ""))
     assert txn.main(["--path", str(ruta), "validate", "--receipt", str(recibo)]) == txn.EXIT_OK
-    assert txn.publishable(ruta)[0], "sólo tras la validación humana acreditada se abre la publicación"
+    assert txn.publishable(ruta, manifest=manifiesto)[0], (
+        "sólo tras la validación humana acreditada se abre la publicación"
+    )
 
 
 def test_a_killed_campaign_stays_open_and_blocks_the_next_one(tmp_path: Path) -> None:

@@ -92,27 +92,32 @@ def seal_problems(path: str | Path) -> list[str]:
 
 def publish_blocker(path: str | Path) -> str | None:
     """Motivo (str) por el que NO se puede publicar este manifiesto, o None si es publicable."""
+    return leer_para_publicar(path)[1]
+
+
+def leer_para_publicar(path: str | Path) -> tuple[dict | None, str | None]:
+    """★ M74-E-R13 · el manifiesto leído UNA vez (o None) y el motivo por el que no se publica (o None)."""
     p = Path(path)
     if not p.exists():
-        return f"falta el manifiesto de campana {p} (sin identidad sellada)"
+        return None, f"falta el manifiesto de campana {p} (sin identidad sellada)"
     try:
         m = loads_strict(
             p.read_text(), finito=True
         )  # ★ M74-E-R10 · UNA lectura: `dirty` y el sello miran el mismo objeto
     except (ValueError, ReceiptError) as e:
-        return f"manifiesto malformado ({type(e).__name__}: {e})"
+        return None, f"manifiesto malformado ({type(e).__name__}: {e})"
     except OSError as e:
-        return f"manifiesto ilegible ({type(e).__name__})"
+        return None, f"manifiesto ilegible ({type(e).__name__})"
+    if not isinstance(m, dict):
+        return None, "el manifiesto no es un objeto JSON"
     if "dirty" not in m:
-        return "el manifiesto no sella la clave `dirty`"
+        return m, "el manifiesto no sella la clave `dirty`"
     # `is not False` es DELIBERADO: rechaza true, "false" (string), 0 (== False pero no es
     # False), null. Solo el booleano JSON `false` autoriza publicar.
     if m["dirty"] is not False:
-        return f"dirty={m['dirty']!r} (campana diagnostica) — re-lanza OFICIAL desde arbol limpio"
+        return m, f"dirty={m['dirty']!r} (campana diagnostica) — re-lanza OFICIAL desde arbol limpio"
     problemas = _acreditar(m, p)
-    if problemas:
-        return "sello de entradas no acreditado: " + " · ".join(problemas)
-    return None
+    return m, ("sello de entradas no acreditado: " + " · ".join(problemas)) if problemas else None
 
 
 def main(argv: list[str]) -> int:

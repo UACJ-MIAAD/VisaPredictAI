@@ -36,9 +36,12 @@ SELLO = "e" * 64  # ★ M74-E-R12 · sha256 del sello de entradas comparado en v
 
 # ----------------------------------------------------------------- andamiaje de lanes sintéticos
 @pytest.fixture
-def lanes(tmp_path: Path) -> Path:
-    """Un 'panel' de juguete y un sitio donde los lanes dejan sus artefactos."""
-    (tmp_path / "reports" / "campaign").mkdir(parents=True)
+def lanes(tmp_path: Path, campana_sellada) -> Path:
+    """Un 'panel' de juguete, un sitio donde los lanes dejan sus artefactos y su manifiesto acreditado.
+
+    ★ M74-E-R13: `guard` y `publish` exigen el manifiesto; la identidad de la campaña de juguete sale de él.
+    """
+    campana_sellada(tmp_path)
     (tmp_path / "panel.csv").write_text("country,category,table,value\nmexico,EB2,FAD,1\n", encoding="utf-8")
     return tmp_path
 
@@ -78,9 +81,20 @@ def _recibo(raiz: Path, **cambios: str) -> Path:
     return destino
 
 
-def _abrir(raiz: Path, campaign_id: str = "sintetica_0001") -> subprocess.CompletedProcess[str]:
-    return _txn(raiz, "open", "--campaign-id", campaign_id, "--sha", SHA, "--dirty", "false",
-                "--panel", str(raiz / "panel.csv"), "--input-seal", SELLO)  # fmt: skip
+def _manifiesto(raiz: Path) -> Path:
+    return raiz / "reports/campaign/campaign_manifest.json"
+
+
+def _identidad(raiz: Path) -> dict:
+    return json.loads(_manifiesto(raiz).read_text(encoding="utf-8"))
+
+
+def _abrir(raiz: Path, campaign_id: str | None = None) -> subprocess.CompletedProcess[str]:
+    """Abre con la identidad del manifiesto de `raiz` (M74-E-R13); `campaign_id` sólo para campañas sucesivas."""
+    ident = _identidad(raiz)
+    return _txn(raiz, "open", "--campaign-id", campaign_id or ident["campaign_id"], "--sha", ident["git_sha"],
+                "--dirty", "false", "--panel", str(raiz / "panel.csv"),
+                "--input-seal", ident["preflight_sha256"])  # fmt: skip
 
 
 def _estado(raiz: Path) -> str | None:
@@ -137,7 +151,11 @@ RUNBOOK = textwrap.dedent(
 @pytest.fixture
 def runbook(lanes: Path) -> Path:
     guion = lanes / "runbook.sh"
-    guion.write_text(RUNBOOK.replace("AAAA", SHA), encoding="utf-8")
+    ident = _identidad(lanes)  # ★ M74-E-R13: la campaña de juguete describe el manifiesto acreditado
+    texto = RUNBOOK.replace("AAAA", ident["git_sha"]).replace("sintetica_0001", ident["campaign_id"])
+    texto = texto.replace(SELLO, ident["preflight_sha256"])
+    assert SELLO not in texto and "sintetica_0001" not in texto, "la plantilla del runbook de juguete cambió"
+    guion.write_text(texto, encoding="utf-8")
     guion.chmod(0o755)
     return guion
 
@@ -162,7 +180,7 @@ def test_una_corrida_limpia_llega_a_computed_y_todavia_no_autoriza_publicar(runb
     ]
     assert _estado(lanes) == "computed"
     # ★ `computed` NO publica: falta la validación humana. El éxito técnico no es permiso.
-    assert _txn(lanes, "guard").returncode == txn.EXIT_BLOCKED
+    assert _txn(lanes, "guard", "--manifest", str(_manifiesto(lanes))).returncode == txn.EXIT_BLOCKED
 
 
 def test_solo_validated_autoriza_publicar(runbook, lanes) -> None:
@@ -171,14 +189,14 @@ def test_solo_validated_autoriza_publicar(runbook, lanes) -> None:
     fin = _txn(lanes, "validate", "--receipt", str(recibo))
     assert fin.returncode == 0, fin.stderr
     assert _estado(lanes) == "validated"
-    assert _txn(lanes, "guard").returncode == txn.EXIT_OK
+    assert _txn(lanes, "guard", "--manifest", str(_manifiesto(lanes))).returncode == txn.EXIT_OK
     # el hash del recibo se DERIVA del archivo, no se teclea
     obj = _leer(lanes / "reports/campaign/campaign.json")
     assert obj["validation_receipt_sha256"] == txn.sha256_file(recibo)
     # y publicar cierra el ciclo… dejando de autorizar publicar otra vez
-    assert _txn(lanes, "publish", "--release-sha", "b" * 40).returncode == 0
+    assert _txn(lanes, "publish", "--release-sha", "b" * 40, "--manifest", str(_manifiesto(lanes))).returncode == 0
     assert _estado(lanes) == "published"
-    assert _txn(lanes, "guard").returncode == txn.EXIT_BLOCKED
+    assert _txn(lanes, "guard", "--manifest", str(_manifiesto(lanes))).returncode == txn.EXIT_BLOCKED
 
 
 # =============================================================== 2 · fallo a mitad de la corrida
@@ -190,7 +208,7 @@ def test_un_fallo_intermedio_deja_la_campana_en_failed_y_bloquea(runbook, lanes)
     obj = _leer(lanes / "reports/campaign/campaign.json")
     assert obj["status"] == "failed" and obj["failed_stage"] == "etapas obligatorias"
     assert "1 lane(s)" in obj["reason"] and obj["exit_code"] == 1
-    assert _txn(lanes, "guard").returncode == txn.EXIT_BLOCKED
+    assert _txn(lanes, "guard", "--manifest", str(_manifiesto(lanes))).returncode == txn.EXIT_BLOCKED
 
 
 def test_el_trap_no_tapa_el_fallo_ya_registrado(runbook, lanes) -> None:
@@ -222,7 +240,7 @@ def test_un_sigkill_a_mitad_deja_running_y_running_no_publica(runbook, lanes) ->
     proc.kill()
     proc.wait(timeout=60)
     assert _estado(lanes) == "running"
-    assert _txn(lanes, "guard").returncode == txn.EXIT_BLOCKED
+    assert _txn(lanes, "guard", "--manifest", str(_manifiesto(lanes))).returncode == txn.EXIT_BLOCKED
     # y no se puede «reiniciar encima»: sellar otra vez aborta
     assert _abrir(lanes).returncode == txn.EXIT_ERROR
 
@@ -242,7 +260,7 @@ def test_un_sigterm_a_mitad_se_registra_como_fallo(runbook, lanes) -> None:
     obj = _leer(lanes / "reports/campaign/campaign.json")
     assert obj["status"] == "failed" and "salida anormal" in obj["failed_stage"]
     assert obj["exit_code"] == 143
-    assert _txn(lanes, "guard").returncode == txn.EXIT_BLOCKED
+    assert _txn(lanes, "guard", "--manifest", str(_manifiesto(lanes))).returncode == txn.EXIT_BLOCKED
 
 
 def _esperar(condicion, limite: float = 120.0) -> None:
@@ -332,7 +350,7 @@ def test_una_carrera_no_puede_resucitar_un_estado_terminal(lanes) -> None:
     ordenes = [
         [*base, "compute", "--input-gate", "passed", "--output-gate", "passed", "--consistency", "passed"],
         [*base, "fail", "--stage", "carrera", "--reason", "pisa al terminal"],
-        [*base, "publish", "--release-sha", "c" * 40],
+        [*base, "publish", "--release-sha", "c" * 40, "--manifest", str(_manifiesto(lanes))],
     ]
     codigos = _lanzar(ordenes, {**os.environ, "PYTHONPATH": str(RAIZ)})
     assert codigos.count(0) == 0, f"un terminal no retrocede: {codigos}"
@@ -344,7 +362,7 @@ def test_una_carrera_no_puede_resucitar_un_estado_terminal(lanes) -> None:
 def test_guard_bloquea_todo_estado_que_no_sea_validated(lanes, preparar, estado) -> None:
     if preparar == "open":
         assert _abrir(lanes).returncode == 0
-    fin = _txn(lanes, "guard")
+    fin = _txn(lanes, "guard", "--manifest", str(_manifiesto(lanes)))
     assert fin.returncode == txn.EXIT_BLOCKED
     assert "BLOQUEADA" in fin.stderr
 
@@ -354,7 +372,7 @@ def test_guard_falla_cerrado_ante_una_transaccion_corrupta(lanes) -> None:
     ruta = lanes / "reports/campaign/campaign.json"
     for contenido in ('{"status": "validated"}', "no es json", "", "[]"):
         ruta.write_text(contenido, encoding="utf-8")
-        ok, motivo = txn.publishable(ruta)
+        ok, motivo = txn.publishable(ruta, manifest=_manifiesto(lanes))
         assert not ok, f"{contenido!r} no puede autorizar: {motivo}"
 
 
@@ -365,7 +383,7 @@ def test_un_estado_validated_falsificado_a_mano_no_pasa_el_esquema(lanes) -> Non
     obj = json.loads(ruta.read_text(encoding="utf-8"))
     obj["status"] = "validated"
     ruta.write_text(json.dumps(obj), encoding="utf-8")
-    ok, motivo = txn.publishable(ruta)
+    ok, motivo = txn.publishable(ruta, manifest=_manifiesto(lanes))
     assert not ok and "esquema" in motivo
 
 

@@ -67,6 +67,8 @@ secuencia de llamadas y su propio criterio ante un estado terminal.
 - **`experiments/sync_all.sh --publish`** consulta la transacción antes de cada `dvc push` y cada
   `git push`, y **consume el permiso** con `txn publish` después del push. Es la **segunda**
   puerta: el manifiesto de campaña acredita la *identidad*, la transacción acredita el *estado*.
+  Desde M74-E-R13 `guard` y `publish` exigen `--manifest`: `publishable()` acredita el sello del manifiesto y
+  cruza su identidad con la transacción sobre una sola lectura, y `publish` lo repite justo antes de escribir.
 - **`validate` no acepta revisor ni decisión por argumento** (M74-B-R1). Los lee de un **recibo
   JSON de esquema cerrado** (`campaign-validation-receipt/2`, ocho claves exactas) ligado a la
   campaña por `campaign_id`, SHA de origen, `panel_sha256` e `input_seal_sha256` (M74-E-R12), con decisión de vocabulario cerrado,

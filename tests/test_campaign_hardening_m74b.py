@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -27,32 +28,33 @@ RECIBO = "c" * 64
 SELLO = "e" * 64  # ★ M74-E-R12 · sha256 del sello de entradas comparado en vivo
 
 
-def _sellada(tmp_path: Path, **kw) -> Path:
+def _sellada(tmp_path: Path, fabricar=None, **kw) -> Path:
+    """★ M74-E-R13: con `fabricar`, la identidad sale de un manifiesto acreditado (`_manifiesto`): publicar lo exige."""
     p = tmp_path / "campaign.json"
     panel = tmp_path / "panel.csv"
     panel.write_text("x\n", encoding="utf-8")
-    txn.open_campaign(
-        p,
-        campaign_id="m74b",
-        source_git_sha=SHA,
-        git_dirty=kw.get("git_dirty", False),
-        panel=panel,
-        input_seal_sha256=SELLO,
-    )
+    identidad: dict[str, Any] = {"campaign_id": "m74b", "source_git_sha": SHA, "input_seal_sha256": SELLO}
+    if fabricar is not None:
+        identidad = fabricar.identidad(fabricar(tmp_path, dirty=kw.get("git_dirty", False)))
+    txn.open_campaign(p, **{**identidad, "git_dirty": kw.get("git_dirty", False)}, panel=panel)
     return p
 
 
+def _manifiesto(tmp_path: Path) -> Path:
+    return tmp_path / "reports" / "campaign" / "campaign_manifest.json"
+
+
 # ───────────────────────────────────────────────────── H2 · el resultado positivo tiene salida
-def test_consistency_pending_is_a_valid_computed_state_not_a_failure(tmp_path: Path) -> None:
+def test_consistency_pending_is_a_valid_computed_state_not_a_failure(tmp_path: Path, campana_sellada) -> None:
     """RED de H2: la campaña llega a `computed` con la consistencia pendiente, y sigue viva."""
-    p = _sellada(tmp_path)
+    p = _sellada(tmp_path, campana_sellada)
     obj = cs.mark_computed(
         p, completed_at=txn.now_rfc3339(), input_gate="passed", output_gate="passed", consistency="pending"
     )
     assert obj["status"] == "computed" and obj["consistency"] == "pending"
     assert obj["status"] not in cs.TERMINAL, "un resultado esperado no puede ser terminal"
     # …pero NO publica mientras siga pendiente
-    assert not txn.publishable(p)[0]
+    assert not txn.publishable(p, manifest=_manifiesto(tmp_path))[0]
 
 
 def test_validating_requires_the_consistency_to_be_accredited(tmp_path: Path) -> None:
@@ -130,9 +132,9 @@ def test_a_forged_validated_no_longer_passes_the_schema(mutacion: dict, motivo: 
 
 
 # ──────────────────────────────────────────────── H15 · árbol sucio y campañas cruzadas
-def test_a_dirty_tree_campaign_never_publishes(tmp_path: Path) -> None:
+def test_a_dirty_tree_campaign_never_publishes(tmp_path: Path, campana_sellada) -> None:
     """RED de H15: la ruta diagnóstica llegaba a `validated` y de ahí a publicar."""
-    p = _sellada(tmp_path, git_dirty=True)
+    p = _sellada(tmp_path, campana_sellada, git_dirty=True)
     recibo = tmp_path / "recibo.md"
     recibo.write_text("diagnóstica\n", encoding="utf-8")
     cs.mark_computed(p, completed_at=txn.now_rfc3339(), input_gate="passed", output_gate="passed", consistency="passed")
@@ -144,16 +146,16 @@ def test_a_dirty_tree_campaign_never_publishes(tmp_path: Path) -> None:
         validated_at=txn.now_rfc3339(),
         decision="diagnóstica",
     )
-    ok, motivo = txn.publishable(p)
+    ok, motivo = txn.publishable(p, manifest=_manifiesto(tmp_path))
     assert not ok and "SUCIO" in motivo
 
 
-def test_manifest_and_transaction_must_describe_the_same_campaign(tmp_path: Path) -> None:
+def test_manifest_and_transaction_must_describe_the_same_campaign(tmp_path: Path, campana_sellada) -> None:
     """RED de H15: dos `campaign_id` distintos pasaban ambos gates por separado."""
-    p = _validada(tmp_path)
-    manifiesto = tmp_path / "campaign_manifest.json"
-    # ★ M74-E-R12: el cruce ya no es sólo el id; el manifiesto legítimo trae SHA, dirty y sello de la transacción
-    legitimo = {"campaign_id": "m74b", "git_sha": SHA, "dirty": False, "preflight_sha256": SELLO}
+    p = _validada(tmp_path, campana_sellada)
+    manifiesto = _manifiesto(tmp_path)
+    # ★ M74-E-R13: el legítimo es el manifiesto ACREDITADO que describe la transacción, no un JSON escrito a mano
+    legitimo = json.loads(manifiesto.read_text(encoding="utf-8"))
     manifiesto.write_text(json.dumps({**legitimo, "campaign_id": "OTRA"}), encoding="utf-8")
     ok, motivo = txn.publishable(p, manifest=manifiesto)
     assert not ok and "no son la misma corrida" in motivo
@@ -163,18 +165,18 @@ def test_manifest_and_transaction_must_describe_the_same_campaign(tmp_path: Path
 
 
 # ─────────────────────────────────────────────── H3 · el recibo se liga por ruta y por hash
-def test_the_validation_receipt_must_still_exist_and_match(tmp_path: Path) -> None:
+def test_the_validation_receipt_must_still_exist_and_match(tmp_path: Path, campana_sellada) -> None:
     """Un sha suelto no acredita nada si el archivo no está, o si cambió después."""
-    p = _validada(tmp_path)
+    p = _validada(tmp_path, campana_sellada)
     recibo = Path((cs.read(p) or {})["validation_receipt_path"])
-    assert txn.publishable(p)[0]
+    assert txn.publishable(p, manifest=_manifiesto(tmp_path))[0]
 
     recibo.write_text("MANIPULADO después de validar\n", encoding="utf-8")
-    ok, motivo = txn.publishable(p)
+    ok, motivo = txn.publishable(p, manifest=_manifiesto(tmp_path))
     assert not ok and "cambió desde la validación" in motivo
 
     recibo.unlink()
-    ok, motivo = txn.publishable(p)
+    ok, motivo = txn.publishable(p, manifest=_manifiesto(tmp_path))
     assert not ok and "no existe" in motivo
 
 
@@ -203,8 +205,8 @@ def escribir_recibo(tmp_path: Path, estado_path: Path, **cambios: str) -> Path:
     return destino
 
 
-def _validada(tmp_path: Path) -> Path:
-    p = _sellada(tmp_path)
+def _validada(tmp_path: Path, fabricar=None) -> Path:
+    p = _sellada(tmp_path, fabricar)
     cs.mark_computed(p, completed_at=txn.now_rfc3339(), input_gate="passed", output_gate="passed", consistency="passed")
     recibo = escribir_recibo(tmp_path, p)
     acta = txn.load_validation_receipt(recibo, cs.read(p) or {})
@@ -220,12 +222,12 @@ def _validada(tmp_path: Path) -> Path:
 
 
 # ────────────────────────────────────────────────────── H10 · publicar consume el permiso
-def test_publishing_consumes_the_permit(tmp_path: Path) -> None:
+def test_publishing_consumes_the_permit(tmp_path: Path, campana_sellada) -> None:
     """RED de H10: `validated` era permanente y repetible, y `published` no se escribía nunca."""
-    p = _validada(tmp_path)
-    assert txn.publishable(p)[0]
+    p = _validada(tmp_path, campana_sellada)
+    assert txn.publishable(p, manifest=_manifiesto(tmp_path))[0]
     cs.mark_published(p, published_at=txn.now_rfc3339(), release_sha="b" * 40)
-    ok, motivo = txn.publishable(p)
+    ok, motivo = txn.publishable(p, manifest=_manifiesto(tmp_path))
     assert not ok and "published" in motivo, "una campaña ya publicada no vuelve a autorizar"
 
 

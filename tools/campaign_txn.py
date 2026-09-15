@@ -13,10 +13,11 @@ Sin esto, cada runner habría acabado con su propia secuencia de llamadas y su p
 qué hacer ante un estado terminal: exactamente la duplicación que el proyecto lleva meses
 cerrando.
 
-**La prohibición que hace el trabajo** es ``guard``: sale distinto de cero salvo que el estado sea
-``validated``. `running` (incluido el que deja un `SIGKILL`), `computed`, `failed` y `published`
-bloquean. Un publicador que no llame a ``guard`` no está protegido: la envoltura no puede
-interceptar lo que no pasa por ella.
+**La prohibición que hace el trabajo** es :func:`publishable`: sólo ``validated`` publica —`running`
+(también el que deja un `SIGKILL`), `computed`, `failed` y `published` bloquean— y sólo con un manifiesto
+OBLIGATORIO, acreditado y cruzado con la transacción. ``guard`` la consulta y ``publish`` la repite justo
+antes de escribir; ninguno arranca sin ``--manifest`` (M74-E-R13). Quien escriba `campaign.json` a mano o
+llame a `campaign_state` directamente sigue fuera: la envoltura no intercepta lo que no pasa por ella.
 
 **Cómputo completo con propagación pendiente** llega a ``computed`` con ``consistency`` en
 ``'pending'`` (M74-B): el resultado que la campaña existe para producir —que las cifras cambien— ya
@@ -45,6 +46,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from tools import campaign_manifest as cm
 from tools import campaign_state as cs
 
 #: Ruta convenida, junto al manifiesto de campaña que ya vive ahí.
@@ -213,15 +215,15 @@ def fail_if_open(path: str | Path, *, stage: str, reason: str, exit_code: int | 
     return cs.mark_failed(path, failed_stage=stage, failed_at=now_rfc3339(), reason=reason, exit_code=exit_code)
 
 
-def publishable(path: str | Path, *, manifest: str | Path | None = None) -> tuple[bool, str]:
+def publishable(path: str | Path, *, manifest: str | Path) -> tuple[bool, str]:
     """¿Autoriza este estado a publicar? Sólo ``validated``, y sólo si TODO lo acredita.
 
     Comprueba, además del estado: esquema íntegro (que desde M74-B exige gates con valor, revisión
     ≥ 1, cadenas no vacías y claves compatibles), **árbol limpio** (``git_dirty=False``: la ruta
     diagnóstica `ALLOW_DIRTY` llegaba a `validated` y publicaba), el **recibo de validación por
     ruta, existencia, hash y acreditación completa** —esquema cerrado, ligado a ESTA campaña, con
-    revisor y decisión que coinciden con los que el estado declara— y, si se pasa el manifiesto de
-    campaña, que su ``campaign_id`` **coincida** con el de la transacción.
+    revisor y decisión que coinciden con los que el estado declara— y el **manifiesto, OBLIGATORIO**
+    (M74-E-R13): publicable por sí mismo y con campaña, SHA, dirty y sello iguales a los de la transacción.
     """
     ruta = Path(path)
     if not ruta.exists():
@@ -240,10 +242,9 @@ def publishable(path: str | Path, *, manifest: str | Path | None = None) -> tupl
     ok_recibo, motivo = _receipt_matches(actual)
     if not ok_recibo:
         return False, motivo
-    if manifest is not None:
-        ok_id, motivo = _manifest_matches(manifest, actual)
-        if not ok_id:
-            return False, motivo
+    ok_id, motivo = _manifest_matches(manifest, actual)
+    if not ok_id:
+        return False, motivo
     return True, f"campaña {actual['campaign_id']} en '{estado}': autoriza publicar"
 
 
@@ -298,18 +299,15 @@ _MANIFIESTO_VS_TXN["preflight_sha256"] = "input_seal_sha256"
 
 
 def _manifest_matches(manifest: str | Path, obj: Mapping[str, Any]) -> tuple[bool, str]:
-    """El manifiesto y la transacción deben describir la MISMA corrida, campo a campo y con su tipo (H15)."""
-    ruta = Path(manifest)
-    if not ruta.is_file():
-        return False, f"no existe el manifiesto de campaña {ruta}"
-    try:
-        datos = cs.loads(ruta.read_text(encoding="utf-8"))
-    except (ValueError, OSError) as exc:
-        return False, f"manifiesto de campaña ilegible ({exc})"
+    """La MISMA corrida campo a campo y con su tipo (H15), y un manifiesto publicable por sí mismo sobre la
+    MISMA lectura (M74-E-R13): uno que copiaba `preflight_sha256` de la transacción pasaba con un sello falso."""
+    datos, bloqueo = cm.leer_para_publicar(manifest)
+    if datos is None:
+        return False, f"manifiesto de campaña no publicable: {bloqueo}"
     for m, t in _MANIFIESTO_VS_TXN.items():
         if datos.get(m) != obj.get(t) or type(datos.get(m)) is not type(obj.get(t)):
             return False, f"manifiesto {m}={datos.get(m)!r} ≠ transacción {t}={obj.get(t)!r}: no son la misma corrida"
-    return True, ""
+    return (False, f"manifiesto de campaña no publicable: {bloqueo}") if bloqueo else (True, "")
 
 
 def archive_if_terminal(path: str | Path, destino: str | Path) -> Path | None:
@@ -421,12 +419,13 @@ def _parser() -> argparse.ArgumentParser:
 
     pu = sub.add_parser("publish", help="validated -> published (sólo el publicador)")
     pu.add_argument("--release-sha", required=True)
+    pu.add_argument("--manifest", required=True, help="manifiesto de campaña: se re-acredita justo antes de publicar")
 
     a = sub.add_parser("archive", help="aparta una transacción YA terminal para la siguiente campaña")
     a.add_argument("--dir", default="reports/campaign/transactions", help="carpeta destino")
 
     g = sub.add_parser("guard", help="sale != 0 salvo que el estado autorice publicar")
-    g.add_argument("--manifest", default=None, help="manifiesto de campaña, para cruzar su campaign_id")
+    g.add_argument("--manifest", required=True, help="manifiesto de campaña: se acredita y se cruza con la transacción")
 
     sub.add_parser("status", help="imprime el estado actual")
     return p
@@ -523,16 +522,17 @@ def main(argv: list[str] | None = None) -> int:
                 decision=acta["decision"],
             )
             print(f"✓ campaña {obj['campaign_id']} → 'validated' por {obj['reviewed_by']} ({acta['reviewed_at']})")
-        elif args.cmd == "publish":
+        elif args.cmd in ("guard", "publish"):
+            # ★ M74-E-R13 · `publish` repite la MISMA puerta que `guard` inmediatamente antes de consumir el permiso
+            ok, motivo = publishable(path, manifest=args.manifest)
+            if not ok or args.cmd == "guard":
+                print(("✓ " if ok else "✗ PUBLICACIÓN BLOQUEADA: ") + motivo, file=sys.stdout if ok else sys.stderr)
+                return EXIT_OK if ok else EXIT_BLOCKED
             obj = cs.mark_published(path, published_at=now_rfc3339(), release_sha=args.release_sha)
             print(f"✓ campaña {obj['campaign_id']} → 'published' ({obj['release_sha']})")
         elif args.cmd == "archive":
             final = archive_if_terminal(path, args.dir)
             print(f"· sin transacción previa en {path}" if final is None else f"✓ transacción archivada → {final}")
-        elif args.cmd == "guard":
-            ok, motivo = publishable(path, manifest=args.manifest)
-            print(("✓ " if ok else "✗ PUBLICACIÓN BLOQUEADA: ") + motivo, file=sys.stdout if ok else sys.stderr)
-            return EXIT_OK if ok else EXIT_BLOCKED
         elif args.cmd == "status":
             actual = cs.read(path)
             if actual is None:

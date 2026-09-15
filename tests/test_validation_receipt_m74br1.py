@@ -32,15 +32,16 @@ SELLO = "e" * 64  # ★ M74-E-R12 · sha256 del sello de entradas comparado en v
 
 
 @pytest.fixture
-def campana(tmp_path: Path) -> Path:
-    """Una campaña sintética en `computed`, lista para que alguien intente validarla."""
-    (tmp_path / "reports" / "campaign").mkdir(parents=True)
+def campana(tmp_path: Path, campana_sellada) -> Path:
+    """Una campaña sintética en `computed`, lista para que alguien intente validarla.
+
+    ★ M74-E-R13: su identidad sale de un manifiesto acreditado a su lado, porque publicar ya lo exige.
+    """
+    manifiesto = campana_sellada(tmp_path)
     panel = tmp_path / "panel.csv"
     panel.write_text("country,category,table,value\nmexico,EB2,FAD,1\n", encoding="utf-8")
-    ruta = tmp_path / "reports" / "campaign" / "campaign.json"
-    txn.open_campaign(
-        ruta, campaign_id="r1_sintetica", source_git_sha=SHA, git_dirty=False, panel=panel, input_seal_sha256=SELLO
-    )
+    ruta = manifiesto.with_name("campaign.json")
+    txn.open_campaign(ruta, **campana_sellada.identidad(manifiesto), panel=panel)
     cs.mark_computed(
         ruta,
         completed_at=txn.now_rfc3339(),
@@ -109,7 +110,7 @@ def test_a_failing_guardian_blocks_validation_and_leaves_the_state_untouched(
     assert quedo is not None
     assert quedo["status"] == "computed", "un guardián en rojo no puede dejar la campaña validada"
     assert quedo["consistency"] == cs._GATE_PENDING, "ni puede blanquear la consistencia pendiente"
-    assert not txn.publishable(campana)[0]
+    assert not txn.publishable(campana, manifest=campana.with_name("campaign_manifest.json"))[0]
 
 
 def test_the_guardian_fails_closed_when_it_cannot_be_found(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -233,9 +234,11 @@ def test_a_real_receipt_validates_and_the_reviewer_is_derived_not_typed(
     # el recibo queda ligado por ruta ABSOLUTA y por hash: moverlo o editarlo rompe el permiso
     assert Path(obj["validation_receipt_path"]).is_absolute()
     assert obj["validation_receipt_sha256"] == txn.sha256_file(recibo)
-    assert txn.publishable(campana)[0]
+    assert txn.publishable(campana, manifest=campana.with_name("campaign_manifest.json"))[0]
     recibo.write_text(recibo.read_text(encoding="utf-8") + "\n", encoding="utf-8")
-    assert not txn.publishable(campana)[0], "editar el recibo después retira el permiso"
+    assert not txn.publishable(campana, manifest=campana.with_name("campaign_manifest.json"))[0], (
+        "editar el recibo después retira el permiso"
+    )
 
 
 def test_a_relative_receipt_path_cannot_be_verified(campana: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -251,6 +254,6 @@ def test_a_relative_receipt_path_cannot_be_verified(campana: Path, monkeypatch: 
     crudo = json.loads(campana.read_text(encoding="utf-8"))
     crudo["validation_receipt_path"] = "reports/campaign/acta_0.json"
     campana.write_text(json.dumps(crudo), encoding="utf-8")
-    ok, motivo = txn.publishable(campana)
+    ok, motivo = txn.publishable(campana, manifest=campana.with_name("campaign_manifest.json"))
     assert not ok and "relativa" in motivo
     assert obj["status"] == "validated"  # el estado seguía siendo válido; lo que no se acredita es el recibo

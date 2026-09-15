@@ -245,5 +245,12 @@ def campana_sellada():
         manifiesto.write_text(json.dumps(datos), encoding="utf-8")
         return manifiesto
 
+    def identidad(manifiesto) -> dict:
+        """★ M74-E-R13 · los kwargs de `open_campaign` que describe un manifiesto fabricado: publicar ya lo exige."""
+        datos = json.loads(Path(manifiesto).read_text(encoding="utf-8"))
+        return {"campaign_id": datos["campaign_id"], "source_git_sha": datos["git_sha"],
+                "git_dirty": datos["dirty"], "input_seal_sha256": datos["preflight_sha256"]}  # fmt: skip
+
     fabricar.sello = sello_legitimo  # type: ignore[attr-defined]
+    fabricar.identidad = identidad  # type: ignore[attr-defined]
     return fabricar
