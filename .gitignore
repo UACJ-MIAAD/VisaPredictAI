@@ -86,6 +86,13 @@ mlflow.db
 mlartifacts/
 # Manifiesto por-corrida de la campaña (identidad; efímero, no versionar)
 reports/campaign/campaign_manifest.json
+# ★ M74-E-R16 · la transacción de campaña y su archivo son ESTADO local del runbook, de la misma clase que
+# el manifiesto de arriba y `reports/logs/`: el preflight mide `git status --porcelain` (untracked incluidos) y
+# sin esto cualquier relanzamiento oficial tras una campaña moría en exit 13 («sello de otra identidad»).
+# El `.lock` lo crea `campaign_state` en cada transición y nunca se borra.
+reports/campaign/campaign.json
+reports/campaign/campaign.json.lock
+reports/campaign/transactions/
 # Modelos entrenados -> versionados con DVC, no git
 models/
 /models
