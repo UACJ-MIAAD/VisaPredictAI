@@ -20,7 +20,7 @@
 #                             candidatos) + confirm_tuning (aceptación en val-confirm
 #                             INDEPENDIENTE; hold-out solo como reporte) + rank-check (AK9)
 #   7. significancia          Friedman-Nemenyi + MCS + DM · champion-challenger
-#   8. fuente de verdad       key_facts.json/.tex + model card + drift
+#   8. fuente de verdad       key_facts.json/.tex + drift (la model card la emite el corte, D4)
 #   9. figuras de resultados  results_* + hero (las EDA no cambian: el panel es el mismo)
 #   8b. horizonte             build_horizon_facts (estaba PRE-F1 y fuera de la transacción)
 #   8c. cohortes E1–E5        build_cohorts · scan_cohorts · los 42 lanes de E3 · score_e3 ·
@@ -51,7 +51,7 @@
 # TERMINE EN ROJO (exit≠0) si fallan: build_database · LINAJE de procedencia (M74-E-R5) · campaña ·
 # proyección de pools · finalistas · holdout_forecasts · ensembles · conformal · Auto-ARIMA · CRPS ·
 # BÚSQUEDA DE TUNING y confirm_tuning · significancia · champion-challenger · key_facts ·
-# model_card · figuras de resultados. Quedan best-effort (run) solo las genuinamente tolerables:
+# figuras de resultados (la model card ya no es etapa: la emite el corte, D4). Quedan best-effort (run) solo las genuinamente tolerables:
 # stacking/FFORMA exploratorios, deep-PI diagnóstico, drift y hero.
 # ⚠️ M74-E-R5: esta enumeración decía «búsqueda de tuning» entre las best-effort cuando R4 ya la
 # había vuelto obligatoria. Una documentación que contradice la conducta es peor que ninguna:
@@ -107,19 +107,22 @@ fi
 # para toda la corrida. Si el árbol está sucio, se aborta: commitear código a mitad
 # de campaña marca los outputs con SHAs distintos (el bug de "identidades mezcladas").
 # ⚠️ NO commitear NADA en este repo mientras la campaña corre.
-# Sucio = tracked modificado O código untracked (.py/.sh/.sql/.yaml/.yml/.toml). Los
-# outputs generados (reports/, data/, models/, *.log, staging) son untracked legítimos y
-# NO cuentan; un .py suelto SÍ cambia el comportamiento y debe abortar.
+# Sucio = tracked modificado O código untracked (.py/.sh/.sql/.yaml/.yml/.toml) O, desde R17,
+# cualquier salida sin commitear que git no ignore: el preflight sella el porcelain entero.
 tree_dirty() {
   git status --porcelain --untracked-files=no | grep -q . && { echo "tracked-modificado"; return; }
   git ls-files --others --exclude-standard | grep -qE '\.(py|sh|sql|ya?ml|toml)$' && { echo "codigo-untracked"; return; }
+  # ★ R17 · el preflight sella `git status --porcelain` ENTERO (untracked incluidos) y `--assert-sealed` rechaza
+  # un sello sucio frente a un manifiesto `dirty=false` con «sello de otra identidad» (exit 13). Las salidas de la
+  # campaña anterior (recibos, sidecars, transporte, reconciliación) son procedencia: se commitean ANTES de relanzar.
+  git status --porcelain | grep -q . && { echo "salidas-sin-commitear"; return; }
+  return 0
 }
 if [ -z "${ALLOW_DIRTY:-}" ] && [ -n "$(tree_dirty)" ]; then
-  echo "ERROR: el árbol tiene cambios de código sin commitear ($(tree_dirty)). La campaña" >&2
+  echo "ERROR: el árbol no está limpio ($(tree_dirty)). La campaña" >&2
   echo "       exige árbol limpio para sellar una identidad única (SHA). Commitea/revierte," >&2
   echo "       o usa ALLOW_DIRTY=1 explícitamente. Aborta." >&2
   git status --short >&2
-  git ls-files --others --exclude-standard | grep -E '\.(py|sh|sql|ya?ml|toml)$' >&2
   exit 1
 fi
 CAMPAIGN_SHA="$(git rev-parse HEAD)"
@@ -170,6 +173,12 @@ fi
 exec > >(tee -a "reports/logs/${CAMPAIGN_ID}.log") 2>&1
 echo "bitácora de esta campaña: reports/logs/${CAMPAIGN_ID}.log"
 echo "sello de entradas de esta campaña: $PREFLIGHT (sha256 $PREFLIGHT_SHA256)"
+# ★ R17 · una campaña TERMINADA se archiva ANTES de escribir el manifiesto nuevo, y una ABIERTA aborta aquí:
+# hasta ahora el archivado iba después del manifiesto, así que relanzar sobre una campaña `computed`/`validated`
+# salía 7 pero ya había sobrescrito el manifiesto de la campaña abierta, que dejaba de poder pasar `guard`.
+CAMPAIGN_TXN="${CAMPAIGN_TXN:-reports/campaign/campaign.json}"
+CAMPAIGN_TXN_ARCHIVE="${CAMPAIGN_TXN_ARCHIVE:-reports/campaign/transactions}"
+"$ANTE" -m tools.campaign_txn --path "$CAMPAIGN_TXN" archive --dir "$CAMPAIGN_TXN_ARCHIVE" || exit 7
 printf '{"campaign_id":"%s","sha":"%s","git_sha":"%s","dirty":%s,"started_at":"%s","preflight":"%s","preflight_sha256":"%s"}\n' \
   "$CAMPAIGN_ID" "$CAMPAIGN_SHA" "$CAMPAIGN_SHA" "$CAMPAIGN_DIRTY" "$(date -u +%FT%TZ)" "$PREFLIGHT" "$PREFLIGHT_SHA256" \
   > reports/campaign/campaign_manifest.json
@@ -371,9 +380,11 @@ stage 7 "significancia (Friedman-Nemenyi + MCS + DM) y champion-challenger"
 run_req $ANTE experiments/significance_tables.py
 run_req $ANTE experiments/run_champion_challenger.py --mlflow
 
-stage 8 "fuente única de verdad: key_facts + model card + drift"
+stage 8 "fuente única de verdad: key_facts + drift"
 run_req $ANTE experiments/build_key_facts.py
-run_req $ANTE experiments/build_model_card.py
+# ★ R17 · `build_model_card.py` NO se invoca: desde D4 (f9c22a2) su `main()` imprime que la tarjeta la emite el
+# manifiesto de release y devuelve 1 SIEMPRE. Como `run_req`, la campaña moría aquí tras ≥12 h (auditoría ciega
+# sobre 6edefa4). La tarjeta y el manifiesto se emiten en el CORTE (`make release-manifest`), no en la campaña.
 run $ANTE experiments/check_drift.py
 
 stage 8b "campeón por horizonte (horizon_facts) — estaba PRE-F1 y fuera de la transacción"

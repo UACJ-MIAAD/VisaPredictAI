@@ -31,6 +31,8 @@ INTERPRETERS = {
     "run_global_gbm.py": "ante/bin/python",
 }
 DEFAULT_RUNNER = "run_global_deep.py"
+#: Donde `score_e3_campaign.py` lee los recibos (`LANES`); el nombre repite el de los 42 lanes de M61.
+RECEIPTS = Path("reports") / "campaign" / "e3"
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,10 @@ class Lane:
             self.cohort,
             "--table",
             self.table,
+            # ★ R17 · sin `--receipt` ningún runner escribía su recibo y `score_e3_campaign` puntuaba los de la
+            # campaña anterior sobre CSV nuevos. El nombre es el que los recibos de M61 ya usan.
+            "--receipt",
+            str(RECEIPTS / f"receipt_{self.recipe}_{self.table}_{self.cohort}.json"),
         ]
 
 

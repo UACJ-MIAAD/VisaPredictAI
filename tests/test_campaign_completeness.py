@@ -110,6 +110,8 @@ def _write_inputs(root):
     for t in ("FAD", "DFF"):
         for mdl, cfg in HPO.items():
             (camp / f"hpo_deep_best_{t}_{mdl}.json").write_text(json.dumps(cfg))
+            # ★ R17: el productor real deja el recibo junto a la ganadora; el gate lo exige y NO lo cuenta como ganadora
+            (camp / f"hpo_deep_best_{t}_{mdl}.receipt.json").write_text(json.dumps({"schema": "hpo-winner-receipt/1"}))
         for variant in ("camp_levels", "camp_diff", "camp_diffls"):
             for seed in range(1, 6):
                 (camp / f"global_{t}_{variant}_s{seed}.csv").write_text(_seed(("NHITS", "PatchTST", "TiDE", "BiTCN")))

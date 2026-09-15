@@ -96,7 +96,8 @@ def test_control_el_arranque_con_el_sello_que_el_arbol_deriva(tmp_path: Path, ca
 def test_la_comparacion_viva_va_tras_acreditar_y_antes_de_la_transaccion() -> None:
     vivo = "\n".join(ln for ln in RUNBOOK.read_text(encoding="utf-8").splitlines() if not ln.lstrip().startswith("#"))
     assert vivo.count("-m tools.campaign_preflight --out") == 2
-    assert vivo.index("--assert-sealed") < vivo.index("cmp -s") < vivo.index("txn archive")
+    # ★ R17: el archivado de una campaña terminada se adelantó al manifiesto; la frontera que importa es `txn open`
+    assert vivo.index("--assert-sealed") < vivo.index("cmp -s") < vivo.index("txn open")
 
 
 def test_las_bitacoras_de_campana_no_ensucian_el_arbol_que_el_sello_mide() -> None:

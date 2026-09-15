@@ -521,7 +521,8 @@ def _escribir_receipt(args, deck, receta, panel, merged, salida: Path, estado: d
     return args.receipt
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """★ R17 · el parser vive aparte para que una prueba valide las órdenes REALES de cada lane sin entrenar."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--table", default="FAD")
     ap.add_argument("--block", default="both", choices=["family", "employment", "both"])
@@ -543,7 +544,11 @@ def main() -> None:
         default=None,
         help="plantilla JSON del ganador del HPO con {model} (AK8c): re-entrena determinístico con --seed",
     )
-    args = ap.parse_args()
+    return ap
+
+
+def main() -> None:
+    args = build_parser().parse_args()
 
     import torch
 

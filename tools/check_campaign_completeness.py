@@ -9,8 +9,7 @@ los productores. Ahora cada artefacto se valida contra el CONTRATO REAL de quien
     - 4 pools: >= piso de SERIES ELEGIBLES con hold_mase FINITO (los no-finitos son series
       inelegibles/no-convergidas, legitimos; run_comparison los deja a proposito).
     - 4 comparaciones no vacias.
-    - 6 HPO best: dict con las claves REALES POR MODELO (BiTCN/NHITS/TiDE difieren; NHITS
-      no tiene hidden_size -> exigirlo rechazaba un AutoNHITS valido).
+    - 6 HPO best: dict con las claves REALES POR MODELO (difieren) + su recibo de campana (R17).
     - Semillas: EXACTAMENTE {s1..s5} por variante (una s6 vieja contamina la agregacion),
       cada una no vacia y fresca.
     - finalists/holdout no vacios; tuned_params con las 3 llaves GBM; manifest con modelos
@@ -27,11 +26,10 @@ claves — las entradas de la campana deben portar el SHA sellado (prefijo corto
 valido (no "n/d") y git_dirty consistente con lo sellado; el champion sella git_sha completo
 == sellado. Una campana diagnostica (dirty=true) queda marcada como tal en toda la cadena.
 
-Limitaciones honestas: los pisos de elegibilidad por bloque son conservadores; el ideal es
-un MANIFIESTO DE COBERTURA emitido por run_comparison (n_elegibles por serie). No cuenta los
-40 trials de Optuna dentro de cada hpo_best (solo la config ganadora se persiste), NO valida
-el hash de CONTENIDO de cada archivo de modelo (solo su identidad de campana), ni detecta una
-edicion de codigo SIN commit a mitad de una etapa larga (el HEAD-guard del runbook cubre commits).
+Limitaciones honestas: pisos de elegibilidad conservadores (el ideal es un MANIFIESTO DE COBERTURA de
+run_comparison); no cuenta los 40 trials de Optuna (solo la ganadora se persiste); NO valida el hash de
+CONTENIDO de cada modelo (solo su identidad de campana); ni detecta una edicion SIN commit a mitad de
+una etapa larga (el HEAD-guard del runbook cubre commits).
 """
 
 from __future__ import annotations
@@ -208,6 +206,8 @@ def _check_hpo(path: Path) -> list[str]:
     model = next((m for m in HPO_KEYS if path.name.endswith(f"{m}.json")), None)
     if model is None:
         return [f"HPO {path.relative_to(ROOT)}: modelo no reconocido"]
+    if not path.with_suffix(".receipt.json").is_file():  # R17: la ganadora sin su recibo no acredita campana
+        return [f"HPO {path.relative_to(ROOT)}: sin recibo de campana ({path.with_suffix('.receipt.json').name})"]
     d = _load_json(path)
     if not isinstance(d, dict) or not HPO_KEYS[model].issubset(d.keys()):
         faltan = sorted(HPO_KEYS[model] - set(d.keys())) if isinstance(d, dict) else "no-dict"
@@ -360,7 +360,8 @@ def _check_list(
 ) -> list[str]:
     probs: list[str] = []
     for pattern, want, floor in expected:
-        matches = sorted(ROOT.glob(pattern))
+        recibos = pattern.endswith(".receipt.json")  # R17: un patron de ganadoras no cuenta sus recibos
+        matches = sorted(m for m in ROOT.glob(pattern) if recibos or not m.name.endswith(".receipt.json"))
         if len(matches) != want:
             probs.append(f"CONTEO {pattern}: esperados {want}, hallados {len(matches)}")
             continue

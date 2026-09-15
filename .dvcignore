@@ -12,3 +12,6 @@
 # `models.dvc` de la campaña nueva, y el clasificador de salidas la marcaba contaminada. Lo retirado es
 # recuperación local, no artefacto de release.
 models/.retired/
+# M74-E-R17: el staging de una campaña fallida en [3] tampoco es artefacto de release; sin esto entraba al
+# puntero en el `sync_all` de la etapa 1 de la campaña siguiente.
+models/.staging/

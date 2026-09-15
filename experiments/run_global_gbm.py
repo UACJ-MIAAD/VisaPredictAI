@@ -303,9 +303,9 @@ def _receipt_gbm(args, table: str, panel, eval_keys, fc) -> None:
     ruta.write_text(
         json.dumps(
             {
-                "lane": f"control-gbm-lightgbm|{table}|{args.cohort}",
-                "recipe": "control-gbm-lightgbm",
-                "recipe_role": deck.receta("control-gbm-lightgbm").role,
+                "lane": f"{args.recipe or 'control-gbm-lightgbm'}|{table}|{args.cohort}",
+                "recipe": args.recipe or "control-gbm-lightgbm",
+                "recipe_role": deck.receta(args.recipe or "control-gbm-lightgbm").role,
                 "recipe_model": ",".join(args.models),
                 "recipe_space": "levels",
                 "deck_version": deck.version,
@@ -346,7 +346,8 @@ def _receipt_gbm(args, table: str, panel, eval_keys, fc) -> None:
     log.info("receipt %s escrita", ruta.name)
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """★ R17 · parser aparte, como en `run_global_deep`, para validar las órdenes reales de los lanes."""
     ap = argparse.ArgumentParser(description="Global GBM on the stacked panel (AL2)")
     ap.add_argument("--table", default="both", choices=["FAD", "DFF", "both"])
     ap.add_argument("--models", nargs="+", default=["lightgbm"], choices=["lightgbm", "xgboost"])
@@ -355,7 +356,26 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=None, help="cap the number of SCORED series (smoke)")
     ap.add_argument("--cohort", default="all", choices=["estable", "no_estable", "all"])
     ap.add_argument("--receipt", type=Path, default=None, help="ruta de la receipt del lane")
-    args = ap.parse_args()
+    # ★ R17 · `run_e3_campaign.py` pasa `--recipe` a TODOS sus lanes y este runner lo rechazaba (argparse estricto):
+    # los 6 lanes GBM de E3 morían con exit 2 y la etapa 8c del runbook abortaba tras los 36 lanes profundos.
+    ap.add_argument("--recipe", default=None, help="receta de docs/cohort_deck.json cuyo runner es este guion")
+    return ap
+
+
+def _receta_gbm(args) -> None:
+    """La receta manda: existe en la baraja, declara este runner y fija el modelo."""
+    from vp_model.deck import cargar_deck
+
+    receta = cargar_deck().receta(args.recipe)
+    if receta.params.get("runner") != Path(__file__).name:
+        raise SystemExit(f"la receta {args.recipe!r} no declara a {Path(__file__).name} como runner")
+    args.models = [receta.model]
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    if args.recipe is not None:
+        _receta_gbm(args)
     config.seed_everything(args.seed)
     log.info("gap_policy=locf_causal (F1)")  # procedencia de campaña: rejilla causal LOCF
     for table in ("FAD", "DFF") if args.table == "both" else (args.table,):

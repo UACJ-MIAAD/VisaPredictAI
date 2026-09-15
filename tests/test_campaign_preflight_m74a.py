@@ -431,8 +431,10 @@ def _ejecuta_guarda(tmp_path: Path, ensuciar: str | None, extra: dict[str, str])
     "ensuciar,extra,rc,huella",
     [
         (None, {}, 0, "dirty=false"),
-        # ★ un output generado NO ensucia: el control benigno es la mitad que da sentido al RED
-        ("salida-untracked", {}, 0, "dirty=false"),
+        # ★ R17: una salida sin commitear que git no ignora SI ensucia, porque el preflight sella el porcelain
+        #   entero y `--assert-sealed` la rechazaria despues con un exit 13 engañoso; el control benigno con
+        #   estado ignorado vive en tests/test_camino_completo_m74e_r17.py
+        ("salida-untracked", {}, 1, "salidas-sin-commitear"),
         ("tracked-modificado", {}, 1, "tracked-modificado"),
         ("codigo-untracked", {}, 1, "codigo-untracked"),
         # ALLOW_DIRTY salta la guarda, pero una campaña OFICIAL sucia sigue abortando
