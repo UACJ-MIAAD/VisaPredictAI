@@ -176,7 +176,7 @@ def main() -> None:
                         **_identity(),  # git_sha/git_dirty/panel_hash (exigidos por el gate)
                     }
                 )
-                print(f"  ✓ {table}/{name} -> {out.relative_to(ROOT)}")
+                print(f"  ✓ {table}/{name} -> {_ruta_manifiesto(out)}")  # R19: fuera de ROOT relative_to lanzaba
             except Exception as e:  # noqa: BLE001
                 print(f"  ✗ {table}/{name} FALLO: {type(e).__name__}: {str(e)[:100]}")
                 fallos.append(f"{table}/{name}")

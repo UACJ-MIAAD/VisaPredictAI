@@ -387,6 +387,7 @@ def _load_deep(monkeypatch):
     stub = types.ModuleType("run_global_deep")
     for n in ("HOLDOUT", "encode_regime", "load_panel", "regular_monthly", "_auto_config", "_optuna_sampler"):
         setattr(stub, n, None)
+    stub.VAL_SIZE = 12  # R19: la cola de validacion que el productor pasa a los finalistas Auto
     monkeypatch.setitem(sys.modules, "run_global_deep", stub)
     spec = importlib.util.spec_from_file_location(
         "save_finalists_deep_under_test", repo / "experiments" / "save_finalists_deep.py"

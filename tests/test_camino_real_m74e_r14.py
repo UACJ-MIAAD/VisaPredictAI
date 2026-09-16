@@ -254,7 +254,8 @@ def test_RED_el_productor_deep_escribe_en_el_staging_de_la_campana(
         def __init__(self, models, freq):
             self.models = models
 
-        def fit(self, df):
+        def fit(self, df, val_size=0):  # R19: los finalistas Auto llegan con la cola de validacion del runner
+            self.val_size = val_size
             return self
 
         def save(self, path, overwrite=True):
