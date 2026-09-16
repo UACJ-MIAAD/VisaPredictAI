@@ -64,7 +64,8 @@ print("AJUSTADO", len(nf.models))
 """
 
 
-def _ajuste(modo: str) -> subprocess.CompletedProcess[str]:
+def _ajuste(modo: str, home: Path) -> subprocess.CompletedProcess[str]:
+    """`HOME` es un temporal: matplotlib y Lightning escriben caches bajo HOME y el arbol debe quedar limpio."""
     import json
 
     return subprocess.run(
@@ -72,21 +73,21 @@ def _ajuste(modo: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         timeout=600,
-        env={"PATH": "/usr/bin:/bin", "HOME": str(RAIZ), "VP_DEEP_ACCEL": "cpu", "PYTHONDONTWRITEBYTECODE": "1"},
+        env={"PATH": "/usr/bin:/bin", "HOME": str(home), "VP_DEEP_ACCEL": "cpu", "PYTHONDONTWRITEBYTECODE": "1"},
     )
 
 
 @pytest.mark.skipif(not NF.exists(), reason="entorno deep ante_nf ausente")
-def test_RED_el_finalista_auto_se_ajusta_de_verdad_con_la_cola_del_runner() -> None:
+def test_RED_el_finalista_auto_se_ajusta_de_verdad_con_la_cola_del_runner(tmp_path: Path) -> None:
     """Contra `bcaeb03`: `fit_finalist` no existe (AttributeError) — el productor llamaba `nf.fit(train)`."""
-    fin = _ajuste("con_cola")
+    fin = _ajuste("con_cola", tmp_path)
     assert fin.returncode == 0 and "AJUSTADO 1" in fin.stdout, fin.stderr[-600:]
 
 
 @pytest.mark.skipif(not NF.exists(), reason="entorno deep ante_nf ausente")
-def test_control_el_ajuste_sin_cola_es_exactamente_el_fallo_de_la_campana() -> None:
+def test_control_el_ajuste_sin_cola_es_exactamente_el_fallo_de_la_campana(tmp_path: Path) -> None:
     """Sin cola, NeuralForecast rechaza el early stopping: es el mensaje literal de la bitácora del 16-sep."""
-    fin = _ajuste("sin_cola")
+    fin = _ajuste("sin_cola", tmp_path)
     assert fin.returncode != 0 and "val_size" in fin.stderr, fin.stderr[-600:]
 
 
