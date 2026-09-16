@@ -13,9 +13,10 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
-from run_global_deep import HOLDOUT, encode_regime, load_panel, regular_monthly  # noqa: F401
+from run_global_deep import HOLDOUT, VAL_SIZE, encode_regime, load_panel, regular_monthly  # noqa: F401
 
 ROOT = Path(__file__).resolve().parent.parent
 PANEL_CSV = ROOT / "data" / "processed" / "visa_panel_long.csv"
@@ -87,6 +88,25 @@ def _diff(panel: pd.DataFrame) -> pd.DataFrame:
     return pd.concat(parts, ignore_index=True)
 
 
+def fit_finalist(nf: Any, train: pd.DataFrame, name: str) -> Any:
+    """★ R19 · ajusta el finalista como lo ajustó el runner que lo seleccionó.
+
+    La ganadora acreditada (`hpo_deep_best_*_AutoBiTCN.json`) trae `early_stop_patience_steps` y
+    `val_check_steps` (AK8b): sin una cola de validación por serie NeuralForecast rechaza el ajuste
+    («Set val_size>0 or provide a val_df if early stopping is enabled») y la campaña
+    `rederiv_bcaeb03_20260915T230637` murió en [2b/4] tras 14 h con 8 de 10 globales. El runner pasa
+    `VAL_SIZE` para `--auto`/`--config`; aquí se pasa la MISMA cola. Los deterministas siguen sin ella.
+    """
+    return nf.fit(train, val_size=VAL_SIZE if name.startswith("Auto") else 0)
+
+
+def _cerrar(fallos: list[str]) -> None:
+    """★ R19 · un global fallido ya no deja al productor salir en verde: el promotor lo iba a rechazar
+    de todos modos, pero una hora de locales más tarde."""
+    if fallos:
+        raise SystemExit(f"finalistas globales fallidos, NO se continua: {', '.join(fallos)}")
+
+
 def _manifest(entry: dict) -> None:
     manifiesto = manifest_path()
     manifiesto.parent.mkdir(parents=True, exist_ok=True)
@@ -103,6 +123,7 @@ def main() -> None:
     from neuralforecast.models import NHITS, BiTCN, PatchTST, TiDE
 
     cls = {"BiTCN": BiTCN, "PatchTST": PatchTST, "TiDE": TiDE, "NHITS": NHITS}
+    fallos: list[str] = []
     for table in ("FAD", "DFF"):
         panel = load_panel(table, "family")
         train = _diff(panel)
@@ -118,7 +139,6 @@ def main() -> None:
             enable_model_summary=False,
         )
         from collections.abc import Callable
-        from typing import Any
 
         builders: dict[str, Callable[..., Any]] = {m: (lambda M=cls[m], c=common: M(**c)) for m in DET}
         # ★ §8.6: la finalización NO reoptimiza. Antes abría una SEGUNDA búsqueda Optuna (15
@@ -137,7 +157,7 @@ def main() -> None:
         for name, build in builders.items():
             try:
                 nf = NeuralForecast(models=[build()], freq="MS")
-                nf.fit(train)
+                fit_finalist(nf, train, name)
                 out = models_root() / table / "global" / name
                 out.mkdir(parents=True, exist_ok=True)
                 nf.save(str(out), overwrite=True)
@@ -159,6 +179,8 @@ def main() -> None:
                 print(f"  ✓ {table}/{name} -> {out.relative_to(ROOT)}")
             except Exception as e:  # noqa: BLE001
                 print(f"  ✗ {table}/{name} FALLO: {type(e).__name__}: {str(e)[:100]}")
+                fallos.append(f"{table}/{name}")
+    _cerrar(fallos)
 
 
 if __name__ == "__main__":
