@@ -36,6 +36,7 @@ from typing import Any
 from tools import check_env_matches_lock as _envlock
 from tools.check_dvc_lock_fresh import resolve_dvc
 from vp_model.artifact_receipt import sha256_file
+from vp_model.deck import cargar_deck
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNBOOK = ROOT / "experiments" / "run_rederivation.sh"
@@ -94,8 +95,7 @@ class PreflightError(RuntimeError):
 
 
 # --------------------------------------------------------------------------- entradas: código
-#: Cómo se invoca un ejecutable en estos guiones. Se cubren las formas REALES medidas en el
-#: árbol: `$ANTE x.py`, `$NF x.py`, `ante_nf/bin/python x.py`, `python tools/x.py` y `-m paquete.mod`.
+#: Formas REALES de invocar un ejecutable medidas en el arbol: `$ANTE x.py`, `python tools/x.py`, `-m paquete.mod`.
 SCRIPT_CALL = re.compile(r"(?:^|\s)((?:experiments|tools|pipeline)/[a-z0-9_]+\.py)")
 MODULE_CALL = re.compile(r"-m\s+((?:vp_model|pipeline|tools|experiments)\.[a-z0-9_.]+)")
 SHELL_CALL = re.compile(r"(?:^|\s)(?:bash|zsh|sh)\s+((?:experiments|tools)/[a-z0-9_]+\.sh)")
@@ -107,14 +107,8 @@ def _strip_comments(texto: str) -> str:
 
 
 def runbook_entrypoints(runbook: Path = RUNBOOK) -> dict[str, list[str]]:
-    """Entrypoints que el runbook invoca, **siguiendo recursivamente los shells anidados**.
-
-    ⚠️ La primera versión leía SÓLO el guion de arriba y sellaba 54 archivos cuando la campaña
-    ejecuta 66: `run_campaign.sh`, `save_finalists.sh` y `sync_all.sh` invocan a su vez
-    `run_comparison`, `run_global_deep`, `aggregate_seeds`, `save_finalists_deep`,
-    `export_forecasts`, `sync_mlflow`… Ninguno entraba al sello, así que el pool F1 o la campaña
-    deep podían alterarse sin que el recibo lo delatara (H1 de la auditoría ciega).
-    """
+    """Entrypoints que el runbook invoca, siguiendo los shells anidados (H1: la 1a version sellaba 54 de 66)
+    y, desde R18, los runners que el deck de E3 elige en tiempo de ejecucion (por subprocess, sin import)."""
     if not runbook.is_file():
         raise PreflightError(f"no existe el runbook {runbook}")
     scripts: set[str] = set()
@@ -133,11 +127,12 @@ def runbook_entrypoints(runbook: Path = RUNBOOK) -> dict[str, list[str]]:
         for rel in SHELL_CALL.findall(codigo):
             shells.add(rel)
             pendientes.append(ROOT / rel)
-    return {
-        "scripts": sorted(scripts),
-        "modules": sorted(modules),
-        "shell": sorted(shells),
-    }
+    if "experiments/run_e3_campaign.py" in scripts:
+        runners = {f"experiments/{r}" for r in cargar_deck().runners()}
+        if faltan := sorted(r for r in runners if not (ROOT / r).is_file()):
+            raise PreflightError(f"el deck de E3 declara runners que no existen en el arbol: {faltan}")
+        scripts |= runners
+    return {"scripts": sorted(scripts), "modules": sorted(modules), "shell": sorted(shells)}
 
 
 def _module_path(module: str) -> Path | None:

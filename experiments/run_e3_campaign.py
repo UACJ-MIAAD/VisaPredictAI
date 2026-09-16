@@ -30,7 +30,6 @@ INTERPRETERS = {
     "run_global_deep.py": "ante_nf/bin/python",
     "run_global_gbm.py": "ante/bin/python",
 }
-DEFAULT_RUNNER = "run_global_deep.py"
 #: Donde `score_e3_campaign.py` lee los recibos (`LANES`); el nombre repite el de los 42 lanes de M61.
 RECEIPTS = Path("reports") / "campaign" / "e3"
 
@@ -73,7 +72,7 @@ def plan() -> list[Lane]:
     lanes: list[Lane] = []
     for rol, recetas in (("primary", d.primarias()), ("control", d.controles())):
         for receta in sorted(recetas, key=lambda r: r.name):
-            runner = receta.params.get("runner", DEFAULT_RUNNER)
+            runner = receta.params.get("runner", deck_mod.DEFAULT_RUNNER)  # R18: la misma autoridad que el sello
             if runner not in INTERPRETERS:
                 raise SystemExit(f"receta {receta.name}: runner desconocido {runner!r}")
             for cohorte in d.cohorts:

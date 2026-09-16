@@ -15,9 +15,12 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-__all__ = ["DECK_PATH", "Deck", "Receta", "cargar_deck"]
+__all__ = ["DECK_PATH", "DEFAULT_RUNNER", "Deck", "Receta", "cargar_deck"]
 
 DECK_PATH = Path(__file__).resolve().parent.parent / "docs" / "cohort_deck.json"
+#: Runner de `experiments/` que corre una receta que no declara `params.runner` (los lanes de E3 lo
+#: ejecutan por subprocess, así que el sello de entradas tiene que enumerarlo desde aquí, no adivinarlo).
+DEFAULT_RUNNER = "run_global_deep.py"
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,10 @@ class Deck:
 
     def controles(self) -> list[Receta]:
         return [r for r in self.recipes.values() if not r.primary]
+
+    def runners(self) -> list[str]:
+        """Guiones de `experiments/` que los lanes ejecutan: el declarado por cada receta o `DEFAULT_RUNNER`."""
+        return sorted({r.params.get("runner", DEFAULT_RUNNER) for r in self.recipes.values()})
 
     def receta(self, nombre: str) -> Receta:
         """La única puerta: una receta no declarada no existe para la campaña."""
