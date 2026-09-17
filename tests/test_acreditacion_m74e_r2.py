@@ -76,6 +76,7 @@ def escena(tmp_path: Path, monkeypatch):
             protocol={**pf.PROTOCOL, "block": "family"},
             coverage=cobertura or {"n_rows": 5400, "n_keys": 5400, "n_models": 9},
             expected_keys=esperado or {("ets", "mexico", "F1", "2024-01-01")},
+            extra={"pool": list(pf.HOLDOUT_POOL_MODELS), "table": "FAD", "excluded": []},  # R20: esquema cerrado
         )
         return reports, cid, sha, psha
 
@@ -221,7 +222,7 @@ def test_una_cabecera_distinta_no_pasa(escena) -> None:
         protocol={**pf.PROTOCOL, "block": "family"},
         coverage={"n_rows": 1, "n_keys": 1, "models": ["ets"], "n_models": 1},
         expected_keys={("ets", "mexico", "F1", "2024-01-01")},
-        extra={"pool": list(pf.HOLDOUT_POOL_MODELS), "table": "FAD"},
+        extra={"pool": list(pf.HOLDOUT_POOL_MODELS), "table": "FAD", "excluded": []},
     )
     with pytest.raises(pf.HoldoutForecastsError, match="cabecera"):
         pf.read_accredited("FAD", reports=reports)

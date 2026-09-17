@@ -94,7 +94,7 @@ def artefacto_completo(reports: Path, table: str, *, campaign_id: str = "camp_pr
         protocol={**pf.PROTOCOL, "block": "family"},
         coverage={"n_rows": len(filas), "n_keys": len(filas), "models": modelos, "n_models": len(modelos)},
         expected_keys=esperado,
-        extra={"pool": list(pf.HOLDOUT_POOL_MODELS), "table": table},
+        extra={"pool": list(pf.HOLDOUT_POOL_MODELS), "table": table, "excluded": []},
     )
     return destino
 

@@ -23,6 +23,15 @@ sobre la añada **anterior**, sin una sola línea de aviso.
    `CURATED` que vivía aquí era la **cuarta** lista independiente del repositorio.
 5. **Recibo ligado a la campaña**, y **re-acreditación al leer**: `read_accredited()` es la única
    puerta de entrada de los consumidores.
+6. **★ R20 · exclusiones ACREDITADAS, nunca silenciosas.** La segunda campaña real
+   (`rederiv_9b9489f_20260916T151013`, 17-sep-2026) murió aquí a las 13 h: SARIMA no converge en
+   India F2B (`LinAlgError: LU decomposition error`) y el punto 3 abortaba la reconstrucción entera,
+   mientras la etapa 1 de la MISMA campaña había dejado esa (modelo, serie) sin `hold_mase` y había
+   seguido: dos etapas con dos definiciones de «completo». Ahora una (modelo, serie) que no se puede
+   calcular se admite **sólo si la etapa 1 de esta campaña la dejó sin métricas** en su pool
+   (`campaign_pool_{table}_{block}.csv`, misma `run_id`); queda en el recibo con su error, el conjunto
+   esperado se acredita SIN sus claves, y el lector vuelve a derivar los fallos de la etapa 1 y exige
+   que coincidan EXACTAMENTE con lo excluido. Un fallo que la etapa 1 no tuvo sigue abortando.
 
 ⚠️ **El régimen no cambia:** filas **sólo** para fechas con observación F real (fix B1) y las
 mismas seis columnas de siempre, para que los consumidores no vean un artefacto distinto. Lo que
@@ -103,9 +112,57 @@ def expected_keys(
     return esperado
 
 
-def _rows(table: str, block: str, pool: tuple[str, ...]) -> list[dict]:
-    """Filas largas del hold-out F-only. **Fail-closed**: nada se salta en silencio."""
+def pool_artifact_path(table: str, block: str = "family", reports: Path | None = None) -> Path:
+    """El pool de la etapa 1 (`run_comparison`), la única autoridad sobre qué (modelo, serie) no se calculó."""
+    return (reports or REPORTS) / "campaign" / f"campaign_pool_{table}_{block}.csv"
+
+
+def stage1_failures(
+    table: str,
+    *,
+    campaign_id: str,
+    block: str = "family",
+    pool: tuple[str, ...] = HOLDOUT_POOL_MODELS,
+    reports: Path | None = None,
+) -> set[tuple[str, str, str]]:
+    """★ R20 · (modelo, país, categoría) del pool × catálogo que la etapa 1 de ESTA campaña dejó sin
+    `hold_mase` finito. Se exige exactamente una fila por combinación con la `run_id` de la campaña:
+    un pool de otra corrida, incompleto o duplicado no justifica nada."""
+    ruta = pool_artifact_path(table, block, reports)
+    if not ruta.is_file():
+        raise HoldoutForecastsError(f"sin pool de la etapa 1 en {ruta}: no hay veredicto que justifique exclusiones")
+    marco = pd.read_csv(ruta, dtype={"run_id": str, "model": str, "country": str, "category": str})
+    marco = marco[marco["run_id"] == campaign_id]
+    fallos: set[tuple[str, str, str]] = set()
+    for r in dataset.list_series(table=table, block=block).itertuples():
+        for m in pool:
+            fila = marco[(marco["model"] == m) & (marco["country"] == r.country) & (marco["category"] == r.category)]
+            if len(fila) != 1:
+                raise HoldoutForecastsError(
+                    f"{table}/{r.country}/{r.category}/{m}: el pool de la etapa 1 de {campaign_id} tiene "
+                    f"{len(fila)} fila(s) para la combinación y se exige exactamente una"
+                )
+            valor = fila["hold_mase"].iloc[0]
+            if pd.isna(valor) or not math.isfinite(float(valor)):
+                fallos.add((m, r.country, r.category))
+    return fallos
+
+
+def excluded_keys(esperado: set[tuple[str, str, str, str]], excluidas: list[dict]) -> set[tuple[str, str, str, str]]:
+    """Las claves del conjunto esperado que caen en las (modelo, serie) excluidas."""
+    combos = {(str(e["model"]), str(e["country"]), str(e["category"])) for e in excluidas}
+    return {k for k in esperado if (k[0], k[1], k[2]) in combos}
+
+
+def _rows(
+    table: str, block: str, pool: tuple[str, ...], *, campaign_id: str, reports: Path | None = None
+) -> tuple[list[dict], list[dict]]:
+    """Filas largas del hold-out F-only y las (modelo, serie) EXCLUIDAS. **Fail-closed**: nada se salta
+    en silencio; una exclusión sólo se admite si la etapa 1 de esta campaña ya falló en la misma
+    combinación (R20), y queda registrada con su error."""
     filas: list[dict] = []
+    excluidas: list[dict] = []
+    fallos_etapa1: set[tuple[str, str, str]] | None = None
     catalogo = dataset.list_series(table=table, block=block)
     for r in catalogo.itertuples():
         fdates = dataset.load_series(r.country, r.category, table).index
@@ -113,14 +170,25 @@ def _rows(table: str, block: str, pool: tuple[str, ...]) -> list[dict]:
             try:
                 ts, fc = walkforward.run_forecasts(m, r.country, r.category, table)
             except Exception as exc:
-                # broad-catch: se re-lanza con contexto y ABORTA la reconstrucción. `BLE001` no
-                # marca los handlers que re-lanzan (M49), así que la directiva no vale como
-                # justificación y el marcador va DENTRO del handler, que es donde se busca.
-                raise HoldoutForecastsError(
-                    f"{table}/{r.country}/{r.category}/{m}: el walk-forward falló ({type(exc).__name__}: {exc}). "
-                    "Antes esto era un `log.warning` y el CSV quedaba con menos filas y el mismo aspecto; "
-                    "una combinación que no se puede calcular es un hallazgo de la campaña, no un detalle."
-                ) from exc
+                # broad-catch: se re-lanza con contexto y ABORTA la reconstrucción salvo que la etapa 1
+                # de ESTA campaña ya haya fallado aquí. `BLE001` no marca los handlers que re-lanzan
+                # (M49): el marcador va DENTRO del handler, que es donde se busca.
+                if fallos_etapa1 is None:
+                    fallos_etapa1 = stage1_failures(
+                        table, campaign_id=campaign_id, block=block, pool=pool, reports=reports
+                    )
+                if (m, r.country, r.category) not in fallos_etapa1:
+                    raise HoldoutForecastsError(
+                        f"{table}/{r.country}/{r.category}/{m}: el walk-forward falló ({type(exc).__name__}: {exc}) "
+                        "y la etapa 1 de esta campaña SÍ lo calculó: no es una exclusión acreditable, es un fallo. "
+                        "Una combinación que no se puede calcular es un hallazgo de la campaña, no un detalle."
+                    ) from exc
+                error = f"{type(exc).__name__}: {str(exc)[:120]}"
+                excluidas.append({"model": m, "country": r.country, "category": r.category, "error": error})
+                log.warning(
+                    "hold-out forecasts: %s/%s/%s EXCLUIDO como en la etapa 1 (%s)", r.country, r.category, m, error
+                )
+                continue
             split = ts.time_index[-HOLDOUT]
             hold_fc = fc.split_before(split)[1]
             actual = ts.slice_intersect(hold_fc)
@@ -140,7 +208,7 @@ def _rows(table: str, block: str, pool: tuple[str, ...]) -> list[dict]:
                 for d, a, f in zip(fechas[fmask], af, ff, strict=True)
             ]
         log.info("hold-out forecasts: %s/%s listo", r.country, r.category)
-    return filas
+    return filas, sorted(excluidas, key=lambda e: (e["model"], e["country"], e["category"]))
 
 
 def audit(filas: list[dict], esperado: set[tuple]) -> dict:
@@ -196,8 +264,9 @@ def rebuild(
 ) -> Path:
     """Reconstrucción COMPLETA y atómica, acreditada. Nunca parcial, nunca incremental."""
     esperado = expected_keys(table, block=block, pool=pool)
-    filas = _rows(table, block, pool)
-    censo = audit(filas, esperado)
+    filas, excluidas = _rows(table, block, pool, campaign_id=campaign_id, reports=reports)
+    efectivo = esperado - excluded_keys(esperado, excluidas)  # R20: lo excluido no se espera, y queda en el recibo
+    censo = audit(filas, efectivo)
     destino = artifact_path(table, reports)
     marco = pd.DataFrame(filas, columns=list(COLUMNS)).sort_values(list(KEY_FIELDS), kind="stable")
     ar.replace_atomic(destino, lambda t: marco.to_csv(t, index=False))
@@ -209,8 +278,8 @@ def rebuild(
         panel_sha256=panel_sha256,
         protocol={**PROTOCOL, "block": block},
         coverage=censo,
-        expected_keys=esperado,
-        extra={"pool": list(pool), "table": table},
+        expected_keys=efectivo,
+        extra={"pool": list(pool), "table": table, "excluded": excluidas},
     )
     log.info("%s: %d filas · %d modelos · recibo %s", table, censo["n_rows"], censo["n_models"], recibo.name)
     return destino
@@ -230,8 +299,45 @@ RECEIPT_KEYS = frozenset(
         "n_expected_keys",
         "pool",
         "table",
+        "excluded",
     }
 )
+#: Claves EXACTAS de cada exclusión declarada en el recibo.
+EXCLUSION_KEYS = frozenset({"model", "country", "category", "error"})
+
+
+def _validar_exclusiones(
+    excluidas: object, esperado: set[tuple[str, str, str, str]], *, table: str, campaign_id: str, reports: Path
+) -> set[tuple[str, str, str, str]]:
+    """★ R20 · las exclusiones del recibo se RE-DERIVAN de la etapa 1: el conjunto declarado tiene que
+    ser exactamente el de las (modelo, serie) del pool × catálogo sin `hold_mase` en el pool de esta
+    campaña. Ni una de más (una exclusión inventada) ni una de menos (un fallo de la etapa 1 que aquí
+    «sí se calculó»). Devuelve las claves que dejan de esperarse."""
+    if not isinstance(excluidas, list) or any(not isinstance(e, dict) or set(e) != EXCLUSION_KEYS for e in excluidas):
+        raise HoldoutForecastsError(f"recibo con `excluded` malformado: se exige una lista de {sorted(EXCLUSION_KEYS)}")
+    combos = [(e["model"], e["country"], e["category"]) for e in excluidas]
+    if any(not all(isinstance(e[k], str) and e[k] for k in EXCLUSION_KEYS) for e in excluidas) or len(
+        set(combos)
+    ) != len(combos):
+        raise HoldoutForecastsError(
+            "recibo con `excluded` malformado: campos vacíos, no textuales o combinaciones repetidas"
+        )
+    universo = {(k[0], k[1], k[2]) for k in esperado}
+    if not set(combos) <= universo:
+        raise HoldoutForecastsError(
+            f"el recibo excluye combinaciones fuera del universo: {sorted(set(combos) - universo)[:3]}"
+        )
+    if not combos:
+        return set()
+    fallos = stage1_failures(table, campaign_id=campaign_id, block=str(PROTOCOL["block"]), reports=reports)
+    if set(combos) != fallos:
+        raise HoldoutForecastsError(
+            f"las exclusiones del recibo no son los fallos de la etapa 1 de {campaign_id}: "
+            f"sobran {sorted(set(combos) - fallos)[:3]}, faltan {sorted(fallos - set(combos))[:3]}"
+        )
+    return excluded_keys(esperado, excluidas)
+
+
 #: Claves EXACTAS del censo de cobertura dentro del recibo.
 COVERAGE_KEYS = frozenset({"n_rows", "n_keys", "models", "n_models"})
 
@@ -287,14 +393,19 @@ def read_accredited(table: str, *, reports: Path | None = None) -> pd.DataFrame:
     if esperado is None:
         esperado = expected_keys(table, block=block, pool=pool)
         _MEMORIA_ESPERADO[clave] = esperado
-    censo = audit(filas, esperado)
-
-    # ── y el recibo tiene que estar de acuerdo ENTERO con lo que acabamos de medir
+    # ── el esquema del recibo, ANTES de leer nada de él
     #    ★ R3: R2 sólo comparaba `n_rows` y `n_keys`. Un recibo puede mentir en cualquier otro
     #    campo con la misma facilidad, y un esquema abierto admite campos que nadie mira.
     if set(acta) != RECEIPT_KEYS:
         sobran, faltan = sorted(set(acta) - RECEIPT_KEYS), sorted(RECEIPT_KEYS - set(acta))
         raise HoldoutForecastsError(f"recibo con esquema abierto — sobran {sobran}, faltan {faltan}")
+    # ★ R20 · lo excluido se re-deriva de la etapa 1 y se resta del universo; el resto se exige entero.
+    esperado = esperado - _validar_exclusiones(
+        acta["excluded"], esperado, table=table, campaign_id=campaign_id, reports=reports
+    )
+    censo = audit(filas, esperado)
+
+    # ── y el recibo tiene que estar de acuerdo ENTERO con lo que acabamos de medir
     if acta.get("table") != table:
         raise HoldoutForecastsError(f"el recibo es de la tabla {acta.get('table')!r} y se pide {table!r}")
     if tuple(acta.get("pool") or ()) != pool:
