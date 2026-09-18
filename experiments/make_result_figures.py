@@ -74,6 +74,9 @@ def _emit(fig: plt.Figure, name: str) -> None:
     no usa `save_dual` del kit: no tiene variantes de idioma ni de tema. Lo que si era
     duplicacion real era este par savefig/close repetido en cada figura.
     """
+    # ★ R21 · desde M66 los .tex viven en el repositorio documental y `reports/latex/Figures/` es una salida
+    # LOCAL ignorada por git que ya no existe en un checkout limpio: la 3ª campaña real habría muerto aquí.
+    FIG.mkdir(parents=True, exist_ok=True)
     fig.savefig(FIG / f"{name}.pdf")
     plt.close(fig)
 

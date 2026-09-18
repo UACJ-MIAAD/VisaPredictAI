@@ -96,6 +96,10 @@ def _dm_deep_vs_parsimony(table: str) -> dict:
 
     deep_src = pd.read_csv(REPORTS / "eval" / f"finalist_forecasts_{table}.csv")
     cols = ["model", "country", "category", "date", "forecast", "actual"]
+    # ★ R21 · la clave del cruce es la FECHA: se normaliza a `YYYY-MM-DD` en los dos lados. El artefacto
+    # de finalistas traía `2024-10-01 00:00:00` en deep y locales y `2024-10-01` en ETS/Theta y en el
+    # hold-out acreditado: el join daba cero pares y el DM dividía por cero (3ª campaña real, 18-sep).
+    deep_src = deep_src.assign(date=pd.to_datetime(deep_src["date"], format="ISO8601").dt.strftime("%Y-%m-%d"))
     f_deep = deep_src[deep_src.model.isin({"BiTCN", "AutoBiTCN", "NHITS", "PatchTST", "TiDE"})][cols]
     # ★ M74-E-R1: por la puerta acreditada, no por `pd.read_csv`. NUEVE lugares leían el archivo
     # que hubiera, sin recibo ni identidad de campaña; medido, el artefacto vivo (26-ago) tenía
@@ -130,6 +134,11 @@ def _dm_deep_vs_parsimony(table: str) -> dict:
         a = f[f.model == dmn].set_index(key)
         b = f[f.model == best_pars].set_index(key)["forecast"].rename("p")
         jj = a[["forecast", "actual", "scale"]].join(b, how="inner").dropna()
+        if jj.empty:  # R21: sin pares no hay prueba; decirlo con las claves, no con un ZeroDivisionError
+            raise ValueError(
+                f"{table}: {dmn} y {best_pars} no comparten ninguna clave (country, category, date): "
+                f"{len(a)} filas deep vs {len(b)} de parsimonia; fechas deep {sorted(a.index.get_level_values('date'))[:2]}"
+            )
         ed = ((jj["forecast"] - jj["actual"]) / jj["scale"]).to_numpy()
         ep = ((jj["p"] - jj["actual"]) / jj["scale"]).to_numpy()
         dm, pv = significance.dm_test(ed, ep, power=2)

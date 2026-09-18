@@ -156,6 +156,7 @@ def fig_hero(country="philippines", category="F3", table="FAD", out="results_her
         fontsize=7.5,
         color=GRAY,
     )
+    FIG.mkdir(parents=True, exist_ok=True)  # R21: salida local ignorada por git, ausente en un checkout limpio
     fig.savefig(FIG / out)
     plt.close(fig)
     print(out, "OK")

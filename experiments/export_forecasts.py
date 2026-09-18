@@ -24,6 +24,13 @@ ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "reports"
 
 
+def iso_date(d: object) -> str:
+    """★ R21 · la ÚNICA forma de fecha del artefacto (`YYYY-MM-DD`). Las filas locales y deep escribían el
+    `Timestamp` crudo (`2024-10-01 00:00:00`) y las transportadas la cadena ISO; `significance_tables`
+    cruzaba deep contra parsimonia por fecha y no encontraba NI UN par: la 3ª campaña real murió ahí."""
+    return pd.Timestamp(d).strftime("%Y-%m-%d")
+
+
 # ★ M74-E: las listas salen del REGISTRO CANÓNICO, no de aquí. Había tres autoridades y ya
 # discrepaban: este archivo esperaba 7 locales y `save_finalists.py` persistía 6 (sin `sarima`).
 #
@@ -86,7 +93,7 @@ def _local_rows(table: str) -> list[dict]:
                             "type": "local",
                             "country": r.country,
                             "category": r.category,
-                            "date": d,
+                            "date": iso_date(d),
                             "forecast": float(fv),
                             "actual": float(av),
                         }
@@ -119,7 +126,7 @@ def _deep_rows(table: str) -> list[dict]:
                             "type": "global_deep",
                             "country": country,
                             "category": category,
-                            "date": d,
+                            "date": iso_date(d),
                             "forecast": float(row[name]),
                             "actual": float(full.loc[d]),
                         }
@@ -178,7 +185,7 @@ def _transported_rows(table: str, esperado: set) -> list[dict]:
     return [
         {
             "model": f["model"], "type": "local_transported", "country": f["country"],
-            "category": f["category"], "date": f["target"], "forecast": f["y_pred"], "actual": f["y_true"],
+            "category": f["category"], "date": iso_date(f["target"]), "forecast": f["y_pred"], "actual": f["y_true"],
         }
         for f in filas
         if f["table"] == table and f["observed"]

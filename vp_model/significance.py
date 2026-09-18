@@ -40,6 +40,8 @@ def dm_test(e1: np.ndarray, e2: np.ndarray, *, h: int = 1, power: int = 2) -> tu
         raise ValueError("las series de error deben tener la misma longitud")
     d = np.abs(e1) ** power - np.abs(e2) ** power
     n = len(d)
+    if n < 2:  # R21: con 0 o 1 observaciones la corrección de Harvey-Leybourne-Newbold divide por cero
+        raise ValueError(f"el test DM necesita al menos 2 errores pareados, recibió {n}")
     dbar = d.mean()
     # Varianza de largo plazo: para h>1 suma autocovarianzas hasta h-1 (Newey-West simple).
     gamma0 = d.var(ddof=0)
