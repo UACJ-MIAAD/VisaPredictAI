@@ -141,7 +141,8 @@ def test_el_universo_no_se_ensancha_mas_alla_del_catalogo() -> None:
 
 
 def test_sin_universo_evaluable_no_se_filtra_nada() -> None:
-    """El comportamiento histórico sigue disponible y explícito."""
+    """El comportamiento histórico sigue disponible y explícito PARA CORRIDAS MANUALES; un lane de campaña
+    (`--recipe`) lo pisa con `deck.universe` (R22, `tests/test_universo_del_deck_m74e_r22.py`)."""
     import inspect
 
     firma = inspect.signature(deep.load_panel)

@@ -39,6 +39,7 @@ import sys
 import time
 import warnings
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -547,6 +548,24 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def aplicar_receta(args: argparse.Namespace, receta: Any, deck: Any) -> argparse.Namespace:
+    """La receta y la baraja mandan sobre la línea de órdenes.
+
+    El espacio de entrenamiento sale de la receta y **el universo sale de la baraja** (`deck.universe`,
+    `evaluable`): sólo bajo ese universo `load_panel` restringe el panel a las series de la cohorte
+    (`cohorte_uids`). ★ R22 · la novena auditoría ciega encontró que los 42 lanes de E3 no pasaban
+    `--universe` y el runner quedaba en su defecto `pilot`, así que los tres lanes de cohorte de una
+    misma (receta, tabla) eran el MISMO entrenamiento sobre las 56 series piloto con tres etiquetas,
+    mientras los recibos rastreados de M61 y el deck declaran `evaluable` (11/30/41 series en FAD).
+    """
+    args.diff = receta.space == "diff"
+    args.models = None
+    args.auto = False
+    args.config = None
+    args.universe = deck.universe
+    return args
+
+
 def main() -> None:
     args = build_parser().parse_args()
 
@@ -560,12 +579,7 @@ def main() -> None:
     receta = deck.receta(args.recipe) if (deck and args.recipe) else None
     congelado = deck.frozen if deck else {}
     if receta is not None:
-        # La receta manda: el espacio de entrenamiento sale de la baraja, no de la línea de
-        # órdenes, para que un lane no pueda correr en un espacio distinto del pre-registrado.
-        args.diff = receta.space == "diff"
-        args.models = None
-        args.auto = False
-        args.config = None
+        aplicar_receta(args, receta, deck)
     panel = load_panel(args.table, args.block, cohort=args.cohort, universe=args.universe)
     uids = panel["unique_id"].nunique()
     print(f"panel: {uids} series, {len(panel)} filas ({args.table}/{args.block}), diff={args.diff}")
