@@ -55,16 +55,34 @@ def test_todos_los_lanes_deep_quedan_en_el_universo_evaluable() -> None:
         assert args.universe == deck.universe and args.cohort == lane.cohort
 
 
+NF = RAIZ / "ante_nf" / "bin" / "python"
+SONDA = r"""
+import sys
+sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[1] + "/experiments")
+import run_global_deep as deep
+from vp_model.deck import cargar_deck
+cohorte = sys.argv[2]; universo = cargar_deck().universe
+pilot = deep.load_panel("FAD", "both", cohort=cohorte, universe="pilot")["unique_id"].nunique()
+evaluable = deep.load_panel("FAD", "both", cohort=cohorte, universe=universo)["unique_id"].nunique()
+print(pilot, evaluable, len(deep.cohorte_uids("FAD", cohorte)))
+"""
+
+
+@pytest.mark.skipif(not NF.exists(), reason="entorno deep ante_nf ausente")
 @pytest.mark.parametrize("cohorte", ["estable", "no_estable"])
-def test_RED_con_el_universo_de_la_baraja_el_panel_del_lane_es_su_cohorte(cohorte: str) -> None:
-    """Por conducta sobre el panel real: con `pilot` las tres cohortes ven las mismas 56 series de FAD; con el
-    universo de la baraja cada lane ve exactamente `cohorte_uids(table, cohort)`."""
-    import run_global_deep as deep
+def test_RED_con_el_universo_de_la_baraja_el_panel_del_lane_es_su_cohorte(cohorte: str, tmp_path: Path) -> None:
+    """Por conducta sobre el panel real y EN EL INTÉRPRETE DEL LANE (`ante_nf`, el único con motor parquet): con `pilot`
+    las tres cohortes ven las mismas 56 series de FAD; con el universo de la baraja cada lane ve exactamente
+    `cohorte_uids(table, cohort)`."""
+    import subprocess
 
-    from vp_model.deck import cargar_deck
-
-    deck = cargar_deck()
-    pilot = deep.load_panel("FAD", "both", cohort=cohorte, universe="pilot")["unique_id"].nunique()
-    evaluable = deep.load_panel("FAD", "both", cohort=cohorte, universe=deck.universe)["unique_id"].nunique()
-    esperado = len(deep.cohorte_uids("FAD", cohorte))
+    fin = subprocess.run(
+        [str(NF), "-c", SONDA, str(RAIZ), cohorte],
+        capture_output=True,
+        text=True,
+        timeout=600,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert fin.returncode == 0, fin.stderr[-800:]
+    pilot, evaluable, esperado = (int(x) for x in fin.stdout.split()[-3:])
     assert esperado > 0 and evaluable == esperado < pilot, (pilot, evaluable, esperado)
