@@ -1,0 +1,52 @@
+{
+  "schema": "linalg-exclusions-registry/1",
+  "descripcion": "M74-F · deuda 6. Combinaciones que la etapa 1 dejó sin métricas por LinAlgError ('LU decomposition error.') y que la etapa 3.5 excluyó «como en la etapa 1», por campaña y tabla. Mismo panel (sha256:3ae64f3d…a0b8) en ambas corridas. Fuente: bitácoras de exec, bloque [3.5], líneas `EXCLUIDO como en la etapa 1`. La causa NO está demostrada: BLAS multihilo (Accelerate) es hipótesis.",
+  "fuente_bitacoras": {
+    "rederiv_a6df0f4_20260917T055408": "VisaPredictAI-m74e-exec/reports/logs/rederiv_a6df0f4_20260917T055408.log",
+    "rederiv_953cd00_20261006T073927": "VisaPredictAI-m74e-exec/reports/rederivation_20261006T113722Z.log"
+  },
+  "campanas": {
+    "rederiv_a6df0f4_20260917T055408": {
+      "FAD": [
+        ["india", "F2B", "sarima"],
+        ["india", "F3", "sarima"]
+      ],
+      "DFF": [
+        ["all_chargeability", "F2A", "sarima"],
+        ["all_chargeability", "F2B", "sarima"],
+        ["all_chargeability", "F3", "sarima"],
+        ["china", "F2A", "sarima"],
+        ["china", "F2B", "sarima"],
+        ["china", "F3", "sarima"],
+        ["india", "F2A", "sarima"],
+        ["india", "F2B", "sarima"],
+        ["india", "F3", "sarima"],
+        ["mexico", "F2A", "sarima"],
+        ["philippines", "F1", "sarima"],
+        ["philippines", "F2A", "sarima"]
+      ]
+    },
+    "rederiv_953cd00_20261006T073927": {
+      "FAD": [
+        ["india", "F1", "arima"],
+        ["india", "F2B", "sarima"],
+        ["india", "F3", "sarima"],
+        ["india", "F4", "sarima"],
+        ["philippines", "F3", "sarima"],
+        ["philippines", "F4", "sarima"]
+      ],
+      "DFF": [
+        ["all_chargeability", "F2A", "sarima"],
+        ["all_chargeability", "F2B", "sarima"],
+        ["all_chargeability", "F4", "arima"],
+        ["china", "F2A", "sarima"],
+        ["china", "F2B", "sarima"],
+        ["china", "F4", "arima"],
+        ["india", "F2A", "sarima"],
+        ["india", "F2B", "sarima"],
+        ["mexico", "F2A", "sarima"],
+        ["philippines", "F2A", "sarima"]
+      ]
+    }
+  }
+}

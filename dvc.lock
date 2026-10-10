@@ -154,8 +154,8 @@ stages:
       size: 1607489
     - path: experiments/build_key_facts.py
       hash: md5
-      md5: dd7dd0267ca8a9ced0f74cc2fb5b766c
-      size: 18381
+      md5: b1da4f8a1c96aa54c08399dc26a8007b
+      size: 20018
     - path: reports/campaign/campaign_pool_DFF_family.csv
       hash: md5
       md5: 53d62b4fb1bc834df896cb550ab65658

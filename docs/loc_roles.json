@@ -127,6 +127,11 @@
    "why": "Este mismo archivo."
   },
   {
+   "glob": "docs/m74f_linalg_exclusiones.json",
+   "role": "documentacion",
+   "why": "Registro de las exclusiones LinAlgError por campaña (M74-F, deuda 6): universo de la sonda BLAS, mantenido a mano."
+  },
+  {
    "glob": "docs/mlops_architecture.svg",
    "role": "generados"
   },

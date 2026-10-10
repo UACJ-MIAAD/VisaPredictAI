@@ -56,6 +56,8 @@ reports/eval/neuralforecast_forecasts.csv
 # Storage sqlite del HPO Optuna (AK4) — binario regenerable; la procedencia legible
 # vive en reports/campaign/hpo_trials_*.csv (versionados)
 reports/eval/optuna.db
+# M74-F · deuda 5: una base de estudios Optuna por campaña (vp_model.tune.default_storage_path)
+reports/eval/optuna/
 ante_nf/
 
 # Efecto secundario del logger de Lightning (modelos torch de darts) — regenerable

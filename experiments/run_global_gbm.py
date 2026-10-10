@@ -294,9 +294,12 @@ def _receipt_gbm(args, table: str, panel, eval_keys, fc) -> None:
     import sys
     import time
 
+    from hpo_winner_receipt import lane_campaign_identity
+
     from vp_model.deck import cargar_deck
 
     deck = cargar_deck()
+    campana = lane_campaign_identity(ROOT)  # M74-F · deuda 2: el lector la exige
     salidas = sorted((ROOT / "reports" / "eval").glob(f"e3_gbm_{args.cohort}_{table}*.csv"))
     ruta = Path(str(args.receipt).replace("{table}", table))
     ruta.parent.mkdir(parents=True, exist_ok=True)
@@ -313,6 +316,7 @@ def _receipt_gbm(args, table: str, panel, eval_keys, fc) -> None:
                 "table": table,
                 "universe": "evaluable",
                 "seed": args.seed,
+                "campaign": campana,
                 "device": "cpu",
                 "n_series": len(eval_keys),
                 "n_rows_panel": int(len(panel)),
@@ -366,10 +370,17 @@ def _receta_gbm(args) -> None:
     """La receta manda: existe en la baraja, declara este runner y fija el modelo."""
     from vp_model.deck import cargar_deck
 
-    receta = cargar_deck().receta(args.recipe)
+    deck = cargar_deck()
+    receta = deck.receta(args.recipe)
     if receta.params.get("runner") != Path(__file__).name:
         raise SystemExit(f"la receta {args.recipe!r} no declara a {Path(__file__).name} como runner")
     args.models = [receta.model]
+    # ★ M74-F · deuda 3: los 6 lanes GBM de la cuarta campaña corrieron con 42 (defecto de este runner)
+    # mientras la baraja pre-registra [1]. Con receta, la semilla es la de la baraja o no se corre.
+    try:
+        deck.exigir_semilla(args.seed)
+    except ValueError as exc:
+        raise SystemExit(f"lane {args.recipe}: {exc}") from exc
 
 
 def main() -> None:

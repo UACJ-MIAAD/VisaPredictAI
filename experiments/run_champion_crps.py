@@ -161,7 +161,38 @@ def run(tables: tuple[str, ...], block: str, limit: int | None, num_samples: int
     OUT.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUT, index=False)
     print(f"-> {OUT} ({len(df)} rows)")
+    _seal(tables, block, limit, num_samples)
     return df
+
+
+def _seal(tables: tuple[str, ...], block: str, limit: int | None, num_samples: int) -> None:
+    """Recibo del CSV (M74-F · deuda 1): sin él, `champion.crps_provenance` lo trata como heredado.
+
+    Sólo se sella una corrida COMPLETA dentro de una campaña ``running``: un ``--limit`` es un smoke
+    y una corrida suelta no tiene identidad que prestar. En ambos casos el CSV queda escrito pero
+    sin acreditar, y así lo dice el veredicto en vez de publicarlo como vigente.
+    """
+    from vp_model import artifact_receipt as ar
+    from vp_model import champion
+
+    if limit:
+        log.warning("--limit %s: smoke, el CSV queda SIN recibo (heredado para el veredicto)", limit)
+        return
+    try:
+        cid, sha, panel = ar.campaign_identity(REPORTS, code_root=REPORTS.parent)
+    except ar.ReceiptError as exc:
+        log.warning("fuera de campaña, el CSV queda SIN recibo (heredado para el veredicto): %s", exc)
+        return
+    recibo = ar.seal(
+        OUT,
+        schema=champion.CRPS_RECEIPT_SCHEMA,
+        campaign_id=cid,
+        code_sha=sha,
+        panel_sha256=panel,
+        protocol={"tables": list(tables), "block": block, "num_samples": num_samples, "quants": list(QUANTS)},
+        coverage={"tables": sorted(set(tables))},
+    )
+    print(f"   recibo {recibo.name} · {cid}")
 
 
 def main() -> None:

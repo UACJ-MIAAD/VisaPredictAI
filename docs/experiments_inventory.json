@@ -76,6 +76,10 @@
     "clase": "diagnostico",
     "consumidor": "re-deriva BAND80_RATIO/pi_scale_by_h en split disjunto (make derive-band80)"
   },
+  "diagnose_holdout_drift.py": {
+    "clase": "diagnostico",
+    "consumidor": "M74-F deuda 8: deriva de holdout_forecasts entre añadas cruzada con los huecos del panel (sólo lectura, fuera de reports/)"
+  },
   "eval_deep_pi.py": {
     "clase": "investigacion",
     "consumidor": "cobertura de PI del deep (reports/eval/deep_pi_*)"
@@ -168,6 +172,10 @@
     "clase": "producto",
     "consumidor": "reports/eval/transported_forecasts.csv + su recibo — paso 2c de save_finalists.sh: recoge del walk-forward las filas de ETS/Theta (AutoETS/AutoTheta no admiten historical_forecasts(retrain=False), asi que nadie puede recalcularlas despues) y las persiste con cobertura acreditada ANTES del exportador"
   },
+  "probe_linalg_determinism.py": {
+    "clase": "diagnostico",
+    "consumidor": "M74-F deuda 6: sonda BLAS de los LinAlgError ARIMA/SARIMA sobre docs/m74f_linalg_exclusiones.json (cómputo con orden del autor)"
+  },
   "promote_finalists.py": {
     "clase": "producto",
     "consumidor": "models/ + models/coverage_receipt.json — paso 2b de save_finalists.sh: acredita cobertura exacta del arbol en staging y solo entonces lo promueve, retirando el anterior con su fecha. Vivia en tools/ por error mio de clasificacion (no es un guardian del repositorio sino un paso de campana); el gate de LOC por rol de C9 lo destapo"
@@ -195,6 +203,10 @@
   "run_crps_baseline.py": {
     "clase": "investigacion",
     "consumidor": "CRPS reproducible de clasicos"
+  },
+  "run_complement.py": {
+    "clase": "investigacion",
+    "consumidor": "M74-F C3/C4: CLI del ciclo de una transaccion complementaria (vp_model/complement.py) en un worktree desechable: import/plan/start/close/accept/verify/fail; no entrena ni lanza lanes, no propaga ni publica (computo con orden del autor)"
   },
   "run_deep_pi.py": {
     "clase": "investigacion",

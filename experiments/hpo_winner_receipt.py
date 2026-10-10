@@ -114,6 +114,50 @@ def campaign_identity(root: str | Path) -> dict[str, str]:
     return {k: str(estado[k]) for k in ("campaign_id", "source_git_sha", "panel_sha256")}
 
 
+def lane_campaign_identity(root: str | Path) -> dict[str, str] | None:
+    """Identidad de campaña para el RECIBO de un lane de E3 (M74-F · deuda 2), o ``None`` fuera de campaña.
+
+    Los 42 recibos de la cuarta campaña real no llevaban identidad: `score_e3_campaign` los puntuaba
+    por existencia y un recibo de otra corrida pasaba igual. El lane la ESCRIBE; quien la exige es el
+    lector (`score_e3_campaign`). Fuera de campaña devuelve ``None`` en vez de inventar una, y el
+    lector rechaza ese recibo. Si el entorno contradice a la transacción, se detiene: escribir el
+    recibo bajo otro nombre sería la mezcla de añadas que esto existe para impedir.
+
+    ★ M74-F · C4: dentro de una complementaria de E3 `running` (`vp_model.complement`) la identidad es
+    la de la complementaria. Con campaña completa y complementaria en curso a la vez no hay una sola
+    identidad posible: se detiene en vez de elegir. Y sólo la firma con el código PERMITIDO: HEAD
+    sellado, árbol limpio fuera de `reports/` y paquetes cargados de ese worktree (`identidad_para_lanes`).
+    """
+    try:
+        ident: dict[str, str] | None = campaign_identity(root)
+    except WinnerReceiptError:
+        ident = None
+    compl = _complement_identity(root)
+    if ident is not None and compl is not None:
+        raise WinnerReceiptError(
+            f"campaña {ident['campaign_id']!r} y complementaria {compl['campaign_id']!r} en curso a la vez"
+        )
+    ident = ident or compl
+    if ident is None:
+        return None
+    env = os.environ.get("CAMPAIGN_ID")
+    if env and env != ident["campaign_id"]:
+        raise WinnerReceiptError(
+            f"el entorno dice CAMPAIGN_ID={env!r} y la transacción {ident['campaign_id']!r}: otra corrida"
+        )
+    return ident
+
+
+def _complement_identity(root: str | Path) -> dict[str, str] | None:
+    """Identidad de la complementaria de E3 en curso, o ``None``. Stdlib: `vp_model.complement` no trae deps."""
+    from vp_model import complement
+
+    try:
+        return complement.identidad_para_lanes(Path(root))
+    except (complement.ComplementoError, ValueError, OSError) as exc:
+        raise WinnerReceiptError(f"complementaria ilegible o ajena a E3: {exc}") from exc
+
+
 def sealed_panel_sha256(root: str | Path) -> str:
     """Compatibilidad: el panel sellado por la transacción en curso."""
     return campaign_identity(root)["panel_sha256"]

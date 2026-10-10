@@ -34,8 +34,13 @@ REPORTS = champion.REPORTS
 def _markdown(verdicts: list[champion.Verdict]) -> str:
     lines = ["# Campeón–retador — veredicto de promoción", ""]
     for v in verdicts:
-        crps = champion.crps_champion(v.table)
-        crps_note = f" · CRPS {crps} (informativo)" if crps is not None else ""
+        prov = champion.crps_provenance(v.table)
+        if prov["status"] == "acreditado":
+            crps_note = f" · CRPS {prov['value']} (informativo)"
+        elif prov["inherited_value"] is not None:
+            crps_note = f" · CRPS heredado {prov['inherited_value']} (no recalculado: {prov['reason']})"
+        else:
+            crps_note = ""
         lines += [
             f"## {v.table} — campeón `{v.champion}` "
             f"(MASE media {v.champion_mean} · mediana {v.champion_median}{crps_note})",
@@ -70,14 +75,18 @@ def main() -> int:
     champions = champion.load_manifest()
     verdicts = [champion.evaluate(t, champions[t]) for t in ("FAD", "DFF")]
 
+    crps = {v.table: champion.crps_provenance(v.table) for v in verdicts}
     payload: dict[str, object] = {
         v.table: {
             "champion": v.champion,
             "champion_mean": v.champion_mean,
             "champion_median": v.champion_median,
-            # AM5: informative probabilistic metric (None when the CRPS CSV is absent).
-            # NOT a gate — promotion still rides on point MASE + Wilcoxon/Holm.
-            "champion_crps": champion.crps_champion(v.table),
+            # AM5: informative probabilistic metric. NOT a gate — promotion still rides on point
+            # MASE + Wilcoxon/Holm. ★ M74-F · deuda 1: sólo se publica como vigente si su recibo
+            # lo acredita para el panel (y la campaña) de hoy; si no, `None` y la procedencia dice
+            # que es heredado, con su valor y su sha256 identificados.
+            "champion_crps": crps[v.table]["value"],
+            "champion_crps_provenance": crps[v.table],
             "challengers": v.challengers,
             # A4: el veredicto es retrospectivo (hold-out h=1) y NO autoriza producción.
             "gate_scope": "retrospective-holdout-h1 (ver docs/PROMOTION_POLICY.md)",

@@ -12,9 +12,10 @@
 #                             del nombre es histórico, el pool ya trae 23 modelos)
 #   3. save_finalists.sh      modelos finalistas (deep+locales) + transporte de ETS/Theta
 #   3.5 persist_forecasts     ★ holdout_forecasts_{FAD,DFF} RECONSTRUIDOS y acreditados
-#   4. combinadores           ensembles / conformal / stacking / FFORMA, sobre los holdouts
-#                             de 3.5 — que ahora se re-acreditan al leerse
-#   5. baselines prob./clásicos  Auto-ARIMA (AICc) · deep-PI · CRPS
+#   4. deep-PI + combinadores deep-PI (insumo acreditado de conformal, M74-F) y luego ensembles /
+#                             conformal / stacking / FFORMA, sobre los holdouts de 3.5 — que
+#                             ahora se re-acreditan al leerse
+#   5. baselines prob./clásicos  Auto-ARIMA (AICc) · CRPS
 #   6. tuning GBMs (AK)       OBLIGATORIO desde M74-E-R4/R5: run_tuning (Optuna persistente,
 #                             150 trials, familia+empleo,
 #                             candidatos) + confirm_tuning (aceptación en val-confirm
@@ -337,18 +338,23 @@ run_req bash experiments/save_finalists.sh
 stage 3.5 "holdout_forecasts RECONSTRUIDOS y acreditados (insumo de TODOS los combinadores)"
 run_req $ANTE -m vp_model.persist_forecasts
 
-stage 4 "combinadores sobre los holdouts de 3.5 (re-acreditados al leerse)"
+# ★ M74-F · deuda 4: deep-PI ANTES de conformal. `improve_conformal` deriva su baseline de
+# `deep_pi_{FAD,DFF}.csv`, y en la cuarta campaña real ese CSV se escribía en la etapa 5: conformal
+# comparaba contra el deep-PI de la corrida anterior. Ahora deep-PI sella su CSV con la identidad de
+# la campaña y conformal sólo lo usa si lo acredita (si deep-PI falla —sigue siendo best-effort— el
+# baseline queda «n/a», nunca el de otra corrida).
+stage 4 "deep-PI (insumo de conformal) y combinadores sobre los holdouts de 3.5 (re-acreditados al leerse)"
+for t in FAD DFF; do
+  run $NF experiments/run_deep_pi.py --table "$t" --model BiTCN --max-steps 800
+  run $ANTE experiments/eval_deep_pi.py --table "$t"
+done
 run_req $ANTE experiments/run_ensembles.py --mlflow
 run_req $ANTE experiments/improve_conformal.py --mlflow
 run $ANTE experiments/improve_stacking.py --mlflow
 run $ANTE experiments/improve_fforma.py --mlflow
 
-stage 5 "baselines: Auto-ARIMA (AICc) · deep-PI · CRPS"
+stage 5 "baselines: Auto-ARIMA (AICc) · CRPS"
 run_req $ANTE experiments/auto_arima_baseline.py
-for t in FAD DFF; do
-  run $NF experiments/run_deep_pi.py --table "$t" --model BiTCN --max-steps 800
-  run $ANTE experiments/eval_deep_pi.py --table "$t"
-done
 run_req $ANTE experiments/run_crps_baseline.py
 
 stage 6 "tuning GBMs (Optuna persistente + confirmación en val-confirm independiente, AK)"

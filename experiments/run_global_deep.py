@@ -466,6 +466,7 @@ def _escribir_receipt(args, deck, receta, panel, merged, salida: Path, estado: d
     import resource
 
     import torch
+    from hpo_winner_receipt import lane_campaign_identity
 
     escritos = [
         {
@@ -489,6 +490,7 @@ def _escribir_receipt(args, deck, receta, panel, merged, salida: Path, estado: d
         "block": args.block,
         "universe": args.universe,
         "seed": args.seed,
+        "campaign": lane_campaign_identity(ROOT),  # M74-F · deuda 2: el lector la exige
         "device": "cpu",
         "accelerator_requested": "cpu",
         "cuda_available": bool(torch.cuda.is_available()),
@@ -563,6 +565,12 @@ def aplicar_receta(args: argparse.Namespace, receta: Any, deck: Any) -> argparse
     args.auto = False
     args.config = None
     args.universe = deck.universe
+    # ★ M74-F · deuda 3: la semilla también la manda la baraja. Aquí coincidía por casualidad (el
+    # defecto del runner es 1 y la baraja dice [1]); con receta, cualquier otra no es el protocolo.
+    try:
+        deck.exigir_semilla(args.seed)
+    except ValueError as exc:
+        raise SystemExit(f"lane {receta.name}: {exc}") from exc
     return args
 
 

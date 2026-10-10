@@ -237,14 +237,21 @@ def evaluate(table: str, champion: Recipe, challengers: list[Recipe] | None = No
     )
 
 
-def crps_champion(table: str) -> float | None:
+#: Recibo del CRPS de la receta campeona (`run_champion_crps.py`). M74-F · deuda 1.
+CRPS_RECEIPT_SCHEMA = "champion-crps-receipt/1"
+
+
+def crps_champion(table: str, path: Path | None = None) -> float | None:
     """Mean champion CRPS for a table, if ``reports/eval/crps_champion.csv`` exists (AM5).
 
     INFORMATIVE field of the verdict only — NOT part of the promotion gate (the gate stays
     point-MASE + Wilcoxon/Holm). Degrades cleanly to None when the CSV is absent or its
     schema is unexpected (it is produced by a separate CRPS pipeline).
+
+    ⚠️ M74-F · este lector devuelve el VALOR CRUDO, sin decir de qué añada es. Quien lo publique
+    tiene que pasar por :func:`crps_provenance`, que es el que acredita.
     """
-    path = REPORTS / "eval" / "crps_champion.csv"
+    path = path if path is not None else REPORTS / "eval" / "crps_champion.csv"
     if not path.exists():
         return None
     try:
@@ -262,6 +269,75 @@ def crps_champion(table: str) -> float | None:
         return round(val, 4) if val == val else None
     except Exception:  # noqa: BLE001 — informative only; never break the verdict
         return None
+
+
+def crps_provenance(table: str, *, reports: Path | None = None, panel: Path | None = None) -> dict:
+    """CRPS campeón de ``table`` **con su procedencia acreditada al leer** (M74-F · deuda 1).
+
+    La cuarta campaña real dejó `crps_champion.csv` byte-idéntico al de julio y, aun así, su cifra
+    llegó a ``key_facts`` y a ``\\factCrpsFad`` como si fuera de la campaña: `crps_champion` lee lo
+    que haya en disco y nadie preguntaba de cuándo es. Aquí el valor sólo se entrega como vigente
+    (``status="acreditado"``) si su recibo:
+
+    * existe, tiene el esquema ``champion-crps-receipt/1`` y su ``artifact_sha256`` es el del CSV;
+    * declara el ``panel_sha256`` del panel que hay HOY en disco — un CRPS de otra añada de datos no
+      describe el panel vigente, aunque nadie haya tocado el archivo;
+    * y, si hay una campaña ``running``, pertenece a ESA campaña.
+
+    Cualquier otra cosa es ``heredado`` (el CSV existe pero no se acredita: su valor se conserva en
+    ``inherited_value`` con su sha256, identificado como lo que es) o ``ausente``. Nunca lanza:
+    el CRPS es informativo y no puede tumbar el veredicto.
+    """
+    from vp_model import artifact_receipt as ar
+
+    reports = Path(reports) if reports is not None else REPORTS
+    panel = Path(panel) if panel is not None else ROOT / ar.PANEL_REL
+    path = reports / "eval" / "crps_champion.csv"
+    if not path.is_file():
+        return {
+            "status": "ausente",
+            "value": None,
+            "inherited_value": None,
+            "artifact_sha256": None,
+            "reason": f"no existe {path.name}",
+        }
+    crudo = crps_champion(table, path)
+    base = {"value": None, "inherited_value": crudo, "artifact_sha256": ar.sha256_file(path)}
+
+    def heredado(motivo: str) -> dict:
+        return {"status": "heredado", **base, "reason": motivo}
+
+    recibo = ar.receipt_path(path)
+    if not recibo.is_file():
+        return heredado("sin recibo: el CSV no dice de qué campaña ni de qué panel es")
+    try:
+        acta = ar.loads_strict(recibo.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as exc:
+        return heredado(f"recibo ilegible: {exc}")
+    if acta.get("schema") != CRPS_RECEIPT_SCHEMA:
+        return heredado(f"recibo con esquema {acta.get('schema')!r}")
+    if acta.get("artifact_sha256") != base["artifact_sha256"]:
+        return heredado("el CSV cambió desde que se selló su recibo")
+    if not panel.is_file():
+        return heredado(f"no hay panel en disco ({panel}) contra el que acreditar")
+    if acta.get("panel_sha256") != "sha256:" + ar.sha256_file(panel):
+        return heredado("el recibo es de otro panel: el CRPS no describe los datos vigentes")
+    try:
+        activa = ar.read_running_transaction(reports)
+    except ar.ReceiptError:
+        activa = None
+    if activa is not None and acta.get("campaign_id") != activa.get("campaign_id"):
+        return heredado(f"el recibo es de {acta.get('campaign_id')!r} y corre {activa.get('campaign_id')!r}")
+    if crudo is None:
+        return {"status": "ausente", **base, "reason": f"el CSV acreditado no trae CRPS para {table}"}
+    return {
+        "status": "acreditado",
+        **base,
+        "value": crudo,
+        "inherited_value": None,
+        "receipt_campaign_id": acta.get("campaign_id"),
+        "reason": None,
+    }
 
 
 def load_manifest() -> dict[str, Recipe]:
