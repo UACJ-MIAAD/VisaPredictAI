@@ -66,7 +66,7 @@ from darts.models import (
 )
 from darts.models import SKLearnModel  # RegressionModel is deprecated in darts 0.44
 from darts.utils.likelihood_models import GaussianLikelihood
-from darts.utils.utils import ModelMode
+from darts.utils.utils import ModelMode, random_method
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -133,8 +133,11 @@ class _SampledArima(DartsARIMA):
     estado inicial de N(a_{n+1|n}, P_{n+1|n}), que es la predictiva del modelo ajustado.
 
     Sólo cambia el camino ``num_samples > 1`` (los CRPS); el pronóstico puntual es el de darts.
+    ``@random_method`` es el de darts: instala la semilla guardada en el modelo (constructor o la última
+    llamada) en el RNG global antes de simular; sin él, la semilla del constructor se ignoraba.
     """
 
+    @random_method
     def _predict(
         self,
         n: int,
@@ -220,7 +223,7 @@ class _RelaxedSarima(_SampledArima):
 def build_relaxed_sarima() -> _RelaxedSarima:
     """Construye el segundo intento gobernado de la receta SARIMA canónica."""
 
-    return _RelaxedSarima(**HYPERPARAMS["sarima"])
+    return _RelaxedSarima(**HYPERPARAMS["sarima"], random_state=RANDOM_SEED)
 
 
 def to_timeseries(series: pd.Series) -> TimeSeries:
@@ -311,9 +314,10 @@ _FACTORIES: dict[str, Callable[[str | None], Forecaster]] = {
     "naive": lambda table: NaiveSeasonal(K=SEASONAL_PERIOD),
     "naive1": lambda table: NaiveSeasonal(K=1),  # AI1: random-walk floor of the pool
     "drift": lambda table: NaiveDrift(),  # AI1: random walk with drift
-    # #65: muestreo con la predictiva completa (el puntual es el de darts).
-    "arima": lambda table: _SampledArima(**HYPERPARAMS["arima"]),
-    "sarima": lambda table: _SampledArima(**HYPERPARAMS["sarima"]),
+    # #65: muestreo con la predictiva completa (el puntual es el de darts) y sembrado como las redes:
+    # sin semilla, el CRPS de ARIMA/SARIMA cambiaba de una corrida a otra.
+    "arima": lambda table: _SampledArima(**HYPERPARAMS["arima"], random_state=RANDOM_SEED),
+    "sarima": lambda table: _SampledArima(**HYPERPARAMS["sarima"], random_state=RANDOM_SEED),
     "prophet": lambda table: _prophet(),
     "ets": lambda table: AutoETS(),  # AJ4: small AICc search over {trend x damped}
     "theta": lambda table: AutoTheta(),  # AJ4: FourTheta.select_best_model

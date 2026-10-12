@@ -104,3 +104,74 @@ def test_muestrear_sobre_otra_serie_no_altera_el_ajuste(serie: TimeSeries) -> No
     assert m.predict(2, series=otra, num_samples=50, random_state=1).n_samples == 50
     np.testing.assert_array_equal(m.predict(3).values(), antes)
     assert m.model.nobs == len(serie)
+
+
+# ═══════════════════════════════ reproducibilidad (auditoría 12-oct): el contrato de semillas de darts
+@pytest.fixture(autouse=True)
+def _rng_global_intacto():
+    """Estas pruebas mueven el RNG global a propósito: se devuelve como estaba."""
+    estado = np.random.get_state()
+    yield
+    np.random.set_state(estado)
+
+
+def _muestras_bajo_rng_global(construir, ts: TimeSeries, rng_global: int, **kw) -> np.ndarray:
+    m = construir().fit(ts)
+    np.random.seed(rng_global)  # lo único que cambia entre llamadas: el RNG GLOBAL
+    return m.predict(2, num_samples=20, **kw).all_values()
+
+
+@pytest.mark.parametrize("cls", [DartsARIMA, models._SampledArima], ids=["darts", "sampled"])
+def test_la_semilla_del_constructor_manda_sobre_el_rng_global(serie: TimeSeries, cls) -> None:
+    """`@random_method` de darts instala la semilla del modelo; sustituir `_predict` sin él la perdía."""
+
+    def construir():
+        return cls(**HYPERPARAMS["arima"], random_state=7)
+
+    a = _muestras_bajo_rng_global(construir, serie, 0)
+    b = _muestras_bajo_rng_global(construir, serie, 999)
+    np.testing.assert_array_equal(a, b)
+
+
+def test_control_la_semilla_de_la_llamada_manda_sobre_la_del_constructor(serie: TimeSeries) -> None:
+    def construir():
+        return models._SampledArima(**HYPERPARAMS["arima"], random_state=7)
+
+    a = _muestras_bajo_rng_global(construir, serie, 0, random_state=3)
+    b = _muestras_bajo_rng_global(construir, serie, 999, random_state=3)
+    c = _muestras_bajo_rng_global(construir, serie, 0)
+    np.testing.assert_array_equal(a, b)
+    assert not np.array_equal(a, c)
+
+
+@pytest.mark.parametrize("nombre", ["arima", "sarima", "sarima_relajada"])
+def test_las_fabricas_de_produccion_estan_sembradas(serie: TimeSeries, nombre: str) -> None:
+    """Los productores no pasan semilla: la reproducibilidad del CRPS depende de que la fábrica la fije."""
+
+    def construir():
+        return models.build_relaxed_sarima() if nombre == "sarima_relajada" else models.build_model(nombre)
+
+    np.testing.assert_array_equal(
+        _muestras_bajo_rng_global(construir, serie, 0), _muestras_bajo_rng_global(construir, serie, 999)
+    )
+
+
+def test_el_walk_forward_de_los_productores_se_reproduce_bit_a_bit(serie: TimeSeries) -> None:
+    def correr(rng_global: int) -> np.ndarray:
+        np.random.seed(rng_global)
+        return (
+            models.build_model("sarima")
+            .historical_forecasts(
+                serie,
+                start=serie.time_index[-3],
+                forecast_horizon=1,
+                stride=1,
+                retrain=True,
+                last_points_only=True,
+                verbose=False,
+                num_samples=50,
+            )  # fmt: skip
+            .all_values()
+        )
+
+    np.testing.assert_array_equal(correr(0), correr(999))
