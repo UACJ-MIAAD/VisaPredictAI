@@ -31,10 +31,10 @@ from vp_model import champion
 REPORTS = champion.REPORTS
 
 
-def _markdown(verdicts: list[champion.Verdict]) -> str:
+def _markdown(verdicts: list[champion.Verdict], crps: dict[str, dict]) -> str:
     lines = ["# Campeón–retador — veredicto de promoción", ""]
     for v in verdicts:
-        prov = champion.crps_provenance(v.table)
+        prov = crps[v.table]
         if prov["status"] == "acreditado":
             crps_note = f" · CRPS {prov['value']} (informativo)"
         elif prov["inherited_value"] is not None:
@@ -70,12 +70,18 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mlflow", action="store_true", help="loguea el veredicto al staging MLflow")
     ap.add_argument("--promote", action="store_true", help="aplica el retador ganador al manifiesto")
+    ap.add_argument(
+        "--crps-parent-root",
+        type=Path,
+        default=None,
+        help="raíz (sólo lectura) de la madre de una complementaria champion_crps: sin ella su CRPS no se acredita",
+    )
     args = ap.parse_args()
 
     champions = champion.load_manifest()
     verdicts = [champion.evaluate(t, champions[t]) for t in ("FAD", "DFF")]
 
-    crps = {v.table: champion.crps_provenance(v.table) for v in verdicts}
+    crps = {v.table: champion.crps_provenance(v.table, parent_root=args.crps_parent_root) for v in verdicts}
     payload: dict[str, object] = {
         v.table: {
             "champion": v.champion,
@@ -104,7 +110,7 @@ def main() -> int:
     (REPORTS / "governance" / "champion_challenger.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
     )
-    (REPORTS / "governance" / "champion_challenger.md").write_text(_markdown(verdicts))
+    (REPORTS / "governance" / "champion_challenger.md").write_text(_markdown(verdicts, crps))
 
     for v in verdicts:
         rec = v.promote["challenger"] if v.promote else "mantener campeón"

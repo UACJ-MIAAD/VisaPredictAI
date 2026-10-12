@@ -989,6 +989,14 @@ def _num(fila: Mapping[str, str], campo: str) -> float:
     return valor
 
 
+def _entero(fila: Mapping[str, str], campo: str) -> int:
+    """Un conteo: finito y de valor ENTERO (``25.0`` vale, ``24.5`` no). #67: ``int()`` truncaba."""
+    valor = _num(fila, campo)
+    if not valor.is_integer():
+        raise ValueError(f"{campo}={fila.get(campo)!r} no es un conteo entero")
+    return int(valor)
+
+
 def sustancia_crps(root: Path, csv_p: Path, omitidas: Any) -> list[Problema]:
     """La sustancia del CSV, recalculada al leer.
 
@@ -1037,8 +1045,8 @@ def sustancia_crps(root: Path, csv_p: Path, omitidas: Any) -> list[Problema]:
             continue
         try:
             crps = [_num(f, "crps") for f in series]
-            n = [int(_num(f, "n_holdout_F")) for f in series]
-            k = [int(_num(f, "k95")) for f in series]
+            n = [_entero(f, "n_holdout_F") for f in series]
+            k = [_entero(f, "k95") for f in series]
             for f, c, ni, ki in zip(series, crps, n, k, strict=True):
                 if c < 0 or ni <= 0 or not 0 <= ki <= ni or _num(f, "cov95") != round(ki / ni, 4):
                     p.append(("crps-sustancia", f"{tabla}/{f.get('country')}/{f.get('category')}: fila incoherente"))
@@ -1050,9 +1058,9 @@ def sustancia_crps(root: Path, csv_p: Path, omitidas: Any) -> list[Problema]:
                 "cov95": round(sum(k) / sum(n), 4),
                 "crps": round(sum(crps) / len(crps), 2),
             }
-            leido = {c: _num(tot, c) for c in rehecho}
+            leido = {c: _num(tot, c) for c in rehecho}  # un ALL fraccionario no iguala sumas enteras
         except ValueError as exc:
-            p.append(("crps-sustancia", f"{tabla}: valor no finito o ilegible ({exc})"))
+            p.append(("crps-sustancia", f"{tabla}: valor no finito, no entero o ilegible ({exc})"))
             continue
         if leido != {c: float(v) for c, v in rehecho.items()}:
             p.append(("crps-sustancia", f"{tabla}: la fila ALL {leido} no es la que dan sus filas {rehecho}"))

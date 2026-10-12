@@ -282,7 +282,70 @@ def crps_champion(table: str, path: Path | None = None) -> float | None:
         return None
 
 
-def crps_provenance(table: str, *, reports: Path | None = None, panel: Path | None = None) -> dict:
+#: Estados de la campaña madre en los que su recibo de CRPS describe algo que esa campaña produjo.
+CRPS_CAMPANA_ACREDITA = frozenset({"running", "computed", "validated"})
+
+
+def _sin_lanes(*_a: object, **_k: object) -> None:
+    raise RuntimeError("una complementaria champion_crps no tiene lanes que acreditar")
+
+
+def _transaccion_del_crps(acta: dict, root: Path, parent_root: Path | None, git) -> tuple[str | None, dict | None]:
+    """``(motivo, None)`` si ninguna transacción de ``root`` acredita el recibo; ``(None, transacción)`` si sí.
+
+    #66: el ``campaign_id`` del recibo era una cadena que nadie resolvía. Aquí se resuelve contra la
+    campaña o la complementaria del MISMO árbol, y la complementaria se re-acredita con su lector.
+    """
+    from vp_model import artifact_receipt as ar
+    from vp_model import complement as cx
+
+    cid = acta.get("campaign_id")
+    campana = root / cx.CAMPANA_REL
+    if campana.is_file():
+        try:
+            estado = ar.loads_strict(campana.read_text(encoding="utf-8"))
+        except (ValueError, OSError) as exc:
+            return f"transacción de campaña ilegible: {exc}", None
+        status = estado.get("status")
+        if estado.get("campaign_id") != cid:
+            return f"el recibo es de {cid!r} y la campaña de este árbol es {estado.get('campaign_id')!r}", None
+        if status not in CRPS_CAMPANA_ACREDITA:
+            return f"la campaña {cid!r} está en {status!r}: una campaña que no produjo no acredita", None
+        if (estado.get("source_git_sha"), estado.get("panel_sha256")) != (
+            acta.get("code_sha"),
+            acta.get("panel_sha256"),
+        ):
+            return f"el recibo dice ser de {cid!r} con otro código o panel que esa campaña", None
+        return None, {"kind": "campaign", "status": status}
+    if (root / cx.RUTA_REL).is_file():
+        try:
+            doc = cx.leer(root)
+        except cx.ComplementoError as exc:
+            return f"complementaria ilegible: {exc}", None
+        if doc["complement_id"] != cid:
+            return f"el recibo es de {cid!r} y la complementaria de este árbol es {doc['complement_id']!r}", None
+        if doc["purpose"] != "champion_crps":
+            return f"la complementaria {cid!r} es de {doc['purpose']!r}, no de champion_crps", None
+        if doc["status"] != "accredited":
+            return f"la complementaria {cid!r} está en {doc['status']!r}; sólo una 'accredited' acredita", None
+        if parent_root is None:
+            return f"la complementaria {cid!r} sólo se re-acredita con la raíz de su madre (parent_root)", None
+        try:
+            cx.acreditar(root, parent_root=Path(parent_root), acreditar_lanes=_sin_lanes, git=git or cx.estado_git)
+        except cx.ComplementoError as exc:
+            return f"el lector no acredita la complementaria {cid!r}: {exc}", None
+        return None, {"kind": "complement", "status": "accredited"}
+    return f"el recibo nombra {cid!r} y ninguna transacción de este árbol lo acredita", None
+
+
+def crps_provenance(
+    table: str,
+    *,
+    reports: Path | None = None,
+    panel: Path | None = None,
+    parent_root: Path | None = None,
+    git=None,
+) -> dict:
     """CRPS campeón de ``table`` **con su procedencia acreditada al leer** (M74-F · deuda 1).
 
     La cuarta campaña real dejó `crps_champion.csv` byte-idéntico al de julio y, aun así, su cifra
@@ -293,7 +356,11 @@ def crps_provenance(table: str, *, reports: Path | None = None, panel: Path | No
     * existe, tiene el esquema ``champion-crps-receipt/1`` y su ``artifact_sha256`` es el del CSV;
     * declara el ``panel_sha256`` del panel que hay HOY en disco — un CRPS de otra añada de datos no
       describe el panel vigente, aunque nadie haya tocado el archivo;
-    * y, si hay una campaña ``running``, pertenece a ESA campaña.
+    * y su ``campaign_id`` lo resuelve una transacción del MISMO árbol (#66): la campaña de ese id en
+      ``running``/``computed``/``validated`` con el código y el panel del recibo, o la complementaria
+      ``champion_crps`` de ese id ``accredited`` que su lector (`complement.acreditar`) vuelve a
+      acreditar entera con la raíz de su madre (``parent_root``). Un id que nadie resuelve, una
+      transacción ``failed`` o una complementaria sólo ``computed`` no acreditan.
 
     Cualquier otra cosa es ``heredado`` (el CSV existe pero no se acredita: su valor se conserva en
     ``inherited_value`` con su sha256, identificado como lo que es) o ``ausente``. Nunca lanza:
@@ -333,12 +400,9 @@ def crps_provenance(table: str, *, reports: Path | None = None, panel: Path | No
         return heredado(f"no hay panel en disco ({panel}) contra el que acreditar")
     if acta.get("panel_sha256") != "sha256:" + ar.sha256_file(panel):
         return heredado("el recibo es de otro panel: el CRPS no describe los datos vigentes")
-    try:
-        activa = ar.read_running_transaction(reports)
-    except ar.ReceiptError:
-        activa = None
-    if activa is not None and acta.get("campaign_id") != activa.get("campaign_id"):
-        return heredado(f"el recibo es de {acta.get('campaign_id')!r} y corre {activa.get('campaign_id')!r}")
+    motivo, transaccion = _transaccion_del_crps(acta, reports.parent, parent_root, git)
+    if motivo is not None:
+        return heredado(motivo)
     if crudo is None:
         return {"status": "ausente", **base, "reason": f"el CSV acreditado no trae CRPS para {table}"}
     return {
@@ -347,6 +411,7 @@ def crps_provenance(table: str, *, reports: Path | None = None, panel: Path | No
         "value": crudo,
         "inherited_value": None,
         "receipt_campaign_id": acta.get("campaign_id"),
+        "transaction": transaccion,
         "reason": None,
     }
 
