@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 from scipy.stats import wilcoxon
@@ -239,6 +240,16 @@ def evaluate(table: str, champion: Recipe, challengers: list[Recipe] | None = No
 
 #: Recibo del CRPS de la receta campeona (`run_champion_crps.py`). M74-F · deuda 1.
 CRPS_RECEIPT_SCHEMA = "champion-crps-receipt/1"
+#: Rejilla de cuantiles de la cuadratura del CRPS (la misma convención que `eval_deep_pi.py`).
+CRPS_QUANTS = (0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.975)
+#: La corrida COMPLETA de `run_champion_crps` (sus valores por defecto): lo único que una complementaria
+#: `champion_crps` acredita. Un ``--limit`` o un muestreo más corto son otro protocolo, no esta cifra.
+CRPS_PROTOCOLO: dict[str, Any] = {
+    "tables": ["FAD", "DFF"],
+    "block": "family",
+    "num_samples": 200,
+    "quants": list(CRPS_QUANTS),
+}
 
 
 def crps_champion(table: str, path: Path | None = None) -> float | None:

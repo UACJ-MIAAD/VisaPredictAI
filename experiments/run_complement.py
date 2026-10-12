@@ -1,15 +1,17 @@
 """M74-F · C3/C4 — CLI del ciclo de una transacción complementaria (`vp_model.complement`).
 
 Fino a propósito: cada subcomando es UNA transición del contrato o una lectura, y toda decisión vive
-en `vp_model.complement`. No entrena ni lanza lanes: C4 los corre `run_e3_campaign.py --complement`
-y C3 `improve_conformal.py --complement`, cada uno con su propia orden.
+en `vp_model.complement`. No entrena ni lanza lanes: C4 los corre `run_e3_campaign.py --complement`,
+C3 `improve_conformal.py --complement` y C5 (CRPS campeón) `run_champion_crps.py --complement`, cada uno
+con su propia orden.
 
 Ciclo (en un worktree DESECHABLE del commit de M74-F, nunca en exec):
 
     import  copia de la madre los artefactos que el propósito importa (antes de planificar)
     plan    sella id, madre, código, panel, DuckDB, entradas congeladas, lanes, semilla e importaciones,
             cada una contra su miembro del tar de evidencia de la madre (``--evidence`` = su SHA256SUMS,
-            copiado bajo reports/ junto a campaign.json y salidas_campana_completa.tar.gz)
+            copiado bajo reports/ junto a campaign.json y salidas_campana_completa.tar.gz; obligatorio
+            si el propósito importa algo — C5 no importa nada)
     start   planned → running
     close   running → computed   (el lector acredita lanes, importaciones y, en C3, la procedencia)
     accept  computed → accredited (NO autoriza propagar ni publicar)
@@ -79,13 +81,20 @@ def importaciones(purpose: str) -> list[dict]:
             for rol in cx.ROLES_C3:
                 rel, proto = cx.artefacto_c3(rol, t)
                 decl.append({"artifact": rel, "protocol": proto, "consumers": consumidores[rol]})
+    elif purpose == "champion_crps":
+        decl = []  # C5 calcula sobre el panel y la DuckDB sellados; la receta es una entrada congelada
     else:
         raise cx.ComplementoError([("proposito", f"{purpose!r} no es uno de {sorted(cx.PROPOSITOS)}")])
     return [{**d, "origin_path": d["artifact"]} for d in decl]
 
 
 def entradas_congeladas(root: Path, purpose: str) -> dict[str, str]:
-    """C4: las congeladas de la baraja (hash DECLARADO) y las derivadas que no se importan (hash vivo)."""
+    """C4: las congeladas de la baraja (hash DECLARADO) y las derivadas que no se importan (hash vivo).
+    C5: la receta campeona (`champion_manifest.json`), con su hash vivo al planificar."""
+    if purpose == "champion_crps":
+        cx = _contrato()
+        manifiesto = root / cx.MANIFIESTO_CAMPEON_REL
+        return {cx.MANIFIESTO_CAMPEON_REL: cx.ar.sha256_file(manifiesto) if manifiesto.is_file() else "ausente"}
     if purpose != "e3":
         return {}
     _contrato()
@@ -196,7 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
             sp.add_argument("--purpose", required=True, choices=sorted(cx.PROPOSITOS))
         if nombre == "plan":
             sp.add_argument("--id", required=True, help="complement_id: compl_<...>")
-            sp.add_argument("--evidence", required=True, help="SHA256SUMS de la evidencia de la madre, bajo reports/")
+            sp.add_argument("--evidence", default=None, help="SHA256SUMS de la evidencia de la madre, bajo reports/")
         if nombre == "fail":
             sp.add_argument("--reason", required=True)
     return ap

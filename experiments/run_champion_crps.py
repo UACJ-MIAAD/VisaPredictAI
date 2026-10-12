@@ -24,6 +24,12 @@ per table (mean CRPS, pooled coverage + CI).
 
 Runs in ``ante`` from the repo root:
   ante/bin/python experiments/run_champion_crps.py [--tables FAD,DFF] [--block family] [--limit N]
+  ante/bin/python experiments/run_champion_crps.py --complement
+
+★ M74-F · C5: with ``--complement`` it runs inside a running ``champion_crps`` complement
+(`vp_model.complement`): only the full protocol (`champion.CRPS_PROTOCOLO`), preconditions checked before
+computing and again before sealing, and the receipt carries the complement's identity plus every skipped
+series with its reason. Without the flag, a tree with a complement refuses to run.
 """
 
 from __future__ import annotations
@@ -35,10 +41,11 @@ import numpy as np
 import pandas as pd
 
 from vp_model import config, dataset, intervals, models, walkforward
+from vp_model.champion import CRPS_PROTOCOLO, CRPS_QUANTS
 
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
 OUT = REPORTS / "eval" / "crps_champion.csv"
-QUANTS = (0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.975)
+QUANTS = CRPS_QUANTS
 N_FLOOR = 30
 log = config.get_logger("champion_crps")
 
@@ -82,8 +89,10 @@ def _member_quantiles(name: str, country: str, category: str, table: str, num_sa
     return {q: hold + float(np.quantile(resid, q)) for q in QUANTS}
 
 
-def _score_series(recipe: tuple[str, ...], country: str, category: str, table: str, num_samples: int) -> dict | None:
-    """CRPS + 95% coverage of the Vincentized champion on one series (None = skipped)."""
+def _score_series(
+    recipe: tuple[str, ...], country: str, category: str, table: str, num_samples: int
+) -> tuple[dict | None, str | None]:
+    """CRPS + 95% coverage of the Vincentized champion on one series: ``(row, None)`` or ``(None, reason)``."""
     try:
         member_qs = [_member_quantiles(m, country, category, table, num_samples) for m in recipe]
         raw = dataset.load_series(country, category, table).astype("float64")
@@ -106,18 +115,21 @@ def _score_series(recipe: tuple[str, ...], country: str, category: str, table: s
             "crps": round(crps, 2),
             "cov95": round(float(hits.mean()), 4),
             "k95": int(hits.sum()),
-        }
+        }, None
     except Exception as e:  # noqa: BLE001 — one failing series must not abort the run
         log.info("skip %s/%s/%s: %s", country, category, table, e)
-        return None
+        return None, f"{type(e).__name__}: {e}"[:300]
 
 
-def run(tables: tuple[str, ...], block: str, limit: int | None, num_samples: int) -> pd.DataFrame:
+def run(
+    tables: tuple[str, ...], block: str, limit: int | None, num_samples: int, *, complement: bool = False
+) -> pd.DataFrame:
     from vp_model import champion
 
     manifest = champion.load_manifest()
     config.seed_everything()
     rows: list[dict] = []
+    skipped: list[dict] = []
     for table in tables:
         recipe = manifest[table].models
         cat = dataset.list_series(table=table, block=block, countries=config.PILOT_COUNTRIES)
@@ -125,8 +137,9 @@ def run(tables: tuple[str, ...], block: str, limit: int | None, num_samples: int
             cat = cat.head(limit)
         per_table: list[dict] = []
         for r in cat.itertuples():
-            out = _score_series(recipe, r.country, r.category, table, num_samples)
+            out, reason = _score_series(recipe, r.country, r.category, table, num_samples)
             if out is None:
+                skipped.append({"table": table, "country": r.country, "category": r.category, "reason": reason})
                 continue
             per_table.append(out)
             log.info("✓ %s/%s/%s CRPS=%.1f cov95=%.2f", table, r.country, r.category, out["crps"], out["cov95"])
@@ -161,16 +174,30 @@ def run(tables: tuple[str, ...], block: str, limit: int | None, num_samples: int
     OUT.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUT, index=False)
     print(f"-> {OUT} ({len(df)} rows)")
-    _seal(tables, block, limit, num_samples)
+    _seal(tables, block, limit, num_samples, skipped, complement=complement)
     return df
 
 
-def _seal(tables: tuple[str, ...], block: str, limit: int | None, num_samples: int) -> None:
+def _protocol(tables: tuple[str, ...], block: str, num_samples: int) -> dict:
+    return {"tables": list(tables), "block": block, "num_samples": num_samples, "quants": list(QUANTS)}
+
+
+def _seal(
+    tables: tuple[str, ...],
+    block: str,
+    limit: int | None,
+    num_samples: int,
+    skipped: list[dict],
+    *,
+    complement: bool = False,
+) -> None:
     """Recibo del CSV (M74-F · deuda 1): sin él, `champion.crps_provenance` lo trata como heredado.
 
-    Sólo se sella una corrida COMPLETA dentro de una campaña ``running``: un ``--limit`` es un smoke
-    y una corrida suelta no tiene identidad que prestar. En ambos casos el CSV queda escrito pero
-    sin acreditar, y así lo dice el veredicto en vez de publicarlo como vigente.
+    Sólo se sella una corrida COMPLETA con identidad que prestar: una campaña ``running`` o, con
+    ``complement``, la complementaria `champion_crps` en curso (C5). Un ``--limit`` es un smoke y una
+    corrida suelta no tiene identidad: el CSV queda escrito pero sin acreditar, y así lo dice el veredicto
+    en vez de publicarlo como vigente. El recibo declara también las series omitidas con su motivo, para
+    que el lector pueda exigir puntuadas + omitidas = catálogo.
     """
     from vp_model import artifact_receipt as ar
     from vp_model import champion
@@ -178,31 +205,55 @@ def _seal(tables: tuple[str, ...], block: str, limit: int | None, num_samples: i
     if limit:
         log.warning("--limit %s: smoke, el CSV queda SIN recibo (heredado para el veredicto)", limit)
         return
-    try:
-        cid, sha, panel = ar.campaign_identity(REPORTS, code_root=REPORTS.parent)
-    except ar.ReceiptError as exc:
-        log.warning("fuera de campaña, el CSV queda SIN recibo (heredado para el veredicto): %s", exc)
-        return
+    if complement:
+        from vp_model import complement as cx
+
+        try:  # el código o la DuckDB pudieron cambiar mientras se calculaba: sin precondiciones no hay firma
+            ident = cx.identidad_crps(REPORTS.parent, duckdb_consumida=Path(dataset.DB_PATH))
+        except cx.ComplementoError as exc:
+            raise SystemExit(f"✗ el CRPS campeón no se firma: {exc}") from exc
+        cid, sha, panel = ident["campaign_id"], ident["source_git_sha"], ident["panel_sha256"]
+    else:
+        try:
+            cid, sha, panel = ar.campaign_identity(REPORTS, code_root=REPORTS.parent)
+        except ar.ReceiptError as exc:
+            log.warning("fuera de campaña, el CSV queda SIN recibo (heredado para el veredicto): %s", exc)
+            return
     recibo = ar.seal(
         OUT,
         schema=champion.CRPS_RECEIPT_SCHEMA,
         campaign_id=cid,
         code_sha=sha,
         panel_sha256=panel,
-        protocol={"tables": list(tables), "block": block, "num_samples": num_samples, "quants": list(QUANTS)},
-        coverage={"tables": sorted(set(tables))},
+        protocol=_protocol(tables, block, num_samples),
+        coverage={"tables": sorted(set(tables)), "skipped": sorted(skipped, key=lambda o: tuple(o.values()))},
     )
     print(f"   recibo {recibo.name} · {cid}")
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tables", default="FAD,DFF")
-    ap.add_argument("--block", default="family")
+    ap.add_argument("--tables", default=",".join(CRPS_PROTOCOLO["tables"]))
+    ap.add_argument("--block", default=CRPS_PROTOCOLO["block"])
     ap.add_argument("--limit", type=int, default=None, help="cap series per table (smoke test)")
-    ap.add_argument("--num-samples", type=int, default=200, help="native samples for ARIMA/SARIMA members")
-    args = ap.parse_args()
-    run(tuple(t.strip() for t in args.tables.split(",") if t.strip()), args.block, args.limit, args.num_samples)
+    ap.add_argument(
+        "--num-samples", type=int, default=CRPS_PROTOCOLO["num_samples"], help="native samples for ARIMA/SARIMA members"
+    )
+    ap.add_argument("--complement", action="store_true", help="C5 inside the running champion_crps complement")
+    args = ap.parse_args(argv)
+    tables = tuple(t.strip() for t in args.tables.split(",") if t.strip())
+    if args.complement:
+        from vp_model import complement as cx
+
+        if args.limit or _protocol(tables, args.block, args.num_samples) != CRPS_PROTOCOLO:
+            raise SystemExit(f"✗ C5 sólo acredita la corrida completa {CRPS_PROTOCOLO}: sin --limit ni otro protocolo")
+        try:
+            cx.precondiciones_calculo(REPORTS.parent, proposito="champion_crps", duckdb_consumida=Path(dataset.DB_PATH))
+        except cx.ComplementoError as exc:
+            raise SystemExit(f"✗ el CRPS campeón no puede calcularse aquí: {exc}") from exc
+    elif (REPORTS / "campaign" / "complement.json").exists():
+        raise SystemExit("✗ este árbol tiene una transacción complementaria: corre con --complement")
+    run(tables, args.block, args.limit, args.num_samples, complement=args.complement)
 
 
 if __name__ == "__main__":
