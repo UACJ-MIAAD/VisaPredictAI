@@ -321,3 +321,34 @@ def test_c5_complementaria_con_coverage_mal_tipada_es_heredado_y_no_lanza(m5: di
     c5._reescribir(m5, _filas_c5(m5), coverage=["invalida"])
     p = _estado(*_c5(m5), parent_root=m5["madre"])
     assert p["status"] == "heredado" and "crps-recibo" in p["reason"], p
+
+
+def _csv_c5_editado_sin_resellar(m: dict) -> None:
+    destino = m["compl"] / cx.CRPS_REL
+    filas = _filas_c5(m)
+    i = next(i for i, f in enumerate(filas) if f["country"] != "ALL")
+    filas[i] = {**filas[i], "crps": f"{float(filas[i]['crps']) + 0.0:.3f}"}  # misma cifra, otra grafía
+    out = io.StringIO()
+    w = csv.DictWriter(out, fieldnames=list(filas[0]))
+    w.writeheader()
+    w.writerows(filas)
+    assert out.getvalue() != destino.read_text()
+    destino.write_text(out.getvalue())
+
+
+@pytest.mark.parametrize(
+    ("mutar", "motivo"),
+    [
+        (lambda m: c5._reescribir(m, _filas_c5(m), schema=champion.CRPS_BASE_RECEIPT_SCHEMA), "esquema"),
+        (_csv_c5_editado_sin_resellar, "cambió"),
+    ],  # fmt: skip
+    ids=["esquema_ajeno", "csv_editado"],
+)
+def test_c5_en_campana_un_recibo_coherente_con_otro_esquema_o_sha_es_heredado(
+    m5: dict, monkeypatch, mutar, motivo
+) -> None:
+    """Sustancia y protocolo intactos: sólo la comprobación de esquema o de sha del consumidor lo caza."""
+    _producida_en_campana(m5, monkeypatch)
+    mutar(m5)
+    p = _estado_c5(m5)
+    assert p["status"] == "heredado" and motivo in p["reason"], p

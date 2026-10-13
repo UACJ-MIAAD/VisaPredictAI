@@ -517,3 +517,31 @@ def test_c6_en_campana_con_entorno_de_otra_corrida_no_se_firma(mundo: dict, monk
     _productor(monkeypatch, mundo)
     rcb.main([])
     assert _csv(mundo).is_file() and not ar.receipt_path(_csv(mundo)).exists()
+
+
+def _csv_editado_sin_resellar(m):
+    """Una cifra cambiada a otra igual de válida, sin re-sellar: sólo el sha del recibo lo delata."""
+    filas = _filas(m)
+    filas[0] = {**filas[0], "crps": str(float(filas[0]["crps"]) + 1.0)}
+    out = io.StringIO()
+    w = csv.DictWriter(out, fieldnames=["model", "country", "category", "crps"])
+    w.writeheader()
+    w.writerows(filas)
+    _csv(m).write_text(out.getvalue())
+
+
+@pytest.mark.parametrize(
+    ("mutar", "motivo"),
+    [(_otro_esquema, "esquema"), (_csv_editado_sin_resellar, "cambió")],
+    ids=["esquema_ajeno", "csv_editado"],
+)
+def test_c6_en_campana_un_recibo_coherente_con_otro_esquema_o_sha_es_heredado(
+    mundo: dict, monkeypatch, mutar, motivo: str
+) -> None:
+    """Sustancia y protocolo intactos: sólo la comprobación de esquema o de sha del consumidor lo caza."""
+    _campana_en_curso(mundo, monkeypatch)
+    _productor(monkeypatch, mundo)
+    rcb.main([])
+    mutar(mundo)
+    p = _estado(mundo)
+    assert p["status"] == "heredado" and motivo in p["reason"], p
