@@ -1044,6 +1044,17 @@ def _entero(fila: Mapping[str, str], campo: str) -> int:
     return int(valor)
 
 
+def _omision_valida(o: Any, campos: Sequence[str]) -> bool:
+    """Una omisión declarada: exactamente ``campos`` + ``reason``, todos texto y el motivo no vacío.
+    Auditoría C6 · ronda 2: un campo lista llegaba a un conjunto y lanzaba ``TypeError``."""
+    return (
+        isinstance(o, dict)
+        and set(o) == {*campos, "reason"}
+        and all(isinstance(v, str) for v in o.values())
+        and bool(o["reason"].strip())
+    )
+
+
 def sustancia_crps(root: Path, csv_p: Path, omitidas: Any) -> list[Problema]:
     """La sustancia del CSV, recalculada al leer.
 
@@ -1066,8 +1077,7 @@ def sustancia_crps(root: Path, csv_p: Path, omitidas: Any) -> list[Problema]:
     except (OSError, ValueError) as exc:
         return [("crps-sustancia", f"no se puede leer el CSV o el manifiesto: {exc}")]
     if not isinstance(omitidas, list) or any(
-        not isinstance(o, dict) or set(o) != {"table", "country", "category", "reason"} or not str(o["reason"]).strip()
-        for o in omitidas
+        not _omision_valida(o, ("table", "country", "category")) for o in omitidas
     ):
         return [("crps-cobertura", "el recibo no declara las series omitidas (tabla, país, categoría y motivo)")]
     for fila in filas:
@@ -1099,6 +1109,9 @@ def sustancia_crps(root: Path, csv_p: Path, omitidas: Any) -> list[Problema]:
             for f, c, ni, ki in zip(series, crps, n, k, strict=True):
                 if c < 0 or ni <= 0 or not 0 <= ki <= ni or _num(f, "cov95") != round(ki / ni, 4):
                     p.append(("crps-sustancia", f"{tabla}/{f.get('country')}/{f.get('category')}: fila incoherente"))
+            if sum(n) <= 0:
+                p.append(("crps-sustancia", f"{tabla}: ninguna observación F puntuada (n_holdout_F suma 0)"))
+                continue
             tot = totales[0]
             rehecho = {
                 "n_series": len(series),
@@ -1181,9 +1194,7 @@ def sustancia_crps_base(root: Path, csv_p: Path, omitidas: Any) -> list[Problema
     except OSError as exc:
         return [("crps-sustancia", f"no se puede leer el CSV: {exc}")]
     campos = ("model", "country", "category")
-    if not isinstance(omitidas, list) or any(
-        not isinstance(o, dict) or set(o) != {*campos, "reason"} or not str(o["reason"]).strip() for o in omitidas
-    ):
+    if not isinstance(omitidas, list) or any(not _omision_valida(o, campos) for o in omitidas):
         return [("crps-cobertura", "el recibo no declara las omisiones (modelo, país, categoría y motivo)")]
     claves = [tuple(f.get(c) for c in campos) for f in filas]
     series, sin_catalogo = _catalogo(root, str(protocolo["table"]), str(protocolo["block"]))

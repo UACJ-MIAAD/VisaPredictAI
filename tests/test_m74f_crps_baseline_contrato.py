@@ -554,3 +554,25 @@ def test_c6_en_campana_sin_duckdb_legible_es_heredado_y_no_lanza(mundo: dict, mo
     (mundo["compl"] / cx.DUCKDB_REL).unlink()
     p = _estado(mundo)
     assert p["status"] == "heredado" and "crps-cobertura" in p["reason"], p
+
+
+# ═══════════════════════════════ auditoría C6 · ronda 2: una omisión mal tipada es un problema, no una excepción
+def _omision_con_campo_lista(m):
+    f = _filas(m)[0]
+    _reescribir(m, [{**f, "crps": ""}, *_filas(m)[1:]], coverage={"table": "FAD", "skipped": [
+        {"model": [], "country": f["country"], "category": f["category"], "reason": "x"}]})  # fmt: skip
+
+
+def test_c6_lector_omision_mal_tipada_es_un_problema(mundo: dict, monkeypatch, capsys) -> None:
+    _calculada(mundo, monkeypatch, capsys)
+    _omision_con_campo_lista(mundo)
+    assert "crps-cobertura" in _codigos(mundo)
+
+
+def test_c6_en_campana_omision_mal_tipada_es_heredado_y_no_lanza(mundo: dict, monkeypatch) -> None:
+    _campana_en_curso(mundo, monkeypatch)
+    _productor(monkeypatch, mundo)
+    rcb.main([])
+    _omision_con_campo_lista(mundo)
+    p = _estado(mundo)
+    assert p["status"] == "heredado" and "crps-cobertura" in p["reason"], p

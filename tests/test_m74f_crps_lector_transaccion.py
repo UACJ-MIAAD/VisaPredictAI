@@ -360,3 +360,48 @@ def test_c5_en_campana_sin_duckdb_legible_es_heredado_y_no_lanza(m5: dict, monke
     (m5["compl"] / cx.DUCKDB_REL).unlink()
     p = _estado_c5(m5)
     assert p["status"] == "heredado" and "crps-cobertura" in p["reason"], p
+
+
+# ═══════════════════════════════ auditoría C6 · ronda 2: entradas mal tipadas o degeneradas → problema, no excepción
+def _csv_c5_crudo(m: dict, filas: list[dict]) -> None:
+    """Escribe el CSV tal cual (sin rehacer la fila ALL) y re-sella el recibo con sha coherente."""
+    destino = m["compl"] / cx.CRPS_REL
+    out = io.StringIO()
+    w = csv.DictWriter(out, fieldnames=c5.COLUMNAS, extrasaction="ignore")
+    w.writeheader()
+    w.writerows(filas)
+    destino.write_text(out.getvalue())
+    acta = _recibo(m)
+    ar.seal(destino, schema=acta["schema"], campaign_id=acta["campaign_id"], code_sha=acta["code_sha"],
+            panel_sha256=acta["panel_sha256"], protocol=acta["protocol"], coverage=acta["coverage"])  # fmt: skip
+
+
+def _conteos_a_cero(m: dict) -> None:
+    filas = [{**f, "n_holdout_F": "0", "k95": "0", "cov95": "0.0"} for f in _filas_c5(m)]
+    _csv_c5_crudo(m, filas)
+
+
+def _omision_con_campo_lista(m: dict) -> None:
+    c5._reescribir(m, _filas_c5(m), coverage={"tables": ["DFF", "FAD"], "skipped": [
+        {"table": "FAD", "country": [], "category": "F1", "reason": "x"}]})  # fmt: skip
+
+
+@pytest.mark.parametrize(("mutar", "codigo"), [(_conteos_a_cero, "crps-sustancia"), (_omision_con_campo_lista, "crps-cobertura")],
+                         ids=["conteos_a_cero", "omision_campo_lista"])  # fmt: skip
+def test_c5_lector_entrada_degenerada_es_un_problema_no_una_excepcion(
+    m5: dict, monkeypatch, capsys, mutar, codigo
+) -> None:
+    _c5_calculada(m5, monkeypatch, capsys)
+    mutar(m5)
+    doc = json.loads((m5["compl"] / cx.RUTA_REL).read_text())
+    assert codigo in {c for c, _ in cx.verificar_crps(m5["compl"], doc)}
+
+
+@pytest.mark.parametrize(
+    "mutar", [_conteos_a_cero, _omision_con_campo_lista], ids=["conteos_a_cero", "omision_campo_lista"]
+)
+def test_c5_en_campana_entrada_degenerada_es_heredado_y_no_lanza(m5: dict, monkeypatch, mutar) -> None:
+    _producida_en_campana(m5, monkeypatch)
+    mutar(m5)
+    p = _estado_c5(m5)
+    assert p["status"] == "heredado" and "crps-" in p["reason"], p
