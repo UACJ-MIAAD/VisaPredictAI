@@ -2,8 +2,8 @@
 
 Fino a propósito: cada subcomando es UNA transición del contrato o una lectura, y toda decisión vive
 en `vp_model.complement`. No entrena ni lanza lanes: C4 los corre `run_e3_campaign.py --complement`,
-C3 `improve_conformal.py --complement` y C5 (CRPS campeón) `run_champion_crps.py --complement`, cada uno
-con su propia orden.
+C3 `improve_conformal.py --complement`, C5 (CRPS campeón) `run_champion_crps.py --complement` y C6 (CRPS de
+referencia) `run_crps_baseline.py --complement`, cada uno con su propia orden.
 
 Ciclo (en un worktree DESECHABLE del commit de M74-F, nunca en exec):
 
@@ -81,8 +81,8 @@ def importaciones(purpose: str) -> list[dict]:
             for rol in cx.ROLES_C3:
                 rel, proto = cx.artefacto_c3(rol, t)
                 decl.append({"artifact": rel, "protocol": proto, "consumers": consumidores[rol]})
-    elif purpose == "champion_crps":
-        decl = []  # C5 calcula sobre el panel y la DuckDB sellados; la receta es una entrada congelada
+    elif purpose in {"champion_crps", "baseline_crps"}:
+        decl = []  # C5/C6 calculan sobre el panel y la DuckDB sellados (C5: la receta es una entrada congelada)
     else:
         raise cx.ComplementoError([("proposito", f"{purpose!r} no es uno de {sorted(cx.PROPOSITOS)}")])
     return [{**d, "origin_path": d["artifact"]} for d in decl]

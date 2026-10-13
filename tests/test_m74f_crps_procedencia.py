@@ -88,7 +88,7 @@ def test_csv_sin_recibo_es_heredado_y_conserva_su_valor_identificado(mundo) -> N
     assert p["artifact_sha256"] == ar.sha256_file(reports / "eval" / "crps_champion.csv")
 
 
-def test_recibo_valido_para_el_panel_de_hoy_acredita_con_su_transaccion(mundo) -> None:
+def test_recibo_valido_para_el_panel_de_hoy_exige_transaccion_y_validacion(mundo) -> None:
     """#66: esta prueba acreditaba un recibo SIN transacción alguna; era el agujero, no una garantía.
     Ahora la campaña que lo produjo tiene que existir en el árbol (`test_m74f_crps_lector_transaccion`)."""
     reports, panel = mundo
@@ -96,8 +96,9 @@ def test_recibo_valido_para_el_panel_de_hoy_acredita_con_su_transaccion(mundo) -
     assert champion.crps_provenance("DFF", reports=reports, panel=panel)["status"] == "heredado"
     _transaccion(reports, panel, "rederiv_x_1")
     p = champion.crps_provenance("DFF", reports=reports, panel=panel)
-    assert p["status"] == "acreditado" and p["value"] == pytest.approx(31.3)
-    assert p["inherited_value"] is None
+    # auditoría C6: la transacción sola tampoco basta; el recibo de juguete no trae el protocolo completo
+    assert p["status"] == "heredado" and "crps-protocolo" in p["reason"], p
+    assert p["inherited_value"] == pytest.approx(31.3)
 
 
 def test_recibo_de_otro_panel_no_acredita(mundo) -> None:
@@ -130,9 +131,11 @@ def test_dentro_de_campana_el_recibo_tiene_que_ser_de_esa_campana(mundo) -> None
     _transaccion(reports, panel, "rederiv_nueva")
     p = champion.crps_provenance("FAD", reports=reports, panel=panel)
     assert p["status"] == "heredado" and "rederiv_vieja" in p["reason"]
-    # control benigno: el MISMO recibo bajo SU campaña sí acredita (el gate no es un muro)
+    # bajo SU campaña la identidad ya no es el motivo (el gate de transacción no es un muro); el recibo de juguete
+    # cae después por protocolo. El control acreditado con productor real: `test_c5_en_campana_control_*`.
     _transaccion(reports, panel, "rederiv_vieja")
-    assert champion.crps_provenance("FAD", reports=reports, panel=panel)["status"] == "acreditado"
+    p = champion.crps_provenance("FAD", reports=reports, panel=panel)
+    assert "rederiv_vieja" not in p["reason"] and "crps-protocolo" in p["reason"], p
 
 
 def test_key_facts_no_publica_como_vigente_un_crps_heredado() -> None:

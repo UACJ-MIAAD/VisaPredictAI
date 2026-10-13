@@ -61,6 +61,14 @@ las series omitidas con su motivo. El lector (`verificar_crps`) re-acredita reci
 panel y protocolo completo, y recalcula la sustancia (`sustancia_crps`): puntuadas + omitidas = el
 catálogo de la DuckDB sellada, filas coherentes y la fila ``ALL`` rehecha desde ellas.
 
+**C6 · CRPS de referencia** (propósito ``baseline_crps``, 13-oct-2026). `crps_fad.csv` (ARIMA, SARIMA y DeepAR
+sobre el hold-out FAD; el insumo del panel CRPS de F4) no tenía recibo ni lector. Mismo patrón que C5, sin
+entradas congeladas: `run_crps_baseline --complement` sella el protocolo completo
+(`champion.CRPS_BASE_PROTOCOLO`: tabla, bloque, modelos, muestras y semilla) y las omisiones con su motivo;
+el lector (`verificar_crps_base`) re-acredita recibo, identidad y protocolo y recalcula la sustancia
+(`sustancia_crps_base`): modelos del protocolo × catálogo de la DuckDB sellada, sin repetidas, CRPS finito y no
+negativo, y las celdas vacías exactamente las omisiones declaradas.
+
 ``accredited`` NO autoriza propagar ni publicar: sólo dice que lo producido y lo importado son lo
 que el plan dice. Plan de referencia: `Prompts/.../lote_M74F/PLAN_C4_C3_COMPLEMENTARIA_2026-10-08.md`.
 """
@@ -121,10 +129,14 @@ def artefacto_c3(rol: str, table: str) -> tuple[str, dict[str, Any]]:
 #: es una entrada congelada y el cálculo corre sobre el panel y la DuckDB sellados del worktree.
 CRPS_REL = "reports/eval/crps_champion.csv"
 MANIFIESTO_CAMPEON_REL = "reports/governance/champion_manifest.json"
+#: C6 · CRPS de referencia de los modelos distribucionales (`run_crps_baseline.py`).
+CRPS_BASE_REL = "reports/eval/crps_fad.csv"
+#: El CSV que cada propósito de CRPS produce (y cuyo recibo previo impide iniciar).
+SALIDA_CRPS = {"champion_crps": CRPS_REL, "baseline_crps": CRPS_BASE_REL}
 
 #: Una madre `running` todavía produce y una `failed` no tiene identidad que prestar.
 PADRE_ADMITIDO = frozenset({"computed", "validated"})
-PROPOSITOS = frozenset({"e3", "deep_pi_conformal", "champion_crps"})
+PROPOSITOS = frozenset({"e3", "deep_pi_conformal", "champion_crps", "baseline_crps"})
 TRANSICIONES: dict[str, frozenset[str]] = {
     "planned": frozenset({"running", "failed"}),
     "running": frozenset({"computed", "failed"}),
@@ -673,8 +685,9 @@ def iniciar(root: Path, *, parent_root: Path, git: Git = estado_git, ahora: Call
     previas = sorted((root / doc["lanes_dir"]).glob("receipt_*.json"))
     if previas:
         p.append(("salidas-previas", f"{len(previas)} recibo(s) de lane anteriores al inicio"))
-    if doc["purpose"] == "champion_crps" and ar.receipt_path(root / CRPS_REL).exists():
-        p.append(("salidas-previas", f"{CRPS_REL} ya tiene recibo antes del inicio"))
+    salida = SALIDA_CRPS.get(doc["purpose"])
+    if salida is not None and ar.receipt_path(root / salida).exists():
+        p.append(("salidas-previas", f"{salida} ya tiene recibo antes del inicio"))
     _o_fallar(root, doc, "iniciar", p, ahora)
     return _mover(root, doc, "running", ahora)
 
@@ -745,6 +758,8 @@ def _verificar_todo(root: Path, doc: Mapping[str, Any], parent_root: Path, acred
         p += _verificar_procedencia_c3(root, doc)
     if doc["purpose"] == "champion_crps":
         p += verificar_crps(root, doc)
+    if doc["purpose"] == "baseline_crps":
+        p += verificar_crps_base(root, doc)
     return p
 
 
@@ -938,13 +953,13 @@ def _verificar_procedencia_c3(root: Path, doc: Mapping[str, Any]) -> list[Proble
 
 
 # ═══════════════════════════════ C5 · CRPS de la receta campeona
-def identidad_crps(root: Path, *, duckdb_consumida: Path, git: Git = estado_git) -> dict[str, str]:
+def identidad_crps(
+    root: Path, *, duckdb_consumida: Path, git: Git = estado_git, proposito: str = "champion_crps"
+) -> dict[str, str]:
     """Para `run_champion_crps --complement` al SELLAR: la complementaria `champion_crps` sigue `running`
     y el worktree sigue siendo el sellado. Mismas precondiciones que antes de calcular: un commit o una
     DuckDB cambiados a mitad de cálculo dejan el CSV sin firma."""
-    return identidad(
-        precondiciones_calculo(root, proposito="champion_crps", duckdb_consumida=duckdb_consumida, git=git)
-    )
+    return identidad(precondiciones_calculo(root, proposito=proposito, duckdb_consumida=duckdb_consumida, git=git))
 
 
 def verificar_crps(root: Path, doc: Mapping[str, Any]) -> list[Problema]:
@@ -972,14 +987,46 @@ def verificar_crps(root: Path, doc: Mapping[str, Any]) -> list[Problema]:
         ident["panel_sha256"],
     ):
         p.append(("crps-identidad", f"el recibo es de {acta.get('campaign_id')!r}, no de esta complementaria"))
+    return p + validar_crps(root, acta)
+
+
+def _cobertura(acta: Mapping[str, Any]) -> tuple[dict, list[Problema]]:
+    """La cobertura del recibo como objeto; un recibo mal tipado es un problema, nunca una excepción."""
+    cobertura = acta.get("coverage")
+    if not isinstance(cobertura, dict):
+        return {}, [("crps-recibo", f"la cobertura del recibo no es un objeto: {cobertura!r:.80}")]
+    return cobertura, []
+
+
+def _catalogo(root: Path, table: str, block: str) -> tuple[set[tuple[str, str]] | None, list[Problema]]:
+    """``(país, categoría)`` del catálogo de la DuckDB sellada; sin DuckDB legible, un problema y ``None``."""
+    import duckdb
+
+    from vp_model import dataset
+
+    try:
+        cat = dataset.list_series(table=table, block=block, db_path=Path(root) / DUCKDB_REL)
+    except (OSError, RuntimeError, duckdb.Error) as exc:
+        return None, [("crps-cobertura", f"sin catálogo legible contra el que medir la cobertura: {exc}")]
+    return {(str(r.country), str(r.category)) for r in cat.itertuples()}, []
+
+
+def validar_crps(root: Path, acta: Mapping[str, Any]) -> list[Problema]:
+    """Protocolo, forma y sustancia del recibo del CRPS campeón (sin identidad): lo comparten el lector de la
+    complementaria y el consumidor cuando lo respalda una campaña (auditoría C6: antes sólo miraba identidad)."""
+    from vp_model import champion
+
+    p: list[Problema] = []
     if acta.get("protocol") != champion.CRPS_PROTOCOLO:
         p.append(
             ("crps-protocolo", f"protocolo {acta.get('protocol')} ≠ la corrida completa {champion.CRPS_PROTOCOLO}")
         )
-    cobertura = acta.get("coverage") or {}
+    cobertura, forma = _cobertura(acta)
+    if forma:
+        return p + forma
     if cobertura.get("tables") != sorted(champion.CRPS_PROTOCOLO["tables"]):
         p.append(("crps-protocolo", f"el recibo cubre las tablas {cobertura.get('tables')}"))
-    return p + sustancia_crps(root, csv_p, cobertura.get("skipped"))
+    return p + sustancia_crps(Path(root), Path(root) / CRPS_REL, cobertura.get("skipped"))
 
 
 def _num(fila: Mapping[str, str], campo: str) -> float:
@@ -1007,7 +1054,7 @@ def sustancia_crps(root: Path, csv_p: Path, omitidas: Any) -> list[Problema]:
     * La fila ``ALL`` de cada tabla se rehace desde sus filas (n, k, cobertura y CRPS medio) y su receta
       es la del manifiesto congelado.
     """
-    from vp_model import champion, dataset
+    from vp_model import champion
 
     protocolo = champion.CRPS_PROTOCOLO
     tablas = list(protocolo["tables"])
@@ -1033,8 +1080,10 @@ def sustancia_crps(root: Path, csv_p: Path, omitidas: Any) -> list[Problema]:
         if len(set(claves)) != len(claves):
             p.append(("crps-sustancia", f"{tabla}: series repetidas en el CSV"))
         saltadas = {(o["country"], o["category"]) for o in omitidas if o["table"] == tabla}
-        catalogo = dataset.list_series(table=tabla, block=str(protocolo["block"]), db_path=Path(root) / DUCKDB_REL)
-        esperado = {(str(r.country), str(r.category)) for r in catalogo.itertuples()}
+        esperado, sin_catalogo = _catalogo(root, tabla, str(protocolo["block"]))
+        if esperado is None:
+            p += sin_catalogo
+            continue
         if set(claves) & saltadas:
             p.append(("crps-cobertura", f"{tabla}: series a la vez puntuadas y omitidas"))
         if set(claves) | saltadas != esperado:
@@ -1067,4 +1116,105 @@ def sustancia_crps(root: Path, csv_p: Path, omitidas: Any) -> list[Problema]:
         receta = "+".join((manifiesto.get(tabla) or {}).get("models") or [])
         if tot.get("recipe") != receta:
             p.append(("crps-sustancia", f"{tabla}: receta {tot.get('recipe')!r} ≠ la del manifiesto {receta!r}"))
+    return p
+
+
+# ═══════════════════════════════ C6 · CRPS de referencia
+def verificar_crps_base(root: Path, doc: Mapping[str, Any]) -> list[Problema]:
+    """LECTOR de C6: el recibo de `crps_fad.csv` es de ESTA complementaria, con su código, su panel y el
+    protocolo completo (semilla y muestras incluidas); la sustancia se recalcula (`sustancia_crps_base`)."""
+    from vp_model import champion
+
+    root = Path(root)
+    csv_p = root / CRPS_BASE_REL
+    if not csv_p.is_file():
+        return [("crps-resultados", f"no hay {CRPS_BASE_REL}: el CRPS de referencia no se calculó")]
+    try:
+        acta = ar.loads_strict(ar.receipt_path(csv_p).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return [("crps-recibo", f"sin recibo legible de {CRPS_BASE_REL}: {exc}")]
+    p: list[Problema] = []
+    if acta.get("schema") != champion.CRPS_BASE_RECEIPT_SCHEMA:
+        p.append(("crps-recibo", f"recibo con esquema {acta.get('schema')!r}"))
+    if acta.get("artifact_sha256") != ar.sha256_file(csv_p):
+        p.append(("crps-recibo", "el CSV cambió desde que se selló su recibo"))
+    ident = identidad(doc)
+    if (acta.get("campaign_id"), acta.get("code_sha"), acta.get("panel_sha256")) != (
+        ident["campaign_id"],
+        ident["source_git_sha"],
+        ident["panel_sha256"],
+    ):
+        p.append(("crps-identidad", f"el recibo es de {acta.get('campaign_id')!r}, no de esta complementaria"))
+    return p + validar_crps_base(root, acta)
+
+
+def validar_crps_base(root: Path, acta: Mapping[str, Any]) -> list[Problema]:
+    """Protocolo, forma y sustancia del recibo de `crps_fad.csv` (sin identidad); ver :func:`validar_crps`."""
+    from vp_model import champion
+
+    protocolo = champion.CRPS_BASE_PROTOCOLO
+    p: list[Problema] = []
+    if acta.get("protocol") != protocolo:
+        p.append(("crps-protocolo", f"protocolo {acta.get('protocol')} ≠ la corrida completa {protocolo}"))
+    cobertura, forma = _cobertura(acta)
+    if forma:
+        return p + forma
+    if cobertura.get("table") != protocolo["table"]:
+        p.append(("crps-protocolo", f"el recibo cubre la tabla {cobertura.get('table')!r}"))
+    return p + sustancia_crps_base(Path(root), Path(root) / CRPS_BASE_REL, cobertura.get("skipped"))
+
+
+def sustancia_crps_base(root: Path, csv_p: Path, omitidas: Any) -> list[Problema]:
+    """La sustancia de `crps_fad.csv`, recalculada al leer.
+
+    * Filas = EXACTAMENTE modelos del protocolo × catálogo que la DuckDB sellada da para la tabla y el bloque,
+      sin repetidas: un modelo o una serie no pueden faltar ni sobrar en silencio.
+    * Cada celda: CRPS finito y no negativo, o vacía. Las vacías son EXACTAMENTE las omisiones que el recibo
+      declara con motivo (`run_crps_baseline` escribe NaN cuando una serie falla).
+    """
+    from vp_model import champion
+
+    protocolo = champion.CRPS_BASE_PROTOCOLO
+    try:
+        with Path(csv_p).open(newline="", encoding="utf-8") as fh:
+            filas = list(csv.DictReader(fh))
+    except OSError as exc:
+        return [("crps-sustancia", f"no se puede leer el CSV: {exc}")]
+    campos = ("model", "country", "category")
+    if not isinstance(omitidas, list) or any(
+        not isinstance(o, dict) or set(o) != {*campos, "reason"} or not str(o["reason"]).strip() for o in omitidas
+    ):
+        return [("crps-cobertura", "el recibo no declara las omisiones (modelo, país, categoría y motivo)")]
+    claves = [tuple(f.get(c) for c in campos) for f in filas]
+    series, sin_catalogo = _catalogo(root, str(protocolo["table"]), str(protocolo["block"]))
+    if series is None:
+        return sin_catalogo
+    esperado = {(m, pais, cat) for m in protocolo["models"] for pais, cat in series}
+    p: list[Problema] = []
+    if len(set(claves)) != len(claves):
+        p.append(("crps-cobertura", "filas repetidas en el CSV"))
+    if set(claves) != esperado:
+        faltan, sobran = esperado - set(claves), set(claves) - esperado
+        p.append(("crps-cobertura", f"faltan {sorted(map(str, faltan))[:5]} · sobran {sorted(map(str, sobran))[:5]}"))
+    declaradas = {tuple(o[c] for c in campos) for o in omitidas}
+    vacias = set()
+    for clave, f in zip(claves, filas, strict=True):
+        texto = (f.get("crps") or "").strip()
+        if not texto:
+            vacias.add(clave)
+            continue
+        try:
+            valor = float(texto)
+        except ValueError:
+            p.append(("crps-sustancia", f"{clave}: CRPS ilegible {texto!r}"))
+            continue
+        if not math.isfinite(valor) or valor < 0:
+            p.append(("crps-sustancia", f"{clave}: CRPS {texto} no es finito y no negativo"))
+    if vacias != declaradas:
+        p.append(
+            (
+                "crps-cobertura",
+                f"celdas vacías {sorted(map(str, vacias))[:5]} ≠ omisiones {sorted(map(str, declaradas))[:5]}",
+            )
+        )
     return p

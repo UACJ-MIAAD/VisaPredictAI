@@ -24,6 +24,7 @@ import pandas as pd
 from scipy.stats import wilcoxon
 
 from vp_model import dataset, significance
+from vp_model.config import PROBABILISTIC, RANDOM_SEED
 from vp_model.metrics import naive_scale_before
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -251,6 +252,19 @@ CRPS_PROTOCOLO: dict[str, Any] = {
     "quants": list(CRPS_QUANTS),
 }
 
+#: Recibo del CRPS de referencia de los modelos distribucionales (`run_crps_baseline.py`). M74-F · C6.
+CRPS_BASE_RECEIPT_SCHEMA = "baseline-crps-receipt/1"
+#: La corrida COMPLETA de `run_crps_baseline` que una complementaria `baseline_crps` acredita: `crps_fad.csv`
+#: (el insumo del panel CRPS de F4), todos los modelos distribucionales, su muestreo y la semilla con la que
+#: las fábricas siembran ARIMA/SARIMA (y las redes): sin ella el CRPS no se repite.
+CRPS_BASE_PROTOCOLO: dict[str, Any] = {
+    "table": "FAD",
+    "block": "family",
+    "models": sorted(PROBABILISTIC),
+    "num_samples": 200,
+    "seed": RANDOM_SEED,
+}
+
 
 def crps_champion(table: str, path: Path | None = None) -> float | None:
     """Mean champion CRPS for a table, if ``reports/eval/crps_champion.csv`` exists (AM5).
@@ -287,10 +301,12 @@ CRPS_CAMPANA_ACREDITA = frozenset({"running", "computed", "validated"})
 
 
 def _sin_lanes(*_a: object, **_k: object) -> None:
-    raise RuntimeError("una complementaria champion_crps no tiene lanes que acreditar")
+    raise RuntimeError("una complementaria de CRPS no tiene lanes que acreditar")
 
 
-def _transaccion_del_crps(acta: dict, root: Path, parent_root: Path | None, git) -> tuple[str | None, dict | None]:
+def _transaccion_del_crps(
+    acta: dict, root: Path, parent_root: Path | None, git, proposito: str = "champion_crps"
+) -> tuple[str | None, dict | None]:
     """``(motivo, None)`` si ninguna transacción de ``root`` acredita el recibo; ``(None, transacción)`` si sí.
 
     #66: el ``campaign_id`` del recibo era una cadena que nadie resolvía. Aquí se resuelve contra la
@@ -324,8 +340,8 @@ def _transaccion_del_crps(acta: dict, root: Path, parent_root: Path | None, git)
             return f"complementaria ilegible: {exc}", None
         if doc["complement_id"] != cid:
             return f"el recibo es de {cid!r} y la complementaria de este árbol es {doc['complement_id']!r}", None
-        if doc["purpose"] != "champion_crps":
-            return f"la complementaria {cid!r} es de {doc['purpose']!r}, no de champion_crps", None
+        if doc["purpose"] != proposito:
+            return f"la complementaria {cid!r} es de {doc['purpose']!r}, no de {proposito}", None
         if doc["status"] != "accredited":
             return f"la complementaria {cid!r} está en {doc['status']!r}; sólo una 'accredited' acredita", None
         if parent_root is None:
@@ -336,6 +352,51 @@ def _transaccion_del_crps(acta: dict, root: Path, parent_root: Path | None, git)
             return f"el lector no acredita la complementaria {cid!r}: {exc}", None
         return None, {"kind": "complement", "status": "accredited"}
     return f"el recibo nombra {cid!r} y ninguna transacción de este árbol lo acredita", None
+
+
+def _recibo_acreditado(
+    path: Path,
+    schema: str,
+    proposito: str,
+    *,
+    root: Path,
+    panel: Path,
+    parent_root: Path | None,
+    git,
+    validar,
+) -> tuple[str | None, dict, dict | None]:
+    """``(motivo, acta, transacción)`` del recibo de ``path``: motivo ``None`` sólo si lo acredita una transacción.
+
+    Recibo legible del esquema pedido, sha del CSV, panel vigente en disco y una transacción del MISMO árbol
+    que lo produjo (`_transaccion_del_crps`, con el propósito de complementaria que responde por ese CSV).
+    Auditoría C6: la transacción sola no basta; ``validar`` (protocolo, forma y sustancia, sin identidad) corre
+    también cuando la respalda una CAMPAÑA, que antes sólo se comprobaba por identidad. Devuelve problemas,
+    nunca lanza.
+    """
+    from vp_model import artifact_receipt as ar
+
+    recibo = ar.receipt_path(path)
+    if not recibo.is_file():
+        return "sin recibo: el CSV no dice de qué campaña ni de qué panel es", {}, None
+    try:
+        acta = ar.loads_strict(recibo.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as exc:
+        return f"recibo ilegible: {exc}", {}, None
+    if acta.get("schema") != schema:
+        return f"recibo con esquema {acta.get('schema')!r}", acta, None
+    if acta.get("artifact_sha256") != ar.sha256_file(path):
+        return "el CSV cambió desde que se selló su recibo", acta, None
+    if not panel.is_file():
+        return f"no hay panel en disco ({panel}) contra el que acreditar", acta, None
+    if acta.get("panel_sha256") != "sha256:" + ar.sha256_file(panel):
+        return "el recibo es de otro panel: el CRPS no describe los datos vigentes", acta, None
+    motivo, transaccion = _transaccion_del_crps(acta, root, parent_root, git, proposito)
+    if motivo is not None:
+        return motivo, acta, None
+    problemas = validar(root, acta)
+    if problemas:
+        return f"el recibo no supera la validación: {sorted({c for c, _ in problemas})} · {problemas[0][1]}", acta, None
+    return None, acta, transaccion
 
 
 def crps_provenance(
@@ -385,22 +446,18 @@ def crps_provenance(
     def heredado(motivo: str) -> dict:
         return {"status": "heredado", **base, "reason": motivo}
 
-    recibo = ar.receipt_path(path)
-    if not recibo.is_file():
-        return heredado("sin recibo: el CSV no dice de qué campaña ni de qué panel es")
-    try:
-        acta = ar.loads_strict(recibo.read_text(encoding="utf-8"))
-    except (ValueError, OSError) as exc:
-        return heredado(f"recibo ilegible: {exc}")
-    if acta.get("schema") != CRPS_RECEIPT_SCHEMA:
-        return heredado(f"recibo con esquema {acta.get('schema')!r}")
-    if acta.get("artifact_sha256") != base["artifact_sha256"]:
-        return heredado("el CSV cambió desde que se selló su recibo")
-    if not panel.is_file():
-        return heredado(f"no hay panel en disco ({panel}) contra el que acreditar")
-    if acta.get("panel_sha256") != "sha256:" + ar.sha256_file(panel):
-        return heredado("el recibo es de otro panel: el CRPS no describe los datos vigentes")
-    motivo, transaccion = _transaccion_del_crps(acta, reports.parent, parent_root, git)
+    from vp_model import complement as cx
+
+    motivo, acta, transaccion = _recibo_acreditado(
+        path,
+        CRPS_RECEIPT_SCHEMA,
+        "champion_crps",
+        root=reports.parent,
+        panel=panel,
+        parent_root=parent_root,
+        git=git,
+        validar=cx.validar_crps,
+    )
     if motivo is not None:
         return heredado(motivo)
     if crudo is None:
@@ -414,6 +471,60 @@ def crps_provenance(
         "transaction": transaccion,
         "reason": None,
     }
+
+
+def _medias_por_modelo(path: Path) -> dict[str, float | None]:
+    """Media del CRPS por modelo de `crps_fad.csv`; las omisiones (celda vacía) no entran en la media."""
+    df = pd.read_csv(path)
+    medias = df.groupby("model")["crps"].mean()
+    return {str(m): (round(float(v), 4) if v == v else None) for m, v in medias.items()}
+
+
+def baseline_crps_provenance(
+    *,
+    reports: Path | None = None,
+    panel: Path | None = None,
+    parent_root: Path | None = None,
+    git=None,
+) -> dict:
+    """Medias del CRPS de referencia (`crps_fad.csv`) **con su procedencia acreditada al leer** (M74-F · C6).
+
+    Lo que consume el panel CRPS de F4. Las mismas reglas que :func:`crps_provenance`, con el recibo
+    ``baseline-crps-receipt/1`` y la complementaria de propósito ``baseline_crps``: sólo ``acreditado`` entrega
+    ``means`` vigentes; ``heredado`` conserva las medias en ``inherited_means`` identificadas por su sha256.
+    Nunca lanza.
+    """
+    from vp_model import artifact_receipt as ar
+
+    reports = Path(reports) if reports is not None else REPORTS
+    panel = Path(panel) if panel is not None else ROOT / ar.PANEL_REL
+    path = reports / "eval" / f"crps_{str(CRPS_BASE_PROTOCOLO['table']).lower()}.csv"
+    if not path.is_file():
+        return {"status": "ausente", "means": None, "inherited_means": None, "artifact_sha256": None,
+                "reason": f"no existe {path.name}"}  # fmt: skip
+    try:
+        medias: dict[str, float | None] | None = _medias_por_modelo(path)
+    except ValueError, KeyError, OSError:
+        medias = None
+    base = {"means": None, "inherited_means": medias, "artifact_sha256": ar.sha256_file(path)}
+    from vp_model import complement as cx
+
+    motivo, acta, transaccion = _recibo_acreditado(
+        path,
+        CRPS_BASE_RECEIPT_SCHEMA,
+        "baseline_crps",
+        root=reports.parent,
+        panel=panel,
+        parent_root=parent_root,
+        git=git,
+        validar=cx.validar_crps_base,
+    )
+    if motivo is not None:
+        return {"status": "heredado", **base, "reason": motivo}
+    if medias is None:
+        return {"status": "ausente", **base, "reason": f"el CSV acreditado no se puede leer como {path.name}"}
+    return {"status": "acreditado", **base, "means": medias, "inherited_means": None,
+            "receipt_campaign_id": acta.get("campaign_id"), "transaction": transaccion, "reason": None}  # fmt: skip
 
 
 def load_manifest() -> dict[str, Recipe]:

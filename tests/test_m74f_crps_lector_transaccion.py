@@ -103,13 +103,15 @@ def test_una_campana_ilegible_no_acredita(arbol) -> None:
 
 
 @pytest.mark.parametrize("status", ["running", "computed", "validated"])
-def test_control_la_campana_que_lo_produjo_lo_acredita(arbol, status: str) -> None:
+def test_la_campana_que_lo_produjo_no_basta_si_el_recibo_no_supera_la_validacion(arbol, status: str) -> None:
+    """Auditoría C6: el camino de campaña sólo miraba la identidad. Un recibo de juguete (protocolo parcial, sin
+    DuckDB contra la que medir la sustancia) ya no se acredita aunque su campaña exista. El control válido, con
+    productor real y DuckDB, está en `test_c5_en_campana_*`."""
     reports, panel = arbol
     _sellar(reports, panel, "rederiv_x")
     _campana(reports, panel, "rederiv_x", status)
     p = _estado(reports, panel)
-    assert p["status"] == "acreditado" and p["value"] == pytest.approx(32.1), p
-    assert p["receipt_campaign_id"] == "rederiv_x" and p["transaction"] == {"kind": "campaign", "status": status}
+    assert p["status"] == "heredado" and "crps-protocolo" in p["reason"], p
 
 
 # ═══════════════════════════════ mundo git real: la complementaria C5
@@ -259,3 +261,63 @@ def test_control_un_conteo_entero_en_otra_grafia_pasa(
     _c5_calculada(m5, monkeypatch, capsys)
     _parchear(m5, campo, valor, fila_all=fila_all)
     assert _codigos(m5) == set()
+
+
+# ═══════════════════════════════ auditoría C6: el camino de campaña valida protocolo, forma y sustancia
+def _campana_c5(m: dict, monkeypatch, cid: str = "rederiv_c5_t1") -> None:
+    root = m["compl"]
+    head = c5._git(root, "rev-parse", "HEAD").strip()
+    c5._escribir(root, "reports/campaign/campaign.json", json.dumps({
+        "status": "running", "campaign_id": cid, "source_git_sha": head,
+        "panel_sha256": "sha256:" + ar.sha256_file(root / cx.PANEL_REL)}))  # fmt: skip
+    monkeypatch.setenv("CAMPAIGN_ID", cid)
+    monkeypatch.setenv("CAMPAIGN_SHA", head)
+
+
+def _producida_en_campana(m: dict, monkeypatch) -> None:
+    _campana_c5(m, monkeypatch)
+    c5._productor(monkeypatch, m)
+    c5.rcc.main([])
+    assert _recibo(m)["campaign_id"] == "rederiv_c5_t1"
+
+
+def _estado_c5(m: dict, **kw) -> dict:
+    return champion.crps_provenance("FAD", reports=m["compl"] / "reports", panel=m["compl"] / cx.PANEL_REL, **kw)
+
+
+@pytest.mark.parametrize("status", ["running", "computed", "validated"])
+def test_c5_en_campana_control_el_productor_real_se_acredita(m5: dict, monkeypatch, status: str) -> None:
+    _producida_en_campana(m5, monkeypatch)
+    txn = m5["compl"] / cx.CAMPANA_REL
+    txn.write_text(txn.read_text().replace('"running"', f'"{status}"'))
+    p = _estado_c5(m5)
+    assert p["status"] == "acreditado" and p["transaction"] == {"kind": "campaign", "status": status}, p
+
+
+def _filas_c5(m: dict) -> list[dict]:
+    return list(csv.DictReader(io.StringIO((m["compl"] / cx.CRPS_REL).read_text())))
+
+
+@pytest.mark.parametrize(
+    "mutar",
+    [
+        lambda m: c5._reescribir(m, _filas_c5(m), protocol={**champion.CRPS_PROTOCOLO, "num_samples": 50}),
+        lambda m: c5._reescribir(m, [{**f, "crps": "-4.0"} if f["country"] != "ALL" else f for f in _filas_c5(m)]),
+        lambda m: c5._reescribir(m, _filas_c5(m), total=lambda t, fila: {**fila, "crps": fila["crps"] + 9}),
+        lambda m: c5._reescribir(m, _filas_c5(m), coverage=["invalida"]),
+        lambda m: c5._reescribir(m, _filas_c5(m), protocol="completo"),
+    ],
+    ids=["otras_muestras", "crps_negativo", "total_inflado", "coverage_lista", "protocolo_texto"],
+)
+def test_c5_en_campana_el_consumidor_valida_el_recibo(m5: dict, monkeypatch, mutar) -> None:
+    _producida_en_campana(m5, monkeypatch)
+    mutar(m5)
+    p = _estado_c5(m5)
+    assert p["status"] == "heredado" and p["value"] is None and "crps-" in p["reason"], p
+
+
+def test_c5_complementaria_con_coverage_mal_tipada_es_heredado_y_no_lanza(m5: dict, monkeypatch, capsys) -> None:
+    _aceptada(m5, monkeypatch, capsys)
+    c5._reescribir(m5, _filas_c5(m5), coverage=["invalida"])
+    p = _estado(*_c5(m5), parent_root=m5["madre"])
+    assert p["status"] == "heredado" and "crps-recibo" in p["reason"], p
