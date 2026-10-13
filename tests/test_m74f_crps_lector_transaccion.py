@@ -405,3 +405,18 @@ def test_c5_en_campana_entrada_degenerada_es_heredado_y_no_lanza(m5: dict, monke
     mutar(m5)
     p = _estado_c5(m5)
     assert p["status"] == "heredado" and "crps-" in p["reason"], p
+
+
+@pytest.mark.parametrize(
+    ("quitar", "anadir"), [("category", None), (None, "extra")], ids=["falta_campo", "campo_de_mas"]
+)
+def test_c5_lector_omision_con_otras_claves_es_un_problema(m5: dict, monkeypatch, capsys, quitar, anadir) -> None:
+    _c5_calculada(m5, monkeypatch, capsys)
+    omision = {"table": "FAD", "country": "mexico", "category": "F1", "reason": "x"}
+    if quitar:
+        omision.pop(quitar)
+    if anadir:
+        omision[anadir] = "y"
+    c5._reescribir(m5, _filas_c5(m5), coverage={"tables": ["DFF", "FAD"], "skipped": [omision]})
+    doc = json.loads((m5["compl"] / cx.RUTA_REL).read_text())
+    assert "crps-cobertura" in {c for c, _ in cx.verificar_crps(m5["compl"], doc)}

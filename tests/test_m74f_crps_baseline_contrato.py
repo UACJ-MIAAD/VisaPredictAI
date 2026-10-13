@@ -576,3 +576,18 @@ def test_c6_en_campana_omision_mal_tipada_es_heredado_y_no_lanza(mundo: dict, mo
     _omision_con_campo_lista(mundo)
     p = _estado(mundo)
     assert p["status"] == "heredado" and "crps-cobertura" in p["reason"], p
+
+
+@pytest.mark.parametrize(
+    ("quitar", "anadir"), [("category", None), (None, "extra")], ids=["falta_campo", "campo_de_mas"]
+)
+def test_c6_lector_omision_con_otras_claves_es_un_problema(mundo: dict, monkeypatch, capsys, quitar, anadir) -> None:
+    _calculada(mundo, monkeypatch, capsys)
+    f = _filas(mundo)[0]
+    omision = {"model": f["model"], "country": f["country"], "category": f["category"], "reason": "x"}
+    if quitar:
+        omision.pop(quitar)
+    if anadir:
+        omision[anadir] = "y"
+    _reescribir(mundo, [{**f, "crps": ""}, *_filas(mundo)[1:]], coverage={"table": "FAD", "skipped": [omision]})
+    assert "crps-cobertura" in _codigos(mundo)
