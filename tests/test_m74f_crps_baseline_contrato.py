@@ -545,3 +545,12 @@ def test_c6_en_campana_un_recibo_coherente_con_otro_esquema_o_sha_es_heredado(
     mutar(mundo)
     p = _estado(mundo)
     assert p["status"] == "heredado" and motivo in p["reason"], p
+
+
+def test_c6_en_campana_sin_duckdb_legible_es_heredado_y_no_lanza(mundo: dict, monkeypatch) -> None:
+    _campana_en_curso(mundo, monkeypatch)
+    _productor(monkeypatch, mundo)
+    rcb.main([])
+    (mundo["compl"] / cx.DUCKDB_REL).unlink()
+    p = _estado(mundo)
+    assert p["status"] == "heredado" and "crps-cobertura" in p["reason"], p

@@ -352,3 +352,11 @@ def test_c5_en_campana_un_recibo_coherente_con_otro_esquema_o_sha_es_heredado(
     mutar(m5)
     p = _estado_c5(m5)
     assert p["status"] == "heredado" and motivo in p["reason"], p
+
+
+def test_c5_en_campana_sin_duckdb_legible_es_heredado_y_no_lanza(m5: dict, monkeypatch) -> None:
+    """Sin catálogo contra el que medir la cobertura no hay sustancia que acreditar: problema, nunca excepción."""
+    _producida_en_campana(m5, monkeypatch)
+    (m5["compl"] / cx.DUCKDB_REL).unlink()
+    p = _estado_c5(m5)
+    assert p["status"] == "heredado" and "crps-cobertura" in p["reason"], p
