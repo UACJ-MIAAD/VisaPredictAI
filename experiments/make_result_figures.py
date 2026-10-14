@@ -7,7 +7,12 @@ Las cuatro figuras que faltaban en el Cap. de Resultados (hoy todo en tablas):
   F4  cobertura del PI antes/después de ACI + CRPS        -> results_coverage_crps.pdf
 
 Lee solo CSVs ya versionados en reports/. Corre en `ante` (vp_model + matplotlib):
-    ante/bin/python make_result_figures.py
+    ante/bin/python make_result_figures.py [--crps-parent-root RAIZ_MADRE]
+
+★ M74-F · F4 rechaza un CRPS de referencia no acreditado (decisión del autor, 13-oct-2026): el panel (b) lee
+`crps_fad.csv` a través de `champion.baseline_crps_provenance`; si no sale ``acreditado`` (sin recibo, de otra
+transacción, o una complementaria sin la raíz de su madre, que se da con ``--crps-parent-root``), el script falla
+con el motivo ANTES de generar ninguna figura.
 """
 
 from __future__ import annotations
@@ -272,7 +277,19 @@ def _bitcn_crps(table: str) -> float:
     return float(np.mean(crps))
 
 
-def fig_coverage_crps() -> None:
+def _crps_referencia(parent_root: Path | None = None) -> pd.Series:
+    """Media del CRPS por modelo de `crps_fad.csv`, SÓLO si su procedencia se acredita; si no, ``SystemExit``."""
+    from vp_model import champion
+    from vp_model.artifact_receipt import PANEL_REL
+
+    prov = champion.baseline_crps_provenance(reports=REP, panel=REP.parent / PANEL_REL, parent_root=parent_root)
+    if prov["status"] != "acreditado":
+        raise SystemExit(f"✗ F4 rechaza el CRPS de referencia ({prov['status']}): {prov['reason']}")
+    return pd.Series({m: v for m, v in prov["means"].items() if v is not None}, dtype="float64")
+
+
+def fig_coverage_crps(crps_parent_root: Path | None = None, *, crps: pd.Series | None = None) -> None:
+    crps = _crps_referencia(crps_parent_root) if crps is None else crps.copy()
     cov = pd.read_csv(REP / "eval" / "conformal_coverage.csv").set_index("table")
     fig, (axc, axr) = plt.subplots(1, 2, figsize=(7.4, 3.5))
     # (a) cobertura
@@ -295,7 +312,6 @@ def fig_coverage_crps() -> None:
     axc.set_title("(a) Calibración conforme adaptativa")
     # leyenda al pie de la figura (fuera del área de barras, evita encimarse con DFF)
     # (b) CRPS por modelo (FAD): clásicos + el deep ganador (BiTCN, calculado desde sus cuantiles)
-    crps = pd.read_csv(REP / "eval" / "crps_fad.csv").groupby("model")["crps"].mean()
     crps["BiTCN"] = _bitcn_crps("FAD")
     keep = [m for m in ["BiTCN", "sarima", "arima", "deepar"] if m in crps.index]
     crps = crps[keep].sort_values()
@@ -558,12 +574,23 @@ def fig_error_heatmap() -> None:
     print("F7 heatmap OK")
 
 
-if __name__ == "__main__":
+def main(argv: list[str] | None = None) -> None:
+    import argparse
+
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--crps-parent-root",
+        type=Path,
+        default=None,
+        help="raíz (sólo lectura) de la madre de una complementaria baseline_crps: sin ella su CRPS no se acredita",
+    )
+    args = ap.parse_args(argv)
+    crps = _crps_referencia(args.crps_parent_root)  # antes de dibujar NADA: F1–F3 no quedan a medias
     with results_style():
         fig_ranking()
         fig_forecast()
         fig_multiseed()
-        fig_coverage_crps()
+        fig_coverage_crps(crps=crps)
         fig_backtest_grid("FAD")
         fig_backtest_grid("DFF")
         fig_cd_diagram()
@@ -572,3 +599,7 @@ if __name__ == "__main__":
             print(f"tabla {t} -> reports/prospective/forecast_vs_actual_{t}.csv")
         fig_error_heatmap()  # DESPUÉS de regenerar los CSV que lee (antes iba un run desfasado)
     print("Figuras en", FIG)
+
+
+if __name__ == "__main__":
+    main()
