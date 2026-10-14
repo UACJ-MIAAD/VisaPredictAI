@@ -343,3 +343,21 @@ def test_b_si_la_transaccion_cambia_tras_la_puerta_no_se_publica(tmp_path: Path,
     with pytest.raises(ValueError):
         txn.publish(p, manifest=_manifiesto(tmp_path), release_sha="b" * 40)
     assert (cs.read(p) or {})["status"] == "failed"
+
+
+def test_b_un_validated_reescrito_tras_la_puerta_no_se_publica(tmp_path: Path, campana_sellada, monkeypatch) -> None:
+    """Sigue en `validated` pero ya no es el que la puerta acreditó (otra revisión, otro revisor): sin el CAS sobre
+    la revisión, `published` se escribiría sobre un estado que nadie acreditó."""
+    p = _validada(tmp_path, campana_sellada)
+    puerta = txn.publishable
+
+    def puerta_y_reescritura(*a, **k):
+        veredicto = puerta(*a, **k)
+        doc = cs.read(p) or {}
+        cs.atomic_write(p, {**doc, "reviewed_by": "otra persona", "revision": int(doc["revision"]) + 1})
+        return veredicto
+
+    monkeypatch.setattr(txn, "publishable", puerta_y_reescritura)
+    with pytest.raises(ValueError, match="revision stale"):
+        txn.publish(p, manifest=_manifiesto(tmp_path), release_sha="b" * 40)
+    assert (cs.read(p) or {})["status"] == "validated"
