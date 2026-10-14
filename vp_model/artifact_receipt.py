@@ -86,20 +86,25 @@ def read_running_transaction(reports: Path) -> dict[str, Any]:
     campaña `failed` —como la de la escena preservada— servía igual de identidad. Una campaña que
     ya terminó, en cualquier desenlace, no está produciendo artefactos: leerlos bajo su nombre es
     exactamente la mezcla de añadas que este módulo existe para impedir.
+
+    ★ G7 · puerta 1: además, la transacción tiene que cumplir el esquema de la máquina de estados
+    (`vp_model.campaign_schema`, ADR 0003): un `campaign.json` de juguete, de otro `schema_version` o con la
+    identidad mal formada no presta su identidad a ningún artefacto.
     """
+    from vp_model.campaign_schema import validate_schema
+
     txn = Path(reports) / "campaign" / "campaign.json"
     if not txn.is_file():
         raise ReceiptError(f"no hay transacción de campaña en {txn}: el artefacto no puede acreditarse")
     estado = loads_strict(txn.read_text(encoding="utf-8"))
+    problemas = validate_schema(estado)
+    if problemas:
+        raise ReceiptError(f"la transacción no cumple el esquema de campaign.json: {'; '.join(problemas[:4])}")
     if estado.get("status") != "running":
         raise ReceiptError(
             f"la transacción está en {estado.get('status')!r} y no en 'running': una campaña que ya "
             "terminó no produce artefactos, así que tampoco presta su identidad para leerlos"
         )
-    for clave in ("campaign_id", "source_git_sha", "panel_sha256"):
-        valor = estado.get(clave)
-        if not isinstance(valor, str) or not valor:
-            raise ReceiptError(f"la transacción no sella un {clave} utilizable: {valor!r}")
     return estado
 
 

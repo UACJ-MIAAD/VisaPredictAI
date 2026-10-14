@@ -25,7 +25,6 @@ FIG = ROOT / "reports" / "latex" / "Figures"
 GRAY = MID  # gris medio para etiquetas de contexto
 style()
 plt.rcParams.update({"axes.spines.top": False, "axes.spines.right": False})
-HOLD_START = pd.Timestamp("2024-08-01")
 CTX_START = pd.Timestamp("2019-01-01")
 
 
@@ -35,10 +34,15 @@ def _yr(days):
 
 def fig_hero(country="philippines", category="F3", table="FAD", out="results_hero_forecast.pdf") -> None:
     d = pd.read_csv(ROOT / "reports" / "eval" / f"deep_pi_{table}.csv", parse_dates=["ds"])
+    from vp_model import holdout_window
+    from vp_model.config import HOLDOUT
+
     g = d[d.unique_id == f"{country}/family/{category}"].sort_values("ds")
+    # G7 · puerta 2: separa historia y pronóstico donde empieza el hold-out del protocolo (antes, un literal)
+    hold_start, _ = holdout_window.window_of(g)
     full = dataset.load_series(country, category, table).astype("float64")
     g = g[g.ds.isin(full.index)]
-    ctx = full[(full.index >= CTX_START) & (full.index < HOLD_START)]
+    ctx = full[(full.index >= CTX_START) & (full.index < hold_start)]
 
     fig, ax = plt.subplots(figsize=(8.0, 4.3))
     # banda de pronóstico anidada (fan chart)
@@ -52,13 +56,13 @@ def fig_hero(country="philippines", category="F3", table="FAD", out="results_her
     # pronóstico
     ax.plot(g.ds, _yr(g.BiTCN.to_numpy()), color=BLUE, lw=1.8, ls=(0, (4, 2)), zorder=5)
     # línea de separación entrenamiento / pronóstico
-    ax.axvline(HOLD_START, color=GRAY, lw=1.0, ls=":", zorder=2)
+    ax.axvline(hold_start, color=GRAY, lw=1.0, ls=":", zorder=2)
     # franja superior de respiro para los rótulos sin chocar con los datos
     ymin, ymax = ax.get_ylim()
     head = ymax + 0.14 * (ymax - ymin)
     ax.set_ylim(ymin, head)
     ax.text(
-        HOLD_START - pd.Timedelta(days=60),
+        hold_start - pd.Timedelta(days=60),
         head,
         "Historia observada",
         ha="right",
@@ -68,9 +72,9 @@ def fig_hero(country="philippines", category="F3", table="FAD", out="results_her
         style="italic",
     )
     ax.text(
-        HOLD_START + pd.Timedelta(days=60),
+        hold_start + pd.Timedelta(days=60),
         head,
-        "Pronóstico a 24 meses",
+        f"Pronóstico a {HOLDOUT} meses",
         ha="left",
         va="top",
         color=BLUE,

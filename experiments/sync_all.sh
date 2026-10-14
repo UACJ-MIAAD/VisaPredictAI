@@ -3,7 +3,7 @@
 #   1. MLflow   : staging JSONL -> mlflow.db (todas las métricas/params/tags).
 #   2. DVC -> S3: re-hashea y sube modelos + mlflow.db (el tracking entero).
 #   3. git      : commitea+pushea los pointers .dvc (para que cualquiera haga `dvc pull`).
-# Idempotente: si nada cambió, no commitea.
+# Idempotente: si nada cambió, no commitea. Con --publish, que nada cambie es un error (exit 10): no publica.
 # NO toca los artefactos del pipeline de datos (panel/parquet/duckdb): esos los gobierna
 # dvc.yaml (`dvc repro`); `dvc add` sobre salidas de stage lo rechaza DVC (E1/M3) y el
 # .duckdb está des-trackeado a propósito (no determinista).
@@ -65,6 +65,13 @@ echo ">>> [2/3] DVC: re-hash local (modelos + tracking)"
 echo ">>> [3/3] git: pointers .dvc"
 git add models.dvc mlflow.db.dvc .gitignore
 if git diff --cached --quiet; then
+    # ★ G7 · puerta 3: con --publish, «sin cambios» NO es un éxito. Antes terminaba en 0 sin dvc push, sin
+    # commit, sin git push y sin consumir el permiso: quien publicaba veía verde y no se había publicado nada.
+    if [ "$PUBLISH" = 1 ]; then
+        echo "ERROR: --publish sin cambios en los punteros .dvc: no hay nada que publicar. No se hizo dvc push," >&2
+        echo "       commit ni git push, y la transacción sigue en 'validated' (el permiso no se consumió)." >&2
+        exit 10
+    fi
     echo "    sin cambios que commitear"
 elif [ "$PUBLISH" = 1 ]; then
     # Re-valida el manifiesto JUSTO antes de publicar (cierra TOCTOU: pudo cambiar entre el

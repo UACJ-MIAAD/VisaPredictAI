@@ -24,7 +24,9 @@ from pathlib import Path
 import pytest
 
 import tests.test_m74f_champion_crps as c5
+from tests.campana_valida import escribir
 from tests.test_m74f_champion_crps import _c5_calculada, _cerrar, _cli, _recibo
+from vp_model.campaign_schema import STATUSES
 
 # Las fixtures del mundo git real de C5, registradas también en este módulo (incluido el autouse que mide
 # `codigo_cargado` contra este checkout).
@@ -59,10 +61,13 @@ def _sellar(reports: Path, panel: Path, campaign_id: str, code_sha: str = SHA) -
 
 
 def _campana(reports: Path, panel: Path, campaign_id: str, status: str, code_sha: str = SHA) -> None:
-    (reports / "campaign").mkdir(parents=True, exist_ok=True)
+    panel_sha = "sha256:" + ar.sha256_file(panel)
+    if status in STATUSES:  # una transacción como la escribe la máquina, con ese estado
+        escribir(reports, campaign_id=campaign_id, source_git_sha=code_sha, panel_sha256=panel_sha, status=status)
+        return
+    (reports / "campaign").mkdir(parents=True, exist_ok=True)  # estado que no existe: fuera de esquema a propósito
     (reports / "campaign" / "campaign.json").write_text(json.dumps({
-        "status": status, "campaign_id": campaign_id, "source_git_sha": code_sha,
-        "panel_sha256": "sha256:" + ar.sha256_file(panel)}))  # fmt: skip
+        "status": status, "campaign_id": campaign_id, "source_git_sha": code_sha, "panel_sha256": panel_sha}))  # fmt: skip
 
 
 def _estado(reports: Path, panel: Path, **kw) -> dict:
@@ -84,7 +89,9 @@ def test_una_campana_que_no_produjo_no_presta_su_identidad(arbol, status: str) -
     _sellar(reports, panel, "rederiv_x")
     _campana(reports, panel, "rederiv_x", status)
     p = _estado(reports, panel)
-    assert p["status"] == "heredado" and status in p["reason"], p
+    # un estado que la máquina no conoce se rechaza ya por esquema (G7 · puerta 1); uno real, por su estado
+    motivo = status if status in STATUSES else "esquema"
+    assert p["status"] == "heredado" and motivo in p["reason"], p
 
 
 def test_la_campana_de_ese_id_con_otro_codigo_no_acredita(arbol) -> None:
@@ -267,9 +274,8 @@ def test_control_un_conteo_entero_en_otra_grafia_pasa(
 def _campana_c5(m: dict, monkeypatch, cid: str = "rederiv_c5_t1") -> None:
     root = m["compl"]
     head = c5._git(root, "rev-parse", "HEAD").strip()
-    c5._escribir(root, "reports/campaign/campaign.json", json.dumps({
-        "status": "running", "campaign_id": cid, "source_git_sha": head,
-        "panel_sha256": "sha256:" + ar.sha256_file(root / cx.PANEL_REL)}))  # fmt: skip
+    escribir(root / "reports", campaign_id=cid, source_git_sha=head,
+             panel_sha256="sha256:" + ar.sha256_file(root / cx.PANEL_REL))  # fmt: skip
     monkeypatch.setenv("CAMPAIGN_ID", cid)
     monkeypatch.setenv("CAMPAIGN_SHA", head)
 
@@ -288,8 +294,9 @@ def _estado_c5(m: dict, **kw) -> dict:
 @pytest.mark.parametrize("status", ["running", "computed", "validated"])
 def test_c5_en_campana_control_el_productor_real_se_acredita(m5: dict, monkeypatch, status: str) -> None:
     _producida_en_campana(m5, monkeypatch)
-    txn = m5["compl"] / cx.CAMPANA_REL
-    txn.write_text(txn.read_text().replace('"running"', f'"{status}"'))
+    doc = json.loads((m5["compl"] / cx.CAMPANA_REL).read_text())
+    escribir(m5["compl"] / "reports", campaign_id=doc["campaign_id"], source_git_sha=doc["source_git_sha"],
+             panel_sha256=doc["panel_sha256"], status=status)  # fmt: skip
     p = _estado_c5(m5)
     assert p["status"] == "acreditado" and p["transaction"] == {"kind": "campaign", "status": status}, p
 

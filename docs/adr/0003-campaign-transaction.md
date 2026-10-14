@@ -4,7 +4,11 @@
   pendiente.
 - **Fecha:** 2026-09-05 (la implementación que documenta es del 13-jul-2026, ronda 10 de auditoría).
 - **Implementación:** `tools/campaign_state.py` (la máquina) y `tools/campaign_txn.py` (la
-  envoltura reutilizable que la conduce desde un runner, por CLI o por gestor de contexto).
+  envoltura reutilizable que la conduce desde un runner, por CLI o por gestor de contexto). El
+  **esquema** de `campaign.json` vive desde G7 en `vp_model/campaign_schema.py`, la única autoridad:
+  la máquina lo reexporta y los lectores de `vp_model` que prestan la identidad de la campaña
+  (`artifact_receipt.read_running_transaction`, el camino de campaña de los consumidores de CRPS)
+  lo exigen al leer (ADR-0001 impide que `vp_model` importe `tools`).
 - **Verificación mecánica:** `tests/test_campaign_state.py` (18 pruebas, cada una la reproducción
   de un falso verde de la ronda 9), más `tests/test_campaign_hashing.py`,
   `tests/test_campaign_manifest.py`, `tests/test_campaign_completeness.py` y —desde M73—

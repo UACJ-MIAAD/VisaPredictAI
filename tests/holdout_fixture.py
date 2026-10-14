@@ -18,6 +18,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from tests.campana_valida import transaccion
+
 RAIZ = Path(__file__).resolve().parents[1]
 
 
@@ -52,12 +54,12 @@ def escena_coherente(
     (reports / "campaign").mkdir(parents=True, exist_ok=True)
     (reports / "campaign" / "campaign.json").write_text(
         json.dumps(
-            {
-                "campaign_id": campaign_id,
-                "status": status,
-                "source_git_sha": sha or head_vivo(),
-                "panel_sha256": psha or panel_sha(),
-            }
+            transaccion(
+                campaign_id=campaign_id,
+                status=status,
+                source_git_sha=sha or head_vivo(),
+                panel_sha256=psha or panel_sha(),
+            )
         ),
         encoding="utf-8",
     )

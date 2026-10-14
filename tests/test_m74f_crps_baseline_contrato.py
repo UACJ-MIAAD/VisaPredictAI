@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 import tests.test_m74f_complemento_cableado as cab
+from tests.campana_valida import escribir
 from tests.test_m74f_complemento_cableado import _cli, _git, _huellas
 
 pytest.importorskip("darts")
@@ -383,10 +384,8 @@ def arbol(tmp_path: Path):
 
 
 def _campana(reports: Path, panel: Path, status: str, campaign_id: str = "rederiv_x") -> None:
-    (reports / "campaign").mkdir(parents=True, exist_ok=True)
-    (reports / "campaign" / "campaign.json").write_text(json.dumps({
-        "status": status, "campaign_id": campaign_id, "source_git_sha": "a" * 40,
-        "panel_sha256": "sha256:" + ar.sha256_file(panel)}))  # fmt: skip
+    escribir(reports, campaign_id=campaign_id, source_git_sha="a" * 40,
+             panel_sha256="sha256:" + ar.sha256_file(panel), status=status)  # fmt: skip
 
 
 def test_c6_consumidor_sin_transaccion_es_heredado(arbol) -> None:
@@ -430,12 +429,18 @@ def test_c6_consumidor_sin_csv_es_ausente(tmp_path: Path) -> None:
 
 
 # ═══════════════════════════════ productor dentro de una campaña running (el camino del runbook, etapa 5)
+def _reestado(root: Path, status: str) -> None:
+    """La misma transacción, ya en ``status`` como la dejaría la máquina (con sus campos de ese estado)."""
+    doc = json.loads((root / cx.CAMPANA_REL).read_text())
+    escribir(root / "reports", campaign_id=doc["campaign_id"], source_git_sha=doc["source_git_sha"],
+             panel_sha256=doc["panel_sha256"], status=status)  # fmt: skip
+
+
 def _campana_en_curso(m: dict, monkeypatch, cid: str = "rederiv_c6_t1") -> None:
     root = m["compl"]
     head = _git(root, "rev-parse", "HEAD").strip()
-    cab._escribir(root, "reports/campaign/campaign.json", json.dumps({
-        "status": "running", "campaign_id": cid, "source_git_sha": head,
-        "panel_sha256": "sha256:" + ar.sha256_file(root / cx.PANEL_REL)}))  # fmt: skip
+    escribir(root / "reports", campaign_id=cid, source_git_sha=head,
+             panel_sha256="sha256:" + ar.sha256_file(root / cx.PANEL_REL))  # fmt: skip
     monkeypatch.setenv("CAMPAIGN_ID", cid)
     monkeypatch.setenv("CAMPAIGN_SHA", head)
 
@@ -447,8 +452,7 @@ def test_c6_en_campana_el_runbook_firma_con_la_identidad_de_la_campana(mundo: di
     rcb.main([])
     acta = _recibo(mundo)
     assert acta["campaign_id"] == "rederiv_c6_t1" and acta["protocol"] == champion.CRPS_BASE_PROTOCOLO
-    txn = mundo["compl"] / cx.CAMPANA_REL
-    txn.write_text(txn.read_text().replace('"running"', f'"{status}"'))
+    _reestado(mundo["compl"], status)
     p = _estado(mundo)
     assert p["status"] == "acreditado" and p["transaction"] == {"kind": "campaign", "status": status}, p
 

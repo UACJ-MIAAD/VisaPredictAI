@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.campana_valida import escribir
+
 ROOT = Path(__file__).resolve().parent.parent
 
 pytest.importorskip("scipy")
@@ -58,17 +60,7 @@ def _sellar(reports: Path, panel: Path, campaign_id: str = "rederiv_x_1", panel_
 
 
 def _transaccion(reports: Path, panel: Path, campaign_id: str) -> None:
-    (reports / "campaign").mkdir(parents=True, exist_ok=True)
-    (reports / "campaign" / "campaign.json").write_text(
-        json.dumps(
-            {
-                "status": "running",
-                "campaign_id": campaign_id,
-                "source_git_sha": "a" * 40,
-                "panel_sha256": "sha256:" + ar.sha256_file(panel),
-            }
-        )
-    )
+    escribir(reports, campaign_id=campaign_id, source_git_sha="a" * 40, panel_sha256="sha256:" + ar.sha256_file(panel))
 
 
 def test_sin_csv_es_ausente(mundo) -> None:

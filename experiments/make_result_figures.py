@@ -346,28 +346,29 @@ AREAS = [
     ("all_chargeability", "Resto del mundo"),
 ]
 CATS = ["F1", "F2A", "F2B", "F3", "F4"]
-HOLD_START = pd.Timestamp("2024-08-01")
-HOLD_END = pd.Timestamp("2026-07-01")
-WIN_START = pd.Timestamp("2022-08-01")  # 48 meses de ventana: 24 de contexto + 24 de hold-out
 BASE = pd.Timestamp(BASE_EPOCH)  # AD3: single-source t0
 
 
 def fig_backtest_grid(table: str) -> None:
-    from vp_model import dataset
+    from vp_model import dataset, holdout_window
+    from vp_model.config import HOLDOUT
 
     d = pd.read_csv(REP / "eval" / f"deep_pi_{table}.csv", parse_dates=["ds"])
+    # G7 · puerta 2: la ventana del protocolo, y sólo si los pronósticos la cubren (antes, literales de otra añada)
+    hold_start, hold_end = holdout_window.window_of(d)
+    win_start = hold_start - pd.DateOffset(months=HOLDOUT)  # tantos meses de contexto como de hold-out
     fig, axes = plt.subplots(5, 5, figsize=(9.6, 10.4), sharex=True)
     for r, (acode, aname) in enumerate(AREAS):
         for c, cat in enumerate(CATS):
             ax = axes[r, c]
-            ax.axvspan(HOLD_START, HOLD_END, color=STRIPE, zorder=0)  # lapso de hold-out marcado
+            ax.axvspan(hold_start, hold_end, color=STRIPE, zorder=0)  # lapso de hold-out marcado
             try:
                 full = dataset.load_series(acode, cat, table).astype("float64")
             except KeyError:
                 ax.text(0.5, 0.5, "sin datos", ha="center", va="center", fontsize=6, color=GRAY, transform=ax.transAxes)
                 full = None
             if full is not None:
-                fw = full[full.index >= WIN_START]
+                fw = full[full.index >= win_start]
                 ax.plot(fw.index, _to_year(fw.to_numpy()), color=BLACK, lw=0.9, zorder=2)
                 g = d[d.unique_id == f"{acode}/family/{cat}"].sort_values("ds")
                 g = g[g["ds"].isin(full.index)]  # solo donde la fecha real es específica (F)
@@ -405,7 +406,7 @@ def fig_backtest_grid(table: str) -> None:
         Line2D([0], [0], color=BLACK, lw=1.2, label="Fecha real (estado F)"),
         Line2D([0], [0], color=BLUE, lw=1.2, ls="--", label="Pronóstico (BiTCN)"),
         Patch(facecolor=BLUE, alpha=0.18, label="Intervalo de predicción 95%"),
-        Patch(facecolor=STRIPE, label="Lapso de hold-out (24 meses)"),
+        Patch(facecolor=STRIPE, label=f"Lapso de hold-out ({HOLDOUT} meses)"),
     ]
     fig.legend(handles=handles, loc="lower center", ncol=4, fontsize=8, frameon=False, bbox_to_anchor=(0.5, -0.005))
     fig.supylabel("Fecha de prioridad (año)", fontsize=9)

@@ -8,13 +8,14 @@ temporal para que `campaign_identity` compare el HEAD de verdad. Nada toca `repo
 
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+from tests.campana_valida import escribir
 
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
@@ -55,10 +56,7 @@ def campana(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     subprocess.run([*git, "commit", "-qm", "x", "--no-verify"], cwd=root, check=True)
     sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True).stdout.strip()
     panel = "sha256:" + ar.sha256_file(root / "data" / "processed" / "visa_panel_long.csv")
-    (root / "reports" / "campaign").mkdir(parents=True)
-    (root / "reports" / "campaign" / "campaign.json").write_text(
-        json.dumps({"status": "running", "campaign_id": "rederiv_t_1", "source_git_sha": sha, "panel_sha256": panel})
-    )
+    escribir(root / "reports", campaign_id="rederiv_t_1", source_git_sha=sha, panel_sha256=panel)
     monkeypatch.setenv("CAMPAIGN_ID", "rederiv_t_1")
     monkeypatch.setenv("CAMPAIGN_SHA", sha)
     return root, sha, panel

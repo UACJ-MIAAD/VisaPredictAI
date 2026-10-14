@@ -322,6 +322,11 @@ def _transaccion_del_crps(
             estado = ar.loads_strict(campana.read_text(encoding="utf-8"))
         except (ValueError, OSError) as exc:
             return f"transacción de campaña ilegible: {exc}", None
+        from vp_model.campaign_schema import validate_schema
+
+        fuera = validate_schema(estado)  # G7 · puerta 1: una transacción de juguete no presta identidad
+        if fuera:
+            return f"la transacción de campaña no cumple el esquema de campaign.json: {fuera[0]}", None
         status = estado.get("status")
         if estado.get("campaign_id") != cid:
             return f"el recibo es de {cid!r} y la campaña de este árbol es {estado.get('campaign_id')!r}", None

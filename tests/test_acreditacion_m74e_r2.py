@@ -25,6 +25,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.campana_valida import transaccion
+
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
@@ -58,7 +60,7 @@ def escena(tmp_path: Path, monkeypatch):
         from vp_model import persist_forecasts as pf
 
         (reports / "campaign" / "campaign.json").write_text(
-            json.dumps({"campaign_id": cid, "panel_sha256": psha, "status": status, "source_git_sha": sha}),
+            json.dumps(transaccion(campaign_id=cid, panel_sha256=psha, status=status, source_git_sha=sha)),
             encoding="utf-8",
         )
         monkeypatch.setenv("CAMPAIGN_ID", cid)

@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.campana_valida import escribir
+
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
@@ -190,12 +192,7 @@ def escena(tmp_path: Path):
     panel = raiz / "data" / "processed" / "visa_panel_long.csv"
     panel.write_text("country,category,table,value\nmexico,F1,FAD,1\n", encoding="utf-8")
     panel_sha = "sha256:" + hashlib.sha256(panel.read_bytes()).hexdigest()
-    (raiz / "reports" / "campaign" / "campaign.json").write_text(
-        json.dumps(
-            {"campaign_id": "camp_r1", "source_git_sha": "b" * 40, "panel_sha256": panel_sha, "status": "running"}
-        ),
-        encoding="utf-8",
-    )
+    escribir(raiz / "reports", campaign_id="camp_r1", source_git_sha="b" * 40, panel_sha256=panel_sha)
     # el artefacto de la añada anterior: existe, es legible, y NO tiene recibo
     (raiz / "reports" / "eval" / "holdout_forecasts_FAD.csv").write_text(
         "model,country,category,date,actual,forecast\nets,mexico,F1,2019-01-01,1,2\n", encoding="utf-8"
@@ -270,7 +267,6 @@ def test_un_csv_tocado_despues_del_sellado_no_acredita(escena) -> None:
 @MODELADO
 def test_un_recibo_con_otro_regimen_no_acredita(tmp_path, monkeypatch) -> None:
     """Cambiar el hold-out o el bloque y reutilizar el artefacto sería comparar otra cosa."""
-    import json
 
     from tests import holdout_fixture as hf
     from vp_model import artifact_receipt as ar
