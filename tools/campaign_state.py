@@ -35,7 +35,6 @@ from pathlib import Path
 from vp_model.campaign_schema import (
     _GATE_OK,
     _GATE_VALUES,
-    _HEX40,
     _HEX64,
     _IDENTIDAD,
     _IMMUTABLE,
@@ -307,21 +306,5 @@ def mark_validated(
             "decision": decision,
             "consistency": consistency,
         },
-        expected_revision=expected_revision,
-    )
-
-
-def mark_published(
-    path: str | Path, *, published_at: str, release_sha: str, expected_revision: int | None = None
-) -> dict:
-    """validated -> published. SOLO el publicador (Phase F) con evidencia remota lo invoca."""
-    if not _valid_ts(published_at):
-        raise ValueError("mark_published: published_at invalido")
-    if not isinstance(release_sha, str) or not _HEX40.match(release_sha):
-        raise ValueError("mark_published: release_sha debe ser hex de 40")
-    return _transition(
-        path,
-        "published",
-        {"published_at": published_at, "release_sha": release_sha},
         expected_revision=expected_revision,
     )

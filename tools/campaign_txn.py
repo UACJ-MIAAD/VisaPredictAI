@@ -48,6 +48,7 @@ from typing import Any
 
 from tools import campaign_manifest as cm
 from tools import campaign_state as cs
+from vp_model.campaign_schema import _HEX40
 
 #: Ruta convenida, junto al manifiesto de campaña que ya vive ahí.
 DEFAULT_PATH = Path("reports/campaign/campaign.json")
@@ -246,6 +247,34 @@ def publishable(path: str | Path, *, manifest: str | Path) -> tuple[bool, str]:
     if not ok_id:
         return False, motivo
     return True, f"campaña {actual['campaign_id']} en '{estado}': autoriza publicar"
+
+
+class PublicationBlocked(RuntimeError):
+    """`publish` se niega: la puerta (`publishable`) no autoriza publicar este estado."""
+
+
+def publish(path: str | Path, *, manifest: str | Path, release_sha: str) -> dict:
+    """La ÚNICA vía a `published` (G7 · decisión B del autor): la máquina ya no expone esa escritura.
+
+    Lee la revisión, pasa la MISMA puerta que `guard` (estado, esquema, árbol limpio, recibo re-acreditado,
+    manifiesto obligatorio) y escribe con CAS sobre esa revisión: si la transacción cambia entre la puerta y la
+    escritura, la escritura falla en vez de publicar un estado que nadie acreditó.
+    """
+    antes = cs.read(path)
+    revision = antes.get("revision") if antes else None
+    ok, motivo = publishable(path, manifest=manifest)
+    if not ok:
+        raise PublicationBlocked(motivo)
+    if not isinstance(release_sha, str) or not _HEX40.match(release_sha):
+        raise ValueError("publish: release_sha debe ser hex de 40")
+    if not isinstance(revision, int) or isinstance(revision, bool):
+        raise ValueError(f"publish: revisión ilegible antes de la puerta ({revision!r})")
+    return cs._transition(
+        path,
+        "published",
+        {"published_at": now_rfc3339(), "release_sha": release_sha},
+        expected_revision=revision,
+    )
 
 
 def _receipt_matches(obj: Mapping[str, Any]) -> tuple[bool, str]:
@@ -522,13 +551,18 @@ def main(argv: list[str] | None = None) -> int:
                 decision=acta["decision"],
             )
             print(f"✓ campaña {obj['campaign_id']} → 'validated' por {obj['reviewed_by']} ({acta['reviewed_at']})")
-        elif args.cmd in ("guard", "publish"):
-            # ★ M74-E-R13 · `publish` repite la MISMA puerta que `guard` inmediatamente antes de consumir el permiso
+        elif args.cmd == "guard":
             ok, motivo = publishable(path, manifest=args.manifest)
-            if not ok or args.cmd == "guard":
-                print(("✓ " if ok else "✗ PUBLICACIÓN BLOQUEADA: ") + motivo, file=sys.stdout if ok else sys.stderr)
-                return EXIT_OK if ok else EXIT_BLOCKED
-            obj = cs.mark_published(path, published_at=now_rfc3339(), release_sha=args.release_sha)
+            print(("✓ " if ok else "✗ PUBLICACIÓN BLOQUEADA: ") + motivo, file=sys.stdout if ok else sys.stderr)
+            return EXIT_OK if ok else EXIT_BLOCKED
+        elif args.cmd == "publish":
+            # ★ M74-E-R13 · la MISMA puerta que `guard`, justo antes de escribir; desde G7 dentro de `publish()`,
+            # que además escribe con CAS sobre la revisión acreditada.
+            try:
+                obj = publish(path, manifest=args.manifest, release_sha=args.release_sha)
+            except PublicationBlocked as exc:
+                print(f"✗ PUBLICACIÓN BLOQUEADA: {exc}", file=sys.stderr)
+                return EXIT_BLOCKED
             print(f"✓ campaña {obj['campaign_id']} → 'published' ({obj['release_sha']})")
         elif args.cmd == "archive":
             final = archive_if_terminal(path, args.dir)

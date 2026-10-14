@@ -37,6 +37,9 @@ def window_of(forecasts: pd.DataFrame, holdout: int = HOLDOUT) -> tuple[pd.Times
     esperado = pd.date_range(inicio, fin, freq="MS")
     if forecasts.empty:
         raise ValueError(f"no hay pronósticos que dibujar en la ventana {inicio:%Y-%m}→{fin:%Y-%m}")
+    ids = forecasts["unique_id"]
+    if ids.isna().any() or ids.astype(str).str.strip().eq("").any():  # `groupby` descartaría las claves nulas
+        raise ValueError("hay pronósticos sin serie identificada (unique_id nulo o vacío): no se dibujan")
     for uid, g in forecasts.groupby("unique_id"):
         ds = pd.DatetimeIndex(pd.to_datetime(g["ds"])).sort_values()
         if not ds.equals(esperado):

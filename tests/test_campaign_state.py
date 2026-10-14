@@ -48,7 +48,7 @@ def test_full_lifecycle(tmp_path):
         decision="approve",
     )
     assert cs.read(p)["status"] == "validated"
-    cs.mark_published(p, published_at=TS, release_sha="d" * 40)
+    cs._transition(p, "published", {"published_at": TS, "release_sha": "d" * 40})
     assert cs.read(p)["status"] == "published"
     assert not list(tmp_path.glob(".campaign.*.tmp"))
 
@@ -65,7 +65,7 @@ def test_seal_running_is_create_only(tmp_path):
         validated_at=TS,
         decision="ok",
     )
-    cs.mark_published(p, published_at=TS, release_sha="d" * 40)  # terminal published
+    cs._transition(p, "published", {"published_at": TS, "release_sha": "d" * 40})  # terminal published
     before = p.read_text()
     with pytest.raises(ValueError, match="ya existe"):
         cs.seal_running(p, **KW)  # reiniciar aborta
@@ -92,7 +92,7 @@ def test_published_is_terminal(tmp_path):
         validated_at=TS,
         decision="ok",
     )
-    cs.mark_published(p, published_at=TS, release_sha="d" * 40)
+    cs._transition(p, "published", {"published_at": TS, "release_sha": "d" * 40})
     with pytest.raises(ValueError, match="no permitida"):
         cs.mark_failed(p, failed_stage="x", failed_at=TS, reason="y")
 

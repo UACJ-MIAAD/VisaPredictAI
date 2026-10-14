@@ -226,7 +226,7 @@ def test_publishing_consumes_the_permit(tmp_path: Path, campana_sellada) -> None
     """RED de H10: `validated` era permanente y repetible, y `published` no se escribía nunca."""
     p = _validada(tmp_path, campana_sellada)
     assert txn.publishable(p, manifest=_manifiesto(tmp_path))[0]
-    cs.mark_published(p, published_at=txn.now_rfc3339(), release_sha="b" * 40)
+    txn.publish(p, manifest=_manifiesto(tmp_path), release_sha="b" * 40)  # G7: la única entrada a `published`
     ok, motivo = txn.publishable(p, manifest=_manifiesto(tmp_path))
     assert not ok and "published" in motivo, "una campaña ya publicada no vuelve a autorizar"
 

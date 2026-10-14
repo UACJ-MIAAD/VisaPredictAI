@@ -108,20 +108,24 @@ def test_control_guard_y_publish_con_el_manifiesto_legitimo(tmp_path: Path, camp
 def test_RED_publish_consulta_la_puerta_antes_de_escribir(
     tmp_path: Path, campana_sellada, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """El ORDEN es la garantía: con el sello falso `mark_published` ni se llama; con el legítimo, después de la puerta."""
+    """El ORDEN es la garantía: con el sello falso la escritura ni se llama; con el legítimo, después de la puerta.
+
+    G7 · decisión B: la escritura ya no es una API pública (`mark_published`); es la transición interna que
+    `campaign_txn.publish` invoca tras la puerta, y es ésa la que se espía."""
     orden: list[str] = []
-    puerta, escritura = txn.publishable, cs.mark_published
+    puerta, escritura = txn.publishable, cs._transition
 
     def puerta_espiada(*a, **k):
         orden.append("puerta")
         return puerta(*a, **k)
 
     def escritura_espiada(*a, **k):
-        orden.append("escritura")
+        if a[1] == "published":  # las transiciones de preparación (computed, validated) no son la escritura vigilada
+            orden.append("escritura")
         return escritura(*a, **k)
 
     monkeypatch.setattr(txn, "publishable", puerta_espiada)
-    monkeypatch.setattr(cs, "mark_published", escritura_espiada)
+    monkeypatch.setattr(cs, "_transition", escritura_espiada)
 
     ruta, manifiesto, raiz = _campana_validada(tmp_path / "falso", campana_sellada)
     _forjar("identidad_copiada", manifiesto, raiz, campana_sellada)

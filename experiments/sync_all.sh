@@ -31,6 +31,15 @@ if [ "${1:-}" = "--publish" ]; then PUBLISH=1; shift; fi
 MSG="${1:-experiments: sync MLflow + DVC->S3 ($(date +%Y-%m-%d' '%H:%M))}"
 MANIFEST=reports/campaign/campaign_manifest.json
 
+# ★ G7 · el índice tiene que llegar LIMPIO: la decisión de commitear mira todo lo preparado, así que un archivo
+# ajeno ya en staging se commiteaba (y con --publish se publicaba) junto a los punteros. Se rechaza ANTES de
+# tocar MLflow, DVC o el índice, y lo preparado se preserva tal cual.
+if ! git diff --cached --quiet; then
+    echo "ERROR: hay cambios preparados ajenos a sync_all: $(git diff --cached --name-only | tr '\n' ' ')" >&2
+    echo "       se preservan sin tocar; sácalos del índice o commitéalos antes de sincronizar." >&2
+    exit 11
+fi
+
 # ⚠️ Publicar exige un manifiesto de campaña que EXISTA, sea JSON válido y selle dirty=false
 # BOOLEANO explícito (contrato único fail-closed: tools/campaign_manifest.py). Fail-closed ante
 # manifiesto ausente/ilegible/malformado, sin la clave `dirty`, o dirty!=false (auditoría

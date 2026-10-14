@@ -8,7 +8,9 @@
   **esquema** de `campaign.json` vive desde G7 en `vp_model/campaign_schema.py`, la única autoridad:
   la máquina lo reexporta y los lectores de `vp_model` que prestan la identidad de la campaña
   (`artifact_receipt.read_running_transaction`, el camino de campaña de los consumidores de CRPS)
-  lo exigen al leer (ADR-0001 impide que `vp_model` importe `tools`).
+  lo exigen al leer (ADR-0001 impide que `vp_model` importe `tools`). La transición a `published`
+  no es una API pública de la máquina: su única entrada es `campaign_txn.publish`, que pasa la
+  puerta (`publishable`) y escribe con CAS sobre la revisión que acreditó.
 - **Verificación mecánica:** `tests/test_campaign_state.py` (18 pruebas, cada una la reproducción
   de un falso verde de la ronda 9), más `tests/test_campaign_hashing.py`,
   `tests/test_campaign_manifest.py`, `tests/test_campaign_completeness.py` y —desde M73—

@@ -225,9 +225,14 @@ def repo_sync(tmp_path: Path) -> Path:
     for rel in ("models.dvc", "mlflow.db.dvc", ".gitignore"):
         (raiz / rel).write_text("puntero\n")
     (raiz / "reports" / "campaign").mkdir(parents=True)
-    _git(raiz, "init", "-q")
+    _git(raiz, "init", "-q", "-b", "main")
     _git(raiz, "add", "-A")
     _git(raiz, "commit", "-qm", "base")
+    # un remoto real (bare): un push que falla por falta de remoto escondería el verde falso
+    remoto = tmp_path / "remoto.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remoto)], check=True)
+    _git(raiz, "remote", "add", "origin", str(remoto))
+    _git(raiz, "push", "-q", "-u", "origin", "main")
     return raiz
 
 
@@ -260,3 +265,81 @@ def test_puerta2_sin_pronosticos_no_hay_figura(figuras) -> None:
     with pytest.raises(ValueError, match="no hay pronósticos"):
         figuras["mrf"].fig_backtest_grid("FAD")
     assert figuras["emitidas"] == []
+
+
+# ═══════════════════════════════ auditoría de las puertas (ronda 2): bordes
+@pytest.mark.parametrize(
+    "ids",
+    [[None, None], ["mexico/family/F1", None], ["", ""], ["mexico/family/F1", "  "]],
+    ids=["todos_nulos", "uno_nulo", "vacios", "uno_en_blanco"],
+)
+def test_borde_una_fila_sin_serie_identificada_se_rechaza(ids, monkeypatch) -> None:
+    """`groupby` descarta las claves nulas: si todas lo son, no se valida ningún grupo y la ventana «pasaba»."""
+    import vp_model.holdout_window as hw
+
+    monkeypatch.setattr(hw, "panel_end", lambda *a, **k: FIN_PANEL)
+    d = pd.concat([_deep_pi(NUEVA, ["x"]).assign(unique_id=uid) for uid in ids], ignore_index=True)
+    with pytest.raises(ValueError, match="serie identificada"):
+        hw.window_of(d)
+
+
+def test_borde_f5_no_dibuja_filas_sin_serie(figuras) -> None:
+    _deep_pi(NUEVA, [""]).to_csv(figuras["eval"] / "deep_pi_FAD.csv", index=False)  # se relee como NaN
+    with pytest.raises(ValueError, match="serie identificada"):
+        figuras["mrf"].fig_backtest_grid("FAD")
+    assert figuras["emitidas"] == []
+
+
+@pytest.mark.parametrize("args", [["--publish"], []], ids=["publish", "local"])
+def test_borde_un_staging_ajeno_se_rechaza_sin_tocarlo(repo_sync: Path, args: list[str]) -> None:
+    """La condición miraba TODO el índice: un archivo ajeno ya preparado se commiteaba y publicaba con los punteros."""
+    (repo_sync / "ajeno.txt").write_text("de otro trabajo\n")
+    _git(repo_sync, "add", "ajeno.txt")
+    head = _git(repo_sync, "rev-parse", "HEAD")
+    fin = _sync(repo_sync, *args)
+    assert fin.returncode != 0 and "ajeno" in fin.stderr, fin.stdout + fin.stderr
+    assert _git(repo_sync, "rev-parse", "HEAD") == head, "nada se commitea"
+    assert _git(repo_sync, "diff", "--cached", "--name-only").split() == ["ajeno.txt"], "el staging ajeno se preserva"
+    registro = repo_sync.parent / "registro.txt"
+    assert not registro.exists() or registro.read_text() == "", "se rechaza ANTES de tocar MLflow, DVC o el índice"
+
+
+# ═══════════════════════════════ mark_published (decisión B del autor): sin API pública de escritura
+from tests.test_campaign_hardening_m74b import _manifiesto, _validada  # noqa: E402
+from tools import campaign_txn as txn  # noqa: E402
+
+
+def test_b_la_maquina_no_expone_una_escritura_de_published() -> None:
+    publicas = [n for n in vars(cs) if not n.startswith("_") and callable(getattr(cs, n)) and "publish" in n.lower()]
+    assert publicas == [], "la transición a `published` sólo se alcanza por la entrada gobernada"
+
+
+def test_b_control_la_entrada_gobernada_reacredita_y_publica(tmp_path: Path, campana_sellada) -> None:
+    p = _validada(tmp_path, campana_sellada)
+    obj = txn.publish(p, manifest=_manifiesto(tmp_path), release_sha="b" * 40)
+    assert obj["status"] == "published" and (cs.read(p) or {})["release_sha"] == "b" * 40
+    assert not txn.publishable(p, manifest=_manifiesto(tmp_path))[0], "el permiso se consume"
+
+
+def test_b_sin_puerta_no_se_escribe(tmp_path: Path, campana_sellada) -> None:
+    p = _validada(tmp_path, campana_sellada)
+    antes = p.read_bytes()
+    with pytest.raises(txn.PublicationBlocked):
+        txn.publish(p, manifest=tmp_path / "no_existe.json", release_sha="b" * 40)
+    assert p.read_bytes() == antes
+
+
+def test_b_si_la_transaccion_cambia_tras_la_puerta_no_se_publica(tmp_path: Path, campana_sellada, monkeypatch) -> None:
+    """La escritura es CAS sobre la revisión que la puerta acreditó: un cambio entre ambas la invalida."""
+    p = _validada(tmp_path, campana_sellada)
+    puerta = txn.publishable
+
+    def puerta_y_cambio(*a, **k):
+        veredicto = puerta(*a, **k)
+        cs.mark_failed(p, failed_stage="concurrente", failed_at=txn.now_rfc3339(), reason="cambio tras la puerta")
+        return veredicto
+
+    monkeypatch.setattr(txn, "publishable", puerta_y_cambio)
+    with pytest.raises(ValueError):
+        txn.publish(p, manifest=_manifiesto(tmp_path), release_sha="b" * 40)
+    assert (cs.read(p) or {})["status"] == "failed"
