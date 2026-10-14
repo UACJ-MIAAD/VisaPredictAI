@@ -11,6 +11,7 @@ acreditado usa el mundo git real de C6 con el productor real dentro de una campa
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import Any
 
@@ -100,13 +101,13 @@ def test_f4_control_dibuja_el_crps_acreditado_por_la_campana(mundo: dict, monkey
     assert sorted(dibujadas) == sorted([*(v for v in medias.values() if v is not None), 40.0])
 
 
-def test_f4_main_pasa_la_raiz_de_la_madre_y_dibuja_con_lo_acreditado(tmp_path: Path, monkeypatch) -> None:
+def test_f4_main_pasa_la_raiz_de_la_madre_a_la_comprobacion_previa_y_a_la_figura(tmp_path: Path, monkeypatch) -> None:
     _reports(tmp_path, monkeypatch, "model,country,category,crps\narima,mexico,F1,10\n")
     vistas: list[object] = []
 
     def procedencia(**kw):
         vistas.append(kw.get("parent_root"))
-        return {"status": "acreditado", "means": {"arima": 10.0, "deepar": None}, "reason": None}
+        return {"status": "acreditado", "means": {"arima": 10.0}, "reason": None}
 
     monkeypatch.setattr(champion, "baseline_crps_provenance", procedencia)
     recibido: list[Any] = []
@@ -114,8 +115,26 @@ def test_f4_main_pasa_la_raiz_de_la_madre_y_dibuja_con_lo_acreditado(tmp_path: P
                    "fig_error_heatmap"):  # fmt: skip
         monkeypatch.setattr(mrf, nombre, lambda *a, **k: None)
     monkeypatch.setattr(mrf, "forecast_vs_actual_rows", lambda t: mrf.pd.DataFrame())
-    monkeypatch.setattr(mrf, "fig_coverage_crps", lambda *a, crps=None, **k: recibido.append(crps))
+    monkeypatch.setattr(mrf, "fig_coverage_crps", lambda *a, **k: recibido.append((a, k)))
     (tmp_path / "reports" / "prospective").mkdir()
     mrf.main(["--crps-parent-root", str(tmp_path / "madre")])
-    assert vistas == [tmp_path / "madre"]
-    assert len(recibido) == 1 and dict(recibido[0]) == {"arima": 10.0}, "sin el modelo sin series puntuadas"
+    assert vistas == [tmp_path / "madre"], "la comprobación previa acredita con la raíz de la madre"
+    assert recibido == [((tmp_path / "madre",), {})], "y la figura vuelve a acreditar con la misma raíz"
+
+
+def test_f4_los_modelos_sin_ninguna_serie_puntuada_no_se_dibujan(tmp_path: Path, monkeypatch) -> None:
+    _reports(tmp_path, monkeypatch, None)
+    monkeypatch.setattr(champion, "baseline_crps_provenance",
+                        lambda **kw: {"status": "acreditado", "means": {"arima": 10.0, "deepar": None}, "reason": None})  # fmt: skip
+    assert mrf._crps_referencia().to_dict() == {"arima": 10.0}
+
+
+# ═══════════════════════════════ auditoría F4: ninguna vía pública salta la acreditación
+def test_f4_no_hay_via_publica_que_salte_la_acreditacion(tmp_path: Path, monkeypatch, emitidas) -> None:
+    """`fig_coverage_crps(crps=...)` dibujaba lo que le pasaran sin CSV ni recibo (CRPS −123 incluido)."""
+    _reports(tmp_path, monkeypatch, None)
+    figura: Any = mrf.fig_coverage_crps  # la llamada adversarial es inválida a propósito
+    with pytest.raises((SystemExit, TypeError)):
+        figura(crps=mrf.pd.Series({"arima": -123.0}))
+    assert emitidas == []
+    assert list(inspect.signature(mrf.fig_coverage_crps).parameters) == ["crps_parent_root"]

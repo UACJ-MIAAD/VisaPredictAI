@@ -288,8 +288,9 @@ def _crps_referencia(parent_root: Path | None = None) -> pd.Series:
     return pd.Series({m: v for m, v in prov["means"].items() if v is not None}, dtype="float64")
 
 
-def fig_coverage_crps(crps_parent_root: Path | None = None, *, crps: pd.Series | None = None) -> None:
-    crps = _crps_referencia(crps_parent_root) if crps is None else crps.copy()
+def fig_coverage_crps(crps_parent_root: Path | None = None) -> None:
+    # Acredita SIEMPRE: ninguna vía pública dibuja un CRPS que no pase por el lector (auditoría F4).
+    crps = _crps_referencia(crps_parent_root)
     cov = pd.read_csv(REP / "eval" / "conformal_coverage.csv").set_index("table")
     fig, (axc, axr) = plt.subplots(1, 2, figsize=(7.4, 3.5))
     # (a) cobertura
@@ -585,12 +586,12 @@ def main(argv: list[str] | None = None) -> None:
         help="raíz (sólo lectura) de la madre de una complementaria baseline_crps: sin ella su CRPS no se acredita",
     )
     args = ap.parse_args(argv)
-    crps = _crps_referencia(args.crps_parent_root)  # antes de dibujar NADA: F1–F3 no quedan a medias
+    _crps_referencia(args.crps_parent_root)  # antes de dibujar NADA: F1–F3 no quedan a medias
     with results_style():
         fig_ranking()
         fig_forecast()
         fig_multiseed()
-        fig_coverage_crps(crps=crps)
+        fig_coverage_crps(args.crps_parent_root)
         fig_backtest_grid("FAD")
         fig_backtest_grid("DFF")
         fig_cd_diagram()
