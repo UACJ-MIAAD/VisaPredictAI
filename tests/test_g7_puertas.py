@@ -250,3 +250,13 @@ def test_puerta3_publish_sin_cambios_no_termina_en_verde(repo_sync: Path) -> Non
 def test_puerta3_control_sin_publish_y_sin_cambios_sigue_en_verde(repo_sync: Path) -> None:
     fin = _sync(repo_sync)
     assert fin.returncode == 0 and "sin cambios que commitear" in fin.stdout, fin.stdout + fin.stderr
+
+
+def test_puerta2_sin_pronosticos_no_hay_figura(figuras) -> None:
+    """Un `deep_pi` sin filas no es «una ventana sin datos»: es que no hay nada que dibujar."""
+    _deep_pi(NUEVA, []).reindex(columns=["unique_id", "ds", "y", "BiTCN"]).to_csv(
+        figuras["eval"] / "deep_pi_FAD.csv", index=False
+    )
+    with pytest.raises(ValueError, match="no hay pronósticos"):
+        figuras["mrf"].fig_backtest_grid("FAD")
+    assert figuras["emitidas"] == []
