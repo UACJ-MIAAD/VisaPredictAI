@@ -656,3 +656,74 @@ def test_fallar_con_un_estado_desconocido_es_un_error_del_contrato(rm: dict, cap
     with pytest.raises(rc.ReconciliacionError) as fallo:
         rc.fallar(rm["recon"], "prueba")
     assert fallo.value.codigos == {"estado"}
+
+
+# ═══════════════════════════════ adenda 1: bordes de las salidas (auditoría 15-oct)
+FIGURA = f"{rc.FIGURAS}results_coverage_crps.pdf"
+
+
+def _rederivar(r: Path, marca: str = "re-derivada") -> None:
+    """Lo que dejan los constructores: TODAS las salidas declaradas y una figura."""
+    for rel in rc.SALIDAS:
+        cab._escribir(r, rel, f"{marca} {rel}\n")
+    cab._escribir(r, FIGURA, f"%PDF {marca}\n")
+
+
+def _cerrado(m: dict) -> None:
+    _rederivar(m["recon"])
+    assert cli.main(["--root", str(m["recon"]), "close", "--parent-root", str(m["madre"])]) == 0
+
+
+@pytest.mark.parametrize("rel", ["reports/governance/key_facts.json", FIGURA])
+def test_una_salida_sellada_que_desaparece_no_se_acredita(rm: dict, capsys, rel: str) -> None:
+    _ensamblado(rm, capsys)
+    _cerrado(rm)
+    (rm["recon"] / rel).unlink()
+    assert "salida-cambio" in _codigos(rm)
+
+
+def _salidas_previas(r: Path, *, versionar: bool) -> None:
+    """Salidas que el árbol ya trae ANTES de ensamblar (en el real, `key_facts` & co. vienen versionadas)."""
+    cab._escribir(r, "reports/governance/key_facts.json", '{"crps_fad": 32.1}\n')
+    cab._escribir(r, "reports/latex/key_facts.tex", "\\newcommand{\\factCrpsFad}{32.1}\n")
+    if versionar:
+        cab._git(r, "add", "-A")
+        cab._git(r, "commit", "-qm", "salidas versionadas")
+    else:
+        cab._escribir(r, FIGURA, "%PDF vieja\n")
+
+
+@pytest.mark.parametrize("versionar", [True, False], ids=["versionadas", "sin-versionar"])
+def test_una_salida_previa_no_cuenta_como_rederivada(rm: dict, capsys, monkeypatch, versionar: bool) -> None:
+    """Sólo el veredicto se re-deriva: el `key_facts` viejo, contradictorio, no puede cerrar como derivado."""
+    r = rm["recon"]
+    _salidas_previas(r, versionar=versionar)
+    _ensamblado(rm, capsys)
+    monkeypatch.setattr(rcc, "REPORTS", r / "reports")
+    assert rcc.main(["--reconciliation", "--crps-parent-root", str(rm["madre"])]) == 0
+    sin_rederivar = {VEREDICTO, "reports/governance/champion_challenger.md", "reports/governance/key_facts.json"}
+    for rel in sorted(set(rc.SALIDAS) - sin_rederivar):
+        cab._escribir(r, rel, f"re-derivada {rel}\n")
+    assert cli.main(["--root", str(r), "close", "--parent-root", str(rm["madre"])]) == 2
+    doc = rc.leer(r)
+    assert doc["status"] == "failed" and "salida-ausente" in doc["failure"]["codes"], doc["failure"]
+
+
+def test_control_las_salidas_previas_quedan_como_referencia_y_las_nuevas_cierran(rm: dict, capsys) -> None:
+    r = rm["recon"]
+    _salidas_previas(r, versionar=True)
+    viejo = (r / "reports/governance/key_facts.json").read_bytes()
+    _ensamblado(rm, capsys)
+    assert not (r / "reports/governance/key_facts.json").exists(), "retirada de su ruta al ensamblar"
+    assert rc.referencia_previa(r, "reports/governance/key_facts.json").read_bytes() == viejo
+    _cerrado(rm)
+    doc = rc.leer(r)
+    assert doc["status"] == "derived" and set(doc["outputs"]) == {*rc.SALIDAS, FIGURA}
+    assert _codigos(rm) == set()
+
+
+def test_una_salida_previa_apartada_que_cambia_no_se_acredita(rm: dict, capsys) -> None:
+    _salidas_previas(rm["recon"], versionar=True)
+    _ensamblado(rm, capsys)
+    cab._escribir(rm["recon"], f"{rc.PREVIAS_REL}/reports/governance/key_facts.json", '{"crps_fad": 1}\n')
+    assert "capa-cambio" in _codigos(rm)

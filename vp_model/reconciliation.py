@@ -14,7 +14,9 @@ re-derivar (HEAD limpio fuera de `reports/`), el panel y la DuckDB de la madre, 
   copiado de su árbol tras re-acreditarla con su lector (`complement.acreditar`; C4 además se re-puntúa y
   su `e3_cohort_campaign.json` tiene que salir idéntico). Reemplazan al miembro de la madre de esa ruta;
 * **referencias**: lo que la reconciliación re-deriva (`SALIDAS`) nunca se toma de nadie; si la madre lo
-  traía, se guarda aparte (`REFERENCIA_REL`) para quien lo necesite como entrada (el veredicto campeón).
+  traía, se guarda aparte (`REFERENCIA_REL`) para quien lo necesite como entrada (el veredicto campeón); si lo
+  traía el propio árbol (`key_facts` versionado), se aparta de su ruta (`PREVIAS_REL`), de modo que al cerrar
+  cada salida existe sólo si se re-derivó.
 
 Más el inventario de TODO `reports/` al ensamblar: después sólo pueden cambiar las salidas declaradas.
 
@@ -47,6 +49,9 @@ SCHEMA = "campaign-reconciliation/1"
 RUTA_REL = Path("reports") / "campaign" / "reconciliation.json"
 #: Donde se guardan, con su ruta original debajo, los miembros de la madre que la reconciliación re-deriva.
 REFERENCIA_REL = "reports/campaign/reconciliation/madre"
+#: Donde se apartan las salidas que el ÁRBOL ya traía al ensamblar (p. ej. `key_facts` versionado): retiradas de su
+#: ruta, que exista una salida al cerrar prueba que se produjo después de ensamblar (auditoría 15-oct).
+PREVIAS_REL = "reports/campaign/reconciliation/arbol"
 #: El informe que puntúa E3: C4 lo respalda porque su lector lo re-calcula idéntico desde los recibos.
 E3_REL = "reports/eval/e3_cohort_campaign.json"
 #: Lo que la reconciliación re-deriva con el código del árbol: jamás una capa ni un artefacto de una fuente.
@@ -75,7 +80,7 @@ TRANSICIONES: dict[str, frozenset[str]] = {
 LEIBLES = frozenset({"assembled", "derived"})
 _ID = re.compile(r"^recon_[A-Za-z0-9_.-]{1,120}$")
 _PLAN = ("schema", "reconciliation_id", "parent", "code", "panel_sha256", "duckdb", "evidence", "sources",
-         "mother_layers", "references", "excluded", "inventory")  # fmt: skip
+         "mother_layers", "references", "previous_outputs", "excluded", "inventory")  # fmt: skip
 
 Problema = cx.Problema
 Git = cx.Git
@@ -382,6 +387,7 @@ def _plan(
     }
     capa = {rel: sha for rel, sha in capas.items() if not es_salida(rel) and rel not in de_fuentes}
     sustituidos = sorted(rel for rel in capas if rel in de_fuentes)
+    previas = _apartar_previas(root)
     datos = _leer_miembros(root / evidencia["archive"]["path"], set(capas))
     for rel in capa:
         _volcar(root / rel, datos[rel])
@@ -401,9 +407,23 @@ def _plan(
         "sources": [dict(s) for s in sellos],
         "mother_layers": capa,
         "references": referencias,
+        "previous_outputs": previas,
         "excluded": [*excluidos, *({"member": rel, "reason": "lo sustituye una fuente"} for rel in sustituidos)],
         "inventory": inventario(root),
     }
+
+
+def _apartar_previas(root: Path) -> dict[str, dict[str, str]]:
+    """Mueve a `PREVIAS_REL` cada salida declarada que el árbol ya traía: sólo así ``cerrar`` distingue una
+    salida re-derivada de una vieja que nadie volvió a producir."""
+    previas: dict[str, dict[str, str]] = {}
+    for rel, sha in inventario(root).items():
+        if es_salida(rel):
+            ref = f"{PREVIAS_REL}/{rel}"
+            _volcar(Path(root) / ref, (Path(root) / rel).read_bytes())
+            (Path(root) / rel).unlink()
+            previas[ref] = {"path": rel, "sha256": sha}
+    return previas
 
 
 def _volcar(destino: Path, datos: bytes) -> None:
@@ -461,16 +481,18 @@ def _archivos(root: Path, doc: Mapping[str, Any]) -> list[Problema]:
     sellados = {
         **doc["mother_layers"],
         **{ref: m["sha256"] for ref, m in doc["references"].items()},
+        **{ref: m["sha256"] for ref, m in doc["previous_outputs"].items()},
         **{rel: sha for s in doc["sources"] for rel, sha in s["artifacts"].items()},
     }
-    autoridades = [*doc["mother_layers"], *doc["references"], *(rel for s in doc["sources"] for rel in s["artifacts"])]
+    autoridades = [*doc["mother_layers"], *doc["references"], *doc["previous_outputs"],
+                   *(rel for s in doc["sources"] for rel in s["artifacts"])]  # fmt: skip
     p = [("plan-solapado", f"{rel}: el plan le da más de una autoridad (madre, referencia o fuente)")
          for rel in sorted({r for r in autoridades if autoridades.count(r) > 1})]  # fmt: skip
     vivo = inventario(root)
     p += [("capa-cambio", f"{rel}: falta o cambió desde el ensamblado") for rel, sha in sorted(sellados.items())
           if vivo.get(rel) != sha]  # fmt: skip
     salidas = doc.get("outputs") or {}
-    for rel in sorted(set(vivo) | set(doc["inventory"])):
+    for rel in sorted(set(vivo) | set(doc["inventory"]) | set(salidas)):  # una salida sellada que falta, también
         if rel in sellados:
             continue
         if es_salida(rel):
@@ -603,6 +625,15 @@ def fallar(root: Path, motivo: str, *, ahora: Callable[[], str] = _ahora) -> dic
     """Aborto explícito. Terminal."""
     doc = leer(Path(root))
     return _mover(Path(root), doc, "failed", ahora, failure={"stage": "abortada", "codes": [], "reason": motivo})
+
+
+def referencia_previa(root: Path, rel: str) -> Path:
+    """La versión que el árbol traía de una salida antes de ensamblar, apartada de su ruta."""
+    doc = leer(Path(root))
+    ref = f"{PREVIAS_REL}/{rel}"
+    if ref not in doc["previous_outputs"]:
+        raise ReconciliacionError([("referencia-ausente", f"el árbol no traía {rel}")])
+    return Path(root) / ref
 
 
 def referencia(root: Path, rel: str) -> Path:
