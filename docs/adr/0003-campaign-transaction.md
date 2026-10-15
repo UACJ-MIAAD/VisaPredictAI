@@ -102,6 +102,18 @@ Se documenta lo que el código hace, no lo que sería deseable:
 - **`guard` sólo protege a quien lo llama.** La envoltura no puede interceptar una publicación
   que no pase por ella; hoy el único publicador de campaña es `sync_all.sh`.
 
+## Complementarias y reconciliación (M74-F · G7)
+
+Una campaña ya `computed` no vuelve a producir: los huecos que deja se cierran con transacciones
+**complementarias** (`vp_model/complement.py`), cada una en su propio worktree desechable, que leen
+la madre sin escribirla y no pasan nunca por `campaign.json`. Para llevar lo que acreditan a los
+canónicos, el **recibo de reconciliación** (`vp_model/reconciliation.py`, CLI
+`experiments/run_reconciliation.py`) junta en un árbol más las salidas de la madre, extraídas de su
+tar sellado, y los artefactos de cada complementaria `accredited`, re-acreditada con su propio
+lector. Sella también el inventario de `reports/`. Los consumidores de CRPS aceptan esa
+reconciliación como transacción del árbol y la vuelven a acreditar al leer. `derived` no autoriza
+propagar ni publicar: la publicación sigue siendo sólo `campaign_txn.publish` sobre la madre.
+
 ## Consecuencias
 
 Desde M73 la garantía **es práctica y no sólo biblioteca**: el runbook canónico conduce la

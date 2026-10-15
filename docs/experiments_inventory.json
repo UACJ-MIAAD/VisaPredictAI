@@ -252,6 +252,10 @@
     "clase": "producto",
     "consumidor": "cron 4c-bis -> promotion_decision.json (gate A4)"
   },
+  "run_reconciliation.py": {
+    "clase": "investigacion",
+    "consumidor": "M74-F G7: CLI del recibo de reconciliacion (vp_model/reconciliation.py) en un worktree desechable: assemble/verify/close/fail; re-acredita la madre y sus complementarias, no re-deriva, no propaga ni publica (reconciliacion con orden del autor)"
+  },
   "run_rederivation.sh": {
     "clase": "investigacion",
     "consumidor": "runbook B1 de re-derivacion total (11.5h)"

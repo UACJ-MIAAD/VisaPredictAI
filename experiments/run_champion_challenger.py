@@ -66,7 +66,52 @@ def _markdown(verdicts: list[champion.Verdict], crps: dict[str, dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main() -> int:
+VEREDICTO_REL = "reports/governance/champion_challenger.json"
+
+
+def reconciliar(parent_root: Path) -> int:
+    """G7 · el veredicto de la madre con el CRPS de la fuente `champion_crps` de la reconciliación del árbol.
+
+    La evaluación campeón–retador (MASE, Wilcoxon, Holm) sólo se lee dentro de una campaña `running`
+    (`persist_forecasts.read_accredited`) y la madre ya está `computed`: se CONSERVA la suya, tomada de la
+    referencia sellada de su tar, y sólo se re-derivan los campos de CRPS con `crps_provenance`, que acredita
+    la fuente al leer. Antes, la reconciliación entera se acredita con esa fuente re-acreditada.
+    """
+    from vp_model import reconciliation as rc
+
+    root = REPORTS.parent
+    try:
+        doc = rc.leer(root)
+        fuente = next((s["complement_id"] for s in doc["sources"] if s["purpose"] == "champion_crps"), None)
+        if fuente is None:
+            raise rc.ReconciliacionError([("fuente-ausente", "la reconciliación no trae una fuente champion_crps")])
+        acta = rc.acreditar(root, parent_root=parent_root, solo=fuente)
+        madre = json.loads(rc.referencia(root, VEREDICTO_REL).read_text(encoding="utf-8"))
+    except rc.ReconciliacionError as exc:
+        raise SystemExit(f"veredicto no reconciliable: {exc}") from exc
+    panel = root / rc.cx.PANEL_REL
+    crps = {
+        t: champion.crps_provenance(t, reports=REPORTS, panel=panel, parent_root=parent_root) for t in ("FAD", "DFF")
+    }
+    payload = {**madre, "reconciliation_id": acta["reconciliation_id"]}
+    for t in ("FAD", "DFF"):
+        payload[t] = {**madre[t], "champion_crps": crps[t]["value"], "champion_crps_provenance": crps[t]}
+    verdicts = [
+        champion.Verdict(table=t, champion=madre[t]["champion"], champion_mean=madre[t]["champion_mean"],
+                         champion_median=madre[t]["champion_median"], challengers=madre[t]["challengers"],
+                         promote=madre[t].get("holdout_winner"))
+        for t in ("FAD", "DFF")
+    ]  # fmt: skip
+    (REPORTS / "governance" / "champion_challenger.json").write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    )
+    (REPORTS / "governance" / "champion_challenger.md").write_text(_markdown(verdicts, crps))
+    for t in ("FAD", "DFF"):
+        print(f"[{t}] veredicto de {madre.get('campaign_id')} · CRPS {crps[t]['status']} {crps[t]['value']}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mlflow", action="store_true", help="loguea el veredicto al staging MLflow")
     ap.add_argument("--promote", action="store_true", help="aplica el retador ganador al manifiesto")
@@ -76,7 +121,16 @@ def main() -> int:
         default=None,
         help="raíz (sólo lectura) de la madre de una complementaria champion_crps: sin ella su CRPS no se acredita",
     )
-    args = ap.parse_args()
+    ap.add_argument(
+        "--reconciliation",
+        action="store_true",
+        help="en un árbol de reconciliación (G7): conserva el veredicto de la madre y re-deriva sólo el CRPS",
+    )
+    args = ap.parse_args(argv)
+    if args.reconciliation:
+        if args.promote or args.mlflow or args.crps_parent_root is None:
+            ap.error("--reconciliation exige --crps-parent-root y no admite --promote ni --mlflow")
+        return reconciliar(args.crps_parent_root)
 
     champions = champion.load_manifest()
     verdicts = [champion.evaluate(t, champions[t]) for t in ("FAD", "DFF")]

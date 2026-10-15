@@ -310,7 +310,8 @@ def _transaccion_del_crps(
     """``(motivo, None)`` si ninguna transacción de ``root`` acredita el recibo; ``(None, transacción)`` si sí.
 
     #66: el ``campaign_id`` del recibo era una cadena que nadie resolvía. Aquí se resuelve contra la
-    campaña o la complementaria del MISMO árbol, y la complementaria se re-acredita con su lector.
+    campaña o la complementaria del MISMO árbol, y la complementaria se re-acredita con su lector. G7: o
+    contra la reconciliación del árbol (`vp_model.reconciliation`), que trae la complementaria como fuente.
     """
     from vp_model import artifact_receipt as ar
     from vp_model import complement as cx
@@ -356,7 +357,38 @@ def _transaccion_del_crps(
         except cx.ComplementoError as exc:
             return f"el lector no acredita la complementaria {cid!r}: {exc}", None
         return None, {"kind": "complement", "status": "accredited"}
+    from vp_model import reconciliation as rc
+
+    if (root / rc.RUTA_REL).is_file():
+        return _reconciliacion_del_crps(cid, root, parent_root, git, proposito)
     return f"el recibo nombra {cid!r} y ninguna transacción de este árbol lo acredita", None
+
+
+def _reconciliacion_del_crps(
+    cid: object, root: Path, parent_root: Path | None, git, proposito: str
+) -> tuple[str | None, dict | None]:
+    """G7: el recibo es de una FUENTE de la reconciliación del árbol, de ese propósito, y la reconciliación
+    —con esa fuente re-acreditada en su propio árbol— se acredita entera al leer."""
+    from vp_model import complement as cx
+    from vp_model import reconciliation as rc
+
+    try:
+        doc = rc.leer(root)
+    except rc.ReconciliacionError as exc:
+        return f"reconciliación ilegible: {exc}", None
+    fuente = next((s for s in doc["sources"] if s["complement_id"] == cid), None)
+    if fuente is None:
+        return f"el recibo es de {cid!r} y ninguna fuente de la reconciliación de este árbol lo es", None
+    if fuente["purpose"] != proposito or cx.SALIDA_CRPS[proposito] not in fuente["artifacts"]:
+        return f"la fuente {cid!r} es de {fuente['purpose']!r}, no responde por un CRPS {proposito}", None
+    if parent_root is None:
+        return "la reconciliación sólo se re-acredita con la raíz de la madre (parent_root)", None
+    try:
+        acta = rc.acreditar(root, parent_root=Path(parent_root), solo=str(cid), git=git or cx.estado_git)
+    except rc.ReconciliacionError as exc:
+        return f"el lector no acredita la reconciliación {doc['reconciliation_id']!r}: {exc}", None
+    return None, {"kind": "reconciliation", "status": acta["status"], "reconciliation_id": acta["reconciliation_id"],
+                  "source": cid}  # fmt: skip
 
 
 def _recibo_acreditado(
@@ -425,8 +457,10 @@ def crps_provenance(
     * y su ``campaign_id`` lo resuelve una transacción del MISMO árbol (#66): la campaña de ese id en
       ``running``/``computed``/``validated`` con el código y el panel del recibo, o la complementaria
       ``champion_crps`` de ese id ``accredited`` que su lector (`complement.acreditar`) vuelve a
-      acreditar entera con la raíz de su madre (``parent_root``). Un id que nadie resuelve, una
-      transacción ``failed`` o una complementaria sólo ``computed`` no acreditan.
+      acreditar entera con la raíz de su madre (``parent_root``); o, G7, una FUENTE de ese id y propósito de
+      la reconciliación del árbol (`vp_model.reconciliation`), que se acredita entera re-acreditando esa
+      fuente en su propio árbol. Un id que nadie resuelve, una transacción ``failed`` o una complementaria
+      sólo ``computed`` no acreditan.
 
     Cualquier otra cosa es ``heredado`` (el CSV existe pero no se acredita: su valor se conserva en
     ``inherited_value`` con su sha256, identificado como lo que es) o ``ausente``. Nunca lanza:
