@@ -208,7 +208,35 @@ def _latex(summary: dict) -> str:
     )
 
 
-def main() -> None:
+def cd_only() -> None:
+    """G7 · B2: sólo el diagrama CD del paper, sin DM y SIN reescribir `significance_summary.json`.
+
+    Lo que la campaña selló es el resumen; el diagrama se re-dibuja del mismo pool y sólo si el ranking recalculado ES el
+    sellado (n, modelos, Friedman, rangos y MCS). Así una reconciliación lo regenera sin una campaña `running` (el DM
+    necesita `read_accredited`) y sin tocar una capa de la madre.
+    """
+    sellado_p = REPORTS / "eval" / "significance_summary.json"
+    if not sellado_p.is_file():
+        raise SystemExit(
+            f"--cd-only exige el significance_summary.json sellado ({sellado_p}): sin él no hay contra qué acreditar"
+        )
+    sellado = json.loads(sellado_p.read_text())["ranking"]["FAD"]
+    r = _ranking("FAD")
+    vivo = json.loads(json.dumps({k: v for k, v in r.items() if not k.startswith("_")}, default=str))
+    if vivo != sellado:
+        distintas = sorted(k for k in set(vivo) | set(sellado) if vivo.get(k) != sellado.get(k))
+        raise SystemExit(f"--cd-only: el ranking FAD recalculado no es el sellado (difieren {distintas}); no se dibuja")
+    _cd_diagram(r)
+
+
+def main(argv: list[str] | None = None) -> None:
+    import argparse
+
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--cd-only", action="store_true", help="sólo el diagrama CD, acreditado contra el resumen sellado")
+    if ap.parse_args(argv).cd_only:
+        cd_only()
+        return
     summary: dict = {"ranking": {}, "dm": {}}
     rank = {}
     for tbl in ("FAD", "DFF"):

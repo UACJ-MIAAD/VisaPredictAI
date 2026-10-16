@@ -144,7 +144,16 @@ def plot_winner_holdout(country: str, category: str, table: str, model_name: str
     return _save(fig, f"results_holdout_{country}_{category}_{table}.png")
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    import argparse
+
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--figure-only", metavar="MODELO", help="sólo la figura de hold-out (México/F3/FAD) de ese modelo")
+    args = ap.parse_args(argv)
+    if args.figure_only:  # G7 · B2: la reconciliación regenera la figura sin reescribir la tabla `.tex`
+        p = plot_winner_holdout("mexico", "F3", "FAD", args.figure_only)
+        log.info("Figura hold-out -> %s", p)
+        return
     df = pd.read_csv(CSV)
     log.info("Ranking de modelos (promedio sobre series):\n%s", ranking(df).to_string())
     log.info("Ganador por serie (H2):\n%s", winner_per_series(df).to_string(index=False))

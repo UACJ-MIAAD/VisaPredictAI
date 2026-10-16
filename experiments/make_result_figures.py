@@ -17,7 +17,6 @@ con el motivo ANTES de generar ninguna figura.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import matplotlib
@@ -86,13 +85,32 @@ def _emit(fig: plt.Figure, name: str) -> None:
     plt.close(fig)
 
 
-# D5 (regla #0): listones desde la fuente única de verdad, no hardcodeados.
-# Semántica = caption del .tex: "listón parsimonioso (ETS/Theta en FAD, ETS en DFF)".
-_KF = json.loads((REP / "governance" / "key_facts.json").read_text())
+#: Listón parsimonioso = la mejor MASE de RESERVADO de estos modelos (ETS/Theta en FAD; en DFF Theta colapsa al paseo
+#: aleatorio, así que el listón es ETS). G7 · B1: antes era `fad_champion_mase`, una MASE de SELECCIÓN dibujada sobre ejes
+#: de reservado; con la campaña causal las dos métricas se separaron y F1/F3 mostraban al profundo por encima de un
+#: listón que en reservado no existía.
+LISTON = {"FAD": ("ets", "theta"), "DFF": ("ets",)}
 
 
-def _liston(table: str) -> float:
-    return float(_KF["fad_champion_mase"] if table == "FAD" else _KF["ets_dff_mean"])
+def _liston(table: str, universo: set[tuple[str, str]] | None = None) -> tuple[float, int, str]:
+    """``(valor, n series, nombre)``: la mejor MASE media de reservado de los modelos del listón sobre ``universo``.
+
+    ``universo`` = las series que de verdad puntúa lo que se dibuja junto al listón; ``None`` = todas las de la tabla.
+    Un modelo del listón que no cubre una serie del universo no se promedia en silencio: la figura no se dibuja.
+    """
+    df = pd.read_csv(REP / "eval" / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
+    series = sorted(universo if universo is not None else set(zip(df.country, df.category, strict=True)))
+    medias = {}
+    for modelo in LISTON[table]:
+        hold = df[df.model == modelo].set_index(["country", "category"])["hold_mase"].reindex(series)
+        faltan = [k for k, v in hold.items() if not np.isfinite(v)]
+        if faltan:
+            raise SystemExit(
+                f"listón {table}: {modelo} no cubre {len(faltan)} serie(s) del universo dibujado {faltan[:3]}"
+            )
+        medias[modelo] = float(hold.mean())
+    nombre = "/".join("ETS" if m == "ets" else m.capitalize() for m in LISTON[table])
+    return min(medias.values()), len(series), nombre
 
 
 # ---------- F1: ranking MASE de los 21 modelos ----------
@@ -105,17 +123,18 @@ def fig_ranking() -> None:
         n_off = df.groupby("model")["hold_mase"].mean().gt(0.40).sum()
         colors = [BLUE if mm in ("ets", "theta") else GRAY for mm in m.index]
         y = np.arange(len(m))
-        ax.hlines(y, _liston(table), m.values, color=MUTE, lw=1.2, zorder=1)
+        liston, _n, nombre = _liston(table)
+        ax.hlines(y, liston, m.values, color=MUTE, lw=1.2, zorder=1)
         ax.scatter(m.values, y, color=colors, s=34, zorder=3, edgecolor=BLACK, linewidth=0.4)
-        ax.axvline(_liston(table), color=GOLD, ls="--", lw=1.3, zorder=2)
+        ax.axvline(liston, color=GOLD, ls="--", lw=1.3, zorder=2)
         ax.set_yticks(y)
         ax.set_yticklabels(m.index, fontsize=7.5)
         ax.set_xlabel("MASE de hold-out")
         ax.set_title(f"({'a' if table == 'FAD' else 'b'}) {table} — 25 series familiares")
         ax.text(
-            _liston(table),
+            liston,
             len(m) - 0.3,
-            f" listón {_liston(table):.3f}",
+            f" listón {nombre} {liston:.3f} (reservado)",
             color=GOLD,
             fontsize=7.5,
             va="top",
@@ -172,11 +191,11 @@ def fig_forecast() -> None:
 
 
 # ---------- F3: IC multi-semilla deep vs listón ----------
-def _seed_mases(pattern: str, col: str, table: str) -> list[float]:
-    # AP2: delegates the per-series F-only scoring loop to the canonical scorer.
+def _seed_scores(pattern: str, col: str, table: str) -> list[pd.Series]:
+    """MASE de reservado POR SERIE de cada semilla (el universo que se dibuja). AP2: el puntuador canónico."""
     from vp_model.metrics import mase_by_series
 
-    vals = []
+    out = []
     for p in sorted(REP.glob(pattern)):
         df = pd.read_csv(p, parse_dates=["ds"])
         if col not in df.columns:
@@ -185,24 +204,33 @@ def _seed_mases(pattern: str, col: str, table: str) -> list[float]:
         frame = df.assign(country=parts[0], category=parts[2])
         ms = mase_by_series(frame, table, pred_col=col, date_col="ds", min_points=2)
         if len(ms):
-            vals.append(float(ms.mean()))
-    return vals
+            out.append(ms)
+    return out
 
 
 def fig_multiseed() -> None:
     from scipy import stats
 
+    # G7 · B1: sin «oráculo de selección» (era un 0.113 fijo de una corrida vieja, sin artefacto) y con el listón en
+    # MASE de reservado sobre EXACTAMENTE las series que puntúan las semillas.
     specs = [
-        # oráculo 0.113 = corrida de selección perfecta (aggregate_seeds); no vive en key_facts
-        ("FAD", "campaign/global_FAD_camp_auto_s*.csv", "AutoBiTCN", _liston("FAD"), 0.113),
-        ("DFF", "campaign/global_DFF_camp_diff_s*.csv", "BiTCN", _liston("DFF"), None),
+        ("FAD", "campaign/global_FAD_camp_auto_s*.csv", "AutoBiTCN"),
+        ("DFF", "campaign/global_DFF_camp_diff_s*.csv", "BiTCN"),
     ]
+    medidas = []
+    for table, pat, col in specs:
+        scores = _seed_scores(pat, col, table)
+        universos = {frozenset(s.index) for s in scores}
+        if len(universos) != 1:
+            raise SystemExit(
+                f"F3 {table}: las {len(scores)} semillas puntúan un universo de series distinto (o ninguno)"
+            )
+        medidas.append((table, col, np.array([float(s.mean()) for s in scores]), _liston(table, set(universos.pop()))))
     fig, ax = plt.subplots(figsize=(6.4, 3.4))
     ypos, labels = [], []
-    for i, (table, pat, col, liston, oracle) in enumerate(specs):
-        vals = np.array(_seed_mases(pat, col, table))
-        m, sd, n = vals.mean(), vals.std(ddof=1), len(vals)
-        half = stats.t.ppf(0.975, n - 1) * sd / np.sqrt(n)
+    for i, (table, col, vals, (liston, n_series, nombre)) in enumerate(medidas):
+        m, sd, n_semillas = vals.mean(), vals.std(ddof=1), len(vals)
+        half = stats.t.ppf(0.975, n_semillas - 1) * sd / np.sqrt(n_semillas)
         y = i
         ax.errorbar(
             m,
@@ -226,12 +254,8 @@ def fig_multiseed() -> None:
             zorder=4,
             edgecolor=BLACK,
             linewidth=0.4,
-            label="Listón parsimonioso (ETS/Theta)" if i == 0 else None,
+            label=f"Listón parsimonioso ({nombre}, reservado, n={n_series})" if i == 0 else None,
         )
-        if oracle:
-            ax.scatter(
-                [oracle], [y], marker="s", color=GRAY, s=40, zorder=4, label="Oráculo de selección" if i == 0 else None
-            )
         ypos.append(y)
         labels.append(f"{table}\n{col}")
         ax.text(m, y + 0.16, f"{m:.3f}", color=BLUE, ha="center", fontsize=7.5)

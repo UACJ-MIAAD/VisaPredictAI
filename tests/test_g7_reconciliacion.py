@@ -193,18 +193,17 @@ def test_control_el_veredicto_de_la_madre_con_el_crps_acreditado_llega_a_key_fac
 def test_control_cerrar_sella_las_salidas_y_despues_no_pueden_cambiar(rm: dict, capsys) -> None:
     _ensamblado(rm, capsys)
     r = rm["recon"]
-    for rel in rc.SALIDAS:
+    for rel in (*rc.SALIDAS, *rc.SALIDAS_FIGURA):
         cab._escribir(r, rel, f"re-derivada {rel}\n")
-    cab._escribir(r, f"{rc.FIGURAS}results_coverage_crps.pdf", "%PDF\n")
     assert cli.main(["--root", str(r), "close", "--parent-root", str(rm["madre"])]) == 0
     doc = rc.leer(r)
-    assert doc["status"] == "derived" and set(doc["outputs"]) == {*rc.SALIDAS, f"{rc.FIGURAS}results_coverage_crps.pdf"}
+    assert doc["status"] == "derived" and set(doc["outputs"]) == {*rc.SALIDAS, *rc.SALIDAS_FIGURA}
     assert _crps(rm)["status"] == "acreditado"
     cab._escribir(r, "reports/latex/key_facts.tex", "otra\n")
     assert "salida-cambio" in _codigos(rm)
     cab._escribir(r, "reports/latex/key_facts.tex", "re-derivada reports/latex/key_facts.tex\n")
     cab._escribir(r, f"{rc.FIGURAS}tardia.pdf", "%PDF\n")
-    assert _codigos(rm) == {"salida-nueva"}
+    assert _codigos(rm) == {"inventario"}, "una figura que nadie declara no es una salida"
 
 
 def test_cerrar_sin_todas_las_salidas_falla_y_es_terminal(rm: dict, capsys) -> None:
@@ -526,7 +525,11 @@ def test_cada_proposito_declara_sus_artefactos(tmp_path: Path) -> None:
                                                                         f"{cx.CRPS_BASE_REL}.receipt.json"]  # fmt: skip
     with pytest.raises(rc.ReconciliacionError):
         rc.artefactos_de(tmp_path, {"purpose": "otro"})
-    assert all(rc.es_salida(s) for s in rc.SALIDAS) and rc.es_salida(f"{rc.FIGURAS}x.pdf")
+    assert all(rc.es_salida(s) for s in (*rc.SALIDAS, *rc.SALIDAS_FIGURA))
+    assert len(rc.SALIDAS_FIGURA) == len(set(rc.SALIDAS_FIGURA)) == 18
+    for ajena in (f"{rc.FIGURAS}x.pdf", "reports/figures/otra.png", "reports/figures/cohorts/fr/e5_router_effect.png",
+                  "reports/paper_micai/Figures/otra.pdf"):  # fmt: skip
+        assert not rc.es_salida(ajena), ajena
     assert not rc.es_salida(cx.CRPS_REL)
 
 
@@ -663,10 +666,9 @@ FIGURA = f"{rc.FIGURAS}results_coverage_crps.pdf"
 
 
 def _rederivar(r: Path, marca: str = "re-derivada") -> None:
-    """Lo que dejan los constructores: TODAS las salidas declaradas y una figura."""
-    for rel in rc.SALIDAS:
+    """Lo que dejan los constructores: TODAS las salidas declaradas, figuras incluidas."""
+    for rel in (*rc.SALIDAS, *rc.SALIDAS_FIGURA):
         cab._escribir(r, rel, f"{marca} {rel}\n")
-    cab._escribir(r, FIGURA, f"%PDF {marca}\n")
 
 
 def _cerrado(m: dict) -> None:
@@ -718,7 +720,7 @@ def test_control_las_salidas_previas_quedan_como_referencia_y_las_nuevas_cierran
     assert rc.referencia_previa(r, "reports/governance/key_facts.json").read_bytes() == viejo
     _cerrado(rm)
     doc = rc.leer(r)
-    assert doc["status"] == "derived" and set(doc["outputs"]) == {*rc.SALIDAS, FIGURA}
+    assert doc["status"] == "derived" and set(doc["outputs"]) == {*rc.SALIDAS, *rc.SALIDAS_FIGURA}
     assert _codigos(rm) == set()
 
 
@@ -727,3 +729,13 @@ def test_una_salida_previa_apartada_que_cambia_no_se_acredita(rm: dict, capsys) 
     _ensamblado(rm, capsys)
     cab._escribir(rm["recon"], f"{rc.PREVIAS_REL}/reports/governance/key_facts.json", '{"crps_fad": 1}\n')
     assert "capa-cambio" in _codigos(rm)
+
+
+def test_cerrar_sin_una_figura_declarada_falla(rm: dict, capsys) -> None:
+    """G7 · B2: si un productor no corrió (aquí, el CD del paper), la reconciliación no cierra como derivada."""
+    _ensamblado(rm, capsys)
+    for rel in (*rc.SALIDAS, *rc.SALIDAS_FIGURA):
+        if rel != "reports/paper_micai/Figures/fig_cd_diagram.pdf":
+            cab._escribir(rm["recon"], rel, "re-derivada\n")
+    assert cli.main(["--root", str(rm["recon"]), "close", "--parent-root", str(rm["madre"])]) == 2
+    assert rc.leer(rm["recon"])["failure"]["codes"] == ["salida-ausente"]

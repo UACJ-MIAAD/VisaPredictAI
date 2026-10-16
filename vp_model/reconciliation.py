@@ -68,8 +68,21 @@ SALIDAS = (
     "reports/prospective/forecast_vs_actual_FAD.csv",
     "reports/prospective/forecast_vs_actual_DFF.csv",
 )
-#: Figuras: salida local ignorada por git desde M66; cualquier archivo bajo esta carpeta es una salida.
+#: Figuras del `.tex` (salida local ignorada por git desde M66), por productor: `make_result_figures` (8),
+#: `make_hero_figures` (2), `make_horizon_figure` y `make_cohort_figure`.
 FIGURAS = "reports/latex/Figures/"
+FIGURAS_PDF = ("results_ranking_mase", "results_forecast_winner", "results_multiseed_ci", "results_coverage_crps",
+               "results_backtest_grid_FAD", "results_backtest_grid_DFF", "results_cd_diagram", "results_error_heatmap",
+               "results_hero_forecast", "results_hero_philippines", "horizon_mase_curves", "e5_router_effect")  # fmt: skip
+#: G7 · B2: TODAS las figuras que la re-derivación produce, por nombre exacto (no por carpeta: una figura que nadie
+#: declara no es una salida), incluidas las que caen fuera de `FIGURAS`: las variantes PNG de `make_cohort_figure`,
+#: la de hold-out de `vp_model.report --figure-only` y el CD del paper de `significance_tables --cd-only`.
+SALIDAS_FIGURA = (
+    *(f"{FIGURAS}{n}.pdf" for n in FIGURAS_PDF),
+    *(f"reports/figures/cohorts/{d}e5_router_effect.png" for d in ("", "dark/", "en/", "en/dark/")),
+    "reports/figures/results_holdout_mexico_F3_FAD.png",
+    "reports/paper_micai/Figures/fig_cd_diagram.pdf",
+)
 #: Basura del sistema que no es ni entrada ni salida.
 IGNORADOS = frozenset({".DS_Store"})
 TRANSICIONES: dict[str, frozenset[str]] = {
@@ -102,7 +115,7 @@ def _ahora() -> str:
 
 
 def es_salida(rel: str) -> bool:
-    return rel in SALIDAS or rel.startswith(FIGURAS)
+    return rel in SALIDAS or rel in SALIDAS_FIGURA
 
 
 # ═══════════════════════════════ fuentes: lo que cada complementaria respalda
@@ -495,11 +508,9 @@ def _archivos(root: Path, doc: Mapping[str, Any]) -> list[Problema]:
     for rel in sorted(set(vivo) | set(doc["inventory"]) | set(salidas)):  # una salida sellada que falta, también
         if rel in sellados:
             continue
-        if es_salida(rel):
+        if es_salida(rel):  # al cerrar se sellan TODAS las declaradas: después sólo pueden cambiar o faltar
             if rel in salidas and vivo.get(rel) != salidas[rel]:
                 p.append(("salida-cambio", f"{rel}: cambió desde que se cerró la reconciliación"))
-            elif doc["status"] == "derived" and rel not in salidas:
-                p.append(("salida-nueva", f"{rel}: salida que apareció después del cierre"))
         elif vivo.get(rel) != doc["inventory"].get(rel):
             p.append(("inventario", f"{rel}: cambió, apareció o desapareció y no es una salida declarada"))
     return p
@@ -613,7 +624,8 @@ def cerrar(
     p = _verificar(root, doc, parent_root, solo=None, acreditar_lanes=acreditar_lanes, puntuar_e3=puntuar_e3,
                    git=git)  # fmt: skip
     vivo = inventario(root)
-    p += [("salida-ausente", f"{rel}: la reconciliación no la re-derivó") for rel in SALIDAS if rel not in vivo]
+    p += [("salida-ausente", f"{rel}: la reconciliación no la re-derivó")
+          for rel in (*SALIDAS, *SALIDAS_FIGURA) if rel not in vivo]  # fmt: skip
     if p:
         _mover(root, doc, "failed", ahora, failure={"stage": "cerrar", "codes": sorted({c for c, _ in p})})
         raise ReconciliacionError(p)

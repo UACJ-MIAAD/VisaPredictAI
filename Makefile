@@ -129,7 +129,8 @@ test-model:
 		tests/test_router_e4.py \
 		tests/test_holdout_forecasts_m74e_r1.py tests/test_acreditacion_m74e_r2.py \
 		tests/test_frontera_publica_m74e_r3.py tests/test_m74f_complemento.py \
-		tests/test_m74f_complemento_cableado.py tests/test_g7_reconciliacion.py
+		tests/test_m74f_complemento_cableado.py tests/test_g7_reconciliacion.py \
+		tests/test_g7_figuras_liston.py
 
 # Reproducir los resultados (requiere `make model-install` + `make db`):
 eda:
