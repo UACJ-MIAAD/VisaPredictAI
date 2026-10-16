@@ -118,19 +118,32 @@ def fig_ranking() -> None:
     fig, axes = plt.subplots(1, 2, figsize=(7.2, 4.2))
     for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
         df = pd.read_csv(REP / "eval" / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
-        m = df.groupby("model")["hold_mase"].mean().sort_values(ascending=False)
-        m = m[m <= 0.40]  # recorta off-scale (TFT 2.6, LSTM/DeepAR ~0.4+); se anota aparte
-        n_off = df.groupby("model")["hold_mase"].mean().gt(0.40).sum()
+        # Sólo se ranquea contra el listón lo que puntúa todas las series del listón: un modelo que no converge en
+        # algunas series se promediaría sobre otras (ARIMA DFF: 0.120 en 23 series frente a ETS 0.115 en esas 23
+        # y 0.129 en las 25). Los parciales se declaran aparte con su cobertura, sin punto ni línea.
+        universo = set(zip(df.country, df.category, strict=True))
+        liston, n_series, nombre = _liston(table, universo)
+        validas = df[np.isfinite(df.hold_mase)]
+        cobertura = validas.drop_duplicates(["model", "country", "category"]).groupby("model").size()
+        cobertura = cobertura.reindex(sorted(set(df.model)), fill_value=0)
+        completos = cobertura.index[cobertura == n_series]
+        parciales = cobertura[cobertura < n_series].sort_values(ascending=False)
+        medias = validas[validas.model.isin(completos)].groupby("model")["hold_mase"].mean()
+        m = medias[medias <= 0.40].sort_values(ascending=False)  # recorta off-scale; se anota aparte
+        n_off = int(medias.gt(0.40).sum())
         colors = [BLUE if mm in ("ets", "theta") else GRAY for mm in m.index]
         y = np.arange(len(m))
-        liston, _n, nombre = _liston(table)
         ax.hlines(y, liston, m.values, color=MUTE, lw=1.2, zorder=1)
         ax.scatter(m.values, y, color=colors, s=34, zorder=3, edgecolor=BLACK, linewidth=0.4)
         ax.axvline(liston, color=GOLD, ls="--", lw=1.3, zorder=2)
         ax.set_yticks(y)
         ax.set_yticklabels(m.index, fontsize=7.5)
-        ax.set_xlabel("MASE de hold-out")
-        ax.set_title(f"({'a' if table == 'FAD' else 'b'}) {table} — 25 series familiares")
+        notas = [f"{n_off} fuera de escala (>0.40)"] if n_off else []
+        if len(parciales):
+            notas.append("cobertura parcial, fuera del ranking:")
+            notas.append(", ".join(f"{k} {v}/{n_series}" for k, v in parciales.items()))
+        ax.set_xlabel("\n".join(["MASE de hold-out", *notas]), fontsize=8)
+        ax.set_title(f"({'a' if table == 'FAD' else 'b'}) {table} — {n_series} series familiares")
         ax.text(
             liston,
             len(m) - 0.3,
@@ -139,17 +152,6 @@ def fig_ranking() -> None:
             fontsize=7.5,
             va="top",
         )
-        if n_off:
-            ax.text(
-                0.97,
-                0.03,
-                f"{n_off} modelos fuera de escala (>0.40)",
-                transform=ax.transAxes,
-                ha="right",
-                fontsize=6.5,
-                color=GRAY,
-                style="italic",
-            )
     fig.tight_layout()
     _emit(fig, "results_ranking_mase")
     print("F1 ranking OK")

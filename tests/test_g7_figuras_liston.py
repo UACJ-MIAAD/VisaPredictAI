@@ -81,6 +81,55 @@ def test_f1_el_liston_es_la_mejor_mase_de_reservado_de_etsx_theta_en_su_universo
         assert len(textos) == 1 and "reservado" in textos[0] and f"{esperado[t]:.3f}" in textos[0], textos
 
 
+# ═══════════════════════════════ B1-bis · F1: sólo se ranquea lo que cubre el universo del listón
+# RED (auditoría 16-oct sobre `c964881`): en DFF real ARIMA puntúa 23 de 25 series (0.1199) y se dibujaba unido al
+# listón de ETS sobre 25 (0.1286), aunque ETS sobre esas mismas 23 series da 0.1149: la comparación cambia de signo.
+def _con_parciales(rep: Path, tabla: str, cobertura: dict[str, list[int]], valor: float = 0.01) -> None:
+    """Añade modelos que sólo puntúan las series ``cobertura[modelo]`` (NaN en el resto), con un error MUY bajo."""
+    pool = rep / "eval" / f"model_comparison_{tabla}21.csv"
+    d = pd.read_csv(pool)
+    filas = [{"run_id": "r1", "model": m, "country": c, "category": k, "table": tabla, "sel_mase": SEL,
+              "hold_mase": valor if i in idx else float("nan")}
+             for m, idx in cobertura.items() for i, (c, k) in enumerate(SERIES)]  # fmt: skip
+    pd.concat([d, pd.DataFrame(filas)], ignore_index=True).to_csv(pool, index=False)
+
+
+def _textos(ax) -> str:
+    return " | ".join([x.get_text() for x in ax.texts] + [ax.get_xlabel(), ax.get_title()])
+
+
+@pytest.fixture
+def parciales(figuras: dict) -> dict:
+    for t in ("FAD", "DFF"):
+        _con_parciales(mrf.REP, t, {"arima": [0, 1], "arima_lstm": []})
+    mrf.fig_ranking()
+    return figuras
+
+
+def test_f1_un_modelo_de_cobertura_parcial_no_se_dibuja_contra_el_liston(parciales: dict) -> None:
+    for ax, t in zip(parciales["results_ranking_mase"].axes, ("FAD", "DFF"), strict=True):
+        etiquetas = {x.get_text() for x in ax.get_yticklabels()}
+        assert etiquetas == {"ets", "theta", "naive1"}, (t, etiquetas)
+        puntos = sorted(p for v in _puntos(ax).values() for p in v)
+        assert puntos == [
+            pytest.approx(_media(t, m, [0, 1, 2])) for m in sorted(HOLD[t], key=lambda m: _media(t, m, [0, 1, 2]))
+        ], (t, puntos)
+        (segmentos,) = [c.get_segments() for c in ax.collections if hasattr(c, "get_segments")]
+        liston = _lineas_verticales(ax)[0]
+        assert len(segmentos) == 3 and all(s[0][0] == pytest.approx(liston) for s in segmentos), (t, segmentos)
+
+
+def test_f1_declara_aparte_los_parciales_con_su_cobertura(parciales: dict) -> None:
+    for ax, t in zip(parciales["results_ranking_mase"].axes, ("FAD", "DFF"), strict=True):
+        texto = _textos(ax)
+        assert "arima 2/3" in texto and "arima_lstm 0/3" in texto and "parcial" in texto, (t, texto)
+
+
+def test_f1_el_titulo_dice_el_universo_medido(parciales: dict) -> None:
+    for ax, t in zip(parciales["results_ranking_mase"].axes, ("FAD", "DFF"), strict=True):
+        assert "3 series" in ax.get_title() and "25" not in ax.get_title(), (t, ax.get_title())
+
+
 # ═══════════════════════════════ B1 · F3 multi-semilla
 def _semillas(universo: list[int], monkeypatch, *, otra: list[int] | None = None) -> None:
     """Cinco semillas con MASE por serie sobre ``universo`` (índices de SERIES); ``otra`` = universo de la 5.ª."""
