@@ -33,6 +33,15 @@ def _hook(config: dict, hook_id: str) -> dict:
     return hooks[0]
 
 
+#: Réplica de `identify.file_is_text` (el filtro ``types: [text]`` del hook): texto = sin bytes de control binarios en
+#: los primeros 1024. Contrastada con el hook real de pre-commit-hooks v5.0.0 (52 = 52 archivos, 16-oct).
+_TEXTO = bytes(sorted({7, 8, 9, 10, 11, 12, 13, 27} | set(range(0x20, 0x100)) - {0x7F}))
+
+
+def _es_texto(datos: bytes) -> bool:
+    return not datos[:1024].translate(None, _TEXTO)
+
+
 def _motivo(datos: bytes) -> str | None:
     """Lo que `end-of-file-fixer` cambiaría en ``datos``; ``None`` si lo deja igual."""
     if not datos:
@@ -68,6 +77,29 @@ def problemas(config: dict, evidencia: dict, versionados: list[str], leer) -> li
     for otro in ("trailing-whitespace", "check-yaml"):
         if _hook(config, otro).get("exclude"):
             p.append(f"{otro} declara exclusiones: la excepción es sólo para end-of-file-fixer")
+    return p + _sin_declarar(evidencia, versionados, leer)
+
+
+def _sin_declarar(evidencia: dict, versionados: list[str], leer) -> list[str]:
+    """Cada archivo versionado que el hook TOCARÍA está declarado: excluido por sellado, o preexistente fuera de G7
+    con sus bytes. Una lista que sólo se verifica a sí misma no ve el sellado que falta (auditoría de B3-bis)."""
+    p: list[str] = []
+    tocaria = set()
+    for f in versionados:
+        datos = leer(f)
+        if datos is not None and _es_texto(datos) and _motivo(datos):
+            tocaria.add(f)
+    previos = evidencia.get("preexisting", {})
+    for f in sorted(tocaria - set(evidencia["files"]) - set(previos)):
+        p.append(f"{f}: el hook lo reescribiría y no está declarado ni como sellado ni como preexistente")
+    for f, meta in sorted(previos.items()):
+        datos = leer(f)
+        if datos is None or hashlib.sha256(datos).hexdigest() != meta["sha256"]:
+            p.append(f"{f}: el preexistente cambió: si entra en el rango, decidir si se sella o se corrige")
+        elif f not in tocaria:
+            p.append(f"{f}: el hook ya no lo tocaría: sobra en preexistentes")
+    for f in sorted(set(previos) & set(evidencia["files"])):
+        p.append(f"{f}: no puede ser sellado y preexistente a la vez")
     return p
 
 
@@ -100,6 +132,39 @@ def test_la_lista_no_esta_vacia_y_cada_motivo_es_real(real: dict) -> None:
 
 
 # ═══════════════════════════════ adversariales
+def test_un_sellado_omitido_de_la_lista_no_pasa(real: dict) -> None:
+    """RED de la auditoría: quitar un sellado de la evidencia (y de la exclusión) tiene que verse."""
+    evidencia = json.loads(EVIDENCIA.read_text(encoding="utf-8"))
+    omitido = sorted(evidencia["files"])[0]
+    evidencia["files"].pop(omitido)
+    config = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
+    hook = _hook(config, "end-of-file-fixer")
+    hook["exclude"] = hook["exclude"].replace(re.escape(omitido) + "|", "", 1)
+    p = problemas(config, evidencia, real["versionados"], _leer)
+    assert any(omitido in x and "no está declarado" in x for x in p), p
+
+
+def test_un_archivo_nuevo_que_el_hook_tocaria_no_pasa(real: dict) -> None:
+    nuevo = "reports/campaign/nuevo_sellado_sin_salto.json"
+
+    def leer(rel: str) -> bytes | None:
+        return b'{"a": 1}' if rel == nuevo else _leer(rel)
+
+    p = problemas(real["config"], real["evidencia"], [*real["versionados"], nuevo], leer)
+    assert any(nuevo in x and "no está declarado" in x for x in p), p
+
+
+def test_un_preexistente_que_cambia_no_pasa(real: dict) -> None:
+    previo = sorted(real["evidencia"]["preexisting"])[0]
+
+    def leer(rel: str) -> bytes | None:
+        datos = _leer(rel)
+        return datos + b"x" if rel == previo and datos is not None else datos
+
+    p = problemas(real["config"], real["evidencia"], real["versionados"], leer)
+    assert any(previo in x and "preexistente cambió" in x for x in p), p
+
+
 def test_un_archivo_mas_en_la_exclusion_no_pasa(real: dict) -> None:
     config = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
     hook = _hook(config, "end-of-file-fixer")
@@ -140,3 +205,24 @@ def test_local_son_capas_selladas_de_la_reconciliacion(real: dict) -> None:
     assert doc["reconciliation_id"] == real["evidencia"]["reconciliation_id"]
     for f, meta in real["evidencia"]["files"].items():
         assert doc["mother_layers"].get(f) == meta["sha256"], f
+
+
+def test_un_preexistente_que_el_hook_ya_no_tocaria_sobra(real: dict) -> None:
+    evidencia = json.loads(EVIDENCIA.read_text(encoding="utf-8"))
+    previo = sorted(evidencia["preexisting"])[0]
+    arreglado = (_leer(previo) or b"") + b"\n"
+    evidencia["preexisting"][previo]["sha256"] = hashlib.sha256(arreglado).hexdigest()
+
+    def leer(rel: str) -> bytes | None:
+        return arreglado if rel == previo else _leer(rel)
+
+    p = problemas(real["config"], evidencia, real["versionados"], leer)
+    assert any(previo in x and "sobra en preexistentes" in x for x in p), p
+
+
+def test_un_archivo_no_puede_ser_sellado_y_preexistente(real: dict) -> None:
+    evidencia = json.loads(EVIDENCIA.read_text(encoding="utf-8"))
+    sellado = sorted(evidencia["files"])[0]
+    evidencia["preexisting"][sellado] = dict(evidencia["files"][sellado])
+    p = problemas(real["config"], evidencia, real["versionados"], _leer)
+    assert any(sellado in x and "a la vez" in x for x in p), p

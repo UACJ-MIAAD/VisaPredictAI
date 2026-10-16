@@ -238,5 +238,33 @@
       "authority": "capa de la madre",
       "reason": "sin salto de línea final"
     }
-  }
+  },
+  "preexisting": {
+    "reports/governance/mega_audit_report.md": {
+      "sha256": "8779f39d179162218a150dec1a33c8f3ccdf13c1aef79547c738eeb78dcfc506",
+      "reason": "sin salto de línea final",
+      "scope": "presente en origin/main antes de G7 con estos bytes; fuera del rango saliente, el hook no lo toca en el push"
+    },
+    "tests/fixtures/vb_2002_06.html": {
+      "sha256": "a4426d952f2df69a93015de0d1d993665f0f99e38f0491f6251d275add170b2d",
+      "reason": "sin salto de línea final",
+      "scope": "presente en origin/main antes de G7 con estos bytes; fuera del rango saliente, el hook no lo toca en el push"
+    },
+    "tests/fixtures/vb_2007_06.html": {
+      "sha256": "079b94b8b165f946f65a1441bc8be1fce3a02c3887cd2b5d01f54559bac84563",
+      "reason": "sin salto de línea final",
+      "scope": "presente en origin/main antes de G7 con estos bytes; fuera del rango saliente, el hook no lo toca en el push"
+    },
+    "tests/fixtures/vb_2020_06.html": {
+      "sha256": "bcdda0bd8a31df38e5e00202e05945b5e93e442a7720df201f8f72dd883529f7",
+      "reason": "sin salto de línea final",
+      "scope": "presente en origin/main antes de G7 con estos bytes; fuera del rango saliente, el hook no lo toca en el push"
+    },
+    "tests/fixtures/vb_2022_06.html": {
+      "sha256": "a6b26d9204428777df3e7be2d062911b676c55fbd3218147dd60bbf28e976cc2",
+      "reason": "sin salto de línea final",
+      "scope": "presente en origin/main antes de G7 con estos bytes; fuera del rango saliente, el hook no lo toca en el push"
+    }
+  },
+  "purpose_preexisting": "Archivos versionados que el hook TAMBIÉN reescribiría pero que G7 no trae ni sella. No se excluyen: se declaran con sus bytes para que la prueba falle si cambian o entran en el rango (mega_audit_report.md lo hará al regenerarse en B5: entonces se decide si se genera con salto final o se declara sellado)."
 }
