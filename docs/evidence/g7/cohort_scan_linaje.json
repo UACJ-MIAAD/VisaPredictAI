@@ -1,0 +1,85 @@
+{
+  "schema": "cohort-scan-lineage/1",
+  "purpose": "El deck fija como entrada de E3 el escaneo de cohortes PRE-REGISTRADO; la campaña causal re-derivó el escaneo (E2) dentro de su transacción. El pin conserva la identidad histórica y el árbol trae la salida de la campaña: esta evidencia acredita qué representa cada uno y qué cambió entre ellos.",
+  "deck": {
+    "path": "docs/cohort_deck.json",
+    "pins": [
+      "inputs",
+      "inputs_e3_original"
+    ],
+    "key": "cohort_scan.json"
+  },
+  "preregistration": {
+    "path": "docs/evidence/g7/cohort_scan_preregistro.json",
+    "sha256": "806b3fed1a0303aca4522b16d17002f816fc0836902a543b02d39855d63e9f9d",
+    "git_blob": "cc43285b56892c76f1d6273696ec2a39fee02efc",
+    "git_source": "1f7d3324ea1d7b092a6bd25eb1a840ad60503d61:reports/eval/cohort_scan.json"
+  },
+  "campaign_output": {
+    "path": "reports/eval/cohort_scan.json",
+    "sha256": "9dc3cf12d873f4e0f1e2f0192a1ef7042679aca38de4405c421cf1ab55df2a21",
+    "campaign_id": "rederiv_953cd00_20261006T073927",
+    "archive_member": "reports/eval/cohort_scan.json"
+  },
+  "unchanged": {
+    "top_level": [
+      "population",
+      "protocol",
+      "rule_version",
+      "scope",
+      "status"
+    ],
+    "cell": [
+      "table",
+      "cohort",
+      "series",
+      "n_series",
+      "min_train",
+      "reference",
+      "holm_family_size"
+    ],
+    "cell_sets": [
+      "models[].model",
+      "mcs90.members",
+      "mcs90.eliminated"
+    ],
+    "cell_mcs90": [
+      "level",
+      "permutations",
+      "seed",
+      "note"
+    ]
+  },
+  "changed_model_fields": {
+    "ci_high": 68,
+    "ci_low": 68,
+    "hl_relative_to_reference": 68,
+    "hodges_lehmann": 68,
+    "mean_mase": 68,
+    "n_eff": 5,
+    "n_missing": 6,
+    "n_pairs": 6,
+    "n_zeros": 1,
+    "p_holm": 35,
+    "p_value": 37,
+    "sign_test_p": 28,
+    "statistic": 37,
+    "verdict_exploratory": 2
+  },
+  "verdict_changes": [
+    {
+      "table": "DFF",
+      "cohort": "estable",
+      "model": "arima",
+      "from": "peor_que_naive1",
+      "to": "sin_evidencia"
+    },
+    {
+      "table": "DFF",
+      "cohort": "estable",
+      "model": "ets",
+      "from": "peor_que_naive1",
+      "to": "sin_evidencia"
+    }
+  ]
+}

@@ -117,6 +117,10 @@
    "why": "La escribe `check_debt.py --update`."
   },
   {
+   "glob": "docs/evidence/**/*",
+   "role": "evidencia"
+  },
+  {
    "glob": "docs/experiments_inventory.json",
    "role": "documentacion",
    "why": "Inventario mantenido a mano; su gate exige clasificar cada entrypoint."

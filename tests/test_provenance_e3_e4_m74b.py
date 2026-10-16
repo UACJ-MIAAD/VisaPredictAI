@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,24 @@ def _inputs(rel: str) -> dict:
     return json.loads((ROOT / rel).read_text(encoding="utf-8"))["inputs"]
 
 
+#: G7 · B3-bis: la campaña causal re-derivó el escaneo de cohortes; el pin conserva el PRE-REGISTRO. La divergencia
+#: se admite sólo para esa clave y sólo si el linaje versionado declara ESTAS dos identidades (su contenido lo
+#: recalcula `test_g7_cohort_scan_linaje`).
+LINAJE = ROOT / "docs" / "evidence" / "g7" / "cohort_scan_linaje.json"
+
+
+def _acreditada_por_linaje(clave: str, sellado: str, ruta: Path) -> bool:
+    if not LINAJE.is_file():
+        return False
+    linaje = json.loads(LINAJE.read_text(encoding="utf-8"))
+    return (
+        clave == linaje["deck"]["key"]
+        and sellado == linaje["preregistration"]["sha256"]
+        and str(ruta.relative_to(ROOT)) == linaje["campaign_output"]["path"]
+        and _sha(ruta) == linaje["campaign_output"]["sha256"]
+    )
+
+
 def test_the_e3_deck_inputs_match_the_tree_after_the_reseal() -> None:
     """H7: el deck debe describir la campaña que se va a correr, no una anterior."""
     divergentes = []
@@ -47,9 +66,32 @@ def test_the_e3_deck_inputs_match_the_tree_after_the_reseal() -> None:
             continue
         ruta = _resolver(clave)
         assert ruta is not None, f"la entrada sellada {clave} no resuelve a ningún archivo"
-        if _sha(ruta) != sellado:
+        if _sha(ruta) != sellado and not _acreditada_por_linaje(clave, sellado, ruta):
             divergentes.append(clave)
     assert not divergentes, f"el deck sella hashes que ya no son los del árbol: {divergentes}"
+
+
+def test_the_lineage_exception_is_by_identity() -> None:
+    """La excepción no se extiende a otra clave, otro pin ni otro archivo en el árbol."""
+    sellado = _inputs("docs/cohort_deck.json")["cohort_scan.json"]
+    ruta = _resolver("cohort_scan.json")
+    assert ruta is not None and _acreditada_por_linaje("cohort_scan.json", sellado, ruta)
+    assert not _acreditada_por_linaje("series_cohorts.json", sellado, ruta)
+    assert not _acreditada_por_linaje("cohort_scan.json", "0" * 64, ruta)
+    otra = _resolver("series_cohorts.json")
+    assert otra is not None and not _acreditada_por_linaje("cohort_scan.json", sellado, otra)
+
+
+def test_the_lineage_exception_needs_the_declared_tree_bytes(tmp_path, monkeypatch) -> None:
+    """Un linaje que declara OTRA salida de campaña no excusa el escaneo que hay en el árbol."""
+    linaje = json.loads(LINAJE.read_text(encoding="utf-8"))
+    linaje["campaign_output"]["sha256"] = "0" * 64
+    falso = tmp_path / "linaje.json"
+    falso.write_text(json.dumps(linaje))
+    monkeypatch.setattr(sys.modules[__name__], "LINAJE", falso)
+    sellado = _inputs("docs/cohort_deck.json")["cohort_scan.json"]
+    ruta = _resolver("cohort_scan.json")
+    assert ruta is not None and not _acreditada_por_linaje("cohort_scan.json", sellado, ruta)
 
 
 def test_the_reseal_kept_the_pre_registration_intact() -> None:
@@ -109,3 +151,17 @@ def test_every_sealed_input_key_resolves_to_a_real_file() -> None:
             if clave in {"commit", "deck_version"}:
                 continue
             assert _resolver(clave) is not None, f"{artefacto}: la entrada {clave} no resuelve"
+
+
+def test_the_lineage_exception_needs_the_declared_tree_path(tmp_path, monkeypatch) -> None:
+    """Los mismos bytes en OTRA ruta del árbol no son la salida de campaña que el linaje declara."""
+    linaje = json.loads(LINAJE.read_text(encoding="utf-8"))
+    monkeypatch.setattr(sys.modules[__name__], "LINAJE", LINAJE.resolve())
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    copia = tmp_path / "reports" / "eval" / "otro_cohort_scan.json"
+    copia.parent.mkdir(parents=True)
+    copia.write_bytes((Path(__file__).resolve().parent.parent / linaje["campaign_output"]["path"]).read_bytes())
+    assert not _acreditada_por_linaje("cohort_scan.json", linaje["preregistration"]["sha256"], copia)
+    original = tmp_path / linaje["campaign_output"]["path"]
+    original.write_bytes(copia.read_bytes())
+    assert _acreditada_por_linaje("cohort_scan.json", linaje["preregistration"]["sha256"], original), "control"

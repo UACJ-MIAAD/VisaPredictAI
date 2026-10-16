@@ -552,7 +552,10 @@ def _plan_resellado_con(m: dict, **campos) -> None:
     _resellar_plan(m["recon"], lambda d: d.update(campos))
 
 
-@pytest.mark.parametrize(("campos", "codigo"), [({"schema": "campaign-reconciliation/0"}, "esquema")])
+@pytest.mark.parametrize(
+    ("campos", "codigo"),
+    [({"schema": "campaign-reconciliation/0"}, "esquema"), ({"schema": "campaign-reconciliation/1"}, "esquema")],
+)
 def test_un_plan_resellado_con_otro_esquema_no_se_lee(rm: dict, capsys, campos: dict, codigo: str) -> None:
     _ensamblado(rm, capsys)
     _plan_resellado_con(rm, **campos)
@@ -739,3 +742,128 @@ def test_cerrar_sin_una_figura_declarada_falla(rm: dict, capsys) -> None:
             cab._escribir(rm["recon"], rel, "re-derivada\n")
     assert cli.main(["--root", str(rm["recon"]), "close", "--parent-root", str(rm["madre"])]) == 2
     assert rc.leer(rm["recon"])["failure"]["codes"] == ["salida-ausente"]
+
+
+# ═══════════════════════════════ G7 · B3-bis: una salida, un solo recibo que la declare
+# RED (auditoría de B3, 16-oct, sobre `4950bd5`): C4 aporta las 42 salidas E3 con SUS recibos, pero los 42 recibos de la
+# madre se quedaban como capas en `reports/campaign/e3/` declarando las mismas rutas con otros hashes (en tres, otra
+# semilla): dos autoridades sobre cada salida, y la prueba de recibos del repo de datos caía en esos tres.
+def _recibos_madre(m: dict, *, parcial: bool = False) -> dict[str, bytes]:
+    """Por cada recibo de C4, el de la madre: la MISMA salida con otro hash (otra semilla), como en la campaña real."""
+    out: dict[str, bytes] = {}
+    for r in sorted((m["c4"] / cx.LANES_DIR).glob("receipt_*.json")):
+        d = json.loads(r.read_text())
+        d["seed"] = 42
+        d["outputs"] = [{**o, "sha256": "4" * 64} for o in d["outputs"]]
+        if parcial:
+            d["outputs"].append({"path": "reports/eval/salida_que_ninguna_fuente_aporta.csv", "sha256": "5" * 64})
+        out[f"reports/campaign/e3/{r.name}"] = json.dumps(d).encode()
+    assert out, "C4 sin recibos: la prueba no mediría nada"
+    return out
+
+
+def _evidencia_con(m: dict, extra: dict[str, bytes]) -> None:
+    mm.evidencia_madre(m["recon"] / EVID_DIR, m["madre"], _miembros_madre(m["madre"]), extra=extra)
+
+
+@pytest.fixture
+def con_recibos_madre(con_e3: dict) -> dict:
+    extra = _recibos_madre(con_e3)
+    _evidencia_con(con_e3, extra)
+    return {**con_e3, "recibos_madre": extra}
+
+
+def _declarantes(raiz: Path, salida: str) -> list[str]:
+    """Los JSON vivos de `reports/` (fuera de lo que la reconciliación aparta) que declaran ``salida``."""
+    out = []
+    for f in sorted((raiz / "reports").rglob("*.json")):
+        rel = str(f.relative_to(raiz))
+        if rel.startswith("reports/campaign/reconciliation/"):
+            continue
+        d = json.loads(f.read_text())
+        if isinstance(d, dict) and any(o.get("path") == salida for o in d.get("outputs") or [] if isinstance(o, dict)):
+            out.append(rel)
+    return out
+
+
+def test_un_recibo_de_la_madre_que_declara_una_salida_de_una_fuente_se_aparta(con_recibos_madre: dict, capsys) -> None:
+    m = con_recibos_madre
+    rc_, out = _ensamblar(m, capsys, m["c5"], m["c6"], m["c4"])
+    assert rc_ == 0, out
+    doc = rc.leer(m["recon"])
+    assert set(doc["superseded"]) == {f"{rc.SUSTITUIDOS_REL}/{rel}" for rel in m["recibos_madre"]}
+    for rel, datos in m["recibos_madre"].items():
+        assert not (m["recon"] / rel).exists(), f"{rel} sigue declarando salidas que aporta C4"
+        assert (m["recon"] / rc.SUSTITUIDOS_REL / rel).read_bytes() == datos
+        assert doc["superseded"][f"{rc.SUSTITUIDOS_REL}/{rel}"]["by"] == cab.ID_E3
+        for salida in json.loads(datos)["outputs"]:
+            vivos = _declarantes(m["recon"], salida["path"])
+            assert len(vivos) == 1 and vivos[0].startswith(cx.LANES_DIR), (salida["path"], vivos)
+    assert cli.main(["--root", str(m["recon"]), "verify", "--parent-root", str(m["madre"])]) == 0
+
+
+def test_un_recibo_versionado_en_esa_ruta_tambien_se_retira(con_recibos_madre: dict, capsys) -> None:
+    """El árbol de la reconciliación sale de un commit que ya puede traer esos recibos versionados (B3)."""
+    m = con_recibos_madre
+    rel = next(iter(m["recibos_madre"]))
+    cab._escribir(m["recon"], rel, m["recibos_madre"][rel].decode())
+    assert _ensamblar(m, capsys, m["c5"], m["c6"], m["c4"])[0] == 0
+    assert not (m["recon"] / rel).exists()
+
+
+def test_devolver_el_recibo_de_la_madre_a_su_ruta_no_se_acredita(con_recibos_madre: dict, capsys) -> None:
+    m = con_recibos_madre
+    assert _ensamblar(m, capsys, m["c5"], m["c6"], m["c4"])[0] == 0
+    rel, datos = next(iter(m["recibos_madre"].items()))
+    (m["recon"] / rel).write_bytes(datos)
+    assert "recibo-solapado" in _codigos(m, solo=c5.ID_C5), "el árbol entero se verifica aunque sólo se pida una fuente"
+
+
+def test_un_recibo_apartado_que_cambia_no_se_acredita(con_recibos_madre: dict, capsys) -> None:
+    m = con_recibos_madre
+    assert _ensamblar(m, capsys, m["c5"], m["c6"], m["c4"])[0] == 0
+    rel = next(iter(m["recibos_madre"]))
+    (m["recon"] / rc.SUSTITUIDOS_REL / rel).write_text("{}")
+    assert "capa-cambio" in _codigos(m, solo=c5.ID_C5)
+
+
+def test_un_recibo_de_la_madre_que_ademas_declara_otra_salida_no_se_ensambla(con_e3: dict, capsys) -> None:
+    """Apartarlo dejaría sin autoridad la salida que ninguna fuente aporta: se rechaza en vez de decidir."""
+    _evidencia_con(con_e3, _recibos_madre(con_e3, parcial=True))
+    _intacto(con_e3, capsys, "recibo-parcial", con_e3["c5"], con_e3["c6"], con_e3["c4"])
+
+
+def test_un_json_del_arbol_que_declara_una_salida_de_una_fuente_no_se_ensambla(con_e3: dict, capsys) -> None:
+    """Un recibo versionado en OTRA ruta (que el tar de la madre no trae) seguiría siendo una segunda autoridad."""
+    rel, datos = next(iter(_recibos_madre(con_e3).items()))
+    cab._escribir(con_e3["recon"], rel.replace("/e3/", "/e3_antiguo/"), datos.decode())
+    _intacto(con_e3, capsys, "recibo-solapado", con_e3["c5"], con_e3["c6"], con_e3["c4"])
+
+
+def test_un_recibo_apartado_resellado_que_no_es_el_del_tar_no_se_acredita(con_recibos_madre: dict, capsys) -> None:
+    """Aunque el plan se re-selle para describir otro contenido, el apartado sigue siendo un miembro del tar."""
+    m = con_recibos_madre
+    assert _ensamblar(m, capsys, m["c5"], m["c6"], m["c4"])[0] == 0
+    ref = f"{rc.SUSTITUIDOS_REL}/{next(iter(m['recibos_madre']))}"
+    (m["recon"] / ref).write_text('{"outputs": []}')
+    _resellar_plan(m["recon"], lambda d: d["superseded"][ref].update(sha256=_sha(m["recon"] / ref)))
+    assert "capa-tar" in _codigos(m, solo=c5.ID_C5)
+
+
+def test_un_plan_que_da_otra_autoridad_a_un_recibo_apartado_no_se_acredita(con_recibos_madre: dict, capsys) -> None:
+    m = con_recibos_madre
+    assert _ensamblar(m, capsys, m["c5"], m["c6"], m["c4"])[0] == 0
+    ref, apartado = next(iter(rc.leer(m["recon"])["superseded"].items()))
+    _resellar_plan(m["recon"], lambda d: d["mother_layers"].update({ref: apartado["sha256"]}))
+    assert "plan-solapado" in _codigos(m, solo=c5.ID_C5)
+
+
+def test_editar_los_recibos_apartados_sin_resellar_no_se_lee(con_recibos_madre: dict, capsys) -> None:
+    """``superseded`` es parte del plan: quitar una entrada sin re-sellar la huella es un plan editado."""
+    m = con_recibos_madre
+    assert _ensamblar(m, capsys, m["c5"], m["c6"], m["c4"])[0] == 0
+    ruta = m["recon"] / rc.RUTA_REL
+    doc = json.loads(ruta.read_text())
+    doc["superseded"].pop(next(iter(doc["superseded"])))
+    ruta.write_text(json.dumps(doc, indent=2, sort_keys=True))
+    assert _codigos(m, solo=c5.ID_C5) == {"plan-editado"}

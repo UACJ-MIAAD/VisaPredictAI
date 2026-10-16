@@ -24,6 +24,11 @@ ROOT = Path(__file__).resolve().parent.parent
 COHORTS = ROOT / "reports" / "eval" / "series_cohorts.json"
 POLICY = ROOT / "docs" / "COHORT_POLICY.md"
 RECEIPTS = ROOT / "reports" / "campaign" / "e3"
+#: Los recibos de E3 viven en `reports/campaign/e3/` (una campaña) o en `reports/campaign/complement/e3/` (la
+#: complementaria que la sustituye, C4). Una reconciliación deja UNO por lane (G7 · B3-bis).
+DIRECTORIOS_RECIBOS = (RECEIPTS, ROOT / "reports" / "campaign" / "complement" / "e3")
+#: Si el informe puntuado existe, E3 corrió: sus recibos TIENEN que estar (nada de saltar en vacío).
+INFORME_E3 = ROOT / "reports" / "eval" / "e3_cohort_campaign.json"
 CAMPANA_SELLADA = ROOT / "reports" / "campaign"
 
 
@@ -152,7 +157,17 @@ def test_sin_universo_evaluable_no_se_filtra_nada() -> None:
 
 # ------------------------------------------------------------------------- receipts
 def _receipts() -> list[Path]:
-    return sorted(RECEIPTS.glob("receipt_*.json")) if RECEIPTS.exists() else []
+    return sorted(p for d in DIRECTORIOS_RECIBOS if d.exists() for p in d.glob("receipt_*.json"))
+
+
+@pytest.mark.skipif(not INFORME_E3.exists(), reason="la campaña aún no ha corrido")
+def test_cada_lane_tiene_un_solo_recibo_y_cada_salida_un_solo_declarante() -> None:
+    """Dos recibos vivos para un lane, o para una misma salida, son dos autoridades (auditoría de B3, 16-oct)."""
+    recibos = [json.loads(p.read_text()) for p in _receipts()]
+    esperados = sorted(f"{spec.recipe}|{spec.table}|{spec.cohort}" for spec in cargar_deck().lanes())
+    assert sorted(r["lane"] for r in recibos) == esperados
+    declaradas = [o["path"] for r in recibos for o in r["outputs"]]
+    assert sorted(x for x in set(declaradas) if declaradas.count(x) > 1) == []
 
 
 CLAVES_RECEIPT = {
@@ -181,7 +196,7 @@ CLAVES_RECEIPT = {
 }
 
 
-@pytest.mark.skipif(not _receipts(), reason="la campaña aún no ha corrido")
+@pytest.mark.skipif(not INFORME_E3.exists(), reason="la campaña aún no ha corrido")
 class TestReceiptsDeLaCampana:
     def test_ninguna_receipt_esta_incompleta(self) -> None:
         for ruta in _receipts():

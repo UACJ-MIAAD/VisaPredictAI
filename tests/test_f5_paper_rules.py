@@ -66,8 +66,9 @@ class TestTheThreeRulesWatchWhatNobodyWatched:
         """El MASE de Auto-ARIMA no debe confundirse con el prospectivo de la receta desplegada."""
         ingenua = r"MASE[~ ]*\(?\\?(?:textbf\{)?([0-9]\.[0-9]{3})"
         prospectivo = f"{FACTS['prosp_mase']:.3f}"
-        assert prospectivo in {v for _, v in _capturas(ingenua)}
-        assert any(v != prospectivo for _, v in _capturas(ingenua))
+        # El conjunto EXACTO, derivado de los canónicos (auditoría de B3): el ancla ingenua ve el MASE medio de
+        # Auto-ARIMA en FAD y el prospectivo, y nada más; la buena, sólo el prospectivo.
+        assert {v for _, v in _capturas(ingenua)} == {f"{FACTS['autoarima_fad_mean']:.3f}", prospectivo}
         assert {v for _, v in _capturas(_decimal("prosp_mase")["label"])} == {prospectivo}
 
     @pytest.mark.parametrize("fact", NUEVAS)

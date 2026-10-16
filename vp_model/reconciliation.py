@@ -16,7 +16,11 @@ re-derivar (HEAD limpio fuera de `reports/`), el panel y la DuckDB de la madre, 
 * **referencias**: lo que la reconciliación re-deriva (`SALIDAS`) nunca se toma de nadie; si la madre lo
   traía, se guarda aparte (`REFERENCIA_REL`) para quien lo necesite como entrada (el veredicto campeón); si lo
   traía el propio árbol (`key_facts` versionado), se aparta de su ruta (`PREVIAS_REL`), de modo que al cerrar
-  cada salida existe sólo si se re-derivó.
+  cada salida existe sólo si se re-derivó;
+* **recibos sustituidos** (G7 · B3-bis): un recibo de la madre que declara (``outputs[].path``) salidas que aporta
+  una fuente se guarda aparte (`SUSTITUIDOS_REL`) y se retira de su ruta, también si el árbol lo traía versionado:
+  cada salida queda con UN solo recibo vivo que la declare, el de su fuente. Uno que además declara salidas que
+  ninguna fuente aporta no se aparta ni se conserva: no se ensambla.
 
 Más el inventario de TODO `reports/` al ensamblar: después sólo pueden cambiar las salidas declaradas.
 
@@ -45,13 +49,19 @@ from typing import Any
 from vp_model import artifact_receipt as ar
 from vp_model import complement as cx
 
-SCHEMA = "campaign-reconciliation/1"
+#: /2 (G7 · B3-bis): el plan sella también los recibos de la madre que una fuente sustituye (``superseded``).
+SCHEMA = "campaign-reconciliation/2"
 RUTA_REL = Path("reports") / "campaign" / "reconciliation.json"
 #: Donde se guardan, con su ruta original debajo, los miembros de la madre que la reconciliación re-deriva.
 REFERENCIA_REL = "reports/campaign/reconciliation/madre"
 #: Donde se apartan las salidas que el ÁRBOL ya traía al ensamblar (p. ej. `key_facts` versionado): retiradas de su
 #: ruta, que exista una salida al cerrar prueba que se produjo después de ensamblar (auditoría 15-oct).
 PREVIAS_REL = "reports/campaign/reconciliation/arbol"
+#: Donde se guardan los recibos de la madre que declaran salidas que aporta una fuente: dos recibos vivos para una
+#: misma salida son dos autoridades (auditoría de B3, 16-oct: los 42 de E3 frente a los de C4).
+SUSTITUIDOS_REL = "reports/campaign/reconciliation/sustituidos"
+#: Lo que la propia reconciliación aparta: no es una declaración viva.
+_APARTADOS = (f"{REFERENCIA_REL}/", f"{PREVIAS_REL}/", f"{SUSTITUIDOS_REL}/")
 #: El informe que puntúa E3: C4 lo respalda porque su lector lo re-calcula idéntico desde los recibos.
 E3_REL = "reports/eval/e3_cohort_campaign.json"
 #: Lo que la reconciliación re-deriva con el código del árbol: jamás una capa ni un artefacto de una fuente.
@@ -93,7 +103,7 @@ TRANSICIONES: dict[str, frozenset[str]] = {
 LEIBLES = frozenset({"assembled", "derived"})
 _ID = re.compile(r"^recon_[A-Za-z0-9_.-]{1,120}$")
 _PLAN = ("schema", "reconciliation_id", "parent", "code", "panel_sha256", "duckdb", "evidence", "sources",
-         "mother_layers", "references", "previous_outputs", "excluded", "inventory")  # fmt: skip
+         "mother_layers", "references", "previous_outputs", "superseded", "excluded", "inventory")  # fmt: skip
 
 Problema = cx.Problema
 Git = cx.Git
@@ -141,6 +151,53 @@ def artefactos_de(src: Path, doc: Mapping[str, Any]) -> list[str]:
 def _ruta_valida(rel: str) -> bool:
     partes = Path(rel).parts
     return bool(partes) and partes[0] == cx.DATOS_REL and ".." not in partes and not Path(rel).is_absolute()
+
+
+def _declara(datos: bytes) -> list[str] | None:
+    """Las rutas que un recibo JSON declara haber escrito (``outputs[].path``); ``None`` si no es un recibo."""
+    try:
+        d = json.loads(datos)
+    except ValueError, UnicodeDecodeError:
+        return None
+    if not isinstance(d, dict) or not isinstance(d.get("outputs"), list):
+        return None
+    return [str(o["path"]) for o in d["outputs"] if isinstance(o, dict) and "path" in o]
+
+
+def _recibos_sustituidos(
+    capas: Mapping[str, str], datos: Mapping[str, bytes], de_fuentes: Mapping[str, str]
+) -> tuple[dict[str, dict], list[Problema]]:
+    """Los recibos de la madre cuyas salidas declaradas aporta UNA fuente, con su referencia apartada."""
+    out: dict[str, dict] = {}
+    p: list[Problema] = []
+    for rel in sorted(capas):
+        rutas = None if rel in de_fuentes or es_salida(rel) or rel not in datos else _declara(datos[rel])
+        aportadas = [r for r in rutas or [] if r in de_fuentes]
+        if not aportadas:
+            continue
+        ajenas = sorted(r for r in rutas or [] if r not in de_fuentes)
+        fuentes = sorted({de_fuentes[r] for r in aportadas})
+        if ajenas or len(fuentes) > 1:
+            p.append(
+                ("recibo-parcial", f"{rel} declara salidas de {fuentes} y además {ajenas[:3]}: no se aparta entero")
+            )
+            continue
+        out[f"{SUSTITUIDOS_REL}/{rel}"] = {"member": rel, "sha256": capas[rel], "outputs": rutas, "by": fuentes[0]}
+    return out, p
+
+
+def _solapados(root: Path, de_fuentes: Mapping[str, str], ignorar: set[str]) -> list[Problema]:
+    """Cada JSON vivo de `reports/` (salvo los artefactos de las fuentes, lo apartado e ``ignorar``) que declara una
+    salida que aporta una fuente: sería una segunda autoridad sobre ella."""
+    p: list[Problema] = []
+    for f in sorted((Path(root) / cx.DATOS_REL).rglob("*.json")):
+        rel = str(f.relative_to(root))
+        if rel in de_fuentes or rel in ignorar or rel.startswith(_APARTADOS) or not f.is_file():
+            continue
+        dobles = sorted(r for r in _declara(f.read_bytes()) or [] if r in de_fuentes)
+        if dobles:
+            p.append(("recibo-solapado", f"{rel} declara {dobles[:3]}, que ya respalda una fuente"))
+    return p
 
 
 def _acreditar_fuente(
@@ -351,13 +408,18 @@ def ensamblar(
     p += _fuentes_unicas(sellos)
     if p or duck is None:
         raise ReconciliacionError(p or [("duckdb-ausente", "sin DuckDB sellada")])
+    archivo = root / evidencia["archive"]["path"]
     try:
-        capas, excluidos, p = _miembros(root / evidencia["archive"]["path"])
+        capas, excluidos, p = _miembros(archivo)
+        datos_json = _leer_miembros(archivo, {rel for rel in capas if rel.endswith(".json")})
     except (tarfile.TarError, OSError) as exc:
         raise ReconciliacionError([("evidencia-archivo", f"tar ilegible: {exc}")]) from exc
+    de_fuentes = {rel: s["complement_id"] for s in sellos for rel in s["artifacts"]}
+    sustituidos, ps = _recibos_sustituidos(capas, datos_json, de_fuentes)
+    p += ps + _solapados(root, de_fuentes, ignorar=set(capas))
     if p:
         raise ReconciliacionError(p)
-    doc = _plan(root, padre, head, duck, evidencia, sellos, capas, excluidos, reconciliation_id)
+    doc = _plan(root, padre, head, duck, evidencia, sellos, capas, sustituidos, excluidos, reconciliation_id)
     doc.update(plan_sha256=cx.huella({k: doc[k] for k in _PLAN}), status="assembled", revision=1,
                timestamps={"assembled_at": ahora()}, failure=None, outputs=None)  # fmt: skip
     _escribir(root, doc)
@@ -390,6 +452,7 @@ def _plan(
     evidencia: Mapping[str, Any],
     sellos: Sequence[Mapping[str, Any]],
     capas: Mapping[str, str],
+    sustituidos: Mapping[str, Mapping[str, Any]],
     excluidos: Sequence[Mapping[str, str]],
     reconciliation_id: str,
 ) -> dict:
@@ -398,14 +461,17 @@ def _plan(
     referencias = {
         f"{REFERENCIA_REL}/{rel}": {"member": rel, "sha256": sha} for rel, sha in capas.items() if es_salida(rel)
     }
-    capa = {rel: sha for rel, sha in capas.items() if not es_salida(rel) and rel not in de_fuentes}
-    sustituidos = sorted(rel for rel in capas if rel in de_fuentes)
+    apartados = {m["member"] for m in sustituidos.values()}
+    capa = {rel: sha for rel, sha in capas.items() if not es_salida(rel) and rel not in de_fuentes | apartados}
+    reemplazados = sorted(rel for rel in capas if rel in de_fuentes)
     previas = _apartar_previas(root)
     datos = _leer_miembros(root / evidencia["archive"]["path"], set(capas))
     for rel in capa:
         _volcar(root / rel, datos[rel])
-    for ref, m in referencias.items():
+    for ref, m in [*referencias.items(), *sustituidos.items()]:
         _volcar(root / ref, datos[m["member"]])
+    for rel in sorted(apartados):  # también el que el árbol traía versionado en esa ruta
+        (root / rel).unlink(missing_ok=True)
     for s in sellos:
         for rel in s["artifacts"]:
             _volcar(root / rel, (Path(s["root"]) / rel).read_bytes())
@@ -421,7 +487,8 @@ def _plan(
         "mother_layers": capa,
         "references": referencias,
         "previous_outputs": previas,
-        "excluded": [*excluidos, *({"member": rel, "reason": "lo sustituye una fuente"} for rel in sustituidos)],
+        "superseded": {ref: dict(m) for ref, m in sustituidos.items()},
+        "excluded": [*excluidos, *({"member": rel, "reason": "lo sustituye una fuente"} for rel in reemplazados)],
         "inventory": inventario(root),
     }
 
@@ -482,7 +549,10 @@ def _capas_contra_tar(root: Path, doc: Mapping[str, Any]) -> list[Problema]:
         capas, _excluidos, p = _miembros(Path(root) / ev["archive"]["path"])
     except (tarfile.TarError, OSError) as exc:
         return [("evidencia-archivo", f"tar ilegible: {exc}")]
-    esperadas = {**doc["mother_layers"], **{m["member"]: m["sha256"] for m in doc["references"].values()}}
+    esperadas = {
+        **doc["mother_layers"],
+        **{m["member"]: m["sha256"] for m in [*doc["references"].values(), *doc["superseded"].values()]},
+    }
     for rel, sha in sorted(esperadas.items()):
         if capas.get(rel) != sha:
             p.append(("capa-tar", f"{rel}: no es el miembro del tar sellado de la madre"))
@@ -495,12 +565,14 @@ def _archivos(root: Path, doc: Mapping[str, Any]) -> list[Problema]:
         **doc["mother_layers"],
         **{ref: m["sha256"] for ref, m in doc["references"].items()},
         **{ref: m["sha256"] for ref, m in doc["previous_outputs"].items()},
+        **{ref: m["sha256"] for ref, m in doc["superseded"].items()},
         **{rel: sha for s in doc["sources"] for rel, sha in s["artifacts"].items()},
     }
-    autoridades = [*doc["mother_layers"], *doc["references"], *doc["previous_outputs"],
+    autoridades = [*doc["mother_layers"], *doc["references"], *doc["previous_outputs"], *doc["superseded"],
                    *(rel for s in doc["sources"] for rel in s["artifacts"])]  # fmt: skip
     p = [("plan-solapado", f"{rel}: el plan le da más de una autoridad (madre, referencia o fuente)")
          for rel in sorted({r for r in autoridades if autoridades.count(r) > 1})]  # fmt: skip
+    p += _solapados(root, {rel: s["complement_id"] for s in doc["sources"] for rel in s["artifacts"]}, ignorar=set())
     vivo = inventario(root)
     p += [("capa-cambio", f"{rel}: falta o cambió desde el ensamblado") for rel, sha in sorted(sellados.items())
           if vivo.get(rel) != sha]  # fmt: skip
