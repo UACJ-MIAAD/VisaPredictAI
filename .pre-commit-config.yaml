@@ -19,6 +19,59 @@ repos:
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
+        # G7 · B3-bis: JSON sellados por la reconciliación sin salto de línea final; el hook (también en pre-push)
+        # se lo añadiría y rompería su hash. Lista EXACTA = docs/evidence/g7/eof_sellados.json (lo exige
+        # tests/test_g7_eof_sellados.py); el hook sigue actuando sobre todo lo demás.
+        exclude: |
+          (?x)^(
+            reports/campaign/coverage_DFF_camp_auto_s1\.json|
+            reports/campaign/coverage_DFF_camp_auto_s2\.json|
+            reports/campaign/coverage_DFF_camp_auto_s3\.json|
+            reports/campaign/coverage_DFF_camp_auto_s4\.json|
+            reports/campaign/coverage_DFF_camp_auto_s5\.json|
+            reports/campaign/coverage_DFF_camp_diff_s1\.json|
+            reports/campaign/coverage_DFF_camp_diff_s2\.json|
+            reports/campaign/coverage_DFF_camp_diff_s3\.json|
+            reports/campaign/coverage_DFF_camp_diff_s4\.json|
+            reports/campaign/coverage_DFF_camp_diff_s5\.json|
+            reports/campaign/coverage_DFF_camp_diffls_s1\.json|
+            reports/campaign/coverage_DFF_camp_diffls_s2\.json|
+            reports/campaign/coverage_DFF_camp_diffls_s3\.json|
+            reports/campaign/coverage_DFF_camp_diffls_s4\.json|
+            reports/campaign/coverage_DFF_camp_diffls_s5\.json|
+            reports/campaign/coverage_DFF_camp_levels_s1\.json|
+            reports/campaign/coverage_DFF_camp_levels_s2\.json|
+            reports/campaign/coverage_DFF_camp_levels_s3\.json|
+            reports/campaign/coverage_DFF_camp_levels_s4\.json|
+            reports/campaign/coverage_DFF_camp_levels_s5\.json|
+            reports/campaign/coverage_FAD_camp_auto_s1\.json|
+            reports/campaign/coverage_FAD_camp_auto_s2\.json|
+            reports/campaign/coverage_FAD_camp_auto_s3\.json|
+            reports/campaign/coverage_FAD_camp_auto_s4\.json|
+            reports/campaign/coverage_FAD_camp_auto_s5\.json|
+            reports/campaign/coverage_FAD_camp_diff_s1\.json|
+            reports/campaign/coverage_FAD_camp_diff_s2\.json|
+            reports/campaign/coverage_FAD_camp_diff_s3\.json|
+            reports/campaign/coverage_FAD_camp_diff_s4\.json|
+            reports/campaign/coverage_FAD_camp_diff_s5\.json|
+            reports/campaign/coverage_FAD_camp_diffls_s1\.json|
+            reports/campaign/coverage_FAD_camp_diffls_s2\.json|
+            reports/campaign/coverage_FAD_camp_diffls_s3\.json|
+            reports/campaign/coverage_FAD_camp_diffls_s4\.json|
+            reports/campaign/coverage_FAD_camp_diffls_s5\.json|
+            reports/campaign/coverage_FAD_camp_levels_s1\.json|
+            reports/campaign/coverage_FAD_camp_levels_s2\.json|
+            reports/campaign/coverage_FAD_camp_levels_s3\.json|
+            reports/campaign/coverage_FAD_camp_levels_s4\.json|
+            reports/campaign/coverage_FAD_camp_levels_s5\.json|
+            reports/campaign/hpo_deep_best_DFF_AutoBiTCN\.json|
+            reports/campaign/hpo_deep_best_DFF_AutoNHITS\.json|
+            reports/campaign/hpo_deep_best_DFF_AutoTiDE\.json|
+            reports/campaign/hpo_deep_best_FAD_AutoBiTCN\.json|
+            reports/campaign/hpo_deep_best_FAD_AutoNHITS\.json|
+            reports/campaign/hpo_deep_best_FAD_AutoTiDE\.json|
+            reports/eval/tuned_params\.json
+          )$
       - id: check-yaml
       - id: check-toml
       - id: check-merge-conflict

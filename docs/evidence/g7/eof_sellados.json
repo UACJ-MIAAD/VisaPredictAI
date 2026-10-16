@@ -1,0 +1,242 @@
+{
+  "schema": "eof-sealed-exceptions/1",
+  "purpose": "end-of-file-fixer (etapas pre-commit y pre-push) añadiría el salto de línea final que les falta a estos JSON, que son bytes sellados por la reconciliación: reescribirlos rompería su hash. Se excluyen SÓLO estas rutas, por nombre exacto; el hook sigue actuando sobre todo lo demás.",
+  "reconciliation_id": "recon_cd628f5_g7_20261016T211050",
+  "files": {
+    "reports/campaign/coverage_DFF_camp_auto_s1.json": {
+      "sha256": "a117d8d711f8b1ee9ac57bad7b6a36908868d748d1beea4f6d8db5db7be7760f",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_auto_s2.json": {
+      "sha256": "bab8d155ff90a3b3d63e7060d04941983d855043d745ff75b0566e5cf27e36ca",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_auto_s3.json": {
+      "sha256": "94ad026b3b8bd77ccf7384ba9f6a4e5669ce0069ec701193c9dccd27fbfc0331",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_auto_s4.json": {
+      "sha256": "7c3211017b8d719629561f861d20552e47e830c82e04ff5e4a4e764cd4fc65a0",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_auto_s5.json": {
+      "sha256": "2b9db582f1d36c4e7e3ebed055f1fad7ad375f1485ad5011f755dc5a8198b421",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_diff_s1.json": {
+      "sha256": "544f372f97e18dc7455159f5886f8619535ef0bc18a265b5b8083f6c7720c059",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_diff_s2.json": {
+      "sha256": "82b61f566348aede1d1f9b8f5ec3f8a4b59a90d8552f06dd04559e661d501a9a",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_diff_s3.json": {
+      "sha256": "b4b0eea4c34dbe655e07e98a8184c0db47ade36ac25c5f02bdc50ccef547ca90",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_diff_s4.json": {
+      "sha256": "4cec57a56f8f9ece524940891f90b61988e65f8558df4a397ebb8219e307e5bd",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_diff_s5.json": {
+      "sha256": "7d9b0052f9590270bf115e1a8fb0e5017ee1ee7b492809d51809f7c3a76a0e9f",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_diffls_s1.json": {
+      "sha256": "842ac2e0300bd24a9d42f7bd10d6dea6c63eaa6e55c07ad924e000becc129933",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_diffls_s2.json": {
+      "sha256": "fe748760262470dd8502cd271122ae40c2e2bfc35e61fc066496f0020cb88fee",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_diffls_s3.json": {
+      "sha256": "0a043ceb87344195176c6cf53b613315da6909c1aa722c5f6cec1414eba078de",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_diffls_s4.json": {
+      "sha256": "f3be94f8b6a90222ea38bc4053b2bbc2f80da29757bd7469f05b5489e8ee5d01",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_diffls_s5.json": {
+      "sha256": "4f7b4764e0773c1369fbbda274feb5891d5e21c1800adbd56f5cceb15be01f0f",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_levels_s1.json": {
+      "sha256": "a92d98bc4da0f374aa1923a62361c9a3e31a2da7c45eb695239cf0f4847011b6",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_levels_s2.json": {
+      "sha256": "31cb48c1c1bb9438bc56c8566fcb03b4636406961dcf9e1381cd4fcb42c48950",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_levels_s3.json": {
+      "sha256": "e70aec3ebc92f4dbede85c1a4dea661117d7f9f2326e7bd3482df729015e83bc",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_levels_s4.json": {
+      "sha256": "96c35198468cdb86cdcd82d2a2998c703e1e7478547732b060be7c147c9b2f79",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_DFF_camp_levels_s5.json": {
+      "sha256": "afed676a41f25b8e7b2b11dc967e4bc16dc63f520d9ca420874e6d1a59da1c38",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_auto_s1.json": {
+      "sha256": "0d3900c91342b75e2f9c7793b0703b4971c4164e709cf2da9bbcaf0ad1b6d20a",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_auto_s2.json": {
+      "sha256": "e577303909ecaa08e3f8833276a01380b27ece771c2a0bf748e08217d732a014",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_auto_s3.json": {
+      "sha256": "0af1c5860e1b0d382cd219527aa573b90caa4b1ddd196c8b98871dad6ea2e1ba",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_auto_s4.json": {
+      "sha256": "de385e66e04cab966515ef9e5351740a65cf27db39595e1b639a7222be6596f0",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_auto_s5.json": {
+      "sha256": "baa1b66b3f3738c0a443df9cb33327fe7ee693486c51f9b301b92d4f7ebccfed",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_diff_s1.json": {
+      "sha256": "ef181ba30cbf1ea8a244920c1de2a2083b3446485576b0356a19db39b93c703d",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_diff_s2.json": {
+      "sha256": "5d11d68550f12cc16d045fd33fb94963c3b0c9ab158f78ceeea95d7b1e8bf278",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_diff_s3.json": {
+      "sha256": "7a76e18a2e7f34dc902356e558cb722f8def34dda00e17b0c59246f6ae1809e5",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_diff_s4.json": {
+      "sha256": "1b9b104bb6efee19fb7b9141f06cef9e8506726841bc623609f81a955ee92c1d",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_diff_s5.json": {
+      "sha256": "b82ae3e774e3b9328d00b8b6df422fe27e6b68d60f233fafcab97a354a139a91",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_diffls_s1.json": {
+      "sha256": "7760551d9250c4c7fa678fa36bef46b8bc8e656f16922e3a81e2c5d2abfac691",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_diffls_s2.json": {
+      "sha256": "1d3cb4e099afa9b32fdb403e3990d006800b1fdaeb17bfbc623520a14f4b2ddc",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_diffls_s3.json": {
+      "sha256": "708272e86f71585eca31efd78734b914cf3923702d276021d72a3e75a2a669dd",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_diffls_s4.json": {
+      "sha256": "94562d1adec4d0e1c474dd97c7daadf44e29c1b43f64d62b1c1b735a2f66c908",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_diffls_s5.json": {
+      "sha256": "89b163c45f76b38fab60f0ea5c2e89d8e20f1cf5dca1116d04a8eec964506d61",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_levels_s1.json": {
+      "sha256": "931cf0ba3244e33980dd9d3b34188221df451a0e1ba5e588e7c5c1f91a24835a",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_levels_s2.json": {
+      "sha256": "e196c69cbfd28200bec91225c570a46d5409dea4c8a0f3e657058b0b12e7f4b8",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_levels_s3.json": {
+      "sha256": "fab99fd3c1ddcd5914276b9f2435526af30cb189237b9e199661182d4cadfd7a",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_levels_s4.json": {
+      "sha256": "e2173b5ab528169f410ac60126c87ed831246d443c677f942394952b99ff3b62",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/coverage_FAD_camp_levels_s5.json": {
+      "sha256": "710cac3cc1d295ebf503c12246fedffa75bb7aa52769499bdd401387033c992a",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/hpo_deep_best_DFF_AutoBiTCN.json": {
+      "sha256": "71cd392e8ec9c137ef6e26ea21345464e2918f49d13307817d3d86320c79591d",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/hpo_deep_best_DFF_AutoNHITS.json": {
+      "sha256": "02e61edf26fa84b52eee7c6415c2a8693bac892b03abd150860ab8b994cb2bc4",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/hpo_deep_best_DFF_AutoTiDE.json": {
+      "sha256": "ebb9f8313512c1d59e28618f38d6ba94cbf2c55a6c4e913cb74d2bac1acde862",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/hpo_deep_best_FAD_AutoBiTCN.json": {
+      "sha256": "06d0f752dbcbc40e22ecf7bc0eb7c6e43ca2e24e115db770519df3dfee85aafe",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/hpo_deep_best_FAD_AutoNHITS.json": {
+      "sha256": "356cd60d6078cc93d73593fcfef04f02f03a63508e2cd35bd795facc6ead0740",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/campaign/hpo_deep_best_FAD_AutoTiDE.json": {
+      "sha256": "92064b04992d7a7b7f2aa470cda1a2f7e371609e55e8ae570496aa55d39cf4db",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    },
+    "reports/eval/tuned_params.json": {
+      "sha256": "4408f003b40b2a9b24a15c7c381b0b8465baff5840d7b16a3cd41cb770fc05c8",
+      "authority": "capa de la madre",
+      "reason": "sin salto de línea final"
+    }
+  }
+}
