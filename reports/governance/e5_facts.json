@@ -144,7 +144,7 @@
   "RouterSinEvidencia": 3,
   "RuleVersion": "1.0.0",
   "ScanBate": 0,
-  "ScanPeor": 68,
+  "ScanPeor": 66,
   "ScanSinDatos": 24,
   "WorstRetroScaledMax": 5,
   "_doc": "Fuente ÚNICA de las cifras de la épica E. Todo lo demás (macros, tabla, figura, texto académico, tarjeta del modelo y contratos web/RAG) se deriva de aquí.",
@@ -163,11 +163,11 @@
     "router_gana": false
   },
   "provenance": {
-    "campaign": "f764a123c4cb88242c3d0232291ada36cfd8de8ab3715a29fa3407eb5e4892d6",
+    "campaign": "c29523b03c2c0bd4339a30778555b46aed9d1e40f01440b7870fd925e59d30d0",
     "cohorts": "f94b1684436f540acd2efcc26055024d6de78a33b98a97f490c63be336da211d",
     "pool": "f63c29461897fad89345306f5d0114cfd4a14609210d805facdc12048d41b18d",
-    "router": "588e331298af8dcae1ceba474236e48faa9db5f06304865e8527953e1c465294",
-    "scan": "806b3fed1a0303aca4522b16d17002f816fc0836902a543b02d39855d63e9f9d"
+    "router": "f74ffc172cfa2f0cbde19cf9fa58849989a8dd2ebc0690a2dba66a027a9bf1c7",
+    "scan": "9dc3cf12d873f4e0f1e2f0192a1ef7042679aca38de4405c421cf1ab55df2a21"
   },
   "router_rows": [
     {
@@ -344,8 +344,9 @@
     "sin_evidencia": 3
   },
   "scan_verdicts": {
-    "peor_que_naive1": 68,
-    "sin_datos_suficientes": 24
+    "peor_que_naive1": 66,
+    "sin_datos_suficientes": 24,
+    "sin_evidencia": 2
   },
   "schema_version": "1.0.0",
   "status": "exploratorio"

@@ -73,13 +73,13 @@ def test_el_paper_no_teclea_cifras_de_cohortes() -> None:
         assert cifra not in parrafo, f"«{cifra}» se tecleó en el paper en vez de derivarse"
 
 
-def test_el_descargo_provisional_sigue_en_pie() -> None:
-    """Sólo F2-causal puede retirarlo, y el protocolo vigente no es ése."""
+def test_el_descargo_provisional_se_retiro_con_el_protocolo_causal() -> None:
+    """La campaña causal ya se calculó; conservar el descargo anterior sería una afirmación falsa."""
     import yaml
 
     reglas = yaml.safe_load((RAIZ / "tools" / "consistency_rules.yml").read_text(encoding="utf-8"))
-    assert reglas["retro_protocol"] == "pre-F1", "el protocolo cambió: revisar el descargo antes de tocar el paper"
-    assert reglas["provisional_caveat"]["pattern"] in _prosa(PAPER)
+    assert reglas["retro_protocol"] == "f2-causal"
+    assert reglas["provisional_caveat"]["pattern"] not in _prosa(PAPER)
 
 
 def test_el_entregable_conserva_su_version_derivada_del_mismo_hallazgo() -> None:

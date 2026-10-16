@@ -1,0 +1,31 @@
+{
+  "campaign_id": "rederiv_953cd00_20261006T073927",
+  "csv_sha256": "sha256:8bee42648c9c9b05f6542137270a346dbb7dfb94bf08051e56025180ad2afc11",
+  "grid_sha256": "51c20145818dcf0eed84d622918adecd91483ec5ab538db6153717c2f0ed3e47",
+  "models": {
+    "BiTCN": {
+      "finite_mask_sha256": "e7ff2f73807de6c499dd1c3923353f367c654c96adcd615c5f1f23593b461142",
+      "finite_rows": 600
+    },
+    "NHITS": {
+      "finite_mask_sha256": "e7ff2f73807de6c499dd1c3923353f367c654c96adcd615c5f1f23593b461142",
+      "finite_rows": 600
+    },
+    "PatchTST": {
+      "finite_mask_sha256": "e7ff2f73807de6c499dd1c3923353f367c654c96adcd615c5f1f23593b461142",
+      "finite_rows": 600
+    },
+    "TiDE": {
+      "finite_mask_sha256": "e7ff2f73807de6c499dd1c3923353f367c654c96adcd615c5f1f23593b461142",
+      "finite_rows": 600
+    }
+  },
+  "n_rows": 600,
+  "n_series": 25,
+  "schema_version": 1,
+  "seed": 1,
+  "source_git_sha": "953cd002676f54b3f8831ef46062b6bf85a8fded",
+  "table": "DFF",
+  "truth_sha256": "ded1b558f86128545b8b4ef6ff4fdda25c2b71760ca397c396630f1c7ca4f2bc",
+  "variant": "camp_diffls"
+}

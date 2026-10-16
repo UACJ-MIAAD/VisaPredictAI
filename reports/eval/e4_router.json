@@ -324,12 +324,14 @@
     12
   ],
   "inputs": {
-    "commit": "850d4bd61385a80aefb50d3cf3fc64b94a2b9dad",
-    "e3_cohort_campaign.json": "f764a123c4cb88242c3d0232291ada36cfd8de8ab3715a29fa3407eb5e4892d6",
+    "commit": "953cd002676f54b3f8831ef46062b6bf85a8fded",
+    "deck_version": "1.0.0",
+    "e3_cohort_campaign.json": "b9b3b593eb0e0150e59048fed0b62d9752d02cf5158d261c35fef462dc7039ce",
     "series_cohorts.json": "f94b1684436f540acd2efcc26055024d6de78a33b98a97f490c63be336da211d",
-    "vp_model/champion.py": "415c1a19e4a397f988fff3873421d353f9813df5c823b018f732fb8f86041378",
-    "vp_model/config.py": "679fc9853c1b83bd415b4860843d59e5d5efea0b3ec5a89abf651ead6a55b3f7",
-    "vp_model/horizon.py": "84ad14a223b500441c8ce7aadd8c0c543baf5db40164630854dad9eb614855fb"
+    "vp_model/champion.py": "2b831cf1f8780bbe378a6df0f1e03d8b22c5cb251b9fc4c70dd41c54d217a25f",
+    "vp_model/config.py": "48e597f92efac92ed7fb71c271aced51c911f15e801c6d4904cf575bd7792053",
+    "vp_model/deck.py": "384f06bbe9a722f84cbe1cefe12a4838735847fff95befbd0dba70e9d1c01a1d",
+    "vp_model/horizon.py": "9137f65595e6c5b3a9563b5483e51d9b3b44d5811c3980b5260c79dec0ec132c"
   },
   "pool": {
     "n": 74,

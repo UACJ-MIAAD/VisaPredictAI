@@ -6,22 +6,22 @@
   "deck_version": "1.0.0",
   "device": "cpu",
   "env": {
-    "platform": "macOS-26.7-arm64-arm-64bit-Mach-O",
-    "prefix": "/Users/haowei/Documents/Anteproyecto/VisaPredictAI/ante_nf",
+    "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
+    "prefix": "/Users/haowei/Documents/Anteproyecto/VisaPredictAI-m74e-exec/ante_nf",
     "python": "3.14.7",
-    "torch": "2.12.0"
+    "torch": "2.13.0"
   },
   "exception": null,
   "inputs": {
     "cohort_scan.json": "806b3fed1a0303aca4522b16d17002f816fc0836902a543b02d39855d63e9f9d",
-    "commit": "e8b46298432aa4ea9ae341e9e517d9dd4a042405",
+    "commit": "4f02d2e44802fca66f6337dd9ecc12ccb52b05a8",
     "locks/deep-macos-arm64.txt": "a75c7d097352bad8c1d833af5ee80500d511190d90caa96f3c27dedc697afac9",
-    "locks/lockset.json": "07a66e2d7d6d17c8bb42e117895019e2c1a340a2a8cafd717035af3ec0a34db7",
+    "locks/lockset.json": "e1e09c02698fbb1b356af8569c9cf47d348444f6e56e85db76d21aa3419ad5f3",
     "series_cohorts.json": "f94b1684436f540acd2efcc26055024d6de78a33b98a97f490c63be336da211d",
     "visa_panel_long.csv": "3ae64f3dd714668b7726ae75c95620f2e5542faa3e843e76123581610f00a0b8",
     "visa_panel_long.parquet": "c3ae3d7a964f445bf7931cfb619a69b1a139a0dd0c357ca481fc39e7ca5fbdae",
-    "vp_model/config.py": "679fc9853c1b83bd415b4860843d59e5d5efea0b3ec5a89abf651ead6a55b3f7",
-    "vp_model/stability.py": "e7cee3281febdecfe672d21c95d616135407a0cc6b88096af1c650ef8ac0ef44"
+    "vp_model/config.py": "48e597f92efac92ed7fb71c271aced51c911f15e801c6d4904cf575bd7792053",
+    "vp_model/stability.py": "4d9e632b81fc0f83caca641edb90f2e2171658082818b92a55d5cd3946a179c0"
   },
   "lane": "deepar-robust-levels|DFF|estable",
   "lock": {
@@ -69,12 +69,12 @@
   },
   "recipe_role": "primary",
   "recipe_space": "levels",
-  "rss_max_bytes": 909819904,
+  "rss_max_bytes": 927301632,
   "seed": 1,
   "status": "ok",
   "table": "DFF",
   "timing": {
-    "seconds": 106.803
+    "seconds": 125.763
   },
   "torch_num_threads": 1,
   "universe": "evaluable",

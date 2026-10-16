@@ -63,10 +63,12 @@ class TestTheThreeRulesWatchWhatNobodyWatched:
         )
 
     def test_the_prospective_anchor_does_not_swallow_another_MASE(self) -> None:
-        """RED del ancla ingenua: `MASE 0.162` (Auto-ARIMA) NO puede entrar en la comparación."""
+        """El MASE de Auto-ARIMA no debe confundirse con el prospectivo de la receta desplegada."""
         ingenua = r"MASE[~ ]*\(?\\?(?:textbf\{)?([0-9]\.[0-9]{3})"
-        assert {v for _, v in _capturas(ingenua)} == {"0.162", "0.347"}
-        assert {v for _, v in _capturas(_decimal("prosp_mase")["label"])} == {"0.347"}
+        prospectivo = f"{FACTS['prosp_mase']:.3f}"
+        assert prospectivo in {v for _, v in _capturas(ingenua)}
+        assert any(v != prospectivo for _, v in _capturas(ingenua))
+        assert {v for _, v in _capturas(_decimal("prosp_mase")["label"])} == {prospectivo}
 
     @pytest.mark.parametrize("fact", NUEVAS)
     def test_a_shifted_value_is_caught(self, fact: str) -> None:
@@ -99,6 +101,14 @@ class TestTheThreeRulesWatchWhatNobodyWatched:
             assert capturado is None or capturado.group(1) != actual
 
 
+@pytest.fixture
+def paper_con_descargo(tmp_path: Path) -> dict:
+    """El protocolo histórico se prueba con un paper histórico mínimo, no con el candidato causal."""
+    paper = tmp_path / "historical.tex"
+    paper.write_text("Results: provisional pending re-derivation.\n")
+    return {**RULES, "provisional_caveat": {**RULES["provisional_caveat"], "files": [str(paper)]}}
+
+
 class TestTheProvisionalCaveatFollowsTheDeclaredProtocol:
     def test_the_declared_protocol_is_one_of_the_two(self) -> None:
         assert RULES["retro_protocol"] in cc.PROTOCOLS
@@ -107,13 +117,13 @@ class TestTheProvisionalCaveatFollowsTheDeclaredProtocol:
         # No un grupo: el descargo pertenece al manuscrito, no al README que lo acompaña.
         assert RULES["provisional_caveat"]["files"] == ["reports/paper_micai/paper.tex"]
 
-    def test_under_pre_f1_the_caveat_is_required_and_present(self) -> None:
-        assert cc._provisional_caveat_violations({**RULES, "retro_protocol": "pre-F1"}) == []
+    def test_under_pre_f1_the_caveat_is_required_and_present(self, paper_con_descargo: dict) -> None:
+        assert cc._provisional_caveat_violations({**paper_con_descargo, "retro_protocol": "pre-F1"}) == []
 
-    def test_under_f2_causal_the_same_text_becomes_a_violation(self) -> None:
+    def test_under_f2_causal_the_same_text_becomes_a_violation(self, paper_con_descargo: dict) -> None:
         """El mismo árbol, el otro protocolo: el descargo pasa de obligatorio a prohibido.
         No se ejecuta ni se simula la campaña; solo se declara el protocolo."""
-        problemas = cc._provisional_caveat_violations({**RULES, "retro_protocol": "f2-causal"})
+        problemas = cc._provisional_caveat_violations({**paper_con_descargo, "retro_protocol": "f2-causal"})
         assert problemas and "sobra" in problemas[0] and "re-derivadas" in problemas[0]
 
     def test_under_pre_f1_a_paper_without_the_caveat_fails(self, tmp_path) -> None:
@@ -145,6 +155,6 @@ class TestTheLiveTreeIsGreen:
     def test_the_guard_passes_as_it_stands(self) -> None:
         assert cc._provisional_caveat_violations(RULES) == []
 
-    def test_the_paper_still_carries_the_caveat_under_the_current_protocol(self) -> None:
-        assert RULES["retro_protocol"] == "pre-F1"
-        assert any("provisional pending re-derivation" in ln for ln in CUERPO)
+    def test_the_causal_paper_has_retired_the_provisional_caveat(self) -> None:
+        assert RULES["retro_protocol"] == "f2-causal"
+        assert not any("provisional pending re-derivation" in ln for ln in CUERPO)

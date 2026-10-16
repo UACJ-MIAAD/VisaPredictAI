@@ -1,0 +1,22 @@
+{
+  "artifact_sha256": "9b2f3334f1dafdb44540cc84c257cc020e8eafa880c06942746c96192521a235",
+  "campaign_id": "compl_7ca92ec_c6_20261013T081848",
+  "code_sha": "7ca92ec84eb00a789b998f39a59c06bfeddb53dc",
+  "coverage": {
+    "skipped": [],
+    "table": "FAD"
+  },
+  "panel_sha256": "sha256:3ae64f3dd714668b7726ae75c95620f2e5542faa3e843e76123581610f00a0b8",
+  "protocol": {
+    "block": "family",
+    "models": [
+      "arima",
+      "deepar",
+      "sarima"
+    ],
+    "num_samples": 200,
+    "seed": 42,
+    "table": "FAD"
+  },
+  "schema": "baseline-crps-receipt/1"
+}

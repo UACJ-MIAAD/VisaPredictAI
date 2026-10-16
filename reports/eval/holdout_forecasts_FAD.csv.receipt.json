@@ -1,0 +1,82 @@
+{
+  "artifact_sha256": "471a1d758cf9985f62a685a01dad40490352c11c6e382dc76cf25de598a85245",
+  "campaign_id": "rederiv_953cd00_20261006T073927",
+  "code_sha": "953cd002676f54b3f8831ef46062b6bf85a8fded",
+  "coverage": {
+    "models": [
+      "arima",
+      "catboost",
+      "drift",
+      "ets",
+      "kalman",
+      "lightgbm",
+      "naive1",
+      "sarima",
+      "theta"
+    ],
+    "n_keys": 5256,
+    "n_models": 9,
+    "n_rows": 5256
+  },
+  "excluded": [
+    {
+      "category": "F1",
+      "country": "india",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "arima"
+    },
+    {
+      "category": "F2B",
+      "country": "india",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "sarima"
+    },
+    {
+      "category": "F3",
+      "country": "india",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "sarima"
+    },
+    {
+      "category": "F4",
+      "country": "india",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "sarima"
+    },
+    {
+      "category": "F3",
+      "country": "philippines",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "sarima"
+    },
+    {
+      "category": "F4",
+      "country": "philippines",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "sarima"
+    }
+  ],
+  "expected_keys_sha256": "5bf56c212eeb75c802aaa7d1ad59fded9a7900b8d75b43b2586a72f88a515fd5",
+  "n_expected_keys": 5256,
+  "panel_sha256": "sha256:3ae64f3dd714668b7726ae75c95620f2e5542faa3e843e76123581610f00a0b8",
+  "pool": [
+    "sarima",
+    "arima",
+    "kalman",
+    "catboost",
+    "lightgbm",
+    "ets",
+    "theta",
+    "naive1",
+    "drift"
+  ],
+  "protocol": {
+    "block": "family",
+    "f_only": true,
+    "forecast_horizon": 1,
+    "holdout_months": 24,
+    "retrain_each_step": true
+  },
+  "schema": "holdout-forecasts-receipt/1",
+  "table": "FAD"
+}

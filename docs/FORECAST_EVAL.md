@@ -52,20 +52,24 @@ P5/P6, aplicada por un humano con `--promote` (fail closed) y rollback versionad
 
 ## Modelo de producción (por qué NO es el "ganador" del hold-out)
 
-Tras la re-campaña AQ (catálogo de 24 modelos, jul-2026), el veredicto del hold-out de
-confirmación (P2) es un **piso**: a un paso, el **naïve-1 (random walk)** es el modelo a
-vencer y ninguno lo supera con significancia — el MCS al 90 % retiene **solo al naïve-1
-en ambas tablas** (FAD 0.100 media / 0.089 mediana; DFF 0.086, empate exacto con Theta).
-El mejor profundo (AutoBiTCN FAD 0.109 ± 0.007) queda por debajo de ETS/Theta pero por
-encima del piso. Aun así, el demostrador sirve **mediana(Theta + ETS + SARIMA)** en FAD
-(hold-out 0.121) y **SARIMA** en DFF (0.100). Es una decisión deliberada:
+Tras la campaña de re-derivación causal (catálogo de 24 modelos, oct-2026; panel de 298 meses,
+hold-out en los 24 meses finales), el veredicto del hold-out de confirmación (P2) es un **piso**:
+a un paso, el **naïve-1 (random walk)** es el modelo a vencer y ninguno lo supera con
+significancia. El MCS al 90 % retiene al naïve-1 **solo en FAD**; en DFF lo acompaña ETS
+amortiguado (FAD 0.157 media / 0.135 mediana; DFF 0.125, empate exacto con Theta). El mejor
+profundo (AutoBiTCN FAD 0.162 ± 0.005) queda por debajo de ETS/Theta (0.167/0.171) pero por
+encima del piso; en DFF, BiTCN (0.122) queda ligeramente por debajo de la media del naïve-1, una
+diferencia descriptiva que ninguna prueba registrada contrasta. Aun así, el demostrador sirve
+**mediana(Theta + ETS + SARIMA)** en FAD (hold-out 0.152 sobre las series deduplicadas) y
+**SARIMA** en DFF (0.121). Es una decisión deliberada:
 
 - **El gate mide h=1; el producto sirve h=1..12.** El naïve-1 entrega una constante que
   se degrada conforme las colas se mueven; el campeón sigue la trayectoria en todo el
   horizonte (ahí vive el valor del sistema: P4 muestra la degradación ordenada).
-- El naïve-1 **pasó el gate retrospectivo** (Wilcoxon+Holm) y quedó **promovible a h=1**,
-  pero la promoción está **retenida**: se decidirá con la evidencia multi-horizonte del
-  registro sombra (P5) y de las añadas en vivo (P6), bajo la política pre-registrada A4.
+- En FAD el naïve-1 **pasó el gate retrospectivo** (Wilcoxon+Holm) y quedó **apto a h=1**; en
+  DFF su menor error medio no sobrevive a Holm y el único apto es la mediana(SARIMA + ETS +
+  Theta). Ninguna promoción se aplica: se decidirá con la evidencia multi-horizonte del registro
+  sombra (P5) y de las añadas en vivo (P6), bajo la política pre-registrada A4.
 - La **mediana de 3 estadísticos** es determinista, robusta (sabiduría de las
   M-competitions) y CPU-cheap: el Action que regenera los pronósticos corre en CPU y debe
   ser reproducible y barato; los profundos exigen GPU + un segundo venv (`ante_nf`).

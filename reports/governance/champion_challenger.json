@@ -1,16 +1,16 @@
 {
   "FAD": {
     "champion": "median(theta+ets+sarima)",
-    "champion_mean": 0.1206,
-    "champion_median": 0.1075,
-    "champion_crps": 32.13,
+    "champion_mean": 0.1519,
+    "champion_median": 0.1396,
+    "champion_crps": 41.52,
     "challengers": [
       {
         "challenger": "naive1",
-        "mean": 0.1046,
-        "median": 0.0808,
+        "mean": 0.1401,
+        "median": 0.1309,
         "n_series": 15,
-        "mean_margin_vs_champion": 0.016,
+        "mean_margin_vs_champion": 0.0118,
         "wilcoxon_p": 6e-05,
         "recipe": {
           "models": [
@@ -24,28 +24,28 @@
       },
       {
         "challenger": "ets",
-        "mean": 0.1192,
-        "median": 0.0988,
+        "mean": 0.1514,
+        "median": 0.1357,
         "n_series": 15,
-        "mean_margin_vs_champion": 0.0014,
-        "wilcoxon_p": 0.4212,
+        "mean_margin_vs_champion": 0.0005,
+        "wilcoxon_p": 0.77756,
         "recipe": {
           "models": [
             "ets"
           ],
           "agg": "median"
         },
-        "holm_p": 1.0,
+        "holm_p": 0.98418,
         "holdout_pass": false,
         "promotable": false
       },
       {
         "challenger": "median(theta+ets)",
-        "mean": 0.1208,
-        "median": 0.1068,
+        "mean": 0.1521,
+        "median": 0.1396,
         "n_series": 15,
         "mean_margin_vs_champion": -0.0002,
-        "wilcoxon_p": 0.59949,
+        "wilcoxon_p": 0.32806,
         "recipe": {
           "models": [
             "theta",
@@ -53,51 +53,70 @@
           ],
           "agg": "median"
         },
-        "holm_p": 1.0,
+        "holm_p": 0.98418,
         "holdout_pass": false,
         "promotable": false
       },
       {
         "challenger": "theta",
-        "mean": 0.1239,
-        "median": 0.1146,
+        "mean": 0.1543,
+        "median": 0.1396,
         "n_series": 15,
-        "mean_margin_vs_champion": -0.0033,
-        "wilcoxon_p": 0.24549,
+        "mean_margin_vs_champion": -0.0024,
+        "wilcoxon_p": 0.07474,
         "recipe": {
           "models": [
             "theta"
           ],
           "agg": "median"
         },
-        "holm_p": 1.0,
+        "holm_p": 0.3737,
+        "holdout_pass": false,
+        "promotable": false
+      },
+      {
+        "challenger": "mean(theta+ets+sarima)",
+        "mean": 0.1575,
+        "median": 0.1396,
+        "n_series": 15,
+        "mean_margin_vs_champion": -0.0056,
+        "wilcoxon_p": 0.23932,
+        "recipe": {
+          "models": [
+            "theta",
+            "ets",
+            "sarima"
+          ],
+          "agg": "mean"
+        },
+        "holm_p": 0.95728,
         "holdout_pass": false,
         "promotable": false
       },
       {
         "challenger": "drift",
-        "mean": 0.1287,
-        "median": 0.1086,
+        "mean": 0.1586,
+        "median": 0.1399,
         "n_series": 15,
-        "mean_margin_vs_champion": -0.0081,
-        "wilcoxon_p": 0.02557,
+        "mean_margin_vs_champion": -0.0067,
+        "wilcoxon_p": 0.04126,
         "recipe": {
           "models": [
             "drift"
           ],
           "agg": "median"
         },
-        "holm_p": 0.15342,
+        "holm_p": 0.24756,
         "holdout_pass": false,
         "promotable": false
       },
       {
         "challenger": "median(theta+ets+sarima+arima)",
-        "mean": 0.1292,
-        "median": 0.1049,
+        "mean": 0.1604,
+        "median": 0.141,
         "n_series": 15,
-        "mean_margin_vs_champion": -0.0086,
-        "wilcoxon_p": 0.97797,
+        "mean_margin_vs_champion": -0.0085,
+        "wilcoxon_p": 0.48871,
         "recipe": {
           "models": [
             "theta",
@@ -107,26 +126,7 @@
           ],
           "agg": "median"
         },
-        "holm_p": 1.0,
-        "holdout_pass": false,
-        "promotable": false
-      },
-      {
-        "challenger": "mean(theta+ets+sarima)",
-        "mean": 0.1551,
-        "median": 0.1071,
-        "n_series": 15,
-        "mean_margin_vs_champion": -0.0345,
-        "wilcoxon_p": 0.45428,
-        "recipe": {
-          "models": [
-            "theta",
-            "ets",
-            "sarima"
-          ],
-          "agg": "mean"
-        },
-        "holm_p": 1.0,
+        "holm_p": 0.98418,
         "holdout_pass": false,
         "promotable": false
       }
@@ -134,10 +134,10 @@
     "gate_scope": "retrospective-holdout-h1 (ver docs/PROMOTION_POLICY.md)",
     "holdout_winner": {
       "challenger": "naive1",
-      "mean": 0.1046,
-      "median": 0.0808,
+      "mean": 0.1401,
+      "median": 0.1309,
       "n_series": 15,
-      "mean_margin_vs_champion": 0.016,
+      "mean_margin_vs_champion": 0.0118,
       "wilcoxon_p": 6e-05,
       "recipe": {
         "models": [
@@ -151,10 +151,10 @@
     },
     "promote": {
       "challenger": "naive1",
-      "mean": 0.1046,
-      "median": 0.0808,
+      "mean": 0.1401,
+      "median": 0.1309,
       "n_series": 15,
-      "mean_margin_vs_champion": 0.016,
+      "mean_margin_vs_champion": 0.0118,
       "wilcoxon_p": 6e-05,
       "recipe": {
         "models": [
@@ -165,38 +165,52 @@
       "holm_p": 0.00042,
       "holdout_pass": true,
       "promotable": true
+    },
+    "champion_crps_provenance": {
+      "status": "acreditado",
+      "value": 41.52,
+      "inherited_value": null,
+      "artifact_sha256": "0f551a6498121dce6df54cc3b54e4a8f12172329d1097f317767812626e4873d",
+      "receipt_campaign_id": "compl_7d079d8_c5c_20261012T143651",
+      "transaction": {
+        "kind": "reconciliation",
+        "status": "assembled",
+        "reconciliation_id": "recon_1f7d332_g7_20261016T150909",
+        "source": "compl_7d079d8_c5c_20261012T143651"
+      },
+      "reason": null
     }
   },
   "DFF": {
     "champion": "sarima",
-    "champion_mean": 0.0996,
-    "champion_median": 0.1076,
-    "champion_crps": 31.33,
+    "champion_mean": 0.1215,
+    "champion_median": 0.1068,
+    "champion_crps": 27.86,
     "challengers": [
       {
         "challenger": "naive1",
-        "mean": 0.0773,
-        "median": 0.0694,
-        "n_series": 10,
-        "mean_margin_vs_champion": 0.0223,
-        "wilcoxon_p": 0.00195,
+        "mean": 0.1031,
+        "median": 0.0905,
+        "n_series": 12,
+        "mean_margin_vs_champion": 0.0184,
+        "wilcoxon_p": 0.02686,
         "recipe": {
           "models": [
             "naive1"
           ],
           "agg": "median"
         },
-        "holm_p": 0.0117,
-        "holdout_pass": true,
-        "promotable": true
+        "holm_p": 0.1343,
+        "holdout_pass": false,
+        "promotable": false
       },
       {
         "challenger": "median(sarima+ets+theta)",
-        "mean": 0.0856,
-        "median": 0.0897,
-        "n_series": 10,
-        "mean_margin_vs_champion": 0.014,
-        "wilcoxon_p": 0.00195,
+        "mean": 0.1067,
+        "median": 0.0933,
+        "n_series": 12,
+        "mean_margin_vs_champion": 0.0148,
+        "wilcoxon_p": 0.00049,
         "recipe": {
           "models": [
             "sarima",
@@ -205,34 +219,34 @@
           ],
           "agg": "median"
         },
-        "holm_p": 0.0117,
+        "holm_p": 0.00294,
         "holdout_pass": true,
         "promotable": true
       },
       {
         "challenger": "ets",
-        "mean": 0.0915,
-        "median": 0.0971,
-        "n_series": 10,
-        "mean_margin_vs_champion": 0.0081,
-        "wilcoxon_p": 0.16016,
+        "mean": 0.1106,
+        "median": 0.0996,
+        "n_series": 12,
+        "mean_margin_vs_champion": 0.0108,
+        "wilcoxon_p": 0.06396,
         "recipe": {
           "models": [
             "ets"
           ],
           "agg": "median"
         },
-        "holm_p": 0.52344,
+        "holm_p": 0.209,
         "holdout_pass": false,
         "promotable": false
       },
       {
         "challenger": "median(sarima+ets)",
-        "mean": 0.0942,
-        "median": 0.1042,
-        "n_series": 10,
-        "mean_margin_vs_champion": 0.0054,
-        "wilcoxon_p": 0.13086,
+        "mean": 0.115,
+        "median": 0.1075,
+        "n_series": 12,
+        "mean_margin_vs_champion": 0.0065,
+        "wilcoxon_p": 0.05225,
         "recipe": {
           "models": [
             "sarima",
@@ -240,81 +254,100 @@
           ],
           "agg": "median"
         },
-        "holm_p": 0.52344,
+        "holm_p": 0.209,
         "holdout_pass": false,
         "promotable": false
       },
       {
         "challenger": "catboost",
-        "mean": 0.106,
-        "median": 0.1052,
-        "n_series": 10,
-        "mean_margin_vs_champion": -0.0064,
-        "wilcoxon_p": 0.43164,
+        "mean": 0.1299,
+        "median": 0.1141,
+        "n_series": 12,
+        "mean_margin_vs_champion": -0.0084,
+        "wilcoxon_p": 0.12939,
         "recipe": {
           "models": [
             "catboost"
           ],
           "agg": "median"
         },
-        "holm_p": 0.52344,
+        "holm_p": 0.209,
         "holdout_pass": false,
         "promotable": false
       },
       {
         "challenger": "drift",
-        "mean": 0.1186,
-        "median": 0.1096,
-        "n_series": 10,
-        "mean_margin_vs_champion": -0.0191,
-        "wilcoxon_p": 0.16016,
+        "mean": 0.1446,
+        "median": 0.1234,
+        "n_series": 12,
+        "mean_margin_vs_champion": -0.0232,
+        "wilcoxon_p": 0.06396,
         "recipe": {
           "models": [
             "drift"
           ],
           "agg": "median"
         },
-        "holm_p": 0.52344,
+        "holm_p": 0.209,
         "holdout_pass": false,
         "promotable": false
       }
     ],
     "gate_scope": "retrospective-holdout-h1 (ver docs/PROMOTION_POLICY.md)",
     "holdout_winner": {
-      "challenger": "naive1",
-      "mean": 0.0773,
-      "median": 0.0694,
-      "n_series": 10,
-      "mean_margin_vs_champion": 0.0223,
-      "wilcoxon_p": 0.00195,
+      "challenger": "median(sarima+ets+theta)",
+      "mean": 0.1067,
+      "median": 0.0933,
+      "n_series": 12,
+      "mean_margin_vs_champion": 0.0148,
+      "wilcoxon_p": 0.00049,
       "recipe": {
         "models": [
-          "naive1"
+          "sarima",
+          "ets",
+          "theta"
         ],
         "agg": "median"
       },
-      "holm_p": 0.0117,
+      "holm_p": 0.00294,
       "holdout_pass": true,
       "promotable": true
     },
     "promote": {
-      "challenger": "naive1",
-      "mean": 0.0773,
-      "median": 0.0694,
-      "n_series": 10,
-      "mean_margin_vs_champion": 0.0223,
-      "wilcoxon_p": 0.00195,
+      "challenger": "median(sarima+ets+theta)",
+      "mean": 0.1067,
+      "median": 0.0933,
+      "n_series": 12,
+      "mean_margin_vs_champion": 0.0148,
+      "wilcoxon_p": 0.00049,
       "recipe": {
         "models": [
-          "naive1"
+          "sarima",
+          "ets",
+          "theta"
         ],
         "agg": "median"
       },
-      "holm_p": 0.0117,
+      "holm_p": 0.00294,
       "holdout_pass": true,
       "promotable": true
+    },
+    "champion_crps_provenance": {
+      "status": "acreditado",
+      "value": 27.86,
+      "inherited_value": null,
+      "artifact_sha256": "0f551a6498121dce6df54cc3b54e4a8f12172329d1097f317767812626e4873d",
+      "receipt_campaign_id": "compl_7d079d8_c5c_20261012T143651",
+      "transaction": {
+        "kind": "reconciliation",
+        "status": "assembled",
+        "reconciliation_id": "recon_1f7d332_g7_20261016T150909",
+        "source": "compl_7d079d8_c5c_20261012T143651"
+      },
+      "reason": null
     }
   },
-  "campaign_id": null,
-  "git_sha": null
+  "campaign_id": "rederiv_953cd00_20261006T073927",
+  "git_sha": "953cd002676f54b3f8831ef46062b6bf85a8fded",
+  "reconciliation_id": "recon_1f7d332_g7_20261016T150909"
 }

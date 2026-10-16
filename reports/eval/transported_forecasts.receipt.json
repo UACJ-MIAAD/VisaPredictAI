@@ -1,0 +1,25 @@
+{
+  "artifact_sha256": "f93dd00ce1bfc4e19836d91bbd6e635f4039ea3451c641daf39882dd9c3d1838",
+  "campaign_id": "rederiv_953cd00_20261006T073927",
+  "code_sha": "953cd002676f54b3f8831ef46062b6bf85a8fded",
+  "coverage": {
+    "n_keys": 2400,
+    "n_observed": 2400,
+    "n_rows": 2400,
+    "n_unobserved": 0
+  },
+  "expected_keys_sha256": "30f3b2eb886db28455551f822d7bf70f0c09352395261d821339929c1a62303b",
+  "models": [
+    "ets",
+    "theta"
+  ],
+  "panel_sha256": "sha256:3ae64f3dd714668b7726ae75c95620f2e5542faa3e843e76123581610f00a0b8",
+  "protocol": {
+    "forecast_horizon": 1,
+    "last_points_only": true,
+    "retrain_each_step": true,
+    "stride": 1,
+    "targets_per_group": 24
+  },
+  "schema": "transported-forecasts-receipt/1"
+}

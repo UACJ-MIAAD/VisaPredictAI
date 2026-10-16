@@ -1,12 +1,12 @@
 {
   "input_size": 18,
-  "learning_rate": 0.00015647433868206704,
+  "learning_rate": 0.00010450505773557931,
   "scaler_type": "robust",
   "max_steps": 2000,
   "early_stop_patience_steps": 10,
   "val_check_steps": 25,
   "logger": false,
-  "accelerator": "mps",
-  "hidden_size": 8,
-  "dropout": 0.23753829523172015
+  "accelerator": "cpu",
+  "hidden_size": 32,
+  "dropout": 0.28532323402156073
 }

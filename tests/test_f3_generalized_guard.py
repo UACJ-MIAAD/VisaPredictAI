@@ -58,6 +58,20 @@ def _json(nombre: str) -> dict:
     return json.loads((ROOT / CONTRACTS[nombre]["json"]).read_text())
 
 
+def _fila_horizonte(tabla: str, horizonte: int) -> str:
+    """Localiza la fila por identidad; sus cifras cambian legítimamente con cada reconciliación."""
+    actual = ""
+    for linea in _tex("horizon_champion.tex").splitlines():
+        celdas = [c.strip() for c in linea.rstrip("\\").split("&")]
+        if len(celdas) != 6:
+            continue
+        if celdas[0] in ("FAD", "DFF"):
+            actual = celdas[0]
+        if actual == tabla and celdas[1] == str(horizonte):
+            return linea
+    raise AssertionError(f"fila ausente: {tabla} h={horizonte}")
+
+
 class TestTheSurfacesAreDeclared:
     @pytest.mark.parametrize("nombre", ["key_facts.tex", "fe_facts.tex", "horizon_champion.tex"])
     def test_each_generated_tex_has_a_contract(self, nombre: str) -> None:
@@ -143,7 +157,7 @@ class TestTheTableContractIsClosed:
         assert any(f[0] == "DFF" for f in filas)
 
     def test_a_missing_row_is_named(self) -> None:
-        tex = _tex("horizon_champion.tex").replace(" & 12 & 0.722 & 1.021 & +29.3 & $\\checkmark$ \\\\\n", "", 1)
+        tex = _tex("horizon_champion.tex").replace(_fila_horizonte("FAD", 12) + "\n", "", 1)
         problemas = cc._table_contract(TABLE, tex, _json("horizon_champion.tex"))
         assert any("falta la fila ('FAD', '12')" in p for p in problemas)
 
@@ -155,30 +169,31 @@ class TestTheTableContractIsClosed:
         assert any("SIN autoridad" in p and "99" in p for p in problemas)
 
     def test_a_duplicated_row_is_named(self) -> None:
-        tex = _tex("horizon_champion.tex").replace(
-            "FAD & 1 & 0.126 & 0.146 & +13.8 & $\\checkmark$ \\\\",
-            "FAD & 1 & 0.126 & 0.146 & +13.8 & $\\checkmark$ \\\\\nFAD & 1 & 0.126 & 0.146 & +13.8 & $\\checkmark$ \\\\",
-            1,
-        )
+        fila = _fila_horizonte("FAD", 1)
+        tex = _tex("horizon_champion.tex").replace(fila, fila + "\n" + fila, 1)
         problemas = cc._table_contract(TABLE, tex, _json("horizon_champion.tex"))
         assert any("fila duplicada" in p for p in problemas)
 
     def test_a_row_with_the_wrong_number_of_cells_is_named(self) -> None:
-        tex = _tex("horizon_champion.tex").replace(
-            "FAD & 1 & 0.126 & 0.146 & +13.8 & $\\checkmark$ \\\\", "FAD & 1 & 0.126 & 0.146 & +13.8 \\\\", 1
-        )
+        fila = _fila_horizonte("FAD", 1)
+        tex = _tex("horizon_champion.tex").replace(fila, "&".join(fila.split("&")[:-1]) + r" \\", 1)
         problemas = cc._table_contract(TABLE, tex, _json("horizon_champion.tex"))
         assert any("5 celdas" in p for p in problemas)
 
     def test_a_drifted_number_is_named(self) -> None:
-        tex = _tex("horizon_champion.tex").replace("& 0.126 &", "& 0.127 &", 1)
+        fila = _fila_horizonte("FAD", 1)
+        celdas = fila.split("&")
+        original = celdas[2].strip()
+        movido = f"{float(original) + 0.001:.3f}"
+        celdas[2] = f" {movido} "
+        tex = _tex("horizon_champion.tex").replace(fila, "&".join(celdas), 1)
         problemas = cc._table_contract(TABLE, tex, _json("horizon_champion.tex"))
-        assert any("drift" in p and "0.127" in p for p in problemas)
+        assert any("drift" in p and movido in p for p in problemas)
 
     def test_a_flipped_significance_mark_is_named(self) -> None:
-        tex = _tex("horizon_champion.tex").replace(
-            "FAD & 1 & 0.126 & 0.146 & +13.8 & $\\checkmark$", "FAD & 1 & 0.126 & 0.146 & +13.8 & --", 1
-        )
+        fila = _fila_horizonte("FAD", 1)
+        assert r"$\checkmark$" in fila
+        tex = _tex("horizon_champion.tex").replace(fila, fila.replace(r"$\checkmark$", "--"), 1)
         problemas = cc._table_contract(TABLE, tex, _json("horizon_champion.tex"))
         assert any("sig=" in p for p in problemas)
 
