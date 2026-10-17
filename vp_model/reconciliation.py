@@ -427,8 +427,9 @@ def ensamblar(
 
 
 def _padre(parent_root: Path) -> dict[str, str]:
+    """La madre sobre la que se ENSAMBLA: no una ya publicada (G7 · B5a)."""
     try:
-        return cx.leer_padre(parent_root)
+        return cx.leer_padre(parent_root, admitidos=cx.PADRE_PLANIFICABLE)
     except cx.ComplementoError as exc:
         raise ReconciliacionError(exc.problemas) from exc
 

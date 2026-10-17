@@ -126,6 +126,7 @@ def test_a_forged_validated_no_longer_passes_the_schema(mutacion: dict, motivo: 
         "decision": "aprobada",
         "validation_receipt_sha256": RECIBO,
         "validation_receipt_path": "recibo.md",
+        "computed_sha256": "f" * 64,
     }
     assert cs.validate_schema(base) == [], "la base honesta debe ser válida (si no, la prueba no discrimina)"
     assert cs.validate_schema({**base, **mutacion}), f"debía rechazar: {motivo}"

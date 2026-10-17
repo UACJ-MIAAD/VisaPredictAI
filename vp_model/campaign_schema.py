@@ -38,6 +38,8 @@ ALLOWED_KEYS = _REQUIRED | frozenset(
         "release_sha",
         "validation_receipt_path",
         "best_effort_failures",
+        # G7 · B5a: sha256 de la copia exacta del `campaign.json` en `computed` (la evidencia del cómputo).
+        "computed_sha256",
     }
 )
 _HEX40 = re.compile(r"^[0-9a-f]{40}$")
@@ -53,8 +55,25 @@ _GATE_VALUES = (_GATE_OK, _GATE_PENDING)
 #: Claves que NO pueden coexistir con un estado: un `validated` que arrastre `failed_stage`
 #: describe dos historias a la vez.
 _STATE_FORBIDS: dict[str, tuple[str, ...]] = {
-    "running": ("completed_at", "validated_at", "published_at", "failed_at", "failed_stage", "reason", "release_sha"),
-    "computed": ("validated_at", "published_at", "failed_at", "failed_stage", "reason", "release_sha"),
+    "running": (
+        "completed_at",
+        "validated_at",
+        "published_at",
+        "failed_at",
+        "failed_stage",
+        "reason",
+        "release_sha",
+        "computed_sha256",
+    ),
+    "computed": (
+        "validated_at",
+        "published_at",
+        "failed_at",
+        "failed_stage",
+        "reason",
+        "release_sha",
+        "computed_sha256",
+    ),
     "validated": ("published_at", "failed_at", "failed_stage", "reason", "release_sha"),
     "published": ("failed_at", "failed_stage", "reason"),
     "failed": (),
@@ -85,6 +104,7 @@ _STATE_REQUIRES: dict[str, tuple[str, ...]] = {
         "reviewed_by",
         "decision",
         "validation_receipt_sha256",
+        "computed_sha256",
     ),
     "published": (
         "completed_at",
@@ -97,6 +117,7 @@ _STATE_REQUIRES: dict[str, tuple[str, ...]] = {
         "validation_receipt_sha256",
         "published_at",
         "release_sha",
+        "computed_sha256",
     ),
 }
 
@@ -146,6 +167,12 @@ def _state_invariants(obj: dict) -> list[str]:
         if valor is not None and (not isinstance(valor, str) or not valor.strip()):
             probs.append(f"campaign.json: {campo} no puede ser una cadena vacía")
 
+    return probs + _invariantes_de_publicacion(obj, estado)
+
+
+def _invariantes_de_publicacion(obj: dict, estado: str) -> list[str]:
+    """Formato de lo que la validación y la publicación añaden (recibo, evidencia del cómputo, release)."""
+    probs: list[str] = []
     if estado in {"validated", "published"}:
         recibo = obj.get("validation_receipt_sha256")
         if recibo is not None and (not isinstance(recibo, str) or not _HEX64.match(recibo)):
@@ -153,6 +180,9 @@ def _state_invariants(obj: dict) -> list[str]:
         ruta = obj.get("validation_receipt_path")
         if ruta is not None and (not isinstance(ruta, str) or not ruta.strip()):
             probs.append("campaign.json: validation_receipt_path no puede ser una cadena vacía")
+    computado = obj.get("computed_sha256")
+    if computado is not None and (not isinstance(computado, str) or not _HEX64.match(computado)):
+        probs.append("campaign.json: computed_sha256 debe ser 64 hex")
     if estado == "published":
         rel = obj.get("release_sha")
         if rel is not None and (not isinstance(rel, str) or not _HEX40.match(rel)):

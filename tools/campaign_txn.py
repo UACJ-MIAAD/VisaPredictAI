@@ -48,6 +48,8 @@ from typing import Any
 
 from tools import campaign_manifest as cm
 from tools import campaign_state as cs
+from vp_model import campaign_evidence as ce
+from vp_model import vinculo_publicacion as vp
 from vp_model.campaign_schema import _HEX40
 
 #: Ruta convenida, junto al manifiesto de campaña que ya vive ahí.
@@ -71,6 +73,8 @@ RECEIPT_SCHEMA = "campaign-validation-receipt/2"  # /2 · M74-E-R12: + input_sea
 #: ★ M74-E-R12: la revisión humana queda ligada también al sello de entradas comparado en vivo.
 IDENTIDAD_RECIBO = ("campaign_id", "source_git_sha", "panel_sha256", "input_seal_sha256")
 RECEIPT_KEYS = frozenset({*IDENTIDAD_RECIBO, "schema", "reviewed_by", "decision", "reviewed_at"})
+#: ★ G7 · B5a: el /3 liga además el RESULTADO EXACTO (madre, reconciliación, candidato de release): `vinculo_publicacion`.
+_CLAVES_POR_ESQUEMA = {RECEIPT_SCHEMA: RECEIPT_KEYS, vp.RECEIPT_SCHEMA: RECEIPT_KEYS | frozenset(vp.VINCULO)}
 #: Vocabulario cerrado: sólo `aprobada` transiciona. `rechazada` es un recibo válido cuyo desenlace
 #: correcto es `fail`, no `validated` — una campaña rechazada que quedara `validated` autorizaría
 #: publicar exactamente lo que el revisor acaba de rechazar.
@@ -106,15 +110,16 @@ def load_validation_receipt(path: str | Path, estado: Mapping[str, Any]) -> dict
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         raise ReceiptError(f"recibo ilegible, no es un objeto o tiene claves duplicadas: {exc}") from exc
 
-    faltan = sorted(RECEIPT_KEYS - set(datos))
-    sobran = sorted(set(datos) - RECEIPT_KEYS)
+    claves = _CLAVES_POR_ESQUEMA.get(str(datos.get("schema")), RECEIPT_KEYS)
+    faltan = sorted(claves - set(datos))
+    sobran = sorted(set(datos) - claves)
     if faltan or sobran:
         raise ReceiptError(f"esquema del recibo: faltan {faltan}, sobran {sobran}")
     for clave, valor in sorted(datos.items()):
         if not isinstance(valor, str) or not valor.strip():
             raise ReceiptError(f"el campo {clave!r} del recibo debe ser una cadena no vacía")
-    if datos["schema"] != RECEIPT_SCHEMA:
-        raise ReceiptError(f"esquema {datos['schema']!r}; se esperaba {RECEIPT_SCHEMA!r}")
+    if datos["schema"] not in _CLAVES_POR_ESQUEMA:
+        raise ReceiptError(f"esquema {datos['schema']!r}; se esperaba uno de {sorted(_CLAVES_POR_ESQUEMA)}")
 
     # ── ligado a ESTA campaña: cuatro identidades, no una
     for clave in IDENTIDAD_RECIBO:
@@ -240,9 +245,18 @@ def publishable(path: str | Path, *, manifest: str | Path) -> tuple[bool, str]:
         return False, f"estado '{estado}' NO autoriza publicar (sólo '{cs.PUBLISHABLE}')"
     if actual.get("git_dirty") is not False:
         return False, "la campaña se selló con el árbol SUCIO (git_dirty): es diagnóstica y no se publica"
+    # G7 · B5a: lo que se publica es UN cómputo concreto; su evidencia inmutable tiene que acreditarse.
+    try:
+        ce.evidencia_computada(ruta)
+    except ce.EvidenciaError as exc:
+        return False, f"la evidencia del cómputo no se acredita: {exc}"
     ok_recibo, motivo = _receipt_matches(actual)
     if not ok_recibo:
         return False, motivo
+    # ★ G7 · B5a: un recibo /3 sólo autoriza el resultado que describe, re-acreditado EN VIVO.
+    vinculo = vp.problema(_acta_ligada(actual), ruta, actual, repo_root=_REPO_ROOT)
+    if vinculo:
+        return False, vinculo
     ok_id, motivo = _manifest_matches(manifest, actual)
     if not ok_id:
         return False, motivo
@@ -269,12 +283,24 @@ def publish(path: str | Path, *, manifest: str | Path, release_sha: str) -> dict
         raise ValueError("publish: release_sha debe ser hex de 40")
     if not isinstance(revision, int) or isinstance(revision, bool):
         raise ValueError(f"publish: revisión ilegible antes de la puerta ({revision!r})")
+    # ★ G7 · B5a: se publica EXACTAMENTE el árbol revisado; un squash que no lo reproduce no consume el permiso.
+    acta = _acta_ligada(antes or {})
+    if (
+        acta.get("schema") == vp.RECEIPT_SCHEMA
+        and vp.arbol_de(acta["candidate_root"], release_sha) != acta["candidate_tree_sha"]
+    ):
+        raise PublicationBlocked(f"el release_sha {release_sha[:12]} no tiene el árbol revisado (candidate_tree_sha)")
     return cs._transition(
         path,
         "published",
         {"published_at": now_rfc3339(), "release_sha": release_sha},
         expected_revision=revision,
     )
+
+
+def _acta_ligada(obj: Mapping[str, Any]) -> dict[str, str]:
+    """El recibo ligado, ya acreditado por `_receipt_matches` (se relee: la puerta no guarda estado)."""
+    return load_validation_receipt(Path(str(obj["validation_receipt_path"])), obj)
 
 
 def _receipt_matches(obj: Mapping[str, Any]) -> tuple[bool, str]:
@@ -368,9 +394,15 @@ def archive_if_terminal(path: str | Path, destino: str | Path) -> Path | None:
     carpeta = Path(destino)
     carpeta.mkdir(parents=True, exist_ok=True)
     final = carpeta / f"{actual['campaign_id']}.json"
-    if final.exists():
+    # G7 · B5a: la evidencia del cómputo viaja con su transacción; si se quedara, la siguiente campaña
+    # heredaría una «evidencia» ajena (y su validación se negaría).
+    copia = origen.parent / cs.COMPUTED_SNAPSHOT
+    copia_final = carpeta / f"{actual['campaign_id']}.computed.json"
+    if final.exists() or copia_final.exists():
         raise ValueError(f"ya hay una transacción archivada en {final}: dos campañas con el mismo id")
     os.replace(origen, final)
+    if copia.exists():
+        os.replace(copia, copia_final)
     return final
 
 
@@ -539,6 +571,9 @@ def main(argv: list[str] | None = None) -> int:
                 return EXIT_ERROR
             recibo = Path(args.receipt).resolve()
             acta = load_validation_receipt(recibo, abierta)
+            vinculo = vp.problema(acta, Path(path), abierta, repo_root=_REPO_ROOT)
+            if vinculo:
+                raise ReceiptError(vinculo)
             obj = cs.mark_validated(
                 path,
                 validation_receipt_sha256=sha256_file(recibo),

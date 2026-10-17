@@ -223,6 +223,16 @@ def _resellar_crps(raiz: Path) -> None:
     c5._reescribir({"compl": raiz}, filas)
 
 
+def _revision_de_la_madre_mas_uno(madre: Path) -> None:
+    """Cambia la madre DE VERDAD (antes un `str.replace` sin patrón no cambiaba nada y nadie lo veía)."""
+    ruta = madre / cx.CAMPANA_REL
+    antes = ruta.read_bytes()
+    doc = json.loads(antes)
+    doc["revision"] += 1
+    ruta.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+    assert ruta.read_bytes() != antes
+
+
 def _resellar_plan(raiz: Path, cambio) -> None:
     ruta = raiz / rc.RUTA_REL
     doc = json.loads(ruta.read_text())
@@ -276,9 +286,7 @@ MUTACIONES = {
         "codigo",
     ),
     "madre-cambiada": (
-        lambda m: (m["madre"] / cx.CAMPANA_REL).write_text(
-            (m["madre"] / cx.CAMPANA_REL).read_text().replace('"revision": 7', '"revision": 8')
-        ),
+        lambda m: _revision_de_la_madre_mas_uno(m["madre"]),
         "padre-cambio",
     ),
     "evidencia-tocada": (

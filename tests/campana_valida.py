@@ -24,10 +24,11 @@ _POR_ESTADO: dict[str, dict] = {
     "failed": {"revision": 1, "failed_at": T1, "failed_stage": "prueba", "reason": "fallo de prueba"},
     "validated": {"revision": 2, "completed_at": T1, "input_gate": "passed", "output_gate": "passed",
                   "consistency": "passed", "validated_at": T1, "reviewed_by": "revisor", "decision": "approved",
-                  "validation_receipt_sha256": "d" * 64},
+                  "validation_receipt_sha256": "d" * 64, "computed_sha256": "f" * 64},
     "published": {"revision": 3, "completed_at": T1, "input_gate": "passed", "output_gate": "passed",
                   "consistency": "passed", "validated_at": T1, "reviewed_by": "revisor", "decision": "approved",
-                  "validation_receipt_sha256": "d" * 64, "published_at": T1, "release_sha": "e" * 40},
+                  "validation_receipt_sha256": "d" * 64, "published_at": T1, "release_sha": "e" * 40,
+                  "computed_sha256": "f" * 64},
 }  # fmt: skip
 
 

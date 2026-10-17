@@ -14,6 +14,7 @@ publicable, y ninguna pasa.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -73,9 +74,15 @@ def _forjar_validated(ruta: Path, recibo: Path, **campos: str) -> None:
     prohibición de publicar no puede descansar en que todo el mundo use `mark_validated`.
     """
     obj = json.loads(ruta.read_text(encoding="utf-8"))
+    # G7 · B5a: lo que la máquina deja al validar, también forjado: la copia exacta del cómputo y su hash.
+    copia = ruta.parent / cs.COMPUTED_SNAPSHOT
+    if not copia.exists():  # como la máquina: la copia es la del PRIMER paso a `validated`, y no se reescribe
+        copia.write_bytes(ruta.read_bytes())
+    computado = copia.read_bytes()
     obj.update(
         {
             "status": "validated",
+            "computed_sha256": hashlib.sha256(computado).hexdigest(),
             "revision": int(obj.get("revision", 1)) + 1,
             "validated_at": txn.now_rfc3339(),
             "reviewed_by": "Javier Rebull",

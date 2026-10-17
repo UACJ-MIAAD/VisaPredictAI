@@ -114,6 +114,29 @@ lector. Sella también el inventario de `reports/`. Los consumidores de CRPS ace
 reconciliación como transacción del árbol y la vuelven a acreditar al leer. `derived` no autoriza
 propagar ni publicar: la publicación sigue siendo sólo `campaign_txn.publish` sobre la madre.
 
+## Publicar una campaña reconciliada (M74-F · G7 · B5a)
+
+Publicar siguió siendo sólo `campaign_txn.publish` sobre la madre, pero validarla reescribía su
+`campaign.json`, cuyo hash fijan complementarias, reconciliaciones y evidencia copiada: validar la
+madre las dejaba a todas sin acreditar. Ahora se separan las dos cosas que ese archivo contaba:
+
+- **La evidencia del cómputo es inmutable.** Al pasar a `validated`, la máquina guarda bajo su
+  lock una copia create-only y exacta del `campaign.json` en `computed` (`campaign.computed.json`)
+  y registra su hash en `computed_sha256`. El lector único (`vp_model/campaign_evidence.py`)
+  devuelve ese hash para `computed`, `validated` y `published`, y sólo si el estado vivo describe
+  el mismo cómputo campo a campo. El hash original se conserva; nada se compara por `campaign_id`.
+- **La autorización se liga al resultado exacto.** El recibo `campaign-validation-receipt/3`
+  (`vp_model/vinculo_publicacion.py`) nombra la evidencia de la madre, la reconciliación (raíz, id
+  y hash de su `reconciliation.json`, que sella fuentes, capas y salidas) y el candidato de release
+  (raíz, commit, árbol, manifiesto y `release_id`). `validate`, `guard` y `publish` lo re-acreditan
+  en vivo: la reconciliación con su propio lector, el candidato limpio de verdad (no el `git_dirty`
+  sellado) y cada reporte versionado igual al de la reconciliación salvo el manifiesto y la tarjeta
+  del corte.
+- **Se publica sólo el árbol revisado.** `publish` exige además que el commit publicado tenga
+  exactamente el árbol del recibo; si no, se niega y el permiso no se consume.
+
+El recibo `/2` sigue sirviendo para una campaña sin complementarias.
+
 ## Consecuencias
 
 Desde M73 la garantía **es práctica y no sólo biblioteca**: el runbook canónico conduce la

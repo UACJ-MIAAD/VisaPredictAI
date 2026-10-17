@@ -90,6 +90,7 @@ from pathlib import Path
 from typing import Any
 
 from vp_model import artifact_receipt as ar
+from vp_model import campaign_evidence as ce
 from vp_model.deck import Deck, LaneSpec
 
 SCHEMA = "campaign-complement/1"
@@ -135,7 +136,11 @@ CRPS_BASE_REL = "reports/eval/crps_fad.csv"
 SALIDA_CRPS = {"champion_crps": CRPS_REL, "baseline_crps": CRPS_BASE_REL}
 
 #: Una madre `running` todavía produce y una `failed` no tiene identidad que prestar.
-PADRE_ADMITIDO = frozenset({"computed", "validated"})
+#: G7 · B5a: también `published`. Lo que se compara siempre es la EVIDENCIA del cómputo (`campaign_evidence`).
+PADRE_ADMITIDO = frozenset({"computed", "validated", "published"})
+#: …pero PRODUCIR sobre ella (planificar o importar una complementaria, ensamblar una reconciliación) sólo antes de
+#: publicarla: publicar consume el permiso, y una pieza nueva cambiaría un resultado que ya se sirve.
+PADRE_PLANIFICABLE = frozenset({"computed", "validated"})
 PROPOSITOS = frozenset({"e3", "deep_pi_conformal", "champion_crps", "baseline_crps"})
 TRANSICIONES: dict[str, frozenset[str]] = {
     "planned": frozenset({"running", "failed"}),
@@ -230,23 +235,29 @@ def _panel(root: Path) -> str | None:
     return "sha256:" + ar.sha256_file(p) if p.is_file() else None
 
 
-def leer_padre(parent_root: Path) -> dict[str, str]:
+def leer_padre(parent_root: Path, *, admitidos: frozenset[str] = PADRE_ADMITIDO) -> dict[str, str]:
     """Identidad de la madre, leída de su `campaign.json` SIN escribir nada."""
     ruta = Path(parent_root) / CAMPANA_REL
     if not ruta.is_file():
         raise ComplementoError([("padre-ausente", f"no hay transacción madre en {ruta}")])
     estado = ar.loads_strict(ruta.read_text(encoding="utf-8"))
-    if estado.get("status") not in PADRE_ADMITIDO:
+    if estado.get("status") not in admitidos:
         raise ComplementoError(
-            [("padre-estado", f"la madre está en {estado.get('status')!r}; se exige {sorted(PADRE_ADMITIDO)}")]
+            [("padre-estado", f"la madre está en {estado.get('status')!r}; se exige {sorted(admitidos)}")]
         )
     faltan = [k for k in ("campaign_id", "source_git_sha", "panel_sha256", "input_seal_sha256") if not estado.get(k)]
     if faltan:
         raise ComplementoError([("padre-identidad", f"la madre no sella {faltan}")])
+    try:
+        evidencia, _vivo = ce.evidencia_computada(ruta)
+    except ce.EvidenciaError as exc:
+        raise ComplementoError(
+            [("padre-evidencia", f"la evidencia del cómputo de la madre no se acredita: {exc}")]
+        ) from exc
     return {
         "campaign_id": str(estado["campaign_id"]),
         "status": str(estado["status"]),
-        "campaign_json_sha256": ar.sha256_file(ruta),
+        "campaign_json_sha256": evidencia,
         "source_git_sha": str(estado["source_git_sha"]),
         "panel_sha256": str(estado["panel_sha256"]),
         "input_seal_sha256": str(estado["input_seal_sha256"]),
@@ -545,7 +556,7 @@ def planificar(
     root = Path(root)
     if (root / RUTA_REL).exists():
         raise ComplementoError([("ya-planificada", f"{RUTA_REL} ya existe: un reintento es otra complementaria")])
-    padre = leer_padre(parent_root)
+    padre = leer_padre(parent_root, admitidos=PADRE_PLANIFICABLE)
     p: list[Problema] = campana_concurrente(root)
     if not _ID.match(complement_id):
         p.append(("id", f"complement_id {complement_id!r} no cumple {_ID.pattern}"))

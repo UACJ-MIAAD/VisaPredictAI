@@ -25,11 +25,14 @@ Endurecimientos (auditoria 13-jul-2026 ronda 10, falsos verdes reproducidos):
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
+
+from vp_model.campaign_evidence import SNAPSHOT as COMPUTED_SNAPSHOT
 
 # G7 · puerta 1: el esquema es UNA autoridad (`vp_model.campaign_schema`); la máquina lo usa desde allí.
 from vp_model.campaign_schema import (
@@ -193,10 +196,13 @@ def _transition(path: str | Path, target: str, updates: dict, *, expected_revisi
         if expected_revision is not None and obj.get("revision") != expected_revision:
             raise ValueError(f"revision stale: esperada {expected_revision}, actual {obj.get('revision')}")
         for k in updates:
-            if k in _IMMUTABLE:
+            if k in _IMMUTABLE or k == "computed_sha256":
                 raise ValueError(f"intento de mutar campo inmutable: {k}")
             if k not in ALLOWED_KEYS:
                 raise ValueError(f"update con clave desconocida: {k}")
+        if cur == "computed" and target == "validated":
+            # G7 · B5a: la evidencia del cómputo se guarda ANTES de reescribir el estado, bajo el mismo lock.
+            updates = {**updates, "computed_sha256": _sellar_computo(p)}
         new = {**obj, **updates, "status": target, "revision": int(obj["revision"]) + 1}
         # valida el objeto DESTINO (no solo el origen) antes de persistir
         problems = validate_schema(new)
@@ -204,6 +210,34 @@ def _transition(path: str | Path, target: str, updates: dict, *, expected_revisi
             raise ValueError(f"campaign.json DESTINO invalido: {problems}")
         atomic_write(p, new)
         return new
+
+
+def _sellar_computo(p: Path) -> str:
+    """Copia CREATE-ONLY y exacta del `campaign.json` en `computed` (`COMPUTED_SNAPSHOT`); devuelve su sha256.
+
+    Si una validación anterior se interrumpió después de la copia, la copia existente sólo se acepta si es idéntica
+    byte a byte: cualquier otra cosa es una «evidencia» que no es este cómputo, y la transición se niega.
+    """
+    datos = p.read_bytes()
+    copia = p.parent / COMPUTED_SNAPSHOT
+    try:
+        fd = os.open(str(copia), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o444)
+    except FileExistsError:
+        if copia.read_bytes() != datos:
+            raise ValueError(f"evidencia del cómputo: {copia.name} ya existe con otros bytes; no se valida") from None
+        return hashlib.sha256(datos).hexdigest()
+    escrita = False
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(datos)
+            fh.flush()
+            os.fsync(fh.fileno())
+        _fsync_dir(copia)
+        escrita = True
+    finally:
+        if not escrita:  # una copia a medias no puede quedar como «evidencia»
+            copia.unlink(missing_ok=True)
+    return hashlib.sha256(datos).hexdigest()
 
 
 def mark_computed(

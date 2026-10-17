@@ -123,7 +123,7 @@ def cmd_import(args: argparse.Namespace) -> dict:
     root = args.root
     if (root / cx.RUTA_REL).exists():
         raise cx.ComplementoError([("ya-planificada", "con el plan sellado las importaciones no se tocan")])
-    cx.leer_padre(args.parent_root)
+    cx.leer_padre(args.parent_root, admitidos=cx.PADRE_PLANIFICABLE)
     copiados = {}
     for d in importaciones(args.purpose):
         origen, destino = args.parent_root / d["origin_path"], root / d["artifact"]

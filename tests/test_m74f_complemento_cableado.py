@@ -25,6 +25,7 @@ from unittest import mock
 
 import pytest
 
+from tests import campana_valida
 from tests import m74f_mundo as mm
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -43,6 +44,8 @@ import score_e3_campaign as score  # noqa: E402
 from vp_model import complement as cx  # noqa: E402
 
 MADRE = "rederiv_953cd00_20261006T073927"
+#: El SHA de la madre empieza por el de su id, como exige el manifiesto de campaña (`campaign_manifest`).
+SHA_MADRE = "953cd00" + "9" * 33
 ID_E3 = "compl_m74f_e3_t1"
 ID_C3 = "compl_m74f_c3_t1"
 EVID_DIR = "reports/campaign/complement_evidence"
@@ -96,7 +99,7 @@ def _codigo_del_checkout(monkeypatch) -> None:
 
 
 @pytest.fixture
-def mundo(tmp_path: Path, monkeypatch) -> dict:
+def mundo(tmp_path: Path, monkeypatch, campana_sellada) -> dict:
     """Madre `computed` con lo que re-derivó; complementaria = repo git real en el commit de M74-F."""
     monkeypatch.delenv("CAMPAIGN_ID", raising=False)
     monkeypatch.delenv("CAMPAIGN_SHA", raising=False)
@@ -104,9 +107,15 @@ def mundo(tmp_path: Path, monkeypatch) -> dict:
     for r in (madre, compl):
         _escribir(r, "data/processed/visa_panel_long.csv", PANEL)
     sello = "sha256:" + _sha(madre / "data/processed/visa_panel_long.csv")
-    _escribir(madre, "reports/campaign/campaign.json", json.dumps({
-        "campaign_id": MADRE, "status": "computed", "source_git_sha": "9" * 40, "panel_sha256": sello,
-        "input_seal_sha256": "e" * 64, "revision": 7}))  # fmt: skip
+    # G7 · B5a: la madre lleva el ESQUEMA REAL de la máquina de estados (no una identidad de juguete de cinco
+    # claves): así las pruebas pueden recorrer `computed → validated → published` sobre ella.
+    # …y con su manifiesto de campaña y su sello legítimos (el fabricante de las pruebas de publicación): sin
+    # ellos la madre no podría pasar nunca la puerta, y la prueba de publicar no mediría nada.
+    sello_madre = campana_sellada.identidad(campana_sellada(madre, campaign_id=MADRE, head=SHA_MADRE))
+    _escribir(madre, "reports/campaign/campaign.json", json.dumps(
+        {**campana_valida.transaccion(campaign_id=MADRE, source_git_sha=SHA_MADRE, panel_sha256=sello,
+                                      status="computed"), "input_seal_sha256": sello_madre["input_seal_sha256"]},
+        indent=2, sort_keys=True) + "\n")  # fmt: skip
     _escribir(madre, "reports/eval/cohort_scan.json", '{"rederivado": "8c"}\n')
     for n in score.SCORECARDS:
         _escribir(madre, f"reports/eval/{n}", _scorecard(n.removeprefix("model_comparison_")[:3], 0.0))
@@ -345,7 +354,7 @@ def test_campana_completa_concurrente_bloquea_el_orquestador(mundo: dict, monkey
 def test_lanes_mal_escritos_no_cierran_y_no_se_puntuan(mundo: dict, monkeypatch, capsys, caso: str) -> None:
     _en_curso(mundo, "e3", capsys)
     if caso == "identidad_de_la_madre":
-        _lanes_dobles(mundo, monkeypatch, identidad={"campaign_id": MADRE, "source_git_sha": "9" * 40,
+        _lanes_dobles(mundo, monkeypatch, identidad={"campaign_id": MADRE, "source_git_sha": SHA_MADRE,
                                                      "panel_sha256": cx.leer(mundo["compl"])["panel_sha256"]})  # fmt: skip
     else:
         _lanes_dobles(mundo, monkeypatch, ignorar_receipt=True)
@@ -360,7 +369,7 @@ def test_un_campaign_id_heredado_de_la_shell_no_contamina_los_lanes(mundo: dict,
     """El operador viene de la madre con su CAMPAIGN_ID exportado: el orquestador lo sustituye por el de la complementaria."""
     _en_curso(mundo, "e3", capsys)
     monkeypatch.setenv("CAMPAIGN_ID", MADRE)
-    monkeypatch.setenv("CAMPAIGN_SHA", "9" * 40)
+    monkeypatch.setenv("CAMPAIGN_SHA", SHA_MADRE)
     _lanes_dobles(mundo, monkeypatch)
     assert e3.main(["--complement"]) == 0
     recibos = sorted((mundo["compl"] / cx.LANES_DIR).glob("receipt_*.json"))
@@ -413,6 +422,16 @@ def test_las_importaciones_no_se_tocan_despues_del_plan(mundo: dict, capsys) -> 
     _planificada(mundo, "e3", capsys)
     rc, out = _cli(mundo, "import", "--parent-root", str(mundo["madre"]), "--purpose", "e3", capsys=capsys)
     assert rc == 2 and out["codes"] == ["ya-planificada"]
+
+
+def test_de_una_madre_publicada_no_se_importa_nada(mundo: dict, capsys) -> None:
+    """G7 · B5a: publicar consume el permiso; una complementaria nueva no puede empezar sobre lo ya servido."""
+    ruta = mundo["madre"] / cx.CAMPANA_REL
+    ruta.write_text(json.dumps({**json.loads(ruta.read_text()), "status": "published"}))
+    antes = sorted(str(f.relative_to(mundo["compl"])) for f in mundo["compl"].rglob("*") if f.is_file())
+    rc, out = _cli(mundo, "import", "--parent-root", str(mundo["madre"]), "--purpose", "e3", capsys=capsys)
+    assert rc == 2 and out["codes"] == ["padre-estado"], out
+    assert sorted(str(f.relative_to(mundo["compl"])) for f in mundo["compl"].rglob("*") if f.is_file()) == antes
 
 
 def test_plan_con_evidencia_inexistente_no_escribe_nada(mundo: dict, capsys) -> None:

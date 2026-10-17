@@ -172,12 +172,23 @@ def test_control_la_complementaria_aceptada_y_reacreditada_lo_acredita(m5: dict,
     assert p["transaction"] == {"kind": "complement", "status": "accredited"}
 
 
-def test_la_madre_cambiada_despues_de_aceptar_no_acredita(m5: dict, monkeypatch, capsys) -> None:
+@pytest.mark.parametrize(
+    ("cambio", "codigo"),
+    [
+        # sigue en `computed`, pero ya no es el cómputo que la complementaria fijó
+        ({"revision": 99}, "padre-cambio"),
+        # G7 · B5a: un `validated` escrito a mano, sin la evidencia del cómputo que deja la máquina
+        ({"status": "validated"}, "padre-evidencia"),
+    ],
+)
+def test_la_madre_cambiada_despues_de_aceptar_no_acredita(m5: dict, monkeypatch, capsys, cambio, codigo) -> None:
     _aceptada(m5, monkeypatch, capsys)
     madre = m5["madre"] / cx.CAMPANA_REL
-    madre.write_text(madre.read_text().replace('"computed"', '"validated"'))
+    antes = madre.read_bytes()
+    madre.write_text(json.dumps({**json.loads(antes), **cambio}, indent=2, sort_keys=True) + "\n")
+    assert madre.read_bytes() != antes
     p = _estado(*_c5(m5), parent_root=m5["madre"])
-    assert p["status"] == "heredado" and "padre-cambio" in p["reason"], p
+    assert p["status"] == "heredado" and codigo in p["reason"], p
 
 
 def test_el_arbol_cambiado_despues_de_aceptar_no_acredita(m5: dict, monkeypatch, capsys) -> None:
