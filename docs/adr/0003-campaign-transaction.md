@@ -80,6 +80,8 @@ secuencia de llamadas y su propio criterio ante un estado terminal.
   campaña por `campaign_id`, SHA de origen, `panel_sha256` e `input_seal_sha256` (M74-E-R12), con decisión de vocabulario cerrado,
   revisor que no puede declararse automatizado y fecha posterior al cómputo que revisa. **No hay
   bandera para saltarse el guardián de consistencia**: la que había era un bypass de producción.
+  Desde M74-F · G7 · B5a ese recibo ya no autoriza nada por sí solo: `validate` y la puerta exigen
+  el `/3`, que añade el vínculo con el resultado (ver § Publicar una campaña reconciliada).
 - Relanzar sobre una campaña abierta **aborta**: `seal_running` es create-only y el archivado
   exige un estado terminal.
 
@@ -135,7 +137,19 @@ madre las dejaba a todas sin acreditar. Ahora se separan las dos cosas que ese a
 - **Se publica sólo el árbol revisado.** `publish` exige además que el commit publicado tenga
   exactamente el árbol del recibo; si no, se niega y el permiso no se consume.
 
-El recibo `/2` sigue sirviendo para una campaña sin complementarias.
+- **Una sola lectura del recibo.** `validate` acredita los bytes que leyó y registra el hash de esos
+  mismos bytes; la puerta los lee una vez y `publish` toma de esa misma lectura el árbol exigido.
+  Cambiar el archivo entre la comprobación y el uso ya no cambia lo que se publica.
+- **El candidato se coteja con un contrato de exportación explícito.** `EXPORTACION` nombra cada
+  salida de la reconciliación que no viaja al repositorio de datos (las figuras re-derivadas van al
+  documental; las de cohortes se quedan locales). Todo lo demás del inventario sellado es
+  obligatorio en el candidato, y una salida del contrato que aparezca en datos sobra. Las reglas de
+  `.gitignore` o `.git/info/exclude` no deciden qué evidencia es obligatoria. El vínculo no verifica
+  el lado documental de ese contrato.
+
+El recibo `/2` **ya no autoriza** validar ni publicar. Una campaña sin complementarias sigue la
+misma vía: una reconciliación con cero fuentes (`run_reconciliation.py` sin `--source`) y un
+recibo `/3`.
 
 ## Consecuencias
 

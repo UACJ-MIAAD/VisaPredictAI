@@ -37,6 +37,24 @@ VINCULO = ("mother_computed_sha256", "reconciliation_root", "reconciliation_id",
 MANIFIESTO_RELEASE = "reports/release/release_manifest.json"
 #: Lo que emite el CORTE sobre lo reconciliado (`make release-manifest`): no lo aporta la reconciliación.
 CORTE = frozenset({MANIFIESTO_RELEASE, "reports/governance/MODEL_CARD.md"})
+#: Contrato de EXPORTACIÓN (auditoría 17-oct): cada salida re-derivada que NO viaja a la rama de datos, con su destino
+#: concreto. Todo lo demás que aporta la reconciliación es obligatorio en el candidato de datos. Las reglas de ignorado
+#: de git (`.gitignore`, `.git/info/exclude`) no deciden qué evidencia es obligatoria: las controla quien publica.
+EXPORTACION: dict[str, tuple[str, str]] = {
+    **{f"{rc.FIGURAS}{n}.pdf": ("documental", f"reports/latex/Figures/{n}.pdf") for n in rc.FIGURAS_PDF},
+    "reports/figures/results_holdout_mexico_F3_FAD.png": (
+        "documental",
+        "reports/latex/Figures/results_holdout_mexico_F3_FAD.png",
+    ),
+    "reports/paper_micai/Figures/fig_cd_diagram.pdf": ("documental", "reports/paper_micai/Figures/fig_cd_diagram.pdf"),
+    **{
+        f"reports/figures/cohorts/{d}e5_router_effect.png": (
+            "local",
+            "vista previa de make_cohort_figure; sin consumidor",
+        )
+        for d in ("", "dark/", "en/", "en/dark/")
+    },
+}
 #: Lo que la reconciliación guarda para sí: jamás viaja al candidato.
 _INTERNOS = ("reports/campaign/reconciliation/", "reports/campaign/complement_evidence/", str(rc.RUTA_REL))
 
@@ -138,7 +156,11 @@ def _reportes(raiz: Path, doc: Mapping[str, Any]) -> str | None:
     versionados = [r for r in listado.split("\0") if r]
     sobran = [r for r in versionados if r not in CORTE and (r.startswith(_INTERNOS) or r not in esperado)]
     distintos = [r for r in versionados if r not in CORTE and r not in sobran and _sha(raiz / r) != esperado[r]]
-    faltan = [r for r in rc.SALIDAS if r not in versionados]
+    # ★ auditoría 17-oct: el inventario COMPLETO previsto (capas, fuentes, salidas), salvo lo que el contrato de
+    # exportación destina a otro sitio; y lo destinado a otro sitio no se cuela en datos.
+    previsto = {r for r in esperado if not r.startswith(_INTERNOS) and r not in CORTE and r not in EXPORTACION}
+    faltan = sorted(previsto - set(versionados))
+    sobran += [r for r in versionados if r in EXPORTACION]
     if sobran or distintos or faltan:
         return (f"el candidato no es la reconciliación: distintos {distintos[:4]}, sobran {sobran[:4]}, "
                 f"faltan {faltan[:4]}")  # fmt: skip

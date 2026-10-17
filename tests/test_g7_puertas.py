@@ -308,6 +308,10 @@ def test_borde_un_staging_ajeno_se_rechaza_sin_tocarlo(repo_sync: Path, args: li
 from tests.test_campaign_hardening_m74b import _manifiesto, _validada  # noqa: E402
 from tools import campaign_txn as txn  # noqa: E402
 
+#: G7 · B5a: estas puertas son ORTOGONALES al vínculo del recibo /3 (reconciliación + candidato); ese vínculo se
+#: prueba de punta a punta en `test_g7_publicacion_reconciliada`. Aquí se sustituye sólo esa verificación.
+pytestmark = pytest.mark.usefixtures("vinculo_fuera_de_esta_prueba")
+
 
 def test_b_la_maquina_no_expone_una_escritura_de_published() -> None:
     publicas = [n for n in vars(cs) if not n.startswith("_") and callable(getattr(cs, n)) and "publish" in n.lower()]
@@ -332,14 +336,14 @@ def test_b_sin_puerta_no_se_escribe(tmp_path: Path, campana_sellada) -> None:
 def test_b_si_la_transaccion_cambia_tras_la_puerta_no_se_publica(tmp_path: Path, campana_sellada, monkeypatch) -> None:
     """La escritura es CAS sobre la revisión que la puerta acreditó: un cambio entre ambas la invalida."""
     p = _validada(tmp_path, campana_sellada)
-    puerta = txn.publishable
+    puerta = txn._puerta
 
     def puerta_y_cambio(*a, **k):
         veredicto = puerta(*a, **k)
         cs.mark_failed(p, failed_stage="concurrente", failed_at=txn.now_rfc3339(), reason="cambio tras la puerta")
         return veredicto
 
-    monkeypatch.setattr(txn, "publishable", puerta_y_cambio)
+    monkeypatch.setattr(txn, "_puerta", puerta_y_cambio)
     with pytest.raises(ValueError):
         txn.publish(p, manifest=_manifiesto(tmp_path), release_sha="b" * 40)
     assert (cs.read(p) or {})["status"] == "failed"
@@ -349,7 +353,7 @@ def test_b_un_validated_reescrito_tras_la_puerta_no_se_publica(tmp_path: Path, c
     """Sigue en `validated` pero ya no es el que la puerta acreditó (otra revisión, otro revisor): sin el CAS sobre
     la revisión, `published` se escribiría sobre un estado que nadie acreditó."""
     p = _validada(tmp_path, campana_sellada)
-    puerta = txn.publishable
+    puerta = txn._puerta
 
     def puerta_y_reescritura(*a, **k):
         veredicto = puerta(*a, **k)
@@ -357,7 +361,7 @@ def test_b_un_validated_reescrito_tras_la_puerta_no_se_publica(tmp_path: Path, c
         cs.atomic_write(p, {**doc, "reviewed_by": "otra persona", "revision": int(doc["revision"]) + 1})
         return veredicto
 
-    monkeypatch.setattr(txn, "publishable", puerta_y_reescritura)
+    monkeypatch.setattr(txn, "_puerta", puerta_y_reescritura)
     with pytest.raises(ValueError, match="revision stale"):
         txn.publish(p, manifest=_manifiesto(tmp_path), release_sha="b" * 40)
     assert (cs.read(p) or {})["status"] == "validated"

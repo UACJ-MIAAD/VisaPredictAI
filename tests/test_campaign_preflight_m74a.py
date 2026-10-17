@@ -24,8 +24,14 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests import campana_valida
 from tools import campaign_preflight as pf
 from tools import campaign_state as cs
+
+#: G7 · B5a: estas puertas son ORTOGONALES al vínculo del recibo /3 (reconciliación + candidato); ese vínculo se
+#: prueba de punta a punta en `test_g7_publicacion_reconciliada`. Aquí se sustituye sólo esa verificación.
+pytestmark = pytest.mark.usefixtures("vinculo_fuera_de_esta_prueba")
+
 
 ROOT = Path(__file__).resolve().parent.parent
 #: `vp_model.champion` importa `scipy` al cargarse, y el job base instala sólo `.[dev]`.
@@ -329,7 +335,7 @@ def test_hermetic_rehearsal_only_opens_publication_after_human_validation(
     recibo.write_text(
         json.dumps(
             {
-                "schema": txn.RECEIPT_SCHEMA,
+                **campana_valida.recibo3_ligero(),
                 "campaign_id": estado["campaign_id"],
                 "source_git_sha": estado["source_git_sha"],
                 "panel_sha256": estado["panel_sha256"],

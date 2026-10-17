@@ -173,7 +173,10 @@ import shutil  # noqa: E402
 import subprocess  # noqa: E402
 from pathlib import Path  # noqa: E402
 
+import run_reconciliation as cli_rc  # noqa: E402
+
 from tools import campaign_txn as txn  # noqa: E402
+from vp_model import vinculo_publicacion as vp  # noqa: E402
 
 INTERNOS = ("reports/campaign/reconciliation", "reports/campaign/complement_evidence")
 MANIFIESTO_RELEASE = "reports/release/release_manifest.json"
@@ -193,13 +196,17 @@ def _commit(raiz: Path, mensaje: str) -> str:
 
 @pytest.fixture
 def candidato(cerrada: dict, tmp_path: Path) -> dict:
-    """La rama de integración: `reports/` de la reconciliación (sin lo interno) + manifiesto y tarjeta del corte."""
-    cand = tmp_path / "candidato"
+    return _con_candidato(cerrada, tmp_path / "candidato")
+
+
+def _con_candidato(cerrada: dict, cand: Path) -> dict:
+    """La rama de integración: `reports/` de la reconciliación (sin lo interno ni lo que el contrato de exportación
+    destina a otro sitio) + manifiesto y tarjeta del corte."""
     cand.mkdir()
     _git(cand, "init", "-q")
     for f in sorted((cerrada["recon"] / "reports").rglob("*")):
         rel = str(f.relative_to(cerrada["recon"]))
-        if f.is_file() and not rel.startswith(INTERNOS) and rel != str(rc.RUTA_REL):
+        if f.is_file() and not rel.startswith(INTERNOS) and rel != str(rc.RUTA_REL) and rel not in vp.EXPORTACION:
             (cand / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(f, cand / rel)
     cab._escribir(cand, MANIFIESTO_RELEASE, '{"release_id": "2026-10-prueba-0123456789ab"}\n')
@@ -440,17 +447,19 @@ def test_un_estado_vivo_que_no_es_posterior_al_computo_no_se_acredita(cerrada: d
     assert "padre-evidencia" in _codigos_padre(cerrada)
 
 
-def test_con_un_recibo2_la_puerta_tambien_exige_la_evidencia(cerrada: dict, tmp_path, monkeypatch, capsys) -> None:
-    """El recibo clásico no pasa por el vínculo: la evidencia del cómputo la tiene que exigir la propia puerta."""
+def test_la_puerta_exige_la_evidencia_antes_que_el_recibo(cerrada: dict, tmp_path) -> None:
+    """La evidencia del cómputo la exige la propia puerta, no sólo el vínculo del /3: un `validated` con cualquier
+    recibo y la copia manipulada cae por la EVIDENCIA, antes de que el recibo se mire."""
     estado = cs.read(cerrada["txn"]) or {}
     recibo = tmp_path / "recibo2.json"
     recibo.write_text(json.dumps({"schema": txn.RECEIPT_SCHEMA, "reviewed_by": "Javier Rebull",
                                   "decision": "aprobada", "reviewed_at": txn.now_rfc3339(),
                                   **{k: estado[k] for k in txn.IDENTIDAD_RECIBO}}))  # fmt: skip
-    rc_, err = _validar_cli(cerrada, recibo, monkeypatch, capsys)
-    assert rc_ == 0, err
+    cs.mark_validated(cerrada["txn"], validation_receipt_sha256=txn.sha256_file(recibo),
+                      validation_receipt_path=str(recibo.resolve()), reviewed_by="Javier Rebull",
+                      validated_at=txn.now_rfc3339(), decision="aprobada")  # fmt: skip
     ok, motivo = _guard(cerrada)
-    assert ok, motivo  # control
+    assert not ok and "/3" in motivo, motivo  # control: con la evidencia intacta, cae por el recibo /2
     copia = cerrada["txn"].parent / cs.COMPUTED_SNAPSHOT
     copia.chmod(0o644)
     copia.write_bytes(copia.read_bytes() + b" ")
@@ -476,3 +485,164 @@ def test_sobre_una_madre_publicada_ya_no_se_ensambla_otra_reconciliacion(cerrada
         rc._padre(cerrada["madre"])
     assert r.value.codigos == {"padre-estado"}
     _toda_la_cadena_se_acredita(cerrada)  # y lo ya hecho se sigue acreditando
+
+
+# ═══════════════════════════════ auditoría de B5a (17-oct): tres rutas que `b261300` dejaba abiertas
+def _recibo2(m: dict, destino: Path) -> Path:
+    estado = cs.read(m["txn"]) or {}
+    destino.write_text(json.dumps({"schema": txn.RECEIPT_SCHEMA, "reviewed_by": "Javier Rebull",
+                                   "decision": "aprobada", "reviewed_at": txn.now_rfc3339(),
+                                   **{k: estado[k] for k in txn.IDENTIDAD_RECIBO}}))  # fmt: skip
+    return destino
+
+
+def _otro_commit(m: dict, tmp_path: Path) -> str:
+    """Un commit del candidato con OTRA cifra (no revisada), traído al repo candidato sin tocar su árbol."""
+    clon = tmp_path / "clon_ataque"
+    subprocess.run(["git", "clone", "-q", str(m["cand"]), str(clon)], check=True)
+    cab._escribir(clon, "reports/governance/key_facts.json", '{"crps_fad": 1}\n')
+    otro = _commit(clon, "no revisado")
+    _git(m["cand"], "fetch", "-q", str(clon), otro)
+    return otro
+
+
+def test_ruta1_un_recibo2_ya_no_valida_una_campana(candidato: dict, tmp_path, monkeypatch, capsys) -> None:
+    """RED: con `/2` se validaba la madre reconciliada y después se publicaba un resultado cambiado."""
+    rc_, err = _validar_cli(candidato, _recibo2(candidato, tmp_path / "r2.json"), monkeypatch, capsys)
+    assert rc_ != 0 and "/3" in err, err
+    assert (cs.read(candidato["txn"]) or {})["status"] == "computed"
+
+
+def test_ruta1_un_estado_validado_con_un_recibo2_no_publica(candidato: dict, tmp_path) -> None:
+    """Aunque un `validated` con `/2` llegue al disco (escrito a mano o heredado), no autoriza publicar nada."""
+    recibo = _recibo2(candidato, tmp_path / "r2.json")
+    cs.mark_validated(candidato["txn"], validation_receipt_sha256=txn.sha256_file(recibo),
+                      validation_receipt_path=str(recibo.resolve()), reviewed_by="Javier Rebull",
+                      validated_at=txn.now_rfc3339(), decision="aprobada")  # fmt: skip
+    ok, motivo = _guard(candidato)
+    assert not ok and "/3" in motivo, motivo
+    with pytest.raises(txn.PublicationBlocked):
+        txn.publish(candidato["txn"], manifest=candidato["txn"].with_name("campaign_manifest.json"),
+                    release_sha=_otro_commit(candidato, tmp_path))  # fmt: skip
+    assert (cs.read(candidato["txn"]) or {})["status"] == "validated"
+
+
+def test_ruta2_cambiar_el_recibo_durante_la_puerta_no_publica_otro_arbol(validada: dict, tmp_path, monkeypatch) -> None:
+    """RED: tras acreditar el hash del `/3`, se sustituía por un `/2` antes de la relectura y se publicaba otro árbol."""
+    otro = _otro_commit(validada, tmp_path)
+    original = txn._receipt_matches
+
+    def acreditar_y_cambiar(obj):
+        resultado = original(obj)
+        _recibo2(validada, validada["recibo"])  # el atacante cambia el archivo justo después de que se acreditara
+        return resultado
+
+    monkeypatch.setattr(txn, "_receipt_matches", acreditar_y_cambiar)
+    with pytest.raises(txn.PublicationBlocked):
+        txn.publish(validada["txn"], manifest=validada["txn"].with_name("campaign_manifest.json"), release_sha=otro)
+    assert (cs.read(validada["txn"]) or {})["status"] == "validated"
+
+
+def test_ruta2_validar_registra_el_hash_de_los_bytes_que_acredito(
+    candidato: dict, tmp_path, monkeypatch, capsys
+) -> None:
+    recibo = _recibo3(candidato, tmp_path / "r3.json")
+    acreditados = recibo.read_bytes()
+    original = txn.vp.problema
+
+    def vincular_y_cambiar(*args, **kwargs):
+        motivo = original(*args, **kwargs)
+        _recibo2(candidato, recibo)  # cambia DESPUÉS de acreditar y ANTES de registrar el hash
+        return motivo
+
+    monkeypatch.setattr(txn.vp, "problema", vincular_y_cambiar)
+    rc_, err = _validar_cli(candidato, recibo, monkeypatch, capsys)
+    estado = cs.read(candidato["txn"]) or {}
+    assert rc_ != 0 or estado["validation_receipt_sha256"] == hashlib.sha256(acreditados).hexdigest(), (rc_, err)
+
+
+@pytest.mark.parametrize(
+    "rel",
+    ["reports/eval/crps_fad.csv", "reports/eval/cohort_scan.json"],
+    ids=["artefacto-de-una-fuente", "capa-de-la-madre"],
+)
+def test_ruta3_un_candidato_incompleto_no_valida(candidato: dict, tmp_path, monkeypatch, capsys, rel: str) -> None:
+    """RED: sin un artefacto de C6 o sin una capa de la madre, el candidato se validaba. Las figuras re-derivadas
+    ya no van aquí: el contrato `EXPORTACION` las destina al documental."""
+    _git(candidato["cand"], "rm", "-q", rel)
+    _commit(candidato["cand"], f"sin {rel}")
+    rc_, err = _validar_cli(candidato, _recibo3(candidato, tmp_path / "r.json"), monkeypatch, capsys)
+    assert rc_ != 0 and "faltan" in err and Path(rel).name in err, err
+
+
+@pytest.mark.parametrize("donde", [".gitignore", ".git/info/exclude"])
+def test_ruta3_las_reglas_de_ignorado_no_eximen_de_evidencia(
+    candidato: dict, tmp_path, monkeypatch, capsys, donde: str
+) -> None:
+    """RED (auditoría 17-oct): sin `crps_fad.csv` ni `key_facts.json`, el candidato validaba si esas rutas estaban
+    ignoradas, incluso en `.git/info/exclude`, FUERA del commit revisado."""
+    faltantes = ["reports/eval/crps_fad.csv", "reports/governance/key_facts.json"]
+    for rel in faltantes:
+        _git(candidato["cand"], "rm", "-q", "--cached", rel)
+        (candidato["cand"] / rel).unlink()
+    destino = candidato["cand"] / donde
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_text("\n".join(faltantes) + "\n")
+    _commit(candidato["cand"], "sin evidencia, ignorada")
+    rc_, err = _validar_cli(candidato, _recibo3(candidato, tmp_path / "r.json"), monkeypatch, capsys)
+    assert rc_ != 0 and "crps_fad.csv" in err and "key_facts.json" in err, err
+
+
+def test_control_las_salidas_del_contrato_no_viajan_a_datos(candidato: dict, tmp_path, monkeypatch, capsys) -> None:
+    """Benigno: las figuras que el contrato destina al documental (o a uso local) no se exigen en datos, sin
+    necesidad de ninguna regla de ignorado."""
+    versionados = set(_git(candidato["cand"], "ls-files").split())
+    assert not versionados & set(vp.EXPORTACION), "el candidato, como la rama de datos real, no lleva esas salidas"
+    assert not (candidato["cand"] / ".gitignore").exists(), "y no hace falta ninguna regla de ignorado"
+    rc_, err = _validar_cli(candidato, _recibo3(candidato, tmp_path / "r.json"), monkeypatch, capsys)
+    assert rc_ == 0, err
+
+
+def test_el_contrato_de_exportacion_cubre_exactamente_las_figuras_re_derivadas() -> None:
+    """Contrastado con lo que la reconciliación declara: una figura nueva sin destino rompe esta prueba."""
+    assert set(vp.EXPORTACION) == set(rc.SALIDAS_FIGURA)
+    assert {d for d, _ in vp.EXPORTACION.values()} == {"documental", "local"}
+
+
+def test_una_salida_destinada_al_documental_no_se_cuela_en_datos(
+    candidato: dict, tmp_path, monkeypatch, capsys
+) -> None:
+    fig = "reports/latex/Figures/results_ranking_mase.pdf"
+    cab._escribir(candidato["cand"], fig, (candidato["recon"] / fig).read_text())
+    _commit(candidato["cand"], "una figura del documental en datos")
+    rc_, err = _validar_cli(candidato, _recibo3(candidato, tmp_path / "r.json"), monkeypatch, capsys)
+    assert rc_ != 0 and "sobran" in err and "results_ranking_mase.pdf" in err, err
+
+
+# ═══════════════════════════════ opción A · una sola vía: también una campaña SIN complementarias
+@pytest.fixture
+def sin_complementarias(rm: dict, capsys, tmp_path) -> dict:  # noqa: F811
+    """La madre reconciliada consigo misma: reconciliación SIN fuentes, cerrada, y su candidato."""
+    capsys.readouterr()
+    rc_ = cli_rc.main(["--root", str(rm["recon"]), "assemble", "--parent-root", str(rm["madre"]), "--evidence",
+                       "reports/campaign/complement_evidence/SHA256SUMS", "--id", "recon_sin_fuentes"])  # fmt: skip
+    assert rc_ == 0, capsys.readouterr()
+    _cerrado(rm)
+    m = {**rm, "txn": rm["madre"] / cx.CAMPANA_REL}
+    m["sha_computado"] = cx.leer_padre(m["madre"])["campaign_json_sha256"]
+    return _con_candidato(m, tmp_path / "candidato_sin_fuentes")
+
+
+def test_una_campana_sin_complementarias_se_valida_y_publica_por_la_misma_via(
+    sin_complementarias: dict, tmp_path, monkeypatch, capsys
+) -> None:
+    m = sin_complementarias
+    assert rc.leer(m["recon"])["sources"] == [] and rc.leer(m["recon"])["status"] == "derived"
+    rc_, err = _validar_cli(m, _recibo3(m, tmp_path / "r3.json"), monkeypatch, capsys)
+    assert rc_ == 0, err
+    ok, motivo = _guard(m)
+    assert ok, motivo
+    squash = _squash_con_el_mismo_arbol(m)
+    doc = txn.publish(m["txn"], manifest=m["txn"].with_name("campaign_manifest.json"), release_sha=squash)
+    assert doc["status"] == "published"
+    rc.acreditar(m["recon"], parent_root=m["madre"], **_lectores())

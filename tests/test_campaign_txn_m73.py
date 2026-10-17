@@ -26,8 +26,14 @@ from pathlib import Path
 
 import pytest
 
+from tests import campana_valida
 from tools import campaign_state as cs
 from tools import campaign_txn as txn
+
+#: G7 · B5a: estas puertas son ORTOGONALES al vínculo del recibo /3 (reconciliación + candidato); ese vínculo se
+#: prueba de punta a punta en `test_g7_publicacion_reconciliada`. Aquí se sustituye sólo esa verificación.
+pytestmark = pytest.mark.usefixtures("vinculo_fuera_de_esta_prueba")
+
 
 RAIZ = Path(__file__).resolve().parents[1]
 SHA = "a" * 40
@@ -44,6 +50,11 @@ def lanes(tmp_path: Path, campana_sellada) -> Path:
     campana_sellada(tmp_path)
     (tmp_path / "panel.csv").write_text("country,category,table,value\nmexico,EB2,FAD,1\n", encoding="utf-8")
     return tmp_path
+
+
+def _txn_en_proceso(raiz: Path, *args: str) -> int:
+    """La misma CLI, en este proceso (para que las sustituciones de la prueba la alcancen)."""
+    return txn.main(["--path", str(raiz / "reports/campaign/campaign.json"), *args])
 
 
 def _txn(raiz: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -66,7 +77,7 @@ def _recibo(raiz: Path, **cambios: str) -> Path:
     """
     estado = cs.read(raiz / "reports/campaign/campaign.json") or {}
     acta = {
-        "schema": txn.RECEIPT_SCHEMA,
+        **campana_valida.recibo3_ligero(),
         "campaign_id": estado.get("campaign_id", "sintetica_0001"),
         "source_git_sha": estado.get("source_git_sha", SHA),
         "panel_sha256": estado.get("panel_sha256", ""),
@@ -186,17 +197,18 @@ def test_una_corrida_limpia_llega_a_computed_y_todavia_no_autoriza_publicar(runb
 def test_solo_validated_autoriza_publicar(runbook, lanes) -> None:
     assert _correr(runbook, lanes, 3, timeout=300).returncode == 0
     recibo = _recibo(lanes)
-    fin = _txn(lanes, "validate", "--receipt", str(recibo))
-    assert fin.returncode == 0, fin.stderr
+    # G7 · B5a: validar, la puerta y publicar corren EN PROCESO para que el vínculo /3 se sustituya (un subproceso no
+    # hereda `vinculo_fuera_de_esta_prueba`); el runbook y el sellado siguen siendo el subproceso real de arriba.
+    assert _txn_en_proceso(lanes, "validate", "--receipt", str(recibo)) == txn.EXIT_OK
     assert _estado(lanes) == "validated"
-    assert _txn(lanes, "guard", "--manifest", str(_manifiesto(lanes))).returncode == txn.EXIT_OK
+    assert _txn_en_proceso(lanes, "guard", "--manifest", str(_manifiesto(lanes))) == txn.EXIT_OK
     # el hash del recibo se DERIVA del archivo, no se teclea
     obj = _leer(lanes / "reports/campaign/campaign.json")
     assert obj["validation_receipt_sha256"] == txn.sha256_file(recibo)
     # y publicar cierra el ciclo… dejando de autorizar publicar otra vez
-    assert _txn(lanes, "publish", "--release-sha", "b" * 40, "--manifest", str(_manifiesto(lanes))).returncode == 0
+    assert _txn_en_proceso(lanes, "publish", "--release-sha", "b" * 40, "--manifest", str(_manifiesto(lanes))) == 0
     assert _estado(lanes) == "published"
-    assert _txn(lanes, "guard", "--manifest", str(_manifiesto(lanes))).returncode == txn.EXIT_BLOCKED
+    assert _txn_en_proceso(lanes, "guard", "--manifest", str(_manifiesto(lanes))) == txn.EXIT_BLOCKED
 
 
 # =============================================================== 2 · fallo a mitad de la corrida

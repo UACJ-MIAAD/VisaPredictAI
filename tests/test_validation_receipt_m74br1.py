@@ -23,8 +23,14 @@ from pathlib import Path
 
 import pytest
 
+from tests import campana_valida
 from tools import campaign_state as cs
 from tools import campaign_txn as txn
+
+#: G7 · B5a: estas puertas son ORTOGONALES al vínculo del recibo /3 (reconciliación + candidato); ese vínculo se
+#: prueba de punta a punta en `test_g7_publicacion_reconciliada`. Aquí se sustituye sólo esa verificación.
+pytestmark = pytest.mark.usefixtures("vinculo_fuera_de_esta_prueba")
+
 
 RAIZ = Path(__file__).resolve().parents[1]
 SHA = "a" * 40
@@ -55,7 +61,7 @@ def campana(tmp_path: Path, campana_sellada) -> Path:
 def _acta(ruta: Path, **cambios) -> Path:
     estado = cs.read(ruta) or {}
     datos = {
-        "schema": txn.RECEIPT_SCHEMA,
+        **campana_valida.recibo3_ligero(),
         "campaign_id": estado["campaign_id"],
         "source_git_sha": estado["source_git_sha"],
         "panel_sha256": estado["panel_sha256"],

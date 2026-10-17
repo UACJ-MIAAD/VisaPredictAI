@@ -13,16 +13,23 @@ from pathlib import Path
 
 import pytest
 
+from tests import campana_valida
 from tools import campaign_manifest as cm
 from tools import campaign_state as cs
 from tools import campaign_txn as txn
+from vp_model import vinculo_publicacion as vp
+
+#: G7 · B5a: estas puertas son ORTOGONALES al vínculo del recibo /3 (reconciliación + candidato); ese vínculo se
+#: prueba de punta a punta en `test_g7_publicacion_reconciliada`. Aquí se sustituye sólo esa verificación.
+pytestmark = pytest.mark.usefixtures("vinculo_fuera_de_esta_prueba")
+
 
 RAIZ = Path(__file__).resolve().parents[1]
 RUTAS_FALSAS = ("experiments/no_existe.py", "tools/tampoco.py", "vp_model/fantasma.py")
 
 
 def _recibo(raiz: Path, estado: dict, **cambios) -> Path:
-    datos = {"schema": txn.RECEIPT_SCHEMA, **{k: estado[k] for k in txn.IDENTIDAD_RECIBO}}
+    datos = {**campana_valida.recibo3_ligero(), **{k: estado[k] for k in txn.IDENTIDAD_RECIBO}}
     datos |= {"reviewed_by": "Javier Rebull", "decision": "aprobada", "reviewed_at": txn.now_rfc3339(), **cambios}
     ruta = raiz / f"recibo_{len(list(raiz.glob('recibo_*.json')))}.json"
     ruta.write_text(json.dumps({k: v for k, v in datos.items() if v is not None}), encoding="utf-8")
@@ -158,7 +165,7 @@ def test_el_recibo_que_imprime_el_runbook_es_el_que_la_validacion_acepta(tmp_pat
     }.items():  # fmt: skip
         texto = texto.replace(marca, valor)
     datos = json.loads(texto)
-    assert set(datos) == txn.RECEIPT_KEYS and datos["schema"] == txn.RECEIPT_SCHEMA
+    assert set(datos) == txn._CLAVES_POR_ESQUEMA[vp.RECEIPT_SCHEMA] and datos["schema"] == vp.RECEIPT_SCHEMA
     recibo = tmp_path / "plantilla.json"
     recibo.write_text(json.dumps(datos), encoding="utf-8")
     assert txn.load_validation_receipt(recibo, estado)["input_seal_sha256"] == estado["input_seal_sha256"]

@@ -17,6 +17,21 @@ from pathlib import Path
 
 import pytest
 
+
+@pytest.fixture
+def vinculo_fuera_de_esta_prueba(monkeypatch):
+    """G7 · B5a: sustituye SÓLO la verificación del vínculo del recibo /3 (reconciliación + candidato reales).
+
+    Para pruebas de puertas ortogonales a ese vínculo. El vínculo se prueba de punta a punta, sin sustitutos, en
+    `tests/test_g7_publicacion_reconciliada.py`. Un subproceso NO hereda esta sustitución: allí se valida en proceso.
+    """
+    from tests import campana_valida
+    from vp_model import vinculo_publicacion as vp
+
+    monkeypatch.setattr(vp, "problema", lambda *_a, **_k: None)
+    monkeypatch.setattr(vp, "arbol_de", lambda *_a, **_k: campana_valida.ARBOL_LIGERO)
+
+
 # D2-C: los warnings de la suite son un CONTRATO. `error` global = cualquier warning nuevo hace
 # fallar su test, SIN supresión global (prohibido `ignore::Warning`). Las únicas excepciones son
 # las del registro positivo `security/warnings_registry.json`, todas upstream y con filtro

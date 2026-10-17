@@ -48,3 +48,21 @@ def escribir(reports: Path, **kw) -> Path:
     destino.parent.mkdir(parents=True, exist_ok=True)
     destino.write_text(json.dumps(transaccion(**kw)), encoding="utf-8")
     return destino
+
+
+#: G7 · B5a: el recibo de validación ya sólo autoriza en su versión `/3`, que liga el RESULTADO exacto (madre,
+#: reconciliación, candidato). Las pruebas de puertas ORTOGONALES a ese vínculo (identidad del recibo, manifiesto,
+#: CAS, consumo del permiso) usan estos campos y el fixture `vinculo_fuera_de_esta_prueba`; el vínculo mismo se
+#: prueba de punta a punta, con reconciliación y repo candidato reales, en `tests/test_g7_publicacion_reconciliada.py`.
+ARBOL_LIGERO = "7" * 40
+
+
+def recibo3_ligero() -> dict[str, str]:
+    """El esquema /3 y unos campos de vínculo bien formados (que sólo el vínculo real interpretaría)."""
+    from vp_model import vinculo_publicacion as vp
+
+    return {"schema": vp.RECEIPT_SCHEMA, "mother_computed_sha256": "0" * 64,
+            "reconciliation_root": "/vinculo/fuera/de/esta/prueba/recon", "reconciliation_id": "recon_ligera",
+            "reconciliation_sha256": "0" * 64, "candidate_root": "/vinculo/fuera/de/esta/prueba/candidato",
+            "candidate_git_sha": "1" * 40, "candidate_tree_sha": ARBOL_LIGERO,
+            "release_manifest_sha256": "0" * 64, "release_id": "release-ligero"}  # fmt: skip

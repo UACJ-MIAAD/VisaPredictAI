@@ -84,8 +84,10 @@ def build_parser() -> argparse.ArgumentParser:
         if nombre == "assemble":
             sp.add_argument("--id", required=True, help="reconciliation_id: recon_<...>")
             sp.add_argument("--evidence", required=True, help="SHA256SUMS de la evidencia de la madre, bajo reports/")
-            sp.add_argument("--source", type=Path, action="append", required=True,
-                            help="raíz de una complementaria accredited (una por propósito)")  # fmt: skip
+            # G7 · B5a: sin `--source` es la reconciliación de una campaña SIN complementarias (sus propias
+            # salidas): la única vía a publicar es una reconciliación + recibo /3, también para ella.
+            sp.add_argument("--source", type=Path, action="append", default=[],
+                            help="raíz de una complementaria accredited (una por propósito); ninguna = sin complementarias")  # fmt: skip
         if nombre == "fail":
             sp.add_argument("--reason", required=True)
     return ap

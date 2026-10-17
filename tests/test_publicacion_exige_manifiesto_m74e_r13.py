@@ -22,6 +22,11 @@ from tests.test_sello_en_transaccion_m74e_r12 import RUTAS_FALSAS, _campana_vali
 from tools import campaign_state as cs
 from tools import campaign_txn as txn
 
+#: G7 · B5a: estas puertas son ORTOGONALES al vínculo del recibo /3 (reconciliación + candidato); ese vínculo se
+#: prueba de punta a punta en `test_g7_publicacion_reconciliada`. Aquí se sustituye sólo esa verificación.
+pytestmark = pytest.mark.usefixtures("vinculo_fuera_de_esta_prueba")
+
+
 RAIZ = Path(__file__).resolve().parents[1]
 CASOS = ("otro_sello", "identidad_copiada", "ausente", "otra_campana", "sucio")
 
@@ -113,7 +118,7 @@ def test_RED_publish_consulta_la_puerta_antes_de_escribir(
     G7 · decisión B: la escritura ya no es una API pública (`mark_published`); es la transición interna que
     `campaign_txn.publish` invoca tras la puerta, y es ésa la que se espía."""
     orden: list[str] = []
-    puerta, escritura = txn.publishable, cs._transition
+    puerta, escritura = txn._puerta, cs._transition
 
     def puerta_espiada(*a, **k):
         orden.append("puerta")
@@ -124,7 +129,7 @@ def test_RED_publish_consulta_la_puerta_antes_de_escribir(
             orden.append("escritura")
         return escritura(*a, **k)
 
-    monkeypatch.setattr(txn, "publishable", puerta_espiada)
+    monkeypatch.setattr(txn, "_puerta", puerta_espiada)
     monkeypatch.setattr(cs, "_transition", escritura_espiada)
 
     ruta, manifiesto, raiz = _campana_validada(tmp_path / "falso", campana_sellada)
