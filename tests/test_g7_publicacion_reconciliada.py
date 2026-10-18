@@ -884,7 +884,7 @@ def test_b5d_la_reconciliacion_se_hashea_y_se_parsea_de_los_mismos_bytes(
     assert ruta.read_bytes() == original
 
 
-def test_b5d_el_verificador_externo_acredita_los_bytes_sellados(candidato: dict, tmp_path) -> None:
+def test_b5d_el_verificador_externo_acredita_los_bytes_sellados(candidato: dict, tmp_path, monkeypatch) -> None:
     """RED: el recibo sella una reconciliación forjada (outputs del candidato malo) que su lector rechaza; durante el
     proceso del verificador el disco muestra la reconciliación buena y el lector la acredita. El vínculo usaba la
     forjada sin que nadie la hubiera verificado. El verificador debe exigir el hash del recibo sobre lo que él lee."""
@@ -896,7 +896,7 @@ def test_b5d_el_verificador_externo_acredita_los_bytes_sellados(candidato: dict,
     ruta.write_bytes(forjada)
     acta = json.loads(_recibo3(candidato, tmp_path / "r.json").read_text())
     assert acta["reconciliation_sha256"] == hashlib.sha256(forjada).hexdigest()
-    estado = cs.read(candidato["txn"])
+    estado = cs.read(candidato["txn"]) or {}
     motivo = vp.problema(acta, candidato["txn"], estado, repo_root=txn._REPO_ROOT)
     assert motivo and "re-acredita" in motivo, "control: sin sustitución, el lector rechaza la forjada"
     real, verificaciones = subprocess.run, []
@@ -911,11 +911,9 @@ def test_b5d_el_verificador_externo_acredita_los_bytes_sellados(candidato: dict,
         finally:
             ruta.write_bytes(forjada)
 
-    vp.subprocess.run = con_la_buena_en_disco
-    try:
-        motivo = vp.problema(acta, candidato["txn"], estado, repo_root=txn._REPO_ROOT)
-    finally:
-        vp.subprocess.run = real
+    monkeypatch.setattr(vp.subprocess, "run", con_la_buena_en_disco)
+    motivo = vp.problema(acta, candidato["txn"], estado, repo_root=txn._REPO_ROOT)
+    monkeypatch.undo()
     assert verificaciones, "la prueba no intercaló el verificador"
     assert motivo and "re-acredita" in motivo, motivo
     assert ruta.read_bytes() == forjada
