@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "release_id": "2026-09-158ec972c234",
-  "generated_at": "2026-09-01T04:07:03+00:00",
+  "release_id": "2026-09-94971b53a07d",
+  "generated_at": "2026-10-18T20:47:10+00:00",
   "pipeline_run_id": "local",
-  "git_sha": "d7ad04b4efa2",
-  "worktree_dirty": false,
+  "git_sha": "4bed9c7ec57a",
+  "worktree_dirty": true,
   "panel_vintage": "2026-09",
   "panel_hash_md5_12": "07d43c029953",
   "champion_recipes": {
@@ -23,7 +23,14 @@
     "n_series_evaluable": 74,
     "n_months": 298
   },
-  "n_artifacts": 111,
+  "identity": {
+    "schema": 2,
+    "card_path": "reports/governance/MODEL_CARD.md",
+    "sentinel": "@@RELEASE_ID_SENTINEL@@",
+    "digest": "94971b53a07d8fdb76534d4acbceb44cd9b005ae02beaab627d35f0ac1c11dfd",
+    "card_sha256_normalized": "5c01e92a6555dcb4c5f1547058017d6fc057af2828c439991292875191613106"
+  },
+  "n_artifacts": 114,
   "missing_optional": [],
   "artifacts": [
     {
@@ -154,8 +161,8 @@
     },
     {
       "path": "reports/governance/key_facts.json",
-      "sha256": "e3b784b3bb9fa19eba6ea70295f1c9fa92325efa8e8af79c408cb7a40aadcc44",
-      "size": 15351,
+      "sha256": "80eb84414c4c13d7e694cb8d6d43b8e8af7615dd62f6bdcb25e195deb5c37b65",
+      "size": 15640,
       "mime": "application/json",
       "criticality": "critical"
     },
@@ -168,8 +175,8 @@
     },
     {
       "path": "reports/governance/champion_challenger.json",
-      "sha256": "eb2f17fc633e1acd69c5115b1a7baedf9a39653ce223852e9c5b837920e1e0ff",
-      "size": 7383,
+      "sha256": "1d1c86e9cf48f0b805999b77f9cc49b63c85a37133d9acf1b20869ca8edb1b4d",
+      "size": 8677,
       "mime": "application/json",
       "criticality": "required"
     },
@@ -181,6 +188,13 @@
       "criticality": "required"
     },
     {
+      "path": "reports/governance/ingestion_state.json",
+      "sha256": "80925ba014bdc246af32c70c5b8bace149ebee7ad65a579a956ed57b77e86157",
+      "size": 350,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
       "path": "reports/governance/promotion_decision.json",
       "sha256": "4928a84159ace5ceccb4c1b328e4c38b34d44346bf926a9b9b612d30f9f79d24",
       "size": 2343,
@@ -188,9 +202,23 @@
       "criticality": "required"
     },
     {
+      "path": "reports/governance/e5_facts.json",
+      "sha256": "909cbe8113e666789cbcd06bee314c6177ac42b377f21982aff43335f74823d8",
+      "size": 8346,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
+      "path": "reports/eval/series_cohorts.json",
+      "sha256": "f94b1684436f540acd2efcc26055024d6de78a33b98a97f490c63be336da211d",
+      "size": 41941,
+      "mime": "application/json",
+      "criticality": "required"
+    },
+    {
       "path": "reports/governance/MODEL_CARD.md",
-      "sha256": "3cc175f4641547f7e19998495ed6d6422db53bb34bb8246e323a3be8ac1ee9fa",
-      "size": 3673,
+      "sha256": "7a76c007013bb279d60e4db029724a34f6bae3a4ab2c373cccc47e0df131aebf",
+      "size": 4759,
       "mime": "text/markdown",
       "criticality": "required"
     },
