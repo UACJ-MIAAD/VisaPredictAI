@@ -136,6 +136,13 @@ madre las dejaba a todas sin acreditar. Ahora se separan las dos cosas que ese a
   del corte.
 - **Se publica sólo el árbol revisado.** `publish` exige además que el commit publicado tenga
   exactamente el árbol del recibo; si no, se niega y el permiso no se consume.
+- **Los bytes revisados son los del commit, no los del disco** (B5a-3). Reportes, manifiesto y
+  tarjeta del corte se leen del commit revisado con su modo y su blob (`git ls-tree` +
+  `git cat-file`). Sólo se publica un archivo regular (`100644`): un enlace simbólico guardaría una
+  ruta y no los bytes a los que apunta. Falta un archivo del corte o no se puede leer un blob:
+  se bloquea. El hash y el `release_id` del manifiesto salen de los mismos bytes. Ninguna consulta
+  al candidato sigue reemplazos locales (`git --no-replace-objects`, también en la comprobación del
+  árbol de `publish`): un `refs/replace` haría leer otro commit, árbol o blob.
 
 - **Una sola lectura del recibo.** `validate` acredita los bytes que leyó y registra el hash de esos
   mismos bytes; la puerta los lee una vez y `publish` toma de esa misma lectura el árbol exigido.

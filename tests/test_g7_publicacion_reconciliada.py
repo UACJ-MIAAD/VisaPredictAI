@@ -234,7 +234,9 @@ def _recibo3(m: dict, destino: Path, **cambios: str) -> Path:
         "candidate_root": str(m["cand"].resolve()),
         "candidate_git_sha": _git(m["cand"], "rev-parse", "HEAD"),
         "candidate_tree_sha": _git(m["cand"], "rev-parse", "HEAD^{tree}"),
-        "release_manifest_sha256": _sha_archivo(m["cand"] / MANIFIESTO_RELEASE),
+        "release_manifest_sha256": _sha_archivo(m["cand"] / MANIFIESTO_RELEASE)
+        if (m["cand"] / MANIFIESTO_RELEASE).is_file()
+        else "sin manifiesto en disco",
         "release_id": "2026-10-prueba-0123456789ab",
     }
     datos.update(cambios)
@@ -646,3 +648,185 @@ def test_una_campana_sin_complementarias_se_valida_y_publica_por_la_misma_via(
     doc = txn.publish(m["txn"], manifest=m["txn"].with_name("campaign_manifest.json"), release_sha=squash)
     assert doc["status"] == "published"
     rc.acreditar(m["recon"], parent_root=m["madre"], **_lectores())
+
+
+# ═══════════════════════════════ B5a-3 · los bytes revisados son los del COMMIT, no los del worktree
+KF = "reports/governance/key_facts.json"
+TARJETA = "reports/governance/MODEL_CARD.md"
+
+
+def _enlazar(cand: Path, rel: str, destino: str) -> None:
+    (cand / rel).unlink()
+    os.symlink(destino, cand / rel)
+
+
+def _blob_distinto_del_disco(cand: Path, rel: str, en_git: str) -> None:
+    """El blob del commit lleva `en_git`; el disco conserva los bytes de antes y git no lo ve (`assume-unchanged`)."""
+    correcto = (cand / rel).read_bytes()
+    (cand / rel).write_text(en_git, encoding="utf-8")
+    _commit(cand, f"{rel} distinto en git")
+    (cand / rel).write_bytes(correcto)
+    _git(cand, "update-index", "--assume-unchanged", rel)
+    assert _git(cand, "status", "--porcelain", "--untracked-files=all") == "", "el árbol parece limpio"
+    assert _git(cand, "show", f"HEAD:{rel}") == en_git.strip()
+
+
+@pytest.mark.parametrize("donde", ["externo", "interno"])
+def test_b5a3_un_enlace_en_el_commit_no_acredita_los_bytes_de_su_destino(
+    candidato: dict, tmp_path, monkeypatch, capsys, donde: str
+) -> None:
+    """RED (auditoría 17-oct): con `key_facts.json` como enlace al archivo correcto, git guarda la RUTA del enlace y no
+    el JSON; el vínculo seguía el enlace al leer, validaba y `publish` terminaba en `published`."""
+    cand = candidato["cand"]
+    if donde == "externo":
+        destino = str((candidato["recon"] / KF).resolve())
+    else:
+        copia = cand / "docs" / "key_facts.json"
+        copia.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(cand / KF, copia)
+        destino = os.path.relpath(copia, (cand / KF).parent)
+    _enlazar(cand, KF, destino)
+    _commit(cand, "enlace")
+    assert _git(cand, "ls-tree", "HEAD", "--", KF).split()[0] == "120000"
+    rc_, err = _validar_cli(candidato, _recibo3(candidato, tmp_path / "r.json"), monkeypatch, capsys)
+    assert rc_ != 0 and "archivo regular" in err and "key_facts.json" in err, err
+    assert (cs.read(candidato["txn"]) or {})["status"] == "computed"
+
+
+def test_b5a3_un_manifiesto_enlazado_no_es_el_manifiesto_revisado(
+    candidato: dict, tmp_path, monkeypatch, capsys
+) -> None:
+    """RED: el manifiesto como enlace a un archivo de fuera con los bytes revisados; el commit no los contiene."""
+    cand = candidato["cand"]
+    fuera = tmp_path / "manifiesto_fuera.json"
+    shutil.copyfile(cand / MANIFIESTO_RELEASE, fuera)
+    _enlazar(cand, MANIFIESTO_RELEASE, str(fuera))
+    _commit(cand, "manifiesto enlazado")
+    rc_, err = _validar_cli(candidato, _recibo3(candidato, tmp_path / "r.json"), monkeypatch, capsys)
+    assert rc_ != 0 and "archivo regular" in err and "release_manifest.json" in err, err
+
+
+def test_b5a3_un_reporte_cuyo_blob_no_es_el_del_disco_no_valida(candidato: dict, tmp_path, monkeypatch, capsys) -> None:
+    """RED: archivo REGULAR con el blob incorrecto y el disco correcto. Los enlaces solos no prueban que se lea de git:
+    la guarda de modo los rechazaría antes y dejaría vivo un lector del worktree."""
+    _blob_distinto_del_disco(candidato["cand"], KF, '{"crps_fad": 99}\n')
+    rc_, err = _validar_cli(candidato, _recibo3(candidato, tmp_path / "r.json"), monkeypatch, capsys)
+    assert rc_ != 0 and "distintos" in err and "key_facts.json" in err, err
+
+
+def test_b5a3_el_hash_del_manifiesto_es_el_de_su_blob(candidato: dict, tmp_path, monkeypatch, capsys) -> None:
+    """RED: el recibo declara el hash de los bytes del DISCO; el commit lleva otro manifiesto."""
+    _blob_distinto_del_disco(candidato["cand"], MANIFIESTO_RELEASE, '{"release_id": "2026-10-otro-000000000000"}\n')
+    rc_, err = _validar_cli(candidato, _recibo3(candidato, tmp_path / "r.json"), monkeypatch, capsys)
+    assert rc_ != 0 and "release_manifest_sha256" in err, err
+
+
+def test_b5a3_el_release_id_sale_de_los_mismos_bytes_que_el_hash(
+    candidato: dict, tmp_path, monkeypatch, capsys
+) -> None:
+    """RED: el hash del recibo es el del BLOB y el `release_id` el del DISCO; ambos se leen de los mismos bytes."""
+    en_git = '{"release_id": "2026-10-otro-000000000000"}\n'
+    _blob_distinto_del_disco(candidato["cand"], MANIFIESTO_RELEASE, en_git)
+    recibo = _recibo3(
+        candidato, tmp_path / "r.json", release_manifest_sha256=hashlib.sha256(en_git.encode()).hexdigest()
+    )
+    rc_, err = _validar_cli(candidato, recibo, monkeypatch, capsys)
+    assert rc_ != 0 and "no declara el release_id" in err, err
+
+
+@pytest.mark.parametrize("rel", [MANIFIESTO_RELEASE, TARJETA], ids=["manifiesto", "tarjeta"])
+def test_b5a3_sin_un_archivo_del_corte_no_valida(candidato: dict, tmp_path, monkeypatch, capsys, rel: str) -> None:
+    """RED: la tarjeta del corte no se comprobaba en absoluto, y la falta del manifiesto no se nombraba como tal."""
+    sha_manifiesto = _sha_archivo(candidato["cand"] / MANIFIESTO_RELEASE)
+    _git(candidato["cand"], "rm", "-q", rel)
+    _commit(candidato["cand"], f"sin {rel}")
+    recibo = _recibo3(candidato, tmp_path / "r.json", release_manifest_sha256=sha_manifiesto)
+    rc_, err = _validar_cli(candidato, recibo, monkeypatch, capsys)
+    assert rc_ != 0 and "falta en el commit revisado" in err and Path(rel).name in err, err
+
+
+@pytest.mark.parametrize("rel", [KF, TARJETA, MANIFIESTO_RELEASE], ids=["reporte", "tarjeta", "manifiesto"])
+def test_b5a3_un_artefacto_con_otro_modo_no_es_un_archivo_regular(
+    candidato: dict, tmp_path, monkeypatch, capsys, rel: str
+) -> None:
+    """RED: con los mismos bytes y modo 100755 sólo una guarda de MODO lo distingue."""
+    (candidato["cand"] / rel).chmod(0o755)
+    _commit(candidato["cand"], f"{rel} ejecutable")
+    assert _git(candidato["cand"], "ls-tree", "HEAD", "--", rel).split()[0] == "100755"
+    rc_, err = _validar_cli(candidato, _recibo3(candidato, tmp_path / "r.json"), monkeypatch, capsys)
+    assert rc_ != 0 and "archivo regular" in err and Path(rel).name in err, err
+
+
+def test_b5a3_un_blob_ilegible_bloquea(candidato: dict, tmp_path, monkeypatch, capsys) -> None:
+    """RED: si el blob del commit revisado no se puede leer, no se acredita nada (antes se leía el disco)."""
+    cand = candidato["cand"]
+    oid = _git(cand, "rev-parse", f"HEAD:{KF}")
+    objeto = cand / ".git" / "objects" / oid[:2] / oid[2:]
+    assert objeto.is_file(), "objeto suelto recién commiteado"
+    objeto.chmod(0o644)
+    objeto.unlink()
+    rc_, err = _validar_cli(candidato, _recibo3(candidato, tmp_path / "r.json"), monkeypatch, capsys)
+    assert rc_ != 0 and "no se pudo leer" in err, err
+
+
+def test_b5a3_control_el_disco_no_decide_cuando_el_commit_es_el_revisado(
+    candidato: dict, tmp_path, monkeypatch, capsys
+) -> None:
+    """Benigno: el commit lleva los bytes de la reconciliación y el disco otros, ocultos con `assume-unchanged`. Lo que
+    se publica es el commit, así que valida; un lector del worktree lo rechazaría."""
+    cand = candidato["cand"]
+    (cand / KF).write_text('{"en_disco": "no se publica"}\n', encoding="utf-8")
+    _git(cand, "update-index", "--assume-unchanged", KF)
+    assert _git(cand, "status", "--porcelain", "--untracked-files=all") == ""
+    rc_, err = _validar_cli(candidato, _recibo3(candidato, tmp_path / "r.json"), monkeypatch, capsys)
+    assert rc_ == 0, err
+
+
+def test_b5a3_un_reemplazo_local_de_blob_no_acredita_bytes_que_el_commit_no_contiene(
+    candidato: dict, tmp_path, monkeypatch, capsys
+) -> None:
+    """RED (auditoría 17-oct): el blob del commit dice `999`; un `refs/replace` local hacía que `cat-file` devolviera
+    los bytes de la reconciliación, con el árbol limpio, y el vínculo los acreditaba."""
+    cand = candidato["cand"]
+    correcto = _git(cand, "hash-object", "-w", str(candidato["recon"] / KF))
+    cab._escribir(cand, KF, '{"crps_fad": 999}\n')
+    _commit(cand, "blob incorrecto")
+    _git(cand, "replace", _git(cand, "rev-parse", f"HEAD:{KF}"), correcto)
+    assert _git(cand, "status", "--porcelain", "--untracked-files=all") == ""
+    assert '"crps_fad": 999' not in _git(cand, "show", f"HEAD:{KF}"), "el reemplazo engaña a git por defecto"
+    rc_, err = _validar_cli(candidato, _recibo3(candidato, tmp_path / "r.json"), monkeypatch, capsys)
+    assert rc_ != 0 and "distintos" in err and "key_facts.json" in err, err
+
+
+def test_b5a3_un_reemplazo_local_de_commit_no_hace_pasar_otro_arbol_por_el_revisado(
+    candidato: dict, tmp_path, monkeypatch, capsys
+) -> None:
+    """RED: HEAD es un commit con otra cifra; `refs/replace` lo hace leer como el revisado. El recibo se escribió con
+    el árbol que git mostraba; ni el vínculo ni la comprobación del árbol en `publish` deben creerlo."""
+    cand = candidato["cand"]
+    revisado = _git(cand, "rev-parse", "HEAD")
+    arbol_revisado = _git(cand, "rev-parse", "HEAD^{tree}")
+    cab._escribir(cand, KF, '{"crps_fad": 999}\n')
+    malo = _commit(cand, "otra cifra")
+    _git(cand, "replace", malo, revisado)
+    _git(cand, "checkout", "-q", revisado, "--", ".")
+    assert _git(cand, "status", "--porcelain", "--untracked-files=all") == ""
+    assert _git(cand, "rev-parse", "HEAD^{tree}") == arbol_revisado, "el reemplazo engaña a git por defecto"
+    assert vp.arbol_de(cand, malo) != arbol_revisado, "publish compara el árbol REAL del commit publicado"
+    rc_, err = _validar_cli(candidato, _recibo3(candidato, tmp_path / "r.json"), monkeypatch, capsys)
+    assert rc_ != 0 and "commit revisado" in err, err
+
+
+def test_b5a3_un_reemplazo_local_de_subarbol_no_cambia_lo_que_se_lee(
+    candidato: dict, tmp_path, monkeypatch, capsys
+) -> None:
+    """RED: el árbol raíz del commit es el real, pero su subárbol `reports` se reemplaza por el revisado; `ls-tree`
+    seguía el reemplazo y el candidato validaba."""
+    cand = candidato["cand"]
+    subarbol_revisado = _git(cand, "rev-parse", "HEAD:reports")
+    cab._escribir(cand, KF, '{"crps_fad": 999}\n')
+    _commit(cand, "otra cifra")
+    _git(cand, "replace", _git(cand, "rev-parse", "HEAD:reports"), subarbol_revisado)
+    rc_, err = _validar_cli(candidato, _recibo3(candidato, tmp_path / "r.json"), monkeypatch, capsys)
+    assert rc_ != 0, err
+    assert (cs.read(candidato["txn"]) or {})["status"] == "computed"

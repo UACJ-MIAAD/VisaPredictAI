@@ -11,7 +11,10 @@ alguien lo invoca (`validate`, `guard`, `publish`):
   fuentes, capas, recibos sustituidos y salidas: fijar su hash los fija a todos;
 * **candidato**: HEAD y árbol son los del recibo, el árbol de trabajo está limpio DE VERDAD (no el `git_dirty`
   sellado de la madre, que describe el árbol que calculó), el manifiesto de release es el revisado, y cada reporte
-  versionado es byte a byte el de la reconciliación —salvo los dos artefactos del corte—, sin sobrar ninguno.
+  versionado es byte a byte el de la reconciliación —salvo los dos artefactos del corte—, sin sobrar ninguno. Todo se
+  lee del COMMIT revisado (modo y blob), nunca del disco: un enlace simbólico o un archivo oculto con
+  `assume-unchanged` harían acreditar bytes que el commit no contiene (B5a-3). Y git no sigue reemplazos locales
+  (`--no-replace-objects`): un `refs/replace` haría leer otro commit, árbol o blob.
 
 `publish` añade la última pieza: el commit que se publica tiene EXACTAMENTE el árbol revisado (`arbol_de`).
 """
@@ -23,7 +26,7 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +58,12 @@ EXPORTACION: dict[str, tuple[str, str]] = {
         for d in ("", "dark/", "en/", "en/dark/")
     },
 }
+#: Modo git del único tipo de entrada publicable: archivo regular no ejecutable. Un enlace (120000) publica una ruta y
+#: no los bytes a los que apunta; un submódulo (160000), otro repositorio; un ejecutable (100755), otro árbol.
+MODO_REGULAR = "100644"
+#: Toda consulta al candidato lee los objetos REALES: un `refs/replace` local hace que git devuelva otro commit, árbol
+#: o blob en lugar del que el commit contiene (auditoría 17-oct, B5a-3).
+_GIT = ("git", "--no-replace-objects")
 #: Lo que la reconciliación guarda para sí: jamás viaja al candidato.
 _INTERNOS = ("reports/campaign/reconciliation/", "reports/campaign/complement_evidence/", str(rc.RUTA_REL))
 
@@ -64,8 +73,51 @@ def _sha(ruta: Path) -> str:
 
 
 def _git(raiz: Path, *args: str) -> str | None:
-    fin = subprocess.run(["git", "-C", str(raiz), *args], capture_output=True, text=True, check=False)
+    fin = subprocess.run([*_GIT, "-C", str(raiz), *args], capture_output=True, text=True, check=False)
     return fin.stdout if fin.returncode == 0 else None
+
+
+def _entradas(raiz: Path, commit: str) -> dict[str, tuple[str, str]] | None:
+    """`reports/` del COMMIT: ruta → (modo, oid), leído del árbol de git y no del disco (``None`` si no se lee)."""
+    fin = subprocess.run([*_GIT, "-C", str(raiz), "ls-tree", "-r", "-z", "--full-tree", commit, "--", "reports"],
+                         capture_output=True, check=False)  # fmt: skip
+    if fin.returncode != 0:
+        return None
+    entradas: dict[str, tuple[str, str]] = {}
+    for linea in filter(None, fin.stdout.split(b"\0")):
+        meta, _tab, ruta = linea.partition(b"\t")
+        modo, _tipo, oid = meta.decode("ascii").split()
+        entradas[ruta.decode("utf-8", "surrogateescape")] = (modo, oid)
+    return entradas
+
+
+def _blobs(raiz: Path, oids: Iterable[str]) -> dict[str, bytes] | None:
+    """El contenido de cada blob en UNA lectura de git (`cat-file --batch`); ``None`` si alguno no se puede leer."""
+    pedidos = sorted(set(oids))
+    fin = subprocess.run([*_GIT, "-C", str(raiz), "cat-file", "--batch"], input="".join(f"{o}\n" for o in pedidos).encode(),
+                         capture_output=True, check=False)  # fmt: skip
+    if fin.returncode != 0:
+        return None
+    salida, pos, leidos = fin.stdout, 0, {}
+    for oid in pedidos:
+        fin_cabecera = salida.find(b"\n", pos)
+        cabecera = salida[pos:fin_cabecera].decode("ascii", "replace").split() if fin_cabecera >= 0 else []
+        if len(cabecera) != 3 or cabecera[0] != oid or cabecera[1] != "blob":
+            return None
+        inicio, tamano = fin_cabecera + 1, int(cabecera[2])
+        leidos[oid] = salida[inicio : inicio + tamano]
+        if len(leidos[oid]) != tamano:
+            return None
+        pos = inicio + tamano + 1
+    return leidos
+
+
+def _release_id(manifiesto: bytes) -> object:
+    try:
+        doc = json.loads(manifiesto.decode("utf-8"))
+    except UnicodeDecodeError, ValueError:
+        return None
+    return doc.get("release_id") if isinstance(doc, dict) else None
 
 
 def arbol_de(candidate_root: str | Path, commit: str) -> str | None:
@@ -136,26 +188,45 @@ def _candidato(acta: Mapping[str, str], doc: Mapping[str, Any]) -> str | None:
     sucio = _git(raiz, "status", "--porcelain", "--untracked-files=all")
     if sucio is None or sucio.strip():
         return f"el árbol del candidato está sucio de verdad: {(sucio or '').split()[:6]}"
-    manifiesto = raiz / MANIFIESTO_RELEASE
-    if not manifiesto.is_file() or _sha(manifiesto) != acta["release_manifest_sha256"]:
+    # ★ B5a-3: los bytes revisados son los del COMMIT. Modo y blob salen de git, no del disco.
+    commit = acta["candidate_git_sha"]
+    entradas = _entradas(raiz, commit)
+    if entradas is None:
+        return f"no se pudo leer el árbol del commit revisado {commit}"
+    otros = sorted(r for r, (modo, _oid) in entradas.items() if modo != MODO_REGULAR)
+    if otros:
+        detalle = ", ".join(f"{r} (modo {entradas[r][0]})" for r in otros[:4])
+        return f"no es un archivo regular ({MODO_REGULAR}) en el commit revisado: {detalle}"
+    faltan = sorted(CORTE - set(entradas))
+    if faltan:
+        return f"falta en el commit revisado: {faltan}"
+    blobs = _blobs(raiz, (oid for _modo, oid in entradas.values()))
+    if blobs is None:
+        return f"no se pudo leer algún blob del commit revisado {commit}"
+    contenido = {r: blobs[oid] for r, (_modo, oid) in entradas.items()}
+    manifiesto = contenido[MANIFIESTO_RELEASE]  # hash y release_id, de los MISMOS bytes
+    if hashlib.sha256(manifiesto).hexdigest() != acta["release_manifest_sha256"]:
         return "el manifiesto de release del candidato no es el revisado (release_manifest_sha256)"
-    if json.loads(manifiesto.read_text(encoding="utf-8")).get("release_id") != acta["release_id"]:
+    if _release_id(manifiesto) != acta["release_id"]:
         return "el manifiesto de release no declara el release_id del recibo"
-    return _reportes(raiz, doc)
+    return _reportes(contenido, doc)
 
 
-def _reportes(raiz: Path, doc: Mapping[str, Any]) -> str | None:
-    """Cada reporte versionado del candidato es el de la reconciliación (capa, fuente o salida); no sobra ninguno."""
+def _reportes(contenido: Mapping[str, bytes], doc: Mapping[str, Any]) -> str | None:
+    """Cada reporte del commit revisado es el de la reconciliación (capa, fuente o salida); no sobra ninguno."""
     esperado: dict[str, str] = {
         **doc["inventory"],
         **doc["mother_layers"],
         **{rel: sha for s in doc["sources"] for rel, sha in s["artifacts"].items()},
         **(doc.get("outputs") or {}),
     }
-    listado = _git(raiz, "ls-files", "-z", "--", "reports") or ""
-    versionados = [r for r in listado.split("\0") if r]
+    versionados = list(contenido)
     sobran = [r for r in versionados if r not in CORTE and (r.startswith(_INTERNOS) or r not in esperado)]
-    distintos = [r for r in versionados if r not in CORTE and r not in sobran and _sha(raiz / r) != esperado[r]]
+    distintos = [
+        r
+        for r in versionados
+        if r not in CORTE and r not in sobran and hashlib.sha256(contenido[r]).hexdigest() != esperado[r]
+    ]
     # ★ auditoría 17-oct: el inventario COMPLETO previsto (capas, fuentes, salidas), salvo lo que el contrato de
     # exportación destina a otro sitio; y lo destinado a otro sitio no se cuela en datos.
     previsto = {r for r in esperado if not r.startswith(_INTERNOS) and r not in CORTE and r not in EXPORTACION}
