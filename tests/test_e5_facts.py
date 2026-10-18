@@ -3,7 +3,7 @@
 Si una cifra del `.tex`, de la tabla, de la figura o de la tarjeta no sale de
 ``reports/governance/e5_facts.json``, es que alguien la escribió a mano. Aquí se comprueba que
 el artefacto se deriva de E1–E4, que la narrativa negativa sobrevive, que el `.tex` no repite
-ningún número suelto y que el release del corte actual **no** se regenera.
+ningún número suelto y que el corte del repositorio publica esas cifras (G7 · B5b: sin excepción PRE-E5).
 """
 
 from __future__ import annotations
@@ -165,38 +165,36 @@ def test_la_tabla_escapa_lo_que_latex_trata_como_especial() -> None:
     assert "_" not in cuerpo.replace("\\_", ""), "guion bajo sin escapar en el cuerpo de la tabla"
 
 
-# ------------------------------------------------- release: spec ampliado, corte intacto
+# ------------------------------------------------- release: spec ampliado y corte que lo publica
 def test_el_spec_del_release_incluye_los_artefactos_de_E5() -> None:
     fuente = (ROOT / "experiments" / "build_release_manifest.py").read_text()
     for ruta in ("reports/governance/e5_facts.json", "reports/eval/series_cohorts.json"):
         assert f'("{ruta}", "required")' in fuente, ruta
 
 
-def test_la_excepcion_PRE_E5_es_nominal_y_cerrada() -> None:
+def test_todo_corte_sin_las_cifras_de_cohortes_falla() -> None:
+    """G7 · B5b: sin excepción PRE-E5, quitar cualquiera de los dos artefactos falla, sea cual sea el corte."""
     import tools.check_contracts as cc
 
     manifiesto = json.loads((ROOT / "reports" / "release" / "release_manifest.json").read_text())
-    sha = hashlib.sha256((ROOT / "reports" / "release" / "release_manifest.json").read_bytes()).hexdigest()
-    assert cc._e5_facts_problems(manifiesto, sha) == [], "el corte publicado debe estar acreditado"
-    # Cualquier OTRO corte que los omita falla, aunque se parezca.
-    for campo, valor in (("release_id", "2026-10-otro"), ("panel_vintage", "2026-10"), ("n_artifacts", 999)):
-        problemas = cc._e5_facts_problems({**manifiesto, campo: valor}, sha)
-        assert problemas and "NO es el corte PRE-E5" in problemas[0], campo
-    assert cc._e5_facts_problems(manifiesto, "0" * 64)
+    assert cc._e5_facts_problems(manifiesto) == []
+    for ruta in cc.E5_PATHS:
+        sin = {**manifiesto, "artifacts": [a for a in manifiesto["artifacts"] if a["path"] != ruta]}
+        for release_id in ("2026-09-158ec972c234", "2026-10-otro"):
+            problemas = cc._e5_facts_problems({**sin, "release_id": release_id})
+            assert problemas and ruta in problemas[0], (ruta, release_id)
 
 
-def test_el_corte_publicado_no_se_regenera() -> None:
-    """El manifiesto y la tarjeta vigentes conservan su identidad exacta."""
-    import tools.check_contracts as cc
-
-    card = ROOT / "reports" / "governance" / "MODEL_CARD.md"
-    manifiesto = ROOT / "reports" / "release" / "release_manifest.json"
-    assert hashlib.sha256(card.read_bytes()).hexdigest() == cc.LEGACY_CARD_SHA256
-    assert hashlib.sha256(manifiesto.read_bytes()).hexdigest() == cc.LEGACY_MANIFEST_SHA256
+def test_el_corte_del_repositorio_publica_las_cifras_de_cohortes() -> None:
+    """El manifiesto versionado registra los dos artefactos con el sha256 de sus bytes en disco."""
+    manifiesto = json.loads((ROOT / "reports" / "release" / "release_manifest.json").read_text())
+    registrados = {a["path"]: a["sha256"] for a in manifiesto["artifacts"]}
+    for ruta in ("reports/governance/e5_facts.json", "reports/eval/series_cohorts.json"):
+        assert registrados.get(ruta) == hashlib.sha256((ROOT / ruta).read_bytes()).hexdigest(), ruta
 
 
 def test_la_tarjeta_del_proximo_corte_ya_trae_el_bloque_de_cohortes() -> None:
-    """El GENERADOR se actualiza; la tarjeta publicada no se toca."""
+    """El generador emite el bloque y la tarjeta del corte del repositorio ya lo trae (G7 · B5b)."""
     import experiments.build_model_card as mc
 
     texto = mc.render("TEST")
@@ -204,7 +202,7 @@ def test_la_tarjeta_del_proximo_corte_ya_trae_el_bloque_de_cohortes() -> None:
     f = facts()
     assert str(f["NEstable"]) in texto and str(f["RouterCeldas"]) in texto
     assert "no está desplegado ni promovido" in texto
-    assert "## 5.1" not in (ROOT / "reports" / "governance" / "MODEL_CARD.md").read_text()
+    assert "## 5.1 Cohortes de estabilidad" in (ROOT / "reports" / "governance" / "MODEL_CARD.md").read_text()
 
 
 def test_la_propuesta_sigue_congelada() -> None:

@@ -160,32 +160,12 @@ MANIFEST_PATH = "reports/release/release_manifest.json"
 RELEASE_ID_SENTINEL = "@@RELEASE_ID_SENTINEL@@"
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
-#: PUENTE CERRADO. El ÚNICO corte anterior a D4 que se acepta sin bloque `identity` es este,
-#: acreditado por sus cuatro valores exactos. Cualquier otro manifiesto sin `identity` falla:
-#: el puente no es una categoría, es una excepción nominal e irrepetible.
-LEGACY_MANIFEST_SHA256 = "8c362dbbacc245fdf4ba4b9835af096f81257ebc8f0a03c12a065484fbed3145"
-LEGACY_CARD_SHA256 = "3cc175f4641547f7e19998495ed6d6422db53bb34bb8246e323a3be8ac1ee9fa"
-LEGACY_RELEASE_ID = "2026-09-158ec972c234"
-LEGACY_VINTAGE = "2026-09"
-#: F2: el feed de ingesta entra al spec del manifiesto, pero el corte YA PUBLICADO se emitió sin
-#: él y no se regenera (cambiaría `release_id` y el corte que sirve producción). La excepción es
-#: NOMINAL y CERRADA: solo este corte, acreditado por sus cuatro valores exactos. Cualquier otro
-#: manifiesto que omita el artefacto falla, y cuando el próximo corte lo incluya esta excepción
-#: deja de aplicarse sola.
+#: G7 · B5b: los tres puentes del corte legado (PRE-D4 sin `identity`, PRE-F2 sin feed de ingesta, PRE-E5 sin cifras
+#: de cohortes) se retiraron con el primer corte nuevo, el de la reconciliación. Eran excepciones NOMINALES para los bytes
+#: exactos del corte que el repositorio versionaba; en cuanto el repositorio emite otro, no protegen nada y sólo dejan
+#: pasar aquellos bytes. Hoy todo manifiesto lleva `identity`, el feed y las cifras de cohortes, sin excepción.
 INGESTION_FEED_PATH = "reports/governance/ingestion_state.json"
-PRE_F2_MANIFEST_SHA256 = "8c362dbbacc245fdf4ba4b9835af096f81257ebc8f0a03c12a065484fbed3145"
-PRE_F2_RELEASE_ID = "2026-09-158ec972c234"
-PRE_F2_VINTAGE = "2026-09"
-PRE_F2_N_ARTIFACTS = 111
-#: E5: las cifras de cohortes y el catálogo entran al spec, pero el corte YA PUBLICADO se emitió
-#: sin ellos y no se regenera (cambiaría `release_id` y el corte que sirve producción). La
-#: excepción es NOMINAL y CERRADA: solo este corte, por sus cuatro valores exactos. Cualquier
-#: otro manifiesto que los omita falla, y con el próximo corte deja de aplicarse sola.
 E5_PATHS = ("reports/governance/e5_facts.json", "reports/eval/series_cohorts.json")
-PRE_E5_MANIFEST_SHA256 = "8c362dbbacc245fdf4ba4b9835af096f81257ebc8f0a03c12a065484fbed3145"
-PRE_E5_RELEASE_ID = "2026-09-158ec972c234"
-PRE_E5_VINTAGE = "2026-09"
-PRE_E5_N_ARTIFACTS = 111
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
@@ -197,73 +177,20 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
     return dict(pairs)
 
 
-def _legacy_bridge_problems(manifest: dict, manifest_sha: str, card_sha: str) -> list[str]:
-    """El corte legado se acredita por sus CUATRO valores exactos; si alguno falla, falla todo."""
-    checks = {
-        "sha256 del manifiesto": (manifest_sha, LEGACY_MANIFEST_SHA256),
-        "sha256 de la tarjeta": (card_sha, LEGACY_CARD_SHA256),
-        "release_id": (manifest.get("release_id"), LEGACY_RELEASE_ID),
-        "panel_vintage": (manifest.get("panel_vintage"), LEGACY_VINTAGE),
-    }
-    wrong = [f"{name}: {got!r} != {want!r}" for name, (got, want) in checks.items() if got != want]
-    if wrong:
-        return [
-            "manifiesto sin bloque `identity` que NO es el corte legado acreditado "
-            f"({'; '.join(wrong)}): todo corte nuevo debe emitirse con D4"
-        ]
-    print(
-        f"  · identidad del release: corte LEGADO {LEGACY_RELEASE_ID} acreditado por sus cuatro "
-        "valores exactos (puente cerrado, previo a D4); el próximo corte ya emite `identity`"
-    )
-    return []
-
-
-def _ingestion_feed_problems(manifest: dict, manifest_sha: str) -> list[str]:
-    """El manifiesto debe publicar el feed de ingesta; solo el corte PRE-F2 acreditado se salva."""
+def _ingestion_feed_problems(manifest: dict) -> list[str]:
+    """F2: todo manifiesto publica el feed de ingesta."""
     if any(a.get("path") == INGESTION_FEED_PATH for a in manifest.get("artifacts", [])):
         return []
-    checks = {
-        "sha256 del manifiesto": (manifest_sha, PRE_F2_MANIFEST_SHA256),
-        "release_id": (manifest.get("release_id"), PRE_F2_RELEASE_ID),
-        "panel_vintage": (manifest.get("panel_vintage"), PRE_F2_VINTAGE),
-        "n_artifacts": (manifest.get("n_artifacts"), PRE_F2_N_ARTIFACTS),
-    }
-    wrong = [f"{name}: {got!r} != {want!r}" for name, (got, want) in checks.items() if got != want]
-    if wrong:
-        return [
-            f"manifiesto sin `{INGESTION_FEED_PATH}` que NO es el corte PRE-F2 acreditado "
-            f"({'; '.join(wrong)}): todo corte nuevo debe publicar el feed de ingesta"
-        ]
-    print(
-        f"  · feed de ingesta: corte PRE-F2 {PRE_F2_RELEASE_ID} acreditado por sus cuatro valores "
-        "exactos (excepción cerrada); el próximo corte ya lo publica"
-    )
-    return []
+    return [f"manifiesto sin `{INGESTION_FEED_PATH}`: todo corte debe publicar el feed de ingesta (F2)"]
 
 
-def _e5_facts_problems(manifest: dict, manifest_sha: str) -> list[str]:
-    """El manifiesto debe publicar las cifras de cohortes; solo el corte PRE-E5 se salva."""
+def _e5_facts_problems(manifest: dict) -> list[str]:
+    """E5: todo manifiesto publica las cifras de cohortes y su catálogo."""
     presentes = {a.get("path") for a in manifest.get("artifacts", [])}
     faltan = [p for p in E5_PATHS if p not in presentes]
     if not faltan:
         return []
-    checks = {
-        "sha256 del manifiesto": (manifest_sha, PRE_E5_MANIFEST_SHA256),
-        "release_id": (manifest.get("release_id"), PRE_E5_RELEASE_ID),
-        "panel_vintage": (manifest.get("panel_vintage"), PRE_E5_VINTAGE),
-        "n_artifacts": (manifest.get("n_artifacts"), PRE_E5_N_ARTIFACTS),
-    }
-    wrong = [f"{name}: {got!r} != {want!r}" for name, (got, want) in checks.items() if got != want]
-    if wrong:
-        return [
-            f"manifiesto sin {faltan} que NO es el corte PRE-E5 acreditado "
-            f"({'; '.join(wrong)}): todo corte nuevo debe publicar las cifras de cohortes"
-        ]
-    print(
-        f"  · cifras de cohortes: corte PRE-E5 {PRE_E5_RELEASE_ID} acreditado por sus cuatro "
-        "valores exactos (excepción cerrada); el próximo corte ya las publica"
-    )
-    return []
+    return [f"manifiesto sin {faltan}: todo corte debe publicar las cifras de cohortes (E5)"]
 
 
 def _identity_shape_problems(identity: object) -> list[str]:
@@ -292,8 +219,8 @@ def _identity_shape_problems(identity: object) -> list[str]:
 def release_identity_problems(root: Path = ROOT) -> list[str]:
     """Recomputa la identidad del corte y rechaza cualquier manipulación (fail-closed).
 
-    Un manifiesto sin bloque ``identity`` sólo pasa si ES el corte legado acreditado; cualquier
-    otro, o un ``identity`` mal formado, incompleto o con otro schema, es un fallo. La tarjeta se
+    Un manifiesto sin bloque ``identity``, o con un ``identity`` mal formado, incompleto o con otro
+    schema, es un fallo (G7 · B5b: sin puente para el corte legado). La tarjeta se
     normaliza sustituyendo SOLO su campo estructural, nunca con un ``replace`` global.
     """
     mpath = root / MANIFEST_PATH
@@ -314,13 +241,12 @@ def release_identity_problems(root: Path = ROOT) -> list[str]:
         return [f"{CARD_PATH}: la tarjeta del corte no existe"]
     card = card_file.read_text()
     card_sha = hashlib.sha256(card.encode()).hexdigest()
-    manifest_sha = hashlib.sha256(raw).hexdigest()
 
     # F2/E5: estas exigencias valen para cualquier manifiesto, lleve o no `identity`.
-    feed_problems = _ingestion_feed_problems(manifest, manifest_sha) + _e5_facts_problems(manifest, manifest_sha)
+    feed_problems = _ingestion_feed_problems(manifest) + _e5_facts_problems(manifest)
 
     if "identity" not in manifest:
-        return _legacy_bridge_problems(manifest, manifest_sha, card_sha) + feed_problems
+        return ["manifiesto sin bloque `identity`: todo corte debe emitirse con D4"] + feed_problems
 
     identity = manifest["identity"]
     problems = _identity_shape_problems(identity) + feed_problems
