@@ -68,10 +68,6 @@ _GIT = ("git", "--no-replace-objects")
 _INTERNOS = ("reports/campaign/reconciliation/", "reports/campaign/complement_evidence/", str(rc.RUTA_REL))
 
 
-def _sha(ruta: Path) -> str:
-    return hashlib.sha256(ruta.read_bytes()).hexdigest()
-
-
 def _git(raiz: Path, *args: str) -> str | None:
     fin = subprocess.run([*_GIT, "-C", str(raiz), *args], capture_output=True, text=True, check=False)
     return fin.stdout if fin.returncode == 0 else None
@@ -126,11 +122,15 @@ def arbol_de(candidate_root: str | Path, commit: str) -> str | None:
     return salida.strip() if salida else None
 
 
-def verificar_reconciliacion(raiz: Path, madre: Path, *, repo_root: Path) -> tuple[bool, str]:
-    """El LECTOR real de la reconciliación (CLI `verify`, lectores de E3 incluidos), en un proceso aparte."""
+def verificar_reconciliacion(raiz: Path, madre: Path, *, repo_root: Path, sha256: str) -> tuple[bool, str]:
+    """El LECTOR real de la reconciliación (CLI `verify`, lectores de E3 incluidos), en un proceso aparte.
+
+    ★ B5d: el proceso exige ``sha256`` sobre los bytes que ÉL lee; si alguien cambia el archivo entre la lectura del
+    vínculo y la del verificador, éste no acredita otro documento en nombre del sellado.
+    """
     fin = subprocess.run(
         [sys.executable, str(repo_root / "experiments" / "run_reconciliation.py"), "--root", str(raiz), "verify",
-         "--parent-root", str(madre)],
+         "--parent-root", str(madre), "--expect-sha256", sha256],
         cwd=str(raiz), capture_output=True, text=True, check=False, timeout=3600,
         env={**os.environ, "PYTHONPATH": str(repo_root)},
     )  # fmt: skip
@@ -159,12 +159,15 @@ def _reconciliacion(
     acta: Mapping[str, str], txn_path: Path, estado: Mapping[str, Any], computado: str, *, repo_root: Path
 ) -> tuple[dict[str, Any], str | None]:
     raiz = Path(acta["reconciliation_root"])
-    ruta = raiz / rc.RUTA_REL
-    if not ruta.is_file():
-        return {}, f"no hay reconciliación en {raiz}"
-    if _sha(ruta) != acta["reconciliation_sha256"]:
-        return {}, "la reconciliación cambió o no es la del recibo (reconciliation_sha256)"
-    doc = json.loads(ruta.read_text(encoding="utf-8"))
+    # ★ B5d (auditoría 18-oct): UNA lectura; el hash del recibo y el documento que se usa salen de los mismos bytes.
+    try:
+        doc = rc.leer(raiz, sha256=acta["reconciliation_sha256"])
+    except rc.ReconciliacionError as exc:
+        if "ausente" in exc.codigos:
+            return {}, f"no hay reconciliación en {raiz}"
+        if "sello" in exc.codigos:
+            return {}, "la reconciliación cambió o no es la del recibo (reconciliation_sha256)"
+        return {}, f"la reconciliación no se lee con su lector: {exc}"
     if doc.get("reconciliation_id") != acta["reconciliation_id"]:
         return {}, "la reconciliación no es la del recibo (reconciliation_id)"
     if doc.get("status") != "derived":
@@ -172,7 +175,8 @@ def _reconciliacion(
     padre = doc.get("parent") or {}
     if (padre.get("campaign_id"), padre.get("campaign_json_sha256")) != (estado.get("campaign_id"), computado):
         return {}, "la reconciliación es de otra madre o de otro cómputo suyo"
-    ok, salida = verificar_reconciliacion(raiz, txn_path.parents[2], repo_root=repo_root)
+    ok, salida = verificar_reconciliacion(raiz, txn_path.parents[2], repo_root=repo_root,
+                                          sha256=acta["reconciliation_sha256"])  # fmt: skip
     if not ok:
         return {}, f"la reconciliación no se re-acredita con su lector: {salida.strip()[-500:]}"
     return doc, None

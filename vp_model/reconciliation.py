@@ -518,13 +518,20 @@ def _escribir(root: Path, doc: Mapping[str, Any]) -> None:
 
 
 # ═══════════════════════════════ lector
-def leer(root: Path) -> dict:
-    """El documento, con el plan re-verificado contra su huella."""
+def leer(root: Path, *, sha256: str | None = None) -> dict:
+    """El documento, con el plan re-verificado contra su huella.
+
+    Con ``sha256`` (G7 · B5d), el hash se calcula sobre los MISMOS bytes que se parsean, en una sola lectura: quien
+    sella la reconciliación por su hash no puede recibir otro documento leído un instante después.
+    """
     ruta = Path(root) / RUTA_REL
     if not ruta.is_file():
         raise ReconciliacionError([("ausente", f"no hay reconciliación en {ruta}")])
+    datos = ruta.read_bytes()
+    if sha256 is not None and (leido := hashlib.sha256(datos).hexdigest()) != sha256:
+        raise ReconciliacionError([("sello", f"{ruta}: sha256 {leido} no es el sellado {sha256}")])
     try:
-        doc = ar.loads_strict(ruta.read_text(encoding="utf-8"))
+        doc = ar.loads_strict(datos.decode("utf-8"))
     except ValueError as exc:
         raise ReconciliacionError([("ilegible", f"{ruta}: {exc}")]) from exc
     if doc.get("schema") != SCHEMA:
@@ -624,14 +631,16 @@ def acreditar(
     acreditar_lanes: cx.AcreditarLanes | None = None,
     puntuar_e3: PuntuarE3 | None = None,
     git: Git = cx.estado_git,
+    sha256: str | None = None,
 ) -> dict:
     """LECTOR: re-verifica todo sin creer el estado escrito. No escribe.
 
     ``solo`` limita la re-acreditación de FUENTES a la complementaria de ese id (un consumidor de CRPS no
     necesita re-puntuar E3); el árbol, la madre, las capas y el inventario se verifican siempre enteros.
+    ``sha256`` exige que el documento que se acredita sea el sellado (``leer``).
     """
     root = Path(root)
-    doc = leer(root)
+    doc = leer(root, sha256=sha256)
     if doc["status"] not in LEIBLES:
         raise ReconciliacionError([("estado", f"una reconciliación en {doc['status']!r} no se consume")])
     p = _verificar(root, doc, parent_root, solo=solo, acreditar_lanes=acreditar_lanes, puntuar_e3=puntuar_e3,

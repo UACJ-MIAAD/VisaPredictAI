@@ -830,3 +830,103 @@ def test_b5a3_un_reemplazo_local_de_subarbol_no_cambia_lo_que_se_lee(
     rc_, err = _validar_cli(candidato, _recibo3(candidato, tmp_path / "r.json"), monkeypatch, capsys)
     assert rc_ != 0, err
     assert (cs.read(candidato["txn"]) or {})["status"] == "computed"
+
+
+# ═══════════════════════════ B5d · la reconciliación se lee UNA vez y el verificador acredita esos mismos bytes
+def _forjada(m: dict, kf_bytes: bytes) -> bytes:
+    """La reconciliación sellada con `outputs[KF]` apuntando a otros bytes: el plan sigue intacto (outputs no es plan)."""
+    doc = json.loads((m["recon"] / rc.RUTA_REL).read_bytes())
+    assert KF in doc["outputs"] and "outputs" not in rc._PLAN
+    doc["outputs"][KF] = hashlib.sha256(kf_bytes).hexdigest()
+    return (json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode()
+
+
+def test_b5d_la_reconciliacion_se_hashea_y_se_parsea_de_los_mismos_bytes(
+    candidato: dict, tmp_path, monkeypatch, capsys
+) -> None:
+    """RED (auditoría 18-oct): `_reconciliacion` hasheaba el archivo y luego lo VOLVÍA a leer para parsearlo. Una
+    sustitución entre ambas lecturas hacía comparar el candidato contra un documento que no es el sellado: un
+    `key_facts` incorrecto validaba. Aquí la primera lectura ve lo sellado y cualquier lectura posterior, por el método
+    que sea, ve una reconciliación forjada que coincide con el candidato malo."""
+    ruta = candidato["recon"] / rc.RUTA_REL
+    original = ruta.read_bytes()
+    malo = b'{"crps_fad": 999}\n'
+    cab._escribir(candidato["cand"], KF, malo.decode())
+    _commit(candidato["cand"], "cifra que no es la reconciliada")
+    recibo = _recibo3(candidato, tmp_path / "r.json")
+    rc_, err = _validar_cli(candidato, recibo, monkeypatch, capsys)
+    assert rc_ != 0 and "distintos" in err, "control: sin sustitución, el candidato malo ya se rechaza"
+    forjada, lecturas = _forjada(candidato, malo), []
+    leer_bytes, leer_texto = Path.read_bytes, Path.read_text
+
+    def intercalada(real):
+        def leer(self, *a, **k):
+            if self != ruta:
+                return real(self, *a, **k)
+            lecturas.append(real.__name__)
+            if len(lecturas) == 1:
+                return real(self, *a, **k)
+            ruta.write_bytes(forjada)
+            try:
+                return real(self, *a, **k)
+            finally:
+                ruta.write_bytes(original)
+
+        return leer
+
+    monkeypatch.setattr(Path, "read_bytes", intercalada(leer_bytes))
+    monkeypatch.setattr(Path, "read_text", intercalada(leer_texto))
+    rc_, err = _validar_cli(candidato, recibo, monkeypatch, capsys)
+    monkeypatch.undo()
+    assert lecturas, "la prueba no intercaló ninguna lectura"
+    assert rc_ != 0 and "distintos" in err, (lecturas, err)
+    assert (cs.read(candidato["txn"]) or {})["status"] == "computed"
+    assert ruta.read_bytes() == original
+
+
+def test_b5d_el_verificador_externo_acredita_los_bytes_sellados(candidato: dict, tmp_path) -> None:
+    """RED: el recibo sella una reconciliación forjada (outputs del candidato malo) que su lector rechaza; durante el
+    proceso del verificador el disco muestra la reconciliación buena y el lector la acredita. El vínculo usaba la
+    forjada sin que nadie la hubiera verificado. El verificador debe exigir el hash del recibo sobre lo que él lee."""
+    ruta = candidato["recon"] / rc.RUTA_REL
+    buena, malo = ruta.read_bytes(), b'{"crps_fad": 999}\n'
+    cab._escribir(candidato["cand"], KF, malo.decode())
+    _commit(candidato["cand"], "cifra que no es la reconciliada")
+    forjada = _forjada(candidato, malo)
+    ruta.write_bytes(forjada)
+    acta = json.loads(_recibo3(candidato, tmp_path / "r.json").read_text())
+    assert acta["reconciliation_sha256"] == hashlib.sha256(forjada).hexdigest()
+    estado = cs.read(candidato["txn"])
+    motivo = vp.problema(acta, candidato["txn"], estado, repo_root=txn._REPO_ROOT)
+    assert motivo and "re-acredita" in motivo, "control: sin sustitución, el lector rechaza la forjada"
+    real, verificaciones = subprocess.run, []
+
+    def con_la_buena_en_disco(cmd, *a, **k):
+        if not any(str(x).endswith("run_reconciliation.py") for x in cmd):
+            return real(cmd, *a, **k)
+        verificaciones.append(cmd)
+        ruta.write_bytes(buena)
+        try:
+            return real(cmd, *a, **k)
+        finally:
+            ruta.write_bytes(forjada)
+
+    vp.subprocess.run = con_la_buena_en_disco
+    try:
+        motivo = vp.problema(acta, candidato["txn"], estado, repo_root=txn._REPO_ROOT)
+    finally:
+        vp.subprocess.run = real
+    assert verificaciones, "la prueba no intercaló el verificador"
+    assert motivo and "re-acredita" in motivo, motivo
+    assert ruta.read_bytes() == forjada
+
+
+def test_b5d_la_cli_verify_exige_el_hash_esperado_sobre_lo_que_lee(cerrada: dict, tmp_path, capsys) -> None:
+    """RED: `verify --expect-sha256` acredita sólo si los bytes que ÉL lee tienen ese hash; sin la opción, como antes."""
+    sha = _sha_archivo(cerrada["recon"] / rc.RUTA_REL)
+    base = ["--root", str(cerrada["recon"]), "verify", "--parent-root", str(cerrada["txn"].parents[2])]
+    assert cli_rc.main([*base, "--expect-sha256", sha]) == 0
+    capsys.readouterr()
+    assert cli_rc.main([*base, "--expect-sha256", "0" * 64]) != 0
+    salida = capsys.readouterr()
+    assert "sello" in salida.out and "sha256" in salida.err, salida

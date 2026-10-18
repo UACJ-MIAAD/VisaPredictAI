@@ -59,7 +59,7 @@ def cmd_assemble(args: argparse.Namespace) -> dict:
 
 
 def cmd_verify(args: argparse.Namespace) -> dict:
-    return _contrato().acreditar(args.root, parent_root=args.parent_root, **_lectores())
+    return _contrato().acreditar(args.root, parent_root=args.parent_root, sha256=args.expect_sha256, **_lectores())
 
 
 def cmd_close(args: argparse.Namespace) -> dict:
@@ -81,6 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
         sp.set_defaults(fn=fn)
         if nombre != "fail":
             sp.add_argument("--parent-root", type=Path, required=True, help="raíz de la campaña madre (sólo lectura)")
+        if nombre == "verify":
+            # G7 · B5d: quien sella la reconciliación por su hash exige que ESTE proceso acredite esos mismos bytes.
+            sp.add_argument(
+                "--expect-sha256", default=None, help="sha256 del reconciliation.json que se debe acreditar"
+            )
         if nombre == "assemble":
             sp.add_argument("--id", required=True, help="reconciliation_id: recon_<...>")
             sp.add_argument("--evidence", required=True, help="SHA256SUMS de la evidencia de la madre, bajo reports/")
