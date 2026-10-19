@@ -89,6 +89,9 @@ def test_una_receta_que_no_declara_al_gbm_como_runner_no_corre_en_el_gbm() -> No
 
 
 def test_los_recibos_de_los_lanes_van_donde_los_lee_el_puntuador() -> None:
+    from tests.conftest import requiere
+
+    requiere(modulos=("darts",))  # score_e3_campaign → vp_model.metrics → darts: corre en el perfil `model`
     import run_e3_campaign as e3
     import score_e3_campaign as score
 

@@ -29,7 +29,7 @@ def _sandbox(tmp_path: Path) -> Path:
     shutil.copy2(ROOT / "security" / "warnings_registry.json", tmp_path / "security" / "warnings_registry.json")
     shutil.copy2(ROOT / "tests" / "conftest.py", tmp_path / "tests" / "conftest.py")
     shutil.copy2(ROOT / "pyproject.toml", tmp_path / "pyproject.toml")
-    for lock in ("model-cpu.txt", "deep-macos-arm64.txt"):
+    for lock in ("model-cpu.txt", "deep-macos-arm64.txt", "dev.txt"):
         shutil.copy2(ROOT / "locks" / lock, tmp_path / "locks" / lock)
     _plant_broad_suppressions(tmp_path, _registry(tmp_path)["deferred_debt"]["sites"])
     return tmp_path
@@ -69,8 +69,9 @@ def _set_filters(root: Path, filters: list[str]) -> None:
 
 # ----------------------------------------------------------------- estado vigente
 def test_real_repository_satisfies_the_contract() -> None:
-    """8 excepciones: las 4 acreditadas en R9 y 4 de statsmodels (arranque AR y MA,
-    convergencia del MLE y convergencia de Holt-Winters). La última entró tras el CI rojo
+    """9 excepciones: las 4 acreditadas en R9, 4 de statsmodels (arranque AR y MA,
+    convergencia del MLE y convergencia de Holt-Winters) y 1 de matplotlib.dates con numpy 2.5.1 (G7 · desbloqueo,
+    perfil dev). La de Holt-Winters entró tras el CI rojo
     `33844476552`: el mismo árbol pasaba en la PR y fallaba en el push porque la convergencia
     numérica depende del runner.
 
@@ -80,8 +81,11 @@ def test_real_repository_satisfies_the_contract() -> None:
     que ya no silencia nada es deuda que parece gobernanza.
     """
     entries = cw.verify(ROOT, TODAY)
-    assert len(entries) == 8
-    assert {e["package"] for e in entries} == {"scikit-learn", "optuna", "scipy", "statsmodels"}
+    # G7 · desbloqueo: + matplotlib.dates con numpy 2.5.1 (perfil dev: locks/dev.txt). El runner Linux lo destapó en las
+    # figuras F5/hero; model y `ante` fijan numpy 2.4.6 y no lo emiten. Alinear el lock dev la retiraría (decisión del
+    # autor, fuera de este lote): igual que R5 retiró la de statsmodels al restaurar los pines.
+    assert len(entries) == 9
+    assert {e["package"] for e in entries} == {"scikit-learn", "optuna", "scipy", "statsmodels", "numpy"}
     assert sum(e["package"] == "statsmodels" for e in entries) == 4
 
 
@@ -89,7 +93,7 @@ def test_error_is_the_global_default_and_no_broad_suppression_exists() -> None:
     filters = cw.conftest_filters(ROOT / "tests" / "conftest.py")
     assert filters[0] == "error"
     assert all(f.startswith("ignore:") and not f.startswith("ignore::") for f in filters[1:])
-    assert len(filters) == 9  # error + 8 excepciones
+    assert len(filters) == 10  # error + 9 excepciones
 
 
 def test_the_statsmodels_exceptions_are_registered() -> None:
@@ -505,7 +509,12 @@ def test_partial_version_matches_are_rejected(tmp_path: Path, suffix: str) -> No
 def test_pin_terminator_accepts_the_real_lock_and_pyproject_forms() -> None:
     """El terminador no puede ser tan estricto que rechace las formas reales."""
     entries = cw.verify(ROOT, TODAY)
-    assert {e["pin_source"] for e in entries} == {"pyproject.toml", "locks/model-cpu.txt", "locks/deep-macos-arm64.txt"}
+    assert {e["pin_source"] for e in entries} == {
+        "pyproject.toml",
+        "locks/model-cpu.txt",
+        "locks/deep-macos-arm64.txt",
+        "locks/dev.txt",
+    }
 
 
 @pytest.mark.parametrize(

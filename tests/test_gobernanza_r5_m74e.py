@@ -88,7 +88,10 @@ def test_la_excepcion_de_numpy25_sobra_y_se_retiro() -> None:
     reg = json.loads((RAIZ / "security" / "warnings_registry.json").read_text(encoding="utf-8"))
     ids = {w["id"] for w in reg["warnings"]}
     assert "numpy25-statespace-shape-assignment" not in ids
-    assert len(reg["warnings"]) == 8
+    # G7 · desbloqueo: la única excepción de numpy es la del perfil dev (matplotlib.dates con numpy 2.5.1), nunca una del
+    # perfil model, cuyos pines (2.4.6) son los que R5 restauró.
+    numpy = [w for w in reg["warnings"] if w["package"] == "numpy"]
+    assert [w["pin_source"] for w in numpy] == ["locks/dev.txt"], numpy
 
 
 # ═══════════════════════════════ B2 · las excepciones se ACREDITAN

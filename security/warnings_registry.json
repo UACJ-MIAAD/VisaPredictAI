@@ -104,6 +104,18 @@
       "reason": "La convergencia numerica de Holt-Winters puede variar entre runners: el mismo arbol de codigo converge en un job y no en otro. El ajuste devuelve resultado utilizable y el test valida FUGA TEMPORAL, no certifica la convergencia del optimizador. Sin esta excepcion, `error` global vuelve NO DETERMINISTA a model-tests (CI rojo 33844476552 con la PR verde).",
       "issue": "upstream statsmodels: convergencia de Holt-Winters dependiente del entorno numerico",
       "review": "2027-01-31"
+    },
+    {
+      "id": "matplotlib-dates-numpy25-generic-timedelta",
+      "package": "numpy",
+      "version": "2.5.1",
+      "pin_source": "locks/dev.txt",
+      "category": "DeprecationWarning",
+      "message_prefix": "The 'generic' unit for NumPy timedelta is deprecated",
+      "origin": "matplotlib/dates.py (_dt64_to_ordinalf: np.datetime64('NaT').astype(np.int64) al convertir los límites por defecto de un eje de fechas)",
+      "reason": "matplotlib 3.10.8 convierte NaT con una unidad genérica que numpy 2.5 depreca; afecta a CUALQUIER gráfico con eje de fechas (medido en el runner Linux del perfil dev: plot, axvspan, axvline y set_xlim fallan igual). El perfil model y ante fijan numpy 2.4.6 y no lo emiten. Benigno: la conversión es correcta.",
+      "issue": "upstream matplotlib 3.10.8 con numpy 2.5: dates._dt64_to_ordinalf",
+      "review": "2027-01-31"
     }
   ]
 }

@@ -48,6 +48,7 @@ FILTERWARNINGS = [
     "ignore:Non\\-invertible\\ starting\\ MA\\ parameters\\ found\\.\\ Using\\ zeros\\ as\\ starting\\ parameters\\.:UserWarning",
     "ignore:Maximum\\ Likelihood\\ optimization\\ failed\\ to\\ converge\\.\\ Check\\ mle_retvals:statsmodels.tools.sm_exceptions.ConvergenceWarning",
     "ignore:Optimization\\ failed\\ to\\ converge\\.\\ Check\\ mle_retvals\\.:statsmodels.tools.sm_exceptions.ConvergenceWarning",
+    "ignore:The\\ 'generic'\\ unit\\ for\\ NumPy\\ timedelta\\ is\\ deprecated:DeprecationWarning",
 ]
 
 
@@ -94,11 +95,63 @@ _MODEL_TESTS = [
     "test_champion.py",  # harness campeón-retador → vp_model + scipy
     "test_pi_brutal.py",  # intervalos (épica AN) → vp_model.intervals + darts/scipy
     "test_tune_brutal.py",  # HPO (épica AK) → vp_model.tune + darts/optuna
+    # G7 · desbloqueo: dos módulos de modelado enteros que el runner Linux no podía recolectar
+    "test_exclusiones_acreditadas_m74e_r20.py",  # vp_model.persist_forecasts → vp_model.models → xgboost
+    "test_m74f_complemento.py",  # score_e3_campaign → vp_model.metrics → darts
 ]
 
 # `statsmodels` es del extra `model`; su ausencia marca el job base sin la capa de modelado.
 if importlib.util.find_spec("statsmodels") is None:
     collect_ignore = _MODEL_TESTS
+
+# ---------------------------------------------------------------------------
+# G7 · desbloqueo: el PERFIL de CI que corre la suite. `model-tests` fija `VP_CI_PROFILE=model`: instala el extra y
+# materializa panel y BD, así que ahí la falta de una dependencia pesada o de un artefacto es un FALLO. En el perfil
+# base (`lint-and-test`, sin variable o `dev`) es una omisión DECLARADA que el job `model` cubre: la misma prueba corre
+# allí en el paso de cobertura amplia, que ejecuta la suite completa.
+# ---------------------------------------------------------------------------
+PERFILES = ("", "dev", "model")
+PERFIL = os.environ.get("VP_CI_PROFILE", "")
+#: Lo que el job base NO instala (`.[dev]` sin el extra `model`). Única lista: la lee también `test_base_job_imports`.
+PESADOS = frozenset({"scipy", "darts", "statsmodels", "lightgbm", "xgboost", "torch", "optuna", "neuralforecast"})
+_RAIZ_REPO = Path(__file__).resolve().parents[1]
+#: El lock del perfil `model` en el runner: de él se DERIVA qué pesados debe traer ese perfil (neuralforecast es deep).
+LOCK_MODEL = _RAIZ_REPO / "locks" / "model-cpu-linux-x86_64.txt"
+
+
+def extra_model() -> frozenset[str]:
+    """Los módulos pesados que el perfil `model` instala, según su lock (no según una lista escrita a mano)."""
+    fijados = {
+        linea.split("==")[0].strip().lower()
+        for linea in LOCK_MODEL.read_text(encoding="utf-8").splitlines()
+        if "==" in linea and not linea.lstrip().startswith("#")
+    }
+    return frozenset(m for m in PESADOS if m in fijados)
+
+
+def requiere(*, modulos: tuple[str, ...] = (), artefactos: tuple[str, ...] = ()) -> None:
+    """Omite si este perfil no provisiona lo pedido; en el perfil `model`, su ausencia FALLA.
+
+    ``artefactos`` son rutas relativas a la raíz del repositorio que el job `model` materializa (p. ej., el parquet
+    que escribe `pipeline.build_database`): verificar la procedencia REAL exige el archivo real, nunca uno sustituto.
+    """
+    faltan = [m for m in modulos if importlib.util.find_spec(m) is None]
+    faltan += [a for a in artefactos if not (_RAIZ_REPO / a).is_file()]
+    if not faltan:
+        return
+    if PERFIL == "model":
+        pytest.fail(f"el perfil `model` debe provisionar {faltan}", pytrace=False)
+    pytest.skip(f"requiere {faltan}: lo provisiona el job `model-tests` (VP_CI_PROFILE=model)")
+
+
+def pytest_sessionstart(session):
+    """El perfil se declara bien y, si es `model`, trae TODO su extra: ninguna prueba se omite por un pesado ausente."""
+    if PERFIL not in PERFILES:
+        pytest.exit(f"VP_CI_PROFILE={PERFIL!r} no es un perfil conocido {PERFILES}", returncode=4)
+    if PERFIL == "model":
+        faltan = sorted(m for m in extra_model() if importlib.util.find_spec(m) is None)
+        if faltan:
+            pytest.exit(f"el perfil `model` no trae {faltan}: sus pruebas se omitirían en silencio", returncode=4)
 
 
 # ---------------------------------------------------------------------------

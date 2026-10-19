@@ -18,7 +18,10 @@ fijo) para poder ejercitar el acuerdo y el desacuerdo sin depender de qué haya 
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -154,15 +157,60 @@ def test_no_existe_ninguna_puerta_para_saltarse_la_comprobacion() -> None:
 
 
 # ═══════════════════════════════ 3 · el cableado: sello y runbook
-def test_el_sello_del_preflight_MIDE_el_entorno() -> None:
-    """Antes hasheaba el archivo de lock y comprobaba que el directorio existiera. No es lo mismo."""
+@pytest.fixture(scope="module")
+def sello_hermetico(tmp_path_factory) -> dict:
+    """El `seal()` REAL sobre una copia del árbol versionado, con la máquina de campaña simulada.
+
+    G7 · desbloqueo: antes estas pruebas sellaban el repositorio vivo, que exige `ante/`, `ante_nf/` y `data/snapshots`
+    reales (la máquina de campaña). Ningún runner de CI los tiene, así que nunca podían correr allí. Aquí los intérpretes
+    son de mentira y su censo reproduce el lock que el sello les asigna, `data/snapshots` existe vacío y DVC es un
+    ejecutable que sólo responde su versión. Se ejecuta en un subproceso con la copia en `PYTHONPATH`: los anclajes de
+    gobernanza comparan rutas de módulos importados, y en este proceso ya están importados desde el repositorio real.
+    """
+    from tests.conftest import requiere
+
+    requiere(modulos=("scipy",))  # `seal()` lee el protocolo vivo: vp_model.champion → scipy (perfil `model`)
     from tools import campaign_preflight as pf
 
-    sello = pf.seal()
+    raiz = tmp_path_factory.mktemp("sellable") / "repo"
+    # la historia hace falta: el contrato de locks exige que su commit base EXISTA (`--shared`: sin copiar objetos)
+    cabeza = subprocess.run(["git", "-C", str(RAIZ), "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
+    subprocess.run(["git", "clone", "-q", "--shared", "--no-checkout", str(RAIZ), str(raiz)], check=True)
+    subprocess.run(["git", "-C", str(raiz), "checkout", "-q", "--detach", cabeza.stdout.strip()], check=True)
+    # y los bytes del árbol de trabajo, no sólo los del commit: la prueba juzga lo que hay en disco
+    listado = subprocess.run(["git", "-C", str(RAIZ), "ls-files", "-z"], capture_output=True, check=True).stdout
+    for rel in filter(None, listado.decode("utf-8").split("\0")):
+        origen = RAIZ / rel
+        if origen.is_file() and not origen.is_symlink():
+            (raiz / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(origen, raiz / rel)
+    (raiz / pf.RAW_SNAPSHOTS).mkdir(parents=True, exist_ok=True)
+    for venv, lock in pf.INTERPRETER_LOCKS:
+        pines = {}
+        for linea in (raiz / lock).read_text(encoding="utf-8").splitlines():
+            if "==" in linea and not linea.lstrip().startswith("#"):
+                nombre, version = linea.split("==", 1)
+                pines[nombre.strip()] = version.split()[0].rstrip("\\").strip()
+        _venv_falso(raiz, venv, pines)
+    dvc = raiz / "ante" / "bin" / "dvc"
+    dvc.write_text("#!/bin/sh\necho 3.67.1\n", encoding="utf-8")
+    dvc.chmod(dvc.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    entorno = {k: v for k, v in os.environ.items() if k not in {"VP_DVC", "PYTHONPATH"}}
+    entorno["PYTHONPATH"] = str(raiz)
+    codigo = "import json; from tools import campaign_preflight as pf; print(json.dumps(pf.seal()))"
+    fin = subprocess.run([sys.executable, "-c", codigo], cwd=str(raiz), env=entorno, capture_output=True, text=True)
+    assert fin.returncode == 0, fin.stderr[-2000:]
+    return {"sello": json.loads(fin.stdout), "venvs": [v for v, _ in pf.INTERPRETER_LOCKS]}
+
+
+def test_el_sello_del_preflight_MIDE_el_entorno(sello_hermetico: dict) -> None:
+    """Antes hasheaba el archivo de lock y comprobaba que el directorio existiera. No es lo mismo."""
+    sello = sello_hermetico["sello"]
     assert "environment" in sello, "el sello no mide el entorno"
-    for venv, _lk in pf.INTERPRETER_LOCKS:
+    for venv in sello_hermetico["venvs"]:
         v = sello["environment"][venv]
         assert set(v) >= {"reproduces_lock", "missing", "version_mismatch", "extra", "n_pins"}
+        assert v["n_pins"] > 0, f"{venv}: el censo simulado reproduce su lock y el sello lo midió"
 
 
 def test_la_pareja_interprete_lock_tiene_UNA_autoridad() -> None:
@@ -188,10 +236,7 @@ def test_el_runbook_se_niega_a_arrancar_con_el_entorno_divergente() -> None:
     assert "SKIP_ENV" not in texto and "ALLOW_ENV" not in texto, "apareció un bypass ejecutable"
 
 
-def test_el_verificador_entra_al_cierre_de_codigo_sellado() -> None:
+def test_el_verificador_entra_al_cierre_de_codigo_sellado(sello_hermetico: dict) -> None:
     """Si el runbook lo invoca, el preflight tiene que sellarlo: un gate fuera del sello puede
     cambiar sin que el sello se entere."""
-    from tools import campaign_preflight as pf
-
-    sello = pf.seal()
-    assert "tools/check_env_matches_lock.py" in sello["inputs"]["code"]
+    assert "tools/check_env_matches_lock.py" in sello_hermetico["sello"]["inputs"]["code"]

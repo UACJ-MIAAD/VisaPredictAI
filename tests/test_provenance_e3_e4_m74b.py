@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import requiere
+
 ROOT = Path(__file__).resolve().parent.parent
 #: Cómo se resuelve cada clave de `inputs` a un archivo del árbol.
 RESOLUCION = {
@@ -24,6 +26,11 @@ RESOLUCION = {
     "series_cohorts.json": "reports/eval/series_cohorts.json",
     "e3_cohort_campaign.json": "reports/eval/e3_cohort_campaign.json",
 }
+
+
+#: G7 · desbloqueo: el deck sella el parquet del panel, que no está en git; lo materializa el job `model` (en el
+#: perfil base estas dos pruebas se omiten de forma declarada y en el `model` su ausencia FALLA: `requiere`).
+PARQUET = "data/processed/visa_panel_long.parquet"
 
 
 def _resolver(clave: str) -> Path | None:
@@ -60,6 +67,7 @@ def _acreditada_por_linaje(clave: str, sellado: str, ruta: Path) -> bool:
 
 def test_the_e3_deck_inputs_match_the_tree_after_the_reseal() -> None:
     """H7: el deck debe describir la campaña que se va a correr, no una anterior."""
+    requiere(artefactos=(PARQUET,))  # el parquet lo materializa `pipeline.build_database` en el job `model`
     divergentes = []
     for clave, sellado in _inputs("docs/cohort_deck.json").items():
         if clave in {"commit", "deck_version"}:
@@ -143,6 +151,7 @@ def test_the_e4_router_provenance_is_checked_against_the_tree() -> None:
 
 def test_every_sealed_input_key_resolves_to_a_real_file() -> None:
     """Una clave que no resuelve no acredita nada: sellar un nombre inexistente es peor que no sellar."""
+    requiere(artefactos=(PARQUET,))  # el parquet lo materializa `pipeline.build_database` en el job `model`
     for artefacto in ("docs/cohort_deck.json", "reports/eval/e4_router.json"):
         ruta = ROOT / artefacto
         if not ruta.is_file():
