@@ -534,7 +534,7 @@ def test_cada_proposito_declara_sus_artefactos(tmp_path: Path) -> None:
     with pytest.raises(rc.ReconciliacionError):
         rc.artefactos_de(tmp_path, {"purpose": "otro"})
     assert all(rc.es_salida(s) for s in (*rc.SALIDAS, *rc.SALIDAS_FIGURA))
-    assert len(rc.SALIDAS_FIGURA) == len(set(rc.SALIDAS_FIGURA)) == 18
+    assert len(rc.SALIDAS_FIGURA) == len(set(rc.SALIDAS_FIGURA)) == 25
     for ajena in (f"{rc.FIGURAS}x.pdf", "reports/figures/otra.png", "reports/figures/cohorts/fr/e5_router_effect.png",
                   "reports/paper_micai/Figures/otra.pdf"):  # fmt: skip
         assert not rc.es_salida(ajena), ajena

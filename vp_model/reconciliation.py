@@ -86,11 +86,14 @@ SALIDAS = (
     "reports/fe/en/fe_report.pdf",
 )
 #: Figuras del `.tex` (salida local ignorada por git desde M66), por productor: `make_result_figures` (8),
-#: `make_hero_figures` (2), `make_horizon_figure` y `make_cohort_figure`.
+#: `make_hero_figures` (2), `make_horizon_figure`, `make_cohort_figure` y `build_fe_report` (7).
 FIGURAS = "reports/latex/Figures/"
 FIGURAS_PDF = ("results_ranking_mase", "results_forecast_winner", "results_multiseed_ci", "results_coverage_crps",
                "results_backtest_grid_FAD", "results_backtest_grid_DFF", "results_cd_diagram", "results_error_heatmap",
-               "results_hero_forecast", "results_hero_philippines", "horizon_mase_curves", "e5_router_effect")  # fmt: skip
+               "results_hero_forecast", "results_hero_philippines", "horizon_mase_curves", "e5_router_effect",
+               # `build_fe_report` (re-deriva `fe_facts`): sus siete figuras `f0N_*` dejan su PDF del `.tex`.
+               "fe_pipeline", "fe_parser", "fe_regime", "fe_gaps", "fe_differencing", "fe_calendar",
+               "fe_importance")  # fmt: skip
 #: G7 · B2: TODAS las figuras que la re-derivación produce, por nombre exacto (no por carpeta: una figura que nadie
 #: declara no es una salida), incluidas las que caen fuera de `FIGURAS`: las variantes PNG de `make_cohort_figure`,
 #: la de hold-out de `vp_model.report --figure-only` y el CD del paper de `significance_tables --cd-only`.

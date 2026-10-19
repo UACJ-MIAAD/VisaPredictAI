@@ -12,6 +12,8 @@ Aquí se exige: la reconciliación NO se cierra sin `fe_facts` (JSON y `.tex`) y
 
 from __future__ import annotations
 
+import ast
+import re
 import sys
 from pathlib import Path
 
@@ -70,3 +72,13 @@ def test_el_stage_fe_facts_declara_todo_lo_que_lee_su_script() -> None:
     leidos = {b.PANEL, *b.POOLS.values()}
     faltan = sorted(str(p.relative_to(ROOT)) for p in leidos if str(p.relative_to(ROOT)) not in deps)
     assert faltan == [], f"el stage fe_facts no declara lo que su script lee: {faltan}"
+
+
+def test_los_pdf_del_tex_que_escribe_el_informe_fe_son_salidas_declaradas() -> None:
+    """RED: `build_fe_report` re-dibuja las siete figuras `f0N_*` y `save_dual` escribe su PDF del `.tex` como
+    `reports/latex/Figures/fe_<sufijo>.pdf`; sin declararlas, el cierre las vería como archivos aparecidos."""
+    arbol = ast.parse((ROOT / "experiments" / "make_fe_figures.py").read_text(encoding="utf-8"))
+    figuras = [n.name for n in arbol.body if isinstance(n, ast.FunctionDef) and re.fullmatch(r"f\d\d_\w+", n.name)]
+    assert len(figuras) == 7, figuras
+    faltan = [f for f in figuras if f"{rc.FIGURAS}fe_{f.split('_', 1)[1]}.pdf" not in rc.SALIDAS_FIGURA]
+    assert faltan == [], f"figuras del informe FE sin declarar como salida: {faltan}"
