@@ -60,7 +60,8 @@ Reglas que el código impone hoy, y solo esas:
 ## Cómo se conduce (M73)
 
 `tools/campaign_txn.py` es la **única** envoltura, y sirve a los dos tipos de consumidor: por
-subcomandos (`open` · `compute` · `fail` · `validate` · `publish` · `guard` · `archive` · `status`)
+subcomandos (`open` · `compute` · `fail` · `validate` · `revalidate` · `publish` · `publish-release` · `guard` ·
+`archive` · `status`)
 para los runners de shell, y por el gestor de contexto `campaign()` para los de Python, que marca
 `failed` si el cuerpo lanza. Sin una envoltura única, cada runner habría acabado con su propia
 secuencia de llamadas y su propio criterio ante un estado terminal.
@@ -70,9 +71,11 @@ secuencia de llamadas y su propio criterio ante un estado terminal.
   cualquier salida anormal (incluidas señales) y llega a `computed` con las puertas de entrada y
   salida en `passed`; la consistencia puede quedar en `pending` —cómputo completo, cifras por
   propagar— y es `validate` quien vuelve a exigirla re-ejecutando el guardián.
-- **`experiments/sync_all.sh --publish`** consulta la transacción antes de cada `dvc push` y cada
-  `git push`, y **consume el permiso** con `txn publish` después del push. Es la **segunda**
-  puerta: el manifiesto de campaña acredita la *identidad*, la transacción acredita el *estado*.
+- **`experiments/sync_all.sh --publish`** (desde G7 · desbloqueo) **no prepara nada**: no sincroniza MLflow, no
+  re-hashea, no commitea ni empuja git. Consume el permiso de la release YA integrada que hay en `HEAD` llamando a
+  `campaign_txn publish-release` (ver § Publicar la release aprobada). Es la **segunda** puerta: el manifiesto de
+  campaña acredita la *identidad*, la transacción acredita el *estado*. Preparar (MLflow, `dvc add`, punteros
+  staged) es su modo por defecto y ocurre ANTES del candidato y de la firma.
   Desde M74-E-R13 `guard` y `publish` exigen `--manifest`: `publishable()` acredita el sello del manifiesto y
   cruza su identidad con la transacción sobre una sola lectura, y `publish` lo repite justo antes de escribir.
 - **`validate` no acepta revisor ni decisión por argumento** (M74-B-R1). Los lee de un **recibo
@@ -102,7 +105,7 @@ Se documenta lo que el código hace, no lo que sería deseable:
   efecto —no se publica— es el correcto. La alternativa, dejarla en `running`, la volvería
   indistinguible de una campaña muerta a mitad.
 - **`guard` sólo protege a quien lo llama.** La envoltura no puede interceptar una publicación
-  que no pase por ella; hoy el único publicador de campaña es `sync_all.sh`.
+  que no pase por ella; hoy el único publicador de campaña es `sync_all.sh --publish` → `publish-release`.
 
 ## Complementarias y reconciliación (M74-F · G7)
 
@@ -157,6 +160,59 @@ madre las dejaba a todas sin acreditar. Ahora se separan las dos cosas que ese a
 El recibo `/2` **ya no autoriza** validar ni publicar. Una campaña sin complementarias sigue la
 misma vía: una reconciliación con cero fuentes (`run_reconciliation.py` sin `--source`) y un
 recibo `/3`.
+
+## Publicar la release aprobada (G7 · desbloqueo)
+
+Antes, `sync_all --publish` commiteaba los punteros, hacía `dvc push` y `git push`, y **después** `txn publish`
+comprobaba el árbol aprobado: con un recibo `/3` el permiso no se consumía nunca, pero el commit ya estaba en el remoto.
+Ahora preparar y publicar son materialmente distintos:
+
+1. **Preparar** (por defecto): MLflow, `dvc add`, punteros staged. Cambia el árbol, así que entra al candidato ANTES de
+   sellar el corte, del CI y de la firma.
+2. **Integrar**: la PR del candidato entra a `main` con EXACTAMENTE el árbol firmado (merge o squash que lo reproduzca).
+3. **Publicar** (`sync_all.sh --publish` → `campaign_txn publish-release`): en un checkout limpio cuyo `HEAD` es la
+   release integrada. Bajo el lock de la campaña —serializado frente a `revalidate`, `fail` y `validate`— y ANTES del
+   primer efecto externo se comprueban la puerta completa, el árbol de `HEAD`, el checkout limpio y que `HEAD` esté en
+   `origin/main`. Después, el único efecto externo: `dvc push` con el DVC gobernado (direccionado por contenido). Sólo si
+   salió bien, `published` con CAS sobre la revisión y la huella acreditadas.
+
+Punto de no retorno: si `dvc push` termina y la escritura de `published` falla, los objetos ya están en el remoto
+(inocuo) y la campaña sigue `validated`; reintentar es seguro. Si `dvc push` falla, no salió nada nuevo y el permiso no
+se consumió. Una release sin punteros nuevos se publica igual (`dvc push` no sube nada): no se fuerza un commit ni se
+devuelve verde sin consumir el permiso; repetir la publicación no está autorizado porque la campaña ya es `published`.
+No se promete atomicidad entre DVC, git, el sistema de archivos y el hosting. Ensayo: `tests/test_g7_publicador_ensayo.py`
+(remoto git bare, remoto DVC local, `sync_all.sh` y `dvc` reales).
+
+## Revalidar una madre validada (G7 · desbloqueo)
+
+El recibo `/3` liga un árbol **exacto**. Si el candidato tiene que cambiar después de la firma —por ejemplo, para que el
+CI pase—, la madre `validated` sólo podía ir a `published` con el árbol viejo o a `failed`, perdiendo el cómputo. La
+revalidación es una operación **explícita** (`campaign_txn revalidate --receipt <nuevo /3>` → `campaign_state.revalidate`),
+no una arista genérica: `_ALLOWED["validated"]` sigue siendo `{published, failed}`.
+
+- **Sólo `validated`.** `published` y `failed` siguen terminales; no se vuelve a `computed` ni se re-sella el cómputo:
+  la evidencia (`campaign.computed.json`) se re-acredita y `computed_sha256` no cambia.
+- **Un `/3` nuevo,** acreditado igual que en `validate` (consistencia, esquema cerrado, misma campaña, decisión
+  `aprobada`, revisor humano, vínculo vivo con madre, reconciliación y candidato) y además **posterior** al permiso que
+  sustituye y **distinto** (ni el mismo sha256 ni la misma ruta).
+- **El permiso anterior se conserva** en `campaign.validations/`, CREATE-ONLY y atómico (temporal + `link`): la copia
+  exacta del recibo sustituido (`rNNNN.recibo.json`), la del estado sustituido (`rNNNN.campaign.json`) y el **registro**
+  `rNNNN-rMMMM.revalidation.json` que los encadena (huella del estado anterior, recibo anterior y nuevo, revisor, fecha).
+  El registro es el punto de compromiso y se escribe **antes** de promocionar el estado, bajo el lock de la campaña.
+- **CAS sobre la revisión y sobre la huella de los bytes acreditados.** Una reescritura que conserva `revision` también
+  se rechaza (la misma regla protege ahora a `publish`). La revisión sube exactamente una vez.
+- **La puerta acredita la historia entera.** Con registros, forman una cadena consecutiva que empieza en la validación
+  original (revisión del cómputo + 1) y termina en el estado vivo, y cada eslabón conserva su estado y su recibo. Sin
+  registros, el estado debe seguir en la validación original. Un registro «preparado sin promocionar» (caída entre
+  registro y estado), un registro borrado o alterado, o un estado devuelto a mano a una revisión anterior **cierran la
+  puerta**: el permiso nuevo no autoriza y el viejo no revive.
+- **Recuperación.** Una caída antes del registro deja copias inertes y el permiso vigente intacto. Una caída entre
+  registro y estado se completa repitiendo la revalidación con el **mismo** recibo (conserva la fecha del registro);
+  otro recibo se rechaza mientras haya una revalidación preparada.
+
+Límites: el historial vive junto a la transacción y la máquina lo protege de accidentes y de lectores que crean al
+escritor, no de quien reescriba a mano el directorio entero con hashes coherentes; la fecha de la revisión humana es la
+que declara el recibo.
 
 ## Consecuencias
 

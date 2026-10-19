@@ -511,16 +511,16 @@ def test_el_cableado_real_del_runbook_se_ejecuta_y_registra_la_salida_anormal(tm
 
 
 def test_el_publicador_exige_la_transaccion_antes_de_cada_publicacion() -> None:
+    """G7 · desbloqueo: el guion ya no publica por sí mismo (ni `git push`, ni `git commit`, ni `dvc push`); su único
+    efecto de publicación es `publish-release`, que va DESPUÉS de la guarda y re-acredita la puerta bajo el lock."""
     guion = (RAIZ / "experiments" / "sync_all.sh").read_text(encoding="utf-8")
-    assert "txn_guard" in guion, "el publicador no consulta la transacción (#56)"
-    # toda orden que publica va DESPUÉS de una consulta a la transacción
-    ultima_guarda = -1
-    ordenes_vistas = 0
-    for numero, linea in enumerate(guion.splitlines()):
-        codigo = linea.split("#", 1)[0]  # un comentario que NOMBRA `git push` no publica nada
-        if "txn_guard ||" in codigo:
-            ultima_guarda = numero
-        if any(o in codigo for o in ("dvc push", "git push")):
-            ordenes_vistas += 1
-            assert 0 <= ultima_guarda < numero, f"línea {numero + 1} publica sin guarda previa: {linea.strip()!r}"
-    assert ordenes_vistas >= 2, "el barrido no encontró las órdenes que publican: la prueba sería vacía"
+    codigo = [ln.split("#", 1)[0] for ln in guion.splitlines()]  # un comentario que NOMBRA una orden no publica nada
+    ordenes = [
+        ln for ln in codigo if not ln.strip().startswith("echo ")
+    ]  # un mensaje que NOMBRA una orden no la ejecuta
+    prohibidas = [ln.strip() for ln in ordenes if any(o in ln for o in ("git push", "git commit", "dvc push"))]
+    assert prohibidas == [], prohibidas
+    llamadas = [
+        n for n, ln in enumerate(codigo) if ln.strip() in ("txn_guard || exit 8", "txn_publish_release || exit 9")
+    ]
+    assert len(llamadas) == 2 and codigo[llamadas[0]].strip().startswith("txn_guard"), llamadas

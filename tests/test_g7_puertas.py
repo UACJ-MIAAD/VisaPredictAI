@@ -220,7 +220,10 @@ def repo_sync(tmp_path: Path) -> Path:
     for rel in ("ante_nf/bin/python", "ante/bin/dvc"):
         falso = raiz / rel
         falso.parent.mkdir(parents=True, exist_ok=True)
-        falso.write_text('#!/bin/bash\nprintf "%s %s\\n" "$(basename "$0")" "$*" >> "$REGISTRO"\necho fijo\n')
+        falso.write_text(
+            '#!/bin/bash\nprintf "%s %s\\n" "$(basename "$0")" "$*" >> "$REGISTRO"\n'
+            'case " $* " in *" ${FALLA_EN:-__nunca__} "*) exit 3;; esac\necho fijo\n'
+        )
         falso.chmod(0o755)
     for rel in ("models.dvc", "mlflow.db.dvc", ".gitignore"):
         (raiz / rel).write_text("puntero\n")
@@ -244,12 +247,30 @@ def _sync(raiz: Path, *args: str) -> subprocess.CompletedProcess:
                           text=True, timeout=60)  # fmt: skip
 
 
-def test_puerta3_publish_sin_cambios_no_termina_en_verde(repo_sync: Path) -> None:
+def test_puerta3_publicar_no_prepara_ni_empuja_git(repo_sync: Path) -> None:
+    """G7 · desbloqueo: publicar consume una release YA integrada; no sincroniza, no re-hashea, no commitea ni empuja.
+
+    Antes `--publish` commiteaba y empujaba git y sólo después `txn publish` comprobaba el árbol aprobado.
+    """
+    remoto = repo_sync.parent / "remoto.git"
+    antes = (_git(repo_sync, "rev-parse", "HEAD"), _git(remoto, "rev-parse", "main"))
     fin = _sync(repo_sync, "--publish")
-    assert fin.returncode != 0, fin.stdout + fin.stderr
-    assert "no hay nada que publicar" in fin.stderr
+    assert fin.returncode == 0, fin.stdout + fin.stderr
+    registro = (repo_sync.parent / "registro.txt").read_text().splitlines()
+    assert not [ll for ll in registro if ll.startswith("dvc ") or "sync_mlflow" in ll], registro
+    pasos = [next(p for p in ("--assert-publishable", "guard", "publish-release") if p in ll) for ll in registro]
+    assert pasos == ["--assert-publishable", "guard", "publish-release"], registro
+    assert "--repo . --main-ref origin/main" in registro[-1], registro[-1]
+    assert (_git(repo_sync, "rev-parse", "HEAD"), _git(remoto, "rev-parse", "main")) == antes
+
+
+@pytest.mark.parametrize("falla", ["guard", "--assert-publishable"])
+def test_puerta3_si_la_puerta_no_autoriza_no_hay_ningun_efecto(repo_sync: Path, monkeypatch, falla: str) -> None:
+    monkeypatch.setenv("FALLA_EN", falla)
+    fin = _sync(repo_sync, "--publish")
+    assert fin.returncode in (7, 8), fin.stdout + fin.stderr
     registro = (repo_sync.parent / "registro.txt").read_text()
-    assert " publish " not in registro, "el permiso no se consume si no se publicó nada"
+    assert "publish-release" not in registro and "dvc " not in registro, registro
 
 
 def test_puerta3_control_sin_publish_y_sin_cambios_sigue_en_verde(repo_sync: Path) -> None:

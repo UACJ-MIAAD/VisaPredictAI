@@ -238,12 +238,43 @@ def test_publishing_consumes_the_permit(tmp_path: Path, campana_sellada) -> None
     assert not ok and "published" in motivo, "una campaña ya publicada no vuelve a autorizar"
 
 
-def test_the_publisher_consumes_the_permit_after_pushing_not_before() -> None:
-    """El orden importa: consumirlo antes dejaría un fallo de push sin permiso y sin publicación."""
-    guion = (Path(__file__).resolve().parent.parent / "experiments" / "sync_all.sh").read_text(encoding="utf-8")
-    assert "txn_publish" in guion, "el publicador debe consumir el permiso (H10)"
-    assert guion.index("git push") < guion.index("txn_publish ||"), "se consume DESPUÉS de publicar"
-    assert "--manifest" in guion, "el guard debe cruzar el manifiesto (H15)"
+def _repo_release(tmp_path: Path) -> Path:
+    """Un checkout de release limpio con un commit (la integración se exige contra `HEAD` en estas pruebas)."""
+    import subprocess
+
+    repo = tmp_path / "release"
+    repo.mkdir()
+    ident = ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / "x.txt").write_text("x\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "x.txt"], check=True)
+    subprocess.run(["git", "-C", str(repo), *ident, "commit", "-qm", "release"], check=True)
+    return repo
+
+
+def test_the_publisher_consumes_the_permit_after_pushing_not_before(tmp_path: Path, campana_sellada) -> None:
+    """El orden importa: el permiso se consume DESPUÉS del efecto externo, y un efecto fallido no lo consume.
+
+    G7 · desbloqueo: se prueba por conducta sobre `publicar_release` (la única vía de `sync_all --publish`), no por la
+    posición de un `git push` en el guion: la publicación ya no empuja git.
+    """
+    p = _validada(tmp_path, campana_sellada)
+    repo = _repo_release(tmp_path)
+    vistos: list[str] = []
+
+    def empujar_falla(_repo: Path) -> None:
+        vistos.append((cs.read(p) or {})["status"])
+        raise txn.PublicationBlocked("remoto caído")
+
+    with pytest.raises(txn.PublicationBlocked, match="remoto caído"):
+        txn.publicar_release(p, manifest=_manifiesto(tmp_path), repo=repo, main_ref="HEAD", empujar=empujar_falla)
+    assert (cs.read(p) or {})["status"] == "validated", "un efecto fallido no consume el permiso"
+
+    def empujar_ok(_repo: Path) -> None:
+        vistos.append((cs.read(p) or {})["status"])
+
+    doc = txn.publicar_release(p, manifest=_manifiesto(tmp_path), repo=repo, main_ref="HEAD", empujar=empujar_ok)
+    assert vistos == ["validated", "validated"] and doc["status"] == "published"
 
 
 # ──────────────────────────────────────────────────────────── H16 · las etapas tolerables

@@ -40,7 +40,7 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -168,6 +168,54 @@ def acreditar_recibo(crudo: bytes, estado: Mapping[str, Any]) -> dict[str, str]:
     return {k: str(v) for k, v in datos.items()}
 
 
+def _revalidar(path: Path, recibo: Path) -> dict:
+    """La vía ÚNICA de `revalidate` (G7 · desbloqueo): misma acreditación que `validate`, sobre una madre `validated`.
+
+    Consistencia acreditada; UNA lectura del estado (su huella entra al CAS) y UNA del recibo; recibo /3 aprobado, de
+    ESTA campaña, POSTERIOR al permiso que sustituye y que describe el resultado vivo (madre, reconciliación, candidato).
+    """
+    ok_cons, salida = _run_consistency()
+    if not ok_cons:
+        raise ReceiptError(f"la consistencia NO está acreditada; propaga y reintenta:\n{salida}")
+    try:
+        datos_estado = path.read_bytes()
+        abierta = cs.loads(datos_estado.decode("utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ReceiptError(f"no hay transacción legible en {path}: {exc}") from exc
+    if abierta.get("status") != cs.PUBLISHABLE:
+        raise ReceiptError(f"sólo se revalida una madre '{cs.PUBLISHABLE}' (está en '{abierta.get('status')}')")
+    ruta = recibo.resolve()
+    if not ruta.is_file():
+        raise ReceiptError(f"el recibo {ruta} no existe")
+    crudo = ruta.read_bytes()  # se acreditan y se registran ESTOS bytes
+    acta = acreditar_recibo(crudo, abierta)
+    if acta["schema"] != vp.RECEIPT_SCHEMA:
+        raise ReceiptError(f"un recibo {acta['schema']} no liga ningún resultado: revalidar exige el /3")
+    sha = hashlib.sha256(crudo).hexdigest()
+    if sha == abierta.get("validation_receipt_sha256"):
+        raise ReceiptError("el recibo recicla el permiso vigente: revalidar exige un /3 nuevo")
+    if _parse_ts(acta["reviewed_at"]) <= _parse_ts(str(abierta.get("validated_at"))):
+        raise ReceiptError(
+            f"reviewed_at ({acta['reviewed_at']}) no es posterior al permiso que sustituye ({abierta.get('validated_at')})"
+        )
+    vinculo = vp.problema(acta, path, abierta, repo_root=_REPO_ROOT)
+    if vinculo:
+        raise ReceiptError(vinculo)
+    try:
+        return cs.revalidate(
+            path,
+            validation_receipt_sha256=sha,
+            validation_receipt_path=str(ruta),
+            reviewed_by=acta["reviewed_by"],
+            decision=acta["decision"],
+            validated_at=now_rfc3339(),
+            expected_revision=abierta["revision"],
+            expected_state_sha256=hashlib.sha256(datos_estado).hexdigest(),
+        )
+    except ValueError as exc:
+        raise ReceiptError(str(exc)) from exc
+
+
 def _parse_ts(valor: str) -> datetime:
     return datetime.fromisoformat(valor.replace("Z", "+00:00"))
 
@@ -263,6 +311,10 @@ def _puerta(path: str | Path, *, manifest: str | Path) -> tuple[bool, str, dict[
         ce.evidencia_computada(ruta)
     except ce.EvidenciaError as exc:
         return False, f"la evidencia del cómputo no se acredita: {exc}", None
+    # ★ G7 · desbloqueo: una madre revalidada publica sólo si su historia de autorizaciones se acredita entera
+    historial = cs.historial_problemas(ruta, actual)
+    if historial:
+        return False, "historial de validaciones: " + "; ".join(historial), None
     ok_recibo, motivo, acta = _receipt_matches(actual)
     if not ok_recibo or acta is None:
         return False, motivo, None
@@ -294,6 +346,11 @@ def publish(path: str | Path, *, manifest: str | Path, release_sha: str) -> dict
     manifiesto obligatorio) y escribe con CAS sobre esa revisión: si la transacción cambia entre la puerta y la
     escritura, la escritura falla en vez de publicar un estado que nadie acreditó.
     """
+    # ★ G7 · desbloqueo: CAS sobre la revisión Y la huella de los bytes que la puerta va a acreditar
+    try:
+        bytes_antes = Path(path).read_bytes()
+    except OSError:
+        bytes_antes = b""
     antes = cs.read(path)
     revision = antes.get("revision") if antes else None
     ok, motivo, acta = _puerta(path, manifest=manifest)
@@ -311,7 +368,77 @@ def publish(path: str | Path, *, manifest: str | Path, release_sha: str) -> dict
         "published",
         {"published_at": now_rfc3339(), "release_sha": release_sha},
         expected_revision=revision,
+        expected_state_sha256=hashlib.sha256(bytes_antes).hexdigest(),
     )
+
+
+#: G7 · desbloqueo (fase 3): la rama contra la que se exige que la release esté integrada antes de publicarla.
+MAIN_REF = "origin/main"
+
+
+def _git_publicador(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Consultas del publicador sobre su checkout, sin seguir reemplazos locales (como el vínculo)."""
+    return subprocess.run(["git", "--no-replace-objects", "-C", str(repo), *args], capture_output=True, text=True,
+                          check=False)  # fmt: skip
+
+
+def empujar_dvc(repo: Path) -> None:
+    """El efecto externo de publicar: `dvc push` de los punteros del commit que se publica, con el DVC GOBERNADO.
+
+    Idempotente y direccionado por contenido: repetirlo tras un fallo posterior no cambia nada que ya esté en el remoto.
+    """
+    from tools.check_dvc_lock_fresh import resolve_dvc
+
+    dvc = resolve_dvc(repo, os.environ)
+    if dvc is None:
+        raise PublicationBlocked("sin DVC gobernado ($VP_DVC o ante/bin/dvc): no se empuja nada")
+    fin = subprocess.run([str(dvc), "push"], cwd=str(repo), capture_output=True, text=True, check=False,
+                         env={**os.environ, "DVC_NO_ANALYTICS": "1"})  # fmt: skip
+    if fin.returncode != 0:
+        raise PublicationBlocked(f"dvc push falló (rc {fin.returncode}): {(fin.stderr or fin.stdout).strip()[-400:]}")
+
+
+def publicar_release(
+    path: str | Path,
+    *,
+    manifest: str | Path,
+    repo: str | Path,
+    main_ref: str = MAIN_REF,
+    empujar: Callable[[Path], None] = empujar_dvc,
+) -> dict:
+    """Publica la release APROBADA que hay en `HEAD` de `repo` (G7 · desbloqueo, fase 3). No prepara nada.
+
+    Toda escritura que cambie el árbol (punteros, manifiestos, figuras) ocurre ANTES del sello y del CI: aquí no se
+    sincroniza MLflow, ni se re-hashea, ni se commitea, ni se empuja git. Bajo el lock de la campaña —serializa frente a
+    una revalidación, un `fail` o un `validate` concurrentes— y ANTES del primer efecto externo se exige: la puerta
+    (estado, historial, recibo, manifiesto, vínculo), que `HEAD` tenga EXACTAMENTE el árbol revisado, un checkout limpio
+    y que `HEAD` ya esté integrado en `main_ref`. Después, el único efecto externo (`empujar`, por defecto `dvc push`) y,
+    sólo si salió bien, la escritura de `published` con CAS sobre la revisión y la huella acreditadas.
+
+    Punto de no retorno: si `empujar` termina y la escritura de `published` falla, los objetos ya están en el remoto
+    (inocuo: direccionados por contenido) y la campaña sigue `validated`; reintentar es seguro. Si `empujar` falla, no
+    salió nada nuevo y la campaña sigue `validated`. No se promete atomicidad entre DVC, git y el sistema de archivos.
+    """
+    p, raiz = Path(path), Path(repo)
+    with cs._campaign_lock(p):
+        ok, motivo, acta = _puerta(p, manifest=manifest)
+        if not ok or acta is None:
+            raise PublicationBlocked(motivo)
+        cabeza = _git_publicador(raiz, "rev-parse", "--verify", "-q", "HEAD^{commit}").stdout.strip()
+        if not _HEX40.match(cabeza):
+            raise PublicationBlocked(f"{raiz} no tiene un HEAD legible: no hay release que publicar")
+        if vp.arbol_de(raiz, cabeza) != acta["candidate_tree_sha"]:
+            raise PublicationBlocked(f"HEAD {cabeza[:12]} no tiene el árbol revisado (candidate_tree_sha)")
+        sucio = _git_publicador(raiz, "status", "--porcelain", "--untracked-files=all")
+        if sucio.returncode != 0 or sucio.stdout.strip():
+            raise PublicationBlocked(f"el checkout que publica no está limpio: {sucio.stdout.split()[:6]}")
+        integrada = _git_publicador(raiz, "merge-base", "--is-ancestor", cabeza, main_ref)
+        if integrada.returncode != 0:
+            raise PublicationBlocked(
+                f"HEAD {cabeza[:12]} no está integrado en {main_ref}: se publica lo que ya está en main"
+            )
+        empujar(raiz)
+        return publish(p, manifest=manifest, release_sha=cabeza)
 
 
 def _receipt_matches(obj: Mapping[str, Any]) -> tuple[bool, str, dict[str, str] | None]:
@@ -493,6 +620,19 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
 
+    rv = sub.add_parser(
+        "revalidate",
+        help="validated -> validated con un /3 NUEVO (candidato nuevo), conservando cómputo, reconciliación e historial",
+    )
+    rv.add_argument("--receipt", required=True, help="recibo /3 NUEVO, posterior al permiso que sustituye")
+    pr = sub.add_parser(
+        "publish-release",
+        help="publica la release APROBADA en HEAD de --repo: puerta + árbol + limpio + integrada, dvc push y published",
+    )
+    pr.add_argument("--manifest", required=True, help="manifiesto de campaña: se re-acredita dentro del lock")
+    pr.add_argument("--repo", required=True, help="checkout de la release (HEAD = commit integrado en main)")
+    pr.add_argument("--main-ref", default=MAIN_REF, help="rama en la que la release debe estar integrada")
+
     pu = sub.add_parser("publish", help="validated -> published (sólo el publicador)")
     pu.add_argument("--release-sha", required=True)
     pu.add_argument("--manifest", required=True, help="manifiesto de campaña: se re-acredita justo antes de publicar")
@@ -606,10 +746,23 @@ def main(argv: list[str] | None = None) -> int:
                 decision=acta["decision"],
             )
             print(f"✓ campaña {obj['campaign_id']} → 'validated' por {obj['reviewed_by']} ({acta['reviewed_at']})")
+        elif args.cmd == "revalidate":
+            obj = _revalidar(path, Path(args.receipt))
+            print(
+                f"✓ campaña {obj['campaign_id']} revalidada por {obj['reviewed_by']} (revisión {obj['revision']}): "
+                "el permiso anterior queda conservado en el historial y deja de ser consumible"
+            )
         elif args.cmd == "guard":
             ok, motivo = publishable(path, manifest=args.manifest)
             print(("✓ " if ok else "✗ PUBLICACIÓN BLOQUEADA: ") + motivo, file=sys.stdout if ok else sys.stderr)
             return EXIT_OK if ok else EXIT_BLOCKED
+        elif args.cmd == "publish-release":
+            try:
+                obj = publicar_release(path, manifest=args.manifest, repo=args.repo, main_ref=args.main_ref)
+            except PublicationBlocked as exc:
+                print(f"✗ PUBLICACIÓN BLOQUEADA: {exc}", file=sys.stderr)
+                return EXIT_BLOCKED
+            print(f"✓ campaña {obj['campaign_id']} → 'published' ({obj['release_sha']}): release aprobada publicada")
         elif args.cmd == "publish":
             # ★ M74-E-R13 · la MISMA puerta que `guard`, justo antes de escribir; desde G7 dentro de `publish()`,
             # que además escribe con CAS sobre la revisión acreditada.

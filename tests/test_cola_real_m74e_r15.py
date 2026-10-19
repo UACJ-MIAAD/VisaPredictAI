@@ -26,6 +26,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
 from tools import campaign_state as cs  # noqa: E402
+from tools import campaign_txn as txn  # noqa: E402
 from tools.check_dvc_lock_fresh import resolve_dvc  # noqa: E402
 
 RUNBOOK = RAIZ / "experiments" / "run_rederivation.sh"
@@ -145,7 +146,21 @@ def test_RED_el_publicador_no_invoca_ningun_dvc_a_secas() -> None:
     ]
     a_secas = [ln for ln in vivas if re.match(r"^\s*dvc\s", ln)]
     assert not a_secas, a_secas
-    assert any('"$DVC" push' in ln for ln in vivas) and any('"$DVC" add' in ln for ln in vivas)
+    assert any('"$DVC" add' in ln for ln in vivas)
+    # G7 · desbloqueo: el push ya no está en el guion; lo hace `campaign_txn.empujar_dvc` con el MISMO resolutor
+
+
+def test_el_push_del_publicador_usa_el_dvc_gobernado(tmp_path: Path, monkeypatch) -> None:
+    falso = tmp_path / "dvc_gobernado"
+    falso.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$REGISTRO"\n', encoding="utf-8")
+    falso.chmod(0o755)
+    monkeypatch.setenv("VP_DVC", str(falso))
+    monkeypatch.setenv("REGISTRO", str(tmp_path / "registro.txt"))
+    txn.empujar_dvc(tmp_path)
+    assert (tmp_path / "registro.txt").read_text(encoding="utf-8").split() == ["push"]
+    monkeypatch.delenv("VP_DVC")
+    with pytest.raises(txn.PublicationBlocked, match="DVC gobernado"):
+        txn.empujar_dvc(tmp_path)  # ni $VP_DVC ni <repo>/ante/bin/dvc: fail-closed, sin `dvc` del PATH
 
 
 # ═══════════════════════════════ 3 · lo retirado no entra al puntero

@@ -145,9 +145,12 @@ def test_RED_publish_consulta_la_puerta_antes_de_escribir(
 
 def test_RED_sync_all_pasa_el_manifiesto_a_guard_y_a_publish(tmp_path: Path) -> None:
     """Se EJECUTAN las dos funciones reales de `sync_all.sh` con un intérprete falso que registra sus argumentos."""
-    guion = (RAIZ / "experiments" / "sync_all.sh").read_text(encoding="utf-8").splitlines()
-    funciones = [ln for ln in guion if ln.startswith(("txn_guard()", "txn_publish()"))]
-    assert len(funciones) == 2, funciones
+    guion = (RAIZ / "experiments" / "sync_all.sh").read_text(encoding="utf-8")
+    # G7 · desbloqueo: `txn_publish_release` es multilínea; se toma el BLOQUE real de definiciones del guion
+    inicio = guion.index("publishable() {")
+    fin_bloque = guion.index('if [ "$PUBLISH" = 1 ]; then')
+    funciones = [guion[inicio:fin_bloque]]
+    assert "txn_guard()" in funciones[0] and "txn_publish_release()" in funciones[0], funciones
     falso = tmp_path / "ante_nf" / "bin" / "python"
     falso.parent.mkdir(parents=True)
     falso.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$REGISTRO"\n', encoding="utf-8")
@@ -155,14 +158,14 @@ def test_RED_sync_all_pasa_el_manifiesto_a_guard_y_a_publish(tmp_path: Path) -> 
     registro = tmp_path / "registro.txt"
     guion_minimo = "\n".join(
         ["MANIFEST=reports/campaign/campaign_manifest.json", "CAMPAIGN_TXN=reports/campaign/campaign.json", *funciones]
-        + ["txn_guard", "txn_publish"]
+        + ["txn_guard", "txn_publish_release"]
     )
     fin = subprocess.run(
         ["bash", "-c", guion_minimo], cwd=tmp_path, capture_output=True, text=True, timeout=60,
         env={"PATH": "/usr/bin:/bin", "REGISTRO": str(registro), "HOME": str(tmp_path)},
     )  # fmt: skip
     llamadas = registro.read_text(encoding="utf-8").splitlines() if registro.exists() else []
-    subcomandos = [next(p for p in ll.split() if p in ("guard", "publish")) for ll in llamadas]
-    assert subcomandos == ["guard", "publish"], (llamadas, fin.stderr)
+    subcomandos = [next(p for p in ll.split() if p in ("guard", "publish-release")) for ll in llamadas]
+    assert subcomandos == ["guard", "publish-release"], (llamadas, fin.stderr)
     for llamada in llamadas:
         assert "--manifest reports/campaign/campaign_manifest.json" in llamada, llamada
