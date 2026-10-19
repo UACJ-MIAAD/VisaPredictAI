@@ -243,7 +243,8 @@ def test_la_evidencia_del_computo_alterada_impide_revalidar(revalidable: dict, m
 def test_revalidar_registra_el_hash_de_los_bytes_que_acredito(revalidable: dict, monkeypatch, capsys) -> None:
     """El recibo cambia en disco DESPUÉS de leerse: lo registrado es lo acreditado, y la puerta lo nota."""
     m = revalidable
-    leidos, real = [], Path.read_bytes
+    leidos: list[bytes] = []
+    real = Path.read_bytes
     original = m["recibo2"].read_bytes()
 
     def una_lectura(self, *a, **k):
