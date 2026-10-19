@@ -88,7 +88,8 @@ def mundo_publicable(candidato: dict, tmp_path: Path, monkeypatch, capsys) -> di
     assert rc_ == 0, err
     # el «merge» de la PR: un squash con EXACTAMENTE el árbol aprobado, sobre la base, en el `main` de un remoto bare
     origen = tmp_path / "origen.git"
-    subprocess.run(["git", "init", "-q", "--bare", str(origen)], check=True)
+    # la rama inicial EXPLÍCITA: sin `init.defaultBranch` (el runner) el HEAD del bare apunta a `master`, que no existe
+    subprocess.run(["git", "init", "-q", "--bare", "--initial-branch=main", str(origen)], check=True)
     _git(cand, "push", "-q", str(origen), f"{base}:refs/heads/main")
     squash = _git(cand, "commit-tree", m["arbol"], "-p", base, "-m", "G7 (#99)")
     _git(cand, "push", "-q", str(origen), f"{squash}:refs/heads/main")

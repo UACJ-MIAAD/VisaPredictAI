@@ -14,6 +14,7 @@ primera prueba que toque empleo.
 from __future__ import annotations
 
 import os
+import platform
 import warnings
 from importlib.util import find_spec
 
@@ -30,6 +31,11 @@ SERIES_AFECTADAS: dict[str, tuple[str, ...]] = {
     "mexico/EB4_RW/DFF": ("divide by zero encountered in divide", "invalid value encountered in sqrt"),
     "philippines/EB2/DFF": ("invalid value encountered in sqrt",),
 }
+#: G7 · desbloqueo: dónde se MIDIÓ el pin. Que Zivot-Andrews caiga en la raíz de un negativo minúsculo depende de la
+#: aritmética de punto flotante de la plataforma (BLAS, rutas SIMD): en el runner Linux x86_64 (réplica del CI)
+#: `all_chargeability/EB2/DFF` no emite nada. El pin es EXACTO en la plataforma de referencia; en otra, lo emitido
+#: tiene que ser un subconjunto de lo fijado (un mensaje NUEVO sigue fallando) y el filtro estrecho lo cubre igual.
+PLATAFORMA_DE_REFERENCIA = ("Darwin", "arm64")
 #: Los mensajes DISTINTOS que el filtro debe cubrir. Son dos, no uno.
 MENSAJES = tuple(sorted({m for v in SERIES_AFECTADAS.values() for m in v}))
 MIN_OBS = 24
@@ -110,7 +116,10 @@ def test_the_pinned_series_still_emit_exactly_what_was_pinned() -> None:
             except Exception:  # noqa: BLE001 — broad-catch: el fallo es la convención declarada (NaN)
                 pass
         medido = tuple(sorted({str(w.message) for w in reg}))
-        assert medido == esperados, f"{clave}: medido {medido}, fijado {esperados}"
+        if (platform.system(), platform.machine()) == PLATAFORMA_DE_REFERENCIA:
+            assert medido == esperados, f"{clave}: medido {medido}, fijado {esperados}"
+        else:
+            assert set(medido) <= set(esperados), f"{clave}: mensaje NUEVO en {platform.platform()}: {medido}"
 
 
 @MODELADO
