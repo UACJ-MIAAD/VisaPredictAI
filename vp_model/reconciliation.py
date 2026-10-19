@@ -77,6 +77,13 @@ SALIDAS = (
     "reports/latex/cohortes.tex",
     "reports/prospective/forecast_vs_actual_FAD.csv",
     "reports/prospective/forecast_vs_actual_DFF.csv",
+    # G7 · reconciliación nueva: `build_fe_facts` lee los pools de la campaña (dificultad del campeón) y la selección
+    # cambia con ellos; recon4 lo dejó como inventario y `facts-repro` de CI no lo reproducía. Con su informe, que lo
+    # muestra (ES/EN).
+    "reports/fe/fe_facts.json",
+    "reports/latex/fe_facts.tex",
+    "reports/fe/fe_report.pdf",
+    "reports/fe/en/fe_report.pdf",
 )
 #: Figuras del `.tex` (salida local ignorada por git desde M66), por productor: `make_result_figures` (8),
 #: `make_hero_figures` (2), `make_horizon_figure` y `make_cohort_figure`.

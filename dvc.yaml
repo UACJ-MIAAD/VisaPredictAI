@@ -155,6 +155,9 @@ stages:
       - vp_model/series_characterization.py
       - vp_data/cleaning.py
       - data/processed/visa_panel_long.csv
+      # G7: la selección FRESH/mRMR se mide contra la dificultad del campeón, que sale de los pools de la campaña
+      - reports/campaign/campaign_pool_FAD_family.csv
+      - reports/campaign/campaign_pool_DFF_family.csv
     outs:
       - reports/fe/fe_facts.json:
           cache: false

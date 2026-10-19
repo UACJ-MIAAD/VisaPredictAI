@@ -276,6 +276,14 @@ stages:
       hash: md5
       md5: c1eefa595ff9ee6debd679b13455c705
       size: 8076
+    - path: reports/campaign/campaign_pool_DFF_family.csv
+      hash: md5
+      md5: 5a685952b1802fca33b072c9afae69d5
+      size: 168759
+    - path: reports/campaign/campaign_pool_FAD_family.csv
+      hash: md5
+      md5: ab466cfeac82bf75f4c341c5d145833c
+      size: 177988
     - path: vp_data/cleaning.py
       hash: md5
       md5: ee547a573b7a2c1b827874079c2a75bd
