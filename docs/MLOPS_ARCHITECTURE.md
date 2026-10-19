@@ -56,7 +56,7 @@ regenera, la prueba `test_committed_artifacts_match_the_generator` lo dice.
 | DAG | scrape → panel → bulletins → database → key_facts → eda_facts → fe_facts | `dvc.yaml` |
 | Procedencia del panel | hash `07d43c029953` | `reports/governance/key_facts.json` |
 
-Corte servido en producción: `2026-09-2358461c23d5`.
+Corte servido en producción: `2026-09-d21f83707650`.
 
 ## Cómo se regenera y se verifica
 
