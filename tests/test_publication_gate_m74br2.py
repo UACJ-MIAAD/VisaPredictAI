@@ -89,7 +89,9 @@ def _forjar_validated(ruta: Path, recibo: Path, **campos: str) -> None:
         {
             "status": "validated",
             "computed_sha256": hashlib.sha256(computado).hexdigest(),
-            "revision": int(obj.get("revision", 1)) + 1,
+            # G7 · desbloqueo: como la máquina, la validación es la revisión del cómputo + 1; una revisión mayor sin
+            # historial de revalidaciones es una historia borrada y la puerta la rechaza (`historial_problemas`)
+            "revision": int(json.loads(computado)["revision"]) + 1,
             "validated_at": txn.now_rfc3339(),
             "reviewed_by": "Javier Rebull",
             "decision": "aprobada",
