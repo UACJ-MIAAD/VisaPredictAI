@@ -218,7 +218,7 @@ stages:
       size: 12890
     - path: reports/governance/champion_challenger.json
       hash: md5
-      md5: 999d847eb747cf7865e7b458e5ab7fda
+      md5: ddd5a6086cffe111021916e8ae37caeb
       size: 8677
     - path: reports/governance/promotion_decision.json
       hash: md5
@@ -303,9 +303,9 @@ stages:
     outs:
     - path: reports/fe/fe_facts.json
       hash: md5
-      md5: 9e1f7dabcbff018d345029a1d7f48039
-      size: 19965
+      md5: 2b0d9d1859428a3dfc88015ef1db14c3
+      size: 19889
     - path: reports/latex/fe_facts.tex
       hash: md5
-      md5: fa69e730e38cdc2e39cbb4bbcb2fb853
-      size: 397
+      md5: 3d9a89501148864a5db14cf7e995cfe1
+      size: 367
