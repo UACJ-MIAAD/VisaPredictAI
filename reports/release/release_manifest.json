@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "release_id": "2026-09-c864b85e3ac3",
-  "generated_at": "2026-10-20T19:43:17+00:00",
+  "release_id": "2026-09-1776652b3be7",
+  "generated_at": "2026-10-20T22:14:17+00:00",
   "pipeline_run_id": "local",
-  "git_sha": "483532e88704",
+  "git_sha": "dc46f569c8a9",
   "worktree_dirty": true,
   "panel_vintage": "2026-09",
   "panel_hash_md5_12": "07d43c029953",
@@ -27,8 +27,8 @@
     "schema": 2,
     "card_path": "reports/governance/MODEL_CARD.md",
     "sentinel": "@@RELEASE_ID_SENTINEL@@",
-    "digest": "c864b85e3ac35fb9fe9495283ba4b251039657e42db301aebf8ddcce9c8ad115",
-    "card_sha256_normalized": "ac9d85b6ae5d57dcc6dedfee88558f926e6b4b27a262619765db4f9c7532a39c"
+    "digest": "1776652b3be718cde20040a0928d7a2202fcb13ff24ddc12bf05e72bad9c1009",
+    "card_sha256_normalized": "768ff11b4dfea3a2c57325a9e684a7911c4b8c2986b2ec8127ab0aca1344bef5"
   },
   "n_artifacts": 115,
   "missing_optional": [],
@@ -217,7 +217,7 @@
     },
     {
       "path": "reports/governance/MODEL_CARD.md",
-      "sha256": "6965fd65f823d4613b41875b45b4827a2b46dd6188891c546138a306679883c7",
+      "sha256": "780c84c48d80c807e7e01403bfc166a600eb4cc656c2f7920a86208b70436b1f",
       "size": 4864,
       "mime": "text/markdown",
       "criticality": "required"
