@@ -15,10 +15,48 @@ from __future__ import annotations
 
 import argparse
 import math
+from pathlib import Path
 
 import numpy as np
 
 N_SEEDS = 5
+ROOT = Path(__file__).resolve().parent.parent
+REPORTS = ROOT / "reports"
+
+
+def acreditar_grupo(
+    table: str, prefix: str, camp_dir: Path, *, campaign_id: str, source_git_sha: str, block: str = "family"
+) -> dict:
+    """M74-E-R7 · puerta ÚNICA del grupo s1..s5, ANTES de que `eval_global_deep` lo lea.
+
+    R6 acreditaba identidad y bytes y aceptaba cinco semillas truncadas igual (auditoría
+    `a23c878e…`). La rejilla y la verdad salen aquí del PANEL —no del sidecar ni del CSV— y cada
+    semilla se recalcula entera. ``ante`` no tiene motor de parquet: se lee el CSV canónico, que da
+    la misma rejilla que el parquet del productor (medido en FAD y DFF).
+    """
+    import pandas as pd
+    import run_global_deep as rgd
+    import seed_coverage
+
+    from tools.check_campaign_completeness import SEED_MODELS
+    from vp_data import config as data_config
+    from vp_model.config import HOLDOUT
+
+    variante = prefix[:-2] if prefix.endswith("_s") else ""
+    if variante not in SEED_MODELS:
+        raise SystemExit(f"agregación {table}/{prefix}*: sin inventario de modelos declarado para {variante!r}")
+    panel = pd.read_csv(ROOT / data_config.PANEL_PATH)
+    rejilla = seed_coverage.canonical_grid(rgd.load_panel(table, block, frame=panel), HOLDOUT)
+    return seed_coverage.accredit_group(
+        table,
+        variante,
+        camp_dir,
+        grid=rejilla,
+        required=list(SEED_MODELS[variante]),
+        campaign_id=campaign_id,
+        source_git_sha=source_git_sha,
+        n_seeds=N_SEEDS,
+    )
 
 
 def aggregate(df, *, prefix: str, model: str, block: str, n_seeds: int = N_SEEDS) -> dict:
@@ -113,9 +151,16 @@ def main() -> None:
     ap.add_argument("--mlflow", action="store_true", help="loguear el agregado multi-semilla a tracking")
     args = ap.parse_args()
 
+    from vp_model import artifact_receipt
     from vp_model.eval_neuralforecast import eval_global_deep
 
-    df = eval_global_deep(args.table)
+    campaign_id, sha, _panel = artifact_receipt.campaign_identity(REPORTS, code_root=ROOT)
+    marcos = acreditar_grupo(
+        args.table, args.prefix, REPORTS / "campaign", campaign_id=campaign_id, source_git_sha=sha, block=args.block
+    )
+    # ★ M74-E-R8 · se evalúan los MARCOS acreditados: el evaluador no vuelve a abrir la ruta, que
+    # entre la puerta y la lectura podía haber cambiado de bytes (auditoría `e6c76896…`).
+    df = eval_global_deep(args.table, frames=marcos)
     st = aggregate(df, prefix=args.prefix, model=args.model, block=args.block)
 
     print(f"\n=== {args.model} · {args.table}/{args.block} · {st['n']} semillas ===")

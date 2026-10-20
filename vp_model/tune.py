@@ -32,6 +32,8 @@ auto-selection IS the tuning. This module covers the GBMs; deep HPO lives in
 
 from __future__ import annotations
 
+import os
+import re
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -59,6 +61,27 @@ VAL_CONFIRM = 12  # months: independent confirmation tail (acceptance, AK6)
 SPACE_VERSION = "v2"
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
 OPTUNA_DB = REPORTS / "eval" / "optuna.db"
+#: ★ M74-F · deuda 5: dentro de una campaña cada transacción tiene su propia base de estudios.
+OPTUNA_CAMPAIGN_DIR = REPORTS / "eval" / "optuna"
+_CAMPAIGN_ID_RX = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
+
+
+def default_storage_path() -> Path:
+    """Dónde persiste Optuna cuando nadie pasa ``--storage``. ★ M74-F · deuda 5.
+
+    Con ``load_if_exists=True`` la base compartida `optuna.db` hacía que una campaña REANUDARA los
+    estudios de la anterior: sus trials pasados guiaban el TPE y entraban al ``best`` sin que la
+    campaña los hubiera calculado (la cuarta campaña real se salvó porque la base estaba retirada; sus
+    1,800 trials son todos suyos). Dentro de una campaña (``CAMPAIGN_ID`` exportado por el runbook)
+    la base es ``reports/eval/optuna/<campaign_id>.db``: la búsqueda, el rank-check y la confirmación
+    de ESA campaña comparten estudio, y ninguna otra lo ve. Fuera de campaña sigue la base histórica.
+    """
+    cid = os.environ.get("CAMPAIGN_ID", "")
+    if not cid:
+        return OPTUNA_DB
+    if not _CAMPAIGN_ID_RX.fullmatch(cid):
+        raise ValueError(f"CAMPAIGN_ID={cid!r} no es un nombre de archivo seguro para la base de Optuna")
+    return OPTUNA_CAMPAIGN_DIR / f"{cid}.db"
 
 
 @contextmanager
@@ -66,12 +89,13 @@ def _sqlite_storage(url: str | None):
     """E3: el RDBStorage de Optuna posee un engine SQLAlchemy que nadie disponía —
     la suite acumulaba 18 conexiones sqlite vivas hasta el GC (ResourceWarning).
     Este context manager las cierra determinísticamente; ``None`` resuelve a la BD
-    persistente por defecto (AK4)."""
+    por defecto (AK4), que dentro de una campaña es la de ESA campaña (M74-F)."""
     import optuna
 
     if url is None:
-        OPTUNA_DB.parent.mkdir(parents=True, exist_ok=True)
-        url = f"sqlite:///{OPTUNA_DB}"
+        destino = default_storage_path()
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        url = f"sqlite:///{destino}"
     st = optuna.storages.RDBStorage(url=url)
     try:
         yield st
@@ -323,7 +347,7 @@ def tune(
 ) -> TuneResult:
     """Tune ONE shared hyperparameter set for a GBM over the group (leakage-free).
 
-    AK4: the study persists in sqlite (``reports/eval/optuna.db`` by default)
+    AK4: the study persists in sqlite (``default_storage_path()``: per campaign inside one, M74-F)
     under a versioned name — re-running RESUMES instead of discarding history —
     with a grouped multivariate TPE and a MedianPruner fed per-series scores.
     The full trial table lands in ``reports/campaign/hpo_trials_{study}.csv``.

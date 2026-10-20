@@ -9,8 +9,7 @@ los productores. Ahora cada artefacto se valida contra el CONTRATO REAL de quien
     - 4 pools: >= piso de SERIES ELEGIBLES con hold_mase FINITO (los no-finitos son series
       inelegibles/no-convergidas, legitimos; run_comparison los deja a proposito).
     - 4 comparaciones no vacias.
-    - 6 HPO best: dict con las claves REALES POR MODELO (BiTCN/NHITS/TiDE difieren; NHITS
-      no tiene hidden_size -> exigirlo rechazaba un AutoNHITS valido).
+    - 6 HPO best: dict con las claves REALES POR MODELO (difieren) + su recibo de campana (R17).
     - Semillas: EXACTAMENTE {s1..s5} por variante (una s6 vieja contamina la agregacion),
       cada una no vacia y fresca.
     - finalists/holdout no vacios; tuned_params con las 3 llaves GBM; manifest con modelos
@@ -27,11 +26,10 @@ claves — las entradas de la campana deben portar el SHA sellado (prefijo corto
 valido (no "n/d") y git_dirty consistente con lo sellado; el champion sella git_sha completo
 == sellado. Una campana diagnostica (dirty=true) queda marcada como tal en toda la cadena.
 
-Limitaciones honestas: los pisos de elegibilidad por bloque son conservadores; el ideal es
-un MANIFIESTO DE COBERTURA emitido por run_comparison (n_elegibles por serie). No cuenta los
-40 trials de Optuna dentro de cada hpo_best (solo la config ganadora se persiste), NO valida
-el hash de CONTENIDO de cada archivo de modelo (solo su identidad de campana), ni detecta una
-edicion de codigo SIN commit a mitad de una etapa larga (el HEAD-guard del runbook cubre commits).
+Limitaciones honestas: pisos de elegibilidad conservadores (el ideal es un MANIFIESTO DE COBERTURA de
+run_comparison); no cuenta los 40 trials de Optuna (solo la ganadora se persiste); NO valida el hash de
+CONTENIDO de cada modelo (solo su identidad de campana); ni detecta una edicion SIN commit a mitad de
+una etapa larga (el HEAD-guard del runbook cubre commits).
 """
 
 from __future__ import annotations
@@ -42,7 +40,6 @@ import datetime as dt
 import hashlib
 import json
 import math
-import re
 import sys
 from pathlib import Path
 
@@ -52,9 +49,6 @@ MANIFEST = ROOT / "reports" / "campaign" / "campaign_manifest.json"
 TABLES = ("FAD", "DFF")
 SEED_VARIANTS = ("camp_levels", "camp_diff", "camp_diffls", "camp_auto")
 N_SEEDS = 5
-SIDECAR_SCHEMA = 1  # == experiments/seed_coverage.SIDECAR_SCHEMA
-_HEX64 = re.compile(r"^[0-9a-f]{64}$")
-_SHA256P = re.compile(r"^sha256:[0-9a-f]{64}$")
 # Columnas de MODELO esperadas en cada CSV de semilla, por variante (verificado 13-jul).
 SEED_MODELS = {
     "camp_levels": ("NHITS", "PatchTST", "TiDE", "BiTCN"),
@@ -105,6 +99,10 @@ EXPECTED_INPUTS: list[tuple[str, int, int]] = [
     ("reports/eval/finalist_forecasts_DFF.csv", 1, 2),
     ("reports/eval/holdout_forecasts_FAD.csv", 1, 2),
     ("reports/eval/holdout_forecasts_DFF.csv", 1, 2),
+    # ★ M74-E-R2 · los RECIBOS, no sólo los CSV. El gate contaba filas de un artefacto que nadie
+    # acreditaba: con el productor cableado, el recibo es la mitad que prueba de QUÉ campaña es.
+    ("reports/eval/holdout_forecasts_FAD.csv.receipt.json", 1, 0),
+    ("reports/eval/holdout_forecasts_DFF.csv.receipt.json", 1, 0),
     ("reports/eval/tuned_params.json", 1, 0),
     ("models/manifest.jsonl", 1, MANIFEST_LOCAL_FLOOR),
 ]
@@ -208,6 +206,8 @@ def _check_hpo(path: Path) -> list[str]:
     model = next((m for m in HPO_KEYS if path.name.endswith(f"{m}.json")), None)
     if model is None:
         return [f"HPO {path.relative_to(ROOT)}: modelo no reconocido"]
+    if not path.with_suffix(".receipt.json").is_file():  # R17: la ganadora sin su recibo no acredita campana
+        return [f"HPO {path.relative_to(ROOT)}: sin recibo de campana ({path.with_suffix('.receipt.json').name})"]
     d = _load_json(path)
     if not isinstance(d, dict) or not HPO_KEYS[model].issubset(d.keys()):
         faltan = sorted(HPO_KEYS[model] - set(d.keys())) if isinstance(d, dict) else "no-dict"
@@ -310,83 +310,44 @@ def _seed_problems(started: dt.datetime | None, preflight: bool) -> list[str]:
     return probs
 
 
-def _csv_sha256(path: Path) -> str:
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+# ★ M74-E-R7 · la cobertura de semillas se acredita en `experiments/seed_coverage.accredit_group`.
 
 
-def _sidecar_schema_problems(d: dict, table: str, variant: str, seed: int, sealed_sha: str | None) -> list[str]:
-    """Esquema ESTRICTO de un sidecar: metadata, formatos de hash, no vacio/degenerado."""
-    p: list[str] = []
-    tag = f"SEMILLA-COV {table}/{variant}/s{seed}"
-    if d.get("schema_version") != SIDECAR_SCHEMA:
-        p.append(f"{tag}: schema_version {d.get('schema_version')!r} != {SIDECAR_SCHEMA}")
-    sv = d.get("seed")
-    seed_ok = isinstance(sv, int) and not isinstance(sv, bool) and sv == seed
-    if d.get("table") != table or d.get("variant") != variant or not seed_ok:
-        p.append(f"{tag}: metadata tabla/variante/seed no coincide con el archivo")
-    if sealed_sha and d.get("source_git_sha") != sealed_sha:
-        p.append(f"{tag}: source_git_sha != sellado")
-    for h, rx in (("grid_sha256", _HEX64), ("truth_sha256", _HEX64), ("csv_sha256", _SHA256P)):
-        v = d.get(h)
-        if not isinstance(v, str) or not rx.match(v):
-            p.append(f"{tag}: {h} con formato invalido")
-    nr, ns = d.get("n_rows"), d.get("n_series")
-    if not isinstance(nr, int) or isinstance(nr, bool) or nr <= 0:
-        p.append(f"{tag}: n_rows {nr!r} debe ser int > 0 (sidecar vacio?)")
-    if not isinstance(ns, int) or isinstance(ns, bool) or ns <= 0:
-        p.append(f"{tag}: n_series {ns!r} debe ser int > 0")
-    models = d.get("models")
-    exp = set(SEED_MODELS.get(variant, ()))
-    if not isinstance(models, dict) or (exp and set(models) != exp):
-        got = sorted(models) if isinstance(models, dict) else models
-        p.append(f"{tag}: inventario de modelos {got} != {sorted(exp)}")
-        return p
-    finite = [(models.get(m) or {}).get("finite_rows") for m in exp]
-    if exp and not any(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in finite):
-        p.append(f"{tag}: TODOS los modelos con finite_rows=0 (cobertura vacia)")
-    return p
+def _check_holdout_receipt(path: Path, sealed_sha: str | None) -> list[str]:
+    """El recibo de `holdout_forecasts_*` cierra con su CSV y con la campaña sellada.
 
-
-def validate_seed_group(table: str, variant: str, camp_dir: Path, *, sealed_sha: str | None = None) -> list[str]:
-    """Cobertura IDENTICA y VERIFICABLE entre las 5 semillas (endurecido, ronda 10).
-
-    Dos archivos con 600 filas DISTINTAS no son equivalentes. Exige exactamente s1..s5 (sin
-    CSV extra s6/s01), esquema estricto por sidecar (no vacio/degenerado), y RE-LEE cada CSV
-    recalculando su sha256: el sidecar es un COMPROMISO, no la fuente de verdad. Entre semillas:
-    misma grilla, misma verdad y misma mascara finita por modelo (parcial-NaN mueve el hash).
+    ★ M74-E-R2 · el gate de completitud contaba filas y nada más. Un CSV con dos filas «útiles»
+    pasaba, y el artefacto del que cuelgan todos los combinadores entraba al corte sin que nadie
+    comprobara de qué corrida era. Aquí se exige: esquema exacto, cobertura declarada coherente con
+    el conjunto esperado que el propio recibo fija, y el sha256 del CSV que tiene al lado.
     """
     probs: list[str] = []
-    # CSVs extra (s6, s01, backups) con el prefijo -> rechazo por set exacto
-    present_csv = {q.stem.rsplit("_s", 1)[1] for q in camp_dir.glob(f"global_{table}_{variant}_s*.csv")}
-    extra = present_csv - {str(i) for i in range(1, N_SEEDS + 1)}
-    if extra:
-        return [f"SEMILLA-COV {table}/{variant}: CSVs extra {sorted(extra)} (set exacto s1..s{N_SEEDS})"]
-    sidecars: dict[int, dict] = {}
-    for seed in range(1, N_SEEDS + 1):
-        d = _load_json(camp_dir / f"coverage_{table}_{variant}_s{seed}.json")
-        if isinstance(d, dict):
-            sidecars[seed] = d
-    if set(sidecars) != set(range(1, N_SEEDS + 1)):
-        return [f"SEMILLA-COV {table}/{variant}: sidecars {sorted(sidecars)} != s1..s{N_SEEDS} (falta cobertura)"]
-    for seed, d in sidecars.items():
-        probs += _sidecar_schema_problems(d, table, variant, seed, sealed_sha)
-        csvp = camp_dir / f"global_{table}_{variant}_s{seed}.csv"
-        if not csvp.exists():
-            probs.append(f"SEMILLA-COV {table}/{variant}/s{seed}: sidecar sin CSV")
-        elif d.get("csv_sha256") != _csv_sha256(csvp):
-            probs.append(
-                f"SEMILLA-COV {table}/{variant}/s{seed}: csv_sha256 != recalculado (CSV alterado tras el sidecar)"
-            )
-    if len({d.get("grid_sha256") for d in sidecars.values()}) != 1:
-        probs.append(f"SEMILLA-COV {table}/{variant}: grid_sha256 DIFIERE entre semillas (grillas distintas)")
-    if len({d.get("truth_sha256") for d in sidecars.values()}) != 1:
-        probs.append(f"SEMILLA-COV {table}/{variant}: truth_sha256 DIFIERE entre semillas (y real distinta)")
-    for m in set(SEED_MODELS.get(variant, ())):
-        masks = {(sidecars[s].get("models") or {}).get(m, {}).get("finite_mask_sha256") for s in sidecars}
-        if len(masks) != 1:
-            probs.append(
-                f"SEMILLA-COV {table}/{variant}: finite-mask de {m} DIFIERE entre semillas (cobertura parcial)"
-            )
+    rel = path.relative_to(ROOT)
+    try:
+        acta = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"RECIBO {rel}: ilegible ({type(exc).__name__})"]
+    if acta.get("schema") != "holdout-forecasts-receipt/1":
+        probs.append(f"RECIBO {rel}: esquema {acta.get('schema')!r}")
+    for campo in ("campaign_id", "code_sha", "panel_sha256", "expected_keys_sha256"):
+        if not isinstance(acta.get(campo), str) or not acta.get(campo):
+            probs.append(f"RECIBO {rel}: sin {campo}")
+    if sealed_sha and acta.get("code_sha") != sealed_sha:
+        probs.append(f"RECIBO {rel}: code_sha {str(acta.get('code_sha'))[:8]} ≠ sellado {sealed_sha[:8]}")
+    cobertura = acta.get("coverage") or {}
+    n_esperadas = acta.get("n_expected_keys")
+    if cobertura.get("n_keys") != n_esperadas:
+        probs.append(f"RECIBO {rel}: cubre {cobertura.get('n_keys')!r} claves y declara esperar {n_esperadas!r}")
+    csv = path.with_name(path.name.removesuffix(".receipt.json"))
+    if not csv.is_file():
+        probs.append(f"RECIBO {rel}: no existe el CSV que acredita ({csv.name})")
+    else:
+        h = hashlib.sha256()
+        with open(csv, "rb") as fh:
+            for b in iter(lambda: fh.read(1 << 20), b""):
+                h.update(b)
+        if acta.get("artifact_sha256") != h.hexdigest():
+            probs.append(f"RECIBO {rel}: {csv.name} cambió desde el sellado")
     return probs
 
 
@@ -399,7 +360,8 @@ def _check_list(
 ) -> list[str]:
     probs: list[str] = []
     for pattern, want, floor in expected:
-        matches = sorted(ROOT.glob(pattern))
+        recibos = pattern.endswith(".receipt.json")  # R17: un patron de ganadoras no cuenta sus recibos
+        matches = sorted(m for m in ROOT.glob(pattern) if recibos or not m.name.endswith(".receipt.json"))
         if len(matches) != want:
             probs.append(f"CONTEO {pattern}: esperados {want}, hallados {len(matches)}")
             continue
@@ -413,6 +375,8 @@ def _check_list(
                 probs += _check_hpo(m)
             if m.name == "tuned_params.json":
                 probs += _check_tuned(m)
+            if m.name.startswith("holdout_forecasts_") and m.name.endswith(".receipt.json"):
+                probs += _check_holdout_receipt(m, sealed_sha)
             if m.name == "manifest.jsonl":
                 probs += _check_manifest(m, sealed_sha, sealed_dirty, strict_identity=not preflight)
             if not preflight and started is not None and _stale(m, started):
@@ -478,6 +442,10 @@ def check(phase: str, preflight: bool = False) -> list[str]:
         )
         if not preflight:
             return probs
+    if not preflight:  # ★ M74-E-R9 · el sello de entradas se acredita, no se da por hecho
+        from tools import campaign_manifest
+
+        probs += [f"SELLO {x}" for x in campaign_manifest.seal_problems(MANIFEST)]
     sealed_sha = _sealed("git_sha")
     sealed_dirty = _sealed("dirty")
     if phase == "inputs":

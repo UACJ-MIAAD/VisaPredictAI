@@ -269,7 +269,7 @@ def test_fresh_emission_passes_the_validator(tmp_path) -> None:
 def test_removing_identity_from_a_d4_manifest_fails(tmp_path) -> None:
     """RED→GREEN: quitar `identity` de un corte D4 NO lo degrada a 'no verificable'; falla.
 
-    El puente PRE-D4 es una excepción NOMINAL para un único corte legado, no una categoría.
+    G7 · B5b: sin puente PRE-D4, ningún manifiesto se acredita sin `identity`.
     """
     _seed_tree(tmp_path)
     manifest, _ = _emit(tmp_path)
@@ -277,30 +277,19 @@ def test_removing_identity_from_a_d4_manifest_fails(tmp_path) -> None:
     del manifest["identity"]
     (tmp_path / "reports" / "release" / "release_manifest.json").write_text(json.dumps(manifest))
     problems = cc.release_identity_problems(tmp_path)  # RED sin identity
-    assert problems and any("NO es el corte legado acreditado" in p for p in problems)
+    assert problems and any("sin bloque `identity`" in p for p in problems)
 
 
-def test_legacy_bridge_accepts_only_the_accredited_cut() -> None:
-    """El corte vivo (pre-D4) pasa por sus cuatro valores exactos, verificados contra el disco."""
-    assert cc.release_identity_problems(REPO_ROOT) == []
-    manifest = json.loads((REPO_ROOT / cc.MANIFEST_PATH).read_text())
-    assert "identity" not in manifest, "si este corte ya trae identity, el puente sobra"
-    assert hashlib.sha256((REPO_ROOT / cc.MANIFEST_PATH).read_bytes()).hexdigest() == cc.LEGACY_MANIFEST_SHA256
-    assert hashlib.sha256((REPO_ROOT / cc.CARD_PATH).read_bytes()).hexdigest() == cc.LEGACY_CARD_SHA256
-    assert manifest["release_id"] == cc.LEGACY_RELEASE_ID and manifest["panel_vintage"] == cc.LEGACY_VINTAGE
-
-
-@pytest.mark.parametrize("field", ["release_id", "panel_vintage"])
-def test_legacy_bridge_rejects_any_other_pre_d4_manifest(tmp_path, field: str) -> None:
-    """Un manifiesto PRE-D4 distinto del acreditado falla, aunque sea válido en lo demás."""
+@pytest.mark.parametrize("release_id", ["2026-09-158ec972c234", "valor-distinto"])
+def test_a_manifest_without_identity_always_fails(tmp_path, release_id: str) -> None:
+    """G7 · B5b: sin bloque `identity` falla siempre, también con el release_id del corte legado."""
     (tmp_path / "reports" / "release").mkdir(parents=True)
     (tmp_path / "reports" / "governance").mkdir(parents=True)
     (tmp_path / cc.CARD_PATH).write_text("# otra tarjeta\n")
-    manifest = {"release_id": cc.LEGACY_RELEASE_ID, "panel_vintage": cc.LEGACY_VINTAGE, "artifacts": []}
-    manifest[field] = "valor-distinto"
+    manifest = {"release_id": release_id, "panel_vintage": "2026-09", "artifacts": []}
     (tmp_path / cc.MANIFEST_PATH).write_text(json.dumps(manifest))
     problems = cc.release_identity_problems(tmp_path)
-    assert problems and "NO es el corte legado acreditado" in problems[0]
+    assert problems and "sin bloque `identity`" in problems[0]
 
 
 def test_duplicate_json_keys_in_the_manifest_are_rejected(tmp_path) -> None:

@@ -7,7 +7,10 @@ set -e -o pipefail
 cd "$(dirname "$0")/.."
 PY=./ante_nf/bin/python
 [ -x "$PY" ] || { echo "ERROR: falta el venv ante_nf/ en la raíz" >&2; exit 1; }
-export PYTHONWARNINGS=ignore
+# M74-B: se retira `export PYTHONWARNINGS=ignore`. Silenciaba TODO lo que lanzara este
+# guion —incluido lo que M72 dejó de tragarse— y ningún AST de Python podía verlo; el
+# inventario de `tools/check_warnings.py` ahora sí lo caza. La salida sigue limpia por el
+# `grep -E` de cada línea, que es filtrado de stdout y no de avisos.
 MS=1000
 
 echo "=== [1/4] FAD diff (familiar+EB, max_steps=$MS) ==="

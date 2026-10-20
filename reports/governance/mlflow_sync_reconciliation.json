@@ -1,0 +1,14 @@
+{
+  "already_synced": 10857,
+  "corrupt_lines": [],
+  "generated_at": "2026-10-07T03:05:01+00:00",
+  "ingested_new": 0,
+  "portabilized_uris": 0,
+  "reason": "v1 rec_id = hash de contenido {experiment, run_name, params, metrics}: l\u00edneas id\u00e9nticas en contenido pero distintas en pipeline_run_id/tags/artifacts/ts comparten rec_id; solo la primera ocurrencia se ingiere a MLflow. Los records v2 (schema_version>=2) usan clave de EVENTO (incluye procedencia + ts + seq) y no colapsan.",
+  "staging_lines": 10857,
+  "unique_keys": 10857,
+  "v1_collapsed": {},
+  "v1_collapsed_extra_lines": 0,
+  "v1_lines": 0,
+  "v2_lines": 10857
+}

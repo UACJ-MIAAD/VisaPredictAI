@@ -177,14 +177,46 @@ def _champion_challenger() -> dict:
     """
     cc = json.loads((REPORTS / "governance" / "champion_challenger.json").read_text())
     out: dict = {}
+    estados: set[str] = set()
     for tbl in ("FAD", "DFF"):
         d = cc[tbl]
         out[f"{tbl.lower()}_champion_mean"] = round(float(d["champion_mean"]), 3)
-        out[f"crps_{tbl.lower()}"] = round(float(d["champion_crps"]), 1)
+        out.update(_crps_facts(tbl, d, estados))
         for c in d.get("challengers", []):
             if c.get("challenger") == "naive1":
                 out[f"naive1_{tbl.lower()}_dedup_mean"] = round(float(c["mean"]), 3)
                 break
+    out["crps_estado"] = estados.pop() if len(estados) == 1 else "mixto"
+    return out
+
+
+def _crps_facts(tbl: str, d: dict, estados: set[str]) -> dict:
+    """CRPS campeón de una tabla, **sólo como vigente si el veredicto lo acredita** (M74-F · deuda 1).
+
+    Hasta aquí era ``round(float(d["champion_crps"]), 1)``: el CSV de julio, byte-idéntico, entraba
+    a ``key_facts`` y a ``\\factCrpsFad`` en cada corte como si fuera de la campaña. Ahora:
+
+    * ``acreditado`` → ``crps_{tabla}`` (la cifra vigente de siempre);
+    * ``heredado`` → ``crps_{tabla}_heredado`` con el valor y ``crps_heredado_sha`` con la huella del
+      CSV: la cifra histórica se conserva **identificada como histórica**, y ``crps_{tabla}``
+      desaparece para que ninguna superficie pueda seguir citándola como vigente sin decidirlo;
+    * un veredicto antiguo sin ``champion_crps_provenance`` es heredado por definición: nada
+      acreditó su número.
+    """
+    t = tbl.lower()
+    prov = d.get("champion_crps_provenance")
+    if not isinstance(prov, dict):
+        valor = d.get("champion_crps")
+        prov = {"status": "heredado" if valor is not None else "ausente", "inherited_value": valor}
+    estado = str(prov.get("status"))
+    estados.add(estado)
+    if estado == "acreditado" and prov.get("value") is not None:
+        return {f"crps_{t}": round(float(prov["value"]), 1)}
+    out: dict = {}
+    if prov.get("inherited_value") is not None:
+        out[f"crps_{t}_heredado"] = round(float(prov["inherited_value"]), 1)
+    if prov.get("artifact_sha256"):
+        out["crps_heredado_sha"] = str(prov["artifact_sha256"])[:12]
     return out
 
 

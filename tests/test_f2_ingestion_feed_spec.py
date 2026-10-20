@@ -2,13 +2,12 @@
 
 El sitio prometía actualizarse solo. Para decir la verdad necesita leer el estado que el
 pipeline registra (D3), y para leerlo el corte tiene que publicarlo. Aquí se fija el paso de
-datos: el spec lo incluye, el gate lo exige, y el ÚNICO manifiesto que puede omitirlo es el ya
-publicado, acreditado por sus cuatro valores exactos — que es lo que evita regenerar el release.
+datos: el spec lo incluye y el gate lo exige a todo manifiesto. La excepción PRE-F2 del corte
+legado se retiró con el primer corte nuevo (G7 · B5b).
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -26,12 +25,11 @@ import build_release_manifest as brm  # noqa: E402
 FEED = "reports/governance/ingestion_state.json"
 
 
-def _manifest(**cambios) -> tuple[dict, str]:
-    """El manifiesto vigente, opcionalmente mutado, con su sha coherente."""
+def _manifest(**cambios) -> dict:
+    """El manifiesto vigente, opcionalmente mutado."""
     base = json.loads((ROOT / "reports/release/release_manifest.json").read_text())
     base.update(cambios)
-    raw = json.dumps(base).encode()
-    return base, hashlib.sha256(raw).hexdigest()
+    return base
 
 
 class TestTheSpecPublishesTheFeed:
@@ -46,41 +44,20 @@ class TestTheSpecPublishesTheFeed:
 
 
 class TestTheGateDemandsIt:
-    def test_the_current_cut_is_accredited_and_passes(self) -> None:
-        manifest, sha = _manifest()
-        assert FEED not in [a["path"] for a in manifest["artifacts"]]
-        assert cc._ingestion_feed_problems(manifest, cc.PRE_F2_MANIFEST_SHA256) == []
+    def test_the_current_cut_publishes_the_feed_and_passes(self) -> None:
+        manifest = _manifest()
+        assert FEED in [a["path"] for a in manifest["artifacts"]]
+        assert cc._ingestion_feed_problems(manifest) == []
 
-    @pytest.mark.parametrize(
-        ("campo", "valor"),
-        [
-            ("release_id", "2026-10-otro"),
-            ("panel_vintage", "2026-10"),
-            ("n_artifacts", 112),
-        ],
-    )
-    def test_any_other_manifest_without_the_feed_fails(self, campo: str, valor: object) -> None:
-        manifest, _ = _manifest(**{campo: valor})
-        problemas = cc._ingestion_feed_problems(manifest, cc.PRE_F2_MANIFEST_SHA256)
-        assert problemas and campo in problemas[0]
-
-    def test_a_different_manifest_sha_fails_even_with_the_right_fields(self) -> None:
-        manifest, _ = _manifest()
-        problemas = cc._ingestion_feed_problems(manifest, "0" * 64)
-        assert problemas and "sha256 del manifiesto" in problemas[0]
-
-    def test_a_manifest_that_publishes_the_feed_needs_no_exception(self) -> None:
-        manifest, _ = _manifest()
-        manifest["artifacts"] = [
-            *manifest["artifacts"],
-            {"path": FEED, "sha256": "0" * 64, "size": 1, "criticality": "required"},
-        ]
-        # Ni el sha ni la añada importan: el artefacto está, que es lo que se exige.
-        assert cc._ingestion_feed_problems(manifest, "0" * 64) == []
+    @pytest.mark.parametrize("release_id", ["2026-09-158ec972c234", "2026-10-otro"])
+    def test_any_manifest_without_the_feed_fails(self, release_id: str) -> None:
+        manifest = _manifest(release_id=release_id)
+        manifest["artifacts"] = [a for a in manifest["artifacts"] if a["path"] != FEED]
+        problemas = cc._ingestion_feed_problems(manifest)
+        assert problemas and FEED in problemas[0]
 
     def test_an_empty_manifest_does_not_slip_through(self) -> None:
-        problemas = cc._ingestion_feed_problems({"artifacts": []}, "0" * 64)
-        assert problemas
+        assert cc._ingestion_feed_problems({"artifacts": []})
 
     def test_the_live_tree_passes_the_whole_identity_check(self) -> None:
         assert cc.release_identity_problems(ROOT) == []

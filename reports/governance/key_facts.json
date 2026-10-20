@@ -20,40 +20,41 @@
   "prosp_cov80_heldout": 0.81,
   "prosp_n_vintages_effective": 4,
   "band80_ratio": 0.4744,
-  "ets_fad_mean": 0.114,
-  "theta_fad_mean": 0.12,
-  "naive1_fad_mean": 0.1,
-  "naive1_fad_median": 0.089,
-  "fad_champion_mase": 0.11,
-  "ets_dff_mean": 0.094,
-  "theta_dff_mean": 0.086,
-  "naive1_dff_mean": 0.086,
-  "naive1_dff_median": 0.086,
+  "ets_fad_mean": 0.167,
+  "theta_fad_mean": 0.171,
+  "naive1_fad_mean": 0.157,
+  "naive1_fad_median": 0.135,
+  "fad_champion_mase": 0.114,
+  "ets_dff_mean": 0.129,
+  "theta_dff_mean": 0.125,
+  "naive1_dff_mean": 0.125,
+  "naive1_dff_median": 0.101,
   "n_models": 24,
-  "autoarima_fad_mean": 0.162,
-  "autoarima_fad_median": 0.125,
-  "autoarima_dff_mean": 0.114,
-  "autoarima_dff_median": 0.102,
-  "bitcn_dff_mean": 0.09,
-  "autobitcn_fad_mean": 0.109,
-  "deep_dff_margin_pct": 21,
-  "fad_champion_mean": 0.121,
-  "crps_fad": 32.1,
-  "naive1_fad_dedup_mean": 0.105,
-  "dff_champion_mean": 0.1,
-  "crps_dff": 31.3,
-  "naive1_dff_dedup_mean": 0.077,
+  "autoarima_fad_mean": 0.212,
+  "autoarima_fad_median": 0.169,
+  "autoarima_dff_mean": 0.146,
+  "autoarima_dff_median": 0.138,
+  "bitcn_dff_mean": 0.122,
+  "autobitcn_fad_mean": 0.162,
+  "deep_dff_margin_pct": 16,
+  "fad_champion_mean": 0.152,
+  "crps_fad": 41.5,
+  "naive1_fad_dedup_mean": 0.14,
+  "dff_champion_mean": 0.121,
+  "crps_dff": 27.9,
+  "naive1_dff_dedup_mean": 0.103,
+  "crps_estado": "acreditado",
   "tuning_groups": 12,
-  "tuning_accepted": 11,
+  "tuning_accepted": 9,
   "tuning_accepted_family": 5,
-  "tuning_accepted_employment": 6,
-  "friedman_rank_naive1_fad": 1.2,
-  "friedman_rank_naive1_dff": 2.39,
+  "tuning_accepted_employment": 4,
+  "friedman_rank_naive1_fad": 1.6,
+  "friedman_rank_naive1_dff": 2.86,
   "stationarity_difference": 71,
   "stationarity_mixed": 3,
-  "aci_coverage_fad": 0.92,
-  "aci_coverage_dff": 0.95,
-  "naive1_fad_holdout_wins": 24,
+  "aci_coverage_fad": 0.87,
+  "aci_coverage_dff": 0.92,
+  "naive1_fad_holdout_wins": 16,
   "panel_vintage": "2026-09",
   "panel_hash_short": "07d43c029953",
   "live_pairs_scored": 158,
@@ -153,168 +154,175 @@
         "vintage": "2026-09"
       },
       "ets_fad_mean": {
-        "value": 0.114,
+        "value": 0.167,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "theta_fad_mean": {
-        "value": 0.12,
+        "value": 0.171,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "naive1_fad_mean": {
-        "value": 0.1,
+        "value": 0.157,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "naive1_fad_median": {
-        "value": 0.089,
+        "value": 0.135,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "fad_champion_mase": {
-        "value": 0.11,
-        "unit": "MASE",
-        "population": "solo estado F (máscara B1)",
-        "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-09"
-      },
-      "ets_dff_mean": {
-        "value": 0.094,
-        "unit": "MASE",
-        "population": "solo estado F (máscara B1)",
-        "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-09"
-      },
-      "theta_dff_mean": {
-        "value": 0.086,
-        "unit": "MASE",
-        "population": "solo estado F (máscara B1)",
-        "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-09"
-      },
-      "naive1_dff_mean": {
-        "value": 0.086,
-        "unit": "MASE",
-        "population": "solo estado F (máscara B1)",
-        "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-09"
-      },
-      "naive1_dff_median": {
-        "value": 0.086,
-        "unit": "MASE",
-        "population": "solo estado F (máscara B1)",
-        "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-09"
-      },
-      "autoarima_fad_mean": {
-        "value": 0.162,
-        "unit": "MASE",
-        "population": "solo estado F (máscara B1)",
-        "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-09"
-      },
-      "autoarima_fad_median": {
-        "value": 0.125,
-        "unit": "MASE",
-        "population": "solo estado F (máscara B1)",
-        "source": "derivado por build_key_facts.py de las bases commiteadas",
-        "vintage": "2026-09"
-      },
-      "autoarima_dff_mean": {
         "value": 0.114,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
+      "ets_dff_mean": {
+        "value": 0.129,
+        "unit": "MASE",
+        "population": "solo estado F (máscara B1)",
+        "source": "derivado por build_key_facts.py de las bases commiteadas",
+        "vintage": "2026-09"
+      },
+      "theta_dff_mean": {
+        "value": 0.125,
+        "unit": "MASE",
+        "population": "solo estado F (máscara B1)",
+        "source": "derivado por build_key_facts.py de las bases commiteadas",
+        "vintage": "2026-09"
+      },
+      "naive1_dff_mean": {
+        "value": 0.125,
+        "unit": "MASE",
+        "population": "solo estado F (máscara B1)",
+        "source": "derivado por build_key_facts.py de las bases commiteadas",
+        "vintage": "2026-09"
+      },
+      "naive1_dff_median": {
+        "value": 0.101,
+        "unit": "MASE",
+        "population": "solo estado F (máscara B1)",
+        "source": "derivado por build_key_facts.py de las bases commiteadas",
+        "vintage": "2026-09"
+      },
+      "autoarima_fad_mean": {
+        "value": 0.212,
+        "unit": "MASE",
+        "population": "solo estado F (máscara B1)",
+        "source": "derivado por build_key_facts.py de las bases commiteadas",
+        "vintage": "2026-09"
+      },
+      "autoarima_fad_median": {
+        "value": 0.169,
+        "unit": "MASE",
+        "population": "solo estado F (máscara B1)",
+        "source": "derivado por build_key_facts.py de las bases commiteadas",
+        "vintage": "2026-09"
+      },
+      "autoarima_dff_mean": {
+        "value": 0.146,
+        "unit": "MASE",
+        "population": "solo estado F (máscara B1)",
+        "source": "derivado por build_key_facts.py de las bases commiteadas",
+        "vintage": "2026-09"
+      },
       "autoarima_dff_median": {
-        "value": 0.102,
+        "value": 0.138,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "bitcn_dff_mean": {
-        "value": 0.09,
+        "value": 0.122,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "autobitcn_fad_mean": {
-        "value": 0.109,
+        "value": 0.162,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "deep_dff_margin_pct": {
-        "value": 21,
+        "value": 16,
         "unit": "conteo",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "fad_champion_mean": {
-        "value": 0.121,
+        "value": 0.152,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "crps_fad": {
-        "value": 32.1,
+        "value": 41.5,
         "unit": "valor",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "naive1_fad_dedup_mean": {
-        "value": 0.105,
+        "value": 0.14,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "dff_champion_mean": {
-        "value": 0.1,
+        "value": 0.121,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "crps_dff": {
-        "value": 31.3,
+        "value": 27.9,
         "unit": "valor",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "naive1_dff_dedup_mean": {
-        "value": 0.077,
+        "value": 0.103,
         "unit": "MASE",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
+      "crps_estado": {
+        "value": "acreditado",
+        "unit": "valor",
+        "population": "solo estado F (máscara B1)",
+        "source": "derivado por build_key_facts.py de las bases commiteadas",
+        "vintage": "2026-09"
+      },
       "aci_coverage_fad": {
-        "value": 0.92,
+        "value": 0.87,
         "unit": "proporción",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "aci_coverage_dff": {
-        "value": 0.95,
+        "value": 0.92,
         "unit": "proporción",
         "population": "solo estado F (máscara B1)",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
@@ -418,7 +426,7 @@
         "vintage": "2026-09"
       },
       "tuning_accepted": {
-        "value": 11,
+        "value": 9,
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
@@ -432,28 +440,28 @@
         "vintage": "2026-09"
       },
       "tuning_accepted_employment": {
-        "value": 6,
+        "value": 4,
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "friedman_rank_naive1_fad": {
-        "value": 1.2,
+        "value": 1.6,
         "unit": "valor",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "friedman_rank_naive1_dff": {
-        "value": 2.39,
+        "value": 2.86,
         "unit": "valor",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",
         "vintage": "2026-09"
       },
       "naive1_fad_holdout_wins": {
-        "value": 24,
+        "value": 16,
         "unit": "conteo",
         "population": "panel",
         "source": "derivado por build_key_facts.py de las bases commiteadas",

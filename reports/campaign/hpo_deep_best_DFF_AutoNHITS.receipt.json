@@ -1,0 +1,13 @@
+{
+  "accelerator_in_artifact": "cpu",
+  "campaign_id": "rederiv_953cd00_20261006T073927",
+  "code_sha": "953cd002676f54b3f8831ef46062b6bf85a8fded",
+  "model": "AutoNHITS",
+  "n_trials": 40,
+  "panel_sha256": "sha256:3ae64f3dd714668b7726ae75c95620f2e5542faa3e843e76123581610f00a0b8",
+  "schema": "hpo-winner-receipt/1",
+  "search_seed": 1,
+  "search_space": "_cfg_bitcn",
+  "table": "DFF",
+  "winner_sha256": "02e61edf26fa84b52eee7c6415c2a8693bac892b03abd150860ab8b994cb2bc4"
+}

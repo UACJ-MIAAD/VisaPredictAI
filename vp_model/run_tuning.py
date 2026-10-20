@@ -36,7 +36,11 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     ap.add_argument("--groups", nargs="+", default=list(GROUPS), choices=list(GROUPS))
     ap.add_argument("--models", nargs="+", default=sorted(config.DIFFERENCED), choices=sorted(config.DIFFERENCED))
     ap.add_argument("--out", type=Path, default=OUT)
-    ap.add_argument("--storage", default=None, help="URL de storage Optuna (default: sqlite reports/eval/optuna.db)")
+    ap.add_argument(
+        "--storage",
+        default=None,
+        help="URL de storage Optuna (default: tune.default_storage_path(), por campaña dentro de una)",
+    )
     ap.add_argument("--mlflow", action="store_true", help="loguear cada trial + resumen al tracking (AK5)")
     ap.add_argument("--rank-check", action="store_true", help="correr AK9 sobre los estudios ya persistidos")
     ap.add_argument(

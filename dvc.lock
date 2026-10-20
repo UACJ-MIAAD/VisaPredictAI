@@ -117,8 +117,8 @@ stages:
       size: 15999
     - path: pipeline/db_migrations.py
       hash: md5
-      md5: 403164eae7d6f7f8737fdb19fe29ca6c
-      size: 8847
+      md5: 410b8f9136cadf4808a2f0d19878f7d0
+      size: 8844
     - path: pipeline/migrations
       hash: md5
       md5: eec79b4aeac7140a0e7305c44e7eb5de.dir
@@ -134,8 +134,8 @@ stages:
       size: 7233
     - path: vp_data/config.py
       hash: md5
-      md5: e02918da63ffd69554f95fdac9550339
-      size: 4593
+      md5: bcff71549585d0c5348da82f336b07df
+      size: 4568
     - path: vp_data/visa_common.py
       hash: md5
       md5: bd627bfa46172b99bfe9ef900d7ba6e5
@@ -154,72 +154,72 @@ stages:
       size: 1607489
     - path: experiments/build_key_facts.py
       hash: md5
-      md5: dd7dd0267ca8a9ced0f74cc2fb5b766c
-      size: 18381
+      md5: b1da4f8a1c96aa54c08399dc26a8007b
+      size: 20018
     - path: reports/campaign/campaign_pool_DFF_family.csv
       hash: md5
-      md5: 53d62b4fb1bc834df896cb550ab65658
-      size: 173853
+      md5: 5a685952b1802fca33b072c9afae69d5
+      size: 168759
     - path: reports/campaign/campaign_pool_FAD_family.csv
       hash: md5
-      md5: 8a96887e348ac614df7b1d87903da7da
-      size: 186366
+      md5: ab466cfeac82bf75f4c341c5d145833c
+      size: 177988
     - path: reports/campaign/global_DFF_camp_diff_s1.csv
       hash: md5
-      md5: 82f8d74766b0e595a0fc5e078fbc2131
-      size: 68463
+      md5: f96bdec517e1ee1674d8f22186db4ad9
+      size: 68508
     - path: reports/campaign/global_DFF_camp_diff_s2.csv
       hash: md5
-      md5: 05b8df84f9e3a72bceb23a696a1a5d2b
-      size: 68317
+      md5: e527e4a6f2d7cab08b921fdfac78ef2d
+      size: 68138
     - path: reports/campaign/global_DFF_camp_diff_s3.csv
       hash: md5
-      md5: dd16bc46d45107223eae795c21347b05
-      size: 68328
+      md5: f5c04489d431122aad462896e0cbff1b
+      size: 68349
     - path: reports/campaign/global_DFF_camp_diff_s4.csv
       hash: md5
-      md5: 8c41ba0292b6442f158fc2e3adbd4900
-      size: 67962
+      md5: 4be9d3d2baa98a282fc8135781943bb6
+      size: 67921
     - path: reports/campaign/global_DFF_camp_diff_s5.csv
       hash: md5
-      md5: f6cfa3f7451093d74d869f21981a7408
-      size: 68255
+      md5: ad6f5afc96da5be50d048d0d38765fd4
+      size: 68462
     - path: reports/campaign/global_FAD_camp_auto_s1.csv
       hash: md5
-      md5: 620274f01f5cff8213ebc6a47f2a2962
-      size: 57094
+      md5: 69616a151dadbe982134bbc29f5400d0
+      size: 57128
     - path: reports/campaign/global_FAD_camp_auto_s2.csv
       hash: md5
-      md5: 855743d9e913c0c04c9fdf43f68ae6bc
-      size: 57065
+      md5: eaec3c163ddf400027d9a5069e819cc6
+      size: 57167
     - path: reports/campaign/global_FAD_camp_auto_s3.csv
       hash: md5
-      md5: 5aba06b329db8051cadebc7daae8903e
-      size: 57110
+      md5: 79b34f36ed075a499236efff23f325af
+      size: 57114
     - path: reports/campaign/global_FAD_camp_auto_s4.csv
       hash: md5
-      md5: 2236e1899198d2a29d097c2016c4ed7a
-      size: 57140
+      md5: 5a9e4339cc682e79f340ac0ec61fcb5c
+      size: 57088
     - path: reports/campaign/global_FAD_camp_auto_s5.csv
       hash: md5
-      md5: 028422b8813ca5c8d02393e28e959e38
-      size: 57105
+      md5: 6426252c405fda2d1c969cc89c471028
+      size: 57189
     - path: reports/eval/auto_arima_baseline.csv
       hash: md5
-      md5: 147fee243ce8867583482f45decd7bac
-      size: 1907
+      md5: d068abd74dfc17654527a4179e5579e7
+      size: 1914
     - path: reports/eval/significance_summary.json
       hash: md5
-      md5: 652a4042ce959be20229a0d1dfef1e24
-      size: 2854
+      md5: c8e5115105275d11442f8731f60a7b3d
+      size: 2856
     - path: reports/eval/tuned_params.json
       hash: md5
-      md5: be80710533d58afaafea5e194425b44a
-      size: 12908
+      md5: a9c7f8b013230546eee863df5456de45
+      size: 12890
     - path: reports/governance/champion_challenger.json
       hash: md5
-      md5: 57aac046e3b9a37086aac537431eff3f
-      size: 7383
+      md5: ddd5a6086cffe111021916e8ae37caeb
+      size: 8677
     - path: reports/governance/promotion_decision.json
       hash: md5
       md5: 745ca85a32b657bf39e05ff38ba83c6a
@@ -235,12 +235,12 @@ stages:
     outs:
     - path: reports/governance/key_facts.json
       hash: md5
-      md5: 0556c30c6678d42eca4c254479a82792
-      size: 15351
+      md5: 86366ffd7677e4318c9750e0619b07f3
+      size: 15640
     - path: reports/latex/key_facts.tex
       hash: md5
-      md5: 0f03a2465433d80e96c0fe86bc93228e
-      size: 2486
+      md5: 61c257a2eef33ff150fea10b4daaeac4
+      size: 2526
   eda_facts:
     cmd: python experiments/build_eda_facts.py
     deps:
@@ -250,16 +250,16 @@ stages:
       size: 1607489
     - path: experiments/build_eda_facts.py
       hash: md5
-      md5: 8ce3f3b30ebfc52d08e7effbdb71aee0
-      size: 11828
+      md5: de79a9bb46e40b027221e50aef1c7c9b
+      size: 11802
     - path: vp_model/dataset.py
       hash: md5
       md5: 6500bb64f6794afc96b97ce8de7e32cb
       size: 9365
     - path: vp_model/eda.py
       hash: md5
-      md5: 1ae94ed509e5ac303953f7bcde1ae8ec
-      size: 5658
+      md5: 4cb2163a27ce612b43f2e30cc5d776f2
+      size: 5979
     outs:
     - path: reports/eda/eda_facts.json
       hash: md5
@@ -276,6 +276,14 @@ stages:
       hash: md5
       md5: c1eefa595ff9ee6debd679b13455c705
       size: 8076
+    - path: reports/campaign/campaign_pool_DFF_family.csv
+      hash: md5
+      md5: 5a685952b1802fca33b072c9afae69d5
+      size: 168759
+    - path: reports/campaign/campaign_pool_FAD_family.csv
+      hash: md5
+      md5: ab466cfeac82bf75f4c341c5d145833c
+      size: 177988
     - path: vp_data/cleaning.py
       hash: md5
       md5: ee547a573b7a2c1b827874079c2a75bd
@@ -290,14 +298,14 @@ stages:
       size: 4877
     - path: vp_model/series_characterization.py
       hash: md5
-      md5: 6108f5560311a756bf91e00e8d543abd
-      size: 14815
+      md5: 09d6f25ba204190c7a44a67be4e40316
+      size: 16088
     outs:
     - path: reports/fe/fe_facts.json
       hash: md5
-      md5: 9e1f7dabcbff018d345029a1d7f48039
-      size: 19965
+      md5: 2b0d9d1859428a3dfc88015ef1db14c3
+      size: 19889
     - path: reports/latex/fe_facts.tex
       hash: md5
-      md5: fa69e730e38cdc2e39cbb4bbcb2fb853
-      size: 397
+      md5: 3d9a89501148864a5db14cf7e995cfe1
+      size: 367

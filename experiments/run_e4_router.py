@@ -182,9 +182,37 @@ def evaluar(pool_path: Path = POOL) -> dict:
         "selection": "MASE medio sobre objetivos ANTERIORES al hold-out; evaluación solo en hold-out",
         "pool": {"n": pool["n"], "sha256": hashlib.sha256(pool_path.read_bytes()).hexdigest()},
         "summary": dict(sorted(resumen.items())),
-        "inputs": deck["inputs"],
+        "inputs": _sellar_entradas_vivas(deck),
         "cells": celdas,
     }
+
+
+def _sellar_entradas_vivas(deck: dict) -> dict:
+    """Sella los hashes del código que ESTE artefacto usó, leídos del árbol vivo.
+
+    ⚠️ Antes se copiaba `deck["inputs"]` tal cual, y ese bloque venía congelado del deck retador:
+    declaraba versiones de `champion.py`, `config.py` y `horizon.py` que **no contienen** las
+    funciones con las que el artefacto se produjo (`mase_grid`, `fit_router`, `RouterRecipe`,
+    `load_deck`). La procedencia decía una cosa y el cálculo era otra, y ningún cargador ni prueba
+    lo comprobaba (H6 de la auditoría ciega).
+    """
+    import subprocess
+
+    vivos = {}
+    for rel in ("vp_model/champion.py", "vp_model/config.py", "vp_model/horizon.py", "vp_model/deck.py"):
+        vivos[rel] = hashlib.sha256((ROOT / rel).read_bytes()).hexdigest()
+    for rel, ruta in (
+        ("series_cohorts.json", ROOT / "reports" / "eval" / "series_cohorts.json"),
+        ("e3_cohort_campaign.json", ROOT / "reports" / "eval" / "e3_cohort_campaign.json"),
+    ):
+        if ruta.is_file():
+            vivos[rel] = hashlib.sha256(ruta.read_bytes()).hexdigest()
+    vivos["commit"] = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    # la versión del deck que gobernó la corrida se conserva aparte, sin fingir que es código vivo
+    vivos["deck_version"] = str(deck.get("version", "n/d"))
+    return dict(sorted(vivos.items()))
 
 
 def main() -> None:

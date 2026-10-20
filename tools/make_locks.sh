@@ -26,6 +26,12 @@
 #  - regenerarlos es una decisión DELIBERADA (upgrade auditado), nunca parte de un build.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# ★ M74-E-R6 · modo SELECTIVO versionado: `bash tools/make_locks.sh --selective-model <commit>` restaura
+# byte a byte los 7 locks ajenos al perfil model desde <commit> y resuelve model-cpu (+ espejo Linux)
+# CONSTREÑIDO por los pines de <commit> y por los vigentes: ningún pin preexistente puede moverse.
+BASE=""
+if [ "${1:-}" = "--selective-model" ]; then BASE="$(git rev-parse --verify "${2:?falta el commit base}^{commit}")"; fi
+HDR_CMD="tools/make_locks.sh${BASE:+ --selective-model $BASE}"
 
 # --- 5.1 bootstrap: intérprete + toolchain PINEADOS (no ante/, no versiones del día) ----------
 PY="${PY:-python3.14}"
@@ -44,30 +50,56 @@ UV_VER="$(uv --version | awk '{print $2}')"
 PLATFORM="$(uname -sm)"
 [ "$PLATFORM" = "Darwin arm64" ] || {
   echo "✗ los locks de referencia se generan en macOS arm64 (aquí: $PLATFORM)" >&2; exit 1; }
-UV_CMD="bash tools/make_locks.sh"   # header determinista de los locks uv (--custom-compile-command)
+UV_CMD="bash $HDR_CMD"   # header determinista de los locks uv (--custom-compile-command)
 
 # --- 5.2 staging aislado + limpieza garantizada (traps) ---------------------------------------
 STAGED="$(mktemp -d "${TMPDIR:-/tmp}/vp_locks_staged.XXXXXX")"
-cleanup() { rm -rf "$STAGED"; }
+AUX="$(mktemp -d "${TMPDIR:-/tmp}/vp_locks_aux.XXXXXX")"   # restricciones y procedencia: FUERA del staging
+cleanup() { rm -rf "$STAGED" "$AUX"; }
 trap cleanup EXIT INT TERM HUP
 
 header() {  # $1 = perfil, $2 = python del venv. SIN fecha (determinista). Locks macOS SIN hashes.
-  echo "# Lock transitivo del perfil '$1' — tools/make_locks.sh (P0R.4R). NO editar a mano."
+  echo "# Lock transitivo del perfil '$1' — $HDR_CMD (P0R.4R). NO editar a mano."
   echo "# Python $("$2" --version 2>&1 | cut -d' ' -f2) · plataforma de referencia macOS arm64. Instalar con:"
   echo "#   pip install -r locks/$1.txt && pip install -e . --no-deps   # (macOS base: sin hashes)"
 }
 
-freeze_profile() {  # $1 = perfil, $2 = extras (""|"[dev]"|"[dev,model]") -> STAGED/$1.txt
-  local env="$STAGED/env-$1"
+freeze_profile() {  # $1 = perfil, $2 = extras, $3.. = restricciones -c opcionales -> STAGED/$1.txt
+  local env="$AUX/env-$1"
   "$PY" -m venv "$env"
   "$env/bin/python" -m pip install -q --disable-pip-version-check \
     "pip==$PIP_VERSION" "setuptools==$SETUPTOOLS_VERSION" "wheel==$WHEEL_VERSION"
-  "$env/bin/python" -m pip install -q -e ".$2"
+  "$env/bin/python" -m pip install -q -e ".$2" "${@:3}"
   { header "$1" "$env/bin/python"; "$env/bin/python" -m pip freeze --exclude-editable; } > "$STAGED/$1.txt"
   rm -rf "$env"
   echo "  ✓ staged $1.txt ($(grep -vc '^#' "$STAGED/$1.txt") paquetes)"
 }
 
+if [ -n "$BASE" ]; then
+  echo "make_locks: SELECTIVO sobre $BASE — 7 restaurados, model-cpu constreñido…"
+  for n in runtime.txt runtime-linux-x86_64.txt dev.txt dev-linux-x86_64.txt \
+           deep-macos-arm64.txt deep-linux-x86_64-cpu.txt deep-linux-x86_64-cu126.txt; do
+    git show "$BASE:locks/$n" > "$STAGED/$n"
+  done
+  git show "$BASE:locks/model-cpu.txt" > "$AUX/base-model.txt"
+  git show "$BASE:locks/model-cpu-linux-x86_64.txt" > "$AUX/base-mirror.txt"
+  git show "$BASE:locks/lockset.json" > "$AUX/base-lockset.json"
+  freeze_profile model-cpu "[dev,model]" -c "$AUX/base-model.txt" -c locks/model-cpu.txt
+  uv pip compile -q pyproject.toml --extra dev --extra model --python-version 3.14 \
+    --python-platform x86_64-unknown-linux-gnu --no-annotate --custom-compile-command "$UV_CMD" \
+    -c "$STAGED/model-cpu.txt" -c "$AUX/base-mirror.txt" -c locks/model-cpu-linux-x86_64.txt \
+    -o "$STAGED/model-cpu-linux-x86_64.txt"
+  PYTHONPATH="$PWD" "$PY" - "$AUX" "$STAGED" <<'PYEOF'
+import sys
+from pathlib import Path
+from tools.lock_contracts import pin_map
+aux, staged = Path(sys.argv[1]), Path(sys.argv[2])
+for base, nuevo in (("base-model.txt", "model-cpu.txt"), ("base-mirror.txt", "model-cpu-linux-x86_64.txt")):
+    b, n = pin_map((aux / base).read_text()), pin_map((staged / nuevo).read_text())
+    if movidos := sorted(k for k in b if n.get(k) != b[k]):
+        sys.exit(f"✗ selectivo: pines preexistentes movidos o retirados en {nuevo}: {movidos}")
+PYEOF
+else
 echo "make_locks: perfiles base macOS (venvs FRESCOS, toolchain pineado)…"
 freeze_profile runtime ""
 freeze_profile dev "[dev]"
@@ -111,6 +143,25 @@ uv pip compile -q requirements/deep-linux-cu126.in --python-version 3.14 \
   --emit-index-url --emit-index-annotation \
   --custom-compile-command "$UV_CMD" -o "$STAGED/deep-linux-x86_64-cu126.txt"
 echo "  ✓ staged deep-linux-x86_64-cu126.txt ($(grep -c '==' "$STAGED/deep-linux-x86_64-cu126.txt") pins)"
+fi
+
+# --- procedencia POR LOCK (M74-E-R6): lo restaurado conserva el Python y la orden de su base ----
+PYTHONPATH="$PWD" "$PY" - "$AUX" "$BASE" "$PY_FULL" "$UV_CMD" <<'PYEOF'
+import json, sys
+from pathlib import Path
+from tools.lock_contracts import LOCK_NAMES
+aux, base, py, cmd = Path(sys.argv[1]), sys.argv[2] or None, sys.argv[3], sys.argv[4]
+prev = json.loads((aux / "base-lockset.json").read_text()) if base else {}
+out = {}
+for n in LOCK_NAMES:
+    rel = f"locks/{n}"
+    if base and not n.startswith("model-cpu"):
+        heredada = (prev.get("provenance") or {}).get(rel) or {"python": prev["generator"]["python"], "command": "bash tools/make_locks.sh"}
+        out[rel] = {"method": "restored", "base": base, "python": heredada["python"], "command": heredada["command"]}
+    else:
+        out[rel] = {"method": "resolved" if base else "generated", "base": base, "python": py, "command": cmd}
+(aux / "provenance.json").write_text(json.dumps(out, indent=2, sort_keys=True))
+PYEOF
 
 # --- guard de secretos sobre TODO lo staged (líneas `nombre==versión` seguras por construcción;
 #     se escanea lo que NO tenga esa forma). `]` primero en la clase POSIX (BSD grep). ---------
@@ -125,5 +176,5 @@ fi
 #     `from tools import lock_contracts` resuelva. -----------------------------------------------
 "$PY" -m tools.promote_lockset --staged "$STAGED" \
   --python "$PY_FULL" --platform "$PLATFORM" --pip "$PIP_VERSION" \
-  --setuptools "$SETUPTOOLS_VERSION" --wheel "$WHEEL_VERSION" --uv "$UV_VERSION"
+  --setuptools "$SETUPTOOLS_VERSION" --wheel "$WHEEL_VERSION" --uv "$UV_VERSION" --provenance "$AUX/provenance.json"
 echo "make_locks: OK — 9 locks promovidos + manifest (contrato OK). Perfil deep en requirements/deep.in."

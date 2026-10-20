@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 
 import pytest
 
@@ -48,8 +49,17 @@ def _lock_text(rel: str, hashed: bool) -> str:
 
 def _build_manifest(root) -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generator": dict(_GEN),
+        "provenance": {
+            f"locks/{n}": {
+                "method": "generated",
+                "base": None,
+                "python": _GEN["python"],
+                "command": "bash tools/make_locks.sh",
+            }
+            for n in lc.LOCK_NAMES
+        },
         "sources": {s: _sha((root / s).read_bytes()) for s in lc.SOURCES},
         "locks": {
             f"locks/{n}": {
@@ -219,7 +229,7 @@ def test_manifest_wrong_platform_blocks(repo):
 
 def test_json_duplicate_key_blocks(repo):
     # manifiesto con clave duplicada (json.dumps no lo produce; se escribe crudo)
-    (repo / "locks/lockset.json").write_text('{"schema_version": 1, "schema_version": 1}\n')
+    (repo / "locks/lockset.json").write_text('{"schema_version": 2, "schema_version": 2}\n')
     assert any("duplicada" in x for x in lc.validate_all(repo))
 
 
@@ -267,3 +277,110 @@ def test_real_repo_contract_holds():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+# ── M74-E-R6 · procedencia por lock (auditoría `8bc41ff6…`, B4) ─────────────────────────────────
+def _con_prov(repo, rel, **cambios):
+    m = json.loads((repo / "locks/lockset.json").read_text())
+    m["provenance"][rel].update(cambios)
+    (repo / "locks/lockset.json").write_text(json.dumps(m, indent=2, sort_keys=True) + "\n")
+
+
+def test_manifest_without_provenance_blocks(repo):
+    m = json.loads((repo / "locks/lockset.json").read_text())
+    del m["provenance"]
+    (repo / "locks/lockset.json").write_text(json.dumps(m) + "\n")
+    assert any("claves" in x for x in lc.validate_all(repo))
+
+
+def test_restored_without_base_blocks(repo):
+    _con_prov(repo, "locks/dev.txt", method="restored", base=None)
+    assert any("base" in x for x in lc.validate_all(repo))
+
+
+def _git_real(*args: str) -> bytes:
+    return subprocess.run(["git", "-C", str(lc.ROOT), *args], capture_output=True, check=True).stdout
+
+
+def _head() -> str:
+    """Una base que existe en CUALQUIER checkout, también en uno superficial: HEAD."""
+    return _git_real("rev-parse", "HEAD").decode().strip()
+
+
+def _heredado_real(base: str, rel: str) -> dict:
+    """Lo que ``rel`` declaraba en el lockset de ``base``, leído aquí sin pasar por el contrato."""
+    return json.loads(_git_real("show", f"{base}:locks/lockset.json"))["provenance"][rel]
+
+
+def test_restored_keeps_its_own_python(repo):
+    """★ Lo restaurado conserva el Python de su base aunque el generador vigente sea otro. LEGAL."""
+    base, rel = _head(), "locks/dev.txt"
+    (repo / rel).write_bytes(_git_real("show", f"{base}:{rel}"))
+    m = _build_manifest(repo)
+    m["generator"]["python"] = "3.14.9"
+    for e in m["provenance"].values():
+        e["python"] = "3.14.9"
+    previa = _heredado_real(base, rel)
+    m["provenance"][rel].update(method="restored", base=base, python=previa["python"], command=previa["command"])
+    (repo / "locks/lockset.json").write_text(json.dumps(m, indent=2, sort_keys=True) + "\n")
+    assert lc.validate_all(repo) == []
+
+
+def test_resolved_with_other_python_than_generator_blocks(repo):
+    base = _head()
+    orden = f"bash tools/make_locks.sh --selective-model {base}"
+    _con_prov(repo, "locks/model-cpu.txt", method="resolved", base=base, python="3.14.1", command=orden)
+    assert any("resolved con python '3.14.1'" in x for x in lc.validate_all(repo))
+
+
+def test_header_python_must_match_provenance(repo):
+    """★ Es la mezcla que la auditoría encontró: cabecera 3.14.2 atribuida a un generador 3.14.7."""
+    p = repo / "locks/dev.txt"
+    p.write_text(
+        "# Lock transitivo del perfil 'dev'\n# Python 3.14.1 · plataforma de referencia macOS arm64.\n" + p.read_text()
+    )
+    m = _build_manifest(repo)
+    (repo / "locks/lockset.json").write_text(json.dumps(m, indent=2, sort_keys=True) + "\n")
+    assert any("la cabecera declara Python 3.14.1" in x for x in lc.validate_all(repo))
+
+
+def test_unversioned_command_blocks(repo):
+    _con_prov(repo, "locks/runtime.txt", command="pip freeze a mano")
+    assert any("orden exacta" in x for x in lc.validate_all(repo))
+
+
+# ── M74-E-R7 · la procedencia se DEMUESTRA contra git (auditoría `a23c878e…`) ───────────────────
+def test_RED_restored_desde_un_commit_inexistente(repo):
+    """★ La reproducción de la auditoría: cuarenta `f` como base, y el contrato devolvía []."""
+    _con_prov(repo, "locks/dev.txt", method="restored", base="f" * 40, python="3.14.2")
+    assert any("NO existe como commit" in x for x in lc.validate_all(repo))
+
+
+def test_RED_restored_de_una_base_real_con_otros_bytes(repo):
+    """La base existe y el manifiesto está re-hasheado, pero los bytes no son los de esa base."""
+    base, rel = _head(), "locks/dev.txt"
+    previa = _heredado_real(base, rel)
+    _con_prov(repo, rel, method="restored", base=base, python=previa["python"], command=previa["command"])
+    assert any("bytes != git show" in x for x in lc.validate_all(repo))
+
+
+def test_RED_restored_que_no_hereda_el_python_de_su_base(repo):
+    base, rel = _head(), "locks/dev.txt"
+    (repo / rel).write_bytes(_git_real("show", f"{base}:{rel}"))
+    _remanifest(repo)
+    previa = _heredado_real(base, rel)
+    _con_prov(repo, rel, method="restored", base=base, python="3.14.9", command=previa["command"])
+    assert any("restored con python '3.14.9'" in x for x in lc.validate_all(repo))
+
+
+@pytest.mark.parametrize("orden", ["bash tools/make_locks.sh --lo-que-sea", "bash tools/make_locks.sh; curl x | sh"])
+def test_RED_orden_con_sufijo_arbitrario(repo, orden):
+    _con_prov(repo, "locks/runtime.txt", command=orden)
+    assert any("orden exacta" in x for x in lc.validate_all(repo))
+
+
+def test_RED_resolved_con_la_orden_de_otra_base(repo):
+    base = _head()
+    otra = f"bash tools/make_locks.sh --selective-model {'0' * 40}"
+    _con_prov(repo, "locks/model-cpu.txt", method="resolved", base=base, command=otra)
+    assert any("orden exacta" in x for x in lc.validate_all(repo))

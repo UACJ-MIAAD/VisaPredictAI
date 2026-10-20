@@ -232,6 +232,7 @@ def save_dual(
     if pdf_name is not None:
         target = pdf_name(name)
         if target is not None:
+            pdf_root.mkdir(parents=True, exist_ok=True)  # `reports/latex/Figures/` no existe en un checkout limpio
             fig.savefig(pdf_root / f"{target}.pdf", bbox_inches="tight")
     fig.savefig(png_root / f"{name}.png", bbox_inches="tight", dpi=300)
     if announce:

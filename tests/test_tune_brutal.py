@@ -464,12 +464,18 @@ def test_deep_build_from_config_keeps_auto_column_name(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "neuralforecast.models", fake)
 
     cfg = {"input_size": 24, "learning_rate": 1e-3, "scaler_type": "standard", "hidden_size": 16, "max_steps": 2000}
-    (tmp_path / "hpo_deep_best_FAD_AutoBiTCN.json").write_text(json.dumps(cfg))
-    builders = deep._build_from_config(["BiTCN"], str(tmp_path / "hpo_deep_best_FAD_Auto{model}.json"), seed=3)
+    # ★ R14: la ganadora se ACREDITA contra la campaña antes de construir (`_accredited_configs`, probado en
+    # `test_camino_real_m74e_r14.py`); aquí se fija su resultado para probar sólo el contrato del builder.
+    monkeypatch.setattr(
+        deep, "_accredited_configs", lambda names, template, table, root=None: {n: dict(cfg) for n in names}
+    )
+    builders = deep._build_from_config(["BiTCN"], str(tmp_path / "hpo_deep_best_FAD_Auto{model}.json"), 3, "FAD")
     assert list(builders) == ["AutoBiTCN"]  # la COLUMNA de salida conserva el nombre Auto*
     model = builders["AutoBiTCN"]()
     assert type(model).__name__ == "BiTCN"
     assert model.kw["random_seed"] == 3 and model.kw["hidden_size"] == 16
     assert model.kw["early_stop_patience_steps"] == 10 and model.kw["logger"] is False
-    # el ganador ausente se omite con aviso, sin reventar la corrida
-    assert deep._build_from_config(["TiDE"], str(tmp_path / "hpo_deep_best_FAD_Auto{model}.json"), seed=3) == {}
+    # ★ R14: un ganador ausente ya NO se omite con aviso — la acreditación falla y el fallo se propaga
+    monkeypatch.setattr(deep, "_accredited_configs", lambda *a, **k: (_ for _ in ()).throw(ValueError("sin ganadora")))
+    with pytest.raises(ValueError, match="sin ganadora"):
+        deep._build_from_config(["TiDE"], str(tmp_path / "hpo_deep_best_FAD_Auto{model}.json"), 3, "FAD")

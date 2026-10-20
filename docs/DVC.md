@@ -91,6 +91,11 @@ dvc pull        # baja en otro clon
 
 El DVC **gobernado** del proyecto es `ante/bin/dvc` (3.67.1, el mismo pin que instala el paso E2
 de CI); `make` lo usa vía `DVC ?= ante/bin/dvc` y el hook `dvc-lock-fresh` lo exige (abajo).
+Desde M74-E-R14 también `experiments/sync_all.sh` (que re-hashea `models`/`mlflow.db`; desde G7 · desbloqueo
+el `dvc push` de la publicación lo hace `campaign_txn publish-release`, con la misma regla) y el runbook
+de campaña lo resuelven con la misma regla (`$VP_DVC` o `ante/bin/dvc`, fail-closed) y el preflight
+sella su ruta y versión: en un worktree cuyo `ante/` viene del perfil `model-cpu` (sin `dvc`) hay
+que exportar `VP_DVC` con la ruta absoluta del binario gobernado antes de lanzar.
 
 ## Frontera DAG-determinista vs runner-transaccional (C1/C2, plan auditoría 2026-07-11)
 
@@ -122,14 +127,31 @@ forecasts no son stage DVC y los facts sí (byte-exactos).
 
 ## Hook pre-push `dvc-lock-fresh` (D1, plan MLOps v2 · 2-sep-2026)
 
-El paso **E2** de CI (`dvc status --json panel bulletins key_facts eda_facts fe_facts` debe dar
-`{}`) detonó cuatro veces en julio porque `dvc.lock` se pusheaba desfasado. El hook
+El paso **E2** de CI detonó cuatro veces en julio porque `dvc.lock` se pusheaba desfasado. El hook
 `dvc-lock-fresh` (`.pre-commit-config.yaml`, stage **pre-push** únicamente) corre exactamente
-esa comprobación **antes** de publicar, con `tools/check_dvc_lock_fresh.py`:
+esa comprobación **antes** de publicar, con `tools/check_dvc_lock_fresh.py`. Desde M72-R1 ese
+módulo es la **única** implementación del gate: el paso E2 lo invoca en vez de repetirlo en bash.
 
-- **Mismos cinco stages git-only** que E2, en el mismo orden (un test lo verifica contra el YAML
-  del workflow). `scrape` y `database` quedan fuera a propósito: dependen de `data/snapshots`
-  (privado) y de la caché DVC (S3), que no existen en un clon limpio.
+- **Seis stages vigilados**: los cinco *git-only* (`panel bulletins key_facts eda_facts fe_facts`)
+  y **`database`** (#57). `scrape` sigue fuera a propósito: sus deps son `data/snapshots`, privado
+  y ausente en un clon limpio.
+- ⚠️ **La excepción acotada de `database`, medida y no supuesta.** Su out es un artefacto
+  cacheado. Con la caché DVC vacía —el caso de CI, que nunca hace `dvc pull`— `dvc status`
+  responde `not in cache` para ese out **igual de correcto que corrupto que ausente**: ahí esa
+  línea no lleva información. Con la caché presente —el hook local— responde `{}`, `modified` o
+  `deleted`. Por eso el gate tolera, **sólo en `database`, sólo con ese texto exacto y sólo para
+  el out declarado por nombre** en `CACHE_BACKED_OUTS`, un residuo formado únicamente por outs
+  `not in cache`, y vigila sus **deps**, que es donde el lock llevó semanas desfasado (desde
+  M49/C8) sin que nada lo viera. En local el out queda cubierto. El desfase era **inocuo** —los
+  dos deps sólo cambiaron comentarios y el parquet se reconstruyó byte-idéntico— pero un stage
+  que nadie vigila deja de ser un contrato.
+- ⚠️ **La ruta importa tanto como el texto (M72-R2).** La primera versión de la excepción
+  comprobaba el stage y el valor pero **no el nombre del out**, así que un out cacheado cualquiera
+  —uno añadido al DAG, o el esperado acompañado de otro— se colaba por ella; lo encontró la
+  auditoría del autor. Ahora el conjunto de rutas del residuo debe ser **exactamente** el
+  declarado —sin extras, sin ausentes y sin repetidos entre entradas—, las claves JSON duplicadas
+  se rechazan, y una prueba ancla la declaración a `dvc.yaml` y `dvc.lock`: **añadir un out
+  cacheado al DAG sin decidirlo en el gate lo pone en rojo** en vez de ampliarle la excepción.
 - **Fail-closed:** usa el DVC gobernado (`ante/bin/dvc`, o la ruta en `$VP_DVC`); si falta, si
   `dvc status` termina con error, si la salida no es JSON, no es un objeto o no es `{}`, el push
   se **bloquea** y se listan los stages desfasados. No toca la red ni modifica nada.

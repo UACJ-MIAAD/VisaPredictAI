@@ -1,0 +1,33 @@
+{
+  "artifact_sha256": "0f551a6498121dce6df54cc3b54e4a8f12172329d1097f317767812626e4873d",
+  "campaign_id": "compl_7d079d8_c5c_20261012T143651",
+  "code_sha": "7d079d898ad9fe9c0e55be56a633660ea8028205",
+  "coverage": {
+    "skipped": [],
+    "tables": [
+      "DFF",
+      "FAD"
+    ]
+  },
+  "panel_sha256": "sha256:3ae64f3dd714668b7726ae75c95620f2e5542faa3e843e76123581610f00a0b8",
+  "protocol": {
+    "block": "family",
+    "num_samples": 200,
+    "quants": [
+      0.025,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      0.75,
+      0.9,
+      0.95,
+      0.975
+    ],
+    "tables": [
+      "FAD",
+      "DFF"
+    ]
+  },
+  "schema": "champion-crps-receipt/1"
+}

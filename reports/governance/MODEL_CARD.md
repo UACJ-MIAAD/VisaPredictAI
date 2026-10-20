@@ -12,7 +12,7 @@
 - **Sistema:** predictor del U.S. Visa Bulletin — panel multiserie `y_{p,c,b,t}` (país × categoría × tabla × mes).
 - **Tarea:** regresión temporal de fechas de prioridad sobre observaciones con estado **F** (FAD y DFF por separado).
 - **Receta desplegada (campeón):** FAD → `median(theta+ets+sarima)` · DFF → `sarima` (manifiesto versionado `champion_manifest.json`).
-- **Versión / linaje:** git `cb5df8f` · hash del panel `07d43c029953`.
+- **Versión / linaje:** git `66fa46d` · hash del panel `07d43c029953`.
 - **Autor:** Javier A. Rebull Saucedo · MIAAD, UACJ. Demostrador: visapredictai.com.
 
 ## 2. Uso previsto
@@ -30,14 +30,25 @@
 
 ## 5. Evaluación
 **Marco comparativo:** 24 modelos evaluados bajo el mismo protocolo walk-forward; de ahí salen el campeón desplegado y su retador.
-**Hold-out leakage-free (MASE media):** FAD campeón `median(theta+ets+sarima)` = **0.1206** · DFF campeón `sarima` = **0.0996**.
-**Model Confidence Set (90 %):** FAD = {naive1} · DFF = {naive1} (Friedman–Nemenyi).
+**Hold-out leakage-free (MASE media):** FAD campeón `median(theta+ets+sarima)` = **0.1519** · DFF campeón `sarima` = **0.1215**.
+**Model Confidence Set (90 %):** FAD = {naive1} · DFF = {ets, naive1} (Friedman–Nemenyi).
 **Prospectiva (backfill sin fuga de información; añadas servidas en vivo desde jul-2026):** n=2944 · MAE=146 días · MASE=0.347 · cobertura 95 %=0.92 · 80 % (out-of-sample)=0.81.
+
+## 5.1 Cohortes de estabilidad y enrutado (épica E, exploratorio)
+- **Partición (regla v1.0.0, pre-registrada):** 74 series evaluables · 39 estables · 35 no estables. Calculada solo con información anterior al hold-out.
+- **Barrido de lo ya puntuado:** 0 recetas baten al naïve-1 de su cohorte; 66 quedan por debajo y 24 sin evidencia suficiente.
+- **Campaña por cohorte (CPU):** 42 corridas, 42 completadas; 0 de 18 recetas primarias baten ese piso.
+- **Enrutado por cohorte:** de 4 celdas, 0 superan el gate (mejora ≥ 0.005 en MASE, contraste bilateral con Holm al 0.05 y sin pérdida material, exigidos en los tres horizontes). Las mejoras largas de FAD no satisfacen el corto plazo (0 horizontes cortos significativos); la cohorte estable de DFF pierde de forma material (-0.0115 a tres meses pese a 0.1352 a doce); y la inestable de DFF, con 5 series, no aporta evidencia.
+- **Estado:** exploratorio. El enrutador **no está desplegado ni promovido**: su autorización exigiría sombra prospectiva, igual que cualquier retador.
 
 ## 6. Linaje y reproducibilidad
 - **Receta:** `champion_manifest.json` (cambia solo vía `run_champion_challenger.py --promote`, auditado).
-- **Código:** git `cb5df8f`. **Datos:** panel hash `07d43c029953`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
-- **Corte (H3):** release vigente al generar `2026-07-5e473ac91f60` · pipeline_run_id `local-a73-r2` · añada `2026-09`.
+- **Código:** git `66fa46d`. **Datos:** panel hash `07d43c029953`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
+- **Corte (D4):** identidad del corte en el campo estructural de abajo · pipeline_run_id `local` · añada `2026-09`.
+
+```
+release_id: 2026-09-87a5be76e8a1
+```
 - **Promoción (dos gates):** el hold-out (Wilcoxon+Holm, h=1) solo declara aptitud retrospectiva; la autorización la da el gate prospectivo PRE-REGISTRADO (docs/PROMOTION_POLICY.md) sobre pares live campeón-vs-sombra, aplicada por un humano (`--promote`, que se rehúsa sin decisión "promote") con rollback versionado.
 
 ## 7. Limitaciones y consideraciones éticas

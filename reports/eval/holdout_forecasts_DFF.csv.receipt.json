@@ -1,0 +1,106 @@
+{
+  "artifact_sha256": "1e25b0e0f25970aed8986e223e7f0f1cf6bbe7097f4512e06c69857647a049fa",
+  "campaign_id": "rederiv_953cd00_20261006T073927",
+  "code_sha": "953cd002676f54b3f8831ef46062b6bf85a8fded",
+  "coverage": {
+    "models": [
+      "arima",
+      "catboost",
+      "drift",
+      "ets",
+      "kalman",
+      "lightgbm",
+      "naive1",
+      "sarima",
+      "theta"
+    ],
+    "n_keys": 5160,
+    "n_models": 9,
+    "n_rows": 5160
+  },
+  "excluded": [
+    {
+      "category": "F4",
+      "country": "all_chargeability",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "arima"
+    },
+    {
+      "category": "F4",
+      "country": "china",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "arima"
+    },
+    {
+      "category": "F2A",
+      "country": "all_chargeability",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "sarima"
+    },
+    {
+      "category": "F2B",
+      "country": "all_chargeability",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "sarima"
+    },
+    {
+      "category": "F2A",
+      "country": "china",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "sarima"
+    },
+    {
+      "category": "F2B",
+      "country": "china",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "sarima"
+    },
+    {
+      "category": "F2A",
+      "country": "india",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "sarima"
+    },
+    {
+      "category": "F2B",
+      "country": "india",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "sarima"
+    },
+    {
+      "category": "F2A",
+      "country": "mexico",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "sarima"
+    },
+    {
+      "category": "F2A",
+      "country": "philippines",
+      "error": "LinAlgError: LU decomposition error.",
+      "model": "sarima"
+    }
+  ],
+  "expected_keys_sha256": "4a264caa18e8d7ffb42de44f5295ed256ab83ccc109a786e814c4e3df5852d83",
+  "n_expected_keys": 5160,
+  "panel_sha256": "sha256:3ae64f3dd714668b7726ae75c95620f2e5542faa3e843e76123581610f00a0b8",
+  "pool": [
+    "sarima",
+    "arima",
+    "kalman",
+    "catboost",
+    "lightgbm",
+    "ets",
+    "theta",
+    "naive1",
+    "drift"
+  ],
+  "protocol": {
+    "block": "family",
+    "f_only": true,
+    "forecast_horizon": 1,
+    "holdout_months": 24,
+    "retrain_each_step": true
+  },
+  "schema": "holdout-forecasts-receipt/1",
+  "table": "DFF"
+}

@@ -1,0 +1,35 @@
+{
+  "complement_id": "compl_03095ba_c3_20261010T121029",
+  "outputs": {
+    "reports/eval/aci_gamma.json": "a53e53aff14bae57829443d3b5f4e4c9570f16153b6ebf68c8750ca588bcbf53",
+    "reports/eval/conformal_coverage.csv": "109c4b392a40aef8ec9e0a45780381d27a8256fd6df70f04936c161e6c788576"
+  },
+  "parent": "rederiv_953cd00_20261006T073927",
+  "schema": "conformal-provenance/1",
+  "tables": {
+    "DFF": {
+      "baseline": {
+        "artifact": "reports/eval/deep_pi_DFF.csv",
+        "sha256": "80ec71450e75646adac44dec032af384a604a4b1574a899c7fa33886d7ea06f7",
+        "source": "importado:rederiv_953cd00_20261006T073927"
+      },
+      "forecasts": {
+        "artifact": "reports/campaign/global_DFF_camp_diff_s1.csv",
+        "sha256": "ffbdd88e51508488233b37fa6ea9e36e20644ba300ba5125aebaab5ec8fe0677",
+        "source": "importado:rederiv_953cd00_20261006T073927"
+      }
+    },
+    "FAD": {
+      "baseline": {
+        "artifact": "reports/eval/deep_pi_FAD.csv",
+        "sha256": "39843771cb83460b6ce09e6ca562199331ef3406628f37c96b74ee5f14998236",
+        "source": "importado:rederiv_953cd00_20261006T073927"
+      },
+      "forecasts": {
+        "artifact": "reports/campaign/global_FAD_camp_diff_s1.csv",
+        "sha256": "d70f30729c0e717a4bbe71c9916e61807a211857b884621fc635806db418aa5b",
+        "source": "importado:rederiv_953cd00_20261006T073927"
+      }
+    }
+  }
+}

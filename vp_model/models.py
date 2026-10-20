@@ -38,7 +38,7 @@ import json
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol, cast
 
 import numpy as np
 import pandas as pd
@@ -66,10 +66,11 @@ from darts.models import (
 )
 from darts.models import SKLearnModel  # RegressionModel is deprecated in darts 0.44
 from darts.utils.likelihood_models import GaussianLikelihood
-from darts.utils.utils import ModelMode
+from darts.utils.utils import ModelMode, random_method
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.utils import check_random_state
 from statsmodels.tsa.arima.model import ARIMA as StatsmodelsARIMA
 
 from vp_model import preprocess
@@ -122,7 +123,71 @@ __all__ = [
 ]
 
 
-class _RelaxedSarima(DartsARIMA):
+class _SampledArima(DartsARIMA):
+    """ARIMA/SARIMA de darts cuyas muestras son la distribución predictiva COMPLETA (M74-F · #65).
+
+    darts 0.44.1 (``ARIMA._predict``) simula con ``initial_state=states.predicted[-1, :]``: fija el
+    estado predicho en su media y sólo deja correr los choques de los pasos siguientes. En el ARIMA de
+    statsmodels la ecuación de medida no tiene ruido, así que h=1 sale determinista (ancho 0) y cada
+    horizonte pierde un paso de varianza. Sin ``initial_state``, ``simulate(anchor="end")`` extrae el
+    estado inicial de N(a_{n+1|n}, P_{n+1|n}), que es la predictiva del modelo ajustado.
+
+    Sólo cambia el camino ``num_samples > 1`` (los CRPS); el pronóstico puntual es el de darts.
+    ``@random_method`` es el de darts: instala la semilla guardada en el modelo (constructor o la última
+    llamada) en el RNG global antes de simular; sin él, la semilla del constructor se ignoraba.
+    """
+
+    @random_method
+    def _predict(
+        self,
+        n: int,
+        series: TimeSeries | None = None,
+        historic_future_covariates: TimeSeries | None = None,
+        future_covariates: TimeSeries | None = None,
+        num_samples: int = 1,
+        predict_likelihood_parameters: bool = False,
+        verbose: bool = False,
+        random_state: int | None = None,
+    ) -> TimeSeries:
+        if num_samples == 1:
+            return super()._predict(
+                n,
+                series=series,
+                historic_future_covariates=historic_future_covariates,
+                future_covariates=future_covariates,
+                num_samples=num_samples,
+                predict_likelihood_parameters=predict_likelihood_parameters,
+                verbose=verbose,
+                random_state=random_state,
+            )
+        # Las comprobaciones de la clase base de darts, sin el `_predict` de ARIMA.
+        super(DartsARIMA, self)._predict(
+            n=n,
+            series=series,
+            historic_future_covariates=historic_future_covariates,
+            future_covariates=future_covariates,
+            num_samples=num_samples,
+            random_state=random_state,
+            verbose=verbose,
+        )
+        ajustado: Any = cast("Any", self).model  # ARIMAResults de statsmodels: darts no tipa `model`
+        if series is not None:
+            hist = historic_future_covariates.values(copy=False) if historic_future_covariates else None
+            self.model = ajustado.apply(series.values(copy=False), exog=hist)
+        try:
+            forecast = self.model.simulate(
+                nsimulations=n,
+                repetitions=num_samples,
+                random_state=check_random_state(random_state),
+                anchor="end",
+                exog=future_covariates.values(copy=False) if future_covariates else None,
+            )
+        finally:
+            self.model = ajustado  # el ajuste original, intacto (darts lo re-aplicaba sobre la serie de entrenamiento)
+        return self._build_forecast_series(forecast)
+
+
+class _RelaxedSarima(_SampledArima):
     """Misma orden SARIMA, con inicialización tolerante a raíces fronterizas.
 
     Statsmodels intenta inicializar por defecto bajo estacionariedad/invertibilidad;
@@ -158,7 +223,7 @@ class _RelaxedSarima(DartsARIMA):
 def build_relaxed_sarima() -> _RelaxedSarima:
     """Construye el segundo intento gobernado de la receta SARIMA canónica."""
 
-    return _RelaxedSarima(**HYPERPARAMS["sarima"])
+    return _RelaxedSarima(**HYPERPARAMS["sarima"], random_state=RANDOM_SEED)
 
 
 def to_timeseries(series: pd.Series) -> TimeSeries:
@@ -249,8 +314,10 @@ _FACTORIES: dict[str, Callable[[str | None], Forecaster]] = {
     "naive": lambda table: NaiveSeasonal(K=SEASONAL_PERIOD),
     "naive1": lambda table: NaiveSeasonal(K=1),  # AI1: random-walk floor of the pool
     "drift": lambda table: NaiveDrift(),  # AI1: random walk with drift
-    "arima": lambda table: DartsARIMA(**HYPERPARAMS["arima"]),
-    "sarima": lambda table: DartsARIMA(**HYPERPARAMS["sarima"]),
+    # #65: muestreo con la predictiva completa (el puntual es el de darts) y sembrado como las redes:
+    # sin semilla, el CRPS de ARIMA/SARIMA cambiaba de una corrida a otra.
+    "arima": lambda table: _SampledArima(**HYPERPARAMS["arima"], random_state=RANDOM_SEED),
+    "sarima": lambda table: _SampledArima(**HYPERPARAMS["sarima"], random_state=RANDOM_SEED),
     "prophet": lambda table: _prophet(),
     "ets": lambda table: AutoETS(),  # AJ4: small AICc search over {trend x damped}
     "theta": lambda table: AutoTheta(),  # AJ4: FourTheta.select_best_model

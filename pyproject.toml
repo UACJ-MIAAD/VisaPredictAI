@@ -41,6 +41,11 @@ model = [
     "pycatch22==0.4.5",
     "antropy==0.2.2",
     "arch==8.0.0",
+    # ★ M74-E-R4 · HPO de los GBM. `vp_model/tune.py` lo importa DENTRO de sus funciones, así que
+    # ni el smoke de entrypoints ni el freeze de `ante` lo delataban: el perfil `model` no lo
+    # declaraba y un `ante` exacto al lock no podía correr las etapas 249-251 del runbook. Se
+    # pinnea a la MISMA versión que sella el lock profundo, para que los dos intérpretes coincidan.
+    "optuna==4.9.0",
     # Pool de modelos ampliado + métricas/pruebas SOTA (investigación de modelos).
     "lightgbm==4.6.0",
     "catboost==1.2.10",

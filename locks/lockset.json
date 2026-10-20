@@ -2,7 +2,7 @@
   "generator": {
     "pip": "26.1.2",
     "platform": "Darwin arm64",
-    "python": "3.14.2",
+    "python": "3.14.7",
     "setuptools": "83.0.0",
     "uv": "0.11.28",
     "wheel": "0.47.0"
@@ -29,12 +29,12 @@
       "sha256": "sha256:4270cd1ca05e1000167effe62d4399e21c2791a4d163552d769ba2cb8433263a"
     },
     "locks/model-cpu-linux-x86_64.txt": {
-      "pins": 129,
-      "sha256": "sha256:706f671b83f1ac65ce179320d1d157836729fb22b40c1f6453b7785372378606"
+      "pins": 135,
+      "sha256": "sha256:4256966a311a1fb06eb9499bf95777269253efb8c6090560e84552dd769fafdc"
     },
     "locks/model-cpu.txt": {
-      "pins": 110,
-      "sha256": "sha256:333e0f65742418a5d36f5e8021fb02480dbea8af03409f09c5961618e3a02c7f"
+      "pins": 115,
+      "sha256": "sha256:8485c1e58bef59caf2f9585336aa64d143468ea5d7d2a60779339e1f2f8b6c93"
     },
     "locks/runtime-linux-x86_64.txt": {
       "pins": 23,
@@ -45,14 +45,70 @@
       "sha256": "sha256:c9485c5641232f7fdbb37e89648873370c54c5e61fed4e2c4987ac6928f07448"
     }
   },
-  "schema_version": 1,
+  "provenance": {
+    "locks/deep-linux-x86_64-cpu.txt": {
+      "base": "a8029f2266faf73ef5e0b5fbd8c1386b50c3cb7d",
+      "command": "bash tools/make_locks.sh",
+      "method": "restored",
+      "python": "3.14.2"
+    },
+    "locks/deep-linux-x86_64-cu126.txt": {
+      "base": "a8029f2266faf73ef5e0b5fbd8c1386b50c3cb7d",
+      "command": "bash tools/make_locks.sh",
+      "method": "restored",
+      "python": "3.14.2"
+    },
+    "locks/deep-macos-arm64.txt": {
+      "base": "a8029f2266faf73ef5e0b5fbd8c1386b50c3cb7d",
+      "command": "bash tools/make_locks.sh",
+      "method": "restored",
+      "python": "3.14.2"
+    },
+    "locks/dev-linux-x86_64.txt": {
+      "base": "a8029f2266faf73ef5e0b5fbd8c1386b50c3cb7d",
+      "command": "bash tools/make_locks.sh",
+      "method": "restored",
+      "python": "3.14.2"
+    },
+    "locks/dev.txt": {
+      "base": "a8029f2266faf73ef5e0b5fbd8c1386b50c3cb7d",
+      "command": "bash tools/make_locks.sh",
+      "method": "restored",
+      "python": "3.14.2"
+    },
+    "locks/model-cpu-linux-x86_64.txt": {
+      "base": "a8029f2266faf73ef5e0b5fbd8c1386b50c3cb7d",
+      "command": "bash tools/make_locks.sh --selective-model a8029f2266faf73ef5e0b5fbd8c1386b50c3cb7d",
+      "method": "resolved",
+      "python": "3.14.7"
+    },
+    "locks/model-cpu.txt": {
+      "base": "a8029f2266faf73ef5e0b5fbd8c1386b50c3cb7d",
+      "command": "bash tools/make_locks.sh --selective-model a8029f2266faf73ef5e0b5fbd8c1386b50c3cb7d",
+      "method": "resolved",
+      "python": "3.14.7"
+    },
+    "locks/runtime-linux-x86_64.txt": {
+      "base": "a8029f2266faf73ef5e0b5fbd8c1386b50c3cb7d",
+      "command": "bash tools/make_locks.sh",
+      "method": "restored",
+      "python": "3.14.2"
+    },
+    "locks/runtime.txt": {
+      "base": "a8029f2266faf73ef5e0b5fbd8c1386b50c3cb7d",
+      "command": "bash tools/make_locks.sh",
+      "method": "restored",
+      "python": "3.14.2"
+    }
+  },
+  "schema_version": 2,
   "sources": {
-    "pyproject.toml": "sha256:d0c11f00c55a84fc0dd14c5bf60cee75e69538c8da921d0ca9c643890840db88",
+    "pyproject.toml": "sha256:782d9d107d41f88a89d87661dd6397cd3f1a0c1fcbb76cce24de129cc7c05fad",
     "requirements/deep-linux-cpu.in": "sha256:31a69d2407e771faf50b2190a62576d45b117bb3788a940cd704fa589297a4dd",
     "requirements/deep-linux-cu126.in": "sha256:c08c113f24a6367961a5f8b1a3a22a88d13684f05c9354f2bf8a858ef23ad5fe",
     "requirements/deep.in": "sha256:66f71ed981944982e6276be13e7a89c6321d975ec5d6a0f444db7ee25fbb86e2",
-    "tools/lock_contracts.py": "sha256:feb52901ba28a8dd5413f0a97a5b958a68e88420816726a95eac081074ec74ad",
-    "tools/make_locks.sh": "sha256:96142058af3399f6845f32c486d71ca68b9f81d4129a87b9d73e2fc9249705dd",
-    "tools/promote_lockset.py": "sha256:741c4f65cbe8dc63d5bd6a4c71d90c1b9b1560f97e5a64e1833516b17e9e5485"
+    "tools/lock_contracts.py": "sha256:707bb46474ae09dcfb6083a57be2abe9964955ef06933727e8d5375f476064dd",
+    "tools/make_locks.sh": "sha256:48ecdfb2748409b9330092f28171b96979d22cd2c1995469c498fb7a5b6a80df",
+    "tools/promote_lockset.py": "sha256:ec6f632071545972613f1d9c50e75b21ac1c1cf2852d025e08c35d35b867f1ba"
   }
 }

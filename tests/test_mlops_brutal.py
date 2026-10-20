@@ -133,7 +133,10 @@ def test_recipe_from_dict_roundtrip() -> None:
 
 def test_evaluate_rows_carry_recipe() -> None:
     pytest.importorskip("darts")
+    from tests import holdout_fixture
     from vp_model import champion
+
+    holdout_fixture.salta_si_no_hay_artefacto_acreditado("FAD")
 
     champ = champion.load_manifest()["FAD"]
     v = champion.evaluate("FAD", champ)

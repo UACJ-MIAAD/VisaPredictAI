@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import sys
-import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -112,10 +111,9 @@ def _formal_tests(df: pd.DataFrame, census: pd.DataFrame) -> pd.DataFrame:
         # se publica con veredicto centinela "failed" y el resto sigue.
         try:
             st = stationarity_of(y)
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                lb_p = float(acorr_ljungbox(d, lags=[12], return_df=True).lb_pvalue.iloc[0])
-                arch_p = float(het_arch(d - d.mean(), nlags=12)[1])
+            # Sin supresión: medido sobre el panel, ni Ljung-Box ni el test ARCH avisan.
+            lb_p = float(acorr_ljungbox(d, lags=[12], return_df=True).lb_pvalue.iloc[0])
+            arch_p = float(het_arch(d - d.mean(), nlags=12)[1])
             rec = {
                 "adf_p": st["adf_pvalue"],
                 "kpss_p": st["kpss_pvalue"],

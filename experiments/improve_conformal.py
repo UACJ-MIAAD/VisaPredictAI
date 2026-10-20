@@ -16,7 +16,15 @@ para que el flujo desplegado (``generate_web_forecasts``) lo consuma.
 Hygiene (AN7): pooled coverages carry a Jeffreys CI and n; means of per-series coverages are
 reported as before for continuity but the binomial claim is the pooled one.
 
+★ M74-F · C3: con ``--complement --parent-root MADRE`` corre dentro de una transacción
+complementaria `running` de ``deep_pi_conformal``. El deep-PI (baseline) y los pronósticos globales
+NO se producen aquí: se consumen sólo como importaciones acreditadas de la madre
+(`complement.importacion_acreditada`), se rotulan ``importado:<madre>`` y quedan en un sidecar de
+procedencia (`complement.PROCEDENCIA_REL`) sin cambiar el esquema del CSV. Si cualquiera no se
+acredita, no se escribe nada. Sin la bandera, un árbol con complementaria se niega a correr.
+
 Corre en ``ante``.  Uso:  ante/bin/python experiments/improve_conformal.py [--mlflow]
+      ante/bin/python experiments/improve_conformal.py --complement --parent-root RAIZ_MADRE
 """
 
 from __future__ import annotations
@@ -29,6 +37,7 @@ import numpy as np
 import pandas as pd
 
 from vp_data import tracking
+from vp_model import complement as cx
 from vp_model import dataset
 from vp_model.intervals import jeffreys_ci
 from vp_model.metrics import mase_by_series, naive_scale_before
@@ -85,13 +94,47 @@ def select_gamma(res_cal_by_series: list[np.ndarray], alpha: float, grid: tuple[
     return best[2] if best is not None else 0.05
 
 
+def deep_pi_no_acreditado(path: Path, table: str, *, reports: Path | None = None) -> str | None:
+    """``None`` si ``deep_pi_{table}.csv`` es de la campaña en curso; si no, el motivo. ★ M74-F · deuda 4.
+
+    En la cuarta campaña real conformal (etapa 4) leyó el deep-PI de la corrida anterior porque
+    deep-PI no corría hasta la etapa 5. El orden ya está corregido en el runbook; esto es lo que lo
+    hace comprobable: un CSV sin recibo, de otra campaña o tocado después del sellado no es baseline.
+    """
+    from vp_model import artifact_receipt as ar
+
+    reports = reports if reports is not None else REPORTS
+    if not path.is_file():
+        return f"no existe {path.name}"
+    try:
+        cid, sha, panel = ar.campaign_identity(reports, code_root=reports.parent)
+        ar.verify(
+            path,
+            schema="deep-pi-receipt/1",
+            campaign_id=cid,
+            code_sha=sha,
+            panel_sha256=panel,
+            protocol={"table": table, "cqr": False},
+        )
+    except ar.ReceiptError as exc:
+        return str(exc)
+    return None
+
+
 def _baseline_cov(table: str) -> float | None:
     """Derive the neuralforecast-conformal baseline coverage from ``deep_pi_{table}.csv``
     (F-only mask, mean of per-series coverages — same recipe as eval_deep_pi). AN4c: the
     previous hardcoded {FAD: 0.89, DFF: 0.77} contradicted the measurable CSVs."""
     path = REPORTS / "eval" / f"deep_pi_{table}.csv"
-    if not path.exists():
+    motivo = deep_pi_no_acreditado(path, table)
+    if motivo is not None:
+        print(f"  [{table}] baseline deep-PI descartado: {motivo}")
         return None
+    return _cobertura_deep_pi(path, table)
+
+
+def _cobertura_deep_pi(path: Path, table: str) -> float | None:
+    """Cobertura media por serie (máscara F-only) de un CSV deep-PI ya acreditado por quien llama."""
     df = pd.read_csv(path, parse_dates=["ds"])
     model = next(c for c in df.columns if "-" not in c and c not in ("unique_id", "ds", "y"))
     covs = []
@@ -127,7 +170,7 @@ def _point_mase(deep: pd.DataFrame, table: str) -> float:
 
 
 def _evaluate(table: str) -> dict:
-    deep = pd.read_csv(REPORTS / "campaign" / f"global_{table}_camp_diff_s1.csv", parse_dates=["ds"])
+    deep = pd.read_csv(REPORTS.parent / cx.artefacto_c3("forecasts", table)[0], parse_dates=["ds"])
     series: list[dict] = []
     for uid, g in deep.groupby("unique_id"):
         country, _b, category = uid.split("/")
@@ -183,17 +226,52 @@ def _evaluate(table: str) -> dict:
     }
 
 
-def main() -> None:
+def importaciones_c3(parent_root: Path, tablas: tuple[str, ...] = ("FAD", "DFF")) -> dict[str, dict[str, dict]]:
+    """Las importaciones que C3 consume, acreditadas ANTES de calcular nada. Fail-closed (SystemExit).
+
+    Antes, las precondiciones del contrato: código permitido y cargado de este árbol, panel y DuckDB
+    sellados, y la DuckDB que `dataset` abrirá de verdad (``DB_PATH`` resuelta contra el cwd) es la suya.
+    """
+    root = REPORTS.parent
+    try:
+        cx.precondiciones_calculo(root, proposito="deep_pi_conformal", duckdb_consumida=Path(dataset.DB_PATH))
+        return {
+            t: {
+                rol: cx.importacion_acreditada(root, *cx.artefacto_c3(rol, t), parent_root=parent_root)
+                for rol in cx.ROLES_C3
+            }
+            for t in tablas
+        }
+    except cx.ComplementoError as exc:
+        raise SystemExit(f"✗ C3 no puede consumir sus importaciones: {exc}") from exc
+
+
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mlflow", action="store_true")
-    args = ap.parse_args()
+    ap.add_argument("--complement", action="store_true", help="C3 dentro de la complementaria en curso")
+    ap.add_argument("--parent-root", type=Path, help="raíz de la campaña madre (obligatoria con --complement)")
+    args = ap.parse_args(argv)
+    if args.complement != (args.parent_root is not None):
+        ap.error("--complement y --parent-root van juntos")
+    consumidas = None
+    if args.complement:
+        consumidas = importaciones_c3(args.parent_root)
+    elif (REPORTS / "campaign" / "complement.json").exists():
+        raise SystemExit("✗ este árbol tiene una transacción complementaria: corre con --complement")
     rows = []
     gammas: dict[str, float] = {}
     for table in ("FAD", "DFF"):
         r = _evaluate(table)
         gammas[table] = r["gamma"]
-        base = _baseline_cov(table)
-        base_txt = f"{base:.3f} (derived from deep_pi_{table}.csv)" if base is not None else "n/a (no deep_pi csv)"
+        if consumidas is not None:
+            base = _cobertura_deep_pi(REPORTS.parent / cx.artefacto_c3("baseline", table)[0], table)
+            if base is None:
+                raise SystemExit(f"✗ C3: el deep-PI importado de {table} no deja calcular el baseline")
+        else:
+            base = _baseline_cov(table)
+        origen = consumidas[table]["baseline"]["source"] if consumidas is not None else f"deep_pi_{table}.csv"
+        base_txt = f"{base:.3f} (derived from {origen})" if base is not None else "n/a (deep-PI no acreditado)"
         sp, ap_ = r["split_pooled"], r["aci_pooled"]
         print(f"\n=== CONFORMAL AVANZADO {table} ({r['n']} series, target cobertura 0.95) ===")
         print(f"  MASE puntual BiTCN (scorer canónico): {r['point_mase']:.3f}  [informativo]")
@@ -248,6 +326,12 @@ def main() -> None:
         json.dumps({**gammas, "grid": list(GAMMA_GRID), "selected_on": "calibration split only"}, indent=2) + "\n"
     )
     print(f"\naci_gamma.json -> {gammas}")
+    if consumidas is not None:
+        try:
+            cx.sellar_procedencia_c3(REPORTS.parent, consumidas)
+        except cx.ComplementoError as exc:  # el código cambió mientras calculaba: sin firma, C3 no cierra
+            raise SystemExit(f"✗ C3 no firma su procedencia: {exc}") from exc
+        print(f"procedencia del baseline -> {cx.PROCEDENCIA_REL} (importado de la madre)")
 
 
 if __name__ == "__main__":

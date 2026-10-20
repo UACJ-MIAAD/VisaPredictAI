@@ -8,6 +8,10 @@
     "clase": "investigacion",
     "consumidor": "campañas multi-semilla (tablas del deliverable via make_tex_tables)"
   },
+  "analyze_paper_promises.py": {
+    "clase": "producto",
+    "consumidor": "reports/eval/paper_promises.json — etapa 8d del runbook: los dos analisis que paper.tex promete y la campana no producia (efecto del cono antes/despues y naive estacional OOS en los mismos origenes del scorecard); no entrena ni promueve"
+  },
   "apply_cone_constraints.py": {
     "clase": "producto",
     "consumidor": "generate_web_forecasts (cono FAD<=DFF/pais<=mundial)"
@@ -72,6 +76,10 @@
     "clase": "diagnostico",
     "consumidor": "re-deriva BAND80_RATIO/pi_scale_by_h en split disjunto (make derive-band80)"
   },
+  "diagnose_holdout_drift.py": {
+    "clase": "diagnostico",
+    "consumidor": "M74-F deuda 8: deriva de holdout_forecasts entre añadas cruzada con los huecos del panel (sólo lectura, fuera de reports/)"
+  },
   "eval_deep_pi.py": {
     "clase": "investigacion",
     "consumidor": "cobertura de PI del deep (reports/eval/deep_pi_*)"
@@ -87,6 +95,10 @@
   "generate_web_forecasts.py": {
     "clase": "producto",
     "consumidor": "cron 4b -> web_forecasts + ledger campeon"
+  },
+  "hpo_winner_receipt.py": {
+    "clase": "producto",
+    "consumidor": "recibo cerrado de la config ganadora del HPO profundo (§8.6.4): lo sella run_global_deep al buscar y lo re-acredita save_finalists_deep antes de construir el finalista"
   },
   "improve_conformal.py": {
     "clase": "investigacion",
@@ -156,6 +168,18 @@
     "clase": "archivo",
     "consumidor": "migracion A2 ya ejecutada (idempotente; --force para re-derivar actas); citada como referencia historica en vp_model/ledger.py y docs/FORECAST_EVAL.md"
   },
+  "persist_transported_forecasts.py": {
+    "clase": "producto",
+    "consumidor": "reports/eval/transported_forecasts.csv + su recibo — paso 2c de save_finalists.sh: recoge del walk-forward las filas de ETS/Theta (AutoETS/AutoTheta no admiten historical_forecasts(retrain=False), asi que nadie puede recalcularlas despues) y las persiste con cobertura acreditada ANTES del exportador"
+  },
+  "probe_linalg_determinism.py": {
+    "clase": "diagnostico",
+    "consumidor": "M74-F deuda 6: sonda BLAS de los LinAlgError ARIMA/SARIMA sobre docs/m74f_linalg_exclusiones.json (cómputo con orden del autor)"
+  },
+  "promote_finalists.py": {
+    "clase": "producto",
+    "consumidor": "models/ + models/coverage_receipt.json — paso 2b de save_finalists.sh: acredita cobertura exacta del arbol en staging y solo entonces lo promueve, retirando el anterior con su fecha. Vivia en tools/ por error mio de clasificacion (no es un guardian del repositorio sino un paso de campana); el gate de LOC por rol de C9 lo destapo"
+  },
   "run_campaign.sh": {
     "clase": "investigacion",
     "consumidor": "invocado por run_rederivation.sh (etapa F1 del runbook B1 post-cambio-de-datos) + experiments/README.md"
@@ -180,9 +204,17 @@
     "clase": "investigacion",
     "consumidor": "CRPS reproducible de clasicos"
   },
+  "run_complement.py": {
+    "clase": "investigacion",
+    "consumidor": "M74-F C3/C4: CLI del ciclo de una transaccion complementaria (vp_model/complement.py) en un worktree desechable: import/plan/start/close/accept/verify/fail; no entrena ni lanza lanes, no propaga ni publica (computo con orden del autor)"
+  },
   "run_deep_pi.py": {
     "clase": "investigacion",
     "consumidor": "PI del deep (CQR)"
+  },
+  "run_e3_campaign.py": {
+    "clase": "producto",
+    "consumidor": "reports/campaign/e3/ — etapa 8c del runbook: deriva los 42 lanes de E3 del deck congelado (docs/cohort_deck.json) por su unica puerta vp_model/deck.py; no inventa recetas ni promueve"
   },
   "run_e4_router.py": {
     "clase": "producto",
@@ -220,6 +252,10 @@
     "clase": "producto",
     "consumidor": "cron 4c-bis -> promotion_decision.json (gate A4)"
   },
+  "run_reconciliation.py": {
+    "clase": "investigacion",
+    "consumidor": "M74-F G7: CLI del recibo de reconciliacion (vp_model/reconciliation.py) en un worktree desechable: assemble/verify/close/fail; re-acredita la madre y sus complementarias, no re-deriva, no propaga ni publica (reconciliacion con orden del autor)"
+  },
   "run_rederivation.sh": {
     "clase": "investigacion",
     "consumidor": "runbook B1 de re-derivacion total (11.5h)"
@@ -254,7 +290,7 @@
   },
   "seed_coverage.py": {
     "clase": "investigacion",
-    "consumidor": "contrato de cobertura por semilla del productor deep (run_global_deep) + gate validate_seed_group"
+    "consumidor": "contrato de cobertura por semilla del productor deep (run_global_deep) + puerta unica accredit_group (aggregate_seeds)"
   },
   "significance_tables.py": {
     "clase": "investigacion",

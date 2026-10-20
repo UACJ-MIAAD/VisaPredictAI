@@ -126,7 +126,13 @@ test-model:
 		tests/test_feature_builder.py \
 		tests/test_ensemble.py tests/test_model_regression.py tests/test_champion.py \
 		tests/test_ledger_v2.py tests/test_promotion_gate.py \
-		tests/test_router_e4.py
+		tests/test_router_e4.py \
+		tests/test_holdout_forecasts_m74e_r1.py tests/test_acreditacion_m74e_r2.py \
+		tests/test_frontera_publica_m74e_r3.py tests/test_m74f_complemento.py \
+		tests/test_m74f_complemento_cableado.py tests/test_g7_reconciliacion.py \
+		tests/test_g7_figuras_liston.py tests/test_g7_publicacion_reconciliada.py \
+		tests/test_g7_revalidacion.py tests/test_g7_publicador_ensayo.py \
+		tests/test_m74f_champion_crps.py tests/test_m74f_crps_baseline_contrato.py
 
 # Reproducir los resultados (requiere `make model-install` + `make db`):
 eda:

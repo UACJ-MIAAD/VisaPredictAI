@@ -13,15 +13,40 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
-from run_global_deep import HOLDOUT, encode_regime, load_panel, regular_monthly  # noqa: F401
+from run_global_deep import HOLDOUT, VAL_SIZE, encode_regime, load_panel, regular_monthly  # noqa: F401
 
 ROOT = Path(__file__).resolve().parent.parent
-MODELS = ROOT / "models"
-MANIFEST = MODELS / "manifest.jsonl"
 PANEL_CSV = ROOT / "data" / "processed" / "visa_panel_long.csv"
 DET = ("BiTCN", "PatchTST", "TiDE", "NHITS")  # deterministas finalistas
+
+
+def _ruta_env(nombre: str, por_defecto: Path) -> Path:
+    """Una ruta que el orquestador puede fijar por entorno; relativa ⇒ desde la raíz del repo."""
+    raw = os.environ.get(nombre)
+    if not raw:
+        return por_defecto
+    return Path(raw) if os.path.isabs(raw) else ROOT / raw
+
+
+def models_root() -> Path:
+    """★ R14 · dónde se ESCRIBE: el staging por campaña de `save_finalists.sh` (`VP_MODELS_DIR`) o,
+    suelto, el árbol servido. Hasta R14 se ignoraba la variable (misma corrección que `save_finalists.py`)."""
+    return _ruta_env("VP_MODELS_DIR", ROOT / "models")
+
+
+def manifest_path() -> Path:
+    return _ruta_env("VP_MODELS_MANIFEST", models_root() / "manifest.jsonl")
+
+
+def _ruta_manifiesto(p: Path) -> str:
+    """Relativa a la raíz del repo cuando el destino cuelga de ella (el staging real); si no, absoluta."""
+    try:
+        return str(p.relative_to(ROOT))
+    except ValueError:
+        return str(p)
 
 
 def _identity() -> dict:
@@ -63,9 +88,29 @@ def _diff(panel: pd.DataFrame) -> pd.DataFrame:
     return pd.concat(parts, ignore_index=True)
 
 
+def fit_finalist(nf: Any, train: pd.DataFrame, name: str) -> Any:
+    """★ R19 · ajusta el finalista como lo ajustó el runner que lo seleccionó.
+
+    La ganadora acreditada (`hpo_deep_best_*_AutoBiTCN.json`) trae `early_stop_patience_steps` y
+    `val_check_steps` (AK8b): sin una cola de validación por serie NeuralForecast rechaza el ajuste
+    («Set val_size>0 or provide a val_df if early stopping is enabled») y la campaña
+    `rederiv_bcaeb03_20260915T230637` murió en [2b/4] tras 14 h con 8 de 10 globales. El runner pasa
+    `VAL_SIZE` para `--auto`/`--config`; aquí se pasa la MISMA cola. Los deterministas siguen sin ella.
+    """
+    return nf.fit(train, val_size=VAL_SIZE if name.startswith("Auto") else 0)
+
+
+def _cerrar(fallos: list[str]) -> None:
+    """★ R19 · un global fallido ya no deja al productor salir en verde: el promotor lo iba a rechazar
+    de todos modos, pero una hora de locales más tarde."""
+    if fallos:
+        raise SystemExit(f"finalistas globales fallidos, NO se continua: {', '.join(fallos)}")
+
+
 def _manifest(entry: dict) -> None:
-    MODELS.mkdir(parents=True, exist_ok=True)
-    with MANIFEST.open("a") as f:
+    manifiesto = manifest_path()
+    manifiesto.parent.mkdir(parents=True, exist_ok=True)
+    with manifiesto.open("a") as f:
         f.write(json.dumps(entry) + "\n")
 
 
@@ -73,13 +118,12 @@ def main() -> None:
     import torch
 
     torch.set_num_threads(1)
+    from hpo_winner_receipt import build_finalist, load_and_accredit
     from neuralforecast import NeuralForecast
-    from neuralforecast.auto import AutoBiTCN
-    from neuralforecast.losses.pytorch import MAE
     from neuralforecast.models import NHITS, BiTCN, PatchTST, TiDE
-    from run_global_deep import _auto_config, _optuna_sampler
 
     cls = {"BiTCN": BiTCN, "PatchTST": PatchTST, "TiDE": TiDE, "NHITS": NHITS}
+    fallos: list[str] = []
     for table in ("FAD", "DFF"):
         panel = load_panel(table, "family")
         train = _diff(panel)
@@ -95,23 +139,26 @@ def main() -> None:
             enable_model_summary=False,
         )
         from collections.abc import Callable
-        from typing import Any
 
         builders: dict[str, Callable[..., Any]] = {m: (lambda M=cls[m], c=common: M(**c)) for m in DET}
-        builders["AutoBiTCN"] = lambda: AutoBiTCN(
-            h=1,
-            loss=MAE(),
-            config=_auto_config,
-            num_samples=15,
-            backend="optuna",
-            search_alg=_optuna_sampler(1),
-            verbose=False,
-        )
+        # ★ §8.6: la finalización NO reoptimiza. Antes abría una SEGUNDA búsqueda Optuna (15
+        # trials, espacio `_auto_config`) distinta de la que seleccionó la receta, así que el
+        # «finalista AutoBiTCN» podía no ser el modelo que la campaña evaluó. Ahora consume la
+        # ganadora sellada de ESTA campaña, acreditada antes de construir nada, y la reentrena
+        # como BiTCN determinista. «AutoBiTCN» nombra el PROCEDIMIENTO de selección; la clase es
+        # BiTCN, y el manifiesto distingue ambas cosas.
+        ganadora = ROOT / "reports" / "campaign" / f"hpo_deep_best_{table}_AutoBiTCN.json"
+        # Ni la identidad ni el acelerador se pasan: los LEE el acreditador (transacción, panel,
+        # HEAD y VP_DEEP_ACCEL). El llamador ya no puede declarar lo que debía acreditarse.
+        cfg = load_and_accredit(ganadora, root=ROOT, table=table, model="AutoBiTCN")
+        # `build_finalist` fija accelerator="cpu" desde la config acreditada; aquí NO se vuelve a
+        # consultar `_accelerator()`, que preferiría MPS si la máquina lo tiene.
+        builders["AutoBiTCN"] = lambda c=cfg: build_finalist(BiTCN, c)
         for name, build in builders.items():
             try:
                 nf = NeuralForecast(models=[build()], freq="MS")
-                nf.fit(train)
-                out = MODELS / table / "global" / name
+                fit_finalist(nf, train, name)
+                out = models_root() / table / "global" / name
                 out.mkdir(parents=True, exist_ok=True)
                 nf.save(str(out), overwrite=True)
                 _manifest(
@@ -120,14 +167,20 @@ def main() -> None:
                         "table": table,
                         "type": "global_deep",
                         "recipe": "diff+global+HPO" if name.startswith("Auto") else "diff+global",
-                        "path": str(out.relative_to(ROOT)),
+                        # §8.6.1: «AutoBiTCN» es la IDENTIDAD del procedimiento de selección; la
+                        # clase realmente instanciada es BiTCN. El manifiesto las separa.
+                        "model_class": type(nf.models[0]).__name__,
+                        "selection": "hpo_winner_sealed" if name.startswith("Auto") else "fixed",
+                        "path": _ruta_manifiesto(out),
                         "n_series": int(panel["unique_id"].nunique()),
                         **_identity(),  # git_sha/git_dirty/panel_hash (exigidos por el gate)
                     }
                 )
-                print(f"  ✓ {table}/{name} -> {out.relative_to(ROOT)}")
+                print(f"  ✓ {table}/{name} -> {_ruta_manifiesto(out)}")  # R19: fuera de ROOT relative_to lanzaba
             except Exception as e:  # noqa: BLE001
                 print(f"  ✗ {table}/{name} FALLO: {type(e).__name__}: {str(e)[:100]}")
+                fallos.append(f"{table}/{name}")
+    _cerrar(fallos)
 
 
 if __name__ == "__main__":

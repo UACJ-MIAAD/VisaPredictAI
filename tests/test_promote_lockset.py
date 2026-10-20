@@ -25,6 +25,12 @@ GEN = {
     "uv": "0.11.28",
 }
 
+#: M74-E-R6 · el promotor exige procedencia por lock (generación uniforme: `generated`).
+PROV = {
+    f"locks/{n}": {"method": "generated", "base": None, "python": GEN["python"], "command": "bash tools/make_locks.sh"}
+    for n in promote_lockset.LOCK_NAMES
+}
+
 
 @pytest.fixture
 def sandbox(tmp_path, monkeypatch):
@@ -56,7 +62,7 @@ def _staged(tmp_path):
 def test_happy_path_promotes_nine_and_manifest(sandbox, tmp_path):
     _root, locks = sandbox
     staged = _staged(tmp_path)
-    manifest = promote_lockset.promote(staged, GEN)
+    manifest = promote_lockset.promote(staged, GEN, PROV)
     for name in promote_lockset.LOCK_NAMES:
         assert (locks / name).read_text() == (staged / name).read_text()
     assert (locks / "lockset.json").exists()
@@ -71,7 +77,7 @@ def test_invalid_generator_aborts(sandbox, tmp_path):
     # el generator se valida ANTES de tocar locks (validate_generator NO está monkeypatcheado)
     _root, locks = sandbox
     with pytest.raises(SystemExit, match="generator inválido"):
-        promote_lockset.promote(_staged(tmp_path), {**GEN, "platform": "Linux x86_64"})
+        promote_lockset.promote(_staged(tmp_path), {**GEN, "platform": "Linux x86_64"}, PROV)
     assert not (locks / "lockset.json").exists()
 
 
@@ -80,7 +86,7 @@ def test_invalid_staging_aborts_without_mutation(sandbox, tmp_path, monkeypatch)
     (locks / "runtime.txt").write_text("# viejo\nold==0.0.1\n")
     monkeypatch.setattr(promote_lockset.lc, "validate_staging", lambda staged, root=None: ["staging inválido X"])
     with pytest.raises(SystemExit):
-        promote_lockset.promote(_staged(tmp_path), GEN)
+        promote_lockset.promote(_staged(tmp_path), GEN, PROV)
     assert (locks / "runtime.txt").read_text() == "# viejo\nold==0.0.1\n"
     assert not (locks / "lockset.json").exists()
 
@@ -104,7 +110,7 @@ def test_rollback_on_midway_failure(sandbox, tmp_path, monkeypatch):
 
     monkeypatch.setattr(promote_lockset.os, "replace", flaky_replace)
     with pytest.raises(RuntimeError):
-        promote_lockset.promote(staged, GEN)
+        promote_lockset.promote(staged, GEN, PROV)
     assert (locks / "runtime.txt").read_text() == "# viejo runtime\nold==0.0.1\n"
     assert (locks / "dev.txt").read_text() == "# viejo dev\nold==0.0.2\n"
     for name in promote_lockset.LOCK_NAMES:
@@ -119,7 +125,7 @@ def test_post_validation_failure_rolls_back(sandbox, tmp_path, monkeypatch):
     _root, locks = sandbox
     monkeypatch.setattr(promote_lockset.lc, "validate_all", lambda root, manifest=None: ["post incoherente"])
     with pytest.raises(RuntimeError, match="post-promoción"):
-        promote_lockset.promote(_staged(tmp_path), GEN)
+        promote_lockset.promote(_staged(tmp_path), GEN, PROV)
     for name in promote_lockset.LOCK_NAMES:
         assert not (locks / name).exists()
     assert not (locks / "lockset.json").exists()
@@ -143,13 +149,13 @@ def test_rollback_failure_removes_manifest(sandbox, tmp_path, monkeypatch):
 
     monkeypatch.setattr(promote_lockset.os, "replace", flaky_replace)
     with pytest.raises(RuntimeError, match="ROLLBACK FALLIDO"):
-        promote_lockset.promote(_staged(tmp_path), GEN)
+        promote_lockset.promote(_staged(tmp_path), GEN, PROV)
     assert not (locks / "lockset.json").exists()  # señal inequívoca de matriz inválida
 
 
 def test_manifest_written_last_matches_bytes(sandbox, tmp_path):
     _root, locks = sandbox
-    promote_lockset.promote(_staged(tmp_path), GEN)
+    promote_lockset.promote(_staged(tmp_path), GEN, PROV)
     manifest = json.loads((locks / "lockset.json").read_text())
     for name in promote_lockset.LOCK_NAMES:
         assert manifest["locks"][f"locks/{name}"]["sha256"] == promote_lockset._sha256((locks / name).read_bytes())
@@ -157,3 +163,10 @@ def test_manifest_written_last_matches_bytes(sandbox, tmp_path):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+def test_the_manifest_records_per_lock_provenance(sandbox, tmp_path):
+    """M74-E-R6: la procedencia por lock viaja al manifiesto tal cual se promueve."""
+    manifest = promote_lockset.promote(_staged(tmp_path), GEN, PROV)
+    assert manifest["schema_version"] == 2
+    assert manifest["provenance"] == PROV

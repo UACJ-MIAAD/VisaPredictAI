@@ -56,6 +56,8 @@ reports/eval/neuralforecast_forecasts.csv
 # Storage sqlite del HPO Optuna (AK4) — binario regenerable; la procedencia legible
 # vive en reports/campaign/hpo_trials_*.csv (versionados)
 reports/eval/optuna.db
+# M74-F · deuda 5: una base de estudios Optuna por campaña (vp_model.tune.default_storage_path)
+reports/eval/optuna/
 ante_nf/
 
 # Efecto secundario del logger de Lightning (modelos torch de darts) — regenerable
@@ -86,6 +88,13 @@ mlflow.db
 mlartifacts/
 # Manifiesto por-corrida de la campaña (identidad; efímero, no versionar)
 reports/campaign/campaign_manifest.json
+# ★ M74-E-R16 · la transacción de campaña y su archivo son ESTADO local del runbook, de la misma clase que
+# el manifiesto de arriba y `reports/logs/`: el preflight mide `git status --porcelain` (untracked incluidos) y
+# sin esto cualquier relanzamiento oficial tras una campaña moría en exit 13 («sello de otra identidad»).
+# El `.lock` lo crea `campaign_state` en cada transición y nunca se borra.
+reports/campaign/campaign.json
+reports/campaign/campaign.json.lock
+reports/campaign/transactions/
 # Modelos entrenados -> versionados con DVC, no git
 models/
 /models
@@ -106,3 +115,5 @@ reports/campaign_aq_logs/
 
 # P0R.3: receipt de supply chain (artefacto runtime del cron/audit, regenerable)
 reports/governance/supply_chain_receipt.json
+# ★ M74-E-R11 · bitácoras y sellos por campaña: salidas, no código; si ensucian el árbol, el sello vivo no reproduce
+reports/logs/

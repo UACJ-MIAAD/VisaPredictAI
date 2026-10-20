@@ -1,0 +1,797 @@
+"""Conduce la transacción de campaña de ADR 0003 desde un runner. Envoltura reutilizable.
+
+`tools/campaign_state.py` implementa la máquina de estados desde julio, pero **ningún runner la
+conducía** (pendiente #56): las campañas se llevaban a mano y `campaign.json` no se escribía. Este
+módulo es la pieza que faltaba, y es **una sola** para los dos tipos de consumidor:
+
+* **Desde bash** —los runners del proyecto son `.sh`— por subcomandos:
+  ``open`` · ``compute`` · ``fail`` · ``validate`` · ``publish`` · ``guard`` · ``status``.
+* **Desde Python** por el gestor de contexto :func:`campaign`, que sella al entrar y marca
+  ``failed`` si el cuerpo lanza — incluida una interrupción.
+
+Sin esto, cada runner habría acabado con su propia secuencia de llamadas y su propio criterio de
+qué hacer ante un estado terminal: exactamente la duplicación que el proyecto lleva meses
+cerrando.
+
+**La prohibición que hace el trabajo** es :func:`publishable`: sólo ``validated`` publica —`running`
+(también el que deja un `SIGKILL`), `computed`, `failed` y `published` bloquean— y sólo con un manifiesto
+OBLIGATORIO, acreditado y cruzado con la transacción. ``guard`` la consulta y ``publish`` la repite justo
+antes de escribir; ninguno arranca sin ``--manifest`` (M74-E-R13). Quien escriba `campaign.json` a mano o
+llame a `campaign_state` directamente sigue fuera: la envoltura no intercepta lo que no pasa por ella.
+
+**Cómputo completo con propagación pendiente** llega a ``computed`` con ``consistency`` en
+``'pending'`` (M74-B): el resultado que la campaña existe para producir —que las cifras cambien— ya
+no manda la corrida a ``failed``, que es terminal. Es ``validate`` quien vuelve a exigir la
+consistencia en ``'passed'``, re-ejecutando el guardián.
+
+⚠️ **Validar es un acto humano y por eso no se teclea.** ``validate`` no acepta revisor ni decisión
+por argumento: los lee de un **recibo JSON de esquema cerrado** ligado a la campaña por
+``campaign_id``, SHA, hash del panel y sello de entradas. Un archivo cualquiera, un revisor vacío o una
+identidad automatizada **no validan**. Y no existe bandera para saltarse el guardián de
+consistencia: la que había (``--skip-consistency-check``) era un bypass de producción y se retiró.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from tools import campaign_manifest as cm
+from tools import campaign_state as cs
+from vp_model import campaign_evidence as ce
+from vp_model import vinculo_publicacion as vp
+from vp_model.campaign_schema import _HEX40
+
+#: Ruta convenida, junto al manifiesto de campaña que ya vive ahí.
+DEFAULT_PATH = Path("reports/campaign/campaign.json")
+#: Raíz del repositorio que publica. Nombrada aparte para que el camino fail-closed de
+#: `_run_consistency` —guardián ausente ⇒ NO se valida— sea comprobable sin mover archivos.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+#: Códigos de salida propios, para que un runner los distinga sin leer el texto.
+EXIT_OK = 0
+EXIT_ERROR = 1  #: la transición pedida es ilegal o los datos no validan
+EXIT_BLOCKED = 3  #: `guard`: el estado NO autoriza publicar
+EXIT_ALREADY_TERMINAL = 4  #: `fail --if-open`: ya había estado terminal, no se tocó nada
+
+
+#: ─────────────────────────────────────────────────────────────── recibo de revisión humana
+#: Esquema **cerrado** del recibo que `validate` exige. Antes, la revisión humana se acreditaba
+#: con tres argumentos libres (`--receipt <cualquier archivo> --reviewed-by X --decision Y`): un
+#: `cron-bot` podía teclearlos y la máquina no tenía forma de contradecirle. Ahora el revisor y la
+#: decisión **se leen del recibo**, y el recibo está ligado a ESTA campaña.
+RECEIPT_SCHEMA = "campaign-validation-receipt/2"  # /2 · M74-E-R12: + input_seal_sha256
+#: ★ M74-E-R12: la revisión humana queda ligada también al sello de entradas comparado en vivo.
+IDENTIDAD_RECIBO = ("campaign_id", "source_git_sha", "panel_sha256", "input_seal_sha256")
+RECEIPT_KEYS = frozenset({*IDENTIDAD_RECIBO, "schema", "reviewed_by", "decision", "reviewed_at"})
+#: ★ G7 · B5a: el /3 liga además el RESULTADO EXACTO (madre, reconciliación, candidato de release): `vinculo_publicacion`.
+_CLAVES_POR_ESQUEMA = {RECEIPT_SCHEMA: RECEIPT_KEYS, vp.RECEIPT_SCHEMA: RECEIPT_KEYS | frozenset(vp.VINCULO)}
+#: Vocabulario cerrado: sólo `aprobada` transiciona. `rechazada` es un recibo válido cuyo desenlace
+#: correcto es `fail`, no `validated` — una campaña rechazada que quedara `validated` autorizaría
+#: publicar exactamente lo que el revisor acaba de rechazar.
+RECEIPT_DECISIONS = ("aprobada", "rechazada")
+#: Identidades que **declaran** automatización. ⚠️ Esto NO prueba humanidad y no pretende hacerlo:
+#: obliga a la automatización a mentir en un artefacto firmado por su hash en vez de acreditarse
+#: por omisión. Falsificar el recibo es otra clase de problema que dejar la puerta abierta.
+_AUTOMATION = re.compile(
+    r"(?i)(?:^|[^a-z])(?:bot|cron|ci|cd|runner|robot|automat\w*|github[-_ ]?actions?|jenkins|"
+    r"pipeline|daemon|service[-_ ]?account|no[-_]?reply|system|agent|script)(?:[^a-z]|$)"
+)
+#: Un nombre de persona no cabe en dos caracteres; y un revisor de una sola palabra genérica
+#: («admin») no identifica a nadie que pueda responder de la decisión.
+_MIN_REVISOR = 4
+
+
+class ReceiptError(ValueError):
+    """El recibo de revisión no acredita una validación humana de ESTA campaña."""
+
+
+def load_validation_receipt(path: str | Path, estado: Mapping[str, Any]) -> dict[str, str]:
+    """Lee y **acredita** el recibo contra la campaña abierta. Fail-closed en todo lo demás.
+
+    Devuelve el recibo ya validado. Lanza :class:`ReceiptError` nombrando exactamente qué falló,
+    para que el operador no tenga que adivinar cuál de los ocho campos no cuadra.
+    """
+    ruta = Path(path)
+    if not ruta.is_file():
+        raise ReceiptError(f"el recibo {ruta} no existe")
+    return acreditar_recibo(ruta.read_bytes(), estado)
+
+
+def acreditar_recibo(crudo: bytes, estado: Mapping[str, Any]) -> dict[str, str]:
+    """Acredita UNOS BYTES concretos del recibo (G7 · B5a, auditoría 17-oct): quien registra o consume el hash del
+    recibo tiene que haber acreditado exactamente esos bytes, no una relectura posterior del archivo."""
+    try:
+        #: `cs.loads` rechaza claves duplicadas: nadie esconde un segundo `decision`.
+        datos = cs.loads(crudo.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ReceiptError(f"recibo ilegible, no es un objeto o tiene claves duplicadas: {exc}") from exc
+
+    esquema = datos.get("schema")
+    if esquema is not None and esquema not in _CLAVES_POR_ESQUEMA:
+        raise ReceiptError(f"esquema {esquema!r}; se esperaba uno de {sorted(_CLAVES_POR_ESQUEMA)}")
+    claves = _CLAVES_POR_ESQUEMA.get(str(esquema), RECEIPT_KEYS)  # sin `schema`: se reporta entre las que faltan
+    faltan = sorted(claves - set(datos))
+    sobran = sorted(set(datos) - claves)
+    if faltan or sobran:
+        raise ReceiptError(f"esquema del recibo: faltan {faltan}, sobran {sobran}")
+    for clave, valor in sorted(datos.items()):
+        if not isinstance(valor, str) or not valor.strip():
+            raise ReceiptError(f"el campo {clave!r} del recibo debe ser una cadena no vacía")
+
+    # ── ligado a ESTA campaña: cuatro identidades, no una
+    for clave in IDENTIDAD_RECIBO:
+        if datos[clave] != estado.get(clave):
+            raise ReceiptError(
+                f"el recibo dice {clave}={datos[clave]!r} y la campaña abierta tiene "
+                f"{estado.get(clave)!r}: no revisan la misma corrida"
+            )
+
+    # ── la decisión, del vocabulario cerrado
+    if datos["decision"] not in RECEIPT_DECISIONS:
+        raise ReceiptError(f"decision {datos['decision']!r} fuera del vocabulario {RECEIPT_DECISIONS}")
+    if datos["decision"] != "aprobada":
+        raise ReceiptError(
+            "el recibo RECHAZA la campaña: el desenlace correcto es `fail`, no `validated` "
+            "(validarla autorizaría publicar justo lo que la revisión rechaza)"
+        )
+
+    # ── el revisor: una persona que pueda responder de la decisión
+    revisor = datos["reviewed_by"].strip()
+    if len(revisor) < _MIN_REVISOR:
+        raise ReceiptError(f"reviewed_by {revisor!r} es demasiado corto para identificar a nadie")
+    if _AUTOMATION.search(revisor):
+        raise ReceiptError(
+            f"reviewed_by {revisor!r} declara una identidad automatizada; la validación de una "
+            "campaña es un acto humano y responde una persona"
+        )
+
+    # ── la fecha: una revisión no puede preceder a lo que revisa
+    if not cs._valid_ts(datos["reviewed_at"]):
+        raise ReceiptError(f"reviewed_at {datos['reviewed_at']!r} no es una marca RFC3339 válida")
+    piso_clave = "completed_at" if estado.get("completed_at") else "started_at"
+    piso = estado.get(piso_clave)
+    if isinstance(piso, str) and _parse_ts(datos["reviewed_at"]) < _parse_ts(piso):
+        raise ReceiptError(
+            f"reviewed_at ({datos['reviewed_at']}) precede a {piso_clave} ({piso}): "
+            "un recibo escrito antes del cómputo no puede ser su revisión"
+        )
+    return {k: str(v) for k, v in datos.items()}
+
+
+def _revalidar(path: Path, recibo: Path) -> dict:
+    """La vía ÚNICA de `revalidate` (G7 · desbloqueo): misma acreditación que `validate`, sobre una madre `validated`.
+
+    Consistencia acreditada; UNA lectura del estado (su huella entra al CAS) y UNA del recibo; recibo /3 aprobado, de
+    ESTA campaña, POSTERIOR al permiso que sustituye y que describe el resultado vivo (madre, reconciliación, candidato).
+    """
+    ok_cons, salida = _run_consistency()
+    if not ok_cons:
+        raise ReceiptError(f"la consistencia NO está acreditada; propaga y reintenta:\n{salida}")
+    try:
+        datos_estado = path.read_bytes()
+        abierta = cs.loads(datos_estado.decode("utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ReceiptError(f"no hay transacción legible en {path}: {exc}") from exc
+    if abierta.get("status") != cs.PUBLISHABLE:
+        raise ReceiptError(f"sólo se revalida una madre '{cs.PUBLISHABLE}' (está en '{abierta.get('status')}')")
+    ruta = recibo.resolve()
+    if not ruta.is_file():
+        raise ReceiptError(f"el recibo {ruta} no existe")
+    crudo = ruta.read_bytes()  # se acreditan y se registran ESTOS bytes
+    acta = acreditar_recibo(crudo, abierta)
+    if acta["schema"] != vp.RECEIPT_SCHEMA:
+        raise ReceiptError(f"un recibo {acta['schema']} no liga ningún resultado: revalidar exige el /3")
+    sha = hashlib.sha256(crudo).hexdigest()
+    if sha == abierta.get("validation_receipt_sha256"):
+        raise ReceiptError("el recibo recicla el permiso vigente: revalidar exige un /3 nuevo")
+    if _parse_ts(acta["reviewed_at"]) <= _parse_ts(str(abierta.get("validated_at"))):
+        raise ReceiptError(
+            f"reviewed_at ({acta['reviewed_at']}) no es posterior al permiso que sustituye ({abierta.get('validated_at')})"
+        )
+    vinculo = vp.problema(acta, path, abierta, repo_root=_REPO_ROOT)
+    if vinculo:
+        raise ReceiptError(vinculo)
+    try:
+        return cs.revalidate(
+            path,
+            validation_receipt_sha256=sha,
+            validation_receipt_path=str(ruta),
+            reviewed_by=acta["reviewed_by"],
+            decision=acta["decision"],
+            validated_at=now_rfc3339(),
+            expected_revision=abierta["revision"],
+            expected_state_sha256=hashlib.sha256(datos_estado).hexdigest(),
+        )
+    except ValueError as exc:
+        raise ReceiptError(str(exc)) from exc
+
+
+def _parse_ts(valor: str) -> datetime:
+    return datetime.fromisoformat(valor.replace("Z", "+00:00"))
+
+
+def now_rfc3339() -> str:
+    """Marca de tiempo UTC con zona, en el formato que el esquema exige."""
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def sha256_file(path: str | Path) -> str:
+    """sha256 hexadecimal del contenido de un archivo, leído por bloques."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for bloque in iter(lambda: fh.read(1 << 20), b""):
+            h.update(bloque)
+    return h.hexdigest()
+
+
+def panel_fingerprint(path: str | Path) -> str:
+    """Huella del panel en la forma que pide el esquema (``sha256:`` + 64 hex)."""
+    return "sha256:" + sha256_file(path)
+
+
+def open_campaign(
+    path: str | Path,
+    *,
+    campaign_id: str,
+    source_git_sha: str,
+    git_dirty: bool,
+    panel: str | Path,
+    input_seal_sha256: str,
+    started_at: str | None = None,
+) -> dict:
+    """Sella la campaña en ``running``. Create-only: si ya existe, aborta (no se reinicia)."""
+    return cs.seal_running(
+        path,
+        campaign_id=campaign_id,
+        source_git_sha=source_git_sha,
+        git_dirty=git_dirty,
+        panel_sha256=panel_fingerprint(panel),
+        started_at=started_at or now_rfc3339(),
+        input_seal_sha256=input_seal_sha256,
+    )
+
+
+def fail_if_open(path: str | Path, *, stage: str, reason: str, exit_code: int | None = None) -> dict | None:
+    """Marca ``failed`` **sólo** si la campaña sigue abierta; si ya es terminal, no toca nada.
+
+    Un runner de shell instala esto en un ``trap``, que se dispara **también** después de un fallo
+    ya registrado. Sin esta guarda, el trap intentaría `failed -> failed`, la máquina lo rechazaría
+    con razón, y el runner moriría con un error espurio que taparía el fallo verdadero.
+    """
+    actual = cs.read(path)
+    if actual is None:
+        return None
+    if actual["status"] in cs.TERMINAL:
+        return None
+    return cs.mark_failed(path, failed_stage=stage, failed_at=now_rfc3339(), reason=reason, exit_code=exit_code)
+
+
+def publishable(path: str | Path, *, manifest: str | Path) -> tuple[bool, str]:
+    """¿Autoriza este estado a publicar? Véase `_puerta`."""
+    ok, motivo, _acta = _puerta(path, manifest=manifest)
+    return ok, motivo
+
+
+def _puerta(path: str | Path, *, manifest: str | Path) -> tuple[bool, str, dict[str, str] | None]:
+    """¿Autoriza este estado a publicar? Sólo ``validated``, y sólo si TODO lo acredita.
+
+    Comprueba, además del estado: esquema íntegro (que desde M74-B exige gates con valor, revisión
+    ≥ 1, cadenas no vacías y claves compatibles), **árbol limpio** (``git_dirty=False``: la ruta
+    diagnóstica `ALLOW_DIRTY` llegaba a `validated` y publicaba), el **recibo de validación por
+    ruta, existencia, hash y acreditación completa** —esquema cerrado, ligado a ESTA campaña, con
+    revisor y decisión que coinciden con los que el estado declara— y el **manifiesto, OBLIGATORIO**
+    (M74-E-R13): publicable por sí mismo y con campaña, SHA, dirty y sello iguales a los de la transacción.
+    """
+    ruta = Path(path)
+    if not ruta.exists():
+        return False, f"no hay transacción de campaña en {ruta} — publicar exige una campaña validada", None
+    actual = cs.read(ruta)
+    if actual is None:
+        return False, f"{ruta} ilegible o no es un objeto JSON", None
+    problems = cs.validate_schema(actual)
+    if problems:
+        return False, f"{ruta} no cumple el esquema: {problems}", None
+    estado = actual["status"]
+    if estado != cs.PUBLISHABLE:
+        return False, f"estado '{estado}' NO autoriza publicar (sólo '{cs.PUBLISHABLE}')", None
+    if actual.get("git_dirty") is not False:
+        return False, "la campaña se selló con el árbol SUCIO (git_dirty): es diagnóstica y no se publica", None
+    # G7 · B5a: lo que se publica es UN cómputo concreto; su evidencia inmutable tiene que acreditarse.
+    try:
+        ce.evidencia_computada(ruta)
+    except ce.EvidenciaError as exc:
+        return False, f"la evidencia del cómputo no se acredita: {exc}", None
+    # ★ G7 · desbloqueo: una madre revalidada publica sólo si su historia de autorizaciones se acredita entera
+    historial = cs.historial_problemas(ruta, actual)
+    if historial:
+        return False, "historial de validaciones: " + "; ".join(historial), None
+    ok_recibo, motivo, acta = _receipt_matches(actual)
+    if not ok_recibo or acta is None:
+        return False, motivo, None
+    ok_id, motivo = _manifest_matches(manifest, actual)
+    if not ok_id:
+        return False, motivo, None
+    # ★ G7 · B5a (auditoría 17-oct): sólo un recibo que liga el resultado exacto autoriza. El /2 no liga nada, y no
+    # hay forma mecánica de saber desde la madre si tuvo complementarias: se retira como autorización.
+    if acta["schema"] != vp.RECEIPT_SCHEMA:
+        return (
+            False,
+            f"la campaña se validó con un recibo {acta['schema']}: no liga ningún resultado (se exige /3)",
+            None,
+        )
+    vinculo = vp.problema(acta, ruta, actual, repo_root=_REPO_ROOT)
+    if vinculo:
+        return False, vinculo, None
+    return True, f"campaña {actual['campaign_id']} en '{estado}': autoriza publicar", acta
+
+
+class PublicationBlocked(RuntimeError):
+    """`publish` se niega: la puerta (`publishable`) no autoriza publicar este estado."""
+
+
+def publish(path: str | Path, *, manifest: str | Path, release_sha: str) -> dict:
+    """La ÚNICA vía a `published` (G7 · decisión B del autor): la máquina ya no expone esa escritura.
+
+    Lee la revisión, pasa la MISMA puerta que `guard` (estado, esquema, árbol limpio, recibo re-acreditado,
+    manifiesto obligatorio) y escribe con CAS sobre esa revisión: si la transacción cambia entre la puerta y la
+    escritura, la escritura falla en vez de publicar un estado que nadie acreditó.
+    """
+    # ★ G7 · desbloqueo: CAS sobre la revisión Y la huella de los bytes que la puerta va a acreditar
+    try:
+        bytes_antes = Path(path).read_bytes()
+    except OSError:
+        bytes_antes = b""
+    antes = cs.read(path)
+    revision = antes.get("revision") if antes else None
+    ok, motivo, acta = _puerta(path, manifest=manifest)
+    if not ok or acta is None:
+        raise PublicationBlocked(motivo)
+    if not isinstance(release_sha, str) or not _HEX40.match(release_sha):
+        raise ValueError("publish: release_sha debe ser hex de 40")
+    if not isinstance(revision, int) or isinstance(revision, bool):
+        raise ValueError(f"publish: revisión ilegible antes de la puerta ({revision!r})")
+    # ★ G7 · B5a: se publica EXACTAMENTE el árbol revisado; un squash que no lo reproduce no consume el permiso.
+    if vp.arbol_de(acta["candidate_root"], release_sha) != acta["candidate_tree_sha"]:
+        raise PublicationBlocked(f"el release_sha {release_sha[:12]} no tiene el árbol revisado (candidate_tree_sha)")
+    return cs._transition(
+        path,
+        "published",
+        {"published_at": now_rfc3339(), "release_sha": release_sha},
+        expected_revision=revision,
+        expected_state_sha256=hashlib.sha256(bytes_antes).hexdigest(),
+    )
+
+
+#: G7 · desbloqueo (fase 3): la rama contra la que se exige que la release esté integrada antes de publicarla.
+MAIN_REF = "origin/main"
+
+
+def _git_publicador(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Consultas del publicador sobre su checkout, sin seguir reemplazos locales (como el vínculo)."""
+    return subprocess.run(["git", "--no-replace-objects", "-C", str(repo), *args], capture_output=True, text=True,
+                          check=False)  # fmt: skip
+
+
+def empujar_dvc(repo: Path) -> None:
+    """El efecto externo de publicar: `dvc push` de los punteros del commit que se publica, con el DVC GOBERNADO.
+
+    Idempotente y direccionado por contenido: repetirlo tras un fallo posterior no cambia nada que ya esté en el remoto.
+    """
+    from tools.check_dvc_lock_fresh import resolve_dvc
+
+    dvc = resolve_dvc(repo, os.environ)
+    if dvc is None:
+        raise PublicationBlocked("sin DVC gobernado ($VP_DVC o ante/bin/dvc): no se empuja nada")
+    fin = subprocess.run([str(dvc), "push"], cwd=str(repo), capture_output=True, text=True, check=False,
+                         env={**os.environ, "DVC_NO_ANALYTICS": "1"})  # fmt: skip
+    if fin.returncode != 0:
+        raise PublicationBlocked(f"dvc push falló (rc {fin.returncode}): {(fin.stderr or fin.stdout).strip()[-400:]}")
+
+
+def publicar_release(
+    path: str | Path,
+    *,
+    manifest: str | Path,
+    repo: str | Path,
+    main_ref: str = MAIN_REF,
+    empujar: Callable[[Path], None] = empujar_dvc,
+) -> dict:
+    """Publica la release APROBADA que hay en `HEAD` de `repo` (G7 · desbloqueo, fase 3). No prepara nada.
+
+    Toda escritura que cambie el árbol (punteros, manifiestos, figuras) ocurre ANTES del sello y del CI: aquí no se
+    sincroniza MLflow, ni se re-hashea, ni se commitea, ni se empuja git. Bajo el lock de la campaña —serializa frente a
+    una revalidación, un `fail` o un `validate` concurrentes— y ANTES del primer efecto externo se exige: la puerta
+    (estado, historial, recibo, manifiesto, vínculo), que `HEAD` tenga EXACTAMENTE el árbol revisado, un checkout limpio
+    y que `HEAD` ya esté integrado en `main_ref`. Después, el único efecto externo (`empujar`, por defecto `dvc push`) y,
+    sólo si salió bien, la escritura de `published` con CAS sobre la revisión y la huella acreditadas.
+
+    Punto de no retorno: si `empujar` termina y la escritura de `published` falla, los objetos ya están en el remoto
+    (inocuo: direccionados por contenido) y la campaña sigue `validated`; reintentar es seguro. Si `empujar` falla, no
+    salió nada nuevo y la campaña sigue `validated`. No se promete atomicidad entre DVC, git y el sistema de archivos.
+    """
+    p, raiz = Path(path), Path(repo)
+    with cs._campaign_lock(p):
+        ok, motivo, acta = _puerta(p, manifest=manifest)
+        if not ok or acta is None:
+            raise PublicationBlocked(motivo)
+        cabeza = _git_publicador(raiz, "rev-parse", "--verify", "-q", "HEAD^{commit}").stdout.strip()
+        if not _HEX40.match(cabeza):
+            raise PublicationBlocked(f"{raiz} no tiene un HEAD legible: no hay release que publicar")
+        if vp.arbol_de(raiz, cabeza) != acta["candidate_tree_sha"]:
+            raise PublicationBlocked(f"HEAD {cabeza[:12]} no tiene el árbol revisado (candidate_tree_sha)")
+        sucio = _git_publicador(raiz, "status", "--porcelain", "--untracked-files=all")
+        if sucio.returncode != 0 or sucio.stdout.strip():
+            raise PublicationBlocked(f"el checkout que publica no está limpio: {sucio.stdout.split()[:6]}")
+        integrada = _git_publicador(raiz, "merge-base", "--is-ancestor", cabeza, main_ref)
+        if integrada.returncode != 0:
+            raise PublicationBlocked(
+                f"HEAD {cabeza[:12]} no está integrado en {main_ref}: se publica lo que ya está en main"
+            )
+        empujar(raiz)
+        return publish(p, manifest=manifest, release_sha=cabeza)
+
+
+def _receipt_matches(obj: Mapping[str, Any]) -> tuple[bool, str, dict[str, str] | None]:
+    """El recibo debe existir, conservar su hash **y volver a acreditarse** contra la campaña.
+
+    ⚠️ Hasta M74-B-R1 esto sólo comprobaba ruta, existencia y hash, y ahí estaba el agujero: la
+    acreditación del recibo vivía en `validate`, es decir en el camino de ESCRITURA. Un
+    `campaign.json` en `validated` escrito a mano —o por cualquier vía que no pase por esta CLI—
+    publicaba con **cualquier archivo** cuya ruta y hash cuadraran: un markdown de texto libre, o un
+    recibo válido pero **de otra campaña**. La propia suite lo demostraba sin saberlo.
+
+    Es la misma lección que M73 dejó escrita sobre las invariantes de estado y que aquí no se aplicó
+    al recibo: **lo que decide publicar es un LECTOR, así que la acreditación tiene que vivir en la
+    lectura**, no sólo en la escritura.
+    """
+    rel = obj.get("validation_receipt_path")
+    esperado = obj.get("validation_receipt_sha256")
+    if not rel or not esperado:
+        return False, "la transacción no liga un recibo de validación (ruta + sha256)", None
+    recibo = Path(rel)
+    if not recibo.is_absolute():
+        # ⚠️ Antes se resolvía subiendo tres niveles desde `campaign.json`, así que mover el estado
+        # cambiaba QUÉ archivo se verificaba. `validate` guarda ya la ruta absoluta; una relativa
+        # sólo puede venir de un estado escrito a mano, y adivinar su raíz sería fail-open.
+        return False, f"el recibo se liga por una ruta relativa ({rel}) y no puede verificarse sin ambigüedad", None
+    if not recibo.is_file():
+        return False, f"el recibo de validación no existe: {rel}", None
+    # ★ G7 · B5a: UNA lectura. El hash y la acreditación son de los mismos bytes, y el acta que se devuelve
+    # es la de esos bytes: un cambio posterior del archivo ya no puede colarse en la puerta ni en `publish`.
+    crudo = recibo.read_bytes()
+    real = hashlib.sha256(crudo).hexdigest()
+    if real != esperado:
+        return False, f"el recibo {rel} cambió desde la validación (sha {real[:12]}… ≠ {str(esperado)[:12]}…)", None
+    # ★ R2: se vuelve a ACREDITAR, no sólo a comparar el hash. Esquema cerrado, ligado a esta
+    # campaña por campaign_id + SHA de origen + panel_sha256, decisión del vocabulario, revisor no
+    # automatizado y fecha posterior al cómputo.
+    try:
+        acta = acreditar_recibo(crudo, obj)
+    except ReceiptError as exc:
+        return False, f"el recibo ligado NO acredita esta validación: {exc}", None
+    # ★ y el estado no puede contar una historia distinta de la del recibo que dice sostenerlo
+    for clave in ("reviewed_by", "decision"):
+        if acta[clave] != obj.get(clave):
+            motivo = (
+                f"el estado dice {clave}={obj.get(clave)!r} y el recibo {acta[clave]!r}: "
+                "la transacción no describe la revisión que liga"
+            )
+            return False, motivo, None
+    return True, "", acta
+
+
+#: ★ M74-E-R12 · manifiesto ↔ transacción: campaña, SHA, `dirty` y el sello comparado en vivo (antes, sólo el id).
+_MANIFIESTO_VS_TXN = {"campaign_id": "campaign_id", "git_sha": "source_git_sha", "dirty": "git_dirty"}
+_MANIFIESTO_VS_TXN["preflight_sha256"] = "input_seal_sha256"
+
+
+def _manifest_matches(manifest: str | Path, obj: Mapping[str, Any]) -> tuple[bool, str]:
+    """La MISMA corrida campo a campo y con su tipo (H15), y un manifiesto publicable por sí mismo sobre la
+    MISMA lectura (M74-E-R13): uno que copiaba `preflight_sha256` de la transacción pasaba con un sello falso."""
+    datos, bloqueo = cm.leer_para_publicar(manifest)
+    if datos is None:
+        return False, f"manifiesto de campaña no publicable: {bloqueo}"
+    for m, t in _MANIFIESTO_VS_TXN.items():
+        if datos.get(m) != obj.get(t) or type(datos.get(m)) is not type(obj.get(t)):
+            return False, f"manifiesto {m}={datos.get(m)!r} ≠ transacción {t}={obj.get(t)!r}: no son la misma corrida"
+    return (False, f"manifiesto de campaña no publicable: {bloqueo}") if bloqueo else (True, "")
+
+
+def archive_if_terminal(path: str | Path, destino: str | Path) -> Path | None:
+    """Aparta una transacción **ya terminal** para dejar sitio a la siguiente campaña.
+
+    ``seal_running`` es create-only a propósito: una campaña no se reinicia encima de otra. Pero un
+    runbook se relanza, así que alguien tiene que archivar la anterior, y hacerlo a mano es
+    justamente donde se pierde la procedencia. Aquí se mueve con su ``campaign_id`` por nombre, y
+    **sólo** si terminó: una campaña en ``running``/``computed``/``validated`` NO se archiva —
+    lanzar otra encima de una abierta es el error que la máquina existe para impedir.
+
+    ⚠️ Valida el esquema antes de decidir (H23): un `campaign.json` corrupto no puede archivarse
+    como si se entendiera, ni tratarse como «no hay ninguna».
+    """
+    origen = Path(path)
+    if not origen.exists():
+        return None
+    actual = cs.read(origen)
+    if actual is None:
+        raise ValueError(f"{origen} existe pero es ilegible: archívala o bórrala a mano")
+    problemas = cs.validate_schema(actual)
+    if problemas:
+        raise ValueError(f"{origen} no cumple el esquema y no se archiva a ciegas: {problemas}")
+    if actual["status"] not in cs.TERMINAL:
+        raise ValueError(
+            f"{origen} sigue ABIERTA en '{actual['status']}' ({actual['campaign_id']}): "
+            "ciérrala (fail/publish) antes de lanzar otra campaña"
+        )
+    carpeta = Path(destino)
+    carpeta.mkdir(parents=True, exist_ok=True)
+    final = carpeta / f"{actual['campaign_id']}.json"
+    # G7 · B5a: la evidencia del cómputo viaja con su transacción; si se quedara, la siguiente campaña
+    # heredaría una «evidencia» ajena (y su validación se negaría).
+    copia = origen.parent / cs.COMPUTED_SNAPSHOT
+    copia_final = carpeta / f"{actual['campaign_id']}.computed.json"
+    if final.exists() or copia_final.exists():
+        raise ValueError(f"ya hay una transacción archivada en {final}: dos campañas con el mismo id")
+    os.replace(origen, final)
+    if copia.exists():
+        os.replace(copia, copia_final)
+    return final
+
+
+@contextmanager
+def campaign(path: str | Path, **sello) -> Iterator[dict]:
+    """Sella al entrar y marca ``failed`` si el cuerpo lanza. Para runners escritos en Python.
+
+    No marca ``computed`` al salir bien: llegar a ``computed`` exige los tres gates en `passed`, y
+    eso lo sabe el runner, no este gestor. Salir sin excepción deja la campaña en ``running``, que
+    bloquea publicar: el silencio nunca autoriza.
+    """
+    estado = open_campaign(path, **sello)
+    completo = False
+    try:
+        yield estado
+        completo = True
+    finally:
+        # `finally` en vez de `except BaseException`: cubre MÁS —también `KeyboardInterrupt`,
+        # `SystemExit` y un `GeneratorExit`— sin capturar nada ni alterar la propagación, y no
+        # añade una captura amplia al trinquete de deuda. La causa se lee de la excepción en
+        # vuelo, así que la razón registrada sigue nombrando qué reventó.
+        if not completo:
+            exc = sys.exception()
+            causa = f"{type(exc).__name__}: {exc}" if exc is not None else "el cuerpo no terminó"
+            fail_if_open(path, stage="cuerpo de la campaña", reason=causa)
+
+
+# ------------------------------------------------------------------ interfaz de línea de órdenes
+def _parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="campaign_txn", description=__doc__.split("\n")[0])
+    p.add_argument("--path", default=str(DEFAULT_PATH), help=f"ruta de campaign.json (def. {DEFAULT_PATH})")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    o = sub.add_parser("open", help="sella la campaña en running (create-only)")
+    o.add_argument("--campaign-id", required=True)
+    o.add_argument("--sha", required=True, help="SHA de git de 40 hex sellado para toda la corrida")
+    o.add_argument("--dirty", required=True, choices=("true", "false"), help="literal exacto; no se coerciona")
+    o.add_argument("--panel", required=True, help="ruta del panel del que se deriva panel_sha256")
+    o.add_argument("--input-seal", required=True, help="sha256 del sello de entradas comparado en vivo al arrancar")
+
+    c = sub.add_parser(
+        "compute", help="running -> computed (input/output en passed; consistency puede quedar pendiente)"
+    )
+    for gate in ("input-gate", "output-gate", "consistency"):
+        c.add_argument(f"--{gate}", required=True)
+    c.add_argument(
+        "--best-effort-failure",
+        action="append",
+        default=[],
+        dest="best_effort",
+        help="etapa tolerable que falló; repetible. Queda en el recibo para la revisión humana",
+    )
+
+    f = sub.add_parser("fail", help="-> failed (terminal)")
+    f.add_argument("--stage", required=True)
+    f.add_argument("--reason", required=True)
+    f.add_argument("--exit-code", type=int, default=None)
+    f.add_argument(
+        "--if-open",
+        action="store_true",
+        help="no hacer nada si la campaña ya es terminal (para traps de shell)",
+    )
+
+    v = sub.add_parser("validate", help="computed -> validated (revisión humana + consistencia acreditada)")
+    v.add_argument(
+        "--receipt",
+        required=True,
+        help=(
+            f"recibo JSON de esquema cerrado ({RECEIPT_SCHEMA}) con las ocho claves "
+            f"{sorted(RECEIPT_KEYS)}. El revisor y la decisión se LEEN de ahí y el recibo se liga a "
+            "la campaña por campaign_id, SHA, hash del panel y sello de entradas. No hay forma de saltarse "
+            "el guardián de consistencia."
+        ),
+    )
+
+    rv = sub.add_parser(
+        "revalidate",
+        help="validated -> validated con un /3 NUEVO (candidato nuevo), conservando cómputo, reconciliación e historial",
+    )
+    rv.add_argument("--receipt", required=True, help="recibo /3 NUEVO, posterior al permiso que sustituye")
+    pr = sub.add_parser(
+        "publish-release",
+        help="publica la release APROBADA en HEAD de --repo: puerta + árbol + limpio + integrada, dvc push y published",
+    )
+    pr.add_argument("--manifest", required=True, help="manifiesto de campaña: se re-acredita dentro del lock")
+    pr.add_argument("--repo", required=True, help="checkout de la release (HEAD = commit integrado en main)")
+    pr.add_argument("--main-ref", default=MAIN_REF, help="rama en la que la release debe estar integrada")
+
+    pu = sub.add_parser("publish", help="validated -> published (sólo el publicador)")
+    pu.add_argument("--release-sha", required=True)
+    pu.add_argument("--manifest", required=True, help="manifiesto de campaña: se re-acredita justo antes de publicar")
+
+    a = sub.add_parser("archive", help="aparta una transacción YA terminal para la siguiente campaña")
+    a.add_argument("--dir", default="reports/campaign/transactions", help="carpeta destino")
+
+    g = sub.add_parser("guard", help="sale != 0 salvo que el estado autorice publicar")
+    g.add_argument("--manifest", required=True, help="manifiesto de campaña: se acredita y se cruza con la transacción")
+
+    sub.add_parser("status", help="imprime el estado actual")
+    return p
+
+
+def _run_consistency() -> tuple[bool, str]:
+    """Re-ejecuta el guardián de consistencia del repositorio. Fail-closed si no se puede.
+
+    ⚠️ La raíz sale de la ubicación de **este módulo**, no de dónde viva `campaign.json`. Antes se
+    derivaba subiendo tres niveles desde la transacción, así que mover el archivo —o apuntarlo a un
+    temporal— cambiaba qué guardián se ejecutaba, o hacía que no se encontrara ninguno. El guardián
+    pertenece al repositorio que publica, no al directorio del estado.
+    """
+    guardian = _REPO_ROOT / "tools" / "check_consistency.py"
+    if not guardian.is_file():
+        return False, f"no se encontró {guardian}"
+    fin = subprocess.run(
+        [sys.executable, str(guardian)], cwd=_REPO_ROOT, capture_output=True, text=True, check=False, timeout=1800
+    )
+    return fin.returncode == 0, (fin.stdout or "") + (fin.stderr or "")
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    path = Path(args.path)
+    try:
+        if args.cmd == "open":
+            obj = open_campaign(
+                path,
+                campaign_id=args.campaign_id,
+                source_git_sha=args.sha,
+                git_dirty=args.dirty == "true",
+                panel=args.panel,
+                input_seal_sha256=args.input_seal,
+            )
+            print(f"✓ campaña {obj['campaign_id']} sellada en 'running' → {path}")
+        elif args.cmd == "compute":
+            obj = cs.mark_computed(
+                path,
+                completed_at=now_rfc3339(),
+                input_gate=args.input_gate,
+                output_gate=args.output_gate,
+                consistency=args.consistency,
+                best_effort_failures=args.best_effort or None,
+            )
+            nota = "" if obj["consistency"] == cs._GATE_OK else " — consistencia PENDIENTE de propagar"
+            print(f"✓ campaña {obj['campaign_id']} → 'computed' (revision {obj['revision']}){nota}")
+            if obj.get("best_effort_failures"):
+                print(
+                    f"  ⚠️ etapas tolerables fallidas ({len(obj['best_effort_failures'])}): "
+                    f"{', '.join(obj['best_effort_failures'])}"
+                )
+        elif args.cmd == "fail":
+            if args.if_open:
+                quizas = fail_if_open(path, stage=args.stage, reason=args.reason, exit_code=args.exit_code)
+                if quizas is None:
+                    actual = cs.read(path)
+                    estado = actual["status"] if actual else "ausente"
+                    print(f"· campaña ya terminal o ausente ('{estado}'): no se toca")
+                    return EXIT_ALREADY_TERMINAL
+                obj = quizas
+            else:
+                obj = cs.mark_failed(
+                    path,
+                    failed_stage=args.stage,
+                    failed_at=now_rfc3339(),
+                    reason=args.reason,
+                    exit_code=args.exit_code,
+                )
+            print(f"✗ campaña {obj['campaign_id']} → 'failed' en {args.stage}: {args.reason}")
+        elif args.cmd == "validate":
+            # ★ H2: validar EXIGE la consistencia acreditada. Si el cómputo la dejó en `pending`
+            # porque las cifras cambiaron, aquí se vuelve a ejecutar el guardián: propagar es la
+            # precondición de validar, no un paso de buena fe.
+            ok_cons, salida = _run_consistency()
+            if not ok_cons:
+                print(f"✗ la consistencia NO está acreditada; propaga y reintenta:\n{salida}", file=sys.stderr)
+                return EXIT_ERROR
+            abierta = cs.read(path)
+            if abierta is None:
+                print(f"✗ no hay transacción legible en {path}", file=sys.stderr)
+                return EXIT_ERROR
+            recibo = Path(args.receipt).resolve()
+            if not recibo.is_file():
+                raise ReceiptError(f"el recibo {recibo} no existe")
+            crudo = recibo.read_bytes()  # ★ G7 · B5a: se acreditan y se registran ESTOS bytes
+            acta = acreditar_recibo(crudo, abierta)
+            if acta["schema"] != vp.RECEIPT_SCHEMA:
+                raise ReceiptError(f"un recibo {acta['schema']} no liga ningún resultado: validar exige el /3")
+            vinculo = vp.problema(acta, Path(path), abierta, repo_root=_REPO_ROOT)
+            if vinculo:
+                raise ReceiptError(vinculo)
+            obj = cs.mark_validated(
+                path,
+                validation_receipt_sha256=hashlib.sha256(crudo).hexdigest(),
+                #: ★ ABSOLUTA: antes se guardaba tal cual se tecleó y `publishable` tenía que
+                #: adivinar la raíz contra la que resolverla. Mover `campaign.json` cambiaba qué
+                #: archivo se verificaba.
+                validation_receipt_path=str(recibo),
+                reviewed_by=acta["reviewed_by"],
+                validated_at=now_rfc3339(),
+                decision=acta["decision"],
+            )
+            print(f"✓ campaña {obj['campaign_id']} → 'validated' por {obj['reviewed_by']} ({acta['reviewed_at']})")
+        elif args.cmd == "revalidate":
+            obj = _revalidar(path, Path(args.receipt))
+            print(
+                f"✓ campaña {obj['campaign_id']} revalidada por {obj['reviewed_by']} (revisión {obj['revision']}): "
+                "el permiso anterior queda conservado en el historial y deja de ser consumible"
+            )
+        elif args.cmd == "guard":
+            ok, motivo = publishable(path, manifest=args.manifest)
+            print(("✓ " if ok else "✗ PUBLICACIÓN BLOQUEADA: ") + motivo, file=sys.stdout if ok else sys.stderr)
+            return EXIT_OK if ok else EXIT_BLOCKED
+        elif args.cmd == "publish-release":
+            try:
+                obj = publicar_release(path, manifest=args.manifest, repo=args.repo, main_ref=args.main_ref)
+            except PublicationBlocked as exc:
+                print(f"✗ PUBLICACIÓN BLOQUEADA: {exc}", file=sys.stderr)
+                return EXIT_BLOCKED
+            print(f"✓ campaña {obj['campaign_id']} → 'published' ({obj['release_sha']}): release aprobada publicada")
+        elif args.cmd == "publish":
+            # ★ M74-E-R13 · la MISMA puerta que `guard`, justo antes de escribir; desde G7 dentro de `publish()`,
+            # que además escribe con CAS sobre la revisión acreditada.
+            try:
+                obj = publish(path, manifest=args.manifest, release_sha=args.release_sha)
+            except PublicationBlocked as exc:
+                print(f"✗ PUBLICACIÓN BLOQUEADA: {exc}", file=sys.stderr)
+                return EXIT_BLOCKED
+            print(f"✓ campaña {obj['campaign_id']} → 'published' ({obj['release_sha']})")
+        elif args.cmd == "archive":
+            final = archive_if_terminal(path, args.dir)
+            print(f"· sin transacción previa en {path}" if final is None else f"✓ transacción archivada → {final}")
+        elif args.cmd == "status":
+            actual = cs.read(path)
+            if actual is None:
+                # ⚠️ Distinguir «no hay» de «hay y no se entiende» (H23): antes ambos decían «ausente».
+                print("ausente" if not path.exists() else f"ILEGIBLE o con claves duplicadas: {path}")
+                return EXIT_OK if not path.exists() else EXIT_ERROR
+            problemas = cs.validate_schema(actual)
+            print(json.dumps(actual, ensure_ascii=False, indent=2, sort_keys=True))
+            if problemas:
+                print(f"✗ esquema inválido: {problemas}", file=sys.stderr)
+                return EXIT_ERROR
+    except (ValueError, OSError) as exc:
+        print(f"✗ transacción de campaña: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    os.environ.setdefault("PYTHONHASHSEED", "0")
+    raise SystemExit(main())

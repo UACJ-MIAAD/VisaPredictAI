@@ -261,14 +261,10 @@
   "n_series": 50,
   "n_features_in": 44,
   "alpha_fdr": 0.05,
-  "n_relevant": 1,
-  "n_selected": 1,
-  "relevant": [
-   "DN_OutlierInclude_p_001_mdrmd"
-  ],
-  "selected": [
-   "DN_OutlierInclude_p_001_mdrmd"
-  ],
+  "n_relevant": 0,
+  "n_selected": 0,
+  "relevant": [],
+  "selected": [],
   "dropped_redundant": {}
  }
 }

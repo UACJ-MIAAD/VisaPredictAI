@@ -108,7 +108,9 @@ def _fake_run(
     monkeypatch.setattr(
         gwf,
         "_project_rows",
-        lambda rows: (rows, {"cone_violations_pre": 0, "cone_violations_post": 0, "cone_violations_detail": {}}),
+        # `**_`: el publicador pasa ahora el destino del marco pre-proyección (H8). El doble no
+        # escribe nada, que es justo lo que esta prueba quiere de él.
+        lambda rows, **_: (rows, {"cone_violations_pre": 0, "cone_violations_post": 0, "cone_violations_detail": {}}),
     )
 
     def append_log(rows, **kwargs):

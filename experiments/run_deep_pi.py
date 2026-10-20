@@ -178,6 +178,44 @@ def main() -> None:
     path = Path(__file__).resolve().parent.parent / "reports" / "eval" / f"deep_pi_{args.table}{suffix}.csv"
     out.to_csv(path, index=False)
     print(f"guardado {path.name} ({len(out)} filas, {len(seeds)} seeds, cols {qcols})")
+    _seal(path, args, seeds)
+
+
+#: Recibo de `deep_pi_{table}.csv` (M74-F · deuda 4): `improve_conformal` sólo lo usa si lo acredita.
+RECEIPT_SCHEMA = "deep-pi-receipt/1"
+
+
+def protocolo(table: str, cqr: bool) -> dict:
+    """Lo que el lector puede re-derivar sin conocer los argumentos de entrenamiento."""
+    return {"table": table, "cqr": bool(cqr)}
+
+
+def _seal(path: Path, args, seeds) -> None:
+    """Sella el CSV con la identidad de la campaña en curso; fuera de campaña queda SIN recibo.
+
+    ★ M74-F · deuda 4: hasta aquí conformal (etapa 4) leía el `deep_pi_{table}.csv` que hubiera, y
+    deep-PI no se calculaba hasta la etapa 5 — el baseline de conformal era el de la corrida ANTERIOR.
+    El runbook ya corre deep-PI antes; el recibo es lo que deja comprobarlo al leer.
+    """
+    from vp_model import artifact_receipt as ar
+
+    root = Path(__file__).resolve().parent.parent
+    try:
+        cid, sha, panel = ar.campaign_identity(root / "reports", code_root=root)
+    except ar.ReceiptError as exc:
+        print(f"fuera de campaña: {path.name} queda SIN recibo ({exc})")
+        return
+    recibo = ar.seal(
+        path,
+        schema=RECEIPT_SCHEMA,
+        campaign_id=cid,
+        code_sha=sha,
+        panel_sha256=panel,
+        protocol=protocolo(args.table, args.cqr),
+        coverage={"rows": None},
+        extra={"model": args.model, "seeds": list(seeds)},
+    )
+    print(f"recibo {recibo.name} · {cid}")
 
 
 if __name__ == "__main__":

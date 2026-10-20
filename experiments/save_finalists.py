@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import joblib
@@ -29,18 +30,62 @@ from vp_model import config, dataset, models
 from vp_model.feature_builder import FeatureBuilder
 
 ROOT = Path(__file__).resolve().parent.parent
-MODELS = ROOT / "models"
-MANIFEST = MODELS / "manifest.jsonl"
 PANEL_CSV = ROOT / "data" / "processed" / "visa_panel_long.csv"
-# Finalistas locales (top del barrido): parsimonia + árbol + clásicos. SARIMA se omite del
-# pickle por serie (darts/statsmodels lo serializa en ~10 MB; su forecast vive en los CSV y
-# re-ajustarlo es barato). Se persiste con joblib (uniforme, sirve para el wrapper Differenced).
-LOCAL = ("ets", "theta", "arima", "kalman", "catboost", "lightgbm")
+
+
+def _ruta_env(nombre: str, por_defecto: Path) -> Path:
+    """Una ruta que el orquestador puede fijar por entorno; relativa ⇒ desde la raíz del repo."""
+    raw = os.environ.get(nombre)
+    if not raw:
+        return por_defecto
+    return Path(raw) if os.path.isabs(raw) else ROOT / raw
+
+
+def models_root() -> Path:
+    """★ R14 · dónde se ESCRIBE. `save_finalists.sh` exporta `VP_MODELS_DIR` hacia un staging por
+    campaña y hasta R14 este productor lo ignoraba: escribía en `models/` servido mientras el
+    promotor exigía un manifiesto en el staging que nadie había escrito."""
+    return _ruta_env("VP_MODELS_DIR", ROOT / "models")
+
+
+def manifest_path() -> Path:
+    return _ruta_env("VP_MODELS_MANIFEST", models_root() / "manifest.jsonl")
+
+
+def _ruta_manifiesto(p: Path) -> str:
+    """Relativa a la raíz del repo cuando el destino cuelga de ella (el staging real); si no, absoluta."""
+    try:
+        return str(p.relative_to(ROOT))
+    except ValueError:
+        return str(p)
+
+
+# ★ M74-E-R1: DERIVADA del registro canónico, no escrita a mano.
+#
+# Esta lista es una de las tres que motivaron `vp_model/model_registry.py` — y hasta hoy seguía
+# escrita a mano y divergente. Producía `ets` y `theta`, que el registro declara NO persistibles
+# (AutoETS/AutoTheta no conservan estado reutilizable: persistirlos es trabajo tirado e invita a
+# consumirlos), y **omitía `sarima`**, que el promotor SÍ exige. El paso [2b] habría rechazado su
+# propia tubería por falta de cobertura.
+#
+# ⚠️ La omisión de SARIMA tenía un motivo de tamaño escrito aquí (darts/statsmodels lo serializa
+# en ~10 MB por serie). M74-E MIDIÓ que sí es persistible y lo declaró en el registro; si el coste
+# en disco pesa más que la reutilización, la decisión se cambia EN EL REGISTRO y esta lista la
+# sigue sola. Lo que no puede volver a pasar es que productor y gate declaren cosas distintas.
+def _locales_persistibles() -> tuple[str, ...]:
+    from vp_model.model_registry import LOCAL_MODELS, PERSISTED_MODELS
+
+    persistidos = set(PERSISTED_MODELS)
+    return tuple(m for m in LOCAL_MODELS if m in persistidos)
+
+
+LOCAL = _locales_persistibles()
 
 
 def _manifest(entry: dict) -> None:
-    MODELS.mkdir(parents=True, exist_ok=True)
-    with MANIFEST.open("a") as f:
+    manifiesto = manifest_path()
+    manifiesto.parent.mkdir(parents=True, exist_ok=True)
+    with manifiesto.open("a") as f:
         f.write(json.dumps(entry) + "\n")
 
 
@@ -58,6 +103,7 @@ def birth_certificate() -> dict:
 def main() -> None:
     log = config.get_logger("save_finalists")
     birth = birth_certificate()
+    raiz_modelos = models_root()
     for table in config.TABLES:
         cat = dataset.list_series(table=table, block="family", countries=config.PILOT_COUNTRIES)
         for r in cat.itertuples():
@@ -69,9 +115,14 @@ def main() -> None:
                     cov = FeatureBuilder(name).covariates(ts, raw)  # política por modelo (AD1/AD8/F1)
                     fit_kwargs = {"future_covariates": cov} if cov is not None else {}
                     model.fit(ts, **fit_kwargs)  # type: ignore[attr-defined]
-                    out = MODELS / table / "local" / name / f"{r.country}_{r.category}"
+                    out = raiz_modelos / table / "local" / name / f"{r.country}_{r.category}"
                     out.mkdir(parents=True, exist_ok=True)
-                    joblib.dump(model, out / "model.pkl")
+                    # ★ M74-E-R2 · compresión nivel 3, decisión del autor con su medición:
+                    # 50/50 modelos SARIMA ajustaron, cargaron y predijeron; sin comprimir el
+                    # árbol pesa 462.99 MiB y con `compress=3` 180.71 MiB — **61 % menos**, con
+                    # 50/50 conservando su predicción. No toca el protocolo estadístico: cambia
+                    # cómo se guarda el objeto, no lo que el objeto calcula.
+                    joblib.dump(model, out / "model.pkl", compress=3)
                     _manifest(
                         {
                             "model": name,
@@ -79,7 +130,7 @@ def main() -> None:
                             "type": "local",
                             "country": r.country,
                             "category": r.category,
-                            "path": str((out / "model.pkl").relative_to(ROOT)),
+                            "path": _ruta_manifiesto(out / "model.pkl"),
                             **birth,
                         }
                     )

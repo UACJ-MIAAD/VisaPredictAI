@@ -335,6 +335,16 @@ class TestSaving:
         assert (pdf / "eda3_g01_panel.pdf").exists()
         plt.close(fig)
 
+    def test_the_pdf_folder_is_created_when_a_clean_checkout_lacks_it(self, kit, ctx, tmp_path) -> None:
+        """RED (G7 · recon5): `reports/latex/Figures/` está ignorada por git desde M66 y no existe en un checkout
+        limpio; `build_fe_report` moría en el primer PDF del `.tex` con FileNotFoundError."""
+        png, pdf = tmp_path / "png", tmp_path / "no" / "existe"
+        fig = plt.figure()
+        kit.save_dual(fig, "f07_pipeline", ctx, png_root=png, pdf_root=pdf, pdf_name=lambda n: "fe_pipeline",
+                      announce=False)  # fmt: skip
+        assert (pdf / "fe_pipeline.pdf").exists()
+        plt.close(fig)
+
     def test_a_figure_outside_the_pdf_policy_only_gets_its_png(self, kit, ctx, tmp_path) -> None:
         png, pdf = tmp_path / "png", tmp_path / "pdf"
         pdf.mkdir()

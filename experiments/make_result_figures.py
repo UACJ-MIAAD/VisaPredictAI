@@ -7,12 +7,16 @@ Las cuatro figuras que faltaban en el Cap. de Resultados (hoy todo en tablas):
   F4  cobertura del PI antes/después de ACI + CRPS        -> results_coverage_crps.pdf
 
 Lee solo CSVs ya versionados en reports/. Corre en `ante` (vp_model + matplotlib):
-    ante/bin/python make_result_figures.py
+    ante/bin/python make_result_figures.py [--crps-parent-root RAIZ_MADRE]
+
+★ M74-F · F4 rechaza un CRPS de referencia no acreditado (decisión del autor, 13-oct-2026): el panel (b) lee
+`crps_fad.csv` a través de `champion.baseline_crps_provenance`; si no sale ``acreditado`` (sin recibo, de otra
+transacción, o una complementaria sin la raíz de su madre, que se da con ``--crps-parent-root``), el script falla
+con el motivo ANTES de generar ninguna figura.
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import matplotlib
@@ -74,17 +78,39 @@ def _emit(fig: plt.Figure, name: str) -> None:
     no usa `save_dual` del kit: no tiene variantes de idioma ni de tema. Lo que si era
     duplicacion real era este par savefig/close repetido en cada figura.
     """
+    # ★ R21 · desde M66 los .tex viven en el repositorio documental y `reports/latex/Figures/` es una salida
+    # LOCAL ignorada por git que ya no existe en un checkout limpio: la 3ª campaña real habría muerto aquí.
+    FIG.mkdir(parents=True, exist_ok=True)
     fig.savefig(FIG / f"{name}.pdf")
     plt.close(fig)
 
 
-# D5 (regla #0): listones desde la fuente única de verdad, no hardcodeados.
-# Semántica = caption del .tex: "listón parsimonioso (ETS/Theta en FAD, ETS en DFF)".
-_KF = json.loads((REP / "governance" / "key_facts.json").read_text())
+#: Listón parsimonioso = la mejor MASE de RESERVADO de estos modelos (ETS/Theta en FAD; en DFF Theta colapsa al paseo
+#: aleatorio, así que el listón es ETS). G7 · B1: antes era `fad_champion_mase`, una MASE de SELECCIÓN dibujada sobre ejes
+#: de reservado; con la campaña causal las dos métricas se separaron y F1/F3 mostraban al profundo por encima de un
+#: listón que en reservado no existía.
+LISTON = {"FAD": ("ets", "theta"), "DFF": ("ets",)}
 
 
-def _liston(table: str) -> float:
-    return float(_KF["fad_champion_mase"] if table == "FAD" else _KF["ets_dff_mean"])
+def _liston(table: str, universo: set[tuple[str, str]] | None = None) -> tuple[float, int, str]:
+    """``(valor, n series, nombre)``: la mejor MASE media de reservado de los modelos del listón sobre ``universo``.
+
+    ``universo`` = las series que de verdad puntúa lo que se dibuja junto al listón; ``None`` = todas las de la tabla.
+    Un modelo del listón que no cubre una serie del universo no se promedia en silencio: la figura no se dibuja.
+    """
+    df = pd.read_csv(REP / "eval" / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
+    series = sorted(universo if universo is not None else set(zip(df.country, df.category, strict=True)))
+    medias = {}
+    for modelo in LISTON[table]:
+        hold = df[df.model == modelo].set_index(["country", "category"])["hold_mase"].reindex(series)
+        faltan = [k for k, v in hold.items() if not np.isfinite(v)]
+        if faltan:
+            raise SystemExit(
+                f"listón {table}: {modelo} no cubre {len(faltan)} serie(s) del universo dibujado {faltan[:3]}"
+            )
+        medias[modelo] = float(hold.mean())
+    nombre = "/".join("ETS" if m == "ets" else m.capitalize() for m in LISTON[table])
+    return min(medias.values()), len(series), nombre
 
 
 # ---------- F1: ranking MASE de los 21 modelos ----------
@@ -92,37 +118,40 @@ def fig_ranking() -> None:
     fig, axes = plt.subplots(1, 2, figsize=(7.2, 4.2))
     for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
         df = pd.read_csv(REP / "eval" / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
-        m = df.groupby("model")["hold_mase"].mean().sort_values(ascending=False)
-        m = m[m <= 0.40]  # recorta off-scale (TFT 2.6, LSTM/DeepAR ~0.4+); se anota aparte
-        n_off = df.groupby("model")["hold_mase"].mean().gt(0.40).sum()
+        # Sólo se ranquea contra el listón lo que puntúa todas las series del listón: un modelo que no converge en
+        # algunas series se promediaría sobre otras (ARIMA DFF: 0.120 en 23 series frente a ETS 0.115 en esas 23
+        # y 0.129 en las 25). Los parciales se declaran aparte con su cobertura, sin punto ni línea.
+        universo = set(zip(df.country, df.category, strict=True))
+        liston, n_series, nombre = _liston(table, universo)
+        validas = df[np.isfinite(df.hold_mase)]
+        cobertura = validas.drop_duplicates(["model", "country", "category"]).groupby("model").size()
+        cobertura = cobertura.reindex(sorted(set(df.model)), fill_value=0)
+        completos = cobertura.index[cobertura == n_series]
+        parciales = cobertura[cobertura < n_series].sort_values(ascending=False)
+        medias = validas[validas.model.isin(completos)].groupby("model")["hold_mase"].mean()
+        m = medias[medias <= 0.40].sort_values(ascending=False)  # recorta off-scale; se anota aparte
+        n_off = int(medias.gt(0.40).sum())
         colors = [BLUE if mm in ("ets", "theta") else GRAY for mm in m.index]
         y = np.arange(len(m))
-        ax.hlines(y, _liston(table), m.values, color=MUTE, lw=1.2, zorder=1)
+        ax.hlines(y, liston, m.values, color=MUTE, lw=1.2, zorder=1)
         ax.scatter(m.values, y, color=colors, s=34, zorder=3, edgecolor=BLACK, linewidth=0.4)
-        ax.axvline(_liston(table), color=GOLD, ls="--", lw=1.3, zorder=2)
+        ax.axvline(liston, color=GOLD, ls="--", lw=1.3, zorder=2)
         ax.set_yticks(y)
         ax.set_yticklabels(m.index, fontsize=7.5)
-        ax.set_xlabel("MASE de hold-out")
-        ax.set_title(f"({'a' if table == 'FAD' else 'b'}) {table} — 25 series familiares")
+        notas = [f"{n_off} fuera de escala (>0.40)"] if n_off else []
+        if len(parciales):
+            notas.append("cobertura parcial, fuera del ranking:")
+            notas.append(", ".join(f"{k} {v}/{n_series}" for k, v in parciales.items()))
+        ax.set_xlabel("\n".join(["MASE de hold-out", *notas]), fontsize=8)
+        ax.set_title(f"({'a' if table == 'FAD' else 'b'}) {table} — {n_series} series familiares")
         ax.text(
-            _liston(table),
+            liston,
             len(m) - 0.3,
-            f" listón {_liston(table):.3f}",
+            f" listón {nombre} {liston:.3f} (reservado)",
             color=GOLD,
             fontsize=7.5,
             va="top",
         )
-        if n_off:
-            ax.text(
-                0.97,
-                0.03,
-                f"{n_off} modelos fuera de escala (>0.40)",
-                transform=ax.transAxes,
-                ha="right",
-                fontsize=6.5,
-                color=GRAY,
-                style="italic",
-            )
     fig.tight_layout()
     _emit(fig, "results_ranking_mase")
     print("F1 ranking OK")
@@ -164,11 +193,11 @@ def fig_forecast() -> None:
 
 
 # ---------- F3: IC multi-semilla deep vs listón ----------
-def _seed_mases(pattern: str, col: str, table: str) -> list[float]:
-    # AP2: delegates the per-series F-only scoring loop to the canonical scorer.
+def _seed_scores(pattern: str, col: str, table: str) -> list[pd.Series]:
+    """MASE de reservado POR SERIE de cada semilla (el universo que se dibuja). AP2: el puntuador canónico."""
     from vp_model.metrics import mase_by_series
 
-    vals = []
+    out = []
     for p in sorted(REP.glob(pattern)):
         df = pd.read_csv(p, parse_dates=["ds"])
         if col not in df.columns:
@@ -177,24 +206,33 @@ def _seed_mases(pattern: str, col: str, table: str) -> list[float]:
         frame = df.assign(country=parts[0], category=parts[2])
         ms = mase_by_series(frame, table, pred_col=col, date_col="ds", min_points=2)
         if len(ms):
-            vals.append(float(ms.mean()))
-    return vals
+            out.append(ms)
+    return out
 
 
 def fig_multiseed() -> None:
     from scipy import stats
 
+    # G7 · B1: sin «oráculo de selección» (era un 0.113 fijo de una corrida vieja, sin artefacto) y con el listón en
+    # MASE de reservado sobre EXACTAMENTE las series que puntúan las semillas.
     specs = [
-        # oráculo 0.113 = corrida de selección perfecta (aggregate_seeds); no vive en key_facts
-        ("FAD", "campaign/global_FAD_camp_auto_s*.csv", "AutoBiTCN", _liston("FAD"), 0.113),
-        ("DFF", "campaign/global_DFF_camp_diff_s*.csv", "BiTCN", _liston("DFF"), None),
+        ("FAD", "campaign/global_FAD_camp_auto_s*.csv", "AutoBiTCN"),
+        ("DFF", "campaign/global_DFF_camp_diff_s*.csv", "BiTCN"),
     ]
+    medidas = []
+    for table, pat, col in specs:
+        scores = _seed_scores(pat, col, table)
+        universos = {frozenset(s.index) for s in scores}
+        if len(universos) != 1:
+            raise SystemExit(
+                f"F3 {table}: las {len(scores)} semillas puntúan un universo de series distinto (o ninguno)"
+            )
+        medidas.append((table, col, np.array([float(s.mean()) for s in scores]), _liston(table, set(universos.pop()))))
     fig, ax = plt.subplots(figsize=(6.4, 3.4))
     ypos, labels = [], []
-    for i, (table, pat, col, liston, oracle) in enumerate(specs):
-        vals = np.array(_seed_mases(pat, col, table))
-        m, sd, n = vals.mean(), vals.std(ddof=1), len(vals)
-        half = stats.t.ppf(0.975, n - 1) * sd / np.sqrt(n)
+    for i, (table, col, vals, (liston, n_series, nombre)) in enumerate(medidas):
+        m, sd, n_semillas = vals.mean(), vals.std(ddof=1), len(vals)
+        half = stats.t.ppf(0.975, n_semillas - 1) * sd / np.sqrt(n_semillas)
         y = i
         ax.errorbar(
             m,
@@ -218,12 +256,8 @@ def fig_multiseed() -> None:
             zorder=4,
             edgecolor=BLACK,
             linewidth=0.4,
-            label="Listón parsimonioso (ETS/Theta)" if i == 0 else None,
+            label=f"Listón parsimonioso ({nombre}, reservado, n={n_series})" if i == 0 else None,
         )
-        if oracle:
-            ax.scatter(
-                [oracle], [y], marker="s", color=GRAY, s=40, zorder=4, label="Oráculo de selección" if i == 0 else None
-            )
         ypos.append(y)
         labels.append(f"{table}\n{col}")
         ax.text(m, y + 0.16, f"{m:.3f}", color=BLUE, ha="center", fontsize=7.5)
@@ -269,7 +303,20 @@ def _bitcn_crps(table: str) -> float:
     return float(np.mean(crps))
 
 
-def fig_coverage_crps() -> None:
+def _crps_referencia(parent_root: Path | None = None) -> pd.Series:
+    """Media del CRPS por modelo de `crps_fad.csv`, SÓLO si su procedencia se acredita; si no, ``SystemExit``."""
+    from vp_model import champion
+    from vp_model.artifact_receipt import PANEL_REL
+
+    prov = champion.baseline_crps_provenance(reports=REP, panel=REP.parent / PANEL_REL, parent_root=parent_root)
+    if prov["status"] != "acreditado":
+        raise SystemExit(f"✗ F4 rechaza el CRPS de referencia ({prov['status']}): {prov['reason']}")
+    return pd.Series({m: v for m, v in prov["means"].items() if v is not None}, dtype="float64")
+
+
+def fig_coverage_crps(crps_parent_root: Path | None = None) -> None:
+    # Acredita SIEMPRE: ninguna vía pública dibuja un CRPS que no pase por el lector (auditoría F4).
+    crps = _crps_referencia(crps_parent_root)
     cov = pd.read_csv(REP / "eval" / "conformal_coverage.csv").set_index("table")
     fig, (axc, axr) = plt.subplots(1, 2, figsize=(7.4, 3.5))
     # (a) cobertura
@@ -292,7 +339,6 @@ def fig_coverage_crps() -> None:
     axc.set_title("(a) Calibración conforme adaptativa")
     # leyenda al pie de la figura (fuera del área de barras, evita encimarse con DFF)
     # (b) CRPS por modelo (FAD): clásicos + el deep ganador (BiTCN, calculado desde sus cuantiles)
-    crps = pd.read_csv(REP / "eval" / "crps_fad.csv").groupby("model")["crps"].mean()
     crps["BiTCN"] = _bitcn_crps("FAD")
     keep = [m for m in ["BiTCN", "sarima", "arima", "deepar"] if m in crps.index]
     crps = crps[keep].sort_values()
@@ -326,28 +372,29 @@ AREAS = [
     ("all_chargeability", "Resto del mundo"),
 ]
 CATS = ["F1", "F2A", "F2B", "F3", "F4"]
-HOLD_START = pd.Timestamp("2024-08-01")
-HOLD_END = pd.Timestamp("2026-07-01")
-WIN_START = pd.Timestamp("2022-08-01")  # 48 meses de ventana: 24 de contexto + 24 de hold-out
 BASE = pd.Timestamp(BASE_EPOCH)  # AD3: single-source t0
 
 
 def fig_backtest_grid(table: str) -> None:
-    from vp_model import dataset
+    from vp_model import dataset, holdout_window
+    from vp_model.config import HOLDOUT
 
     d = pd.read_csv(REP / "eval" / f"deep_pi_{table}.csv", parse_dates=["ds"])
+    # G7 · puerta 2: la ventana del protocolo, y sólo si los pronósticos la cubren (antes, literales de otra añada)
+    hold_start, hold_end = holdout_window.window_of(d)
+    win_start = hold_start - pd.DateOffset(months=HOLDOUT)  # tantos meses de contexto como de hold-out
     fig, axes = plt.subplots(5, 5, figsize=(9.6, 10.4), sharex=True)
     for r, (acode, aname) in enumerate(AREAS):
         for c, cat in enumerate(CATS):
             ax = axes[r, c]
-            ax.axvspan(HOLD_START, HOLD_END, color=STRIPE, zorder=0)  # lapso de hold-out marcado
+            ax.axvspan(hold_start, hold_end, color=STRIPE, zorder=0)  # lapso de hold-out marcado
             try:
                 full = dataset.load_series(acode, cat, table).astype("float64")
             except KeyError:
                 ax.text(0.5, 0.5, "sin datos", ha="center", va="center", fontsize=6, color=GRAY, transform=ax.transAxes)
                 full = None
             if full is not None:
-                fw = full[full.index >= WIN_START]
+                fw = full[full.index >= win_start]
                 ax.plot(fw.index, _to_year(fw.to_numpy()), color=BLACK, lw=0.9, zorder=2)
                 g = d[d.unique_id == f"{acode}/family/{cat}"].sort_values("ds")
                 g = g[g["ds"].isin(full.index)]  # solo donde la fecha real es específica (F)
@@ -385,7 +432,7 @@ def fig_backtest_grid(table: str) -> None:
         Line2D([0], [0], color=BLACK, lw=1.2, label="Fecha real (estado F)"),
         Line2D([0], [0], color=BLUE, lw=1.2, ls="--", label="Pronóstico (BiTCN)"),
         Patch(facecolor=BLUE, alpha=0.18, label="Intervalo de predicción 95%"),
-        Patch(facecolor=STRIPE, label="Lapso de hold-out (24 meses)"),
+        Patch(facecolor=STRIPE, label=f"Lapso de hold-out ({HOLDOUT} meses)"),
     ]
     fig.legend(handles=handles, loc="lower center", ncol=4, fontsize=8, frameon=False, bbox_to_anchor=(0.5, -0.005))
     fig.supylabel("Fecha de prioridad (año)", fontsize=9)
@@ -555,12 +602,23 @@ def fig_error_heatmap() -> None:
     print("F7 heatmap OK")
 
 
-if __name__ == "__main__":
+def main(argv: list[str] | None = None) -> None:
+    import argparse
+
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--crps-parent-root",
+        type=Path,
+        default=None,
+        help="raíz (sólo lectura) de la madre de una complementaria baseline_crps: sin ella su CRPS no se acredita",
+    )
+    args = ap.parse_args(argv)
+    _crps_referencia(args.crps_parent_root)  # antes de dibujar NADA: F1–F3 no quedan a medias
     with results_style():
         fig_ranking()
         fig_forecast()
         fig_multiseed()
-        fig_coverage_crps()
+        fig_coverage_crps(args.crps_parent_root)
         fig_backtest_grid("FAD")
         fig_backtest_grid("DFF")
         fig_cd_diagram()
@@ -569,3 +627,7 @@ if __name__ == "__main__":
             print(f"tabla {t} -> reports/prospective/forecast_vs_actual_{t}.csv")
         fig_error_heatmap()  # DESPUÉS de regenerar los CSV que lee (antes iba un run desfasado)
     print("Figuras en", FIG)
+
+
+if __name__ == "__main__":
+    main()

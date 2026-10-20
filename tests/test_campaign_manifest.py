@@ -18,9 +18,9 @@ def _w(tmp_path, text):
     return p
 
 
-def test_clean_false_is_publishable(tmp_path):
-    p = _w(tmp_path, json.dumps({"campaign_id": "c", "git_sha": "abc", "dirty": False}))
-    assert cm.publish_blocker(p) is None
+def test_clean_false_is_publishable(tmp_path, campana_sellada):
+    # ★ M74-E-R9: dirty=false ya no basta; el manifiesto tiene que acreditar su sello de entradas
+    assert cm.publish_blocker(campana_sellada(tmp_path)) is None
 
 
 def test_missing_manifest_blocks(tmp_path):
@@ -66,9 +66,8 @@ def test_non_object_blocks(tmp_path):
     assert cm.publish_blocker(_w(tmp_path, json.dumps([1, 2, 3])))
 
 
-def test_cli_exit_code(tmp_path):
-    ok = tmp_path / "ok.json"
-    ok.write_text(json.dumps({"dirty": False}))
+def test_cli_exit_code(tmp_path, campana_sellada):
+    ok = campana_sellada(tmp_path / "ok")
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps({"dirty": True}))
     assert cm.main(["prog", "--assert-publishable", str(ok)]) == 0

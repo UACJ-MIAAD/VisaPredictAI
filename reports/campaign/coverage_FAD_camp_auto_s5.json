@@ -1,0 +1,27 @@
+{
+  "campaign_id": "rederiv_953cd00_20261006T073927",
+  "csv_sha256": "sha256:fe6c9a57edbbb84213dd7edd5b438728f82d386cccc793c0d6ac051bfe849b78",
+  "grid_sha256": "51c20145818dcf0eed84d622918adecd91483ec5ab538db6153717c2f0ed3e47",
+  "models": {
+    "AutoBiTCN": {
+      "finite_mask_sha256": "e7ff2f73807de6c499dd1c3923353f367c654c96adcd615c5f1f23593b461142",
+      "finite_rows": 600
+    },
+    "AutoNHITS": {
+      "finite_mask_sha256": "e7ff2f73807de6c499dd1c3923353f367c654c96adcd615c5f1f23593b461142",
+      "finite_rows": 600
+    },
+    "AutoTiDE": {
+      "finite_mask_sha256": "e7ff2f73807de6c499dd1c3923353f367c654c96adcd615c5f1f23593b461142",
+      "finite_rows": 600
+    }
+  },
+  "n_rows": 600,
+  "n_series": 25,
+  "schema_version": 1,
+  "seed": 5,
+  "source_git_sha": "953cd002676f54b3f8831ef46062b6bf85a8fded",
+  "table": "FAD",
+  "truth_sha256": "cd8932077c4eb770c92936202d0d1b78545e4661773aa7a7b55913270cafc30a",
+  "variant": "camp_auto"
+}

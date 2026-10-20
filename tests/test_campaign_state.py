@@ -17,6 +17,7 @@ KW = dict(
     git_dirty=False,
     panel_sha256="sha256:" + "b" * 64,
     started_at="2026-07-13T00:00:00+00:00",
+    input_seal_sha256="d" * 64,
 )
 TS = "2026-07-13T01:00:00+00:00"
 RECEIPT = "c" * 64
@@ -38,9 +39,16 @@ def test_full_lifecycle(tmp_path):
     assert cs.read(p)["status"] == "running" and cs.read(p)["revision"] == 0
     _to_computed(p)
     assert cs.read(p)["status"] == "computed" and cs.read(p)["revision"] == 1
-    cs.mark_validated(p, validation_receipt_sha256=RECEIPT, reviewed_by="haowei", validated_at=TS, decision="approve")
+    cs.mark_validated(
+        p,
+        validation_receipt_sha256=RECEIPT,
+        validation_receipt_path="recibo.md",
+        reviewed_by="haowei",
+        validated_at=TS,
+        decision="approve",
+    )
     assert cs.read(p)["status"] == "validated"
-    cs.mark_published(p, published_at=TS, release_sha="d" * 40)
+    cs._transition(p, "published", {"published_at": TS, "release_sha": "d" * 40})
     assert cs.read(p)["status"] == "published"
     assert not list(tmp_path.glob(".campaign.*.tmp"))
 
@@ -49,8 +57,15 @@ def test_full_lifecycle(tmp_path):
 def test_seal_running_is_create_only(tmp_path):
     p = _seal(tmp_path)
     _to_computed(p)
-    cs.mark_validated(p, validation_receipt_sha256=RECEIPT, reviewed_by="h", validated_at=TS, decision="ok")
-    cs.mark_published(p, published_at=TS, release_sha="d" * 40)  # terminal published
+    cs.mark_validated(
+        p,
+        validation_receipt_sha256=RECEIPT,
+        validation_receipt_path="recibo.md",
+        reviewed_by="h",
+        validated_at=TS,
+        decision="ok",
+    )
+    cs._transition(p, "published", {"published_at": TS, "release_sha": "d" * 40})  # terminal published
     before = p.read_text()
     with pytest.raises(ValueError, match="ya existe"):
         cs.seal_running(p, **KW)  # reiniciar aborta
@@ -69,8 +84,15 @@ def test_terminal_failed_not_overwritten_by_computed(tmp_path):
 def test_published_is_terminal(tmp_path):
     p = _seal(tmp_path)
     _to_computed(p)
-    cs.mark_validated(p, validation_receipt_sha256=RECEIPT, reviewed_by="h", validated_at=TS, decision="ok")
-    cs.mark_published(p, published_at=TS, release_sha="d" * 40)
+    cs.mark_validated(
+        p,
+        validation_receipt_sha256=RECEIPT,
+        validation_receipt_path="recibo.md",
+        reviewed_by="h",
+        validated_at=TS,
+        decision="ok",
+    )
+    cs._transition(p, "published", {"published_at": TS, "release_sha": "d" * 40})
     with pytest.raises(ValueError, match="no permitida"):
         cs.mark_failed(p, failed_stage="x", failed_at=TS, reason="y")
 
@@ -78,7 +100,7 @@ def test_published_is_terminal(tmp_path):
 # ── P0: no se llega a computed/validated con gates/reviewer/timestamps nulos ──
 def test_computed_rejects_null_gates(tmp_path):
     p = _seal(tmp_path)
-    with pytest.raises(ValueError, match="gates"):
+    with pytest.raises(ValueError, match="gate"):
         cs.mark_computed(p, completed_at=TS, input_gate="passed", output_gate=None, consistency="passed")
 
 
@@ -94,20 +116,41 @@ def test_validated_rejects_empty_reviewer(tmp_path):
     p = _seal(tmp_path)
     _to_computed(p)
     with pytest.raises(ValueError, match="reviewed_by"):
-        cs.mark_validated(p, validation_receipt_sha256=RECEIPT, reviewed_by="", validated_at=TS, decision="ok")
+        cs.mark_validated(
+            p,
+            validation_receipt_sha256=RECEIPT,
+            validation_receipt_path="recibo.md",
+            reviewed_by="",
+            validated_at=TS,
+            decision="ok",
+        )
 
 
 def test_validated_rejects_bad_receipt_hash(tmp_path):
     p = _seal(tmp_path)
     _to_computed(p)
     with pytest.raises(ValueError, match="receipt"):
-        cs.mark_validated(p, validation_receipt_sha256="nothex", reviewed_by="h", validated_at=TS, decision="ok")
+        cs.mark_validated(
+            p,
+            validation_receipt_sha256="nothex",
+            validation_receipt_path="recibo.md",
+            reviewed_by="h",
+            validated_at=TS,
+            decision="ok",
+        )
 
 
 def test_cannot_skip_computed(tmp_path):
     p = _seal(tmp_path)
     with pytest.raises(ValueError, match="no permitida"):
-        cs.mark_validated(p, validation_receipt_sha256=RECEIPT, reviewed_by="h", validated_at=TS, decision="ok")
+        cs.mark_validated(
+            p,
+            validation_receipt_sha256=RECEIPT,
+            validation_receipt_path="recibo.md",
+            reviewed_by="h",
+            validated_at=TS,
+            decision="ok",
+        )
 
 
 # ── P1: esquema estricto ──
@@ -138,7 +181,7 @@ def test_seal_rejects_naive_timestamp(tmp_path):
 
 def test_schema_rejects_unknown_key():
     base = {
-        "schema_version": 2,
+        "schema_version": cs.SCHEMA_VERSION,
         "campaign_id": "c",
         "status": "running",
         "revision": 0,
@@ -146,6 +189,7 @@ def test_schema_rejects_unknown_key():
         "git_dirty": False,
         "panel_sha256": "sha256:" + "b" * 64,
         "started_at": TS,
+        "input_seal_sha256": "d" * 64,
     }
     assert cs.validate_schema(base) == []
     assert any("desconocidas" in x for x in cs.validate_schema({**base, "surprise": 1}))

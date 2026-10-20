@@ -5,8 +5,8 @@
 # F2: deep global — matriz de variantes (espacio-target × normalización × HPO) × multi-semilla.
 #     HPO deep (AK8c): UNA búsqueda de 40 trials por modelo y el ganador re-entrenado
 #     con 5 semillas (antes: 5 búsquedas independientes de 15 = 75 trials desperdiciados).
-# FAIL-CLOSED (auditoría 12-jul-2026): cada PASO acumula su fallo y la campaña TERMINA EN
-# ROJO (exit≠0) si algún paso falló. Antes cada paso llevaba `|| true` y el script salía 0
+# FAIL-CLOSED (auditoría 12-jul-2026; FAIL-FAST desde M74-E-R6): el primer paso roto detiene la
+# campaña con su exit. Antes cada paso llevaba `|| true` y el script salía 0
 # aunque fallaran F1/F2/agregación/ensembles/sync — un falso éxito que el run_req de
 # run_rederivation.sh no podía detectar. Los fallos POR-MODELO en series cortas ocurren
 # DENTRO de run_comparison (que sale 0 con su pool CSV), así que capturar el exit de cada
@@ -14,14 +14,26 @@
 #   bash experiments/run_campaign.sh > reports/campaign.log 2>&1
 set -uo pipefail
 cd "$(dirname "$0")/.."   # los intérpretes y las rutas de salida viven en la RAÍZ del repo
+# ★ M74-E-R5 (B7) · misma resolución de imports que el runbook y el smoke, explícita.
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 ANTE=ante/bin/python
 NF=ante_nf/bin/python
 # Guard fail-loud: sin esto, con el cwd/venv equivocado un paso se convertía en un no-op
 # silencioso que imprimía éxito (E1).
 [ -x "$ANTE" ] && [ -x "$NF" ] || { echo "ERROR: faltan venvs ante/ y/o ante_nf/ en la raíz" >&2; exit 1; }
 SEEDS="1 2 3 4 5"
-CAMP_FAILS=0
-step() { local label="$1"; shift; echo ">>> $label $(date)"; "$@" || { echo "##### PASO FALLIDO (exit $?): $label :: $*"; CAMP_FAILS=$((CAMP_FAILS+1)); }; }
+# ★ M74-E-R6 · FAIL-FAST en el punto del fallo (auditoría `8bc41ff6…`, B1). `step` acumulaba el
+# fallo y seguía: tras una semilla deep rota, la agregación leía por glob los `global_*.csv` que
+# hubiera —de esta campaña o de otra— y `sync_all` los re-hasheaba, y el rojo llegaba al final.
+step() {
+  local label="$1"; shift
+  echo ">>> $label $(date)"
+  "$@" && return 0
+  local rc=$?
+  echo "##### PASO FALLIDO (exit $rc): $label :: $*" >&2
+  echo "##### FAIL-FAST: la campaña se detiene aquí; nada posterior agrega ni sincroniza." >&2
+  exit "$rc"
+}
 echo "=== CAMPAÑA arranca $(date) ==="
 echo "campaign_id=${CAMPAIGN_ID:-standalone}  ·  sha=${CAMPAIGN_SHA:-$(git rev-parse --short HEAD)}"
 
@@ -71,8 +83,15 @@ for table in FAD DFF; do
   done
 done
 
-# ---------- F2: ensembles (combinaciones) -> MLflow ----------
-step "F2 ensembles" $ANTE experiments/run_ensembles.py --mlflow
+# ---------- F2: ensembles ---------- ★ RETIRADO en M74-E-R1
+# Corría AQUÍ, en la etapa 1 de la re-derivación, sobre `holdout_forecasts_*` que la etapa 3.5
+# todavía no había reconstruido: es decir, SIEMPRE sobre la añada anterior. El propio encabezado
+# del runbook lo admitía («usa holdouts previos y queda superseded»), y quedarse en «superseded»
+# significaba gastar cómputo para publicar en MLflow un resultado calculado sobre datos viejos
+# que nadie volvía a mirar. No se difiere: la etapa 4 ya hace esto mismo con el insumo correcto.
+#
+# ⚠️ Además, desde que los consumidores se re-acreditan al leer, dejarlo aquí ABORTARÍA la etapa 1:
+# en este punto de la campaña no existe todavía un `holdout_forecasts` acreditado para ella.
 
 # ---------- MLflow + DVC re-hash LOCAL (NO publica; auditoría 12-jul-2026) ----------
 # sync_all sin --publish: sincroniza MLflow y re-hashea con dvc add, pero NO hace
@@ -80,9 +99,5 @@ step "F2 ensembles" $ANTE experiments/run_ensembles.py --mlflow
 # SYNC_PUBLISH=0 explícito: aunque el entorno lo herede en 1, la campaña NUNCA publica.
 step "sync_all LOCAL (sin push)" env SYNC_PUBLISH=0 bash experiments/sync_all.sh "campaña: MLflow + DVC local ($(date +%Y-%m-%d))"
 
-echo "=== CAMPAÑA termina $(date) · pasos fallidos: $CAMP_FAILS ==="
-if [ "$CAMP_FAILS" -gt 0 ]; then
-  echo "✗ CAMPAÑA FALLIDA: $CAMP_FAILS paso(s) rotos. NO es un éxito." >&2
-  exit 1
-fi
+echo "=== CAMPAÑA termina $(date) · todos los pasos en verde ==="
 exit 0

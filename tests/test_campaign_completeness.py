@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 import pytest
@@ -22,6 +23,27 @@ def _seal(root, started="2000-01-01T00:00:00+00:00", cid="camp1", sha="abc"):
     (root / "reports" / "campaign" / "campaign_manifest.json").write_text(
         json.dumps({"campaign_id": cid, "sha": sha, "git_sha": sha, "dirty": False, "started_at": started})
     )
+
+
+CID_SELLADO = "rederiv_abc1234_20000101T000000"
+
+
+def _sello_valido(root, campana_sellada, cid=CID_SELLADO):
+    """★ M74-E-R9 · el gate acredita el sello de entradas: el camino feliz necesita una identidad coherente.
+
+    El SHA falso `abc` no es un commit de 40 hex. Se sella uno válido y los artefactos que lo portan se
+    alinean con él: el manifiesto de modelos por prefijo corto y los recibos por SHA completo.
+    """
+    head = "abc1234" + "0" * 33
+    for rel, viejo, nuevo in [("models/manifest.jsonl", '"git_sha": "abc"', f'"git_sha": "{head[:7]}"')] + [
+        (f"reports/eval/holdout_forecasts_{t}.csv.receipt.json", '"code_sha": "abc"', f'"code_sha": "{head}"')
+        for t in ("FAD", "DFF")
+    ]:
+        f = root / rel
+        if f.exists():
+            f.write_text(f.read_text().replace(viejo, nuevo))
+    campana_sellada(root, campaign_id=cid, head=head)
+    return head
 
 
 def _pool(n_series=25, n_models=24, nan=3):
@@ -88,11 +110,30 @@ def _write_inputs(root):
     for t in ("FAD", "DFF"):
         for mdl, cfg in HPO.items():
             (camp / f"hpo_deep_best_{t}_{mdl}.json").write_text(json.dumps(cfg))
+            # ★ R17: el productor real deja el recibo junto a la ganadora; el gate lo exige y NO lo cuenta como ganadora
+            (camp / f"hpo_deep_best_{t}_{mdl}.receipt.json").write_text(json.dumps({"schema": "hpo-winner-receipt/1"}))
         for variant in ("camp_levels", "camp_diff", "camp_diffls"):
             for seed in range(1, 6):
                 (camp / f"global_{t}_{variant}_s{seed}.csv").write_text(_seed(("NHITS", "PatchTST", "TiDE", "BiTCN")))
         for seed in range(1, 6):
             (camp / f"global_{t}_camp_auto_s{seed}.csv").write_text(_seed(("AutoBiTCN", "AutoTiDE", "AutoNHITS")))
+    # ★ M74-E-R2: los dos recibos entran al gate, así que el escenario realista los trae.
+    for t in ("FAD", "DFF"):
+        csv = ev / f"holdout_forecasts_{t}.csv"
+        (ev / f"holdout_forecasts_{t}.csv.receipt.json").write_text(
+            json.dumps(
+                {
+                    "schema": "holdout-forecasts-receipt/1",
+                    "campaign_id": "c1",
+                    "code_sha": "abc",
+                    "panel_sha256": "sha256:h",
+                    "expected_keys_sha256": "e" * 64,
+                    "n_expected_keys": 2,
+                    "coverage": {"n_rows": 2, "n_keys": 2},
+                    "artifact_sha256": hashlib.sha256(csv.read_bytes()).hexdigest(),
+                }
+            )
+        )
     (ev / "tuned_params.json").write_text(json.dumps(TUNED))
     # manifest con locales+globales cuyas rutas EXISTEN
     (root / "models" / "FAD" / "local" / "m.pkl").write_text("x")
@@ -122,15 +163,14 @@ def _write_outputs(root, cid="camp1", sha="abc"):
 
 
 # ── happy path: sin falsos rechazos ──
-def test_inputs_pass_with_realistic_artifacts(sandbox):
+def test_inputs_pass_with_realistic_artifacts(sandbox, campana_sellada):
     _write_inputs(sandbox)
-    _seal(sandbox)
+    _sello_valido(sandbox, campana_sellada)
     assert gate.check("inputs", preflight=False) == []
 
 
-def test_outputs_pass_with_realistic_artifacts(sandbox):
-    _seal(sandbox)
-    _write_outputs(sandbox)
+def test_outputs_pass_with_realistic_artifacts(sandbox, campana_sellada):
+    _write_outputs(sandbox, cid=CID_SELLADO, sha=_sello_valido(sandbox, campana_sellada))
     assert gate.check("outputs", preflight=False) == []
 
 
@@ -347,6 +387,7 @@ def _load_deep(monkeypatch):
     stub = types.ModuleType("run_global_deep")
     for n in ("HOLDOUT", "encode_regime", "load_panel", "regular_monthly", "_auto_config", "_optuna_sampler"):
         setattr(stub, n, None)
+    stub.VAL_SIZE = 12  # R19: la cola de validacion que el productor pasa a los finalistas Auto
     monkeypatch.setitem(sys.modules, "run_global_deep", stub)
     spec = importlib.util.spec_from_file_location(
         "save_finalists_deep_under_test", repo / "experiments" / "save_finalists_deep.py"

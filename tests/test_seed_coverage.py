@@ -1,4 +1,4 @@
-"""Contrato de cobertura por semilla: productor (seed_coverage) + gate (validate_seed_group).
+"""Contrato de cobertura por semilla: productor y puerta única (`seed_coverage.accredit_group`).
 
 Auditoria 13-jul-2026 ronda 9, paso 3-4. Ejecuta el helper del productor sobre frames
 sinteticos y el gate sobre sidecars sinteticos: grilla canonica, salida sin borrar filas,
@@ -13,8 +13,6 @@ import json
 import pathlib
 
 import pandas as pd
-
-import tools.check_campaign_completeness as gate
 
 _P = pathlib.Path(__file__).resolve().parent.parent / "experiments" / "seed_coverage.py"
 _spec = importlib.util.spec_from_file_location("seed_coverage_ut", _P)
@@ -55,10 +53,10 @@ def test_build_output_keeps_all_rows_failed_model_is_nan():
     assert out["NHITS"].isna().all()  # modelo fallido -> columna toda-NaN
 
 
-def test_validate_output_detects_missing_column():
+def test_seed_problems_detects_missing_column():
     grid = sc.canonical_grid(_level(), holdout=3)
     out = sc.build_output(grid, {"BiTCN": _fc(grid, "BiTCN")}, ["BiTCN"])
-    assert sc.validate_output(out, grid, ["BiTCN", "NHITS"])  # NHITS no esta
+    assert sc.seed_problems(out, grid, ["BiTCN", "NHITS"])  # NHITS no esta
 
 
 def test_coverage_sidecar_counts_finite_and_hashes():
@@ -95,123 +93,132 @@ def test_finalize_seed_writes_atomically(tmp_path):
     assert sd["csv_sha256"] == "sha256:" + hashlib.sha256(out_csv.read_bytes()).hexdigest()
 
 
-# ── gate: cobertura identica y VERIFICABLE entre semillas (ronda 10) ──
-def _bundle(
-    camp_dir,
-    variant,
-    seed,
-    *,
-    grid="a" * 64,
-    truth="b" * 64,
-    masks=None,
-    models=("AutoBiTCN", "AutoTiDE", "AutoNHITS"),
-    sha="a" * 40,
-    n_rows=6,
-    n_series=2,
-    finite=6,
-    csv_content="unique_id,ds,y\nx,2020-01-01,1.0\n",
-    write_csv=True,
-):
-    """Escribe el CSV real + su sidecar con csv_sha256 ligado por bytes."""
+# ── puerta única (M74-E-R7): cada semilla se recalcula contra la rejilla, no contra sus hermanas ──
+REQ_G = ["AutoBiTCN", "AutoTiDE", "AutoNHITS"]
+
+
+def _rejilla():
+    return sc.canonical_grid(_level(), holdout=3)
+
+
+def _completo():
+    out = _rejilla()
+    for k, m in enumerate(REQ_G):
+        out[m] = out["y"] + 0.5 + k
+    return out
+
+
+def _semilla(camp_dir, seed, marco=None, *, sha="a" * 40, write_csv=True, **mentira):
+    """CSV + sidecar HONESTO sobre ese CSV; ``mentira`` altera campos del sidecar."""
+    marco = _completo() if marco is None else marco
+    texto = marco.to_csv(index=False)
     if write_csv:
-        (camp_dir / f"global_FAD_{variant}_s{seed}.csv").write_text(csv_content)
-    csv_sha = "sha256:" + hashlib.sha256(csv_content.encode("utf-8")).hexdigest()
-    m = {name: {"finite_rows": finite, "finite_mask_sha256": (masks or {}).get(name, "c" * 64)} for name in models}
-    (camp_dir / f"coverage_FAD_{variant}_s{seed}.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "campaign_id": "c",
-                "source_git_sha": sha,
-                "table": "FAD",
-                "variant": variant,
-                "seed": seed,
-                "csv_sha256": csv_sha,
-                "grid_sha256": grid,
-                "truth_sha256": truth,
-                "n_rows": n_rows,
-                "n_series": n_series,
-                "models": m,
-            }
-        )
+        (camp_dir / f"global_FAD_camp_auto_s{seed}.csv").write_text(texto)
+    modelos = [c for c in marco.columns if c not in ("unique_id", "ds", "y")]
+    side = sc.coverage_sidecar(
+        marco,
+        modelos,
+        campaign={"campaign_id": "c", "source_git_sha": sha},
+        table="FAD",
+        variant="camp_auto",
+        seed=seed,
+        csv_sha256="sha256:" + hashlib.sha256(texto.encode("utf-8")).hexdigest(),
     )
+    side.update(mentira)
+    (camp_dir / f"coverage_FAD_camp_auto_s{seed}.json").write_text(json.dumps(side))
 
 
-def _write_group(camp_dir, variant="camp_auto"):
+def _write_group(camp_dir):
     for s in range(1, 6):
-        _bundle(camp_dir, variant, s)
+        _semilla(camp_dir, s)
+
+
+def _problemas(camp_dir) -> str:
+    try:
+        sc.accredit_group(
+            "FAD", "camp_auto", camp_dir, grid=_rejilla(), required=REQ_G, campaign_id="c", source_git_sha="a" * 40
+        )
+    except SystemExit as exc:
+        return str(exc)
+    return ""
 
 
 def test_seed_group_identical_passes(tmp_path):
     _write_group(tmp_path)
-    assert gate.validate_seed_group("FAD", "camp_auto", tmp_path) == []
+    assert _problemas(tmp_path) == ""
 
 
 def test_seed_group_missing_sidecar_fails(tmp_path):
     _write_group(tmp_path)
     (tmp_path / "coverage_FAD_camp_auto_s3.json").unlink()
-    assert any("falta cobertura" in p for p in gate.validate_seed_group("FAD", "camp_auto", tmp_path))
+    assert "sin sidecar" in _problemas(tmp_path)
 
 
 def test_seed_group_different_grid_fails(tmp_path):
     _write_group(tmp_path)
-    _bundle(tmp_path, "camp_auto", 2, grid="f" * 64)
-    assert any("grid_sha256 DIFIERE" in p for p in gate.validate_seed_group("FAD", "camp_auto", tmp_path))
+    marco = _completo()
+    marco.loc[0, "ds"] = pd.Timestamp("2019-01-01")
+    _semilla(tmp_path, 2, marco)
+    assert "rejilla" in _problemas(tmp_path)
 
 
 def test_seed_group_different_truth_fails(tmp_path):
     _write_group(tmp_path)
-    _bundle(tmp_path, "camp_auto", 4, truth="f" * 64)
-    assert any("truth_sha256 DIFIERE" in p for p in gate.validate_seed_group("FAD", "camp_auto", tmp_path))
+    marco = _completo()
+    marco.loc[0, "y"] += 1.0
+    _semilla(tmp_path, 4, marco)
+    assert "verdad" in _problemas(tmp_path)
 
 
-def test_seed_group_different_finite_mask_fails(tmp_path):
+def test_seed_group_partial_nan_fails(tmp_path):
     _write_group(tmp_path)
-    _bundle(tmp_path, "camp_auto", 5, masks={"AutoBiTCN": "d" * 64})
-    assert any("finite-mask" in p for p in gate.validate_seed_group("FAD", "camp_auto", tmp_path))
+    marco = _completo()
+    marco.loc[2, "AutoBiTCN"] = float("nan")
+    _semilla(tmp_path, 5, marco)
+    assert "AutoBiTCN: 1 pronostico" in _problemas(tmp_path)
 
 
 def test_seed_group_wrong_model_inventory_fails(tmp_path):
     _write_group(tmp_path)
-    _bundle(tmp_path, "camp_auto", 1, models=("AutoBiTCN", "AutoTiDE"))  # falta AutoNHITS
-    assert any("modelos" in p for p in gate.validate_seed_group("FAD", "camp_auto", tmp_path))
+    _semilla(tmp_path, 1, _completo().drop(columns=["AutoNHITS"]))
+    assert "columnas" in _problemas(tmp_path)
 
 
 def test_seed_group_wrong_sha_fails(tmp_path):
     _write_group(tmp_path)
-    _bundle(tmp_path, "camp_auto", 2, sha="b" * 40)
-    assert any(
-        "source_git_sha" in p for p in gate.validate_seed_group("FAD", "camp_auto", tmp_path, sealed_sha="a" * 40)
-    )
+    _semilla(tmp_path, 2, sha="b" * 40)
+    assert "source_git_sha" in _problemas(tmp_path)
 
 
-# ── P2 ronda 10: sidecar vacio / sin CSV / CSV alterado / s6 extra / degenerado ──
-def test_seed_group_empty_sidecar_fails(tmp_path):
+def test_seed_group_sidecar_lying_about_rows_fails(tmp_path):
     _write_group(tmp_path)
-    _bundle(tmp_path, "camp_auto", 3, n_rows=0)  # sidecar "vacio"
-    assert any("n_rows" in p for p in gate.validate_seed_group("FAD", "camp_auto", tmp_path))
+    _semilla(tmp_path, 3, n_rows=0)
+    assert "n_rows" in _problemas(tmp_path)
 
 
 def test_seed_group_sidecar_without_csv_fails(tmp_path):
     _write_group(tmp_path)
-    _bundle(tmp_path, "camp_auto", 2, write_csv=False)
     (tmp_path / "global_FAD_camp_auto_s2.csv").unlink()
-    assert any("sin CSV" in p for p in gate.validate_seed_group("FAD", "camp_auto", tmp_path))
+    assert "sin CSV" in _problemas(tmp_path)
 
 
 def test_seed_group_csv_altered_after_sidecar_fails(tmp_path):
     _write_group(tmp_path)
-    (tmp_path / "global_FAD_camp_auto_s2.csv").write_text("unique_id,ds,y\nx,2020-01-01,999.0\n")  # alterado
-    assert any("csv_sha256" in p for p in gate.validate_seed_group("FAD", "camp_auto", tmp_path))
+    marco = _completo()
+    marco.loc[1, "AutoTiDE"] += 1.0
+    (tmp_path / "global_FAD_camp_auto_s2.csv").write_text(marco.to_csv(index=False))
+    assert "csv_sha256" in _problemas(tmp_path)
 
 
 def test_seed_group_extra_s6_csv_fails(tmp_path):
     _write_group(tmp_path)
     (tmp_path / "global_FAD_camp_auto_s6.csv").write_text("unique_id,ds,y\nx,2020-01-01,1.0\n")
-    assert any("extra" in p for p in gate.validate_seed_group("FAD", "camp_auto", tmp_path))
+    assert "grupo" in _problemas(tmp_path)
 
 
-def test_seed_group_all_finite_zero_fails(tmp_path):
+def test_seed_group_model_without_any_forecast_fails(tmp_path):
     _write_group(tmp_path)
-    _bundle(tmp_path, "camp_auto", 4, finite=0)  # cobertura vacia
-    assert any("finite_rows=0" in p for p in gate.validate_seed_group("FAD", "camp_auto", tmp_path))
+    marco = _completo()
+    marco["AutoTiDE"] = float("nan")
+    _semilla(tmp_path, 4, marco)
+    assert "AutoTiDE: 6" in _problemas(tmp_path)

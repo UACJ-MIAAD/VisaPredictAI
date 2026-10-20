@@ -34,10 +34,12 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 import warnings
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -110,13 +112,18 @@ def cohorte_uids(table: str, cohort: str, ruta: Path = COHORTS) -> set[str]:
     }
 
 
-def load_panel(table: str, block: str, *, cohort: str = "all", universe: str = "pilot") -> pd.DataFrame:
+def load_panel(
+    table: str, block: str, *, cohort: str = "all", universe: str = "pilot", frame: pd.DataFrame | None = None
+) -> pd.DataFrame:
     """Panel largo neuralforecast (unique_id, ds, y), F-only, mensual regular.
 
     ``block='both'`` apila familiar + empleo (más series → mejor aprendizaje global).
     Solo entran series con largo suficiente para la ventana + hold-out.
+
+    ``frame`` es el panel largo ya leído. ★ M74-E-R7: el lector de semillas corre en ``ante``, sin
+    motor de parquet, y deriva la MISMA rejilla del CSV canónico (medido idéntico en FAD y DFF).
     """
-    df = pd.read_parquet(PANEL)
+    df = pd.read_parquet(PANEL) if frame is None else frame
     blocks = ("family", "employment") if block == "both" else (block,)
     # NO se filtra a status==F: necesitamos las celdas C (y U) para codificar el régimen y
     # darle continuidad REAL a la serie. La EVALUACIÓN sigue siendo F-only (hold-out = fechas).
@@ -336,7 +343,10 @@ def _dump_best_config(nf, name: str, table: str) -> None:
     """AK8c: persiste la config ganadora del Auto* + su historial de trials.
 
     ``reports/campaign/hpo_deep_best_{table}_{name}.json`` alimenta los
-    re-entrenos multi-semilla (``--config``); el CSV de trials es procedencia.
+    re-entrenos multi-semilla (``--config``) y la finalización; el CSV de trials es procedencia.
+
+    **Obligatorio desde M74-E (§8.6.4):** si no se puede escribir la ganadora o sellar su recibo,
+    el paso HPO **falla**. Antes era un WARN y la corrida seguía sin ganadora.
     """
     out_dir = ROOT / "reports" / "campaign"
     try:
@@ -353,14 +363,64 @@ def _dump_best_config(nf, name: str, table: str) -> None:
             for k, v in best.items()
             if k not in _CONFIG_DROP and (v is None or isinstance(v, (bool, int, float, str, list, tuple)))
         }
-        (out_dir / f"hpo_deep_best_{table}_{name}.json").write_text(json.dumps(best, indent=2))
+        ganadora = out_dir / f"hpo_deep_best_{table}_{name}.json"
+        # staging + promoción atómica, igual que el recibo: una caída entre ambos ya queda
+        # fail-closed por el hash, pero un JSON truncado confundiría el diagnóstico.
+        _tmp = ganadora.with_suffix(".json.tmp")
+        _tmp.write_text(json.dumps(best, indent=2))
+        os.replace(_tmp, ganadora)
         study.trials_dataframe().to_csv(out_dir / f"hpo_deep_trials_{table}_{name}.csv", index=False)
-        print(f"  · config ganadora -> hpo_deep_best_{table}_{name}.json ({len(study.trials)} trials)")
-    except Exception as e:  # noqa: BLE001 — el dump no debe tirar la corrida
-        print(f"  · WARN sin dump de config para {name}: {type(e).__name__}: {str(e)[:100]}")
+        # ★ §8.6.4 · quien BUSCA sella el recibo; quien CONSUME lo vuelve a acreditar. Sin esto, un
+        # JSON de ganadora es un diccionario plano sin identidad: se lee igual venga de esta campaña
+        # o de la de agosto, que es exactamente cómo `save_finalists_deep` acabó entrenando un
+        # modelo que no era el evaluado.
+        from hpo_winner_receipt import campaign_identity, write_receipt
+
+        ident = campaign_identity(ROOT)
+        recibo = write_receipt(
+            ganadora,
+            campaign_id=ident["campaign_id"],
+            code_sha=ident["source_git_sha"],  # 40 chars: truncar es parecerse, no ser
+            panel_sha256=ident["panel_sha256"],
+            table=table,
+            model=name,
+            accelerator_in_artifact=str(best.get("accelerator", "")),
+        )
+        print(f"  · config ganadora -> {ganadora.name} ({len(study.trials)} trials) · recibo {recibo.name}")
+    except Exception as e:
+        # broad-catch: se re-lanza SIEMPRE como RuntimeError; no traga nada. BLE001 no marca los
+        # handlers que re-lanzan, así que la justificación va por marcador explícito.
+        # ⚠️ ESTO YA NO ES UN WARN. Hasta M74-E, cualquier fallo del dump —incluido no escribir la
+        # ganadora— salía por aquí como aviso y la corrida seguía: el consumidor descubría la
+        # ausencia DIEZ HORAS después, cuando ya no hay nada que hacer salvo repetirlo todo. La
+        # ganadora y su recibo son obligatorios (§8.6.4), así que el paso HPO muere aquí y ahora.
+        raise RuntimeError(
+            f"HPO {table}/{name}: no se pudo sellar la config ganadora ni su recibo "
+            f"({type(e).__name__}: {str(e)[:160]})"
+        ) from e
 
 
-def _build_from_config(names: list[str], template: str, seed: int):
+def _accredited_configs(names: list[str], template: str, table: str, root: Path = ROOT) -> dict[str, dict]:
+    """★ R14 · las ganadoras que los re-entrenos ``--config`` consumen, ACREDITADAS contra la campaña.
+
+    Hasta R14 este camino leía el JSON que hubiera y, si faltaba, imprimía «se omite» y seguía: el
+    finalizador acreditaba el recibo (§8.6.4) pero los cinco re-entrenos multi-semilla no. Ahora
+    los tres términos (transacción, panel en disco, HEAD) y el recibo se exigen aquí también, y una
+    ganadora ausente es un fallo, no una omisión.
+    """
+    from hpo_winner_receipt import load_and_accredit
+
+    salida: dict[str, dict] = {}
+    for name in names:
+        path = Path(template.format(model=name))
+        if not path.is_absolute():
+            path = root / path
+        cfg = load_and_accredit(path, root=root, table=table, model=f"Auto{name}")
+        salida[name] = {k: v for k, v in cfg.items() if k not in _CONFIG_DROP}
+    return salida
+
+
+def _build_from_config(names: list[str], template: str, seed: int, table: str):
     """AK8c: re-construye el ganador del HPO determinísticamente para una semilla.
 
     ``template`` es la ruta del JSON con ``{model}`` como placeholder (p. ej.
@@ -373,14 +433,7 @@ def _build_from_config(names: list[str], template: str, seed: int):
 
     classes = {"BiTCN": BiTCN, "NHITS": NHITS, "TiDE": TiDE, "PatchTST": PatchTST}
     builders = {}
-    for name in names:
-        path = Path(template.format(model=name))
-        if not path.is_absolute():
-            path = ROOT / path
-        if not path.exists():
-            print(f"  ✗ sin config ganadora para {name} ({path.name}) — se omite")
-            continue
-        cfg = {k: v for k, v in json.loads(path.read_text()).items() if k not in _CONFIG_DROP}
+    for name, cfg in _accredited_configs(names, template, table).items():
         params = {
             **cfg,
             "h": 1,
@@ -413,6 +466,7 @@ def _escribir_receipt(args, deck, receta, panel, merged, salida: Path, estado: d
     import resource
 
     import torch
+    from hpo_winner_receipt import lane_campaign_identity
 
     escritos = [
         {
@@ -436,6 +490,7 @@ def _escribir_receipt(args, deck, receta, panel, merged, salida: Path, estado: d
         "block": args.block,
         "universe": args.universe,
         "seed": args.seed,
+        "campaign": lane_campaign_identity(ROOT),  # M74-F · deuda 2: el lector la exige
         "device": "cpu",
         "accelerator_requested": "cpu",
         "cuda_available": bool(torch.cuda.is_available()),
@@ -469,7 +524,8 @@ def _escribir_receipt(args, deck, receta, panel, merged, salida: Path, estado: d
     return args.receipt
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """★ R17 · el parser vive aparte para que una prueba valide las órdenes REALES de cada lane sin entrenar."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--table", default="FAD")
     ap.add_argument("--block", default="both", choices=["family", "employment", "both"])
@@ -491,7 +547,35 @@ def main() -> None:
         default=None,
         help="plantilla JSON del ganador del HPO con {model} (AK8c): re-entrena determinístico con --seed",
     )
-    args = ap.parse_args()
+    return ap
+
+
+def aplicar_receta(args: argparse.Namespace, receta: Any, deck: Any) -> argparse.Namespace:
+    """La receta y la baraja mandan sobre la línea de órdenes.
+
+    El espacio de entrenamiento sale de la receta y **el universo sale de la baraja** (`deck.universe`,
+    `evaluable`): sólo bajo ese universo `load_panel` restringe el panel a las series de la cohorte
+    (`cohorte_uids`). ★ R22 · la novena auditoría ciega encontró que los 42 lanes de E3 no pasaban
+    `--universe` y el runner quedaba en su defecto `pilot`, así que los tres lanes de cohorte de una
+    misma (receta, tabla) eran el MISMO entrenamiento sobre las 56 series piloto con tres etiquetas,
+    mientras los recibos rastreados de M61 y el deck declaran `evaluable` (11/30/41 series en FAD).
+    """
+    args.diff = receta.space == "diff"
+    args.models = None
+    args.auto = False
+    args.config = None
+    args.universe = deck.universe
+    # ★ M74-F · deuda 3: la semilla también la manda la baraja. Aquí coincidía por casualidad (el
+    # defecto del runner es 1 y la baraja dice [1]); con receta, cualquier otra no es el protocolo.
+    try:
+        deck.exigir_semilla(args.seed)
+    except ValueError as exc:
+        raise SystemExit(f"lane {receta.name}: {exc}") from exc
+    return args
+
+
+def main() -> None:
+    args = build_parser().parse_args()
 
     import torch
 
@@ -503,12 +587,7 @@ def main() -> None:
     receta = deck.receta(args.recipe) if (deck and args.recipe) else None
     congelado = deck.frozen if deck else {}
     if receta is not None:
-        # La receta manda: el espacio de entrenamiento sale de la baraja, no de la línea de
-        # órdenes, para que un lane no pueda correr en un espacio distinto del pre-registrado.
-        args.diff = receta.space == "diff"
-        args.models = None
-        args.auto = False
-        args.config = None
+        aplicar_receta(args, receta, deck)
     panel = load_panel(args.table, args.block, cohort=args.cohort, universe=args.universe)
     uids = panel["unique_id"].nunique()
     print(f"panel: {uids} series, {len(panel)} filas ({args.table}/{args.block}), diff={args.diff}")
@@ -529,7 +608,7 @@ def main() -> None:
     input_size = 36 if args.table == "FAD" else 18
     max_steps = 5 if args.fast else args.max_steps
     if args.config:  # AK8c: re-entreno determinista del ganador del HPO (columna Auto*)
-        builders = _build_from_config(args.models or ["BiTCN", "TiDE", "NHITS"], args.config, args.seed)
+        builders = _build_from_config(args.models or ["BiTCN", "TiDE", "NHITS"], args.config, args.seed, args.table)
     elif args.auto:
         builders = _build_auto_models(2 if args.fast else args.num_samples, args.seed)
     elif receta is not None:
@@ -617,13 +696,54 @@ def main() -> None:
         else ROOT / "reports" / "campaign" / f"global_{args.table}_{suffix}.csv"
     )
     out = destino
-    # solo las filas de hold-out (las últimas 24 por serie) llevan pronóstico
-    merged = merged[merged.drop(columns=["unique_id", "ds", "y"]).notna().any(axis=1)]
     out.parent.mkdir(parents=True, exist_ok=True)
-    merged.to_csv(out, index=False)
+    semilla = _SEMILLA_RE.match(suffix) if receta is None else None
+    if semilla is not None:
+        # ★ M74-E-R7 · una semilla de campaña parte de la REJILLA CANÓNICA, no de lo que sobrevivió
+        merged = _sellar_semilla(merged, level, out, args.table, semilla)
+    else:
+        # solo las filas de hold-out (las últimas 24 por serie) llevan pronóstico
+        merged = merged[merged.drop(columns=["unique_id", "ds", "y"]).notna().any(axis=1)]
+        merged.to_csv(out, index=False)
     print(f"guardado {out.relative_to(ROOT)} ({len(merged)} filas)")
     if args.receipt is not None:
         _escribir_receipt(args, deck, receta, panel, merged, out, estado, t0)
+
+
+_SEMILLA_RE = re.compile(r"^(camp_[a-z]+)_s(\d+)$")
+
+
+def _sellar_semilla(
+    merged: pd.DataFrame, level: pd.DataFrame, out: Path, table: str, semilla: re.Match, campaign: dict | None = None
+) -> pd.DataFrame:
+    """M74-E-R7 · CSV + sidecar de una semilla de campaña, construidos sobre la rejilla canónica.
+
+    R6 sellaba lo que sobrevivía a borrar las filas sin pronóstico, así que cinco semillas truncadas
+    igual quedaban acreditadas (auditoría `a23c878e…`). Ahora el marco parte de las últimas
+    ``HOLDOUT`` filas de cada serie del panel con el inventario declarado de la variante, y
+    `finalize_seed` aborta ANTES de escribir si falta una clave, una columna o un valor finito.
+    """
+    import seed_coverage
+    from hpo_winner_receipt import campaign_identity
+
+    from tools.check_campaign_completeness import SEED_MODELS
+
+    variante, n = semilla.group(1), int(semilla.group(2))
+    if variante not in SEED_MODELS:
+        raise SystemExit(f"semilla {table}/{variante}/s{n}: la variante no tiene inventario de modelos declarado")
+    modelos = [c for c in merged.columns if c not in ("unique_id", "ds", "y")]
+    seed_coverage.finalize_seed(
+        seed_coverage.canonical_grid(level, HOLDOUT),
+        {m: merged[["unique_id", "ds", m]] for m in modelos},
+        list(SEED_MODELS[variante]),
+        out_path=out,
+        sidecar_path=out.with_name(f"coverage_{table}_{variante}_s{n}.json"),
+        campaign=campaign if campaign is not None else campaign_identity(ROOT),
+        table=table,
+        variant=variante,
+        seed=n,
+    )
+    return pd.read_csv(out, parse_dates=["ds"])
 
 
 def _selfcheck() -> None:

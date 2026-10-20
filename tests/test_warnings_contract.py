@@ -29,7 +29,7 @@ def _sandbox(tmp_path: Path) -> Path:
     shutil.copy2(ROOT / "security" / "warnings_registry.json", tmp_path / "security" / "warnings_registry.json")
     shutil.copy2(ROOT / "tests" / "conftest.py", tmp_path / "tests" / "conftest.py")
     shutil.copy2(ROOT / "pyproject.toml", tmp_path / "pyproject.toml")
-    for lock in ("model-cpu.txt", "deep-macos-arm64.txt"):
+    for lock in ("model-cpu.txt", "deep-macos-arm64.txt", "dev.txt"):
         shutil.copy2(ROOT / "locks" / lock, tmp_path / "locks" / lock)
     _plant_broad_suppressions(tmp_path, _registry(tmp_path)["deferred_debt"]["sites"])
     return tmp_path
@@ -69,13 +69,23 @@ def _set_filters(root: Path, filters: list[str]) -> None:
 
 # ----------------------------------------------------------------- estado vigente
 def test_real_repository_satisfies_the_contract() -> None:
-    """8 excepciones: las 4 acreditadas en R9 y 4 de statsmodels (arranque AR y MA,
-    convergencia del MLE y convergencia de Holt-Winters). La última entró tras el CI rojo
+    """9 excepciones: las 4 acreditadas en R9, 4 de statsmodels (arranque AR y MA,
+    convergencia del MLE y convergencia de Holt-Winters) y 1 de matplotlib.dates con numpy 2.5.1 (G7 · desbloqueo,
+    perfil dev). La de Holt-Winters entró tras el CI rojo
     `33844476552`: el mismo árbol pasaba en la PR y fallaba en el push porque la convergencia
-    numérica depende del runner."""
+    numérica depende del runner.
+
+    ⚠️ M74-E-R5 retiró la novena (`numpy25-statespace-shape-assignment`): existía sólo porque la
+    regeneración en bloque de R4 había movido numpy 2.4.6 → 2.5.3. Preservados los pines pre-R4,
+    statsmodels 0.14.6 vuelve a no emitir esa deprecación y la excepción **sobra**. Una excepción
+    que ya no silencia nada es deuda que parece gobernanza.
+    """
     entries = cw.verify(ROOT, TODAY)
-    assert len(entries) == 8
-    assert {e["package"] for e in entries} == {"scikit-learn", "optuna", "scipy", "statsmodels"}
+    # G7 · desbloqueo: + matplotlib.dates con numpy 2.5.1 (perfil dev: locks/dev.txt). El runner Linux lo destapó en las
+    # figuras F5/hero; model y `ante` fijan numpy 2.4.6 y no lo emiten. Alinear el lock dev la retiraría (decisión del
+    # autor, fuera de este lote): igual que R5 retiró la de statsmodels al restaurar los pines.
+    assert len(entries) == 9
+    assert {e["package"] for e in entries} == {"scikit-learn", "optuna", "scipy", "statsmodels", "numpy"}
     assert sum(e["package"] == "statsmodels" for e in entries) == 4
 
 
@@ -83,7 +93,7 @@ def test_error_is_the_global_default_and_no_broad_suppression_exists() -> None:
     filters = cw.conftest_filters(ROOT / "tests" / "conftest.py")
     assert filters[0] == "error"
     assert all(f.startswith("ignore:") and not f.startswith("ignore::") for f in filters[1:])
-    assert len(filters) == 9  # error + 8 excepciones
+    assert len(filters) == 10  # error + 9 excepciones
 
 
 def test_the_statsmodels_exceptions_are_registered() -> None:
@@ -97,10 +107,11 @@ def test_the_statsmodels_exceptions_are_registered() -> None:
 
 
 def test_registry_documents_the_deferred_producer_debt() -> None:
-    """D2-C gobierna la suite y su CI; NO afirma gobernar los warnings de los productores."""
+    """M72 cerró la deuda: cero supresiones amplias, y el cero se deriva del código."""
     data = _registry(ROOT)
     debt = data["deferred_debt"]
-    assert debt["count"] == 9 and len(debt["sites"]) == 9
+    assert debt["count"] == 0 and debt["sites"] == []
+    assert cw.detect_broad_suppressions(ROOT) == []
     assert "suite" in data["scope"].lower() and "productores" in data["scope"].lower()
 
 
@@ -305,7 +316,8 @@ def test_top_level_types_are_closed(tmp_path: Path, field: str, value) -> None:
         (lambda d: d["deferred_debt"].update(count=8), "count 8"),
         (lambda d: d["deferred_debt"].update(count=True), "entero"),
         (
-            lambda d: d["deferred_debt"].update(sites=d["deferred_debt"]["sites"] + [d["deferred_debt"]["sites"][0]]),
+            # la deuda vigente está vacía: el duplicado se declara aquí, no se toma de ella
+            lambda d: d["deferred_debt"].update(sites=["vp_model/eda.py:79"] * 2, count=2),
             "duplicados",
         ),
         (lambda d: d["deferred_debt"].pop("note"), "faltan"),
@@ -326,9 +338,142 @@ def test_debt_detected_from_code_matches_the_declared_sites() -> None:
     """La deuda no se cree por lo escrito: se lee del código de los productores."""
     live = cw.detect_broad_suppressions(ROOT)
     declared = _registry(ROOT)["deferred_debt"]["sites"]
-    assert sorted(live) == sorted(declared) and len(live) == 9
-    assert not any(s.startswith("tools/check_warnings.py") for s in live), "el detector no se cuenta a sí mismo"
+    assert sorted(live) == sorted(declared) and live == []
     assert not any("walkforward" in s for s in live), 'simplefilter("always") no suprime nada'
+
+
+def test_the_detector_still_finds_a_planted_suppression(tmp_path: Path) -> None:
+    """Un cero sólo vale si el detector sigue cazando: se siembra y debe aparecer, con su línea."""
+    (tmp_path / "vp_model").mkdir()
+    (tmp_path / "vp_model" / "x.py").write_text(
+        "import warnings\n\n\nwarnings.simplefilter('ignore')\n", encoding="utf-8"
+    )
+    assert cw.detect_broad_suppressions(tmp_path) == ["vp_model/x.py:4"]
+
+
+def test_the_detector_reads_the_syntax_tree_not_the_text(tmp_path: Path) -> None:
+    """Nombrar el patrón en un docstring o en un comentario NO es suprimir.
+
+    Es el defecto que cazó M72 en su primera corrida: el inventario por texto acusaba a
+    `vp_model/noise.py` por su propia documentación, y obligaba a que este módulo se eximiera a
+    sí mismo. Leyendo el AST, ninguna exención hace falta.
+    """
+    (tmp_path / "vp_model").mkdir()
+    (tmp_path / "vp_model" / "doc.py").write_text(
+        '''"""Explica que warnings.filterwarnings("ignore") está prohibido."""\n'''
+        '# tampoco cuenta en un comentario: warnings.simplefilter("ignore")\n'
+        "PATRON = 'warnings.filterwarnings(\"ignore\")'\n",
+        encoding="utf-8",
+    )
+    assert cw.detect_broad_suppressions(tmp_path) == []
+    # …y el propio verificador, que cita el patrón en su documentación, no se acusa.
+    assert not any(s.startswith("tools/check_warnings.py") for s in cw.detect_broad_suppressions(ROOT))
+
+
+def test_the_detector_catches_a_call_split_across_lines(tmp_path: Path) -> None:
+    """RED del detector viejo: partida en varias líneas, la regex no la veía y el AST sí."""
+    (tmp_path / "experiments").mkdir()
+    (tmp_path / "experiments" / "y.py").write_text(
+        "import warnings\n\nwarnings.filterwarnings(\n    'ignore',\n)\n", encoding="utf-8"
+    )
+    assert cw.detect_broad_suppressions(tmp_path) == ["experiments/y.py:3"]
+
+
+@pytest.mark.parametrize(
+    "llamada,amplia",
+    [
+        ("warnings.filterwarnings('ignore', category=Warning)", True),  # categoría raíz: lo traga todo
+        ("warnings.filterwarnings('ignore', message='')", True),  # mensaje vacío: casa con todo
+        ("warnings.filterwarnings('ignore', **opciones)", True),  # opaco: no se puede acreditar
+        ("warnings.filterwarnings('ignore', message='boom', category=Warning)", False),
+        ("warnings.filterwarnings('ignore', category=DeprecationWarning)", False),
+        ("warnings.simplefilter('ignore', DeprecationWarning)", False),
+        ("warnings.simplefilter('always')", False),  # no suprime nada
+        ("warnings.filterwarnings('error')", False),
+    ],
+)
+def test_the_detector_separates_broad_from_narrow(tmp_path: Path, llamada: str, amplia: bool) -> None:
+    """La frontera se prueba por casos, no se afirma: acotar por mensaje O por categoría basta."""
+    (tmp_path / "vp_data").mkdir()
+    (tmp_path / "vp_data" / "z.py").write_text(f"import warnings\n\nopciones = {{}}\n{llamada}\n", encoding="utf-8")
+    encontrado = cw.detect_broad_suppressions(tmp_path)
+    assert bool(encontrado) is amplia, f"{llamada!r} clasificada al revés: {encontrado}"
+
+
+@pytest.mark.parametrize(
+    "llamada,amplia,motivo",
+    [
+        # ── H12: huecos que el detector de M72-R2 dejaba pasar ──────────────────────────────
+        ("warnings.filterwarnings(action='ignore')", True, "`action` por keyword"),
+        ("warnings.simplefilter('ignore', Warning)", True, "2.º posicional de simplefilter es la CATEGORÍA"),
+        ("warnings.filterwarnings('ignore', '.*')", True, "patrón de mensaje universal"),
+        ("warnings.filterwarnings('ignore', '^')", True, "patrón que casa con todo"),
+        ("warnings.filterwarnings('ignore', message='.*')", True, "universal por keyword"),
+        ("warnings.catch_warnings(action='ignore')", True, "catch_warnings(action=…) de 3.11+"),
+        ("warnings.filterwarnings('ignore', *opciones)", True, "posicionales opacos"),
+        ("warnings.filterwarnings('ignore', category=builtins.Warning)", True, "categoría raíz por atributo"),
+        # ── y lo que SIGUE siendo estrecho, para que el endurecimiento no se pase de frenada ──
+        ("warnings.simplefilter('ignore', DeprecationWarning)", False, "categoría concreta en simplefilter"),
+        ("warnings.filterwarnings('ignore', 'boom concreto')", False, "mensaje literal como 2.º posicional"),
+        ("warnings.filterwarnings('ignore', message='boom', category=Warning)", False, "mensaje acota"),
+        ("warnings.catch_warnings(action='ignore', category=DeprecationWarning)", False, "categoría acota"),
+        ("warnings.catch_warnings()", False, "sin acción no filtra nada"),
+        ("warnings.filterwarnings('always')", False, "no suprime"),
+    ],
+)
+def test_the_detector_understands_each_signature(tmp_path: Path, llamada: str, amplia: bool, motivo: str) -> None:
+    """Cada firma se liga por su nombre real; un patrón universal no acota aunque lo parezca."""
+    (tmp_path / "vp_model").mkdir()
+    (tmp_path / "vp_model" / "s.py").write_text(
+        f"import builtins\nimport warnings\n\nopciones = ()\n{llamada}\n", encoding="utf-8"
+    )
+    encontrado = cw.detect_broad_suppressions(tmp_path)
+    assert bool(encontrado) is amplia, f"{motivo}: {llamada!r} clasificada al revés ({encontrado})"
+
+
+def test_the_detector_reaches_nested_packages(tmp_path: Path) -> None:
+    """`rglob`: un paquete anidado también es productor; el `glob` plano no lo veía."""
+    (tmp_path / "vp_model" / "sub").mkdir(parents=True)
+    (tmp_path / "vp_model" / "sub" / "hondo.py").write_text(
+        "import warnings\n\nwarnings.simplefilter('ignore')\n", encoding="utf-8"
+    )
+    assert cw.detect_broad_suppressions(tmp_path) == ["vp_model/sub/hondo.py:3"]
+
+
+@pytest.mark.parametrize(
+    "linea,detecta",
+    [
+        ("export PYTHONWARNINGS=ignore", True),
+        ('export PYTHONWARNINGS="ignore"', True),
+        ("$PY -W ignore experiments/x.py", True),
+        ("# export PYTHONWARNINGS=ignore  (histórico)", False),
+        ("export PYTHONWARNINGS=error", False),
+        ("echo 'sin filtros'", False),
+    ],
+)
+def test_environment_suppression_is_caught_where_no_ast_can_see_it(tmp_path: Path, linea: str, detecta: bool) -> None:
+    """`PYTHONWARNINGS=ignore` en un `.sh` apaga todo lo que ese guion lance, y el AST no lo ve.
+
+    Existían dos en el árbol (`run_experiments.sh`, `run_overnight_global.sh`) desde antes de M72:
+    el inventario las declaraba en cero porque miraba sólo Python.
+    """
+    (tmp_path / "experiments").mkdir()
+    (tmp_path / "experiments" / "x.sh").write_text(f"#!/bin/bash\n{linea}\n", encoding="utf-8")
+    encontrado = cw.detect_broad_suppressions(tmp_path)
+    assert bool(encontrado) is detecta, f"{linea!r} → {encontrado}"
+
+
+def test_the_real_tree_has_no_environment_suppression_left() -> None:
+    """Las dos históricas se retiraron en M74-B; el inventario real queda en cero."""
+    assert cw.detect_env_suppressions(ROOT) == []
+
+
+def test_the_detector_fails_closed_on_unparseable_code(tmp_path: Path) -> None:
+    """Un productor que no compila no puede pasar por «sin supresiones»."""
+    (tmp_path / "pipeline").mkdir()
+    (tmp_path / "pipeline" / "roto.py").write_text("def (:\n", encoding="utf-8")
+    with pytest.raises(cw.ContractError, match="no se pudo analizar"):
+        cw.detect_broad_suppressions(tmp_path)
 
 
 def test_message_prefix_is_literal_not_a_regex(tmp_path: Path) -> None:
@@ -364,7 +509,12 @@ def test_partial_version_matches_are_rejected(tmp_path: Path, suffix: str) -> No
 def test_pin_terminator_accepts_the_real_lock_and_pyproject_forms() -> None:
     """El terminador no puede ser tan estricto que rechace las formas reales."""
     entries = cw.verify(ROOT, TODAY)
-    assert {e["pin_source"] for e in entries} == {"pyproject.toml", "locks/model-cpu.txt", "locks/deep-macos-arm64.txt"}
+    assert {e["pin_source"] for e in entries} == {
+        "pyproject.toml",
+        "locks/model-cpu.txt",
+        "locks/deep-macos-arm64.txt",
+        "locks/dev.txt",
+    }
 
 
 @pytest.mark.parametrize(
@@ -446,10 +596,10 @@ def test_each_convergence_message_has_its_own_narrow_entry() -> None:
     assert holt != mle and not mle.startswith(holt) and not holt.startswith(mle)
 
 
-def test_deferred_debt_is_unchanged_by_this_fix() -> None:
-    """M13-R1 no toca productores: los nueve sitios de deuda siguen iguales."""
+def test_deferred_debt_matches_the_code_exactly() -> None:
+    """La deuda declarada y la viva son el mismo conjunto; desde M72, el vacío."""
     debt = _registry(ROOT)["deferred_debt"]
-    assert debt["count"] == 9 and len(debt["sites"]) == 9
+    assert debt["count"] == len(debt["sites"])
     assert sorted(debt["sites"]) == sorted(cw.detect_broad_suppressions(ROOT))
 
 

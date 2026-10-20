@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass
 
 import numpy as np
 import pandas as pd
+from statsmodels.tools.sm_exceptions import InterpolationWarning
 from statsmodels.tsa.stattools import adfuller, kpss
 
 from vp_model import dataset
@@ -74,10 +75,12 @@ def stationarity_of(s: pd.Series) -> dict[str, float | bool | str]:
     da el diagnóstico robusto que decide la diferenciación.
     """
     s = s.astype("float64")
+    adf_p = float(adfuller(s, autolag="AIC")[1])  # medido: no avisa en ninguna serie del panel
     with warnings.catch_warnings():
-        # KPSS satura el p-valor fuera de [0.01, 0.10]; el InterpolationWarning es esperado.
-        warnings.simplefilter("ignore")
-        adf_p = float(adfuller(s, autolag="AIC")[1])
+        # KPSS satura el p-valor fuera de [0.01, 0.10] y avisa. Medido sobre las 115 series con
+        # >=24 obs: es el ÚNICO aviso de esta llamada (96 series). Se silencia ESE y nada más,
+        # para que cualquier otro llegue a la superficie en vez de morir aquí.
+        warnings.filterwarnings("ignore", category=InterpolationWarning)
         kpss_p = float(kpss(s, regression="c", nlags="auto")[1])
         # DF-GLS (Elliott-Rothenberg-Stock): detrending GLS local-to-unity; domina a ADF
         # en POTENCIA justo bajo tendencia fuerte + muestra corta, donde ADF colapsa.

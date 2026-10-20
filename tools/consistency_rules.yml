@@ -98,7 +98,7 @@ frozen: [proposal]
 # provisional es OBLIGATORIO bajo el primero y PROHIBIDO bajo el segundo: dejarlo puesto tras
 # la re-derivación sería un descargo caduco, y quitarlo antes sería vender como definitivo lo
 # que el propio texto reconoce provisional. Cambiar este valor sin re-derivar rompe el gate.
-retro_protocol: pre-F1
+retro_protocol: f2-causal
 provisional_caveat:
   pattern: 'provisional pending re-derivation'
   # Nominal, no un grupo: el descargo pertenece al manuscrito, no al README que lo acompaña.
@@ -214,10 +214,15 @@ forbidden:
   - pattern: 'modela\w*\s+(las\s+)?194\s+series|194\s+series\s+modela'
     in: [deliverable, paper, readmes, web, proposal, docs]
     reason: '194 son ESTRUCTURALES; solo ~74 evaluables (>=84 obs F)'
-  # \b en ambos lados: con IGNORECASE, "FAD" matcheaba dentro de \factThetaFadMean (AH1)
-  - pattern: '\bFAD\b[^.;]{0,90}0\.10[67]|0\.10[67][^.;]{0,60}\bFAD\b'
-    in: [deliverable, paper, readmes]
-    reason: '0.106/0.107 son los hold-out DFF de ETS/Theta; los campeones FAD valen 0.119/0.118 (misatribución detectada en audit 2-jul-2026)'
+  # G7 · 15-oct-2026: se retiró el tripwire `FAD … 0.10[67]` (audit 2-jul-2026). Codificaba valores
+  # de julio (0.106/0.107 = hold-out DFF de ETS/Theta) que la campaña causal reemplazó; hoy 0.107 es
+  # la MASE de selección de los árboles en FAD y el patrón bloqueaba una cifra correcta.
+  # G7 · el MCS de la campaña causal es FAD={naive1}, DFF={ets, naive1}: ninguna superficie puede
+  # volver a decir que el naïve-1 es el único miembro en ambas tablas (punto ciego del guardián:
+  # la pertenencia al MCS no es un hecho de key_facts).
+  - pattern: '(único miembro|únicamente al na\S*ve-1|solo al na\S*ve-1|alone forms the (90\\?% )?model confidence set|only model that survives)[^.]{0,40}(ambas tablas|both tables)|MCS\s*=\s*\{?\s*naive1\s*\}?[^.]{0,30}(AMBAS|ambas|both)'
+    in: [deliverable, paper, readmes, web, docs]
+    reason: 'MCS de la campaña causal: FAD={naive1}, DFF={ets, naive1}; «naïve-1 único en ambas tablas» es una cifra muerta (G7, oct-2026)'
   - pattern: '\b65\b[^%<]{0,12}(pruebas|tests|pytest)|metric-num">65<'
     in: [deliverable, paper, readmes, web]
     reason: 'el conteo "65 tests" quedó fósil (la suite colecta 139); actualizar al conteo real al citar la suite (audit 2-jul-2026)'
@@ -522,7 +527,8 @@ decimal:
     in: [paper]
     reason: 'la cobertura empírica al 95% que el paper reporta como calibración'
   - fact: ets_fad_mean
-    label: 'hold-out ([0-9]\.[0-9]{3}) and [0-9]\.[0-9]{3} on FAD'
+    # El candidato causal parte la frase antes de FAD; el contexto ETS/Theta queda en la línea anterior.
+    label: 'ETS and Theta lead \(hold-out ([0-9]\.[0-9]{3}) and [0-9]\.[0-9]{3} on'
     in: [paper]
     reason: 'el hold-out de ETS en FAD que abre la comparación del paper'
   - fact: prosp_mase

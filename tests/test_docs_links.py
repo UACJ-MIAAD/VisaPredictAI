@@ -281,14 +281,22 @@ def test_adr_0003_documents_the_transaction_that_the_code_implements() -> None:
         assert state in adr and f'"{state}"' in src, state
     for mech in ("flock", "os.replace", "O_EXCL", "revision"):
         assert mech in adr and mech in src, f"el ADR cita {mech} pero el código debe implementarlo"
-    # honestidad: la máquina existe y está probada, pero ningún runner la conduce todavía
-    drivers = [
-        p
+    # Honestidad, en el sentido CONTRARIO al de M27: desde M73 la máquina se conduce, así que el
+    # ADR ya no puede decir que nadie la usa… y si el último runner dejara de conducirla, esta
+    # prueba obliga a que el texto vuelva a decirlo.
+    # ⚠️ Se buscan LOS DOS nombres: el runbook la conduce por `campaign_txn`, la envoltura, y no
+    # nombra `campaign_state` en ninguna línea. Buscar sólo el nombre viejo habría dejado pasar la
+    # adopción entera sin que nadie se enterara — un guardián atado a un nombre cubre ese nombre.
+    conductores = sorted(
+        p.name
         for p in list((ROOT / "experiments").rglob("*.py")) + list((ROOT / "experiments").rglob("*.sh"))
-        if "campaign_state" in p.read_text(encoding="utf-8", errors="ignore")
-    ]
-    assert not drivers, "si un runner ya conduce la transacción, el ADR debe dejar de decir que no"
-    assert "ningún runner" in adr or "ningun runner" in adr
+        if any(n in p.read_text(encoding="utf-8", errors="ignore") for n in ("campaign_state", "campaign_txn"))
+    )
+    caduca = "ningún runner" in adr or "ningun runner" in adr
+    assert conductores, "ningún runner conduce la transacción: el ADR tendría que volver a decirlo"
+    assert not caduca, f"el ADR dice que nadie la conduce, pero la conducen {conductores}"
+    assert "run_rederivation.sh" in conductores and "run_rederivation.sh" in adr
+    assert "sync_all.sh" in conductores and "sync_all.sh" in adr
 
 
 def test_adr_0003_is_registered_in_the_index() -> None:
