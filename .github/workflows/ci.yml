@@ -31,6 +31,8 @@ jobs:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
         with:
           fetch-depth: 0
+      - name: Record maintenance checkout identity
+        run: printf 'VP_MAINTENANCE_CHECKOUT %s %s\n' "$(git --no-replace-objects rev-parse HEAD)" "$(git --no-replace-objects rev-parse HEAD^{tree})"
       - name: Commit message policy
         env:
           BEFORE: ${{ github.event.before }}
@@ -78,6 +80,9 @@ jobs:
           # llama check() sobre el repo real) y el check del sha es fail-closed en
           # shallow — SU ESTRENO cazó este checkout depth-1 en el primer run.
           fetch-depth: 0
+
+      - name: Record maintenance checkout identity
+        run: printf 'VP_MAINTENANCE_CHECKOUT %s %s\n' "$(git --no-replace-objects rev-parse HEAD)" "$(git --no-replace-objects rev-parse HEAD^{tree})"
 
       - name: Checkout the canonical LaTeX repo
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
@@ -132,6 +137,9 @@ jobs:
           # test_contracts, cuyo check del sha del manifiesto es fail-closed en
           # clones shallow) — mismo motivo que lint-and-test.
           fetch-depth: 0
+
+      - name: Record maintenance checkout identity
+        run: printf 'VP_MAINTENANCE_CHECKOUT %s %s\n' "$(git --no-replace-objects rev-parse HEAD)" "$(git --no-replace-objects rev-parse HEAD^{tree})"
 
       - name: Checkout the canonical LaTeX repo
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
@@ -240,6 +248,8 @@ jobs:
           # Ronda 3 audit: check_contracts verifica que el git_sha del manifiesto EXISTA
           # (git cat-file -e) y es fail-closed en clones shallow -- necesita historial.
           fetch-depth: 0
+      - name: Record maintenance checkout identity
+        run: printf 'VP_MAINTENANCE_CHECKOUT %s %s\n' "$(git --no-replace-objects rev-parse HEAD)" "$(git --no-replace-objects rev-parse HEAD^{tree})"
       - name: Checkout the web repo (best-effort, for cross-repo claims)
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
         continue-on-error: true

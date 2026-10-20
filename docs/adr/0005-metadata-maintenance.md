@@ -1,6 +1,7 @@
 # ADR 0005 — expediente separado para mantenimiento de una release publicada
 
-**Estado: propuesta comprobable en local; pendiente de adopción humana.**
+**Estado: adoptado en local por Javier, 20-oct-2026.** Esta decisión adopta el
+contrato y autoriza su implementación/ensayo local; no autoriza la publicación de un candidato.
 
 ## Frontera
 
@@ -47,7 +48,57 @@ debe contrastarse con GitHub y la aprobación con el autor antes de adoptar o
 consumir cualquier permiso. Incluso con ambos documentos, el resultado mantiene
 `authorizes_publication: false`.
 
-## Secuencia propuesta para adoptar y ejecutar
+## Operación adoptada
+
+La base adoptada es `a6036ec20eaf5ecb17b1cce43fe2ecea9436a82b`, release publicada
+`2026-09-87a5be76e8a1`, manifiesto SHA-256
+`9460c77e053da99ee1a2a225becd8f4b018a34c62412900c9eee7f1ab471c369`.
+Esta primera migración sólo incorpora el contrato nominal de ingesta y actualiza
+tarjeta/manifiesto; no es una autorización genérica para otras añadas o ciencia.
+
+`python -m tools.maintenance_release --registry R ...` ofrece `init`, `inspect`,
+`register`, `consume` y `status`. El registro está fuera de Git, privado 0700/0600,
+ligado a instalación, host, UID y ruta física. La autorización incluye su
+`publisher_id`: copiarla a otro registro o reconstruir una identidad no la reutiliza.
+Los clones/worktrees que operen en ese publicador comparten **el mismo registro**.
+La custodia del registro, sus backups y del usuario del sistema es autoridad local;
+no se promete resistencia a un administrador que restaure/modifique toda esa autoridad.
+Cambiar de host/registro requiere una nueva aprobación humana y reconciliar la
+cadena consumida; la herramienta no migra ni recupera permisos por su cuenta.
+
+`register` obtiene el CI de GitHub con GET mediante `gh api`. Exige los cuatro jobs
+verdes del intento vigente y lee en sus logs el commit/árbol realmente probado;
+GitHub debe confirmar también ese árbol para el commit. No acepta capturas CI
+locales como autoridad. `consume` repite estas comprobaciones, verifica el CI del
+squash integrado, HEAD limpio con el árbol aprobado, `main` remoto vigente y el tag
+**anotado** de la release sobre el commit de origen (no sobre el commit del corte).
+
+La revisión `/1` conserva sus identidades exactas. Su SHA-256 debe aparecer en un
+comentario JSON explícito de autorización en la PR del candidato, emitido por
+`jrebull` (GitHub user id `168046724`, tipo `User`), posterior a la revisión/CI y
+ligado al publicador. El cuerpo es la salida `authorization_request` de `inspect
+--review`: esquema `metadata-maintenance-authorization/1`, decisión
+`autorizar-consumo-mantenimiento`, `publisher_id` y `review_sha256`. Es una solicitud,
+no una firma. La herramienta sólo lee el comentario; nunca lo crea. Antes de
+registrar/consumir contrasta autor, PR, cuerpo y tiempos por API. Editar/revocar el
+comentario o cambiar CI invalida la evidencia registrada.
+
+El acta tiene esquema cerrado, revisión y cadena de eventos bajo `flock`, CAS de
+bytes y promoción atómica con fsync. `approved` admite una revisión posterior del
+**mismo** candidato; `consumed` es terminal. Repetir la misma inscripción es un
+no-op explícito y repetir el consumo falla. El registro no se versiona en la release,
+por lo que no introduce un ciclo de hashes.
+
+**Consumir no es desplegar.** El corte ya llegó a Git por su integración autorizada;
+como los punteros DVC son idénticos a la base publicada, no hay un nuevo `dvc push`.
+La operación sólo registra su aceptación propia. No hace push, tags, commits, POST
+a GitHub, llamadas a Netlify ni escribe `campaign.json`. Verificar el consumo web
+y producción sigue siendo un paso separado autorizado; el acta no cierra D5/F2.
+La escritura durable de `consumed` es el efecto de la operación: si falla el fsync
+posterior al rename se informa incertidumbre y se consulta `status` antes de
+reintentar. No se declara atomicidad entre servicios ni un despliegue que no ocurrió.
+
+## Secuencia para ejecutar
 
 1. Aprobar este alcance y la base publicada con su evidencia remota. Publicar los
    candidatos por PR autorizado y medir CI remoto verde sobre los commits exactos.
@@ -56,16 +107,20 @@ consumir cualquier permiso. Incluso con ambos documentos, el resultado mantiene
    repetir CI/revisión; el informe local no inventa esa firma.
 3. Autorizar e integrar el árbol exacto; mantener el tag anotado en el commit de
    origen, sin mover tags existentes. Verificar el CI del squash y la igualdad de árbol.
-4. La operación autorizada de mantenimiento debe tener su registro propio, ligado
-   al permiso y la release, con serialización y consumo único; nunca escribir
-   `campaign.json`. No se habilita ese publicador en este ADR propuesto.
+4. Ejecutar `consume` con el CI de main y el registro aprobado. Conservar el acta
+   consumida en la custodia del publicador. Nunca escribir `campaign.json`.
 5. Consumir en web y verificar dominio, alias y permalink, hashes de artefactos,
    tarjeta del RAG y estado de ingesta. Hasta entonces, no declarar D5/F2 publicados.
 
-La implementación deliberadamente carece de una operación `publish`: evita añadir
-un atajo antes de adoptar el contrato. El ensayo del publicador de campaña sigue
-usando su `/3`, CAS, lock, inventario y remotos Git/DVC de prueba. No acredita la
-ejecución de un futuro publicador de mantenimiento.
+El publicador de campaña conserva su `/3`, CAS, lock, inventario y remotos de
+prueba. La operación de mantenimiento tiene acta y autoridad independientes;
+ninguna puede usar el permiso de la otra. La orden de adopción no fabrica una
+revisión ni un comentario aprobatorio para el candidato local nuevo.
+
+Referencias de las consultas de sólo lectura:
+[workflow runs](https://docs.github.com/en/rest/actions/workflow-runs),
+[jobs y logs](https://docs.github.com/en/rest/actions/workflow-jobs),
+[comentarios](https://docs.github.com/en/rest/issues/comments).
 
 ## Intérpretes y clon limpio
 

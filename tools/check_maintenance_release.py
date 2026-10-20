@@ -135,11 +135,21 @@ def _artifacts(repo: Path, tree: dict[str, tuple[str, str]]) -> tuple[dict, dict
 
 def inspect(repo: Path, base: str, candidate: str) -> dict[str, Any]:
     """Describe la elegibilidad y la identidad exacta; no acepta ni consume permisos."""
-    before, after = _tree(repo, base), _tree(repo, candidate)
     if _git(repo, "rev-parse", "HEAD").decode().strip() != candidate:
         raise MaintenanceError("HEAD no es el candidato inspeccionado")
     if _git(repo, "status", "--porcelain", "--untracked-files=all").strip():
         raise MaintenanceError("el checkout candidato no está limpio")
+    return inspect_committed(repo, base, candidate)
+
+
+def inspect_committed(repo: Path, base: str, candidate: str) -> dict[str, Any]:
+    """Sólo objetos de un commit: no certifica el checkout ni concede permisos.
+
+    Permite volver a comprobar el candidato revisado tras un squash con el mismo
+    árbol. El consumidor operativo debe comprobar aparte HEAD/limpieza/integración.
+    La API `inspect` conserva las guardas de checkout originales sin excepciones.
+    """
+    before, after = _tree(repo, base), _tree(repo, candidate)
     _git(repo, "merge-base", "--is-ancestor", base, candidate)
     changed = sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
     forbidden = [path for path in changed if path.startswith(SCIENTIFIC) and path not in MUTABLE]
@@ -185,7 +195,7 @@ def inspect(repo: Path, base: str, candidate: str) -> dict[str, Any]:
         "required_next": [
             "CI remoto verde del commit candidato",
             "revisión humana de estas identidades",
-            "adopción y autorización explícita de la vía de mantenimiento",
+            "autorización explícita y consumo en el registro de mantenimiento adoptado",
         ],
     }
 
