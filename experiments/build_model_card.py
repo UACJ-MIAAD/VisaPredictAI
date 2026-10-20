@@ -26,14 +26,13 @@ from vp_data import tracking  # noqa: E402
 from vp_model.config import HOLDOUT, MIN_TRAIN, MIN_TRAINABLE_EVALUABLE  # noqa: E402
 
 
-def _load(name: str) -> dict:
-    p = REPORTS / name
-    return json.loads(p.read_text()) if p.exists() else {}
+def _load(name: str, inputs: dict[str, bytes | None]) -> dict:
+    raw = inputs[name]
+    return json.loads(raw) if raw is not None else {}
 
 
-def _panel_hash() -> str:
-    p = ROOT / "data" / "processed" / "visa_panel_long.csv"
-    return hashlib.md5(p.read_bytes()).hexdigest()[:12] if p.exists() else "n/d"
+def _panel_hash(data: bytes | None) -> str:
+    return hashlib.md5(data).hexdigest()[:12] if data is not None else "n/d"
 
 
 #: Marcador estructural ÚNICO que ocupa el lugar del ``release_id`` mientras se calcula la
@@ -61,14 +60,13 @@ def _fmt(v) -> str:  # accepts int or the "n/d" degradation sentinel
 E5_FACTS = ROOT / "reports" / "governance" / "e5_facts.json"
 
 
-def _e5_block() -> str:
+def _e5_block(f: dict) -> str:
     """Bloque de cohortes DERIVADO de e5_facts.json. Si el corte no lo trae, se dice así.
 
     Ni una cifra se teclea: o sale del artefacto o la tarjeta declara que no está disponible.
     """
-    if not E5_FACTS.exists():
+    if not f:
         return "- No disponible en este corte: `reports/governance/e5_facts.json` no viaja en él."
-    f = json.loads(E5_FACTS.read_text())
     return "\n".join(
         [
             f"- **Partición (regla v{f['RuleVersion']}, pre-registrada):** {f['NSeriesEvaluable']} series "
@@ -91,16 +89,33 @@ def _e5_block() -> str:
     )
 
 
-def render(release_id: str) -> str:
+def render(release_id: str, *, reconciliation_root: Path | None = None, parent_root: Path | None = None) -> str:
     """Bytes de la tarjeta para un ``release_id`` dado. PURA: no lee ni escribe el id en disco.
 
     Con ``RELEASE_ID_SENTINEL`` produce la forma NORMALIZADA que entra al digest de identidad;
     con el id real produce los bytes finales, cuyo SHA-256 registra el manifiesto.
     """
-    kf = _load("governance/key_facts.json")
-    cc = _load("governance/champion_challenger.json")
-    manifest = _load("governance/champion_manifest.json")
-    sig = _load("eval/significance_summary.json")
+    from vp_model.retrospective_status import notice
+
+    def read(path: Path) -> bytes | None:
+        if path.is_symlink():
+            raise ValueError(f"MODEL_CARD: no se acredita un enlace: {path}")
+        return path.read_bytes() if path.exists() else None
+
+    names = (
+        "governance/key_facts.json",
+        "governance/champion_challenger.json",
+        "governance/champion_manifest.json",
+        "eval/significance_summary.json",
+        "governance/e5_facts.json",
+    )
+    inputs = {name: read(E5_FACTS if name == "governance/e5_facts.json" else REPORTS / name) for name in names}
+    panel = read(ROOT / "data/processed/visa_panel_long.csv")
+    protocol_notice = notice(ROOT, inputs, panel, reconciliation_root=reconciliation_root, parent_root=parent_root)
+    kf = _load("governance/key_facts.json", inputs)
+    cc = _load("governance/champion_challenger.json", inputs)
+    manifest = _load("governance/champion_manifest.json", inputs)
+    sig = _load("eval/significance_summary.json", inputs)
     sha, _dirty = tracking.git_state()  # el flag dirty se omite: la tarjeta se genera pre-commit
 
     def recipe(table: str) -> str:
@@ -120,15 +135,13 @@ def render(release_id: str) -> str:
 > canónicos. **No editar a mano** — se regenera con `make model-card`. Toda cifra proviene de
 > `reports/governance/key_facts.json` (fuente única de verdad).
 
-> ⚠️ **Métricas retrospectivas provisionales:** derivadas con el protocolo previo a la
-> corrección causal del relleno (F1, 2026-07-12); re-derivación en curso. No promover con
-> estas cifras.
+{protocol_notice}
 
 ## 1. Detalles del modelo
 - **Sistema:** predictor del U.S. Visa Bulletin — panel multiserie `y_{{p,c,b,t}}` (país × categoría × tabla × mes).
 - **Tarea:** regresión temporal de fechas de prioridad sobre observaciones con estado **F** (FAD y DFF por separado).
 - **Receta desplegada (campeón):** FAD → `{recipe("FAD")}` · DFF → `{recipe("DFF")}` (manifiesto versionado `champion_manifest.json`).
-- **Versión / linaje:** git `{sha}` · hash del panel `{_panel_hash()}`.
+- **Versión / linaje:** git `{sha}` · hash del panel `{_panel_hash(panel)}`.
 - **Autor:** Javier A. Rebull Saucedo · MIAAD, UACJ. Demostrador: visapredictai.com.
 
 ## 2. Uso previsto
@@ -151,11 +164,11 @@ def render(release_id: str) -> str:
 **Prospectiva (backfill sin fuga de información; añadas servidas en vivo desde jul-2026):** n={kf.get("prosp_n_scored", "n/d")} · MAE={kf.get("prosp_mae_days", "n/d")} días · MASE={kf.get("prosp_mase", "n/d")} · cobertura 95 %={kf.get("prosp_cov95", "n/d")} · 80 % (out-of-sample)={kf.get("prosp_cov80_heldout", "n/d")}.
 
 ## 5.1 Cohortes de estabilidad y enrutado (épica E, exploratorio)
-{_e5_block()}
+{_e5_block(_load("governance/e5_facts.json", inputs))}
 
 ## 6. Linaje y reproducibilidad
 - **Receta:** `champion_manifest.json` (cambia solo vía `run_champion_challenger.py --promote`, auditado).
-- **Código:** git `{sha}`. **Datos:** panel hash `{_panel_hash()}`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
+- **Código:** git `{sha}`. **Datos:** panel hash `{_panel_hash(panel)}`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
 - **Corte (D4):** identidad del corte en el campo estructural de abajo · pipeline_run_id `{_pipeline_run_id()}` · añada `{kf.get("panel_vintage", "n/d")}`.
 
 ```

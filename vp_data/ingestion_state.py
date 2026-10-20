@@ -6,10 +6,8 @@ Written by ``pipeline.freeze_snapshots`` only when the SEMANTIC content
 changes (an identical payload is a no-op, and there is deliberately no
 ``last_attempt`` or per-run timestamp, so a stable situation produces zero
 daily churn — a status flip, a month becoming overdue or the index growing DO
-rewrite). The file is versioned through the cron's data-publish allowlist —
-a change is committed even when there is no rebuild, through the shared data
-push site — and stays OUT of the release manifest (it must never move
-``release_id``).
+rewrite). The cron versions the operational record; the release manifest also
+includes a frozen copy. That copy describes the cut, never a live source probe.
 
 Schema v1 is CLOSED (exactly ``KEYS``; ``validate`` fails on anything extra)
 and both ends are fail-closed: an invalid state never reaches disk, and a file
@@ -56,14 +54,32 @@ def read_state(path: Path) -> dict | None:
     if not path.exists():
         return None
     try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        body = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
         raise ValueError(f"feed de ingesta ilegible ({path}): {exc}") from exc
+    return parse_state(body)
+
+
+def parse_state(body: str) -> dict:
+    """Validate the exact JSON consumed by release checks, including duplicate keys."""
+
+    def unique(pairs: list[tuple[str, object]]) -> dict:
+        obj: dict = {}
+        for key, value in pairs:
+            if key in obj:
+                raise ValueError(f"clave duplicada {key!r}")
+            obj[key] = value
+        return obj
+
+    try:
+        state = json.loads(body, object_pairs_hook=unique)
+    except ValueError as exc:
+        raise ValueError(f"feed de ingesta ilegible: {exc}") from exc
     if not isinstance(state, dict):
-        raise ValueError(f"feed de ingesta ilegible ({path}): no es un objeto JSON")
+        raise ValueError("feed de ingesta ilegible: no es un objeto JSON")
     problems = validate(state)
     if problems:
-        raise ValueError(f"feed de ingesta fuera de contrato ({path}): {problems}")
+        raise ValueError(f"feed de ingesta fuera de contrato: {problems}")
     return state
 
 
@@ -189,8 +205,10 @@ def validate(state: dict) -> list[str]:
         problems.append(f"last_success_date inválido: {state['last_success_date']!r}")
     if not isinstance(state["missing_months"], list) or not all(_is_month(m) for m in state["missing_months"]):
         problems.append("missing_months debe ser lista de YYYY-MM")
-    if state["n_index_links"] is not None and not _is_int(state["n_index_links"]):
-        problems.append("n_index_links debe ser int o null")
+    if state["n_index_links"] is not None and (
+        not _is_int(state["n_index_links"]) or not 0 <= state["n_index_links"] <= 2**53 - 1
+    ):
+        problems.append("n_index_links debe ser int no negativo o null")
     if not isinstance(state["failed_links"], list) or not all(isinstance(x, str) for x in state["failed_links"]):
         problems.append("failed_links debe ser lista de strings")
     if not isinstance(state["reason"], str):

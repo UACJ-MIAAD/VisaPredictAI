@@ -76,10 +76,21 @@ def check(root: Path = ROOT, contracts_dir: Path = CONTRACTS_DIR) -> list[str]:
                 problems.append(f"{c['artifact']}: columnas requeridas ausentes {missing}")
         else:
             try:
-                data = json.loads(art.read_text())
-            except json.JSONDecodeError as e:
+                body = art.read_text()
+                data = json.loads(body)
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
                 problems.append(f"{c['artifact']}: JSON ilegible ({e})")
                 continue
+            if c["artifact"] == "reports/governance/ingestion_state.json":
+                from vp_data.ingestion_state import parse_state
+
+                if not isinstance(data, dict):
+                    problems.append(f"{c['artifact']}: no es un objeto")
+                    continue
+                try:
+                    parse_state(body)
+                except ValueError as exc:
+                    problems.append(f"{c['artifact']}: {exc}")
             for key, tname in c.get("required_keys", {}).items():
                 if key not in data:
                     problems.append(f"{c['artifact']}: llave requerida ausente '{key}'")
