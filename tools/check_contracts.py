@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -352,4 +353,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # This stdlib entrypoint also runs before an editable install in CI.
+    # Resolve project imports from this script, independently of the caller's cwd.
+    sys.path.insert(0, str(ROOT))
     raise SystemExit(main())
