@@ -48,7 +48,7 @@ regenera, la prueba `test_committed_artifacts_match_the_generator` lo dice.
 | Series | 194 catalogadas · 136 con historia F · 74 evaluables | `reports/governance/key_facts.json` |
 | Catálogo de modelos | 24 modelos | `reports/governance/key_facts.json` |
 | Evaluación prospectiva | 2,944 puntuadas · MASE 0.347 · MAE 146 días · cobertura 0.92 | `reports/governance/key_facts.json` |
-| Corte publicado | añada 2026-09 · 114 artefactos | `reports/release/release_manifest.json` |
+| Corte del árbol | añada 2026-09 · 115 artefactos | `reports/release/release_manifest.json` |
 | Estado de la fuente | bloqueada por el WAF, HTTP 403 · mes esperado 2026-09 | `reports/governance/ingestion_state.json` |
 | Gate de promoción | 158 pares live · política v1.0.1 · DFF: extend-shadow · FAD: extend-shadow | `reports/governance/promotion_decision.json` |
 | Campeones | DFF: sarima · FAD: theta+ets+sarima | `reports/governance/champion_manifest.json` |
@@ -56,7 +56,8 @@ regenera, la prueba `test_committed_artifacts_match_the_generator` lo dice.
 | DAG | scrape → panel → bulletins → database → key_facts → eda_facts → fe_facts | `dvc.yaml` |
 | Procedencia del panel | hash `07d43c029953` | `reports/governance/key_facts.json` |
 
-Corte servido en producción: `2026-09-87a5be76e8a1`.
+La identidad del corte se consulta en `reports/release/release_manifest.json`.
+Su presencia en este árbol no acredita que se haya desplegado en producción.
 
 ## Cómo se regenera y se verifica
 

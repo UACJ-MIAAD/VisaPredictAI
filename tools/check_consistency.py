@@ -31,6 +31,7 @@ _latex_env = os.environ.get("VP_LATEX_DIR")
 LATEX_DIR = Path(_latex_env) if _latex_env else ROOT.parent / "VisaPredictAI_LaTeX"
 if not LATEX_DIR.is_absolute():
     LATEX_DIR = ROOT / LATEX_DIR
+LATEX_LOCATION = LATEX_DIR  # conserva la entrada configurada: resolver un enlace roto no lo vuelve «ausente»
 LATEX_DIR = LATEX_DIR.resolve()
 LATEX_PREFIXES = ("reports/latex/", "reports/paper_micai/")
 

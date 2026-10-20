@@ -217,11 +217,12 @@ def repo_sync(tmp_path: Path) -> Path:
     raiz = tmp_path / "repo"
     (raiz / "experiments").mkdir(parents=True)
     shutil.copy(RAIZ / "experiments" / "sync_all.sh", raiz / "experiments" / "sync_all.sh")
-    for rel in ("ante_nf/bin/python", "ante/bin/dvc"):
+    for rel in ("ante_nf/bin/python", "ante/bin/python", "ante/bin/dvc"):
         falso = raiz / rel
         falso.parent.mkdir(parents=True, exist_ok=True)
         falso.write_text(
-            '#!/bin/bash\nprintf "%s %s\\n" "$(basename "$0")" "$*" >> "$REGISTRO"\n'
+            '#!/bin/bash\ncase "$*" in *tools/publication_runtime.py*) exit 0;; esac\n'
+            'printf "%s %s\\n" "$(basename "$0")" "$*" >> "$REGISTRO"\n'
             'case " $* " in *" ${FALLA_EN:-__nunca__} "*) exit 3;; esac\necho fijo\n'
         )
         falso.chmod(0o755)

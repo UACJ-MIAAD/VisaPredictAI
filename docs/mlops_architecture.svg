@@ -118,7 +118,7 @@
     <rect x="40" y="716" width="620" height="26" rx="10" fill="#003CA6"/>
     <rect x="40" y="732" width="620" height="10" fill="#003CA6"/>
     <text x="52" y="734" font-size="13" font-weight="600" fill="#ffffff">Manifiesto y procedencia del corte</text>
-    <text x="52" y="762" font-size="12" fill="#231F20">añada 2026-09 · 114 artefactos con su hash</text>
+    <text x="52" y="762" font-size="12" fill="#231F20">añada 2026-09 · 115 artefactos con su hash</text>
     <text x="52" y="779" font-size="12" fill="#231F20">identidad del release derivada de la tarjeta normalizada + el resto (D4)</text>
     <text x="52" y="796" font-size="12" fill="#231F20">salidas: release_manifest.json · MODEL_CARD.md</text>
   </g>

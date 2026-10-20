@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.latex_support import read_documental
+
 pytest.importorskip("statsmodels")
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -28,7 +30,7 @@ pytestmark = pytest.mark.skipif(not dataset.DB_PATH.exists(), reason="almacén D
 import check_consistency as cc  # noqa: E402
 import make_tex_tables as mtt  # noqa: E402
 
-TEX = cc._repo_path("reports/latex/ProyectoI_VisaPredictAI.tex").read_text()
+TEX = read_documental(cc._repo_path("reports/latex/ProyectoI_VisaPredictAI.tex"), cc.LATEX_LOCATION)
 
 
 def _data_rows(block: str) -> list[str]:

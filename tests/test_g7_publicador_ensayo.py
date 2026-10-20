@@ -81,6 +81,9 @@ def mundo_publicable(candidato: dict, tmp_path: Path, monkeypatch, capsys) -> di
     _dvc_en(dvc, cand, "add", "models")
     (cand / "experiments").mkdir()
     shutil.copy2(RAIZ / "experiments" / "sync_all.sh", cand / "experiments" / "sync_all.sh")
+    shutil.copy2(RAIZ / "experiments/score_e3_campaign.py", cand / "experiments/score_e3_campaign.py")
+    (cand / "tools").mkdir()
+    shutil.copy2(RAIZ / "tools/publication_runtime.py", cand / "tools/publication_runtime.py")
     base = _git(cand, "rev-parse", "HEAD")
     aprobado = _commit(cand, "candidato con punteros DVC y el publicador")
     m["arbol"] = _git(cand, "rev-parse", "HEAD^{tree}")
@@ -95,10 +98,6 @@ def mundo_publicable(candidato: dict, tmp_path: Path, monkeypatch, capsys) -> di
     _git(cand, "push", "-q", str(origen), f"{squash}:refs/heads/main")
     release = tmp_path / "release"
     subprocess.run(["git", "clone", "-q", str(origen), str(release)], check=True)
-    (release / "ante_nf" / "bin").mkdir(parents=True)
-    envoltorio = release / "ante_nf" / "bin" / "python"  # un enlace perdería el venv (sin pyvenv.cfg al lado)
-    envoltorio.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
-    envoltorio.chmod(0o755)
     # la caché DVC de quien preparó el corte (en producción, la máquina que lo calculó); local, no versionada
     (release / ".dvc" / "config.local").write_text(f"[cache]\n    dir = {cand / '.dvc' / 'cache'}\n", encoding="utf-8")
     entorno = {
@@ -106,6 +105,7 @@ def mundo_publicable(candidato: dict, tmp_path: Path, monkeypatch, capsys) -> di
         "CAMPAIGN_TXN": str(m["txn"]),
         "CAMPAIGN_MANIFEST": str(m["txn"].with_name("campaign_manifest.json")),
         "VP_DVC": str(dvc),
+        "VP_PUBLISH_PYTHON": sys.executable,
         "PYTHONPATH": str(RAIZ),
         "DVC_NO_ANALYTICS": "1",
         "SYNC_PUBLISH": "0",
