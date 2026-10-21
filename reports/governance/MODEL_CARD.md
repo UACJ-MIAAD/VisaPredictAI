@@ -4,15 +4,15 @@
 > canónicos. **No editar a mano** — se regenera con `make model-card`. Toda cifra proviene de
 > `reports/governance/key_facts.json` (fuente única de verdad).
 
-> ⚠️ **Métricas retrospectivas provisionales:** derivadas con el protocolo previo a la
-> corrección causal del relleno (F1, 2026-07-12); re-derivación en curso. No promover con
-> estas cifras.
+> **Protocolo retrospectivo:** `f2-causal`. Los artefactos de esta tarjeta se acreditaron
+> contra la reconciliación `recon_5d208d0_g7_20261019T134251` de la campaña `rederiv_953cd00_20261006T073927`.
+> Esa acreditación retrospectiva no autoriza promover un retador: sigue vigente el gate prospectivo.
 
 ## 1. Detalles del modelo
 - **Sistema:** predictor del U.S. Visa Bulletin — panel multiserie `y_{p,c,b,t}` (país × categoría × tabla × mes).
 - **Tarea:** regresión temporal de fechas de prioridad sobre observaciones con estado **F** (FAD y DFF por separado).
 - **Receta desplegada (campeón):** FAD → `median(theta+ets+sarima)` · DFF → `sarima` (manifiesto versionado `champion_manifest.json`).
-- **Versión / linaje:** git `66fa46d` · hash del panel `07d43c029953`.
+- **Versión / linaje:** git `67ad3fb` · hash del panel `07d43c029953`.
 - **Autor:** Javier A. Rebull Saucedo · MIAAD, UACJ. Demostrador: visapredictai.com.
 
 ## 2. Uso previsto
@@ -43,11 +43,11 @@
 
 ## 6. Linaje y reproducibilidad
 - **Receta:** `champion_manifest.json` (cambia solo vía `run_champion_challenger.py --promote`, auditado).
-- **Código:** git `66fa46d`. **Datos:** panel hash `07d43c029953`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
+- **Código:** git `67ad3fb`. **Datos:** panel hash `07d43c029953`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
 - **Corte (D4):** identidad del corte en el campo estructural de abajo · pipeline_run_id `local` · añada `2026-09`.
 
 ```
-release_id: 2026-09-87a5be76e8a1
+release_id: 2026-09-805d624d2ecf
 ```
 - **Promoción (dos gates):** el hold-out (Wilcoxon+Holm, h=1) solo declara aptitud retrospectiva; la autorización la da el gate prospectivo PRE-REGISTRADO (docs/PROMOTION_POLICY.md) sobre pares live campeón-vs-sombra, aplicada por un humano (`--promote`, que se rehúsa sin decisión "promote") con rollback versionado.
 

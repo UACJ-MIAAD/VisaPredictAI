@@ -428,7 +428,7 @@ def render_md(facts: dict) -> str:
             f"MAE {f['prosp_mae_days']} días · cobertura {f['prosp_cov95']}",
             SOURCES["key_facts"],
         ),
-        ("Corte publicado", f"añada {f['panel_vintage']} · {f['n_artifacts']} artefactos", SOURCES["release"]),
+        ("Corte del árbol", f"añada {f['panel_vintage']} · {f['n_artifacts']} artefactos", SOURCES["release"]),
         ("Estado de la fuente", f"{fuente} · mes esperado {f['expected_month']}", SOURCES["ingestion"]),
         (
             "Gate de promoción",
@@ -493,7 +493,8 @@ regenera, la prueba `test_committed_artifacts_match_the_generator` lo dice.
 |---|---|---|
 {table}
 
-Corte servido en producción: `{f["release_id"]}`.
+La identidad del corte se consulta en `reports/release/release_manifest.json`.
+Su presencia en este árbol no acredita que se haya desplegado en producción.
 
 ## Cómo se regenera y se verifica
 

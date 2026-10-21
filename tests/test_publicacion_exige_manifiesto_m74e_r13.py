@@ -148,16 +148,22 @@ def test_RED_sync_all_pasa_el_manifiesto_a_guard_y_a_publish(tmp_path: Path) -> 
     guion = (RAIZ / "experiments" / "sync_all.sh").read_text(encoding="utf-8")
     # G7 · desbloqueo: `txn_publish_release` es multilínea; se toma el BLOQUE real de definiciones del guion
     inicio = guion.index("publishable() {")
-    fin_bloque = guion.index('if [ "$PUBLISH" = 1 ]; then')
+    fin_bloque = guion.index('if [ "$PUBLISH" = 1 ]; then', inicio)
     funciones = [guion[inicio:fin_bloque]]
     assert "txn_guard()" in funciones[0] and "txn_publish_release()" in funciones[0], funciones
-    falso = tmp_path / "ante_nf" / "bin" / "python"
+    falso = tmp_path / "selected-python" / "bin" / "python"
     falso.parent.mkdir(parents=True)
     falso.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$REGISTRO"\n', encoding="utf-8")
     falso.chmod(0o755)
     registro = tmp_path / "registro.txt"
     guion_minimo = "\n".join(
-        ["MANIFEST=reports/campaign/campaign_manifest.json", "CAMPAIGN_TXN=reports/campaign/campaign.json", *funciones]
+        [
+            f'PY="{falso}"',
+            "MAIN_REF=origin/main",
+            "MANIFEST=reports/campaign/campaign_manifest.json",
+            "CAMPAIGN_TXN=reports/campaign/campaign.json",
+            *funciones,
+        ]
         + ["txn_guard", "txn_publish_release"]
     )
     fin = subprocess.run(
@@ -169,3 +175,4 @@ def test_RED_sync_all_pasa_el_manifiesto_a_guard_y_a_publish(tmp_path: Path) -> 
     assert subcomandos == ["guard", "publish-release"], (llamadas, fin.stderr)
     for llamada in llamadas:
         assert "--manifest reports/campaign/campaign_manifest.json" in llamada, llamada
+    assert "--repo . --main-ref origin/main" in llamadas[-1]

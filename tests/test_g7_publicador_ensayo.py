@@ -73,7 +73,8 @@ def mundo_publicable(candidato: dict, tmp_path: Path, monkeypatch, capsys) -> di
     cand = m["cand"]
     remoto_dvc = tmp_path / "dvc_remoto"
     remoto_dvc.mkdir()
-    (cand / ".gitignore").write_text("/ante/\n/ante_nf/\n", encoding="utf-8")
+    # Mismas reglas de caché Python que producción; no ignora fuentes ni reportes.
+    (cand / ".gitignore").write_text("/ante/\n/ante_nf/\n__pycache__/\n*.pyc\n", encoding="utf-8")
     _dvc_en(dvc, cand, "init", "-q")
     _dvc_en(dvc, cand, "remote", "add", "-d", "ensayo", str(remoto_dvc))
     (cand / "models").mkdir()
@@ -81,6 +82,9 @@ def mundo_publicable(candidato: dict, tmp_path: Path, monkeypatch, capsys) -> di
     _dvc_en(dvc, cand, "add", "models")
     (cand / "experiments").mkdir()
     shutil.copy2(RAIZ / "experiments" / "sync_all.sh", cand / "experiments" / "sync_all.sh")
+    shutil.copy2(RAIZ / "experiments/score_e3_campaign.py", cand / "experiments/score_e3_campaign.py")
+    (cand / "tools").mkdir()
+    shutil.copy2(RAIZ / "tools/publication_runtime.py", cand / "tools/publication_runtime.py")
     base = _git(cand, "rev-parse", "HEAD")
     aprobado = _commit(cand, "candidato con punteros DVC y el publicador")
     m["arbol"] = _git(cand, "rev-parse", "HEAD^{tree}")
@@ -95,10 +99,6 @@ def mundo_publicable(candidato: dict, tmp_path: Path, monkeypatch, capsys) -> di
     _git(cand, "push", "-q", str(origen), f"{squash}:refs/heads/main")
     release = tmp_path / "release"
     subprocess.run(["git", "clone", "-q", str(origen), str(release)], check=True)
-    (release / "ante_nf" / "bin").mkdir(parents=True)
-    envoltorio = release / "ante_nf" / "bin" / "python"  # un enlace perdería el venv (sin pyvenv.cfg al lado)
-    envoltorio.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
-    envoltorio.chmod(0o755)
     # la caché DVC de quien preparó el corte (en producción, la máquina que lo calculó); local, no versionada
     (release / ".dvc" / "config.local").write_text(f"[cache]\n    dir = {cand / '.dvc' / 'cache'}\n", encoding="utf-8")
     entorno = {
@@ -106,10 +106,14 @@ def mundo_publicable(candidato: dict, tmp_path: Path, monkeypatch, capsys) -> di
         "CAMPAIGN_TXN": str(m["txn"]),
         "CAMPAIGN_MANIFEST": str(m["txn"].with_name("campaign_manifest.json")),
         "VP_DVC": str(dvc),
+        "VP_PUBLISH_PYTHON": sys.executable,
         "PYTHONPATH": str(RAIZ),
         "DVC_NO_ANALYTICS": "1",
         "SYNC_PUBLISH": "0",
     }
+    # El ensayo debe cubrir la escritura normal de cachés, aunque el caller use -B.
+    entorno.pop("PYTHONDONTWRITEBYTECODE", None)
+    entorno.pop("PYTHONPYCACHEPREFIX", None)
     return {**m, "dvc": dvc, "remoto_dvc": remoto_dvc, "origen": origen, "release": release, "squash": squash,
             "aprobado": aprobado, "entorno": entorno}  # fmt: skip
 
@@ -133,6 +137,9 @@ def test_ensayo_completo_publica_el_arbol_aprobado_y_nada_mas(mundo_publicable: 
     main_antes = _git(m["origen"], "rev-parse", "main")
     fin = _publicar(m)
     assert fin.returncode == 0, fin.stdout + fin.stderr
+    cache = Path("experiments/__pycache__") / f"score_e3_campaign.{sys.implementation.cache_tag}.pyc"
+    assert (m["release"] / cache).is_file(), "el preflight real debe ejercitar la caché normal de Python"
+    assert _git(m["release"], "check-ignore", str(cache)).strip() == str(cache)
     estado = _estado(m)
     assert estado["status"] == "published" and estado["release_sha"] == m["squash"]
     assert _git(m["origen"], "rev-parse", "main") == main_antes, "publicar no empuja git"
@@ -174,9 +181,10 @@ def test_una_release_no_integrada_en_main_no_publica(mundo_publicable: dict) -> 
     assert _objetos(m["remoto_dvc"]) == [] and _estado(m)["status"] == "validated"
 
 
-def test_un_checkout_sucio_no_publica(mundo_publicable: dict) -> None:
+@pytest.mark.parametrize("ruta", ["suelto.txt", "experiments/nuevo.py"])
+def test_un_checkout_sucio_no_publica(mundo_publicable: dict, ruta: str) -> None:
     m = mundo_publicable
-    (m["release"] / "suelto.txt").write_text("sin commitear\n", encoding="utf-8")
+    (m["release"] / ruta).write_text("sin commitear\n", encoding="utf-8")
     fin = _publicar(m)
     assert fin.returncode == 9 and "limpio" in fin.stderr, fin.stdout + fin.stderr
     assert _objetos(m["remoto_dvc"]) == [] and _estado(m)["status"] == "validated"

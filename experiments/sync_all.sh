@@ -20,10 +20,10 @@
 # Uso:  bash experiments/sync_all.sh                   # preparar (local-only)
 #       bash experiments/sync_all.sh --publish         # publicar la release aprobada que hay en HEAD
 # Entorno: CAMPAIGN_TXN y CAMPAIGN_MANIFEST (rutas de la transacción y del manifiesto de la campaña; por defecto las de
-# reports/campaign/), SYNC_MAIN_REF (por defecto origin/main), VP_DVC (DVC gobernado).
+# reports/campaign/), SYNC_MAIN_REF (por defecto origin/main), VP_DVC (DVC gobernado),
+# VP_PUBLISH_PYTHON (perfil model; ante/bin/python), VP_TRACKING_PYTHON (MLflow; ante_nf/bin/python).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-[ -x ante_nf/bin/python ] || { echo "ERROR: falta el venv ante_nf/ en la raíz del repo" >&2; exit 1; }
 # ★ R14 · el DVC que re-hashea los punteros es el GOBERNADO (`$VP_DVC` o `ante/bin/dvc`, la misma
 # regla que `tools/check_dvc_lock_fresh.py` y el Makefile), no un `dvc` a secas del PATH del
 # operador: en el worktree de ejecución no hay `ante/bin/dvc` y el PATH resolvía a un Homebrew
@@ -33,6 +33,20 @@ DVC="${VP_DVC:-ante/bin/dvc}"
 
 PUBLISH="${SYNC_PUBLISH:-0}"
 if [ "${1:-}" = "--publish" ]; then PUBLISH=1; shift; fi
+[ "$#" = 0 ] || { echo "ERROR: argumentos desconocidos: $*" >&2; exit 2; }
+case "$PUBLISH" in 0|1) ;; *) echo "ERROR: SYNC_PUBLISH debe ser 0 o 1" >&2; exit 2 ;; esac
+if [ "$PUBLISH" = 1 ]; then
+  PY="${VP_PUBLISH_PYTHON:-ante/bin/python}"
+  PROFILE=publish
+  PY_VAR=VP_PUBLISH_PYTHON
+else
+  PY="${VP_TRACKING_PYTHON:-ante_nf/bin/python}"
+  PROFILE=prepare
+  PY_VAR=VP_TRACKING_PYTHON
+fi
+[ -x "$PY" ] || { echo "ERROR: $PY_VAR no es un intérprete ejecutable: $PY" >&2; exit 12; }
+# Importar los lectores reales ANTES de MLflow, DVC, staging o transiciones. Perfil incompleto: fail-closed.
+"$PY" tools/publication_runtime.py --profile "$PROFILE" || exit 12
 MANIFEST="${CAMPAIGN_MANIFEST:-reports/campaign/campaign_manifest.json}"
 MAIN_REF="${SYNC_MAIN_REF:-origin/main}"
 
@@ -47,15 +61,15 @@ fi
 
 # ⚠️ Publicar exige un manifiesto de campaña que EXISTA, sea JSON válido y selle dirty=false
 # BOOLEANO explícito (contrato único fail-closed: tools/campaign_manifest.py). CAMPAIGN_DIAGNOSTIC NO llega a producción.
-publishable() { ante_nf/bin/python -m tools.campaign_manifest --assert-publishable "$MANIFEST"; }
+publishable() { "$PY" -m tools.campaign_manifest --assert-publishable "$MANIFEST"; }
 # ⚠️ SEGUNDA puerta, y la que manda (ADR 0003): el manifiesto acredita la IDENTIDAD de la campaña; la transacción
 # acredita su ESTADO. Sólo `validated` autoriza publicar; la ausencia de transacción también bloquea.
 CAMPAIGN_TXN="${CAMPAIGN_TXN:-reports/campaign/campaign.json}"
-txn_guard() { ante_nf/bin/python -m tools.campaign_txn --path "$CAMPAIGN_TXN" guard --manifest "$MANIFEST"; }
+txn_guard() { "$PY" -m tools.campaign_txn --path "$CAMPAIGN_TXN" guard --manifest "$MANIFEST"; }
 # H3/H10: publicar CONSUME el permiso, y sólo después del efecto externo (si `dvc push` falla, sigue `validated`).
 # ★ G7 · desbloqueo: una sola operación bajo el lock de la campaña: puerta + árbol + limpio + integrada → dvc push → published.
 txn_publish_release() {
-  ante_nf/bin/python -m tools.campaign_txn --path "$CAMPAIGN_TXN" publish-release --manifest "$MANIFEST" \
+  "$PY" -m tools.campaign_txn --path "$CAMPAIGN_TXN" publish-release --manifest "$MANIFEST" \
     --repo . --main-ref "$MAIN_REF"
 }
 
@@ -69,7 +83,7 @@ if [ "$PUBLISH" = 1 ]; then
 fi
 
 echo ">>> [1/3] MLflow: staging -> mlflow.db"
-ante_nf/bin/python experiments/sync_mlflow.py
+"$PY" experiments/sync_mlflow.py
 
 echo ">>> [2/3] DVC: re-hash local (modelos + tracking)"
 "$DVC" add models mlflow.db

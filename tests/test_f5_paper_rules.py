@@ -22,6 +22,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.latex_support import read_documental
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
@@ -30,7 +32,7 @@ import check_consistency as cc  # noqa: E402
 RULES = yaml.safe_load((ROOT / "tools" / "consistency_rules.yml").read_text())
 FACTS = json.loads((ROOT / "reports" / "governance" / "key_facts.json").read_text())
 PAPER = cc._repo_path("reports/paper_micai/paper.tex")
-CUERPO = [ln for ln in PAPER.read_text().splitlines() if not ln.lstrip().startswith("%")]
+CUERPO = [ln for ln in read_documental(PAPER, cc.LATEX_LOCATION).splitlines() if not ln.lstrip().startswith("%")]
 NUEVAS = ("prosp_mase", "prosp_cov95", "ets_fad_mean")
 
 

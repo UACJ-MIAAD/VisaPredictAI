@@ -62,6 +62,13 @@ def test_committed_artifacts_match_the_generator(gen, facts) -> None:
     assert gen.render_md(facts) == MD.read_text(encoding="utf-8")
 
 
+def test_local_manifest_is_not_evidence_of_a_production_deploy(gen, facts) -> None:
+    text = gen.render_md(facts)
+    assert "Corte servido en producción:" not in text
+    assert "no acredita que se haya desplegado" in text
+    assert facts["release_id"] not in text
+
+
 def test_generation_is_deterministic(gen, facts, tmp_path: Path) -> None:
     """Sin timestamps ni orden de diccionario suelto: dos corridas dan los mismos bytes."""
     a = (gen.render_svg(facts), gen.render_md(facts))

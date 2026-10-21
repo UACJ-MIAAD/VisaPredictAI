@@ -1,0 +1,14 @@
+{
+  "contract_version": 1,
+  "artifact": "reports/governance/ingestion_state.json",
+  "kind": "json",
+  "required_keys": {
+    "schema": "int",
+    "status": "str",
+    "expected_month": "str",
+    "missing_months": "list",
+    "status_since": "str",
+    "failed_links": "list",
+    "reason": "str"
+  }
+}

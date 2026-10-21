@@ -4,7 +4,7 @@ Empaqueta el catálogo de ingeniería de características y limpieza (fe_facts.j
 un PDF profesional multi-página: portada con stat tiles, las 12 decisiones magistrales
 de limpieza, las 8 de FE, la galería f01–f07 EN VECTOR (la figura viva de
 ``make_fe_figures`` va directo a PdfPages — cero re-rasterización), el ledger del corte
-vigente, la selección FRESH 44→1 y las notas de linaje. TODAS las cifras vienen de
+vigente, la selección FRESH re-derivada y las notas de linaje. TODAS las cifras vienen de
 fe_facts.json / el panel (0 a mano); bilingüe vía ``build(lang)`` reusando el TXT de la
 galería FE.
 

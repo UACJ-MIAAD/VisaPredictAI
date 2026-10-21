@@ -23,6 +23,7 @@ Corre en ``ante`` desde la raíz:  ante/bin/python experiments/build_release_man
 
 from __future__ import annotations
 
+import argparse
 import datetime
 import hashlib
 import json
@@ -252,7 +253,19 @@ def build(root: Path = ROOT, card_renderer: Callable[[str], str] | None = None) 
 
 
 def main() -> int:
-    manifest = build()
+    ap = argparse.ArgumentParser(description="Emit the release and its model card; never publish.")
+    ap.add_argument("--reconciliation-root", type=Path)
+    ap.add_argument("--parent-root", type=Path)
+    args = ap.parse_args()
+    if (args.reconciliation_root is None) != (args.parent_root is None):
+        ap.error("--reconciliation-root y --parent-root deben darse juntos")
+    from build_model_card import render
+
+    manifest = build(
+        card_renderer=lambda rid: render(
+            rid, reconciliation_root=args.reconciliation_root, parent_root=args.parent_root
+        )
+    )
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
     if manifest.get("worktree_dirty"):
