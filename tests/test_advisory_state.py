@@ -8,7 +8,6 @@ derivación de N y de n_pairs_live, y las transiciones del issue único.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -265,6 +264,17 @@ def test_state_file_is_published_by_the_model_stage() -> None:
         "reports/governance/" == p or "reports/governance/advisory_state.json" == p
         for p in cron_publish.ALLOWLIST["model"]
     )
-    assert not os.path.exists("reports/governance/advisory_state.json"), (
-        "el estado se crea en una corrida real con rebuild; no debe fabricarse ni commitearse aquí"
-    )
+    # The first real October rebuild created this file. Absence is a valid
+    # initial state, not a permanent invariant after monthly operation begins.
+    # Existing state must satisfy the closed production schema; the workflow
+    # supplies its actual run identity and the two strict advisory markers.
+    state = adv.read_state(Path("reports/governance/advisory_state.json"))
+    if state is not None:
+        assert state["run_id"].isdecimal(), "published cron state must name its Actions run"
+    import yaml
+
+    workflow = yaml.safe_load(Path(".github/workflows/freeze_and_rebuild.yml").read_text())
+    model = next(s for s in workflow["jobs"]["update"]["steps"] if s.get("id") == "model")
+    assert '--run-id "${GITHUB_RUN_ID:-local}"' in model["run"]
+    for name in adv.ADVISORIES:
+        assert f"--marker {name}=" in model["run"]

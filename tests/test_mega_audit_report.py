@@ -265,3 +265,18 @@ def test_the_entrypoint_and_its_blocking_failure_are_unchanged() -> None:
     assert 'OUT = Path("reports/governance/mega_audit_report.md")' in src
     mk = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert "mega_audit" in mk, "make audit debe seguir invocando el mismo módulo"
+
+
+@pytest.mark.parametrize("ending", ["", "\n\n"])
+def test_main_writes_exactly_one_final_newline(tmp_path, monkeypatch, ending):
+    """A regenerated monthly report must not need an EOF-hook exception."""
+    from pipeline import mega_audit
+
+    report = mega_audit.AuditReport()
+    report.add("diagnóstico" + ending)
+    output = tmp_path / "new/mega_audit_report.md"
+    monkeypatch.setattr(mega_audit, "OUT", output)
+    monkeypatch.setattr(mega_audit, "load_panel", lambda: None)
+    monkeypatch.setattr(mega_audit, "build_report", lambda _: report)
+    assert mega_audit.main() == 0
+    assert output.read_bytes() == "diagnóstico\n".encode()
