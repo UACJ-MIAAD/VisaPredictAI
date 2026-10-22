@@ -25,6 +25,9 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+# The lightweight consistency job installs only PyYAML, not the project. Resolve
+# our own helper from this checkout in both CLI and package execution modes.
+sys.path.insert(0, str(ROOT))
 # En CI los repos hermanos se checkoutan en otra ruta; las variables los reubican.
 WEB_DIR = os.environ.get("VP_WEB_DIR", "../VisaPredictAI_web")
 _latex_env = os.environ.get("VP_LATEX_DIR")

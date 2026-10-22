@@ -55,3 +55,18 @@ def test_an_unknown_binding_blocks_the_actual_guardian(repo_guardian: Path):
     result = sembrar_y_correr(repo_guardian, "{{census:unknown}} observaciones del panel.")
     assert result.returncode != 0
     assert "BINDING" in result.stdout
+
+
+def test_cli_finds_its_own_helper_without_an_editable_install(repo_guardian: Path):
+    import os
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-I", "tools/check_consistency.py"],
+        cwd=repo_guardian,
+        env={**os.environ, "VP_LATEX_DIR": "latex_repo"},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
