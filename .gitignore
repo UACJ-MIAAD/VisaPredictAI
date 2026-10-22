@@ -10,6 +10,7 @@ figures/
 reports/latex/Figures/
 reports/paper_micai/
 /latex_repo/
+/web_repo/
 
 # Tooling caches / coverage artifacts
 .coverage

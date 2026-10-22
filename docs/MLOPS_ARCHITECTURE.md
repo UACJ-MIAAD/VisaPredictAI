@@ -44,17 +44,17 @@ regenera, la prueba `test_committed_artifacts_match_the_generator` lo dice.
 
 | Dato | Valor | Fuente canónica |
 |---|---|---|
-| Panel | 27,911 filas · 298 meses · 16,117 con estado F | `reports/governance/key_facts.json` |
+| Panel | 28,061 filas · 299 meses · 16,220 con estado F | `reports/governance/key_facts.json` |
 | Series | 194 catalogadas · 136 con historia F · 74 evaluables | `reports/governance/key_facts.json` |
 | Catálogo de modelos | 24 modelos | `reports/governance/key_facts.json` |
 | Evaluación prospectiva | 2,944 puntuadas · MASE 0.347 · MAE 146 días · cobertura 0.92 | `reports/governance/key_facts.json` |
 | Corte del árbol | añada 2026-09 · 115 artefactos | `reports/release/release_manifest.json` |
-| Estado de la fuente | bloqueada por el WAF, HTTP 403 · mes esperado 2026-09 | `reports/governance/ingestion_state.json` |
-| Gate de promoción | 158 pares live · política v1.0.1 · DFF: extend-shadow · FAD: extend-shadow | `reports/governance/promotion_decision.json` |
+| Estado de la fuente | bloqueada por el WAF, HTTP 403 · mes esperado 2026-11 | `reports/governance/ingestion_state.json` |
+| Gate de promoción | 323 pares live · política v1.0.1 · DFF: extend-shadow · FAD: extend-shadow | `reports/governance/promotion_decision.json` |
 | Campeones | DFF: sarima · FAD: theta+ets+sarima | `reports/governance/champion_manifest.json` |
 | Deriva | detectada · datos ok | `reports/governance/drift_report.json` |
 | DAG | scrape → panel → bulletins → database → key_facts → eda_facts → fe_facts | `dvc.yaml` |
-| Procedencia del panel | hash `07d43c029953` | `reports/governance/key_facts.json` |
+| Procedencia del panel | hash `c2c956566f0b` | `reports/governance/key_facts.json` |
 
 La identidad del corte se consulta en `reports/release/release_manifest.json`.
 Su presencia en este árbol no acredita que se haya desplegado en producción.

@@ -137,7 +137,7 @@ def test_no_obsolete_claim_that_cron_pushes_do_not_trigger_ci():
 
 def test_authorship_gate_runs_before_every_push():
     text = CRON.read_text(encoding="utf-8")
-    pushes = [m.start() for m in re.finditer(r"^\s*git push\s*$", text, re.M)]
+    pushes = [m.start() for m in re.finditer(r'^\s*git push origin "HEAD:\$GITHUB_REF_NAME"\s*$', text, re.M)]
     assert len(pushes) == 4, f"el cron debe tener exactamente 4 pushes, hay {len(pushes)}"
     for pos in pushes:
         window_start = text.rfind("git commit", 0, pos)
@@ -166,7 +166,7 @@ def test_commit_identity_is_configured_once_before_any_commit_path():
 
     first_commit = next(i for i, s in enumerate(steps) if "git commit" in str(s.get("run", "")))
     assert identity < first_commit, "la identidad se fija antes de cualquier ruta de commit"
-    assert re.search(r"^\s*git push\s*$", text, re.M), "los pushes siguen existiendo"
+    assert re.search(r'^\s*git push origin "HEAD:\$GITHUB_REF_NAME"\s*$', text, re.M), "los pushes siguen existiendo"
 
 
 def test_ci_workflow_documents_app_pushes_and_keeps_dispatch_and_concurrency():

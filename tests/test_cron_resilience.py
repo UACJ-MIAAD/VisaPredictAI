@@ -124,10 +124,10 @@ def test_state_change_publishes_even_without_a_rebuild_via_the_shared_push_site(
     # UNA función compartida = el MISMO (y único) sitio de push de datos del paso
     assert "publish_data()" in run
     assert run.count("git push") == 1, "el paso run debe tener UN solo sitio de push (compartido)"
-    # las TRES salidas sin rebuild (no-op, self-heal de modelado y freeze muerto)
+    # Las dos salidas sin rebuild (corte completo y freeze muerto)
     # publican el cambio de estado ANTES de su exit
-    assert run.count('publish_data "Record source ingestion state: $source_status"') == 3
-    noop_branch = run[: run.index("No new bulletin and panel up to date")]
+    assert run.count('publish_data "Record source ingestion state: $source_status"') == 2
+    noop_branch = run[: run.index("No new bulletin and complete release up to date")]
     assert 'publish_data "Record source ingestion state' in noop_branch
 
 

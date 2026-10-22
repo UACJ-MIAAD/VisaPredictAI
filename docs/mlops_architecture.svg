@@ -20,7 +20,7 @@
     <rect x="40" y="132" width="290" height="10" fill="#003CA6"/>
     <text x="52" y="134" font-size="13" font-weight="600" fill="#ffffff">Ingesta y estado de la fuente</text>
     <text x="52" y="162" font-size="12" fill="#231F20">travel.state.gov · bloqueada (403)</text>
-    <text x="52" y="179" font-size="12" fill="#231F20">mes esperado 2026-09</text>
+    <text x="52" y="179" font-size="12" fill="#231F20">mes esperado 2026-11</text>
     <text x="52" y="196" font-size="12" fill="#231F20">añada del panel 2026-09</text>
     <text x="52" y="213" font-size="12" fill="#231F20">estado: ingestion_state.json</text>
   </g>
@@ -39,8 +39,8 @@
     <rect x="790" y="116" width="490" height="26" rx="10" fill="#003CA6"/>
     <rect x="790" y="132" width="490" height="10" fill="#003CA6"/>
     <text x="802" y="134" font-size="13" font-weight="600" fill="#ffffff">Panel multiserie</text>
-    <text x="802" y="162" font-size="12" fill="#231F20">27,911 filas · 298 meses (2001-12 a 2026-09)</text>
-    <text x="802" y="179" font-size="12" fill="#231F20">16,117 observaciones con estado F (entrenables)</text>
+    <text x="802" y="162" font-size="12" fill="#231F20">28,061 filas · 299 meses (2001-12 a 2026-10)</text>
+    <text x="802" y="179" font-size="12" fill="#231F20">16,220 observaciones con estado F (entrenables)</text>
     <text x="802" y="196" font-size="12" fill="#231F20">194 series catalogadas · 136 con historia F</text>
     <text x="802" y="213" font-size="12" fill="#231F20">74 evaluables tras el filtro de longitud</text>
   </g>
@@ -63,7 +63,7 @@
     <text x="422" y="322" font-size="13" font-weight="600" fill="#ffffff">Despliegue en sombra</text>
     <text x="422" y="350" font-size="12" fill="#231F20">ledger sombra propio e inmutable</text>
     <text x="422" y="367" font-size="12" fill="#231F20">misma máquina de scoring que el campeón</text>
-    <text x="422" y="384" font-size="12" fill="#231F20">158 pares live campeón-vs-sombra</text>
+    <text x="422" y="384" font-size="12" fill="#231F20">323 pares live campeón-vs-sombra</text>
     <text x="422" y="401" font-size="12" fill="#231F20">salida: prospective_head_to_head.json</text>
     <text x="422" y="418" font-size="12" fill="#231F20">jamás se mezcla con el campeón</text>
   </g>

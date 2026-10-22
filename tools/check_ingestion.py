@@ -14,11 +14,11 @@ nuevo del panel commiteado (data/processed/visa_panel_long.csv):
 Tercer modo (auto-reparación del MODELADO, pendiente #17 del audit EDA 3-jul):
 
   --mode model-pending : imprime "stale" si los artefactos derivados comiteados
-                   (key_facts.json y eda_facts.json) van DETRÁS del panel — la
+                   (key_facts.json, eda_facts.json y el manifiesto) van DETRÁS del panel — la
                    huella de un paso model/eda que falló tras publicar los datos.
                    Sin esto, la corrida siguiente hacía exit 0 por "fresh" y los
                    forecasts/EDA del mes no se recuperaban hasta el boletín
-                   siguiente. "fresh" si ambos reflejan el vintage del panel.
+                   siguiente. "fresh" si los tres reflejan el vintage del panel.
 
 Cuarto modo (estado de la fuente, D3/A3):
 
@@ -93,7 +93,7 @@ def panel_max() -> pd.Timestamp:
     return pd.to_datetime(col).max()
 
 
-def model_artifacts_stale(panel_month: str, key_facts: dict, eda_facts: dict) -> list[str]:
+def model_artifacts_stale(panel_month: str, key_facts: dict, eda_facts: dict, manifest: dict) -> list[str]:
     """Artefactos derivados que van detrás del panel ([] = todo al día).
 
     Pura sobre dicts para ser unit-testable: compara el vintage que cada artefacto
@@ -104,6 +104,8 @@ def model_artifacts_stale(panel_month: str, key_facts: dict, eda_facts: dict) ->
         lagging.append(f"key_facts date_last={key_facts.get('date_last')}")
     if eda_facts.get("vintage") != panel_month:
         lagging.append(f"eda_facts vintage={eda_facts.get('vintage')}")
+    if manifest.get("panel_vintage") != panel_month:
+        lagging.append(f"release panel_vintage={manifest.get('panel_vintage')}")
     return lagging
 
 
@@ -167,7 +169,9 @@ def main() -> int:
         month = f"{panel_max():%Y-%m}"
         key = json.loads((ROOT / "reports" / "governance" / "key_facts.json").read_text())
         eda = json.loads((ROOT / "reports" / "eda" / "eda_facts.json").read_text())
-        lagging = model_artifacts_stale(month, key, eda)
+        manifest_path = ROOT / "reports" / "release" / "release_manifest.json"
+        manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+        lagging = model_artifacts_stale(month, key, eda, manifest)
         if lagging:
             print("stale")
             print(f"  panel en {month} pero: {'; '.join(lagging)}", file=sys.stderr)

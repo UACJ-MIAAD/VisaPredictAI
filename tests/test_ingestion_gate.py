@@ -69,12 +69,17 @@ def test_only_newest_month_is_judged():
 
 
 def test_model_artifacts_fresh():
-    assert model_artifacts_stale("2026-07", {"date_last": "2026-07"}, {"vintage": "2026-07"}) == []
+    assert (
+        model_artifacts_stale("2026-07", {"date_last": "2026-07"}, {"vintage": "2026-07"}, {"panel_vintage": "2026-07"})
+        == []
+    )
 
 
 def test_model_artifacts_lag_both():
     # Huella del fallo real: el mes entró al panel pero model/eda murieron después.
-    lagging = model_artifacts_stale("2026-08", {"date_last": "2026-07"}, {"vintage": "2026-07"})
+    lagging = model_artifacts_stale(
+        "2026-08", {"date_last": "2026-07"}, {"vintage": "2026-07"}, {"panel_vintage": "2026-08"}
+    )
     assert len(lagging) == 2
     assert any("key_facts" in item for item in lagging)
     assert any("eda_facts" in item for item in lagging)
@@ -82,14 +87,16 @@ def test_model_artifacts_lag_both():
 
 def test_model_artifacts_lag_one():
     # Solo el EDA (4g, continue-on-error) quedó atrás: también debe repararse.
-    lagging = model_artifacts_stale("2026-08", {"date_last": "2026-08"}, {"vintage": "2026-07"})
+    lagging = model_artifacts_stale(
+        "2026-08", {"date_last": "2026-08"}, {"vintage": "2026-07"}, {"panel_vintage": "2026-08"}
+    )
     assert lagging == ["eda_facts vintage=2026-07"]
 
 
 def test_model_artifacts_missing_keys_are_stale():
     # Un artefacto sin su campo de vintage cuenta como desfasado, no como fresco.
-    lagging = model_artifacts_stale("2026-08", {}, {})
-    assert len(lagging) == 2
+    lagging = model_artifacts_stale("2026-08", {}, {}, {})
+    assert len(lagging) == 3
 
 
 def _run():
