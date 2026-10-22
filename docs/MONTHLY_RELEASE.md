@@ -37,3 +37,12 @@ token de la App ni permiso de escritura del repositorio. Espera con cota el CI
 de ese SHA, dispara el hook sólo tras su éxito y comprueba el corte servido.
 El correo de generación no equivale a esa verificación: el resultado final
 queda en el resumen de `delivery`, cuyo fallo hace fallar el workflow.
+
+## Almacén y transporte DVC del corte mensual
+
+Después de reconstruir DuckDB/Parquet, la fase de datos registra juntos los stages
+`scrape`, `panel`, `bulletins` y `database`. También sube únicamente el objeto
+cacheado de `database` mediante `dvc push database`, antes del commit de datos.
+El transporte S3 usa `dvc-s3==3.3.0`, fijado junto al DVC 3.67.1 que verifica CI.
+Si el transporte falla, no se publica el lock nuevo. El CSV permanece abierto en
+Git; DuckDB sigue siendo regenerable y no se añade al repositorio.
