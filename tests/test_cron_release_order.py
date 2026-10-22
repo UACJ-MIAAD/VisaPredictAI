@@ -10,6 +10,13 @@ import pytest
 import yaml
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/freeze_and_rebuild.yml"
+ORDER = [
+    "experiments/build_release_manifest.py",
+    "tools/refresh_monthly_views.py",
+    "tools/check_published_benchmark.py",
+    "tools/check_contracts.py",
+    "tools/check_consistency.py",
+]
 
 
 def _run(tmp_path: Path, fail_at: str = "") -> tuple[subprocess.CompletedProcess[str], list[str]]:
@@ -51,21 +58,15 @@ def _run(tmp_path: Path, fail_at: str = "") -> tuple[subprocess.CompletedProcess
 def test_release_gate_validates_the_new_seal_instead_of_the_previous_month(tmp_path: Path) -> None:
     result, calls = _run(tmp_path)
     assert result.returncode == 0, result.stderr
-    assert calls == ["experiments/build_release_manifest.py", "tools/check_contracts.py", "tools/check_consistency.py"]
+    assert calls == ORDER
 
 
 @pytest.mark.parametrize(
     "failed",
-    ["experiments/build_release_manifest.py", "tools/check_contracts.py", "tools/check_consistency.py"],
+    ORDER,
 )
 def test_release_gate_stops_at_each_failure(tmp_path: Path, failed: str) -> None:
     result, calls = _run(tmp_path, failed)
     assert result.returncode != 0
     assert calls[-1] == failed
-    assert (
-        len(calls)
-        == ["experiments/build_release_manifest.py", "tools/check_contracts.py", "tools/check_consistency.py"].index(
-            failed
-        )
-        + 1
-    )
+    assert len(calls) == ORDER.index(failed) + 1

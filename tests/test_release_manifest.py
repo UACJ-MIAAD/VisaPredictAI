@@ -206,7 +206,13 @@ def test_cron_no_longer_emits_the_card_early() -> None:
 def test_release_allowlist_names_both_files_and_no_broad_path() -> None:
     from tools.cron_publish import ALLOWLIST
 
-    assert set(ALLOWLIST["release"]) == {"reports/release/release_manifest.json", brm.CARD_REL}
+    assert set(ALLOWLIST["release"]) == {
+        "reports/release/release_manifest.json",
+        brm.CARD_REL,
+        "docs/schema_er.svg",
+        "docs/mlops_architecture.svg",
+        "docs/MLOPS_ARCHITECTURE.md",
+    }
     assert not any(p.endswith("/") for p in ALLOWLIST["release"])
 
 

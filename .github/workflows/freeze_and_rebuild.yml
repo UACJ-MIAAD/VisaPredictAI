@@ -258,6 +258,9 @@ jobs:
         # `make audit` ran it — offline, seconds, and its two gravest dimensions
         # (unexplained missing months, source<->panel volume loss) are now CRIT.
         python -m pipeline.mega_audit
+        # Una captura manual actualiza el panel sin volver a sondear la fuente.
+        # Conservar su status/fecha/reason, pero reflejar el panel recién validado.
+        python tools/check_ingestion.py --mode refresh-panel
 
         # 3. Refresh the DuckDB star schema and validate it accepts the new data
         #    (the .duckdb/.parquet stay gitignored -- regenerable with `make db`).
@@ -422,23 +425,22 @@ jobs:
         # manifiesto, asi que la emite el paso BLOQUEANTE "Release gate" junto al manifiesto
         # (un solo emisor). Emitirla antes estampaba el release ANTERIOR.
 
-        # 4e-bis (AO6a). Refresh the champion-challenger verdict every bulletin so the
-        # promotion recommendation never goes stale. NOT a gate (|| true): a failed
-        # verdict must not hold this month's forecasts hostage. Its governance
-        # artifacts (champion_challenger.{json,md}) ride the `git add reports` below.
+        # 4e-bis (AO6a). Preserve the published campaign's retrospective benchmark.
+        # This blocking integrity check is not a new fit or a promotion decision.
         # D2-B: además de la línea humana, un marcador ESTRICTO (valor exacto ok|failed)
         # del que se deriva N para el asunto del correo y el contador de consecutividad.
-        if python experiments/run_champion_challenger.py; then
-          echo "veredicto refrescado OK" > /tmp/champion.txt; echo -n "ok" > /tmp/champion_status.txt
-        else
-          echo "FALLO este run (veredicto del mes anterior sigue vigente; ver logs)" > /tmp/champion.txt
-          echo -n "failed" > /tmp/champion_status.txt
-        fi
+        # El benchmark retrospectivo pertenece a la campaña ya publicada. Su
+        # productor exige una campaña running: un boletín no autoriza reabrirla.
+        # Aquí se comprueba su integridad; la evidencia nueva la decide el gate
+        # prospectivo de 4c-bis. Un benchmark alterado sí bloquea el modelado.
+        python tools/check_published_benchmark.py
+        echo "benchmark retrospectivo conservado y contrastado con el manifiesto previo; sin recálculo" > /tmp/champion.txt
+        echo -n "ok" > /tmp/champion_status.txt
 
         # 4e-ter (AO6b). Shadow deployment: freeze the best challenger's vintage into
         # the SEPARATE immutable shadow ledger (forecast_log_shadow.csv) so the
         # promotion gate accumulates prospective evidence. Statistical re-fits only
-        # (minutes); non-blocking like the verdict itself.
+        # (minutes); its advisory failure is reported without promoting a model.
         if python experiments/freeze_shadow.py; then
           echo "anada del retador congelada OK" > /tmp/shadow.txt; echo -n "ok" > /tmp/shadow_status.txt
         else
@@ -574,6 +576,8 @@ jobs:
           # El manifiesto anterior describe otro corte. Primero sellar los bytes
           # commiteados de este run; después validar identidad, añada y consumidores.
           python experiments/build_release_manifest.py &&
+          python tools/refresh_monthly_views.py &&
+          python tools/check_published_benchmark.py &&
           python tools/check_contracts.py &&
           python tools/check_consistency.py
         } > /tmp/release_gate.txt 2>&1 || {

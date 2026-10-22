@@ -16,6 +16,9 @@ from tools import cron_publish as cp
         ("model", "reports/latex/key_facts.tex"),
         ("eda", "reports/latex/fe_facts.tex"),
         ("release", "reports/release/release_manifest.json"),
+        ("release", "docs/schema_er.svg"),
+        ("release", "docs/mlops_architecture.svg"),
+        ("release", "docs/MLOPS_ARCHITECTURE.md"),
     ],
 )
 def test_real_staging_owns_exact_generated_file_only(

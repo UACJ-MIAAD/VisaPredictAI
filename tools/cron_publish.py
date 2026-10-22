@@ -65,11 +65,21 @@ ALLOWLIST: dict[str, tuple[str, ...]] = {
     "release": (
         "reports/release/release_manifest.json",
         "reports/governance/MODEL_CARD.md",
+        "docs/schema_er.svg",
+        "docs/mlops_architecture.svg",
+        "docs/MLOPS_ARCHITECTURE.md",
     ),
 }
 # Fuera de estos árboles el cron no publica nada; lo sucio ahí ni se stagea ni se reporta
 # (p. ej. venvs locales) — el reporte de rechazados se limita al territorio publicable.
-SCOPE = ("data/", "reports/", "dvc.lock")
+SCOPE = (
+    "data/",
+    "reports/",
+    "dvc.lock",
+    "docs/schema_er.svg",
+    "docs/mlops_architecture.svg",
+    "docs/MLOPS_ARCHITECTURE.md",
+)
 
 
 def partition(dirty: list[str], stage: str) -> tuple[list[str], list[str]]:
@@ -83,7 +93,7 @@ def partition(dirty: list[str], stage: str) -> tuple[list[str], list[str]]:
     for p in dirty:
         if any(p == a or (a.endswith("/") and p.startswith(a)) for a in allow):
             publish.append(p)
-        elif any(p == s or p.startswith(s) for s in SCOPE):
+        elif any(p == s or (s.endswith("/") and p.startswith(s)) for s in SCOPE):
             reject.append(p)
     return publish, reject
 
