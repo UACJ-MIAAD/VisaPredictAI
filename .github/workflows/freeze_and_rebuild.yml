@@ -571,9 +571,11 @@ jobs:
         git checkout -- data reports dvc.lock 2>/dev/null || true
         git clean -fdq reports data 2>/dev/null || true
         {
+          # El manifiesto anterior describe otro corte. Primero sellar los bytes
+          # commiteados de este run; después validar identidad, añada y consumidores.
+          python experiments/build_release_manifest.py &&
           python tools/check_contracts.py &&
-          python tools/check_consistency.py &&
-          python experiments/build_release_manifest.py
+          python tools/check_consistency.py
         } > /tmp/release_gate.txt 2>&1 || {
           tail -5 /tmp/release_gate.txt
           echo "release gate ROJO: sin release nuevo ni deploy este run (ver log)" | tee -a /tmp/release_gate.txt
