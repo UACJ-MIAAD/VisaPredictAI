@@ -11,8 +11,8 @@ _Auditoría exhaustiva generada por `mega_audit.py` sobre `data/processed/visa_p
 
 ## 2. Completitud a nivel boletín
 
-- Span: **2001-12 → 2026-09** (298 meses)
-- Meses con ≥1 fila en el panel: **298** (100.0%)
+- Span: **2001-12 → 2026-10** (299 meses)
+- Meses con ≥1 fila en el panel: **299** (100.0%)
 - Meses sin ninguna fila: ninguno
 - Muertos confirmados (404 + Wayback-only): `[]`
 - ✓ Sin meses ausentes inexplicados.
@@ -20,39 +20,39 @@ _Auditoría exhaustiva generada por `mega_audit.py` sobre `data/processed/visa_p
 ## 3. Inventario de series (país × categoría × tabla)
 
 - Total series: **194**
-- Filas: **27,911** · filas status=F: **16,117**
+- Filas: **28,061** · filas status=F: **16,220**
 - Por bloque×tabla:
 
 | bloque | tabla | series | filas | F |
 |---|---|--:|--:|--:|
-| employment | DFF | 64 | 5,798 | 2,217 |
-| employment | FAD | 80 | 11,648 | 3,801 |
-| family | DFF | 25 | 3,300 | 3,185 |
-| family | FAD | 25 | 7,165 | 6,914 |
+| employment | DFF | 64 | 5,848 | 2,246 |
+| employment | FAD | 80 | 11,698 | 3,830 |
+| family | DFF | 25 | 3,325 | 3,205 |
+| family | FAD | 25 | 7,190 | 6,939 |
 
 - Series más cortas (n_F menor), candidatas a exclusión:
 
 | país | cat | tabla | n | n_F | rango |
 |---|---|---|--:|--:|---|
-| all_chargeability | EB5_HIGHUNEMP | FAD | 53 | 0 | 2022-05→2026-09 |
-| all_chargeability | EB5_HIGHUNEMP | DFF | 53 | 0 | 2022-05→2026-09 |
-| all_chargeability | EB5_RC | DFF | 78 | 0 | 2015-11→2022-04 |
-| all_chargeability | EB5_PILOT | FAD | 21 | 0 | 2009-04→2012-10 |
+| all_chargeability | EB5_HIGHUNEMP | DFF | 54 | 0 | 2022-05→2026-10 |
+| all_chargeability | EB5_HIGHUNEMP | FAD | 54 | 0 | 2022-05→2026-10 |
+| all_chargeability | EB5_INFRA | DFF | 54 | 0 | 2022-05→2026-10 |
+| all_chargeability | EB5_INFRA | FAD | 54 | 0 | 2022-05→2026-10 |
+| all_chargeability | EB5_NONRC | DFF | 78 | 0 | 2015-11→2022-04 |
 | all_chargeability | EB5_NONRC | FAD | 80 | 0 | 2015-09→2022-04 |
-| all_chargeability | EB5_UNRESERVED | FAD | 53 | 0 | 2022-05→2026-09 |
-| all_chargeability | EB5_UNRESERVED | DFF | 53 | 0 | 2022-05→2026-09 |
-| all_chargeability | EB5_RURAL | FAD | 53 | 0 | 2022-05→2026-09 |
-| all_chargeability | EB5_RURAL | DFF | 53 | 0 | 2022-05→2026-09 |
+| all_chargeability | EB5_PILOT | FAD | 21 | 0 | 2009-04→2012-10 |
+| all_chargeability | EB5_RC | DFF | 78 | 0 | 2015-11→2022-04 |
 | all_chargeability | EB5_RC | FAD | 83 | 0 | 2005-08→2022-04 |
-| all_chargeability | EB5_INFRA | FAD | 53 | 0 | 2022-05→2026-09 |
-| all_chargeability | EB5_INFRA | DFF | 53 | 0 | 2022-05→2026-09 |
+| all_chargeability | EB5_RURAL | DFF | 54 | 0 | 2022-05→2026-10 |
+| all_chargeability | EB5_RURAL | FAD | 54 | 0 | 2022-05→2026-10 |
+| all_chargeability | EB5_UNRESERVED | DFF | 54 | 0 | 2022-05→2026-10 |
 
 ## 4. Distribución de estado e∈{C,F,U,UNK}
 
 | status | filas | % |
 |---|--:|--:|
-| F | 16,117 | 57.7% |
-| C | 11,168 | 40.0% |
+| F | 16,220 | 57.8% |
+| C | 11,215 | 40.0% |
 | U | 625 | 2.2% |
 | UNK | 1 | 0.0% |
 
@@ -60,10 +60,10 @@ _Auditoría exhaustiva generada por `mega_audit.py` sobre `data/processed/visa_p
 
 | bloque | tabla | F | total | %F |
 |---|---|--:|--:|--:|
-| employment | DFF | 2,217 | 5,798 | 38% |
-| employment | FAD | 3,801 | 11,648 | 33% |
-| family | DFF | 3,185 | 3,300 | 97% |
-| family | FAD | 6,914 | 7,165 | 96% |
+| employment | DFF | 2,246 | 5,848 | 38% |
+| employment | FAD | 3,830 | 11,698 | 33% |
+| family | DFF | 3,205 | 3,325 | 96% |
+| family | FAD | 6,939 | 7,190 | 97% |
 
 ## 6. Unicidad de clave
 
@@ -80,7 +80,7 @@ _Auditoría exhaustiva generada por `mega_audit.py` sobre `data/processed/visa_p
 
 ## 8. Coherencia DFF vs FAD (DFF debe ser ≥ avanzada que FAD)
 
-- Pares (mismo país/cat/mes) con FAD y DFF: **5,095**
+- Pares (mismo país/cat/mes) con FAD y DFF: **5,144**
 - Violaciones DFF < FAD: **6** (0.12%)
 - _Interpretación: inversiones reales de pocos días publicadas por el Depto. de Estado (los `raw_value` parsean bien), NO errores de parseo._
 
@@ -117,8 +117,8 @@ _Auditoría exhaustiva generada por `mega_audit.py` sobre `data/processed/visa_p
 
 ## 10. Reconciliación fuente ↔ panel
 
-- Filas por status en las 10 fuentes (suma): **{'C': 11168, 'F': 16117, 'U': 625, 'UNK': 1}**
-- Filas por status en el panel: **{'F': 16117, 'C': 11168, 'U': 625, 'UNK': 1}**
+- Filas por status en las 10 fuentes (suma): **{'C': 11215, 'F': 16220, 'U': 625, 'UNK': 1}**
+- Filas por status en el panel: **{'F': 16220, 'C': 11215, 'U': 625, 'UNK': 1}**
 
 ## 11. Matriz de cobertura categoría × país (nº de tablas con datos)
 
