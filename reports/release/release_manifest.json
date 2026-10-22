@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "release_id": "2026-10-42ca04652a62",
-  "generated_at": "2026-10-22T16:15:14+00:00",
+  "release_id": "2026-10-a880a917ede0",
+  "generated_at": "2026-10-22T16:25:12+00:00",
   "pipeline_run_id": "local-recovery-39805018648-20261022",
-  "git_sha": "5fc73131993e",
+  "git_sha": "83f045d163cb",
   "worktree_dirty": true,
   "panel_vintage": "2026-10",
   "panel_hash_md5_12": "c2c956566f0b",
@@ -27,8 +27,8 @@
     "schema": 2,
     "card_path": "reports/governance/MODEL_CARD.md",
     "sentinel": "@@RELEASE_ID_SENTINEL@@",
-    "digest": "42ca04652a62cf8be951e9c205c34089254bbbda01d761c2772b34c2f48d5a7a",
-    "card_sha256_normalized": "3a01c434124ab65f46e4a317112fc0386bc7fa15f0cc74a6048cff00819206e7"
+    "digest": "a880a917ede02ac417a43769f38875723122e23379fb84099d2540e29edfdf37",
+    "card_sha256_normalized": "be4b486ff124404c36ff8de1cf71e070e68578bd4c02f33b50d7fb2c28847750"
   },
   "n_artifacts": 115,
   "missing_optional": [],
@@ -217,15 +217,15 @@
     },
     {
       "path": "reports/governance/MODEL_CARD.md",
-      "sha256": "498786c59d55ba8d7a3561d97a9d778cfc0a7542effffd86044c67b399208524",
+      "sha256": "3e6ab893ae84b291e2aad60ced2f226c36f9e3d2b1dbadec86ef03c8a57dcf65",
       "size": 4779,
       "mime": "text/markdown",
       "criticality": "required"
     },
     {
       "path": "reports/governance/mega_audit_report.md",
-      "sha256": "3032059436346a6d9702cfe22d86c29d827de5440419109b69a1fa6ec881ab06",
-      "size": 6943,
+      "sha256": "0206d24ca20730de1040940384b1c90dd91e1cabf090f7588ffee8826b078d32",
+      "size": 6944,
       "mime": "text/markdown",
       "criticality": "optional"
     },

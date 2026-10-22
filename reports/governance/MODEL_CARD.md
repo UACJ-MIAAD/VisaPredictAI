@@ -11,7 +11,7 @@
 - **Sistema:** predictor del U.S. Visa Bulletin — panel multiserie `y_{p,c,b,t}` (país × categoría × tabla × mes).
 - **Tarea:** regresión temporal de fechas de prioridad sobre observaciones con estado **F** (FAD y DFF por separado).
 - **Receta desplegada (campeón):** FAD → `median(theta+ets+sarima)` · DFF → `sarima` (manifiesto versionado `champion_manifest.json`).
-- **Versión / linaje:** git `5fc7313` · hash del panel `c2c956566f0b`.
+- **Versión / linaje:** git `83f045d` · hash del panel `c2c956566f0b`.
 - **Autor:** Javier A. Rebull Saucedo · MIAAD, UACJ. Demostrador: visapredictai.com.
 
 ## 2. Uso previsto
@@ -42,11 +42,11 @@
 
 ## 6. Linaje y reproducibilidad
 - **Receta:** `champion_manifest.json` (cambia solo vía `run_champion_challenger.py --promote`, auditado).
-- **Código:** git `5fc7313`. **Datos:** panel hash `c2c956566f0b`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
+- **Código:** git `83f045d`. **Datos:** panel hash `c2c956566f0b`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
 - **Corte (D4):** identidad del corte en el campo estructural de abajo · pipeline_run_id `local-recovery-39805018648-20261022` · añada `2026-10`.
 
 ```
-release_id: 2026-10-42ca04652a62
+release_id: 2026-10-a880a917ede0
 ```
 - **Promoción (dos gates):** el hold-out (Wilcoxon+Holm, h=1) solo declara aptitud retrospectiva; la autorización la da el gate prospectivo PRE-REGISTRADO (docs/PROMOTION_POLICY.md) sobre pares live campeón-vs-sombra, aplicada por un humano (`--promote`, que se rehúsa sin decisión "promote") con rollback versionado.
 
