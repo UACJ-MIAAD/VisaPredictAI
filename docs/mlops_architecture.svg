@@ -12,7 +12,7 @@
   </defs>
   <rect x="0" y="0" width="1320" height="860" fill="#ffffff"/>
   <text x="40" y="46" font-size="21" font-weight="700" fill="#003CA6">VisaPredict AI — arquitectura MLOps</text>
-  <text x="40" y="68" font-size="12.5" fill="#555559">del boletín publicado al pronóstico servido: datos, modelado, gobernanza y publicación · añada 2026-09</text>
+  <text x="40" y="68" font-size="12.5" fill="#555559">del boletín publicado al pronóstico servido: datos, modelado, gobernanza y publicación · añada 2026-10</text>
   <text x="40" y="104" font-size="12" font-weight="600" fill="#555559">1 · DATOS</text>
   <g>
     <rect x="40" y="116" width="290" height="132" rx="10" fill="url(#mabg)" stroke="#003CA6" stroke-width="1.6" filter="url(#mash)"/>
@@ -21,7 +21,7 @@
     <text x="52" y="134" font-size="13" font-weight="600" fill="#ffffff">Ingesta y estado de la fuente</text>
     <text x="52" y="162" font-size="12" fill="#231F20">travel.state.gov · bloqueada (403)</text>
     <text x="52" y="179" font-size="12" fill="#231F20">mes esperado 2026-11</text>
-    <text x="52" y="196" font-size="12" fill="#231F20">añada del panel 2026-09</text>
+    <text x="52" y="196" font-size="12" fill="#231F20">añada del panel 2026-10</text>
     <text x="52" y="213" font-size="12" fill="#231F20">estado: ingestion_state.json</text>
   </g>
   <g>
@@ -118,7 +118,7 @@
     <rect x="40" y="716" width="620" height="26" rx="10" fill="#003CA6"/>
     <rect x="40" y="732" width="620" height="10" fill="#003CA6"/>
     <text x="52" y="734" font-size="13" font-weight="600" fill="#ffffff">Manifiesto y procedencia del corte</text>
-    <text x="52" y="762" font-size="12" fill="#231F20">añada 2026-09 · 115 artefactos con su hash</text>
+    <text x="52" y="762" font-size="12" fill="#231F20">añada 2026-10 · 115 artefactos con su hash</text>
     <text x="52" y="779" font-size="12" fill="#231F20">identidad del release derivada de la tarjeta normalizada + el resto (D4)</text>
     <text x="52" y="796" font-size="12" fill="#231F20">salidas: release_manifest.json · MODEL_CARD.md</text>
   </g>
