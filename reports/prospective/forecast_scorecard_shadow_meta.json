@@ -1,39 +1,39 @@
 {
   "what": "scoring del ledger SOMBRA (retador) con la misma maquinaria y universo que el campeón (A3)",
   "caveat": "backfill leakage-free; NO equivale a haber servido los pronósticos en tiempo real",
-  "n_scored": 160,
-  "n_pending": 1004,
+  "n_scored": 326,
+  "n_pending": 1798,
   "by_mode": {
     "live": {
       "overall": {
-        "n": 160,
-        "mae_days": 160.7,
-        "mase": 0.482,
-        "cov80": 0.75,
-        "cov95": 0.838,
+        "n": 326,
+        "mae_days": 177.7,
+        "mase": 0.5231,
+        "cov80": 0.733,
+        "cov95": 0.865,
         "cov80_ci95": [
-          0.679,
-          0.812
+          0.683,
+          0.779
         ],
         "cov95_ci95": [
-          0.775,
-          0.888
+          0.825,
+          0.899
         ]
       },
       "by_horizon": {
         "1": {
-          "n": 80,
-          "mae_days": 83.8,
-          "mase": 0.2179,
-          "cov80": 0.838,
-          "cov95": 0.875,
+          "n": 160,
+          "mae_days": 81.8,
+          "mase": 0.213,
+          "cov80": 0.863,
+          "cov95": 0.912,
           "cov80_ci95": [
-            0.745,
-            0.906
+            0.803,
+            0.909
           ],
           "cov95_ci95": [
-            0.79,
-            0.934
+            0.861,
+            0.949
           ]
         },
         "2": {
@@ -50,6 +50,53 @@
             0.703,
             0.876
           ]
+        },
+        "3": {
+          "n": 80,
+          "mae_days": 314.3,
+          "mase": 0.9487,
+          "cov80": 0.55,
+          "cov95": 0.825,
+          "cov80_ci95": [
+            0.441,
+            0.656
+          ],
+          "cov95_ci95": [
+            0.731,
+            0.896
+          ]
+        },
+        "4": {
+          "n": 1,
+          "mae_days": 61.0,
+          "mase": 0.1073,
+          "cov80": 1.0,
+          "cov95": 1.0,
+          "cov80_ci95": [
+            0.147,
+            1.0
+          ],
+          "cov95_ci95": [
+            0.147,
+            1.0
+          ],
+          "insufficient_n": true
+        },
+        "7": {
+          "n": 5,
+          "mae_days": 126.4,
+          "mase": 0.1541,
+          "cov80": 0.6,
+          "cov95": 1.0,
+          "cov80_ci95": [
+            0.209,
+            0.906
+          ],
+          "cov95_ci95": [
+            0.621,
+            1.0
+          ],
+          "insufficient_n": true
         }
       }
     }

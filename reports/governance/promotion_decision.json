@@ -37,56 +37,71 @@
     "DFF": {
       "decision": "extend-shadow",
       "reasons": [
-        "añadas live con pares: 1 < mínimo 3"
+        "bandas con muestra insuficiente (<30 pares): ['h4_6', 'h7_12']"
       ],
-      "n_pairs_live": 62,
-      "n_live_vintages": 1,
+      "n_pairs_live": 127,
+      "n_live_vintages": 3,
+      "n_pairs_by_band": {
+        "h1_3": 101,
+        "h4_6": 0,
+        "h7_12": 2
+      },
       "candidate": {
         "champion": "sarima",
         "challenger": "naive1",
         "challenger_recipes": [
           "naive1"
         ],
-        "release_id": "2026-07-5e473ac91f60",
+        "release_id": "2026-09-805d624d2ecf",
         "vintages": [
-          "2026-07"
+          "2026-03",
+          "2026-07",
+          "2026-09"
         ],
-        "decided_at": "2026-09-01T03:29:40+00:00",
+        "decided_at": "2026-10-22T15:37:55+00:00",
         "evidence": {
-          "scorecard_champion": "9ba54f7215ed",
-          "scorecard_shadow": "f5f16bca4f7a",
-          "shadow_ledger": "8f0fbb1b9485"
+          "scorecard_champion": "296df58f8bac",
+          "scorecard_shadow": "21726eefb686",
+          "shadow_ledger": "eb25fada7b82"
         },
-        "hash": "e2209ac03aac"
+        "hash": "b91c2da7a1c5"
       }
     },
     "FAD": {
       "decision": "extend-shadow",
       "reasons": [
-        "añadas live con pares: 1 < mínimo 3"
+        "bandas con muestra insuficiente (<30 pares): ['h4_6', 'h7_12']"
       ],
-      "n_pairs_live": 96,
-      "n_live_vintages": 1,
+      "n_pairs_live": 196,
+      "n_live_vintages": 4,
+      "n_pairs_by_band": {
+        "h1_3": 168,
+        "h4_6": 1,
+        "h7_12": 1
+      },
       "candidate": {
         "champion": "median(theta+ets+sarima)",
         "challenger": "naive1",
         "challenger_recipes": [
           "naive1"
         ],
-        "release_id": "2026-07-5e473ac91f60",
+        "release_id": "2026-09-805d624d2ecf",
         "vintages": [
-          "2026-07"
+          "2026-03",
+          "2026-06",
+          "2026-07",
+          "2026-09"
         ],
-        "decided_at": "2026-09-01T03:29:40+00:00",
+        "decided_at": "2026-10-22T15:37:55+00:00",
         "evidence": {
-          "scorecard_champion": "9ba54f7215ed",
-          "scorecard_shadow": "f5f16bca4f7a",
-          "shadow_ledger": "8f0fbb1b9485"
+          "scorecard_champion": "ab6c9db96cf6",
+          "scorecard_shadow": "eb9512903dc4",
+          "shadow_ledger": "42f0ad0fba2d"
         },
-        "hash": "a1d39217f525"
+        "hash": "32fc1a0b3ffa"
       }
     }
   },
-  "n_pairs_total": 158,
-  "n_pairs_live": 158
+  "n_pairs_total": 323,
+  "n_pairs_live": 323
 }

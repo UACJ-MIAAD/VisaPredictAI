@@ -1,0 +1,15 @@
+{
+  "advisories": {
+    "champion_challenger": {
+      "consecutive_failures": 0,
+      "status": "ok"
+    },
+    "shadow_freeze": {
+      "consecutive_failures": 0,
+      "status": "ok"
+    }
+  },
+  "run_id": "39805018648",
+  "schema_version": 1,
+  "updated_at": "2026-10-22T15:41:44+00:00"
+}
