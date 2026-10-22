@@ -10,6 +10,7 @@ nunca tecleada.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -326,18 +327,28 @@ class TestPanelReal:
         assert any(s["congelada"] for s in estables), "la anotación no distinguiría nada"
 
     def test_el_catalogo_commiteado_esta_al_dia(self, tmp_path: Path) -> None:
-        """Maestro dorado: el archivo del repo es EXACTAMENTE lo que produce el panel de hoy.
+        """Reproduce exactamente la cohorte científica desde su panel acreditado.
 
-        Sin esto, el catálogo podría quedarse rancio y las pruebas seguirían verdes: todas
-        las demás reconstruyen desde el panel y ninguna mira los bytes publicados.
+        El mensual no mueve retrospectivamente la partición de una campaña. Las
+        pruebas de población anteriores siguen contrastando el panel vivo.
         """
         import experiments.build_cohorts as bc
+        from tests.published_inputs import archived_inputs
 
-        rj, rc = bc.write(bc.build(), tmp_path / "fresco")
+        published = json.loads((bc.OUT_DIR / "series_cohorts.json").read_text())
+        relative = "data/processed/visa_panel_long.csv"
+        assert published["provenance"]["panel"] == relative
+        _, inputs = archived_inputs(ROOT, "reports/eval/series_cohorts.json", (relative,))
+        assert hashlib.sha256(inputs[relative]).hexdigest() == published["provenance"]["panel_sha256"]
+        panel = tmp_path / "archived-panel.csv"
+        panel.write_bytes(inputs[relative])
+        reproduced = bc.build(panel)
+        reproduced["provenance"]["panel"] = published["provenance"]["panel"]
+        rj, rc = bc.write(reproduced, tmp_path / "fresco")
         for fresco, publicado in ((rj, bc.OUT_DIR / rj.name), (rc, bc.OUT_DIR / rc.name)):
             assert publicado.exists(), f"falta {publicado.name}"
             assert fresco.read_bytes() == publicado.read_bytes(), (
-                f"{publicado.name} está rancio: corre `python experiments/build_cohorts.py`"
+                f"{publicado.name} diverge del catálogo derivado de su panel científico"
             )
 
 

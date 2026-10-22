@@ -11,6 +11,14 @@ import pytest
 
 from tools import check_published_benchmark as gate
 
+EXPECTED = (
+    "reports/governance/champion_challenger.json",
+    "reports/governance/champion_manifest.json",
+    "reports/governance/e5_facts.json",
+    "reports/eval/series_cohorts.json",
+    "reports/prospective/pi_scale_by_h.json",
+)
+
 
 def git(root: Path, *args: str) -> str:
     return subprocess.check_output(
@@ -24,7 +32,7 @@ def git(root: Path, *args: str) -> str:
 def repo(tmp_path: Path) -> Path:
     git(tmp_path, "init", "-q")
     artifacts = []
-    for relative in gate.ARTIFACTS:
+    for relative in EXPECTED:
         p = tmp_path / relative
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text('{"FAD":{},"DFF":{}}\n')
@@ -39,6 +47,16 @@ def repo(tmp_path: Path) -> Path:
 
 def test_committed_and_worktree_benchmark_match(repo: Path) -> None:
     assert gate.check(repo) == []
+
+
+def test_scientific_archive_inventory_is_complete() -> None:
+    assert set(gate.ARTIFACTS) == set(EXPECTED)
+
+
+@pytest.mark.parametrize("relative", EXPECTED)
+def test_altered_scientific_archive_is_rejected(repo: Path, relative: str) -> None:
+    (repo / relative).write_text('{"tampered":true}\n')
+    assert gate.check(repo), relative
 
 
 def test_assume_unchanged_cannot_hide_different_worktree_bytes(repo: Path) -> None:
@@ -84,7 +102,7 @@ def test_duplicate_manifest_entry_fails_closed(repo: Path) -> None:
     assert gate.check(repo)
 
 
-@pytest.mark.parametrize("relative", gate.ARTIFACTS)
+@pytest.mark.parametrize("relative", EXPECTED)
 def test_missing_worktree_benchmark_fails_closed(repo: Path, relative: str) -> None:
     (repo / relative).unlink()
     assert gate.check(repo)

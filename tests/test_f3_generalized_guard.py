@@ -110,9 +110,13 @@ class TestTheMacroContractIsClosed:
         assert any("macro duplicada \\factNObs" in p for p in problemas)
 
     def test_a_drifted_value_is_named_on_both_sides(self) -> None:
-        tex = _tex("key_facts.tex").replace("{27911}", "{27912}", 1)
+        n = _json("key_facts.tex")["n_obs"]
+        source = _tex("key_facts.tex")
+        original = rf"\newcommand{{\factNObs}}{{{n}}}"
+        assert source.count(original) == 1
+        tex = source.replace(original, rf"\newcommand{{\factNObs}}{{{n + 1}}}", 1)
         problemas = cc._macros_contract(MACROS, tex, _json("key_facts.tex"))
-        assert any("factNObs" in p and "27912" in p for p in problemas)
+        assert any("factNObs" in p and str(n + 1) in p for p in problemas)
 
     def test_the_thousands_variant_shares_its_authority(self) -> None:
         # `27{,}911` es el mismo hecho que 27911: la coma tipográfica no puede leerse como deriva.
@@ -120,7 +124,15 @@ class TestTheMacroContractIsClosed:
         assert problemas == []
 
     def test_a_drifted_thousands_variant_is_caught(self) -> None:
-        tex = _tex("key_facts.tex").replace("{27{,}911}", "{27{,}912}", 1)
+        n = _json("key_facts.tex")["n_obs"]
+
+        def formatted(value: int) -> str:
+            return f"{value:,}".replace(",", "{,}")
+
+        source = _tex("key_facts.tex")
+        original = "{" + formatted(n) + "}"
+        assert source.count(original) == 1
+        tex = source.replace(original, "{" + formatted(n + 1) + "}", 1)
         problemas = cc._macros_contract(MACROS, tex, _json("key_facts.tex"))
         assert any("factNObsFmt" in p for p in problemas)
 

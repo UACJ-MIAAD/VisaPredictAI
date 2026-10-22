@@ -20,6 +20,8 @@ from importlib.util import find_spec
 
 import pytest
 
+from tests.scientific_reference import fixed_scientific_data, reference_warehouse  # noqa: F401
+
 MODELADO = pytest.mark.skipif(find_spec("statsmodels") is None, reason="requiere el extra `model`")
 
 #: Las series cuyo Zivot-Andrews cae en aritmética no finita, medidas sobre el universo declarado.
@@ -63,6 +65,7 @@ BARRIDO_COMPLETO = os.environ.get("VP_FULL_SWEEP") == "1"
 @MODELADO
 @pytest.mark.slow
 @pytest.mark.skipif(not BARRIDO_COMPLETO, reason="barrido completo: VP_FULL_SWEEP=1 (≈2-3 min)")
+@pytest.mark.usefixtures("fixed_scientific_data")
 def test_the_measured_warning_surface_is_exactly_the_pinned_one() -> None:
     """Barrido COMPLETO del universo real contra la superficie fijada. Opt-in por coste.
 
@@ -95,6 +98,7 @@ def test_the_measured_warning_surface_is_exactly_the_pinned_one() -> None:
 
 
 @MODELADO
+@pytest.mark.usefixtures("fixed_scientific_data")
 def test_the_pinned_series_still_emit_exactly_what_was_pinned() -> None:
     """Barato y siempre: las 6 series fijadas, una por una, con sus mensajes exactos.
 
@@ -133,6 +137,25 @@ def test_the_narrow_filter_covers_every_measured_message() -> None:
     for mensaje in MENSAJES:
         assert mensaje in fuente, f"el filtro no cubre {mensaje!r}, que sí se emite"
     assert "category=RuntimeWarning" in fuente, "el filtro debe seguir acotado por categoría"
+
+
+@MODELADO
+def test_live_panel_emits_no_unregistered_zivot_message() -> None:
+    """The current panel may change the series count, never the warning allowlist."""
+    from contextlib import suppress
+
+    import numpy as np
+    from statsmodels.tsa.stattools import zivot_andrews
+
+    n = 0
+    for clave, serie in _universo():
+        n += 1
+        with warnings.catch_warnings(record=True) as emitted:
+            warnings.simplefilter("always")
+            with suppress(ValueError, ZeroDivisionError, FloatingPointError, np.linalg.LinAlgError):
+                zivot_andrews(serie.diff().dropna(), trim=0.15)
+        assert {str(w.message) for w in emitted} <= set(MENSAJES), clave
+    assert n >= 100
 
 
 @MODELADO

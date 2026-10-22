@@ -7,6 +7,8 @@ MASE sin romper ningún test de tipo. Este test fija el MASE de hold-out de una 
 pequeña, barata y DETERMINISTA (naïve/ETS/Theta/ARIMA/SARIMA sobre 2 series, FAD+DFF) y
 falla si cualquiera se desvía del baseline committeado más allá de una tolerancia que
 absorbe ruido numérico de BLAS entre plataformas (macOS↔linux) pero no una regresión real.
+El panel de referencia es fijo y publicado: añadir un boletín mensual no cambia la
+entrada de esta comparación de código. La calidad actual se monitoriza por separado.
 
 Regenerar el baseline a propósito (tras un cambio de metodología legítimo):
     ante/bin/python tests/test_model_regression.py --update
@@ -29,6 +31,7 @@ import pytest
 
 pytest.importorskip("darts")  # la rejilla corre sobre la capa de modelado (extra `model`)
 
+from tests.scientific_reference import fixed_scientific_data, reference_warehouse  # noqa: F401
 from vp_model import config, walkforward  # (tras el importorskip a propósito)
 
 BASELINE_PATH = Path(__file__).with_name("model_regression_baseline.json")
@@ -59,6 +62,7 @@ def compute() -> dict[str, float]:
     return out
 
 
+@pytest.mark.usefixtures("fixed_scientific_data")
 def test_model_regression() -> None:
     assert BASELINE_PATH.exists(), (
         f"falta {BASELINE_PATH.name}; genéralo con `ante/bin/python tests/test_model_regression.py --update`"
@@ -80,8 +84,16 @@ def test_model_regression() -> None:
 
 if __name__ == "__main__":
     import sys
+    from tempfile import TemporaryDirectory
+    from unittest.mock import patch
 
-    facts = compute()
+    from tests.scientific_reference import build_reference_warehouse
+    from vp_model import dataset
+
+    with TemporaryDirectory(prefix="scientific-reference-") as directory:
+        db, panel = build_reference_warehouse(Path(directory))
+        with patch.multiple(dataset, DB_PATH=db, PANEL_CSV=panel):
+            facts = compute()
     if "--update" in sys.argv:
         BASELINE_PATH.write_text(json.dumps(facts, indent=2) + "\n")
         print(f"baseline escrito en {BASELINE_PATH} ({len(facts)} celdas)")

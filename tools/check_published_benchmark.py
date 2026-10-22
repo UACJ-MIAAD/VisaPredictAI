@@ -12,7 +12,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = "reports/release/release_manifest.json"
-ARTIFACTS = ("reports/governance/champion_challenger.json", "reports/governance/champion_manifest.json")
+ARTIFACTS = (
+    "reports/governance/champion_challenger.json",
+    "reports/governance/champion_manifest.json",
+    "reports/governance/e5_facts.json",
+    "reports/eval/series_cohorts.json",
+    "reports/prospective/pi_scale_by_h.json",
+)
 MAX_BYTES = 10 * 1024 * 1024
 
 
