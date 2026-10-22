@@ -584,6 +584,7 @@ jobs:
           # commiteados de este run; después validar identidad, añada y consumidores.
           python experiments/build_release_manifest.py &&
           python tools/refresh_monthly_views.py &&
+          python experiments/make_mlops_architecture.py &&
           python tools/check_published_benchmark.py &&
           python tools/check_contracts.py &&
           python tools/check_consistency.py

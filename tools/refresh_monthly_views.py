@@ -28,15 +28,13 @@ def render_er(svg: str, facts: dict) -> str:
 
 
 def main() -> int:
-    from experiments import make_mlops_architecture
-
     facts = json.loads((ROOT / "reports/governance/key_facts.json").read_text())
     path = ROOT / "docs/schema_er.svg"
     original = path.read_text()
     updated = render_er(original, facts)
     if updated != original:
         path.write_text(updated)
-    return make_mlops_architecture.main()
+    return 0
 
 
 if __name__ == "__main__":

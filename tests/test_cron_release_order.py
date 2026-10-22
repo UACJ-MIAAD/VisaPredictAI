@@ -13,6 +13,7 @@ WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/freeze_and_r
 ORDER = [
     "experiments/build_release_manifest.py",
     "tools/refresh_monthly_views.py",
+    "experiments/make_mlops_architecture.py",
     "tools/check_published_benchmark.py",
     "tools/check_contracts.py",
     "tools/check_consistency.py",
