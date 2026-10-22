@@ -6,6 +6,8 @@ import json
 import os
 import shlex
 import subprocess
+import sys
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -24,6 +26,12 @@ def _run_script() -> str:
 @pytest.mark.parametrize("changed", [False, True])
 def test_real_database_lock_follows_the_panel_before_publishing(tmp_path: Path, changed: bool) -> None:
     dvc = resolve_dvc(ROOT, os.environ)
+    if dvc is None and os.environ.get("VP_CI_PROFILE") == "model":
+        # E2 installs the pinned CLI in this interpreter's bin directory. Its
+        # per-command VP_DVC is not exported to subsequent pytest steps.
+        assert version("dvc") == "3.67.1"
+        dvc = Path(sys.executable).with_name("dvc")
+        assert dvc.is_file(), "The model CI profile must exercise the real DVC replay"
     if dvc is None:
         pytest.skip("Governed DVC absent in the dev profile; exercised in model CI")
 
