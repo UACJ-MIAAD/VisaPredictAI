@@ -282,7 +282,7 @@ jobs:
         #    forecast scripts. A3's AC demanded this separation: a PyTorch-index
         #    outage or a forecast bug used to hold the already-validated bulletin
         #    (and its S3 backup) hostage indefinitely.
-        pip install "dvc==3.67.1" "dvc-s3==3.3.0"   # DVC pin = CI; transport pinned explicitly
+        pip install "dvc==3.67.1" "dvc-s3==3.3.0" -c locks/model-cpu-linux-x86_64.txt
         dvc commit --force scrape panel bulletins database
         # El Parquet cacheado y sus nuevas dependencias pertenecen al mismo corte.
         # Un fallo de transporte impide publicar un lock sin su objeto recuperable.

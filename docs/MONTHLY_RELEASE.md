@@ -43,6 +43,8 @@ queda en el resumen de `delivery`, cuyo fallo hace fallar el workflow.
 Después de reconstruir DuckDB/Parquet, la fase de datos registra juntos los stages
 `scrape`, `panel`, `bulletins` y `database`. También sube únicamente el objeto
 cacheado de `database` mediante `dvc push database`, antes del commit de datos.
-El transporte S3 usa `dvc-s3==3.3.0`, fijado junto al DVC 3.67.1 que verifica CI.
+El transporte S3 usa `dvc-s3==3.3.0`, fijado junto al DVC 3.67.1 que verifica CI,
+bajo las constraints CPU vigentes para no desplazar fsspec ni las dependencias
+compartidas antes de instalar el perfil de modelado.
 Si el transporte falla, no se publica el lock nuevo. El CSV permanece abierto en
 Git; DuckDB sigue siendo regenerable y no se añade al repositorio.
