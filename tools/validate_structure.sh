@@ -36,7 +36,7 @@ allowed_root=(
   .gitignore .mypy_cache .pre-commit-config.yaml .pytest_cache .python-version
   .ruff.toml
   .ruff_cache __pycache__ htmlcov lightning_logs
-  ante ante_nf ante_tab ante_tfm aws_gpu data docs experiments latex_repo locks pipeline
+  ante ante_nf ante_tab ante_tfm aws_gpu data docs experiments latex_repo web_repo locks pipeline
   reports requirements security tests tools vp_data vp_model
   mlartifacts mlflow.db mlflow.db.dvc mlruns mlruns_staging models models.dvc
   visapredictai.egg-info

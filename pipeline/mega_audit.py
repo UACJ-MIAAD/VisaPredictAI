@@ -416,7 +416,7 @@ def build_report(p, inv=None) -> AuditReport:
 def main() -> int:
     rep = build_report(load_panel())
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(rep.render(), encoding="utf-8")
+    OUT.write_text(rep.render().rstrip("\r\n") + "\n", encoding="utf-8")
     print(f"✓ {OUT} ({len(rep.lines)} líneas)")
     print("\n".join(f"  [{s}] {m}" for s, m in rep.flags) or "  sin flags")
     crit, warn, info = (rep.by_severity(s) for s in SEVERITIES)

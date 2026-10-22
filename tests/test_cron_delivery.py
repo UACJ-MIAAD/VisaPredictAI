@@ -53,7 +53,8 @@ def test_delivery_is_pinned_to_writer_outputs_and_never_deploys_a_red_or_state_o
     assert outputs["release_sha"] == "${{ steps.release.outputs.sha }}"
     assert outputs["release_id"] == "${{ steps.release.outputs.release_id }}"
     job = jobs["delivery"]
-    assert job["if"].startswith("always()") and "data_sha" in job["if"]
+    assert "always()" in job["if"] and "data_sha" in job["if"]
+    assert "github.ref == 'refs/heads/main'" in job["if"]
     steps = job["steps"]
     deploy = next(step for step in steps if "Netlify build hook" in step.get("name", ""))
     verify = next(step for step in steps if "deploy actually served" in step.get("name", ""))

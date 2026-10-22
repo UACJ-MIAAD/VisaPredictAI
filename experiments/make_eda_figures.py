@@ -37,6 +37,11 @@ sns.set_theme(style="whitegrid", font="serif", rc={"axes.edgecolor": MID, "grid.
 plt.rcParams.update({"savefig.bbox": "tight", "savefig.dpi": 300, "font.size": 9})
 
 
+def _save(fig, name: str) -> None:
+    FIG.mkdir(parents=True, exist_ok=True)
+    fig.savefig(FIG / name)
+
+
 def _panel(table="FAD"):
     d = pd.read_csv(ROOT / "data" / "processed" / "visa_panel_long.csv", parse_dates=["bulletin_date"])
     f = d[(d.status == "F") & (d.block == "family") & (d.table == table)].copy().sort_values("bulletin_date")
@@ -72,7 +77,7 @@ def fig_violin_country() -> None:
     ax.set_xlabel("")
     ax.set_ylabel("Avance mensual de la fecha (días)")
     ax.set_title("Distribución del avance mensual por área de cargabilidad (FAD)", fontsize=10, color=BLUE)
-    fig.savefig(FIG / "eda2_violin_country.pdf")
+    _save(fig, "eda2_violin_country.pdf")
     plt.close(fig)
     print("eda2_violin_country OK")
 
@@ -86,7 +91,7 @@ def fig_violin_category() -> None:
     ax.set_xlabel("Categoría de preferencia familiar")
     ax.set_ylabel("Avance mensual (días)")
     ax.set_title("Distribución del avance mensual por categoría (FAD)", fontsize=10, color=BLUE)
-    fig.savefig(FIG / "eda2_violin_category.pdf")
+    _save(fig, "eda2_violin_category.pdf")
     plt.close(fig)
     print("eda2_violin_category OK")
 
@@ -118,7 +123,7 @@ def fig_ridgeline() -> None:
     ax.set_title("Distribución del avance mensual por categoría (FAD)", fontsize=10, color=BLUE)
     for sp in ("left", "right", "top"):
         ax.spines[sp].set_visible(False)
-    fig.savefig(FIG / "eda2_ridgeline.pdf")
+    _save(fig, "eda2_ridgeline.pdf")
     plt.close(fig)
     print("eda2_ridgeline OK")
 
@@ -144,7 +149,7 @@ def fig_regime() -> None:
     # leyenda al pie (evita encimarse con el título arriba)
     fig.legend(ncol=4, loc="lower center", bbox_to_anchor=(0.5, -0.015), fontsize=8, frameon=False)
     ax.tick_params(axis="y", labelsize=6.5)
-    fig.savefig(FIG / "eda2_regime.pdf")
+    _save(fig, "eda2_regime.pdf")
     plt.close(fig)
     print("eda2_regime OK")
 
@@ -161,7 +166,7 @@ def fig_seasonality() -> None:
     ax.set_xlabel("Mes del boletín")
     ax.set_ylabel("Avance mensual (días)")
     ax.set_title("Estacionalidad del avance por mes calendario (FAD)", fontsize=10, color=BLUE)
-    fig.savefig(FIG / "eda2_seasonality.pdf")
+    _save(fig, "eda2_seasonality.pdf")
     plt.close(fig)
     print("eda2_seasonality OK")
 
@@ -181,7 +186,7 @@ def fig_spaghetti() -> None:
     fig.legend(handles=handles, loc="lower center", ncol=5, fontsize=8, frameon=False, bbox_to_anchor=(0.5, -0.06))
     fig.suptitle("Trayectoria de las 25 series familiares por área", y=1.0, fontsize=10, color=BLUE)
     fig.tight_layout()
-    fig.savefig(FIG / "eda2_spaghetti.pdf")
+    _save(fig, "eda2_spaghetti.pdf")
     plt.close(fig)
     print("eda2_spaghetti OK")
 
@@ -209,7 +214,7 @@ def fig_distributions() -> None:
     )
     fig.suptitle("Distribución del objetivo y de sus incrementos (FAD)", fontsize=10, color=BLUE, y=1.02)
     fig.tight_layout()
-    fig.savefig(FIG / "eda2_distributions.pdf")
+    _save(fig, "eda2_distributions.pdf")
     plt.close(fig)
     print("eda2_distributions OK")
 
@@ -231,7 +236,7 @@ def fig_corr() -> None:
     )
     g.ax_heatmap.tick_params(labelsize=6)
     g.figure.suptitle("Correlación entre incrementos de las 25 series (FAD)", y=1.0, fontsize=10, color=BLUE)
-    g.figure.savefig(FIG / "eda2_corr.pdf")
+    _save(g.figure, "eda2_corr.pdf")
     plt.close(g.figure)
     print("eda2_corr OK")
 
@@ -266,7 +271,7 @@ def fig_length_retro() -> None:
     a2.set_ylabel("Mayor retroceso (años)")
     a2.set_title("(b) Retrogresiones por serie  (solo se rotulan las series extremas)", fontsize=9, color=BLUE)
     fig.tight_layout()
-    fig.savefig(FIG / "eda2_length_retro.pdf")
+    _save(fig, "eda2_length_retro.pdf")
     plt.close(fig)
     print("eda2_length_retro OK")
 

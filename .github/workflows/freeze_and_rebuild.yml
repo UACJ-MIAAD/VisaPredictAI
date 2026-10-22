@@ -74,6 +74,9 @@ jobs:
     needs: gate
     if: needs.gate.outputs.proceed == 'true'
     runs-on: ubuntu-latest
+    env:
+      VP_LATEX_DIR: ${{ github.workspace }}/latex_repo
+      VP_WEB_DIR: ${{ github.workspace }}/web_repo
     # B0: el token de instalación de la App expira a la hora; el job debe fallar cerrado
     # antes de que caduque (máximo histórico observado ~22 min).
     timeout-minutes: 55
@@ -116,14 +119,25 @@ jobs:
         fetch-depth: 0
 
     - name: Configure the single git identity for every commit path
-      # D2-B: ANTES vivían cuatro parejas `git config user.*` repetidas (una por ruta de
-      # commit), y la ruta self-heal que las saltaba moría con "empty ident". Una sola
-      # configuración local, inmediatamente tras el checkout y antes de cualquier commit,
-      # cubre las cuatro rutas sin repetirse. Los cuatro `git push` conservan su gate de
-      # autoría única: la identidad no sustituye a la verificación del rango saliente.
       run: |
         git config --local user.email "168046724+jrebull@users.noreply.github.com"
         git config --local user.name "Javier Rebull"
+
+    - name: Checkout canonical documentary inputs (read only)
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      with:
+        repository: UACJ-MIAAD/VisaPredictAI_LaTeX
+        ref: main
+        path: latex_repo
+        persist-credentials: false
+
+    - name: Checkout the web consumer for consistency (read only)
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      with:
+        repository: UACJ-MIAAD/VisaPredictAI_WEB
+        ref: main
+        path: web_repo
+        persist-credentials: false
 
     - name: Set up Python
       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
@@ -175,9 +189,9 @@ jobs:
             return 0
           fi
           git commit -m "$1"
-          git pull --rebase origin main   # A5: un push a main durante la corrida no tumba el job
+          git pull --rebase origin "$GITHUB_REF_NAME"
           bash tools/check_outgoing_authorship.sh origin/main..HEAD   # autoría única del rango saliente
-          git push
+          git push origin "HEAD:$GITHUB_REF_NAME"
           echo "pushed=true" >> "$GITHUB_OUTPUT"
           echo "data_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
         }
@@ -216,29 +230,16 @@ jobs:
         # died mid-rebuild used to leave `new=0` forever and the job green).
         stale=$(python tools/check_ingestion.py --mode pending)
         if [ "$new" = "0" ] && [ "$stale" = "fresh" ]; then
-          # #17 (audit EDA 3-jul): datos al día, pero ¿y los artefactos derivados?
-          # Un paso model/eda que moría TRAS publicar los datos dejaba key_facts/
-          # eda_facts un mes atrás, y esta salida temprana los abandonaba hasta el
-          # boletín siguiente. Si van detrás del panel, re-disparar SOLO el bloque
-          # de modelado (rebuilt=true): sus commits de datos hacen no-op (diff
-          # vacío) y el modelado exige el .duckdb (gitignored) fresco — construirlo
-          # y validarlo aquí, igual que en la ruta de rebuild completo.
+          # La recuperación incluye el manifiesto: datos/EDA frescos no prueban
+          # que el corte se haya sellado. Reusar la ruta completa mantiene todos
+          # los gates y el transporte DVC, también en un checkout limpio.
           model=$(python tools/check_ingestion.py --mode model-pending)
-          if [ "$model" = "stale" ]; then
-            echo "Panel al dia pero key_facts/eda_facts van detras -- re-lanzando el bloque de modelado."
+          if [ "$model" = "fresh" ]; then
             publish_data "Record source ingestion state: $source_status"
-            pip install --require-hashes -r locks/dev-linux-x86_64.txt && pip install -e . --no-deps
-            python -m pipeline.build_database
-            python -m pytest tests/test_database.py --cov-fail-under=0
-            echo "rebuilt=true" >> "$GITHUB_OUTPUT"
+            echo "No new bulletin and complete release up to date -- nothing to rebuild."
             exit 0
           fi
-          # A3/D3: la transición de estado se versiona AUNQUE no haya rebuild —
-          # sin esto, el blocked quedaba efímero en el runner y watchdog/web
-          # jamás lo veían (fallo cazado por el autor).
-          publish_data "Record source ingestion state: $source_status"
-          echo "No new bulletin and panel up to date -- nothing to rebuild."
-          exit 0
+          echo "Panel al día, corte incompleto -- reconstruyendo por la ruta completa."
         fi
         echo "$new new bulletin(s) frozen (panel: $stale) -- rebuilding."
         # L4: the redeploy/model steps key on REBUILT, not on new>0 — the stale
@@ -500,9 +501,9 @@ jobs:
           echo "Forecasts/key facts unchanged -- nothing to commit."
         else
           git commit -m "Update forecasts, scorecard and key facts"
-          git pull --rebase origin main
+          git pull --rebase origin "$GITHUB_REF_NAME"
           bash tools/check_outgoing_authorship.sh origin/main..HEAD   # autoría única del rango saliente
-          git push
+          git push origin "HEAD:$GITHUB_REF_NAME"
           echo "pushed=true" >> "$GITHUB_OUTPUT"
         fi
 
@@ -515,34 +516,31 @@ jobs:
         python tools/check_consistency.py > /tmp/consistency.txt 2>&1 || true
         tail -5 /tmp/consistency.txt
 
-    - name: EDA + FE vivos (censo + catálogo + figuras + reportes) — commit propio, no bloquea forecasts
+    - name: EDA + FE vivos (censo + catálogo + figuras + reportes) — bloqueante para el corte
       id: eda
       # 4g (plan EDA brutal, reestructurado tras el audit 3-jul H1; épica AF ext.): corre
-      # DESPUÉS del commit de modelado para que un fallo aquí no cancele la publicación del
-      # mes de forecasts/key_facts. continue-on-error: el redeploy de Netlify no depende de
-      # EDA/FE; el correo SES reporta el fallo (markers /tmp/eda.txt + /tmp/fe.txt) y el
-      # humano decide. El bloque es todo-o-nada: un fallo NO comitea artefactos parciales.
+      # DESPUÉS del commit de modelado: sus bytes quedan recuperables si EDA falla,
+      # pero un corte incompleto nunca puede llegar al consumidor.
       if: steps.run.outputs.rebuilt == 'true'
-      continue-on-error: true
       run: |
         set -eo pipefail
         run_eda() {
           # Sus gates internos (C2) abortan si el censo o la galería salen mutilados.
           # vp_model.plots ahora escribe TAMBIÉN a reports/latex/Figures (audit H2):
           # sin eso, el .tex mezclaba figuras eda2/eda3 frescas con eda_* congeladas.
-          python experiments/build_eda_facts.py
-          python -m vp_model.plots
-          python experiments/make_eda_figures.py
-          python experiments/make_gallery_figures.py
-          python experiments/build_eda_report.py
-          python tests/test_eda_facts.py
-          python tests/test_eda_report.py
+          python experiments/build_eda_facts.py || return $?
+          python -m vp_model.plots || return $?
+          python experiments/make_eda_figures.py || return $?
+          python experiments/make_gallery_figures.py || return $?
+          python experiments/build_eda_report.py || return $?
+          python tests/test_eda_facts.py || return $?
+          python tests/test_eda_report.py || return $?
           # FE vivo (AF): catálogo fe_facts + galería f01-f07 (4 variantes) + reporte
           # bilingüe; su test valida stats embebidos vs fe_facts y la galería 4x7.
-          python experiments/build_fe_facts.py
-          python experiments/make_fe_figures.py
-          python experiments/build_fe_report.py
-          python tests/test_fe_report.py
+          python experiments/build_fe_facts.py || return $?
+          python experiments/make_fe_figures.py || return $?
+          python experiments/build_fe_report.py || return $?
+          python tests/test_fe_report.py || return $?
         }
         if ! run_eda; then
           echo "EDA vivo: FALLÓ este run (artefactos del mes anterior siguen publicados; ver logs)" > /tmp/eda.txt
@@ -563,9 +561,9 @@ jobs:
           echo "EDA/FE sin cambios -- nada que comitear."
         else
           git commit -m "Update living EDA + FE (census, catalog, galleries, reports)"
-          git pull --rebase origin main
+          git pull --rebase origin "$GITHUB_REF_NAME"
           bash tools/check_outgoing_authorship.sh origin/main..HEAD   # autoría única del rango saliente
-          git push
+          git push origin "HEAD:$GITHUB_REF_NAME"
           echo "pushed=true" >> "$GITHUB_OUTPUT"
         fi
 
@@ -577,7 +575,7 @@ jobs:
       # se reutiliza en silencio el manifiesto previo. El arbol se restaura al estado
       # COMMITEADO antes de hashear (un artefacto parcial en disco que nunca se comiteo
       # no debe entrar al manifiesto).
-      if: steps.run.outputs.rebuilt == 'true' && steps.model.outcome == 'success'
+      if: steps.run.outputs.rebuilt == 'true' && steps.model.outcome == 'success' && steps.eda.outcome == 'success'
       run: |
         set -eo pipefail
         git checkout -- data reports dvc.lock 2>/dev/null || true
@@ -602,9 +600,9 @@ jobs:
           echo "Manifiesto sin cambios -- nada que comitear."
         else
           git commit -m "Seal the release manifest for this cut"
-          git pull --rebase origin main
+          git pull --rebase origin "$GITHUB_REF_NAME"
           bash tools/check_outgoing_authorship.sh origin/main..HEAD   # autoría única del rango saliente
-          git push
+          git push origin "HEAD:$GITHUB_REF_NAME"
         fi
         echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
         python -c "import json; print('release_id=' + json.load(open('reports/release/release_manifest.json'))['release_id'])" >> "$GITHUB_OUTPUT"
@@ -824,7 +822,7 @@ jobs:
   # consumidor sólo leen CI y disparan el hook autorizado, sin checkout ni App token.
   delivery:
     needs: update
-    if: always() && ((needs.update.outputs.rebuilt == 'true' && needs.update.outputs.release_outcome == 'success') || needs.update.outputs.data_sha != '')
+    if: github.ref == 'refs/heads/main' && always() && ((needs.update.outputs.rebuilt == 'true' && needs.update.outputs.release_outcome == 'success') || needs.update.outputs.data_sha != '')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:

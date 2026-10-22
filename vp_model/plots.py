@@ -55,8 +55,8 @@ def _save(fig: plt.Figure, name: str) -> Path:
     # antes se copiaban a mano y el cron refrescaba solo eda2_/eda3_ — el capítulo
     # mezclaba vintages. Doble escritura: la copia local (gitignored) y la del .tex.
     tex_dir = OUTDIR.parent / "latex" / "Figures"
-    if tex_dir.is_dir() and (tex_dir / name).exists():
-        fig.savefig(tex_dir / name, bbox_inches="tight", dpi=SAVE_DPI)
+    tex_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(tex_dir / name, bbox_inches="tight", dpi=SAVE_DPI)
     plt.close(fig)
     return path
 

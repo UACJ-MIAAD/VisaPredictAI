@@ -4,15 +4,14 @@
 > canónicos. **No editar a mano** — se regenera con `make model-card`. Toda cifra proviene de
 > `reports/governance/key_facts.json` (fuente única de verdad).
 
-> **Protocolo retrospectivo:** `f2-causal`. Los artefactos de esta tarjeta se acreditaron
-> contra la reconciliación `recon_5d208d0_g7_20261019T134251` de la campaña `rederiv_953cd00_20261006T073927`.
-> Esa acreditación retrospectiva no autoriza promover un retador: sigue vigente el gate prospectivo.
+> **Protocolo retrospectivo declarado:** `f2-causal`, sin acreditación de la reconciliación
+> en esta emisión. La declaración por sí sola no acredita las cifras ni autoriza promoción.
 
 ## 1. Detalles del modelo
 - **Sistema:** predictor del U.S. Visa Bulletin — panel multiserie `y_{p,c,b,t}` (país × categoría × tabla × mes).
 - **Tarea:** regresión temporal de fechas de prioridad sobre observaciones con estado **F** (FAD y DFF por separado).
 - **Receta desplegada (campeón):** FAD → `median(theta+ets+sarima)` · DFF → `sarima` (manifiesto versionado `champion_manifest.json`).
-- **Versión / linaje:** git `67ad3fb` · hash del panel `07d43c029953`.
+- **Versión / linaje:** git `83f045d` · hash del panel `c2c956566f0b`.
 - **Autor:** Javier A. Rebull Saucedo · MIAAD, UACJ. Demostrador: visapredictai.com.
 
 ## 2. Uso previsto
@@ -24,7 +23,7 @@
 - Categorías: familiares (F1–F4) y empleo (EB). Tablas: Final Action Dates (FAD) y Dates for Filing (DFF), evaluadas por separado.
 
 ## 4. Datos de entrenamiento
-- **Panel:** 27,911 observaciones · 58 % entrenables (estado F = 16,117) · rango 2001-12 → 2026-09.
+- **Panel:** 28,061 observaciones · 58 % entrenables (estado F = 16,220) · rango 2001-12 → 2026-10.
 - **Series:** 194 estructurales · 74 plenamente evaluables (≥84 obs F = ventana 60 + hold-out 24).
 - Fuente: U.S. Department of State, Visa Bulletin (HTML congelado, parseo offline reproducible).
 
@@ -43,11 +42,11 @@
 
 ## 6. Linaje y reproducibilidad
 - **Receta:** `champion_manifest.json` (cambia solo vía `run_champion_challenger.py --promote`, auditado).
-- **Código:** git `67ad3fb`. **Datos:** panel hash `07d43c029953`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
-- **Corte (D4):** identidad del corte en el campo estructural de abajo · pipeline_run_id `local` · añada `2026-09`.
+- **Código:** git `83f045d`. **Datos:** panel hash `c2c956566f0b`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
+- **Corte (D4):** identidad del corte en el campo estructural de abajo · pipeline_run_id `local-recovery-39805018648-20261022` · añada `2026-10`.
 
 ```
-release_id: 2026-09-805d624d2ecf
+release_id: 2026-10-a880a917ede0
 ```
 - **Promoción (dos gates):** el hold-out (Wilcoxon+Holm, h=1) solo declara aptitud retrospectiva; la autorización la da el gate prospectivo PRE-REGISTRADO (docs/PROMOTION_POLICY.md) sobre pares live campeón-vs-sombra, aplicada por un humano (`--promote`, que se rehúsa sin decisión "promote") con rollback versionado.
 
