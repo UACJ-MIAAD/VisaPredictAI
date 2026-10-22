@@ -72,6 +72,22 @@ def _point(values: list[np.ndarray], agg: str) -> np.ndarray:
 
 
 def _series_shadow(recipe: champion.Recipe, country: str, category: str, table: str) -> list[dict]:
+    """Retry only a SARIMA linear-algebra failure, once, with its governed factory."""
+    try:
+        return _compute_series_shadow(recipe, country, category, table)
+    except np.linalg.LinAlgError:
+        if "sarima" not in recipe.models:
+            raise
+        log.warning("retry sombra %s/%s/%s con %s", country, category, table, gwf.SARIMA_STABILIZATION)
+        rows = _compute_series_shadow(recipe, country, category, table, relaxed_sarima=True)
+        for row in rows:
+            row["numerical_stabilization"] = gwf.SARIMA_STABILIZATION
+        return rows
+
+
+def _compute_series_shadow(
+    recipe: champion.Recipe, country: str, category: str, table: str, *, relaxed_sarima: bool = False
+) -> list[dict]:
     """12-month shadow vintage for one series: recipe point + split-conformal 80/95 bands.
 
     Mirrors the deployed champion's method (1-step hold-out walk-forward calibrates the
@@ -87,7 +103,7 @@ def _series_shadow(recipe: champion.Recipe, country: str, category: str, table: 
     split = ts.time_index[-config.HOLDOUT]
     preds = {}
     for name in recipe.models:
-        m = models.build_model(name)
+        m = models.build_relaxed_sarima() if name == "sarima" and relaxed_sarima else models.build_model(name)
         preds[name] = m.historical_forecasts(  # type: ignore[attr-defined]
             ts, start=split, forecast_horizon=1, stride=1, retrain=True, last_points_only=True, verbose=False
         )
@@ -121,7 +137,7 @@ def _series_shadow(recipe: champion.Recipe, country: str, category: str, table: 
 
     fut = []
     for name in recipe.models:
-        m = models.build_model(name)
+        m = models.build_relaxed_sarima() if name == "sarima" and relaxed_sarima else models.build_model(name)
         m.fit(ts)  # statistical recipes need no covariates (same as the deployed champion)
         fut.append(m.predict(HORIZON).to_series().to_numpy())
     point = _point(fut, recipe.agg)

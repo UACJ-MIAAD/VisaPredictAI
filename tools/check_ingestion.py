@@ -27,13 +27,20 @@ Cuarto modo (estado de la fuente, D3/A3):
                   existe. El cron lo surfacea como output y decide el mensaje
                   de commit del snapshot manual.
 
-Uso:  python tools/check_ingestion.py --mode {pending,assert,model-pending,source}
+Quinto modo (tras un rebuild validado, también manual):
+
+  --mode refresh-panel : actualiza panel_vintage y la expectativa de calendario
+                  sin inventar una observación de red ni un éxito de la fuente.
+                  La expectativa del día 15 no confirma una publicación oficial.
+
+Uso: python tools/check_ingestion.py --mode {pending,assert,model-pending,source,refresh-panel}
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -108,10 +115,45 @@ def source_status() -> str:
     return str(state.get("status", "absent")) if state else "absent"
 
 
+def refresh_panel_status(today: date | None = None) -> bool:
+    """Refresh panel/calendar facts without fabricating a new source observation.
+
+    The automated source status, reason, status-since and last success remain
+    exactly as recorded. An expected month follows the existing day-15 policy;
+    it does not assert that the source has actually published that bulletin.
+    """
+    from vp_data import ingestion_state
+
+    previous = ingestion_state.read_state(STATE)
+    if previous is None:
+        return False  # an absent source observation cannot become an invented ok
+    month = f"{panel_max():%Y-%m}"
+    if previous["panel_vintage"] and month < previous["panel_vintage"]:
+        raise ValueError("el panel reconstruido retrocede respecto al estado registrado")
+    updated = ingestion_state.derive_state(
+        status=previous["status"],
+        reason=previous["reason"],
+        n_index_links=previous["n_index_links"],
+        failed_links=previous["failed_links"],
+        panel_vintage=month,
+        today=today or date.today(),
+        previous=previous,
+    )
+    updated["last_success_date"] = previous["last_success_date"]
+    return ingestion_state.write_if_transition(updated, STATE)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--mode", choices=("pending", "assert", "model-pending", "source"), required=True)
+    ap.add_argument("--mode", choices=("pending", "assert", "model-pending", "source", "refresh-panel"), required=True)
     mode = ap.parse_args().mode
+    if mode == "refresh-panel":
+        try:
+            print("panel-state updated" if refresh_panel_status() else "panel-state unchanged")
+        except (ValueError, OSError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        return 0
     if mode == "source":
         try:
             print(source_status())

@@ -37,7 +37,8 @@ def _cron() -> dict:
 
 
 def _update_steps() -> list[dict]:
-    return _cron()["jobs"]["update"]["steps"]
+    jobs = _cron()["jobs"]
+    return jobs["update"]["steps"] + jobs["delivery"]["steps"]
 
 
 def _run_step() -> dict:
@@ -259,20 +260,30 @@ def _model_text() -> str:
     return str(_model_step()["run"])
 
 
-def test_both_advisories_stay_non_blocking_and_write_strict_markers():
-    """Sus fallos no propagan (no hay `exit`/`set -e` que los eleve) y el marcador es exacto."""
+def test_shadow_advisory_stays_non_blocking_and_writes_strict_markers():
+    """La sombra conserva su diagnóstico; el benchmark ya no se recalcula."""
     text = _model_text()
-    for script, marker in (
-        ("experiments/run_champion_challenger.py", "/tmp/champion_status.txt"),
-        ("experiments/freeze_shadow.py", "/tmp/shadow_status.txt"),
-    ):
+    for script, marker in (("experiments/freeze_shadow.py", "/tmp/shadow_status.txt"),):
         assert f"if python {script}; then" in text, f"{script} debe seguir siendo advisory (rama else, sin abortar)"
         assert f'echo -n "ok" > {marker}' in text
         assert f'echo -n "failed" > {marker}' in text
     # el bloque advisory jamás toca el gate de release ni el deploy
-    idx = text.index("experiments/run_champion_challenger.py")
+    idx = text.index("experiments/freeze_shadow.py")
     block = text[idx : text.index("advisory_state.py")]
     assert "exit 1" not in block and "release gate" not in block
+
+
+def test_archived_benchmark_is_a_blocking_integrity_check(tmp_path):
+    import subprocess
+
+    text = _model_text()
+    assert "run_champion_challenger.py" not in text
+    block = text[text.index("python tools/check_published_benchmark.py") : text.index("# 4e-ter")]
+    block = block.replace("/tmp/", str(tmp_path) + "/")
+    # Execute the actual shell block with a failing gate: no success marker survives.
+    result = subprocess.run(["bash", "-c", "set -e\npython() { return 1; }\n" + block], check=False)
+    assert result.returncode == 1
+    assert not (tmp_path / "champion_status.txt").exists()
 
 
 def test_advisory_state_is_updated_from_the_markers_and_is_not_blocking():

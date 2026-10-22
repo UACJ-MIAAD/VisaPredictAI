@@ -25,6 +25,7 @@ def test_model_stage_publishes_its_artifacts_and_rejects_strays() -> None:
     publish, reject = cp.partition(dirty, "model")
     assert "reports/prospective/forecast_log.csv" in publish
     assert "dvc.lock" in publish
+    assert "reports/latex/key_facts.tex" in publish
     # A-01: el manifiesto tiene DUEÑO ÚNICO (stage release, paso bloqueante del cron) —
     # las fases model/eda lo RECHAZAN a gritos en vez de publicar uno a medio sellar.
     assert "reports/release/release_manifest.json" in reject
@@ -44,7 +45,7 @@ def test_data_stage_owns_the_cleaning_ledger() -> None:
     assert "reports/governance/key_facts.json" in reject  # eso lo publica el bloque de modelado
 
 
-def test_eda_stage_publishes_data_reports_but_not_latex_outputs() -> None:
+def test_eda_stage_publishes_its_generated_export_but_not_manuscripts() -> None:
     dirty = [
         "reports/eda/eda_facts.json",
         "reports/eda/gallery/en/dark/g01_panel.png",
@@ -54,9 +55,9 @@ def test_eda_stage_publishes_data_reports_but_not_latex_outputs() -> None:
         "reports/latex/ProyectoI_VisaPredictAI.tex",  # el .tex del deliverable NO lo toca el cron
     ]
     publish, reject = cp.partition(dirty, "eda")
-    assert len(publish) == 3
+    assert len(publish) == 4
+    assert "reports/latex/fe_facts.tex" in publish
     assert reject == [
-        "reports/latex/fe_facts.tex",
         "reports/latex/Figures/eda3_g01.pdf",
         "reports/latex/ProyectoI_VisaPredictAI.tex",
     ]

@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import requiere
+from tests.published_inputs import archived_inputs
 
 ROOT = Path(__file__).resolve().parent.parent
 #: Cómo se resuelve cada clave de `inputs` a un archivo del árbol.
@@ -33,15 +34,16 @@ RESOLUCION = {
 PARQUET = "data/processed/visa_panel_long.parquet"
 
 
-def _parquet_canonico() -> bool:
+def _parquet_canonico(lock_bytes: bytes) -> bool:
     """¿Es el parquet local el CANÓNICO? G7 · desbloqueo: DuckDB lo escribe con el mismo contenido en cualquier plataforma
     (medido: mismas 27911 filas, orden y esquema en Linux x86_64 y macOS arm64) pero con OTROS bytes, así que su identidad
-    canónica es el md5 que `dvc.lock` registra para el out. Sus bytes sellados sólo se cotejan cuando el archivo ES ése;
+    canónica es el md5 que el `dvc.lock` de la época del deck registra para el out, no el lock mensual actual.
+    Sus bytes sellados sólo se cotejan cuando el archivo ES ése;
     una reconstrucción (el job `model` de CI, sin la caché DVC) no es verificable por bytes — la misma tolerancia que
     `ci.yml` documenta para ese out en `check_dvc_lock_fresh`."""
     import yaml
 
-    lock = yaml.safe_load((ROOT / "dvc.lock").read_text(encoding="utf-8"))
+    lock = yaml.safe_load(lock_bytes)
     outs = [o for st in lock["stages"].values() for o in st.get("outs", []) if o.get("path") == PARQUET]
     ruta = ROOT / PARQUET
     return len(outs) == 1 and ruta.is_file() and hashlib.md5(ruta.read_bytes()).hexdigest() == outs[0]["md5"]
@@ -80,18 +82,24 @@ def _acreditada_por_linaje(clave: str, sellado: str, ruta: Path) -> bool:
 
 
 def test_the_e3_deck_inputs_match_the_tree_after_the_reseal() -> None:
-    """H7: el deck debe describir la campaña que se va a correr, no una anterior."""
+    """H7: scientific inputs retain their sealed epoch after monthly ingestion."""
     requiere(artefactos=(PARQUET,))  # el parquet lo materializa `pipeline.build_database` en el job `model`
+    _, archived = archived_inputs(ROOT, "docs/cohort_deck.json", ("data/processed/visa_panel_long.csv", "dvc.lock"))
     divergentes, cotejadas = [], []
     for clave, sellado in _inputs("docs/cohort_deck.json").items():
         if clave in {"commit", "deck_version"}:
             continue
         ruta = _resolver(clave)
         assert ruta is not None, f"la entrada sellada {clave} no resuelve a ningún archivo"
-        if RESOLUCION.get(clave) == PARQUET and not _parquet_canonico():
+        if RESOLUCION.get(clave) == PARQUET and not _parquet_canonico(archived["dvc.lock"]):
             continue  # reconstrucción con otros bytes: no verificable por bytes aquí (ver `_parquet_canonico`)
         cotejadas.append(clave)
-        if _sha(ruta) != sellado and not _acreditada_por_linaje(clave, sellado, ruta):
+        measured = (
+            hashlib.sha256(archived["data/processed/visa_panel_long.csv"]).hexdigest()
+            if clave == "visa_panel_long.csv"
+            else _sha(ruta)
+        )
+        if measured != sellado and not _acreditada_por_linaje(clave, sellado, ruta):
             divergentes.append(clave)
     assert not divergentes, f"el deck sella hashes que ya no son los del árbol: {divergentes}"
     otras = [
@@ -111,6 +119,23 @@ def test_the_lineage_exception_is_by_identity() -> None:
     assert not _acreditada_por_linaje("cohort_scan.json", "0" * 64, ruta)
     otra = _resolver("series_cohorts.json")
     assert otra is not None and not _acreditada_por_linaje("cohort_scan.json", sellado, otra)
+
+
+def test_the_deck_rejects_altered_archived_panel_bytes(tmp_path, monkeypatch) -> None:
+    """A monthly panel cannot excuse a mismatch in the original pre-registration."""
+    module = sys.modules[__name__]
+    (tmp_path / "docs").mkdir()
+    panel = tmp_path / "data/processed/visa_panel_long.csv"
+    panel.parent.mkdir(parents=True)
+    panel.write_bytes(b"monthly panel\n")
+    (tmp_path / "docs/cohort_deck.json").write_text(json.dumps({"inputs": {"visa_panel_long.csv": "0" * 64}}))
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "requiere", lambda **_: None)
+    monkeypatch.setattr(
+        module, "archived_inputs", lambda *_: ("epoch", {"data/processed/visa_panel_long.csv": b"original"})
+    )
+    with pytest.raises(AssertionError, match="visa_panel_long.csv"):
+        test_the_e3_deck_inputs_match_the_tree_after_the_reseal()
 
 
 def test_the_lineage_exception_needs_the_declared_tree_bytes(tmp_path, monkeypatch) -> None:

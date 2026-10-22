@@ -175,14 +175,41 @@ def test_timesfm_and_tabpfn_liston_same_nature_across_tables() -> None:
         assert fad == dff, f"{script}: listones de distinta naturaleza ({fad!r} vs {dff!r})"
 
 
-def test_deployed_band95_holds_nominal_heldout_coverage() -> None:
+def test_deployed_band95_holds_nominal_heldout_coverage(monkeypatch, tmp_path) -> None:
     """Guardián de #21e (INVESTIGADO → no aplicado): las bandas al 95 % desplegadas
     (pi_scale_by_h.json) nunca deben bajar del 0.95 nominal de cobertura HELD-OUT.
+    Se reproduce el corte en que se derivó ese artefacto, incluidos panel y ledger;
+    los datos posteriores se observan por separado en el seguimiento prospectivo.
     Un piso ingenuo al semiancho (el #21e literal) sin piso pareado en
     generate_web_forecasts empujaría DFF bajo 0.95 — la sub-cobertura silenciosa que
     se rehúsa desplegar."""
+    import io
+    import json
+    from pathlib import Path
+
+    from tests.published_inputs import archived_inputs
+
     dbr = pytest.importorskip("experiments.derive_band80_ratio")
+    root = Path(__file__).resolve().parents[1]
+    artifact = "reports/prospective/pi_scale_by_h.json"
+    panel_path = "data/processed/visa_panel_long.csv"
+    log_path = "reports/prospective/forecast_log.csv"
+    _, inputs = archived_inputs(root, artifact, (panel_path, log_path))
+    frozen = json.loads((root / artifact).read_text())
+    panel = pd.read_csv(io.BytesIO(inputs[panel_path]))
+    actuals = {
+        (r.country, r.category, r.table, pd.Timestamp(r.bulletin_date).strftime("%Y-%m-%d")): float(r.days_since_base)
+        for r in panel[panel.status == "F"].itertuples()
+    }
+    reports = tmp_path / "reports"
+    (reports / "prospective").mkdir(parents=True)
+    (reports / "prospective/forecast_log.csv").write_bytes(inputs[log_path])
+    monkeypatch.setattr(dbr, "REPORTS", reports)
+    monkeypatch.setattr(dbr.dataset, "actuals_F", lambda: actuals)
     payload = dbr.derive_by_h()
+    assert payload["cal_vintages"] == frozen["cal_vintages"]
+    assert payload["scales"] == frozen["scales"]
+    assert payload["validation_heldout"] == frozen["validation_heldout"]
     for table in ("FAD", "DFF"):
         v = payload["validation_heldout"][table]["95"]
         assert v.get("n", 0) >= 30, f"{table}: n held-out muy chico para juzgar cobertura: {v}"

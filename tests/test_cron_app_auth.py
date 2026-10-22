@@ -106,7 +106,7 @@ def test_update_job_times_out_before_the_installation_token_expires():
 
 
 def test_ciwait_watches_the_automatic_push_run_with_github_token():
-    step = _step_by_id("ciwait")
+    step = next(s for s in _cron()["jobs"]["delivery"]["steps"] if s.get("id") == "ciwait")
     assert step["env"]["GH_TOKEN"] == GITHUB_TOKEN_EXPR
     run = step["run"]
     assert "gh workflow run" not in run, "ciwait ya no despacha ci.yml: los pushes de la App disparan on: push"
