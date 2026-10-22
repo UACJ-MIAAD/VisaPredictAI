@@ -41,8 +41,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # DST-safe gate: only proceed when it is actually 12:00 in New York (so the
-  # off-season trigger is dropped). Manual runs always pass.
+  # DST-safe gate: accept noon through 23:59 on a New York weekday. Actions can
+  # start hours late; the 11 h winter trigger is still dropped. Manual runs pass.
   gate:
     runs-on: ubuntu-latest
     outputs:
@@ -53,17 +53,22 @@ jobs:
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
           echo "proceed=true" >> "$GITHUB_OUTPUT"; exit 0
         fi
-        # A5: aceptar 12 Y 13 — los crons de GitHub se retrasan rutinariamente y el
-        # gate exacto (h==12) dejaba días SIN corrida ni heartbeat. Costo: en verano
-        # ambos disparos pasan (12:xx y 13:xx) → una segunda corrida no-op barata,
-        # serializada por el bloque `concurrency` e idempotente por skip-if-exists.
-        h=$(TZ=America/New_York date +%H)
-        if [ "$h" = "12" ] || [ "$h" = "13" ]; then
-          echo "proceed=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "proceed=false" >> "$GITHUB_OUTPUT"
-          echo "Son las ${h}:00 en Nueva York, no mediodía -- se omite este disparo."
-        fi
+        # A3: los tres runs auditados llegaron a las 15–16 h y quedaron omitidos.
+        # Admitir retrasos sólo hasta el fin del MISMO día hábil; no inventar un
+        # catch-up al día siguiente. Dos disparos permitidos siguen serializados
+        # por concurrency, con skip-if-exists y el no-op del panel fresco intactos.
+        local_time=$(TZ=America/New_York date '+%u %H')
+        read -r weekday h <<< "$local_time"
+        case "$weekday:$h" in
+          [1-5]:1[2-9]|[1-5]:2[0-3])
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            echo "Día ${weekday}, ${h} h en Nueva York: comprobación permitida (incluye retrasos)."
+            ;;
+          *)
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "Día ${weekday}, ${h} h en Nueva York: fuera de la ventana hábil 12–23 h."
+            ;;
+        esac
 
   update:
     needs: gate
@@ -566,9 +571,11 @@ jobs:
         git checkout -- data reports dvc.lock 2>/dev/null || true
         git clean -fdq reports data 2>/dev/null || true
         {
+          # El manifiesto anterior describe otro corte. Primero sellar los bytes
+          # commiteados de este run; después validar identidad, añada y consumidores.
+          python experiments/build_release_manifest.py &&
           python tools/check_contracts.py &&
-          python tools/check_consistency.py &&
-          python experiments/build_release_manifest.py
+          python tools/check_consistency.py
         } > /tmp/release_gate.txt 2>&1 || {
           tail -5 /tmp/release_gate.txt
           echo "release gate ROJO: sin release nuevo ni deploy este run (ver log)" | tee -a /tmp/release_gate.txt
