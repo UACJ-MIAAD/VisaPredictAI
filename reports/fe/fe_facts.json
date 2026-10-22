@@ -1,6 +1,6 @@
 {
  "_source": "experiments/build_fe_facts.py — NO editar a mano",
- "vintage": "2026-09",
+ "vintage": "2026-10",
  "fe_version": "2.0.0",
  "constants": {
   "base_epoch": "1975-01-01",
@@ -241,12 +241,12 @@
   }
  ],
  "cleaning_ledger": {
-  "vintage": "2026-09",
-  "n_rows": 27911,
+  "vintage": "2026-10",
+  "n_rows": 28061,
   "n_series": 194,
   "rows_by_status": {
-   "F": 16117,
-   "C": 11168,
+   "F": 16220,
+   "C": 11215,
    "U": 625,
    "UNK": 1
   },
