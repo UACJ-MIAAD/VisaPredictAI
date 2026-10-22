@@ -37,7 +37,8 @@ def _cron() -> dict:
 
 
 def _update_steps() -> list[dict]:
-    return _cron()["jobs"]["update"]["steps"]
+    jobs = _cron()["jobs"]
+    return jobs["update"]["steps"] + jobs["delivery"]["steps"]
 
 
 def _run_step() -> dict:

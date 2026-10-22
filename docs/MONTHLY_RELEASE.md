@@ -29,3 +29,11 @@ verifica todos los hashes y conserva el corte anterior ante una incompatibilidad
 Las exportaciones y la prosa del repositorio documental y del portal también
 deben reconciliarse con el corte. Preparar un panel local, archivar un snapshot
 o repetir un build del portal no acredita un ciclo mensual completado.
+
+La generación y las escrituras terminan en el job `update`, con un límite de
+55 minutos, antes de que caduque su token de instalación. El job `delivery`
+recibe el SHA y el identificador sellados mediante outputs; no tiene checkout,
+token de la App ni permiso de escritura del repositorio. Espera con cota el CI
+de ese SHA, dispara el hook sólo tras su éxito y comprueba el corte servido.
+El correo de generación no equivale a esa verificación: el resultado final
+queda en el resumen de `delivery`, cuyo fallo hace fallar el workflow.

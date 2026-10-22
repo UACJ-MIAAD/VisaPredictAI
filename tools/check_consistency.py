@@ -329,6 +329,24 @@ def main() -> int:
 
     violations: list[str] = []
 
+    # Web census templates are checked with THIS cut's facts, before the same
+    # forbidden/required/numeric rules. A wrong binding still fails numerically;
+    # unknown or malformed bindings are blocking, never exempted from the guard.
+    from tools.census_bindings import census_values, render_census
+
+    texts: dict[Path, str] = {}
+    values: dict | None = None
+    for path in {path for paths in sets.values() for path in paths}:
+        template_text = path.read_text(errors="ignore")
+        if "{{census:" in template_text:
+            try:
+                if values is None:
+                    values = census_values(kf_facts, json.loads((ROOT / "reports/eda/eda_facts.json").read_text()))
+                template_text = render_census(template_text, values)
+            except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                violations.append(f"BINDING    {_display_path(path)}: {exc}")
+        texts[path] = template_text
+
     # 0) TEX_JSON — contratos .tex <-> .json, CERRADOS (F3). Antes esto era un bloque
     # cableado que solo miraba key_facts: fe_facts y la tabla de horizonte podían
     # desalinearse sin que nada lo dijera, porque ninguna regla de texto mira dentro de
@@ -343,7 +361,7 @@ def main() -> int:
     for r in rules.get("forbidden", []):
         rx = re.compile(r["pattern"], re.IGNORECASE)
         for f in files_for(r["in"]):
-            for i, line in enumerate(f.read_text(errors="ignore").splitlines(), 1):
+            for i, line in enumerate(texts[f].splitlines(), 1):
                 if line.lstrip().startswith("%"):  # comentarios LaTeX no cuentan
                     continue
                 if rx.search(line):
@@ -376,7 +394,7 @@ def main() -> int:
             # strip LaTeX comment lines (igual que forbidden/numeric) — un claim requerido
             # NO debe contar como presente si solo vive en una línea comentada con %.
             blobs = [
-                "\n".join(ln for ln in f.read_text(errors="ignore").splitlines() if not ln.lstrip().startswith("%"))
+                "\n".join(ln for ln in texts[f].splitlines() if not ln.lstrip().startswith("%"))
                 for f in sets.get(g, [])
             ]
             if not blobs:
@@ -394,7 +412,7 @@ def main() -> int:
             continue
         rx = re.compile(r["label"], re.IGNORECASE)
         for f in files_for(r["in"]):
-            for i, line in enumerate(f.read_text(errors="ignore").splitlines(), 1):
+            for i, line in enumerate(texts[f].splitlines(), 1):
                 if line.lstrip().startswith("%"):
                     continue
                 for m in rx.finditer(line):
@@ -414,7 +432,7 @@ def main() -> int:
         want = float(raw)
         rx = re.compile(r["label"], re.IGNORECASE)
         for f in files_for(r["in"]):
-            for i, line in enumerate(f.read_text(errors="ignore").splitlines(), 1):
+            for i, line in enumerate(texts[f].splitlines(), 1):
                 if line.lstrip().startswith("%"):
                     continue
                 for m in rx.finditer(line):

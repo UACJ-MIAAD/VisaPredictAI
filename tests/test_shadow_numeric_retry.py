@@ -4,6 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+pytest.importorskip("xgboost")
+pytest.importorskip("darts")
+
 from experiments import freeze_shadow as shadow
 from vp_model.champion import Recipe
 
