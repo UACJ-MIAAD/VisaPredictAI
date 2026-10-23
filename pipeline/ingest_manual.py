@@ -9,7 +9,9 @@ map to a bulletin month, the content must carry the bulletin markers, and BOTH
 panel sections must parse covering the four block×table combinations with
 enough rows -- the same completeness floor the ingestion gate enforces after a
 rebuild (``REQUIRED_COMBOS`` / ``MIN_ROWS_NEW_MONTH``, single-sourced in
-``vp_data.config``). A snapshot already frozen is IMMUTABLE: a byte-identical
+``vp_data.config``) -- with no category row repeated inside a matrix, and the
+page ``<title>`` must name the SAME bulletin month the file is frozen as (a
+correct page saved under another month's name never becomes that month). A snapshot already frozen is IMMUTABLE: a byte-identical
 re-ingest is a no-op (idempotent chain), a conflicting one aborts with no
 escape hatch — exceptional replacement is out of scope for this path. The copy
 is atomic (tmp + ``os.replace``).
@@ -27,6 +29,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -59,6 +62,25 @@ def _resolve_month(path: Path, month_flag: str | None) -> datetime:
     return flagged
 
 
+_TITLE_MONTH = re.compile(r"visa\s+bulletin\s+(?:for\s+)?([a-z]+)\s+(\d{4})", re.IGNORECASE)
+
+
+def _content_month_problem(soup: BeautifulSoup, month: datetime) -> str | None:
+    """The page must say which bulletin it is, and it must be ``month``.
+    Measured over the 299 dated snapshots on 23-oct-2026: every title names its
+    own month (296 as 'Visa Bulletin For <Month> <Year>', three 2009 pages
+    without 'For'), none disagrees."""
+    title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    found = _TITLE_MONTH.search(title)
+    number = MONTH_MAP.get(found.group(1).lower()) if found else None
+    if found is None or number is None:
+        return f"el contenido no nombra su mes de boletín en <title> ({title[:80]!r})"
+    year = int(found.group(2))
+    if (year, number) != (month.year, month.month):
+        return f"el contenido es del boletín {year}-{number:02d}, no de {month:%Y-%m}"
+    return None
+
+
 def _completeness_problems(soup: BeautifulSoup, month: datetime) -> list[str]:
     """The K3 floor, applied BEFORE the page can poison snapshots: both panel
     sections must parse, covering the four block×table combos with enough rows.
@@ -66,13 +88,18 @@ def _completeness_problems(soup: BeautifulSoup, month: datetime) -> list[str]:
     frame minus the category column and the two parser-added ones)."""
     combos: set[tuple[str, str]] = set()
     est_rows = 0
+    problems = []
     for block, matcher in (("employment", is_employment_section), ("family", is_family_section)):
         for df in parse_tables(soup, month, matcher):
             if df.empty:
                 continue
-            combos.add((block, config.TABLE_MAP[str(df["table_type"].iloc[0])]))
+            table = config.TABLE_MAP[str(df["table_type"].iloc[0])]
+            combos.add((block, table))
             est_rows += len(df) * max(0, len(df.columns) - 3)
-    problems = []
+            labels = df.iloc[:, 0].astype(str).str.strip().str.lower()
+            repeated = sorted(set(labels[labels.duplicated()]))
+            if repeated:
+                problems.append(f"categorías duplicadas en {block}×{table}: {repeated}")
     missing = config.REQUIRED_COMBOS - combos
     if missing:
         problems.append(f"combinaciones bloque×tabla ausentes: {sorted(missing)}")
@@ -93,6 +120,9 @@ def main(argv: list[str] | None = None) -> Path:
     if not looks_like_bulletin(content):
         raise SystemExit(f"ERROR: {args.file.name} no trae los marcadores de boletín (¿página WAF/incompleta?)")
     soup = BeautifulSoup(content.decode("utf-8", errors="replace"), "html.parser")
+    wrong_month = _content_month_problem(soup, month)
+    if wrong_month:
+        raise SystemExit(f"ERROR: {args.file.name}: {wrong_month} — no se congela un boletín bajo otro mes")
     problems = _completeness_problems(soup, month)
     if problems:
         raise SystemExit(

@@ -97,6 +97,49 @@ def test_pre2015_bulletin_without_dff_is_rejected(snap_dir, tmp_path):
         _run(str(f))
 
 
+def test_content_of_another_month_is_rejected_under_a_mappable_name(snap_dir, tmp_path):
+    # el nombre manda el destino; el contenido debe ser de ESE mes: un junio-2022
+    # renombrado como julio no puede congelarse como julio
+    f = tmp_path / "visa-bulletin-for-july-2022.html"
+    f.write_bytes(MODERN.read_bytes())
+    with pytest.raises(SystemExit, match="contenido"):
+        _run(str(f))
+    assert not list(snap_dir.iterdir())
+
+
+def test_content_of_another_month_is_rejected_under_the_month_flag(snap_dir, tmp_path):
+    f = tmp_path / "descarga.html"
+    f.write_bytes(MODERN.read_bytes())
+    with pytest.raises(SystemExit, match="contenido"):
+        _run(str(f), "--month", "2022-07")
+    assert not list(snap_dir.iterdir())
+
+
+def test_content_without_a_titled_bulletin_month_is_rejected(snap_dir, tmp_path):
+    html = MODERN.read_text(encoding="utf-8", errors="replace").replace(
+        "<title>Visa Bulletin For June 2022</title>", "<title>Visa Bulletin</title>"
+    )
+    assert "<title>Visa Bulletin</title>" in html
+    f = tmp_path / "visa-bulletin-for-june-2022.html"
+    f.write_text(html, encoding="utf-8")
+    with pytest.raises(SystemExit, match="contenido"):
+        _run(str(f))
+    assert not list(snap_dir.iterdir())
+
+
+def test_duplicated_category_row_is_rejected(snap_dir, tmp_path):
+    # una fila de categoría repetida dentro de una matriz no es un boletín fiel
+    soup = BeautifulSoup(MODERN.read_text(encoding="utf-8", errors="replace"), "html.parser")
+    table = next(t for t in soup.find_all("table") if is_employment_section(t.find_all("tr")))
+    rows = table.find_all("tr")
+    rows[1].insert_after(BeautifulSoup(str(rows[1]), "html.parser"))
+    f = tmp_path / "visa-bulletin-for-june-2022.html"
+    f.write_bytes(str(soup).encode())
+    with pytest.raises(SystemExit, match="duplicad"):
+        _run(str(f))
+    assert not list(snap_dir.iterdir())
+
+
 # ---------------------------------------------------------------------- success
 def test_modern_bulletin_ingests_with_month_flag_and_prints_dest_last(snap_dir, tmp_path, capsys):
     f = tmp_path / "descarga.html"  # nombre del navegador, sin mes mapeable
