@@ -130,14 +130,15 @@ TXT: dict[str, dict] = {
         "f03_cos": "Calendario (coseno)",
         "f03_xlab": "Importancia (ganancia, LightGBM)",
         # f04 — política de huecos (MNAR)
-        "f04_head": "Huecos de hasta {cap} meses se interpolan; los {n} tramos largos jamás se inventan",
+        "f04_head": "Rejilla descriptiva: huecos de hasta {cap} meses se interpolan; los {n} tramos largos jamás se inventan",
         "f04_sub": "{name}: {miss} meses sin fecha en {runs} corridas (la más larga, {maxrun} meses). "
-        "Las corridas cortas (≤{cap}) se interpolan linealmente para la rejilla de entrenamiento; las "
-        "largas quedan vacías y solo el EDA las caracteriza con suavizado de Kalman.",
+        "Las corridas cortas (≤{cap}) se interpolan linealmente solo en la rejilla descriptiva; la de "
+        "modelado rellena de forma causal con la última observación. Las largas quedan vacías y solo el EDA "
+        "las caracteriza con suavizado de Kalman.",
         "f04_series": "México · EB4_RW (trabajadores religiosos) · FAD",
         "f04_long": "hueco de {n} meses:\nKalman solo para EDA,\njamás para entrenar",
         "f04_obs": "observación F (real)",
-        "f04_interp": "interpolación corta (≤{cap} m)",
+        "f04_interp": "interpolación corta descriptiva (≤{cap} m)",
         "f04_kalman": "imputación Kalman (solo EDA)",
         "f04_gap": "hueco largo (sin inventar)",
         "f04_ylab": "Fecha de prioridad (año)",
@@ -217,14 +218,15 @@ TXT: dict[str, dict] = {
         "f03_sin": "Calendar (sine)",
         "f03_cos": "Calendar (cosine)",
         "f03_xlab": "Importance (gain, LightGBM)",
-        "f04_head": "Gaps of up to {cap} months are interpolated; the {n} long runs are never invented",
+        "f04_head": "Descriptive grid: gaps of up to {cap} months are interpolated; the {n} long runs are never invented",
         "f04_sub": "{name}: {miss} months without a date across {runs} runs (the longest, {maxrun} months). "
-        "Short runs (≤{cap}) are linearly interpolated for the training grid; long ones stay empty and only "
-        "the EDA characterizes them with Kalman smoothing.",
+        "Short runs (≤{cap}) are linearly interpolated only in the descriptive grid; the modeling grid carries "
+        "the last observation forward causally. Long ones stay empty and only the EDA characterizes them with "
+        "Kalman smoothing.",
         "f04_series": "Mexico · EB4_RW (religious workers) · FAD",
         "f04_long": "{n}-month gap:\nKalman for EDA only,\nnever for training",
         "f04_obs": "F observation (real)",
-        "f04_interp": "short interpolation (≤{cap} mo)",
+        "f04_interp": "short descriptive interpolation (≤{cap} mo)",
         "f04_kalman": "Kalman imputation (EDA only)",
         "f04_gap": "long gap (never invented)",
         "f04_ylab": "Priority date (year)",

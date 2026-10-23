@@ -17,6 +17,7 @@ con el motivo ANTES de generar ninguna figura.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import matplotlib
@@ -479,19 +480,22 @@ def forecast_vs_actual_rows(table: str) -> pd.DataFrame:
 
 # ---------- F6: diagrama de Diferencia Crítica (Friedman-Nemenyi) ----------
 def _avg_ranks(table: str):
-    """Rangos promedio por modelo (1=mejor) sobre las series con cobertura completa + CD de Nemenyi."""
-    from scipy.stats import friedmanchisquare, studentized_range
+    """Rangos promedio por modelo (1=mejor) + CD de Nemenyi, leídos de significance_summary.json.
 
-    df = pd.read_csv(REP / "eval" / f"model_comparison_{table}21.csv")
-    piv = df.pivot_table(index=["country", "category"], columns="model", values="hold_mase")
-    piv = piv.dropna(axis=1)  # solo modelos presentes en TODAS las series (bloques completos)
-    ranks = piv.rank(axis=1, ascending=True)  # 1 = menor MASE = mejor
-    avg = ranks.mean().sort_values()
-    k, n = piv.shape[1], piv.shape[0]
+    El diagrama dibuja el MISMO cálculo que reporta el texto: la autoridad deduplica las
+    pseudo-réplicas del corte mundial (DFF: 14 series distintas). Recalcular aquí sobre las 25
+    series crudas dibujaba otro ranking (naïve-1 4.24 en DFF) que ninguna tabla sostiene.
+    """
+    from scipy.stats import studentized_range
+
+    ranking = json.loads((REP / "eval" / "significance_summary.json").read_text())["ranking"][table]
+    avg = pd.Series(ranking["avg_rank"], dtype="float64").sort_values()
+    k, n = int(ranking["n_models"]), int(ranking["n_series"])
+    if len(avg) != k:
+        raise ValueError(f"{table}: {len(avg)} rangos para n_models={k}")
     q = studentized_range.ppf(0.95, k, np.inf) / np.sqrt(2)  # valor crítico de Nemenyi
     cd = float(q * np.sqrt(k * (k + 1) / (6 * n)))
-    pval = friedmanchisquare(*[piv[c].to_numpy() for c in piv.columns]).pvalue
-    return avg, cd, n, k, pval
+    return avg, cd, n, k, float(ranking["friedman_p"])
 
 
 def _cd_panel(ax, avg, cd, title):
