@@ -392,7 +392,7 @@ def fig_backtest_grid(table: str) -> None:
             try:
                 full = dataset.load_series(acode, cat, table).astype("float64")
             except KeyError:
-                ax.text(0.5, 0.5, "sin datos", ha="center", va="center", fontsize=6, color=GRAY, transform=ax.transAxes)
+                ax.text(0.5, 0.5, "sin datos", ha="center", va="center", fontsize=9, color=GRAY, transform=ax.transAxes)
                 full = None
             if full is not None:
                 fw = full[full.index >= win_start]
@@ -413,16 +413,16 @@ def fig_backtest_grid(table: str) -> None:
             if hi - lo < 0.5:
                 mid = (lo + hi) / 2
                 ax.set_ylim(mid - 0.5, mid + 0.5)
-            ax.tick_params(labelsize=6, length=2)
+            ax.tick_params(labelsize=9, length=2)
             ax.margins(x=0.02)
-            ax.xaxis.set_major_locator(mdates.YearLocator())
+            ax.xaxis.set_major_locator(mdates.YearLocator(base=2))  # tres años por panel: legibles a 9 pt
             ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
             ax.yaxis.set_major_locator(MaxNLocator(4))
             ax.ticklabel_format(axis="y", useOffset=False, style="plain")
             if r == 0:
-                ax.set_title(cat, fontsize=9, color=BLUE, fontweight="bold", pad=4)
+                ax.set_title(cat, fontsize=12, color=BLUE, fontweight="bold", pad=4)
             if c == 0:
-                ax.set_ylabel(aname, fontsize=8, color=GRAY)
+                ax.set_ylabel(aname, fontsize=11, color=GRAY)
             for sp in ("top", "right"):
                 ax.spines[sp].set_visible(False)
     # leyenda compartida + nota
@@ -433,12 +433,12 @@ def fig_backtest_grid(table: str) -> None:
         Line2D([0], [0], color=BLACK, lw=1.2, label="Fecha real (estado F)"),
         Line2D([0], [0], color=BLUE, lw=1.2, ls="--", label="Pronóstico (BiTCN)"),
         Patch(facecolor=BLUE, alpha=0.18, label="Intervalo de predicción 95%"),
-        Patch(facecolor=STRIPE, label=f"Lapso de hold-out ({HOLDOUT} meses)"),
+        Patch(facecolor=STRIPE, label=f"Conjunto reservado ({HOLDOUT} meses)"),
     ]
-    fig.legend(handles=handles, loc="lower center", ncol=4, fontsize=8, frameon=False, bbox_to_anchor=(0.5, -0.005))
-    fig.supylabel("Fecha de prioridad (año)", fontsize=9)
-    fig.suptitle(f"Backtest del pronóstico sobre el hold-out — tabla {table}", fontsize=11, y=0.997)
-    fig.tight_layout(rect=(0.01, 0.03, 1, 0.99))
+    fig.legend(handles=handles, loc="lower center", ncol=2, fontsize=11, frameon=False, bbox_to_anchor=(0.5, -0.005))
+    fig.supylabel("Fecha de prioridad (año)", fontsize=12)
+    fig.suptitle(f"Backtest del pronóstico sobre el conjunto reservado — tabla {table}", fontsize=14, y=0.997)
+    fig.tight_layout(rect=(0.01, 0.05, 1, 0.99))
     _emit(fig, f"results_backtest_grid_{table}")
     print(f"F5 grid {table} OK")
 
