@@ -21,6 +21,9 @@ Uso:
 
 from __future__ import annotations
 
+import argparse
+import hashlib
+import json
 import sys
 import time
 from collections.abc import Iterator
@@ -146,3 +149,51 @@ def track_run(
             if error is None:
                 raise
             print(f"[vp_model.tracking] log_run failed after run error: {log_exc!r}", file=sys.stderr)
+
+
+def archive_telemetry(
+    staging: Path, summary: Path, out: Path, *, run_id: str, git_sha: str, experiment: str = "web_forecast_scoring"
+) -> dict:
+    """Copia el record JSONL y el resumen de una corrida a ``out`` con un recibo (D7).
+
+    En CI el staging y ``/tmp`` mueren con el runner: el cron sube ``out`` como artefacto.
+    Cada archivo se hashea con los MISMOS bytes que se copian; lo ausente se declara en
+    ``missing`` (nunca se fabrica) y ``complete`` sólo es cierto si ambos existen.
+    """
+    out.mkdir(parents=True, exist_ok=True)
+    files: dict[str, dict] = {}
+    missing: list[str] = []
+    records: list[dict] = []
+    for src in (staging / f"{experiment}.jsonl", summary):
+        if not src.is_file():
+            missing.append(src.name)
+            continue
+        data = src.read_bytes()
+        (out / src.name).write_bytes(data)
+        files[src.name] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+        if src.suffix == ".jsonl":
+            records = [json.loads(line) for line in data.decode().splitlines() if line.strip()]
+    receipt = {
+        "schema": "scoring-telemetry-archive/1",
+        "experiment": experiment,
+        "run_id": run_id,
+        "git_sha": git_sha,
+        "records": len(records),
+        "last_status": records[-1].get("telemetry", {}).get("status") if records else None,
+        "files": files,
+        "missing": missing,
+        "complete": not missing,
+    }
+    (out / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    return receipt
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description="Archiva la telemetría de scoring de una corrida (D7).")
+    ap.add_argument("command", choices=["archive"])
+    for flag in ("--staging", "--summary", "--out"):
+        ap.add_argument(flag, type=Path, required=True)
+    ap.add_argument("--run-id", required=True)
+    ap.add_argument("--git-sha", required=True)
+    a = ap.parse_args()
+    print(json.dumps(archive_telemetry(a.staging, a.summary, a.out, run_id=a.run_id, git_sha=a.git_sha)))
