@@ -39,45 +39,47 @@
       "reasons": [
         "bandas con muestra insuficiente (<30 pares): ['h4_6', 'h7_12']"
       ],
-      "n_pairs_live": 127,
-      "n_live_vintages": 3,
+      "n_pairs_live": 226,
+      "n_live_vintages": 4,
       "n_pairs_by_band": {
-        "h1_3": 101,
-        "h4_6": 0,
-        "h7_12": 2
+        "h1_3": 155,
+        "h4_6": 25,
+        "h7_12": 4
       },
       "candidate": {
         "champion": "sarima",
-        "challenger": "naive1",
+        "challenger": "median(sarima+ets+theta)+naive1",
         "challenger_recipes": [
+          "median(sarima+ets+theta)",
           "naive1"
         ],
-        "release_id": "2026-09-805d624d2ecf",
+        "release_id": "2026-10-a880a917ede0",
         "vintages": [
           "2026-03",
           "2026-07",
-          "2026-09"
+          "2026-09",
+          "2026-10"
         ],
-        "decided_at": "2026-10-22T15:37:55+00:00",
+        "decided_at": "2026-10-24T22:11:03+00:00",
         "evidence": {
-          "scorecard_champion": "296df58f8bac",
-          "scorecard_shadow": "21726eefb686",
-          "shadow_ledger": "eb25fada7b82"
+          "scorecard_champion": "90f75ff176b7",
+          "scorecard_shadow": "d617ac6f2363",
+          "shadow_ledger": "44a981400a0a"
         },
-        "hash": "b91c2da7a1c5"
+        "hash": "9dac74aed340"
       }
     },
     "FAD": {
       "decision": "extend-shadow",
       "reasons": [
-        "bandas con muestra insuficiente (<30 pares): ['h4_6', 'h7_12']"
+        "bandas con muestra insuficiente (<30 pares): ['h7_12']"
       ],
-      "n_pairs_live": 196,
-      "n_live_vintages": 4,
+      "n_pairs_live": 348,
+      "n_live_vintages": 5,
       "n_pairs_by_band": {
-        "h1_3": 168,
-        "h4_6": 1,
-        "h7_12": 1
+        "h1_3": 254,
+        "h4_6": 44,
+        "h7_12": 2
       },
       "candidate": {
         "champion": "median(theta+ets+sarima)",
@@ -85,23 +87,24 @@
         "challenger_recipes": [
           "naive1"
         ],
-        "release_id": "2026-09-805d624d2ecf",
+        "release_id": "2026-10-a880a917ede0",
         "vintages": [
           "2026-03",
           "2026-06",
           "2026-07",
-          "2026-09"
+          "2026-09",
+          "2026-10"
         ],
-        "decided_at": "2026-10-22T15:37:55+00:00",
+        "decided_at": "2026-10-24T22:11:03+00:00",
         "evidence": {
-          "scorecard_champion": "ab6c9db96cf6",
-          "scorecard_shadow": "eb9512903dc4",
-          "shadow_ledger": "42f0ad0fba2d"
+          "scorecard_champion": "9cbbed3bc26d",
+          "scorecard_shadow": "db22a9f5a8e5",
+          "shadow_ledger": "dd7778ebe350"
         },
-        "hash": "32fc1a0b3ffa"
+        "hash": "21f8f3a3e9ef"
       }
     }
   },
-  "n_pairs_total": 323,
-  "n_pairs_live": 323
+  "n_pairs_total": 574,
+  "n_pairs_live": 574
 }

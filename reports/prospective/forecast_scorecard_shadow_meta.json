@@ -1,54 +1,54 @@
 {
   "what": "scoring del ledger SOMBRA (retador) con la misma maquinaria y universo que el campeón (A3)",
   "caveat": "backfill leakage-free; NO equivale a haber servido los pronósticos en tiempo real",
-  "n_scored": 326,
-  "n_pending": 1798,
+  "n_scored": 578,
+  "n_pending": 2578,
   "by_mode": {
     "live": {
       "overall": {
-        "n": 326,
-        "mae_days": 177.7,
-        "mase": 0.5231,
-        "cov80": 0.733,
-        "cov95": 0.865,
+        "n": 578,
+        "mae_days": 200.2,
+        "mase": 0.6053,
+        "cov80": 0.749,
+        "cov95": 0.888,
         "cov80_ci95": [
-          0.683,
-          0.779
+          0.713,
+          0.783
         ],
         "cov95_ci95": [
-          0.825,
-          0.899
+          0.86,
+          0.911
         ]
       },
       "by_horizon": {
         "1": {
-          "n": 160,
-          "mae_days": 81.8,
-          "mase": 0.213,
-          "cov80": 0.863,
-          "cov95": 0.912,
+          "n": 246,
+          "mae_days": 89.4,
+          "mase": 0.2534,
+          "cov80": 0.878,
+          "cov95": 0.935,
           "cov80_ci95": [
-            0.803,
-            0.909
+            0.833,
+            0.914
           ],
           "cov95_ci95": [
-            0.861,
-            0.949
+            0.899,
+            0.961
           ]
         },
         "2": {
-          "n": 80,
-          "mae_days": 237.6,
-          "mase": 0.7461,
-          "cov80": 0.662,
-          "cov95": 0.8,
+          "n": 160,
+          "mae_days": 209.5,
+          "mase": 0.6536,
+          "cov80": 0.738,
+          "cov95": 0.875,
           "cov80_ci95": [
-            0.555,
-            0.759
+            0.666,
+            0.801
           ],
           "cov95_ci95": [
-            0.703,
-            0.876
+            0.817,
+            0.919
           ]
         },
         "3": {
@@ -67,6 +67,21 @@
           ]
         },
         "4": {
+          "n": 81,
+          "mae_days": 413.1,
+          "mase": 1.2983,
+          "cov80": 0.593,
+          "cov95": 0.815,
+          "cov80_ci95": [
+            0.484,
+            0.695
+          ],
+          "cov95_ci95": [
+            0.72,
+            0.888
+          ]
+        },
+        "5": {
           "n": 1,
           "mae_days": 61.0,
           "mase": 0.1073,
@@ -97,11 +112,28 @@
             1.0
           ],
           "insufficient_n": true
+        },
+        "8": {
+          "n": 5,
+          "mae_days": 180.4,
+          "mase": 0.1982,
+          "cov80": 0.6,
+          "cov95": 1.0,
+          "cov80_ci95": [
+            0.209,
+            0.906
+          ],
+          "cov95_ci95": [
+            0.621,
+            1.0
+          ],
+          "insufficient_n": true
         }
       }
     }
   },
   "recipes": [
+    "median(sarima+ets+theta)",
     "naive1"
   ]
 }

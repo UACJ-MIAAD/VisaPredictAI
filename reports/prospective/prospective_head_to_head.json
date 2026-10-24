@@ -1,45 +1,56 @@
 {
   "what": "campeón vs sombra por pares (misma añada/serie/target/h y MISMO evaluation_mode) — insumo del gate de promoción (A4)",
-  "n_pairs": 323,
+  "n_pairs": 574,
   "n_mixed_mode_excluded": 0,
   "by_table": {
     "DFF": {
       "live": {
-        "n": 127,
+        "n": 226,
         "champion": {
-          "mase": 0.6167,
-          "mae_days": 178.5,
+          "mase": 0.6847,
+          "mae_days": 197.7,
           "model_version": [
             "n/d",
             "sarima"
           ]
         },
         "shadow": {
-          "mase": 0.5932,
-          "mae_days": 166.5,
+          "mase": 0.7357,
+          "mae_days": 206.3,
           "model_version": [
+            "median(sarima+ets+theta)",
             "naive1"
           ]
         },
         "by_horizon": {
           "1": {
-            "n": 63,
-            "champion_mase": 0.3864,
-            "shadow_mase": 0.2725
+            "n": 97,
+            "champion_mase": 0.4013,
+            "shadow_mase": 0.3267
           },
           "2": {
-            "n": 31,
-            "champion_mase": 0.7441,
-            "shadow_mase": 0.7688
+            "n": 63,
+            "champion_mase": 0.629,
+            "shadow_mase": 0.7932
           },
           "3": {
             "n": 31,
             "champion_mase": 0.9924,
             "shadow_mase": 1.0889
           },
+          "4": {
+            "n": 31,
+            "champion_mase": 1.4576,
+            "shadow_mase": 1.6032
+          },
           "7": {
             "n": 2,
             "champion_mase": 0.0779,
+            "shadow_mase": 0.2899
+          },
+          "8": {
+            "n": 2,
+            "champion_mase": 0.0466,
             "shadow_mase": 0.2899
           }
         }
@@ -47,32 +58,32 @@
     },
     "FAD": {
       "live": {
-        "n": 196,
+        "n": 348,
         "champion": {
-          "mase": 0.4663,
-          "mae_days": 180.7,
+          "mase": 0.4897,
+          "mae_days": 184.8,
           "model_version": [
             "median(theta+ets+sarima)",
             "n/d"
           ]
         },
         "shadow": {
-          "mase": 0.4819,
-          "mae_days": 185.8,
+          "mase": 0.5232,
+          "mae_days": 196.4,
           "model_version": [
             "naive1"
           ]
         },
         "by_horizon": {
           "1": {
-            "n": 96,
-            "champion_mase": 0.1836,
-            "shadow_mase": 0.1761
+            "n": 148,
+            "champion_mase": 0.2091,
+            "shadow_mase": 0.2071
           },
           "2": {
-            "n": 48,
-            "champion_mase": 0.724,
-            "shadow_mase": 0.7469
+            "n": 96,
+            "champion_mase": 0.5192,
+            "shadow_mase": 0.5688
           },
           "3": {
             "n": 48,
@@ -80,14 +91,24 @@
             "shadow_mase": 0.8624
           },
           "4": {
+            "n": 49,
+            "champion_mase": 1.0146,
+            "shadow_mase": 1.1168
+          },
+          "5": {
             "n": 1,
-            "champion_mase": 0.0493,
+            "champion_mase": 0.0352,
             "shadow_mase": 0.1073
           },
           "7": {
             "n": 3,
             "champion_mase": 0.3354,
             "shadow_mase": 0.0636
+          },
+          "8": {
+            "n": 3,
+            "champion_mase": 0.2986,
+            "shadow_mase": 0.1371
           }
         }
       }

@@ -1,3 +1,4 @@
 {"vintage": "2025-07", "performance_drift": false, "perf_ratio": 1.165, "latest_n": 976}
 {"vintage": "2026-07", "performance_drift": true, "perf_ratio": 5.85, "latest_n": 158}
 {"vintage": "2026-09", "performance_drift": true, "perf_ratio": 3.531, "latest_n": 80}
+{"vintage": "2026-10", "performance_drift": true, "perf_ratio": 2.402, "latest_n": 86}
