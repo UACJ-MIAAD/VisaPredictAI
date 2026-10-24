@@ -1,4 +1,24 @@
 EB_level,priority_date,visa_bulletin_date,table_type,raw_value,status,visa_wait_time,raw_category
+EB1,2026-11-01,2026-11-01,dates_for_filing,C,C,0.0,1st
+EB2,2026-03-15,2026-11-01,dates_for_filing,15MAR26,F,0.6324435318275154,2nd
+EB3,2024-01-01,2026-11-01,dates_for_filing,01JAN24,F,2.833675564681725,3rd
+EB3_OW,2022-06-01,2026-11-01,dates_for_filing,01JUN22,F,4.418891170431212,Other Workers
+EB4,2025-01-01,2026-11-01,dates_for_filing,01JAN25,F,1.8316221765913758,4th
+EB4_RW,2025-01-01,2026-11-01,dates_for_filing,01JAN25,F,1.8316221765913758,Certain Religious Workers
+EB5_HIGHUNEMP,2026-11-01,2026-11-01,dates_for_filing,C,C,0.0,"5th Set Aside: High Unemployment (10%, including NH, RH)"
+EB5_INFRA,2026-11-01,2026-11-01,dates_for_filing,C,C,0.0,"5th Set Aside: Infrastructure (2%, including RI)"
+EB5_RURAL,2026-11-01,2026-11-01,dates_for_filing,C,C,0.0,"5th Set Aside: Rural (20%, including NR, RR)"
+EB5_UNRESERVED,2026-11-01,2026-11-01,dates_for_filing,C,C,0.0,"5th Unreserved (including C5, T5, I5, R5, NU, RU)"
+EB1,2026-11-01,2026-11-01,final_action,C,C,0.0,1st
+EB2,2025-04-01,2026-11-01,final_action,01APR25,F,1.5852156057494866,2nd
+EB3,2023-08-15,2026-11-01,final_action,15AUG23,F,3.2142368240930868,3rd
+EB3_OW,2022-01-01,2026-11-01,final_action,01JAN22,F,4.832306639288158,Other Workers
+EB4,2022-12-15,2026-11-01,final_action,15DEC22,F,3.8795345653661877,4th
+EB4_RW,2022-12-15,2026-11-01,final_action,15DEC22,F,3.8795345653661877,Certain Religious Workers
+EB5_HIGHUNEMP,2026-11-01,2026-11-01,final_action,C,C,0.0,"5th Set Aside: High Unemployment (10%, including NH, RH)"
+EB5_INFRA,2026-11-01,2026-11-01,final_action,C,C,0.0,"5th Set Aside: Infrastructure (2%, including RI)"
+EB5_RURAL,2026-11-01,2026-11-01,final_action,C,C,0.0,"5th Set Aside: Rural (20%, including NR, RR)"
+EB5_UNRESERVED,2026-11-01,2026-11-01,final_action,C,C,0.0,"5th Unreserved (including C5, T5, I5, R5, NU, RU)"
 EB1,2026-10-01,2026-10-01,dates_for_filing,C,C,0.0,1st
 EB2,2026-03-15,2026-10-01,dates_for_filing,15MAR26,F,0.5475701574264202,2nd
 EB3,2024-01-01,2026-10-01,dates_for_filing,01JAN24,F,2.74880219028063,3rd

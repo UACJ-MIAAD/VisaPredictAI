@@ -1,4 +1,24 @@
 EB_level,priority_date,visa_bulletin_date,table_type,raw_value,status,visa_wait_time,raw_category
+EB1,2024-07-01,2026-11-01,dates_for_filing,01JUL24,F,2.3353867214236823,1st
+EB2,2015-01-15,2026-11-01,dates_for_filing,15JAN15,F,11.794661190965092,2nd
+EB3,2015-01-15,2026-11-01,dates_for_filing,15JAN15,F,11.794661190965092,3rd
+EB3_OW,2015-01-15,2026-11-01,dates_for_filing,15JAN15,F,11.794661190965092,Other Workers
+EB4,2025-01-01,2026-11-01,dates_for_filing,01JAN25,F,1.8316221765913758,4th
+EB4_RW,2025-01-01,2026-11-01,dates_for_filing,01JAN25,F,1.8316221765913758,Certain Religious Workers
+EB5_HIGHUNEMP,2026-11-01,2026-11-01,dates_for_filing,C,C,0.0,"5th Set Aside: High Unemployment (10%, including NH, RH)"
+EB5_INFRA,2026-11-01,2026-11-01,dates_for_filing,C,C,0.0,"5th Set Aside: Infrastructure (2%, including RI)"
+EB5_RURAL,2026-11-01,2026-11-01,dates_for_filing,C,C,0.0,"5th Set Aside: Rural (20%, including NR, RR)"
+EB5_UNRESERVED,2024-05-01,2026-11-01,dates_for_filing,01MAY24,F,2.5023956194387407,"5th Unreserved (including C5, T5, I5, R5, NU, RU)"
+EB1,2023-02-01,2026-11-01,final_action,01FEB23,F,3.7481177275838466,1st
+EB2,2013-11-01,2026-11-01,final_action,01NOV13,F,12.999315537303216,2nd
+EB3,2014-01-22,2026-11-01,final_action,22JAN14,F,12.774811772758385,3rd
+EB3_OW,2014-01-22,2026-11-01,final_action,22JAN14,F,12.774811772758385,Other Workers
+EB4,2022-12-15,2026-11-01,final_action,15DEC22,F,3.8795345653661877,4th
+EB4_RW,2022-12-15,2026-11-01,final_action,15DEC22,F,3.8795345653661877,Certain Religious Workers
+EB5_HIGHUNEMP,2026-11-01,2026-11-01,final_action,C,C,0.0,"5th Set Aside: High Unemployment (10%, including NH, RH)"
+EB5_INFRA,2026-11-01,2026-11-01,final_action,C,C,0.0,"5th Set Aside: Infrastructure (2%, including RI)"
+EB5_RURAL,2026-11-01,2026-11-01,final_action,C,C,0.0,"5th Set Aside: Rural (20%, including NR, RR)"
+EB5_UNRESERVED,2023-12-01,2026-11-01,final_action,01DEC23,F,2.91854893908282,"5th Unreserved (including C5, T5, I5, R5, NU, RU)"
 EB1,2024-07-01,2026-10-01,dates_for_filing,01JUL24,F,2.2505133470225873,1st
 EB2,2015-01-15,2026-10-01,dates_for_filing,15JAN15,F,11.709787816563997,2nd
 EB3,2015-01-15,2026-10-01,dates_for_filing,15JAN15,F,11.709787816563997,3rd
