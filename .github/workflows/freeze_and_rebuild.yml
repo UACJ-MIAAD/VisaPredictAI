@@ -516,6 +516,24 @@ jobs:
         python tools/check_consistency.py > /tmp/consistency.txt 2>&1 || true
         tail -5 /tmp/consistency.txt
 
+    # D7: el record de scoring vive en mlruns_staging/ (gitignored) y el resumen en /tmp: ambos
+    # mueren con el runner. Se archivan byte a byte con recibo y se suben como artefacto aunque
+    # el modelado falle; descargarlos al lote es parte del cierre del corte.
+    - name: Preserve the monthly scoring telemetry (D7)
+      if: always() && steps.run.outputs.rebuilt == 'true'
+      run: |
+        python -m vp_model.tracking archive --staging mlruns_staging --summary /tmp/tracking_monthly.txt \
+          --out /tmp/scoring_telemetry --run-id "${{ github.run_id }}" --git-sha "$(git rev-parse HEAD)"
+
+    - name: Upload the scoring telemetry artifact (D7)
+      if: always() && steps.run.outputs.rebuilt == 'true'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+      with:
+        name: scoring-telemetry-${{ github.run_id }}
+        path: /tmp/scoring_telemetry
+        if-no-files-found: error
+        retention-days: 90
+
     - name: EDA + FE vivos (censo + catálogo + figuras + reportes) — bloqueante para el corte
       id: eda
       # 4g (plan EDA brutal, reestructurado tras el audit 3-jul H1; épica AF ext.): corre

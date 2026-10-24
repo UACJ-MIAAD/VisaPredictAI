@@ -17,6 +17,7 @@ con el motivo ANTES de generar ninguna figura.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import matplotlib
@@ -391,7 +392,7 @@ def fig_backtest_grid(table: str) -> None:
             try:
                 full = dataset.load_series(acode, cat, table).astype("float64")
             except KeyError:
-                ax.text(0.5, 0.5, "sin datos", ha="center", va="center", fontsize=6, color=GRAY, transform=ax.transAxes)
+                ax.text(0.5, 0.5, "sin datos", ha="center", va="center", fontsize=9, color=GRAY, transform=ax.transAxes)
                 full = None
             if full is not None:
                 fw = full[full.index >= win_start]
@@ -412,16 +413,16 @@ def fig_backtest_grid(table: str) -> None:
             if hi - lo < 0.5:
                 mid = (lo + hi) / 2
                 ax.set_ylim(mid - 0.5, mid + 0.5)
-            ax.tick_params(labelsize=6, length=2)
+            ax.tick_params(labelsize=9, length=2)
             ax.margins(x=0.02)
-            ax.xaxis.set_major_locator(mdates.YearLocator())
+            ax.xaxis.set_major_locator(mdates.YearLocator(base=2))  # tres años por panel: legibles a 9 pt
             ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
             ax.yaxis.set_major_locator(MaxNLocator(4))
             ax.ticklabel_format(axis="y", useOffset=False, style="plain")
             if r == 0:
-                ax.set_title(cat, fontsize=9, color=BLUE, fontweight="bold", pad=4)
+                ax.set_title(cat, fontsize=12, color=BLUE, fontweight="bold", pad=4)
             if c == 0:
-                ax.set_ylabel(aname, fontsize=8, color=GRAY)
+                ax.set_ylabel(aname, fontsize=11, color=GRAY)
             for sp in ("top", "right"):
                 ax.spines[sp].set_visible(False)
     # leyenda compartida + nota
@@ -432,12 +433,12 @@ def fig_backtest_grid(table: str) -> None:
         Line2D([0], [0], color=BLACK, lw=1.2, label="Fecha real (estado F)"),
         Line2D([0], [0], color=BLUE, lw=1.2, ls="--", label="Pronóstico (BiTCN)"),
         Patch(facecolor=BLUE, alpha=0.18, label="Intervalo de predicción 95%"),
-        Patch(facecolor=STRIPE, label=f"Lapso de hold-out ({HOLDOUT} meses)"),
+        Patch(facecolor=STRIPE, label=f"Conjunto reservado ({HOLDOUT} meses)"),
     ]
-    fig.legend(handles=handles, loc="lower center", ncol=4, fontsize=8, frameon=False, bbox_to_anchor=(0.5, -0.005))
-    fig.supylabel("Fecha de prioridad (año)", fontsize=9)
-    fig.suptitle(f"Backtest del pronóstico sobre el hold-out — tabla {table}", fontsize=11, y=0.997)
-    fig.tight_layout(rect=(0.01, 0.03, 1, 0.99))
+    fig.legend(handles=handles, loc="lower center", ncol=2, fontsize=11, frameon=False, bbox_to_anchor=(0.5, -0.005))
+    fig.supylabel("Fecha de prioridad (año)", fontsize=12)
+    fig.suptitle(f"Backtest del pronóstico sobre el conjunto reservado — tabla {table}", fontsize=14, y=0.997)
+    fig.tight_layout(rect=(0.01, 0.05, 1, 0.99))
     _emit(fig, f"results_backtest_grid_{table}")
     print(f"F5 grid {table} OK")
 
@@ -479,19 +480,22 @@ def forecast_vs_actual_rows(table: str) -> pd.DataFrame:
 
 # ---------- F6: diagrama de Diferencia Crítica (Friedman-Nemenyi) ----------
 def _avg_ranks(table: str):
-    """Rangos promedio por modelo (1=mejor) sobre las series con cobertura completa + CD de Nemenyi."""
-    from scipy.stats import friedmanchisquare, studentized_range
+    """Rangos promedio por modelo (1=mejor) + CD de Nemenyi, leídos de significance_summary.json.
 
-    df = pd.read_csv(REP / "eval" / f"model_comparison_{table}21.csv")
-    piv = df.pivot_table(index=["country", "category"], columns="model", values="hold_mase")
-    piv = piv.dropna(axis=1)  # solo modelos presentes en TODAS las series (bloques completos)
-    ranks = piv.rank(axis=1, ascending=True)  # 1 = menor MASE = mejor
-    avg = ranks.mean().sort_values()
-    k, n = piv.shape[1], piv.shape[0]
+    El diagrama dibuja el MISMO cálculo que reporta el texto: la autoridad deduplica las
+    pseudo-réplicas del corte mundial (DFF: 14 series distintas). Recalcular aquí sobre las 25
+    series crudas dibujaba otro ranking (naïve-1 4.24 en DFF) que ninguna tabla sostiene.
+    """
+    from scipy.stats import studentized_range
+
+    ranking = json.loads((REP / "eval" / "significance_summary.json").read_text())["ranking"][table]
+    avg = pd.Series(ranking["avg_rank"], dtype="float64").sort_values()
+    k, n = int(ranking["n_models"]), int(ranking["n_series"])
+    if len(avg) != k:
+        raise ValueError(f"{table}: {len(avg)} rangos para n_models={k}")
     q = studentized_range.ppf(0.95, k, np.inf) / np.sqrt(2)  # valor crítico de Nemenyi
     cd = float(q * np.sqrt(k * (k + 1) / (6 * n)))
-    pval = friedmanchisquare(*[piv[c].to_numpy() for c in piv.columns]).pvalue
-    return avg, cd, n, k, pval
+    return avg, cd, n, k, float(ranking["friedman_p"])
 
 
 def _cd_panel(ax, avg, cd, title):
