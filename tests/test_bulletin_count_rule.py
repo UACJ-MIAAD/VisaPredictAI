@@ -28,13 +28,16 @@ def _n_months() -> int:
 
 
 @pytest.mark.parametrize(
-    "phrase",
+    "template",
     [
-        "Producción quedó fresh con 300 boletines y un release inmutable.",
-        "Production became fresh with 300 bulletins and an immutable release.",
+        "Producción quedó fresh con {n} boletines y un release inmutable.",
+        "Production became fresh with {n} bulletins and an immutable release.",
     ],
 )
-def test_a_wrong_bulletin_count_is_rejected_without_a_determiner(repo_guardian: pathlib.Path, phrase: str) -> None:
+def test_a_wrong_bulletin_count_is_rejected_without_a_determiner(repo_guardian: pathlib.Path, template: str) -> None:
+    # El conteo erróneo se deriva del panel: el 300 literal del incidente original pasó a ser
+    # la cobertura real con el boletín de noviembre de 2026, y la prueba dejó de probar nada.
+    phrase = template.format(n=_n_months() + 1)
     out = sembrar_y_correr(repo_guardian, phrase)
     assert out.returncode != 0, f"el guardián aceptó: {phrase}"
     assert "n_months" in out.stdout + out.stderr
