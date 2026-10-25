@@ -53,6 +53,13 @@ def merge_month(old: pd.DataFrame, new: pd.DataFrame, month: str) -> pd.DataFram
         if rows(old[selected]) != rows(new):
             raise ValueError(f"{month}: las celdas difieren de un mes ya congelado; no se sustituye")
         return old
+    # Historical raw CSV dates are ISO strings. Mixing Timestamp values into
+    # them serializes the new month with a time suffix and breaks the strict
+    # alias loader's first-value date inference. Normalize only NEW rows.
+    new = new.copy()
+    for column in ("visa_bulletin_date", "priority_date"):
+        if column in new:
+            new[column] = pd.to_datetime(new[column]).dt.strftime("%Y-%m-%d").fillna("")
     merged = pd.concat([old, new], ignore_index=True)
     level = "EB_level" if "EB_level" in merged else "F_level"
     return merged.sort_values(["visa_bulletin_date", "table_type", level], ascending=[False, True, True])

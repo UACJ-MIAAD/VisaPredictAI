@@ -59,6 +59,26 @@ def test_existing_month_is_idempotent_and_conflict_is_rejected():
         merge_month(old, old.assign(raw_value="U", status="U"), "2026-11")
 
 
+def test_new_month_uses_iso_dates_compatible_with_database_alias_loader():
+    old = pd.DataFrame(
+        [
+            dict(
+                EB_level="EB1",
+                table_type="final_action",
+                raw_value="C",
+                status="C",
+                visa_bulletin_date="2026-10-01",
+                priority_date="2026-10-01",
+            )
+        ]
+    )
+    new = old.assign(visa_bulletin_date=pd.Timestamp("2026-11-01"), priority_date=pd.Timestamp("2026-11-01"))
+    merged = merge_month(old, new, "2026-11")
+    for column in ("visa_bulletin_date", "priority_date"):
+        assert all(isinstance(value, str) and len(value) == 10 for value in merged[column])
+        pd.to_datetime(merged[column])  # the unmodified DB loader uses this exact conversion
+
+
 @pytest.mark.parametrize(("name", "month"), [("October", "2026-10"), ("November", "2026-11")])
 def test_real_pdf_extraction(name, month):
     folder = FIXTURE.parent / "pdf_bulletins"
