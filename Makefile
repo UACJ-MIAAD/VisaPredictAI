@@ -48,8 +48,7 @@ freeze:
 
 .PHONY: ingest-pdf
 ingest-pdf:  ## PDF en data/inbox -> candidato LOCAL con texto, panel, DuckDB y recibo; nunca publica
-	@test -n "$(MONTH)" || { echo 'uso: make ingest-pdf MONTH=YYYY-MM [FILE="/ruta/boletin.pdf"]'; exit 2; }
-	$(PY) -m pipeline.ingest_pdf --month "$(MONTH)" $(if $(FILE),--file "$(FILE)")
+	$(PY) -m pipeline.bulletin --environment-prepare-only
 
 .PHONY: bulletin
 export BULLETIN_MONTH := $(value MONTH)

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import json
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -145,6 +147,7 @@ class MonthlyFake:
         self.vintage, self.conclusion = vintage, conclusion
         self.commands = []
         self.request = ""
+        self.completed = False
 
     def api(self, path):
         if path.startswith("contents/"):
@@ -173,7 +176,12 @@ class MonthlyFake:
             )
         ]
         return json.dumps(
-            {"panel_vintage": self.vintage, "release_id": "release-fixture", "artifacts": entries}
+            {
+                "panel_vintage": "2026-11" if self.completed else self.vintage,
+                "pipeline_run_id": "42" if self.completed else "previous",
+                "release_id": "release-fixture",
+                "artifacts": entries,
+            }
         ).encode()
 
     def public_get(self, url):
@@ -184,7 +192,8 @@ class MonthlyFake:
     def command(self, args, timeout=60):
         self.commands.append(args)
         if args[1:3] == ["workflow", "run"]:
-            self.request = args[-1].split("=", 1)[1]
+            self.request = next(arg.split("=", 1)[1] for arg in args if arg.startswith("operator_request_id="))
+            self.completed = True
         else:
             telemetry(Path(args[-1]), 42)
         return b""
@@ -271,7 +280,8 @@ def test_original_telemetry_hash_and_run_id_are_required(tmp_path):
         b.verify_telemetry(tmp_path, 42)
 
 
-def test_make_passes_filenames_as_literal_environment_values(tmp_path):
+@pytest.mark.parametrize("target", ["bulletin", "ingest-pdf"])
+def test_make_passes_filenames_as_literal_environment_values(tmp_path, target):
     b = module()
     output = tmp_path / "observed.json"
     logger = tmp_path / "logger"
@@ -282,7 +292,7 @@ def test_make_passes_filenames_as_literal_environment_values(tmp_path):
     marker = tmp_path / "must-not-exist"
     name = f'/tmp/literal $(touch {marker}) `touch {marker}` "quotes".pdf'
     subprocess.run(
-        ["make", "bulletin", f"PY={logger}", "MONTH=2026-11", f"FILE={name}", f"RECEIPT={name}"],
+        ["make", target, f"PY={logger}", "MONTH=2026-11", f"FILE={name}", f"RECEIPT={name}"],
         cwd=b.ROOT,
         check=True,
         capture_output=True,
@@ -463,3 +473,142 @@ def test_full_receipt_attacks_never_authorize_transport(receipt_world, attack):
         path.write_text(path.read_text()[:-1] + ',"status":"local_candidate_green"}')
     with pytest.raises((ValueError, subprocess.SubprocessError)):
         b.validate_receipt(path, "2026-11")
+
+
+def test_old_cut_cannot_satisfy_a_new_bulletin_request(tmp_path):
+    b = module()
+
+    class OldCut(MonthlyFake):
+        def manifest(self):
+            result = json.loads(super().manifest())
+            result["panel_vintage"] = "2026-10"
+            return json.dumps(result).encode()
+
+    with pytest.raises(ValueError, match="release|corte|mes"):
+        b.publish(evidence(tmp_path), OldCut())
+
+
+def test_other_run_cannot_satisfy_new_release(tmp_path):
+    b = module()
+
+    class WrongRun(MonthlyFake):
+        def manifest(self):
+            result = json.loads(super().manifest())
+            result["pipeline_run_id"] = "another-run"
+            return json.dumps(result).encode()
+
+    with pytest.raises(ValueError, match="release"):
+        b.publish(evidence(tmp_path), WrongRun())
+
+
+def test_changed_main_cannot_be_adopted_between_check_and_dispatch(tmp_path):
+    b = module()
+
+    class Moving(MonthlyFake):
+        checks = 0
+
+        def api(self, path):
+            if path == "commits/main":
+                self.checks += 1
+                return {"sha": ("a" if self.checks == 1 else "b") * 40}
+            result = super().api(path)
+            if "workflows/" in path:
+                result["workflow_runs"][0]["head_sha"] = "b" * 40
+            elif path.startswith("actions/runs/"):
+                result["head_sha"] = "b" * 40
+            return result
+
+    with pytest.raises(ValueError, match="fuente|HEAD|corrida"):
+        b.publish(evidence(tmp_path), Moving())
+
+
+def test_concurrent_same_receipt_has_one_publisher(tmp_path):
+    b = module()
+    entered, release = threading.Event(), threading.Event()
+
+    class Paused(MonthlyFake):
+        def api(self, path):
+            if path == "commits/main":
+                entered.set()
+                assert release.wait(5)
+            return super().api(path)
+
+    fake = Paused(vintage="2026-11")
+    supplied = evidence(tmp_path)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(b.publish, supplied, fake)
+        assert entered.wait(5)
+        second = executor.submit(b.publish, supplied, fake)
+        try:
+            with pytest.raises(ValueError, match="operación|proceso|publicación"):
+                second.result(timeout=1)
+        finally:
+            release.set()
+        assert first.result(timeout=5)
+
+
+@pytest.mark.parametrize(
+    "actual,expected,ok", [("a" * 40, "a" * 40, True), ("b" * 40, "a" * 40, False), ("a" * 40, "malformed", False)]
+)
+def test_workflow_rejects_changed_source_before_proceed(tmp_path, actual, expected, ok):
+    import os
+
+    import yaml
+
+    b = module()
+    workflow = yaml.safe_load((b.ROOT / ".github/workflows/freeze_and_rebuild.yml").read_text())
+    script = workflow["jobs"]["gate"]["steps"][0]["run"].replace("${{ github.event_name }}", "workflow_dispatch")
+    output = tmp_path / "output"
+    env = {
+        **os.environ,
+        "OPERATOR_REQUEST_ID": "fixture-request",
+        "EXPECTED_SOURCE_SHA": expected,
+        "ACTUAL_SOURCE_SHA": actual,
+        "GITHUB_OUTPUT": str(output),
+    }
+    result = subprocess.run(["bash", "-c", script], env=env, capture_output=True)
+    assert (result.returncode == 0) is ok
+    assert (output.exists() and "proceed=true" in output.read_text()) is ok
+
+
+def test_same_receipt_resumes_without_another_dispatch(tmp_path):
+    b = module()
+    fake = MonthlyFake()
+    supplied = evidence(tmp_path)
+    b.publish(supplied, fake)
+    b.publish(supplied, fake)
+    assert len([c for c in fake.commands if c[1:3] == ["workflow", "run"]]) == 1
+
+
+def test_ingest_alias_forces_prepare_even_with_publish_environment(tmp_path, monkeypatch):
+    b = module()
+    monkeypatch.setenv("BULLETIN_MONTH", "2026-11")
+    monkeypatch.setenv("BULLETIN_PUBLISH", "1")
+    monkeypatch.setenv("BULLETIN_RECEIPT", "must-not-be-used")
+    receipt = tmp_path / "receipt"
+    monkeypatch.setattr(b, "prepare", lambda month, file: receipt)
+    monkeypatch.setattr(b, "validate_receipt", lambda path, month: {})
+    monkeypatch.setattr(b, "publish", lambda *a, **k: pytest.fail("prepare-only alias tried to publish"))
+    assert b.main(["--environment-prepare-only"]) == 0
+
+
+def test_bound_run_resumes_after_its_cron_advanced_main(tmp_path):
+    b = module()
+
+    class Advances(MonthlyFake):
+        def api(self, path):
+            if path == "commits/main" and self.completed:
+                return {"sha": "b" * 40}
+            return super().api(path)
+
+        def s3_get(self, key):
+            if self.completed:
+                pytest.fail("observation-only resume attempted another S3 operation")
+            return super().s3_get(key)
+
+    fake = Advances()
+    supplied = evidence(tmp_path)
+    b.publish(supplied, fake)
+    result = b.publish(supplied, fake)
+    assert json.loads(result.read_text())["status"] == "monthly_success_consumers_verified"
+    assert len([c for c in fake.commands if c[1:3] == ["workflow", "run"]]) == 1

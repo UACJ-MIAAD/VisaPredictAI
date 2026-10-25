@@ -55,6 +55,16 @@ sin reconstruir ni disparar otra corrida. Los reintentos nunca cuentan como mese
 adicionales. Un fallo de entrega permanece registrado; un consumidor manual
 posterior no lo convierte retroactivamente en entrega automática verde.
 
+Un lock exclusivo por recibo impide que dos procesos despachen la misma operación.
+El workflow recibe el SHA de fuente esperado y lo contrasta contra `github.sha`
+antes de cualquier efecto; un cambio de main durante el dispatch se rechaza.
+La release final debe tener exactamente el mes solicitado y el pipeline_run_id
+de la corrida observada. Un corte anterior no satisface esa aceptación aunque
+esté fresh. Reanudar una corrida ya ligada al recibo solo observa y conserva
+evidencia: no sube otra vez a S3, no dispara otra corrida y permite que los commits
+del propio cron hayan avanzado main. Cada descarga de telemetría usa staging
+nuevo y compara sus bytes con el archivo original conservado.
+
 `publication/operation.json` conserva el vínculo entre recibo, request, HEAD,
 run_id, telemetría y consumidores. La retención de GitHub no sustituye el archivo
 durable local de la telemetría. Los respaldos y recibos anteriores se preservan.

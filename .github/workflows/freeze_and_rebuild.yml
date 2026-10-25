@@ -21,6 +21,10 @@ on:
         description: 'Identidad del recibo PDF asistido; vincula el dispatch sin elegir una corrida ajena'
         type: string
         default: ''
+      expected_source_sha:
+        description: 'SHA limpio ligado al recibo PDF; el gate lo exige antes de cualquier efecto'
+        type: string
+        default: ''
       # A3: tras `make ingest-manual` (el snapshot manual ya vive en S3), este run
       # omite EXCLUSIVAMENTE el acceso a la fuente (Cloudflare); el sync S3, los
       # gates, el CI del SHA exacto y el deploy corren idénticos — la ruta stale
@@ -54,7 +58,21 @@ jobs:
       proceed: ${{ steps.check.outputs.proceed }}
     steps:
     - id: check
+      env:
+        OPERATOR_REQUEST_ID: ${{ inputs.operator_request_id }}
+        EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+        ACTUAL_SOURCE_SHA: ${{ github.sha }}
       run: |
+        if [ -n "$OPERATOR_REQUEST_ID" ]; then
+          [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] && \
+            [ "$EXPECTED_SOURCE_SHA" = "$ACTUAL_SOURCE_SHA" ] || {
+              echo '::error::HEAD no coincide con el recibo asistido; sin update ni publicación.'
+              exit 1
+            }
+        elif [ -n "$EXPECTED_SOURCE_SHA" ] && [ "$EXPECTED_SOURCE_SHA" != "$ACTUAL_SOURCE_SHA" ]; then
+          echo '::error::HEAD esperado distinto; sin update ni publicación.'
+          exit 1
+        fi
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
           echo "proceed=true" >> "$GITHUB_OUTPUT"; exit 0
         fi

@@ -4,21 +4,24 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
 import time
-import urllib.request
 from pathlib import Path
 
 from bs4 import BeautifulSoup
 
 from pipeline import ingest_pdf
 from pipeline.pdf_bulletin import as_html, extract_text, parse_layout
+from vp_data.fetchers import FetchError, requests_fetcher
 from vp_data.visa_common import SCRAPER_COUNTRIES, parse_tables
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -229,8 +232,7 @@ class Transport:
         return json.loads(self.command(["gh", "api", f"repos/{REPO}/{path}"]))
 
     def public_get(self, url: str) -> bytes:
-        with urllib.request.urlopen(url, timeout=45) as response:
-            data = response.read(16_000_001)
+        data = requests_fetcher(timeout=45)(url)
         if len(data) > 16_000_000:
             raise ValueError("artefacto público excede la cota")
         return data
@@ -356,7 +358,7 @@ def wait_consumers(transport, manifest_bytes: bytes, seconds: int) -> dict:
     while True:
         try:
             return verify_consumers(transport, manifest_bytes, deadline)
-        except ValueError, OSError:
+        except ValueError, OSError, FetchError:
             if time.monotonic() >= deadline:
                 raise
             time.sleep(5)
@@ -377,6 +379,15 @@ def find_dispatch(transport, request: str, head: str, seconds: int = 120) -> dic
     while time.monotonic() < deadline:
         runs = transport.api(f"actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&per_page=30")
         matches = match_runs(runs["workflow_runs"], request, head)
+        changed = [
+            r
+            for r in runs["workflow_runs"]
+            if r.get("display_title") == f"Assisted bulletin {request}"
+            and r.get("head_branch") == "main"
+            and r.get("head_sha") != head
+        ]
+        if changed:
+            raise ValueError(f"HEAD de la corrida cambió; gate esperado la bloquea: run {changed[0]['id']}")
         if len(matches) > 1:
             raise ValueError("dispatch ambiguo; revisar corridas sin duplicar el mes")
         if matches:
@@ -418,7 +429,63 @@ def verify_telemetry(folder: Path, run_id: int) -> dict:
     return hashes
 
 
+def preserve_telemetry(transport, directory: Path, run_id: int) -> dict:
+    destination = directory / "telemetry"
+    if destination.is_symlink():
+        raise ValueError("telemetría enlazada fuera del archivo")
+    destination.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="telemetry-download-", dir=directory) as temporary:
+        folder = Path(temporary)
+        transport.command(
+            [
+                "gh",
+                "run",
+                "download",
+                str(run_id),
+                "--repo",
+                REPO,
+                "--name",
+                f"scoring-telemetry-{run_id}",
+                "--dir",
+                str(folder),
+            ],
+            timeout=120,
+        )
+        hashes = verify_telemetry(folder, run_id)
+        for name in hashes:
+            target = destination / name
+            if target.exists():
+                checked_file(target, destination)
+            ingest_pdf.write_once(target, (folder / name).read_bytes())
+    return hashes
+
+
+@contextlib.contextmanager
+def publication_lock(directory: Path):
+    descriptor = os.open(directory / "operation.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise ValueError("lock de publicación inseguro")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise ValueError("otro proceso conserva esta operación de publicación") from exc
+        yield
+    finally:
+        os.close(descriptor)
+
+
 def publish(evidence: dict, transport=None, seconds: int = 3600) -> Path:
+    directory = evidence["archive"] / "publication"
+    if directory.is_symlink():
+        raise ValueError("archivo de publicación enlazado")
+    directory.mkdir(exist_ok=True)
+    with publication_lock(directory):
+        return _publish_locked(evidence, transport, seconds)
+
+
+def _publish_locked(evidence: dict, transport=None, seconds: int = 3600) -> Path:
     transport = transport or Transport()
     receipt_dir = evidence["archive"] / "publication"
     if receipt_dir.is_symlink():
@@ -442,34 +509,43 @@ def publish(evidence: dict, transport=None, seconds: int = 3600) -> Path:
         or state.get("request") != evidence["receipt_sha"][:24]
         or state.get("month") != evidence["month"]
         or state.get("schema") != "visapredict.assisted-publication/1"
+        or ("head" in state and state["head"] != evidence["source_sha"])
     ):
         raise ValueError("operación vinculada a otro receipt")
 
     def save():
         with tempfile.NamedTemporaryFile(mode="w", dir=receipt_dir, prefix="operation-", delete=False) as stream:
             stream.write(json.dumps(state, indent=2, sort_keys=True) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
             temporary = Path(stream.name)
         temporary.replace(operation)
+        directory_fd = os.open(receipt_dir, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
 
     try:
-        if transport.api("commits/main")["sha"] != evidence["source_sha"]:
-            raise ValueError("recibo no corresponde al código integrado en main; no publicar")
-        name = ingest_pdf.MONTH_MAP
-        english = next(n for n, number in name.items() if number == int(evidence["month"][5:]))
-        key = f"raw-html/visa-bulletin-for-{english}-{evidence['month'][:4]}.html"
-        state["s3"] = archive_snapshot(transport, key, evidence["html"], evidence["html_sha"])
-        save()
-        # Idempotence is decided from the published cut, not from a stale panel
-        # or an earlier request's green status. Never rebuild an already sealed month.
-        manifest = transport.api("contents/reports/release/release_manifest.json?ref=main")
-        published = json.loads(base64.b64decode(manifest["content"]))
-        if published.get("panel_vintage", "") >= evidence["month"]:
-            state["consumers"] = wait_consumers(transport, base64.b64decode(manifest["content"]), min(seconds, 300))
-            state.update(status="already_sealed_no_dispatch", release_id=published["release_id"])
+        # An existing, bound attempt is observation only. Its own cron may have
+        # advanced main; a retry must not authorize another upload or dispatch.
+        if not state.get("dispatch_attempted") and "run_id" not in state:
+            if transport.api("commits/main")["sha"] != evidence["source_sha"]:
+                raise ValueError("recibo no corresponde al código integrado en main; no publicar")
+            name = ingest_pdf.MONTH_MAP
+            english = next(n for n, number in name.items() if number == int(evidence["month"][5:]))
+            key = f"raw-html/visa-bulletin-for-{english}-{evidence['month'][:4]}.html"
+            state["s3"] = archive_snapshot(transport, key, evidence["html"], evidence["html_sha"])
             save()
-            return operation
+            manifest = transport.api("contents/reports/release/release_manifest.json?ref=main")
+            published = json.loads(base64.b64decode(manifest["content"]))
+            if published.get("panel_vintage", "") >= evidence["month"]:
+                state["consumers"] = wait_consumers(transport, base64.b64decode(manifest["content"]), min(seconds, 300))
+                state.update(status="already_sealed_no_dispatch", release_id=published["release_id"])
+                save()
+                return operation
         if "run_id" not in state:
-            head = transport.api("commits/main")["sha"]
+            head = evidence["source_sha"]
             # A dispatch transport failure can be an accepted request with a lost
             # response. Record the attempt first; a retry searches the same ID.
             if not state.get("dispatch_attempted"):
@@ -489,6 +565,8 @@ def publish(evidence: dict, transport=None, seconds: int = 3600) -> Path:
                         "skip_freeze=true",
                         "-f",
                         f"operator_request_id={state['request']}",
+                        "-f",
+                        f"expected_source_sha={evidence['source_sha']}",
                     ]
                 )
             run = find_dispatch(transport, state["request"], state["head"])
@@ -504,34 +582,27 @@ def publish(evidence: dict, transport=None, seconds: int = 3600) -> Path:
             if run.get("status") == "completed":
                 # Download original bytes on both success and failure. No summary
                 # manufactured locally may replace missing original telemetry.
-                transport.command(
-                    [
-                        "gh",
-                        "run",
-                        "download",
-                        str(state["run_id"]),
-                        "--repo",
-                        REPO,
-                        "--name",
-                        f"scoring-telemetry-{state['run_id']}",
-                        "--dir",
-                        str(receipt_dir / "telemetry"),
-                    ],
-                    timeout=120,
-                )
                 state["conclusion"] = run.get("conclusion")
-                state["telemetry"] = verify_telemetry(receipt_dir / "telemetry", state["run_id"])
+                state["telemetry"] = preserve_telemetry(transport, receipt_dir, state["run_id"])
                 save()
                 require_success(run)
                 latest = transport.api("contents/reports/release/release_manifest.json?ref=main")
-                state["consumers"] = wait_consumers(transport, base64.b64decode(latest["content"]), min(seconds, 300))
+                release_bytes = base64.b64decode(latest["content"])
+                release = load_json(release_bytes)
+                if release.get("panel_vintage") != evidence["month"] or release.get("pipeline_run_id") != str(
+                    state["run_id"]
+                ):
+                    raise ValueError("release no pertenece al mes y a la corrida solicitados")
+                state["release_id"] = release["release_id"]
+                state["manifest_sha256"] = sha(release_bytes)
+                state["consumers"] = wait_consumers(transport, release_bytes, min(seconds, 300))
                 state["status"] = "monthly_success_consumers_verified"
                 save()
                 return operation
             if time.monotonic() >= deadline:
                 raise TimeoutError("corrida continúa; conservar run_id, no duplicar dispatch")
             time.sleep(15)
-    except ValueError, RuntimeError, OSError, subprocess.SubprocessError, TimeoutError:
+    except ValueError, RuntimeError, OSError, subprocess.SubprocessError, TimeoutError, FetchError:
         state["status"] = "blocked_inspect_recorded_run"
         save()
         raise
@@ -539,10 +610,11 @@ def publish(evidence: dict, transport=None, seconds: int = 3600) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if "--environment" in argv:
-        if argv != ["--environment"]:
+    if "--environment" in argv or "--environment-prepare-only" in argv:
+        if argv not in (["--environment"], ["--environment-prepare-only"]):
             raise ValueError("modo environment no admite argumentos superpuestos")
-        publish_flag = os.environ.get("BULLETIN_PUBLISH", "")
+        prepare_only = argv == ["--environment-prepare-only"]
+        publish_flag = "0" if prepare_only else os.environ.get("BULLETIN_PUBLISH", "")
         if publish_flag not in {"", "0", "1"}:
             raise ValueError("PUBLISH debe ser 0 o 1")
         argv = ["--month", os.environ.get("BULLETIN_MONTH", "")]
@@ -551,6 +623,8 @@ def main(argv: list[str] | None = None) -> int:
             ("BULLETIN_RECEIPT", "--receipt"),
             ("BULLETIN_WAIT_SECONDS", "--wait-seconds"),
         ):
+            if prepare_only and name == "BULLETIN_RECEIPT":
+                continue
             if value := os.environ.get(name):
                 argv += [option, value]
         if publish_flag == "1":
