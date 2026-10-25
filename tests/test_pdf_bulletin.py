@@ -50,6 +50,24 @@ def test_u_is_not_fabricated_as_a_date():
     assert sum(c["value"] == "U" for c in cells) == 1
 
 
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        ("F1           22JAN21", "F11           22JAN21"),
+        ("F1           22JAN21         22JAN21", "F1           22JAN21 BAD     22JAN21"),
+        ("Other Workers 01JUN22", "Other Scientists 01JUN22"),
+        ("F1           22JAN21", "Unsupported F1           22JAN21"),
+        ("Other Workers 01JUN22", "Other Workers Extra 01JUN22"),
+        ("Unreserved\n(including C5", "UnreservedExtra\n(including C5"),
+    ],
+)
+def test_unsupported_row_names_and_nonwhitespace_between_cells_are_rejected(old, new):
+    text = FIXTURE.read_text()
+    assert old in text
+    with pytest.raises(ValueError):
+        parse_layout(text.replace(old, new, 1), "2026-11")
+
+
 def test_existing_month_is_idempotent_and_conflict_is_rejected():
     old = pd.DataFrame(
         [dict(EB_level="EB1", table_type="final_action", raw_value="C", status="C", visa_bulletin_date="2026-11-01")]

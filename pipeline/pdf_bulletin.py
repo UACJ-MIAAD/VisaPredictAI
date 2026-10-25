@@ -52,6 +52,32 @@ def extract_text(pdf: Path) -> tuple[str, str]:
     return text, version.stderr.decode("utf-8").splitlines()[0]
 
 
+def _validated_row(label: str, before: str, line: str, values: list[re.Match[str]]) -> list[str]:
+    """Validate the complete token boundaries before assigning a canonical label."""
+    compact = " ".join(re.sub(r"[^a-z0-9 ]", " ", before.lower()).split())
+    required = label.lower()
+    if label == "Certain Religious Workers":
+        required = "certain religious"
+    if label == "5th Set Aside High Unemployment":
+        # The word Unemployment can wrap AFTER the value line.
+        required = "5th set aside high"
+    if label in (*FAMILY, "1st", "2nd", "3rd", "4th", "Other Workers") and compact != required:
+        raise ValueError(f"etiqueta de fila no exacta: {label}: {compact[-120:]}")
+    if label == "Certain Religious Workers" and compact not in {required, required + " workers"}:
+        raise ValueError(f"etiqueta religiosa no exacta: {compact[-120:]}")
+    if not re.search(r"(?<!\w)" + re.escape(required) + r"(?!\w)", compact):
+        raise ValueError(f"etiqueta de fila no acreditada: {label}: {compact[-120:]}")
+    if any(line[left.end() : right.start()].strip() for left, right in zip(values[:-1], values[1:], strict=True)):
+        raise ValueError("texto no vacío entre celdas: extracción ambigua")
+    if line[values[-1].end() :].strip():
+        raise ValueError("texto después de las cinco celdas: formato ambiguo")
+    tokens = [value.group() for value in values]
+    for token in tokens:
+        if token not in {"C", "U"}:
+            datetime.strptime(token, "%d%b%y")
+    return tokens
+
+
 def parse_layout(text: str, month: str) -> list[dict]:
     """Return exactly 150 typed cells, preserving literal C and U statuses."""
     expected = datetime.strptime(month, "%Y-%m")
@@ -90,24 +116,10 @@ def parse_layout(text: str, month: str) -> list[dict]:
             values = list(_CELL.finditer(line))
             if len(values) == 5:
                 before = pending + " " + line[: values[0].start()]
-                compact = " ".join(re.sub(r"[^a-z0-9 ]", " ", before.lower()).split())
                 if len(rows) >= len(labels):
                     raise ValueError("fila adicional de cinco celdas: extracción ambigua")
                 label = labels[len(rows)]
-                # Wrapped religious and set-aside labels are checked before
-                # each row, never inferred from the row count alone.
-                required = label.lower().replace(" workers", "")
-                if label == "5th Set Aside High Unemployment":
-                    # The word Unemployment can wrap AFTER the value line.
-                    required = "5th set aside high"
-                if required not in compact:
-                    raise ValueError(f"etiqueta de fila no acreditada: {label}: {compact[-120:]}")
-                if line[values[-1].end() :].strip():
-                    raise ValueError("texto después de las cinco celdas: formato ambiguo")
-                tokens = [v.group() for v in values]
-                for token in tokens:
-                    if token not in {"C", "U"}:
-                        datetime.strptime(token, "%d%b%y")
+                tokens = _validated_row(label, before, line, values)
                 rows.append((label, tokens))
                 pending = ""
             else:
