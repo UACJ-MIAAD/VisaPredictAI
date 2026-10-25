@@ -41,6 +41,7 @@ data/processed/*.parquet
 data/snapshots/
 # Manually downloaded pages awaiting `make ingest-manual` (A2; local staging).
 data/inbox/
+data/pdf_intake/
 
 # Modeling artifacts — regenerables con `make compare` / `make report` / `make eda`
 reports/*.log
