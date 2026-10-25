@@ -119,7 +119,13 @@ jobs:
       - name: Type check (mypy)
         run: mypy --ignore-missing-imports --explicit-package-bases vp_data/*.py pipeline/*.py vp_model/*.py tests/*.py tools/*.py experiments/*.py
 
+      - name: Install PDF text extractor (Poppler)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends poppler-utils
+
       - name: Tests + coverage gate (pytest)
+        # The real PDF fixtures are extracted in CI, never skipped for lack of Downloads.
         run: pytest
 
   # Capa de modelado: pesada (darts/torch) y requiere la BD, por eso es un job
@@ -199,6 +205,11 @@ jobs:
           dvc repro --force --single-item key_facts eda_facts fe_facts
           git diff --exit-code reports/governance/key_facts.json reports/latex/key_facts.tex \
             reports/eda/eda_facts.json reports/fe/fe_facts.json reports/latex/fe_facts.tex
+
+      - name: Install PDF text extractor for the broad suite (Poppler)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends poppler-utils
 
       - name: Modeling tests + vp_model coverage
         run: make test-model PY=python

@@ -32,6 +32,12 @@ Se puede fijar `PY=/ruta/al/python/existente`. El intérprete debe tener las
 dependencias ya declaradas del proyecto; Poppler `pdftotext` debe estar en PATH.
 No se instala ningún paquete ni se crea un entorno automáticamente.
 
+Instalación explícita del extractor, una vez: `brew install poppler` en macOS,
+o `sudo apt-get install poppler-utils` en Debian/Ubuntu. El CI instala Poppler
+antes de la suite y extrae los dos PDF originales versionados como fixtures.
+El original queda intacto en inbox: al mes siguiente indique `FILE=...` si
+conserva varios PDF allí. No se borran ni se mueven los anteriores automáticamente.
+
 La caché histórica `data/snapshots/` debe estar restaurada previamente desde la
 fuente autorizada. Si faltan meses del panel, el comando bloquea la construcción
 del almacén; no fabrica procedencia. La entrada humana del mes es el PDF, no una
@@ -122,12 +128,14 @@ flowchart TD
 ## Aceptación reproducible
 
 ```sh
-VP_BULLETIN_PDF_DIR='/ruta/de/los/PDF' python -m pytest -o addopts='' tests/test_pdf_bulletin.py
+python -m pytest -o addopts='' tests/test_pdf_bulletin.py
 ```
 
-Las dos pruebas de PDF externos se declaran saltadas si los originales no están
-disponibles. La suite portable usa texto extraído de noviembre como fixture; no
-contiene valores mensuales tecleados en el parser. La aceptación local ejecuta
-Poppler sobre octubre y noviembre reales y compara el candidato de noviembre
+Las dos pruebas de PDF ejecutan Poppler sobre los originales públicos de octubre
+y noviembre conservados en `tests/fixtures/pdf_bulletins/`. No dependen de
+Downloads ni se saltan por falta de archivos externos. Sus hashes y procedencia
+están registrados junto a ellos. La suite portable también usa texto extraído de
+noviembre como fixture adversarial; el parser no contiene valores mensuales
+tecleados. La aceptación local compara el candidato de noviembre
 contra el panel canónico. DuckDB se compara por contenido lógico; sus bytes
 incluyen bitácora y no tienen obligación de ser idénticos entre construcciones.

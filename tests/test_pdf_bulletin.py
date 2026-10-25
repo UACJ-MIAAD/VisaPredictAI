@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from datetime import datetime
 from pathlib import Path
 
@@ -62,10 +61,8 @@ def test_existing_month_is_idempotent_and_conflict_is_rejected():
 
 @pytest.mark.parametrize(("name", "month"), [("October", "2026-10"), ("November", "2026-11")])
 def test_real_pdf_extraction(name, month):
-    folder = os.environ.get("VP_BULLETIN_PDF_DIR")
-    if not folder:
-        pytest.skip("PDF oficiales externos: fijar VP_BULLETIN_PDF_DIR para la aceptación local")
-    text, version = extract_text(Path(folder) / f"Visa Bulletin For {name} 2026.pdf")
+    folder = FIXTURE.parent / "pdf_bulletins"
+    text, version = extract_text(folder / f"Visa Bulletin For {name} 2026.pdf")
     assert "pdftotext" in version
     assert len(parse_layout(text, month)) == 150
 
