@@ -38,6 +38,17 @@ del almacén; no fabrica procedencia. La entrada humana del mes es el PDF, no un
 tabla transcrita. Los PDF sin texto, escaneados, incompletos o de otra distribución
 de columnas se rechazan. No se aplica OCR ni se estiman fechas.
 
+En un checkout nuevo, preparar esa caché una vez, con credenciales de lectura
+autorizadas y sin modificar el bucket:
+
+```sh
+aws s3 sync s3://visapredictai-raw-snapshots/raw-html/ data/snapshots/ --quiet
+```
+
+El comando de ingesta no descarga esa caché a escondidas. Registra los hashes de
+los snapshots efectivamente usados, además del SHA y estado limpio/sucio de Git
+y los hashes de sus productores. Un PDF aislado no reconstruye toda la historia.
+
 ## Qué hace y qué conserva
 
 1. Comprueba PDF, mes declarado, nombre cuando contiene mes, y título interno.

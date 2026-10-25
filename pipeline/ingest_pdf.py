@@ -184,6 +184,11 @@ def main(argv: list[str] | None = None) -> int:
                 "cells": len(cells),
                 "matrices": 4,
                 "source_git_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+                "source_git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
+                "producer_files": {
+                    name: sha((ROOT / name).read_bytes())
+                    for name in ("pipeline/ingest_pdf.py", "pipeline/pdf_bulletin.py", "Makefile")
+                },
             }
         )
         if not args.extract_only:
