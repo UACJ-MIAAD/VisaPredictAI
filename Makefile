@@ -51,6 +51,15 @@ ingest-pdf:  ## PDF en data/inbox -> candidato LOCAL con texto, panel, DuckDB y 
 	@test -n "$(MONTH)" || { echo 'uso: make ingest-pdf MONTH=YYYY-MM [FILE="/ruta/boletin.pdf"]'; exit 2; }
 	$(PY) -m pipeline.ingest_pdf --month "$(MONTH)" $(if $(FILE),--file "$(FILE)")
 
+.PHONY: bulletin
+export BULLETIN_MONTH := $(value MONTH)
+export BULLETIN_FILE := $(value FILE)
+export BULLETIN_RECEIPT := $(value RECEIPT)
+export BULLETIN_PUBLISH := $(value PUBLISH)
+export BULLETIN_WAIT_SECONDS := $(value WAIT_SECONDS)
+bulletin:  ## PDF -> candidato local. PUBLISH=1 RECEIPT=... continúa S3+workflow; efectos externos explícitos
+	$(PY) -m pipeline.bulletin --environment
+
 ingest-manual:  ## A2 (fuente bloqueada): valida e ingiere un boletín bajado a mano — FILE=<html> [MONTH=YYYY-MM]
 	@test -n "$(FILE)" || { echo "uso: make ingest-manual FILE=<boletin.html> [MONTH=YYYY-MM]"; exit 2; }
 	@OUT=$$($(PY) -m pipeline.ingest_manual "$(FILE)" $(if $(MONTH),--month $(MONTH))) && \

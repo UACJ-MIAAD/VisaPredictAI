@@ -1,4 +1,5 @@
 name: Freeze new bulletin and rebuild
+run-name: ${{ inputs.operator_request_id && format('Assisted bulletin {0}', inputs.operator_request_id) || 'Freeze new bulletin and rebuild' }}
 
 # C3 (plan auditoría 2026-07-11): identidad jerárquica de la corrida — todo lo que este
 # run produzca (records JSONL, filas nuevas del ledger, manifiesto de release) queda
@@ -16,6 +17,10 @@ env:
 on:
   workflow_dispatch:
     inputs:
+      operator_request_id:
+        description: 'Identidad del recibo PDF asistido; vincula el dispatch sin elegir una corrida ajena'
+        type: string
+        default: ''
       # A3: tras `make ingest-manual` (el snapshot manual ya vive en S3), este run
       # omite EXCLUSIVAMENTE el acceso a la fuente (Cloudflare); el sync S3, los
       # gates, el CI del SHA exacto y el deploy corren idénticos — la ruta stale
