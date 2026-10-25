@@ -46,6 +46,11 @@ model-install:
 freeze:
 	$(PY) -m pipeline.freeze_snapshots
 
+.PHONY: ingest-pdf
+ingest-pdf:  ## PDF en data/inbox -> candidato LOCAL con texto, panel, DuckDB y recibo; nunca publica
+	@test -n "$(MONTH)" || { echo 'uso: make ingest-pdf MONTH=YYYY-MM [FILE="/ruta/boletin.pdf"]'; exit 2; }
+	$(PY) -m pipeline.ingest_pdf --month "$(MONTH)" $(if $(FILE),--file "$(FILE)")
+
 ingest-manual:  ## A2 (fuente bloqueada): valida e ingiere un boletín bajado a mano — FILE=<html> [MONTH=YYYY-MM]
 	@test -n "$(FILE)" || { echo "uso: make ingest-manual FILE=<boletin.html> [MONTH=YYYY-MM]"; exit 2; }
 	@OUT=$$($(PY) -m pipeline.ingest_manual "$(FILE)" $(if $(MONTH),--month $(MONTH))) && \

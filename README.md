@@ -270,3 +270,12 @@ atribución.
   <strong style="color:#003CA6;">Universidad Autónoma de Ciudad Juárez</strong><br>
   <sub style="color:#555559;">Maestría en Inteligencia Artificial y Analítica de Datos</sub>
 </p>
+
+## Operación asistida del boletín desde PDF
+
+Depositar el PDF oficial en `data/inbox/` y ejecutar
+`make ingest-pdf MONTH=YYYY-MM`. El comando extrae y valida las cuatro matrices,
+construye un candidato local de panel/DuckDB/Parquet y conserva los bytes, hashes
+y logs; no promueve archivos vivos ni publica. Véase el
+[contrato y diagrama de ingesta asistida](docs/PDF_ASSISTED_INTAKE.md), con la
+distinción entre ingesta local, scoring mensual y publicación gobernada.
