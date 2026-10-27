@@ -19,7 +19,7 @@ import pandas as pd
 import seaborn as sns
 
 from vp_model.config import DAYS_PER_YEAR, days_to_year
-from vp_model.palette import BLUE, COUNTRY, DIV, GOLD, GRID, INK, MID, REGIME, SEQ, WINE
+from vp_model.palette import BLUE, COUNTRY, DIV, FONT_RC, GOLD, GRID, INK, MID, REGIME, SEQ, WINE, register_fonts
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"
@@ -34,7 +34,8 @@ CNAME = {
 CATS = ["F1", "F2A", "F2B", "F3", "F4"]
 AREAS = ["mexico", "india", "china", "philippines", "all_chargeability"]
 sns.set_theme(style="whitegrid", font="serif", rc={"axes.edgecolor": MID, "grid.color": GRID})
-plt.rcParams.update({"savefig.bbox": "tight", "savefig.dpi": 300, "font.size": 9})
+register_fonts()
+plt.rcParams.update({**FONT_RC, "savefig.bbox": "tight", "savefig.dpi": 300, "font.size": 9})
 
 
 def _save(fig, name: str) -> None:
@@ -104,7 +105,7 @@ def fig_ridgeline() -> None:
     g = f[f.delta.between(-90, 200)]
     pal = [SEQ(v) for v in np.linspace(0.40, 0.92, len(CATS))]
     xs = np.linspace(-90, 200, 400)
-    fig, ax = plt.subplots(figsize=(7.2, 4.0))
+    fig, ax = plt.subplots(figsize=(5.4, 3.2))  # 0.86 del ancho de texto
     for i, cat in enumerate(reversed(CATS)):  # F4 abajo, F1 arriba
         vals = g[g.category == cat].delta.dropna().to_numpy()
         if len(vals) < 5:
@@ -115,12 +116,14 @@ def fig_ridgeline() -> None:
         y0 = i * 0.7
         ax.fill_between(xs, y0, y0 + dens, color=col, alpha=0.85, zorder=10 - i, lw=0)
         ax.plot(xs, y0 + dens, color="white", lw=1.1, zorder=10 - i)
-        ax.text(-95, y0 + 0.04, cat, ha="right", va="bottom", fontweight="bold", color=col, fontsize=9)
+        # rótulo en tinta (el tono de la propia cresta era demasiado claro para leerse)
+        ax.text(-95, y0 + 0.04, cat, ha="right", va="bottom", fontweight="bold", color=INK, fontsize=9)
     ax.axvline(0, color=MID, ls="--", lw=0.8, zorder=0)
     ax.set_yticks([])
     ax.set_xlim(-105, 200)
-    ax.set_xlabel("Avance mensual de la fecha (días)")
-    ax.set_title("Distribución del avance mensual por categoría (FAD)", fontsize=10, color=BLUE)
+    ax.set_xlabel("Avance mensual de la fecha (días)", fontsize=8.5)
+    ax.tick_params(labelsize=8)
+    ax.set_title("Distribución del avance mensual por categoría (FAD)", fontsize=9.5, color=BLUE)
     for sp in ("left", "right", "top"):
         ax.spines[sp].set_visible(False)
     _save(fig, "eda2_ridgeline.pdf")
@@ -157,15 +160,19 @@ def fig_regime() -> None:
 def fig_seasonality() -> None:
     f = _panel()
     g = f[f.delta.between(-120, 280)]
-    fig, ax = plt.subplots(figsize=(7.2, 3.4))
-    sns.boxplot(data=g, x="mes", y="delta", color=BLUE, fliersize=1.2, linewidth=0.8, boxprops={"alpha": 0.55}, ax=ax)
-    ax.axvline(8.5, color=GOLD, ls="--", lw=1.4)
-    ax.text(8.6, ax.get_ylim()[1] * 0.9, "inicio año fiscal (oct)", color=GOLD, fontsize=7.5, va="top")
+    fig, ax = plt.subplots(figsize=(5.4, 2.9))  # 0.86 del ancho de texto: letra a tamaño real
+    sns.boxplot(data=g, x="mes", y="delta", color=BLUE, fliersize=1.0, linewidth=0.7, boxprops={"alpha": 0.55}, ax=ax)
+    ax.axvline(8.5, color=GOLD, ls="--", lw=1.2)
+    # rótulo en una franja libre sobre los datos (antes cruzaba la línea y los atípicos)
+    y_top = float(g.delta.max())
+    ax.set_ylim(top=y_top + 70)
+    ax.text(8.38, y_top + 58, "inicio del año fiscal (oct)", color=GOLD, fontsize=7.5, va="top", ha="right")
     ax.set_xticks(range(12), ["E", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"])
     ax.axhline(0, color=MID, lw=0.8, ls="--")
-    ax.set_xlabel("Mes del boletín")
-    ax.set_ylabel("Avance mensual (días)")
-    ax.set_title("Estacionalidad del avance por mes calendario (FAD)", fontsize=10, color=BLUE)
+    ax.set_xlabel("Mes del boletín", fontsize=8.5)
+    ax.set_ylabel("Avance mensual (días)", fontsize=8.5)
+    ax.tick_params(labelsize=8)
+    ax.set_title("Estacionalidad del avance por mes calendario (FAD)", fontsize=9.5, color=BLUE)
     _save(fig, "eda2_seasonality.pdf")
     plt.close(fig)
     print("eda2_seasonality OK")
@@ -224,52 +231,80 @@ def fig_corr() -> None:
     f["serie"] = f.pais + "/" + f.category
     wide = f.pivot_table(index="bulletin_date", columns="serie", values="delta")
     corr = wide.corr().fillna(0)
+    # Tamaño real de impresión (0.82 del ancho de texto): rótulos de 7 pt sin reducción.
+    # La barra de color va horizontal en la esquina libre entre dendrogramas (antes pisaba
+    # el dendrograma de filas) y se retira el rótulo «serie» duplicado de ambos ejes.
     g = sns.clustermap(
         corr,
         cmap=DIV,
         center=0,
-        figsize=(7.0, 7.0),
-        cbar_pos=(0.02, 0.83, 0.03, 0.13),
+        figsize=(5.2, 5.4),
+        cbar_pos=(0.015, 0.935, 0.10, 0.018),
+        cbar_kws={"orientation": "horizontal", "ticks": [0, 0.5, 1]},
         dendrogram_ratio=0.12,
         xticklabels=True,
         yticklabels=True,
     )
-    g.ax_heatmap.tick_params(labelsize=6)
-    g.figure.suptitle("Correlación entre incrementos de las 25 series (FAD)", y=1.0, fontsize=10, color=BLUE)
+    g.ax_heatmap.tick_params(labelsize=6.5, length=2, pad=1.5)
+    g.ax_heatmap.set_xlabel("")
+    g.ax_heatmap.set_ylabel("")
+    g.ax_cbar.tick_params(labelsize=6.5, length=2, pad=1)
+    g.ax_cbar.set_title("r de Pearson", fontsize=6.5, pad=2, loc="left")
+    g.figure.suptitle("Correlación entre incrementos de las 25 series (FAD)", y=1.0, fontsize=9.5, color=BLUE)
     _save(g.figure, "eda2_corr.pdf")
     plt.close(g.figure)
     print("eda2_corr OK")
 
 
 def fig_length_retro() -> None:
-    fig, (a1, a2) = plt.subplots(1, 2, figsize=(7.6, 3.4))
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(6.25, 2.9), gridspec_kw={"wspace": 0.3})  # ancho de texto
     # longitud por serie (FAD+DFF familiar)
     d = pd.read_csv(ROOT / "data" / "processed" / "visa_panel_long.csv")
     fam = d[(d.block == "family") & (d.status == "F")]
     lens = fam.groupby(["country", "category", "table"]).size()
     sns.histplot(lens.values, bins=18, color=BLUE, ax=a1, edgecolor="white")
-    a1.set_xlabel("Observaciones con fecha (F) por serie")
-    a1.set_ylabel("Número de series")
-    a1.set_title("(a) Longitud de las series", fontsize=9.5, color=BLUE)
+    a1.set_xlabel("Observaciones con fecha (F) por serie", fontsize=8.5)
+    a1.set_ylabel("Número de series", fontsize=8.5)
+    a1.set_title("(a) Longitud de las series", fontsize=9, color=BLUE)
+    from matplotlib.ticker import MaxNLocator
+
+    a1.yaxis.set_major_locator(MaxNLocator(integer=True))
     # retrogresiones por serie (FAD)
     f = _panel()
     retro = (
         f[f.delta < 0].groupby(["country", "category"]).agg(n=("delta", "size"), peor=("delta", "min")).reset_index()
     )
-    retro["serie"] = retro.country.map(CNAME) + "/" + retro.category
+    retro["serie"] = retro.country.map(CNAME) + " " + retro.category
     retro["yr"] = -retro.peor / DAYS_PER_YEAR
     retro = retro.sort_values("peor")
-    a2.scatter(retro.n, retro.yr, c=[CCOL[c] for c in retro.country], s=40, edgecolor="white", zorder=3)
-    # etiquetar solo las series más extremas: el cúmulo se distingue por color (evita encimamiento)
+    a2.scatter(retro.n, retro.yr, c=[CCOL[c] for c in retro.country], s=26, edgecolor="white", zorder=3)
+    # etiquetar solo las series más extremas: el cúmulo se distingue por color (evita encimamiento);
+    # los rótulos van hacia DENTRO del eje (antes el de la derecha se salía del marco)
+    x_mid = (retro.n.min() + retro.n.max()) / 2
     for _, r in retro[retro.yr > 5.2].iterrows():
-        a2.annotate(r.serie, (r.n, r.yr), fontsize=6.5, xytext=(4, 2), textcoords="offset points", color=INK)
+        right = r.n > x_mid
+        a2.annotate(
+            r.serie,
+            (r.n, r.yr),
+            fontsize=7,
+            xytext=(-5, 0) if right else (5, 0),
+            ha="right" if right else "left",
+            va="center",
+            textcoords="offset points",
+            color=INK,
+        )
+    a2.set_xlim(retro.n.min() - 0.8, retro.n.max() + 0.8)
+    a2.set_ylim(0, retro.yr.max() * 1.08)
     from matplotlib.lines import Line2D
 
     handles = [Line2D([0], [0], marker="o", ls="", mfc=CCOL[a], mec="white", ms=6, label=CNAME[a]) for a in AREAS]
-    a2.legend(handles=handles, fontsize=6.5, loc="lower right", frameon=False, handletextpad=0.2)
-    a2.set_xlabel("Número de retrogresiones")
-    a2.set_ylabel("Mayor retroceso (años)")
-    a2.set_title("(b) Retrogresiones por serie  (solo se rotulan las series extremas)", fontsize=9, color=BLUE)
+    # leyenda en la esquina superior izquierda, libre de puntos (antes tapaba el cúmulo inferior)
+    a2.legend(handles=handles, fontsize=7, loc="upper left", frameon=False, handletextpad=0.2, borderaxespad=0.3)
+    a2.set_xlabel("Número de retrogresiones", fontsize=8.5)
+    a2.set_ylabel("Mayor retroceso (años)", fontsize=8.5)
+    a2.set_title("(b) Retrogresiones por serie\n(solo se rotulan las extremas)", fontsize=9, color=BLUE)
+    for a in (a1, a2):
+        a.tick_params(labelsize=8)
     fig.tight_layout()
     _save(fig, "eda2_length_retro.pdf")
     plt.close(fig)

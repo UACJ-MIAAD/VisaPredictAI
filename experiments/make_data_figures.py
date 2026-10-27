@@ -28,13 +28,14 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from PIL import Image
 
-from vp_model.palette import BLUE, GRAY, MUTE, REGIME, STRIPE
+from vp_model.palette import BLUE, FONT_RC, GRAY, MUTE, REGIME, STRIPE, register_fonts
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"
 # regímenes de celda (relleno pastel) desde la paleta canónica
 DATEC, CURC, UNAC, UNKC = REGIME["F"]["fill"], REGIME["C"]["fill"], REGIME["U"]["fill"], REGIME["UNK"]["fill"]
-plt.rcParams.update({"font.family": "serif", "savefig.bbox": "tight", "savefig.dpi": 300})
+register_fonts()
+plt.rcParams.update({**FONT_RC, "savefig.bbox": "tight", "savefig.dpi": 300})
 
 ER_SVG = ROOT / "docs" / "schema_er.svg"
 ER_SCALE = 3.6  # 1360x1000 viewBox x3.6 -> ~4900x3600, print grade

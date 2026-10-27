@@ -48,6 +48,79 @@ COUNTRY_NAME = {
     "all_chargeability": "Resto del mundo",
 }
 
+# --- Tipografía de imprenta (igual al entregable: Times vía mathptmx) -----------------
+# Primero Times New Roman (TrueType: se incrusta limpia como Type 42); TeX Gyre Termes
+# (OTF/CFF) queda de respaldo porque Matplotlib la incrusta como CFF dentro de un
+# descriptor TrueType y algunos visores lo marcan como inconsistente.
+SERIF_FONTS = ["Times New Roman", "TeX Gyre Termes", "Nimbus Roman", "Times"]
+FONT_RC = {
+    "font.family": "serif",
+    "font.serif": SERIF_FONTS,
+    "mathtext.fontset": "stix",
+    "pdf.fonttype": 42,
+    "ps.fonttype": 42,
+}
+
+
+def register_fonts() -> None:
+    """Registra TeX Gyre Termes del árbol TeX si existe (respaldo de Times). Idempotente."""
+    import glob
+    import shutil
+    import subprocess
+
+    from matplotlib import font_manager as fm
+
+    if any(f.name == "TeX Gyre Termes" for f in fm.fontManager.ttflist):
+        return
+    kpse = shutil.which("kpsewhich")
+    if not kpse:
+        return
+    try:
+        hit = subprocess.run([kpse, "texgyretermes-regular.otf"], capture_output=True, text=True, timeout=10).stdout
+    except OSError, subprocess.SubprocessError:
+        return
+    if hit.strip():
+        import os
+
+        for f in glob.glob(os.path.join(os.path.dirname(hit.strip()), "texgyretermes-*.otf")):
+            fm.fontManager.addfont(f)
+
+
+# --- Rótulos legibles para el texto de las figuras (nunca el identificador crudo) -------
+CATEGORY_NAME = {
+    "EB3_OW": "EB-3 otros trabajadores",
+    "EB4_RW": "EB-4 religiosos",
+    "EB4_TRANS": "EB-4 traductores",
+    "EB5_HIGHUNEMP": "EB-5 alto desempleo",
+    "EB5_INFRA": "EB-5 infraestructura",
+    "EB5_NONRC": "EB-5 fuera de centro regional",
+    "EB5_PILOT": "EB-5 programa piloto",
+    "EB5_RC": "EB-5 centro regional",
+    "EB5_RURAL": "EB-5 rural",
+    "EB5_TEA": "EB-5 área focalizada",
+    "EB5_UNRESERVED": "EB-5 no reservada",
+}
+
+
+def cat_label(code: str) -> str:
+    """'EB5_UNRESERVED' -> 'EB-5 no reservada'; 'EB2' -> 'EB-2'; 'F2A' -> 'F2A'."""
+    if code in CATEGORY_NAME:
+        return CATEGORY_NAME[code]
+    return code.replace("EB", "EB-") if code.startswith("EB") and "-" not in code else code
+
+
+def series_label(uid: str, sep: str = " · ") -> str:
+    """'mexico/F3/FAD' o 'mexico/family/F3' -> 'México · F3 · FAD' (bloque omitido)."""
+    parts = [p for p in uid.split("/") if p not in ("family", "employment")]
+    out = []
+    for p in parts:
+        if p in COUNTRY_NAME:
+            out.append(COUNTRY_NAME[p])
+        else:
+            out.append(cat_label(p))
+    return sep.join(out)
+
+
 # --- Régimen de celda C/F/U/UNK (relleno pastel para tablas, línea sólida para series) -
 REGIME = {
     "F": {"fill": "#DCE6F5", "line": BLUE},  # fecha publicada (objetivo)
@@ -123,9 +196,10 @@ def style() -> None:
     """Aplica rcParams comunes a todas las figuras (marco visual idéntico)."""
     import matplotlib.pyplot as plt
 
+    register_fonts()
     plt.rcParams.update(
         {
-            "font.family": "serif",
+            **FONT_RC,
             "font.size": 10,
             "axes.edgecolor": MID,
             "axes.labelcolor": INK,
