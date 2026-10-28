@@ -112,6 +112,7 @@ TXT: dict[str, dict] = {
         "f01_ylab_a": "Fecha de prioridad (año)",
         "f01_ylab_b": "Avance mensual (días)",
         "f01_clip": "{n} pasos fuera de [{lo}, {hi}] d (extremo: {worst} d), truncados solo en pantalla",
+        "f01_nodate": "sin fecha\npublicada",
         # f02 — calendario cíclico
         "f02_head": "Diciembre y enero son vecinos: el calendario fiscal se codifica en círculo",
         "f02_sub": "Seno/coseno de la posición del mes en el año fiscal (arranca en octubre, cuando se "
@@ -135,7 +136,7 @@ TXT: dict[str, dict] = {
         "Las corridas cortas (≤{cap}) se interpolan linealmente solo en la rejilla descriptiva; la de "
         "modelado rellena de forma causal con la última observación. Las largas quedan vacías y solo el EDA "
         "las caracteriza con suavizado de Kalman.",
-        "f04_series": "México · EB4_RW (trabajadores religiosos) · FAD",
+        "f04_series": "México · EB-4 religiosos · FAD",
         "f04_long": "hueco de {n} meses:\nKalman solo para EDA,\njamás para entrenar",
         "f04_obs": "observación F (real)",
         "f04_interp": "interpolación corta descriptiva (≤{cap} m)",
@@ -149,9 +150,9 @@ TXT: dict[str, dict] = {
         "evaluación puntúa (máscara F-only).",
         "f05_series": "India · EB-2 · FAD",
         "f05_strip": "puntuado (F)",
-        "f05_F": "F — fecha publicada ({n})",
-        "f05_C": "C — Current ({n})",
-        "f05_U": "U — Unavailable ({n})",
+        "f05_F": "F: fecha publicada ({n})",
+        "f05_C": "C: Current ({n})",
+        "f05_U": "U: Unavailable ({n})",
         "f05_UNK": "sin dato ({n})",
         "f05_ylab": "Fecha de prioridad (año)",
         # f06 — parser tolerante
@@ -203,6 +204,7 @@ TXT: dict[str, dict] = {
         "f01_ylab_a": "Priority date (year)",
         "f01_ylab_b": "Monthly advance (days)",
         "f01_clip": "{n} steps outside [{lo}, {hi}] d (extreme: {worst} d), clipped on screen only",
+        "f01_nodate": "no published\ndate",
         "f02_head": "December and January are neighbors: the fiscal calendar is encoded on a circle",
         "f02_sub": "Sine/cosine of the month's position in the fiscal year (starts in October, when quotas "
         "reset), produced by the canonical encoder the models consume.",
@@ -314,35 +316,51 @@ def f01_differencing(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.F
     )
     s["years"] = days_to_year(s.days_since_base)
     s["delta"] = s.days_since_base.diff()
-    fig, (a1, a2) = plt.subplots(2, 1, figsize=(7.8, 4.6), sharex=True, gridspec_kw={"hspace": 0.32})
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(5.6, 4.0), sharex=True, gridspec_kw={"hspace": 0.38})
     a1.plot(s.bulletin_date, s.years, color=BLUE, lw=1.4)
     a1.set_ylabel(T["f01_ylab_a"], fontsize=8)
-    a1.set_title(T["f01_a"], fontsize=9, color=BLUE, loc="left")
+    a1.set_title(T["f01_a"], fontsize=8.5, color=BLUE, loc="left")
     # AC1: sin recorte silencioso — el rango central se muestra y lo extremo se ANOTA
     # (las retrogresiones/saltos grandes son señal real, no ruido a esconder).
     lo, hi = -120, 260
     n_lo, n_hi = int((s.delta < lo).sum()), int((s.delta > hi).sum())
-    a2.fill_between(s.bulletin_date, 0, s.delta.clip(lo, hi), color=GOLD, alpha=0.9, step="mid")
+    # Barras de un mes por boletín publicado (no un área continua): entre dos fechas F separadas
+    # por meses en Current, un relleno escalonado pintaba un bloque sólido que parecía dato.
+    clipped = s.delta.clip(lo, hi)
+    # tramos sin fecha publicada (p. ej., meses en Current): sombreados, no pintados como avance
+    MUTE = ctx.theme.pick("MUTE")[0]
+    dates = s.bulletin_date.reset_index(drop=True)
+    gaps = [(dates[i - 1], dates[i]) for i in range(1, len(dates)) if (dates[i] - dates[i - 1]).days > 75]
+    for g0, g1 in gaps:
+        a2.axvspan(g0 + pd.DateOffset(days=20), g1 - pd.DateOffset(days=20), color=MUTE, alpha=0.35, lw=0, zorder=0)
+    if gaps:
+        g0, g1 = max(gaps, key=lambda g: g[1] - g[0])
+        a2.text(g0 + (g1 - g0) / 2, hi * 0.55, T["f01_nodate"], ha="center", va="center", fontsize=7, color=GRAY)
+    a2.bar(s.bulletin_date, clipped, width=26, color=GOLD, alpha=0.9, lw=0)
+    out = s[(s.delta < lo) | (s.delta > hi)]
+    a2.scatter(out.bulletin_date, clipped[out.index] + np.sign(out.delta) * 6, marker="|", s=14, color=GRAY, lw=0.8)
     if n_lo or n_hi:
         worst = s.delta.min() if n_lo else s.delta.max()
         a2.text(
-            0.01,
-            0.05,
+            0.0,
+            -0.30,
             T["f01_clip"].format(n=n_lo + n_hi, lo=lo, hi=hi, worst=f"{worst:,.0f}"),
             transform=a2.transAxes,
             fontsize=7,
             color=GRAY,
+            va="top",
         )
     a2.axhline(0, color=GRAY, lw=0.8)
-    a2.set_ylim(lo - 10, hi + 10)
+    a2.set_ylim(lo - 14, hi + 14)
     a2.set_ylabel(T["f01_ylab_b"], fontsize=8)
-    a2.set_title(T["f01_b"], fontsize=9, color=BLUE, loc="left")
+    a2.set_title(T["f01_b"], fontsize=8.5, color=BLUE, loc="left")
     for ax in (a1, a2):
+        ax.tick_params(labelsize=7.5)
         ax.grid(True, axis="y", color=GRID, lw=0.6)
         for sp in ("top", "right"):
             ax.spines[sp].set_visible(False)
-    header(fig, T["f01_head"], T["f01_sub"].format(name=T["f01_series"]), ctx)
-    footer(fig, facts["vintage"], ctx, y=-0.075)
+    header(fig, T["f01_head"], T["f01_sub"].format(name=T["f01_series"]), ctx, y=None, dy=None)
+    footer(fig, facts["vintage"], ctx, y=None, fs=7)
     return _save(fig, "f01_differencing", ctx)
 
 
@@ -356,34 +374,41 @@ def f02_calendar(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figur
     cal = preprocess.calendar_features(idx)
     k = np.arange(12)
     sin, cos = cal["fiscal_sin"].to_numpy(), cal["fiscal_cos"].to_numpy()
-    fig, (a1, a2) = plt.subplots(1, 2, figsize=(7.8, 3.5))
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(5.9, 2.9), width_ratios=(1.35, 1), gridspec_kw={"wspace": 0.12})
     xx = np.linspace(0, 12, 300)
     a1.plot(xx, np.sin(2 * np.pi * xx / 12), color=BLUE, lw=1.6, label=r"$\sin(2\pi m/12)$")
     a1.plot(xx, np.cos(2 * np.pi * xx / 12), color=GOLD, lw=1.6, label=r"$\cos(2\pi m/12)$")
     a1.scatter(k, sin, color=BLUE, s=22, zorder=5)
     a1.scatter(k, cos, color=GOLD, s=22, zorder=5)
-    a1.set_xticks(k, months, fontsize=7)
+    a1.set_xticks(k, months, fontsize=7, rotation=50, ha="right", rotation_mode="anchor")
+    a1.tick_params(axis="y", labelsize=7.5)
+    a1.tick_params(axis="x", pad=1.5)
     a1.set_xlabel(T["f02_xlab"], fontsize=8)
     a1.set_ylabel(T["f02_ylab"], fontsize=8)
-    a1.set_title(T["f02_a"], fontsize=9, color=BLUE, loc="left")
-    a1.set_ylim(-1.12, 1.18)
-    a1.legend(fontsize=8, loc="upper center", bbox_to_anchor=(0.6, 1.0), frameon=False)
+    a1.set_title(T["f02_a"], fontsize=8.5, color=BLUE, loc="left")
+    # franja superior libre para la leyenda (antes tocaba las curvas)
+    a1.set_ylim(-1.12, 1.75)
+    a1.set_yticks([-1, -0.5, 0, 0.5, 1])
+    a1.legend(fontsize=7.5, loc="upper center", bbox_to_anchor=(0.5, 1.01), frameon=False, ncol=2, handlelength=1.4)
     a1.grid(True, axis="y", color=GRID, lw=0.6)
     for sp in ("top", "right"):
         a1.spines[sp].set_visible(False)
     a2.add_patch(plt.Circle((0, 0), 1, fill=False, color=MID, lw=1.0))
     a2.scatter(sin, cos, color=BLUE, s=40, zorder=5)
     for kk, mm in zip(k, months, strict=True):
+        # rótulo hacia afuera del círculo, alineado según el lado (no encima del punto)
+        ha = "left" if sin[kk] > 0.2 else ("right" if sin[kk] < -0.2 else "center")
+        va = "bottom" if cos[kk] > 0.2 else ("top" if cos[kk] < -0.2 else "center")
         a2.annotate(
-            mm, (sin[kk], cos[kk]), fontsize=7, ha="center", xytext=(sin[kk] * 1.18, cos[kk] * 1.18), textcoords="data"
+            mm, (sin[kk], cos[kk]), fontsize=7, ha=ha, va=va, xytext=(sin[kk] * 1.13, cos[kk] * 1.13), textcoords="data"
         )
     a2.set_xlim(-1.45, 1.45)
     a2.set_ylim(-1.45, 1.45)
     a2.set_aspect("equal")
     a2.axis("off")
-    a2.set_title(T["f02_b"], fontsize=9, color=BLUE, loc="left")
-    header(fig, T["f02_head"], T["f02_sub"], ctx, y=1.0, dy=0.075)
-    footer(fig, facts["vintage"], ctx, y=-0.09)
+    a2.set_title(T["f02_b"], fontsize=8.5, color=BLUE, loc="left")
+    header(fig, T["f02_head"], T["f02_sub"], ctx, y=None, dy=None)
+    # sin pie de fuente: la figura es la codificación del calendario, no datos del boletín
     return _save(fig, "f02_calendar", ctx)
 
 
@@ -410,17 +435,19 @@ def f03_importance(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Fig
     imp = pd.Series(model.feature_importances_, index=feats).sort_values()
     nice = {f"rezago_{lg}": T["f03_lag"].format(k=lg) for lg in lags}
     nice |= {"mes_sin": T["f03_sin"], "mes_cos": T["f03_cos"]}
-    fig, ax = plt.subplots(figsize=(7.4, 3.6))
+    fig, ax = plt.subplots(figsize=(5.4, 2.7))  # 0.84 del ancho de texto
     is_cal = [k in ("mes_sin", "mes_cos") for k in imp.index]
     cols = [GOLD if c else BLUE for c in is_cal]
     ax.barh([nice[k] for k in imp.index], imp.to_numpy(), color=cols, edgecolor=PAPER)
     ax.set_xlabel(T["f03_xlab"], fontsize=8)
+    ax.tick_params(labelsize=7.5)
     ax.grid(True, axis="x", color=GRID, lw=0.6)
+    ax.set_axisbelow(True)
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
     top = nice[str(imp.index[-1])]  # el titular se DERIVA del modelo, no se tipea
-    header(fig, T["f03_head"].format(top=top), T["f03_sub"], ctx, y=1.01, dy=0.09)
-    footer(fig, facts["vintage"], ctx, y=-0.10)
+    header(fig, T["f03_head"].format(top=top), T["f03_sub"], ctx, y=None, dy=None)
+    footer(fig, facts["vintage"], ctx, y=None, fs=7)
     return _save(fig, "f03_importance", ctx)
 
 
@@ -454,7 +481,7 @@ def f04_gaps(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     short = [r for r in runs if r[1] - r[0] + 1 <= cap]
     long_ = [r for r in runs if r[1] - r[0] + 1 > cap]
 
-    fig, ax = plt.subplots(figsize=(8.4, 4.4))
+    fig, ax = plt.subplots(figsize=(5.8, 3.3))  # 0.9 del ancho de texto
     pad = pd.DateOffset(days=15)
     for i0, i1 in long_:
         ax.axvspan(grid_idx[i0] - pad, grid_idx[i1] + pad, color=UNK_FILL, zorder=0, lw=0)
@@ -473,11 +500,12 @@ def f04_gaps(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
         y_lo + (y_hi - y_lo) * 0.58,
         T["f04_long"].format(n=prof.max_gap_run),
         ha="center",
-        fontsize=7.6,
+        fontsize=7,
         color=GRAY,
         style="italic",
     )
-    ax.set_ylabel(T["f04_ylab"])
+    ax.set_ylabel(T["f04_ylab"], fontsize=8)
+    ax.tick_params(labelsize=7.5)
     ax.grid(True, axis="y", color=GRID, lw=0.6)
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
@@ -487,7 +515,7 @@ def f04_gaps(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
         plt.Line2D([0], [0], color=MID, ls=":", lw=1.4, label=T["f04_kalman"]),
         Patch(fc=UNK_FILL, ec=MID, lw=0.4, label=T["f04_gap"]),
     ]
-    ax.legend(handles=handles, fontsize=7.4, frameon=False, loc="lower right")
+    ax.legend(handles=handles, fontsize=7, frameon=False, loc="lower right")
     header(
         fig,
         T["f04_head"].format(cap=cap, n=len(long_)),
@@ -495,8 +523,10 @@ def f04_gaps(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
             name=T["f04_series"], miss=prof.n_missing, runs=prof.n_gap_runs, maxrun=prof.max_gap_run, cap=cap
         ),
         ctx,
+        y=None,
+        dy=None,
     )
-    footer(fig, facts["vintage"], ctx, y=-0.08)
+    footer(fig, facts["vintage"], ctx, y=None, fs=7)
     return _save(fig, "f04_gaps", ctx)
 
 
@@ -513,7 +543,7 @@ def f05_regime(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     counts = status.value_counts()
 
     fig, (ax, axs) = plt.subplots(
-        2, 1, figsize=(8.4, 4.8), height_ratios=(6, 0.55), sharex=True, gridspec_kw={"hspace": 0.07}
+        2, 1, figsize=(5.7, 3.5), height_ratios=(6, 0.55), sharex=True, gridspec_kw={"hspace": 0.07}
     )
     pad = pd.DateOffset(days=15)
     # bandas de régimen: corridas contiguas del mismo estado NO-F (F queda en papel)
@@ -529,7 +559,9 @@ def f05_regime(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
         else:
             i += 1
     ax.plot(grid_idx, days_to_year(fdays), color=BLUE, lw=1.3, zorder=3)
-    ax.set_ylabel(T["f05_ylab"])
+    ax.set_ylabel(T["f05_ylab"], fontsize=8)
+    ax.tick_params(labelsize=7.5)
+    axs.tick_params(labelsize=7.5)
     ax.grid(True, axis="y", color=GRID, lw=0.6)
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
@@ -539,7 +571,17 @@ def f05_regime(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
         Patch(fc=_regime_fill("U", ctx), label=T["f05_U"].format(n=int(counts.get("U", 0)))),
         Patch(fc=_regime_fill("UNK", ctx), ec=MID, lw=0.4, label=T["f05_UNK"].format(n=int(counts.get("UNK", 0)))),
     ]
-    ax.legend(handles=handles, fontsize=7.2, frameon=False, loc="upper left", ncol=2)
+    # leyenda BAJO la franja (antes tapaba los datos de los primeros años)
+    axs.legend(
+        handles=handles,
+        fontsize=7,
+        frameon=False,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -1.3),
+        ncol=4,
+        handlelength=1.4,
+        columnspacing=1.0,
+    )
     # franja inferior: los meses que la evaluación PUNTÚA (máscara F-only, fix B1)
     f_mask = codes == "F"
     i = 0
@@ -567,8 +609,10 @@ def f05_regime(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
             nk=int(counts.get("UNK", 0)),
         ),
         ctx,
+        y=None,
+        dy=None,
     )
-    footer(fig, facts["vintage"], ctx, y=-0.075)
+    footer(fig, facts["vintage"], ctx, y=None, fs=7)
     return _save(fig, "f05_regime", ctx)
 
 

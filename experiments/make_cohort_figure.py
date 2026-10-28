@@ -45,6 +45,7 @@ TXT = {
         "margin": "margen material (0.005)",
         "sig": "significativo tras Holm",
         "foot": "exploratorio · gate congelado antes de calcular · el router no se despliega",
+        "null": "efecto nulo: el router elige el naïve",
         "footer": "Corte de {mes} de {anio} · panel gobernado",
     },
     "en": {
@@ -54,6 +55,7 @@ TXT = {
         "margin": "material margin (0.005)",
         "sig": "significant after Holm",
         "foot": "exploratory · gate frozen before computing · the router is not deployed",
+        "null": "null effect: the router picks the naive",
         "footer": "{mes} {anio} cut · governed panel",
     },
 }
@@ -93,7 +95,7 @@ def fig_router_effect(facts: dict, ctx: FigureContext) -> plt.Figure:
     color_ok = pal["BLUE"]
     color_no = pal["GRAY"]
 
-    fig, ax = plt.subplots(figsize=(9.2, 0.42 * len(filas) + 2.1))
+    fig, ax = plt.subplots(figsize=(6.25, 0.27 * len(filas) + 1.3))  # ancho de texto: letra a tamaño real
     y = np.arange(len(filas))
     ax.barh(
         y,
@@ -106,26 +108,33 @@ def fig_router_effect(facts: dict, ctx: FigureContext) -> plt.Figure:
     for signo in (1, -1):
         ax.axvline(signo * facts["RouterMargen"], lw=0.9, ls="--", color=pal["GOLD"])
     ax.set_yticks(y, etiquetas, fontsize=8)
+    # filas con efecto exactamente nulo porque el router eligió el propio naïve: sin barra visible,
+    # se rotulan para que no parezcan filas vacías
+    for yi, f in zip(y, filas, strict=True):
+        if f["effect"] == 0 and str(f.get("model", "")).startswith("naive"):
+            ax.text(
+                facts["RouterMargen"] * 2.4, float(yi), ctx.lang.txt["null"], fontsize=7, color=pal["GRAY"], va="center"
+            )
     ax.invert_yaxis()
     # Banda reservada ARRIBA, derivada del número de filas, para la leyenda del margen. Antes
     # el texto se anclaba en `len(filas) - 0.2`, es decir FUERA del área de trazado, y la línea
     # del eje lo atravesaba (M65: sólo se ve abriendo el PDF).
     ax.set_ylim(len(filas) - 0.5, -1.25)
-    ax.set_xlabel(ctx.lang.txt["x"], fontsize=9)
+    ax.set_xlabel(ctx.lang.txt["x"], fontsize=8.5)
     ax.tick_params(axis="x", labelsize=8)
     ax.spines[["top", "right"]].set_visible(False)
     ax.text(
         facts["RouterMargen"],
         -0.85,
         f"  {ctx.lang.txt['margin']}",
-        fontsize=7.5,
+        fontsize=7,
         color=pal["GOLD"],
         va="center",
         ha="left",
     )
-    header(fig, ctx.lang.txt["headline"], ctx.lang.txt["sub"], ctx)
-    footer(fig, VINTAGE, ctx, extra=ctx.lang.txt["foot"])
     fig.tight_layout()
+    header(fig, ctx.lang.txt["headline"], ctx.lang.txt["sub"], ctx, y=None, dy=None)
+    footer(fig, VINTAGE, ctx, extra=ctx.lang.txt["foot"], y=None, fs=7)
     return save_dual(
         fig,
         "e5_router_effect",

@@ -21,7 +21,24 @@ from statsmodels.tsa.seasonal import STL
 from vp_model import config, dataset, eda, preprocess
 from vp_model import series_characterization as features
 from vp_model.config import DAYS_PER_YEAR
-from vp_model.palette import BLUE, COUNTRY, COUNTRY_NAME, DIV, GOLD, GRAY, INK, MID, SEQ, WINE, YELLOW
+from vp_model.palette import (
+    BLUE,
+    COUNTRY,
+    COUNTRY_NAME,
+    DIV,
+    FONT_RC,
+    GOLD,
+    GRAY,
+    INK,
+    MID,
+    SEQ,
+    WINE,
+    YELLOW,
+    register_fonts,
+    series_label,
+)
+
+_BLOQUE = {"family": "familiar", "employment": "empleo"}
 
 log = config.get_logger(__name__)
 
@@ -30,9 +47,10 @@ UACJ_BLUE, UACJ_YELLOW, UACJ_GRAY, UACJ_BLACK = BLUE, YELLOW, GRAY, INK  # AE3: 
 
 OUTDIR = Path(__file__).resolve().parent.parent / "reports" / "figures"
 
+register_fonts()
 plt.rcParams.update(
     {
-        "font.family": "serif",
+        **FONT_RC,
         "font.size": 10,
         "axes.edgecolor": MID,
         "axes.labelcolor": INK,
@@ -63,19 +81,36 @@ def _save(fig: plt.Figure, name: str) -> Path:
 
 def plot_pilot_series(table: str = "FAD", category: str = "F3") -> Path:
     """Una categoría a través de los 5 países piloto (heterogeneidad por país)."""
-    fig, ax = plt.subplots(figsize=(8, 4.2))
+    fig, ax = plt.subplots(figsize=(5.75, 3.1))  # 0.92 del ancho de texto: tipografía a tamaño real
     # UACJ_YELLOW es ilegible como línea fina sobre blanco; se reserva para chips/rellenos.
-    colors = [COUNTRY[c] for c in dataset.PILOT_COUNTRIES]
-    for country, color in zip(dataset.PILOT_COUNTRIES, colors, strict=True):
+    # India, China y Resto del mundo comparten casi el mismo frente en F3: el Resto va ancho y
+    # translúcido DEBAJO y India/China encima con trazo propio, para que las tres se distingan.
+    styles = {
+        "all_chargeability": {"lw": 3.2, "alpha": 0.45, "ls": "-", "zorder": 1},
+        "india": {"lw": 1.3, "alpha": 1.0, "ls": (0, (5, 2)), "zorder": 3},
+        "china": {"lw": 1.5, "alpha": 1.0, "ls": (0, (1, 1.4)), "zorder": 4},
+    }
+    for country in dataset.PILOT_COUNTRIES:
         try:
             s = dataset.load_series(country, category, table)
         except KeyError:
             continue
-        ax.plot(s.index, s.to_numpy() / DAYS_PER_YEAR, label=COUNTRY_NAME[country], color=color, lw=1.3)
-    ax.set_title(f"Frente de fecha de prioridad — categoría {category}, tabla {table}")
-    ax.set_xlabel("Mes del boletín")
-    ax.set_ylabel("Años desde la época base (1975)")
-    ax.legend(fontsize=8, frameon=False, ncol=3)
+        st = styles.get(country, {"lw": 1.2, "alpha": 1.0, "ls": "-", "zorder": 2})
+        ax.plot(
+            s.index,
+            s.to_numpy() / DAYS_PER_YEAR,
+            label=COUNTRY_NAME[country],
+            color=COUNTRY[country],
+            lw=st["lw"],
+            alpha=st["alpha"],
+            ls=st["ls"],
+            zorder=st["zorder"],
+        )
+    ax.set_title(f"Frente de fecha de prioridad, categoría {category} · tabla {table}", fontsize=10)
+    ax.set_xlabel("Mes del boletín", fontsize=9)
+    ax.set_ylabel("Años desde la época base (1975)", fontsize=9)
+    ax.tick_params(labelsize=8.5)
+    ax.legend(fontsize=8, frameon=False, ncol=3, handlelength=2.6, loc="upper left")
     return _save(fig, f"eda_pilot_{category}_{table}.png")
 
 
@@ -91,7 +126,7 @@ def plot_coverage_heatmap(table: str = "FAD", block: str = "family") -> Path:
         for j in range(pivot.shape[1]):
             v = pivot.to_numpy()[i, j]
             ax.text(j, i, f"{v:.0%}", ha="center", va="center", color="white" if v > 0.65 else UACJ_BLACK, fontsize=8)
-    ax.set_title(f"Continuidad de las series — tabla {table}, bloque {block}")
+    ax.set_title(f"Continuidad de las series, tabla {table} · bloque {_BLOQUE.get(block, block)}")
     fig.colorbar(im, ax=ax, fraction=0.025, label="fracción de meses con fecha")
     return _save(fig, f"eda_coverage_{table}_{block}.png")
 
@@ -133,7 +168,7 @@ def plot_step_distribution(table: str = "FAD", block: str = "family") -> Path:
             va="top",
             ha="right",
         )
-    ax.set_title(f"Distribución del avance mensual — tabla {table}, bloque {block}")
+    ax.set_title(f"Distribución del avance mensual, tabla {table} · bloque {_BLOQUE.get(block, block)}")
     ax.set_xlabel(f"Avance de la fecha de prioridad (días/mes; rango [{lo}, {hi}], extremos anotados)")
     ax.set_ylabel("Frecuencia")
     ax.legend(fontsize=8, frameon=False)
@@ -153,7 +188,7 @@ def plot_decomposition(country: str = "mexico", category: str = "F3", table: str
         ax.plot(comp.index, np.asarray(comp) / DAYS_PER_YEAR, color=color, lw=1.0)
     for ax, lbl in zip(axes, ["observado", "tendencia", "estacional", "residuo"], strict=True):
         ax.set_ylabel(lbl, fontsize=8)
-    axes[0].set_title(f"Descomposición STL — {country}/{category}/{table} (años)")
+    axes[0].set_title(f"Descomposición STL, {series_label(f'{country}/{category}/{table}')} (años)")
     axes[-1].set_xlabel("Mes del boletín")
     return _save(fig, f"eda_stl_{country}_{category}_{table}.png")
 
@@ -175,27 +210,56 @@ def plot_feature_space(table: str = "FAD", block: str = "family") -> Path:
 
     Cada punto es una serie; la nube revela qué tan homogéneo es el panel (todas con
     tendencia fuerte y estacionalidad casi nula -> familia de modelos común).
+    Los ejes se acercan a la región ocupada y un recuadro amplía el cúmulo junto a F_T = 1
+    (antes 25 puntos se encimaban en una esquina de un lienzo 0-1 vacío).
     """
     ft = features.feature_table(table=table, block=block)
-    fig, ax = plt.subplots(figsize=(7, 4.2))
+    fig, ax = plt.subplots(figsize=(5.1, 3.4))  # 0.82 del ancho de texto
     colors = {
         c: col for c, col in zip(dataset.PILOT_COUNTRIES, [COUNTRY[c] for c in dataset.PILOT_COUNTRIES], strict=True)
     }
+    x, y = ft["trend_strength"], ft["seasonal_strength"]
+    span_y = max(float(y.max()), 0.05)
+    lo_x = min(float(x.min()), 0.9)
+    ax.set_xlim(lo_x - 0.02, 1.004)
+    ax.set_ylim(-0.06 * span_y, span_y * 1.12)
+    ins = ax.inset_axes((0.06, 0.42, 0.44, 0.52))
+    cx0 = float(x[x > 0.98].min()) - 0.0008 if (x > 0.98).any() else 0.98
+    ins.set_xlim(cx0, 0.9992)
+    ins.set_ylim(-0.006, max(float(y[x > 0.98].max()) if (x > 0.98).any() else 0.05, 0.03) * 1.15)
     for country, grp in ft.groupby("country"):
-        ax.scatter(
-            grp["trend_strength"],
-            grp["seasonal_strength"],
-            label=COUNTRY_NAME.get(country, country),
-            color=colors.get(country, UACJ_BLUE),
-            s=40,
-            alpha=0.8,
+        color = colors.get(country, UACJ_BLUE)
+        for target, size, label in ((ax, 26, COUNTRY_NAME.get(country, country)), (ins, 20, None)):
+            target.scatter(
+                grp["trend_strength"],
+                grp["seasonal_strength"],
+                label=label,
+                s=size,
+                color=color,
+                alpha=0.85,
+                edgecolor="white",
+                linewidths=0.4,
+            )
+    # rótulo de las series fuera del cúmulo (las que el recuadro no amplía)
+    for _, r in ft[x < cx0].iterrows():
+        ax.annotate(
+            f"{COUNTRY_NAME.get(r.country, r.country)} {r.category}",
+            (r.trend_strength, r.seasonal_strength),
+            xytext=(-4, 4) if r.trend_strength > 0.95 else (4, 4),
+            ha="right" if r.trend_strength > 0.95 else "left",
+            textcoords="offset points",
+            fontsize=7,
+            color=INK,
         )
-    ax.set_xlabel("Fuerza de tendencia $F_T$")
-    ax.set_ylabel("Fuerza de estacionalidad $F_S$")
-    ax.set_xlim(0, 1)
-    ax.set_ylim(-0.02, 1)
-    ax.set_title(f"Espacio de características de las series — tabla {table}, bloque {block}")
-    ax.legend(fontsize=8, frameon=False, ncol=3)
+    ins.tick_params(labelsize=6.5, length=2, pad=1)
+    ins.set_title("ampliación del cúmulo", fontsize=7, color=GRAY, pad=2)
+    ax.indicate_inset_zoom(ins, edgecolor=MID, alpha=0.9)
+    ax.set_xlabel("Fuerza de tendencia $F_T$", fontsize=9)
+    ax.set_ylabel("Fuerza de estacionalidad $F_S$", fontsize=9)
+    ax.tick_params(labelsize=8)
+    bloque = _BLOQUE.get(block, block)
+    ax.set_title(f"Espacio de características de las series, tabla {table} · bloque {bloque}", fontsize=9.5)
+    ax.legend(fontsize=7, frameon=False, ncol=1, loc="upper left", bbox_to_anchor=(1.0, 1.0), handletextpad=0.2)
     return _save(fig, f"eda_features_{table}_{block}.png")
 
 
@@ -214,7 +278,7 @@ def plot_seasonal_subseries(country: str = "mexico", category: str = "F3", table
     ax.set_xticks(range(1, 13))
     ax.set_xlabel("Mes del calendario (año fiscal de visas inicia en octubre)")
     ax.set_ylabel("Avance medio (días)")
-    ax.set_title(f"Subseries estacional del avance mensual — {country}/{category}/{table}")
+    ax.set_title(f"Subseries estacional del avance mensual, {series_label(f'{country}/{category}/{table}')}")
     ax.legend(fontsize=8, frameon=False)
     return _save(fig, f"eda_subseries_{country}_{category}_{table}.png")
 
@@ -236,7 +300,7 @@ def plot_cross_correlation(category: str = "F3", table: str = "FAD") -> Path:
     for i in range(len(corr)):
         for j in range(len(corr)):
             ax.text(j, i, f"{corr.to_numpy()[i, j]:.2f}", ha="center", va="center", fontsize=8)
-    ax.set_title(f"Co-movimiento de los avances entre áreas — {category}/{table}")
+    ax.set_title(f"Co-movimiento de los avances entre áreas, {category} · {table}")
     fig.colorbar(im, ax=ax, fraction=0.046, label="correlación de Pearson")
     return _save(fig, f"eda_crosscorr_{category}_{table}.png")
 
@@ -248,7 +312,9 @@ def plot_rolling_volatility(country: str = "mexico", category: str = "F3", table
     roll = adv.rolling(12, min_periods=6).std()
     fig, ax = plt.subplots(figsize=(7.5, 3.4))
     ax.plot(roll.index, roll.to_numpy(), color=UACJ_BLUE, lw=1.3)
-    ax.set_title(f"Volatilidad móvil (12 m) del avance mensual — {country}/{category}/{table}")
+    ax.set_title(
+        f"Volatilidad en ventana móvil (12 m) del avance mensual, {series_label(f'{country}/{category}/{table}')}"
+    )
     ax.set_xlabel("Mes del boletín")
     ax.set_ylabel("Desv. estándar del avance (días)")
     return _save(fig, f"eda_volatility_{country}_{category}_{table}.png")
@@ -283,7 +349,7 @@ def plot_changepoints(country: str = "mexico", category: str = "F3", table: str 
         label=f"anomalías puntuales ({len(anom)})",
     )
     ax.plot([], [], color=WINE, lw=1.1, ls="--", label=f"cambios de régimen ({len(bkps) - 1})")
-    ax.set_title(f"Cambios de régimen y anomalías puntuales — {country}/{category}/{table}")
+    ax.set_title(f"Cambios de régimen y anomalías puntuales, {series_label(f'{country}/{category}/{table}')}")
     ax.set_xlabel("Mes del boletín")
     ax.set_ylabel("Años desde la época base")
     ax.legend(fontsize=8, frameon=False)
@@ -312,7 +378,7 @@ def plot_kalman_imputation(country: str = "mexico", category: str = "EB4_RW", ta
         marker="x",
         label=f"hueco MNAR imputado ({int(gaps.sum())})",
     )
-    ax.set_title(f"Huecos MNAR e imputación por Kalman — {country}/{category}/{table}")
+    ax.set_title(f"Huecos MNAR e imputación por Kalman, {series_label(f'{country}/{category}/{table}')}")
     ax.set_xlabel("Mes del boletín")
     ax.set_ylabel("Años desde la época base")
     ax.legend(fontsize=8, frameon=False)

@@ -20,15 +20,16 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from vp_model.palette import BLUE, GRAY, GRID, MID, WINE
+from vp_model.palette import BLUE, FONT_RC, GRAY, GRID, MID, WINE, register_fonts
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"
 FACTS = ROOT / "reports" / "eval" / "horizon_facts.json"
 
+register_fonts()
 plt.rcParams.update(
     {
-        "font.family": "serif",
+        **FONT_RC,
         "font.size": 9,
         "axes.titlesize": 10,
         "axes.labelsize": 9,
@@ -68,7 +69,7 @@ def build() -> Path:
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(9.2, 3.5), sharey=True)
     _panel(a1, d["FAD"]["significance"], "FAD")
     _panel(a2, d["DFF"]["significance"], "DFF")
-    a1.set_ylabel("MASE (rolling · solo estado F)")
+    a1.set_ylabel("MASE (ventana móvil · solo estado F)")
     a1.legend(loc="upper left", fontsize=7.5, frameon=False)
     fig.tight_layout()
     out = FIG / "horizon_mase_curves.pdf"

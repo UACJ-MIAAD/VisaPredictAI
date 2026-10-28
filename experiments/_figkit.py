@@ -23,11 +23,13 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib._pylab_helpers import Gcf as _Gcf
+
+from vp_model.palette import FONT_RC, register_fonts
 
 __all__ = [
     "BASE_RC",
@@ -55,7 +57,7 @@ VARIANTS: tuple[tuple[str, str], ...] = (("es", "light"), ("es", "dark"), ("en",
 # tenia el efecto lateral de reconfigurar Matplotlib para todo el proceso.
 BASE_RC: Mapping[str, Any] = MappingProxyType(
     {
-        "font.family": "serif",
+        **FONT_RC,
         "font.size": 10,
         "savefig.bbox": "tight",
         "savefig.dpi": 300,
@@ -187,7 +189,8 @@ def plain_style(rcparams: Mapping[str, Any]) -> Iterator[None]:
     Envolverlas en un `Theme` completo les cambiaría el color de título, texto y ejes: el
     tema web define semánticas de color que ese generador nunca aplicó.
     """
-    with plt.rc_context(dict(rcparams)):
+    register_fonts()
+    with plt.rc_context({**FONT_RC, **dict(rcparams)}):
         yield
 
 
@@ -198,6 +201,7 @@ def figure_style(ctx: FigureContext) -> Iterator[FigureContext]:
     Esto es lo que `_apply_theme` no hacía: mutaba el rcParams global y lo dejaba
     mutado, así que el estado de una pasada sobrevivía a la siguiente y al proceso.
     """
+    register_fonts()
     with plt.rc_context(dict(ctx.theme.rcparams)):
         yield ctx
 
@@ -301,30 +305,108 @@ def num(v: int) -> str:
     return f"{v:,}"
 
 
-def header(fig: plt.Figure, headline: str, sub: str, ctx: FigureContext, y: float = 1.02, dy: float = 0.055) -> None:
+def _content_extent(fig: plt.Figure) -> tuple[float, float]:
+    """Borde superior e inferior (fracción de figura) de lo dibujado: ejes, rótulos, leyendas.
+
+    Sirve para colgar el titular y el pie a una distancia FIJA del contenido en lugar de a
+    una fracción fija de la figura (que dejaba una franja vacía bajo la bajada).
+    """
+    renderer = cast(Any, fig.canvas).get_renderer()  # Agg canvas; the base-class stub lacks it
+    h_px = fig.bbox.height
+    tops, bottoms = [], []
+    for ax in fig.axes:
+        if not ax.get_visible():
+            continue
+        bb = ax.get_tightbbox(renderer)
+        if bb is None:
+            continue
+        tops.append(bb.y1 / h_px)
+        bottoms.append(bb.y0 / h_px)
+    for leg in fig.legends:
+        bb = leg.get_window_extent(renderer)
+        tops.append(bb.y1 / h_px)
+        bottoms.append(bb.y0 / h_px)
+    return (max(tops) if tops else 1.0), (min(bottoms) if bottoms else 0.0)
+
+
+def _balanced_fill(text: str, width: int) -> str:
+    """`textwrap.fill` sin palabra huérfana: el ancho mínimo que da el MISMO número de renglones."""
+    n = len(textwrap.wrap(text, width=width))
+    if n <= 1:
+        return textwrap.fill(text, width=width)
+    best = width
+    for w in range(width, max(10, width // 2), -1):
+        if len(textwrap.wrap(text, width=w)) != n:
+            break
+        best = w
+    return textwrap.fill(text, width=best)
+
+
+def _print_sizes(fig: plt.Figure) -> tuple[float, float]:
+    """Tamaño de titular y bajada: a ancho de texto (≤ 7 in) la figura se imprime 1:1."""
+    w_in = fig.get_size_inches()[0]
+    return (14.0, 9.5) if w_in > 7.0 else (11.0, 8.5)
+
+
+def header(
+    fig: plt.Figure,
+    headline: str,
+    sub: str,
+    ctx: FigureContext,
+    y: float | None = 1.02,
+    dy: float | None = 0.055,
+    *,
+    head_fs: float | None = None,
+    sub_fs: float | None = None,
+) -> None:
     """Titular-frase (el hallazgo) + bajada explicativa, estilo editorial.
 
     Envuelve titular y bajada al ancho de la figura (sin corte de carro, una bajada
     larga estiraba el bbox y encogia el plot). Las lineas extra crecen hacia ARRIBA
     (va="bottom" + lift del titular) para no invadir los ejes.
+
+    ``y=None`` cuelga la bajada a 0.08 in del contenido real (sin franja vacía) y
+    ``dy=None`` calcula el salto titular-bajada a partir del tamaño de letra.
     """
     gray, ink = ctx.theme.pick("GRAY", "INK")
     w_in, h_in = fig.get_size_inches()
-    head = textwrap.fill(headline, width=max(28, int(w_in * 7.2)))
-    body = textwrap.fill(sub, width=max(50, int(w_in * 12.5)))
-    lift = body.count(chr(10)) * (0.175 / h_in)
-    fig.text(0.01, y + dy + lift, head, fontsize=14, fontweight="bold", color=ink, ha="left", va="bottom")
-    fig.text(0.01, y, body, fontsize=9.5, color=gray, ha="left", va="bottom")
+    d_head, d_sub = _print_sizes(fig)
+    hfs = head_fs or d_head
+    sfs = sub_fs or d_sub
+    head = _balanced_fill(headline, max(28, int(w_in * 9.0 * 14.0 / hfs)))
+    body = _balanced_fill(sub, max(40, int(w_in * 14.5 * 9.5 / sfs)))
+    line = sfs * 1.2 / 72.0 / h_in  # alto de un renglón de la bajada, en fracción de figura
+    lift = body.count(chr(10)) * line
+    if y is None:
+        y = _content_extent(fig)[0] + 0.08 / h_in
+    if dy is None:
+        dy = line + 0.07 / h_in
+    fig.text(0.01, y + dy + lift, head, fontsize=hfs, fontweight="bold", color=ink, ha="left", va="bottom")
+    fig.text(0.01, y, body, fontsize=sfs, color=gray, ha="left", va="bottom", linespacing=1.15)
 
 
-def footer(fig: plt.Figure, vintage: str, ctx: FigureContext, extra: str = "", y: float = -0.045) -> None:
-    """Pie con la anada del corte y la marca, en el idioma del contexto."""
+def footer(
+    fig: plt.Figure, vintage: str, ctx: FigureContext, extra: str = "", y: float | None = -0.045, fs: float = 7.4
+) -> None:
+    """Pie con la anada del corte y la marca, en el idioma del contexto.
+
+    ``y=None`` lo coloca a 0.10 in bajo el contenido real (rótulos y leyendas incluidos).
+    """
     blue, gray = ctx.theme.pick("BLUE", "GRAY")
     per = pd.Period(vintage)
     text = ctx.lang.txt["footer"].format(mes=ctx.lang.months[per.month], anio=per.year) + (
         f"  {extra}" if extra else ""
     )
-    fig.text(0.01, y, text, fontsize=7.4, color=gray, ha="left")
+    h_in = fig.get_size_inches()[1]
+    if y is None:
+        y = _content_extent(fig)[1] - 0.10 / h_in
+        fig.text(0.01, y, text, fontsize=fs, color=gray, ha="left", va="top")
+        w_in = fig.get_size_inches()[0]
+        if len(text) * fs * 0.42 / 72.0 > w_in * 0.98 - 1.0:  # el pie alcanzaría la marca: un renglón abajo
+            y -= fs * 1.35 / 72.0 / h_in
+        fig.text(0.99, y, "VisaPredict AI", fontsize=fs + 0.6, color=blue, ha="right", va="top", fontweight="bold")
+        return
+    fig.text(0.01, y, text, fontsize=fs, color=gray, ha="left")
     # con pie largo la marca baja un renglon para no encimarse con el texto
     brand_y = y - 0.035 if len(text) > 80 else y
     fig.text(0.99, brand_y, "VisaPredict AI", fontsize=8.5, color=blue, ha="right", fontweight="bold")

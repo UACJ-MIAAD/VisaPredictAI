@@ -21,7 +21,7 @@ from matplotlib.offsetbox import AnnotationBbox, OffsetImage
 from PIL import Image, ImageDraw
 
 from vp_model.config import DAYS_PER_YEAR
-from vp_model.palette import BLUE, GRAY, INK, MID, MUTE, style
+from vp_model.palette import BLUE, GRAY, INK, MUTE, style
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"
@@ -98,11 +98,16 @@ NAME = {
 }
 
 
-def fig_backlog(category="F4", table="FAD", highlight="mexico", out="latam_backlog_f4.pdf") -> None:
+def fig_backlog(
+    category="F4", table="FAD", highlight="mexico", out="latam_backlog_f4.pdf", bulletin: str | None = None
+) -> None:
+    """Atraso por área en un boletín (por defecto, el último del panel; `bulletin`='AAAA-MM' lo fija)."""
     d = pd.read_csv(ROOT / "data" / "processed" / "visa_panel_long.csv", parse_dates=["bulletin_date", "priority_date"])
     g = d[(d.status == "F") & (d.block == "family") & (d.table == table) & (d.category == category)]
-    last = g.bulletin_date.max()
+    last = pd.Timestamp(f"{bulletin}-01") if bulletin else g.bulletin_date.max()
     row = g[g.bulletin_date == last]
+    if row.empty:
+        raise SystemExit(f"sin filas F para {category}/{table} en el boletín {last:%Y-%m}")
     bl = {
         c: (row[row.country == c].bulletin_date.iloc[0] - row[row.country == c].priority_date.iloc[0]).days
         / DAYS_PER_YEAR
@@ -112,36 +117,47 @@ def fig_backlog(category="F4", table="FAD", highlight="mexico", out="latam_backl
     order = sorted(bl, key=lambda c: bl[c])  # menor abajo, mayor arriba (barh)
     vmax = max(bl.values())
 
-    fig, ax = plt.subplots(figsize=(8.4, 4.7))
+    # Ancho de texto del entregable (6.25 in): tipografía a tamaño real (8-9 pt), sin reducción.
+    # Columna de banderas y columna de nombres SEPARADAS de las barras (antes se encimaban).
+    fig = plt.figure(figsize=(6.25, 2.75))
+    ax = fig.add_axes((0.30, 0.13, 0.62, 0.62))
     for i, c in enumerate(order):
         col = BLUE if c == highlight else MUTE
         ax.barh(i, bl[c], height=0.62, color=col, zorder=2)
-        ab = AnnotationBbox(OffsetImage(_flag(c), zoom=0.26), (-9.4, i), frameon=False, box_alignment=(0.5, 0.5), pad=0)
+        ab = AnnotationBbox(
+            OffsetImage(_flag(c), zoom=0.13),
+            (-0.39, i),
+            xycoords=("axes fraction", "data"),
+            frameon=False,
+            box_alignment=(0.5, 0.5),
+            pad=0,
+        )
         ax.add_artist(ab)
         ax.text(
-            -8.2,
+            -0.33,
             i,
             NAME[c],
+            transform=ax.get_yaxis_transform(),
             va="center",
             ha="left",
-            fontsize=11,
+            fontsize=9,
             color=INK,
             fontweight="bold" if c == highlight else "normal",
         )
         lab = f"{bl[c]:.1f} años"
         ax.text(
-            bl[c] + 0.35,
+            bl[c] + vmax * 0.015,
             i,
             lab,
             va="center",
             ha="left",
-            fontsize=10.5,
-            color=BLUE if c == highlight else MID,
+            fontsize=8.5,
+            color=BLUE if c == highlight else GRAY,
             fontweight="bold" if c == highlight else "normal",
         )
 
-    ax.set_xlim(-11, vmax * 1.16)
-    ax.set_ylim(-0.7, len(order) - 0.3)
+    ax.set_xlim(0, vmax * 1.17)
+    ax.set_ylim(-0.55, len(order) - 0.45)
     for s in ax.spines.values():
         s.set_visible(False)
     ax.set_xticks([])
@@ -151,39 +167,50 @@ def fig_backlog(category="F4", table="FAD", highlight="mexico", out="latam_backl
     hl_years = round(bl[highlight])
     min_years = int(min(bl.values()))
     fig.text(
-        0.012,
-        1.05,
+        0.0,
+        0.95,
         f"Una petición de hermano en México espera {hl_years} años para una visa",
-        fontsize=15.5,
+        fontsize=11,
         fontweight="bold",
         color=INK,
         ha="left",
+        va="top",
     )
     fig.text(
-        0.012,
-        0.99,
+        0.0,
+        0.865,
         "Atraso vigente de la cola familiar F4 (hermanos de ciudadanos) por país o área de "
-        f"cargabilidad — ninguna de las cinco baja de {min_years} años",
-        fontsize=10.5,
+        f"cargabilidad;\nninguna de las cinco baja de {min_years} años",
+        fontsize=8.5,
         color=GRAY,
         ha="left",
+        va="top",
+        linespacing=1.25,
     )
     fig.text(
-        0.012,
-        -0.04,
+        0.0,
+        0.03,
         f"Fuente: U.S. Department of State, Visa Bulletin (Final Action Dates, {MES[last.month]} {last.year}).  "
-        "Atraso = mes del boletín − fecha de prioridad vigente.  *Agrupación residual, no un país.",
-        fontsize=7.6,
+        "Atraso = mes del boletín − fecha de prioridad vigente.\n*Agrupación residual, no un país.",
+        fontsize=7,
         color=GRAY,
         ha="left",
+        va="bottom",
+        linespacing=1.3,
     )
-    fig.text(0.988, -0.105, "VisaPredict AI", fontsize=9, color=BLUE, ha="right", va="top", fontweight="bold")
+    fig.text(1.0, 0.03, "VisaPredict AI", fontsize=7.5, color=BLUE, ha="right", va="bottom", fontweight="bold")
+    FIG.mkdir(parents=True, exist_ok=True)
     fig.savefig(FIG / out)
     plt.close(fig)
     print(out, "OK")
 
 
 if __name__ == "__main__":
+    import argparse
+
+    ap = argparse.ArgumentParser(description="Figura de atraso F4 por área (estilo Latinometrics).")
+    ap.add_argument("--bulletin", default=None, help="boletín AAAA-MM a dibujar (por defecto, el último del panel)")
+    args = ap.parse_args()
     style()
-    fig_backlog()
+    fig_backlog(bulletin=args.bulletin)
     print("Latinometrics-UACJ en", FIG)

@@ -19,6 +19,7 @@ import pandas as pd
 from vp_model import dataset
 from vp_model.config import days_to_year
 from vp_model.palette import BLUE, GRID, INK, MID, style
+from vp_model.palette import GRAY as TEXT_GRAY  # gris de texto legible (bajada y fuente)
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"
@@ -44,22 +45,22 @@ def fig_hero(country="philippines", category="F3", table="FAD", out="results_her
     g = g[g.ds.isin(full.index)]
     ctx = full[(full.index >= CTX_START) & (full.index < hold_start)]
 
-    fig, ax = plt.subplots(figsize=(8.0, 4.3))
+    fig, ax = plt.subplots(figsize=(6.25, 3.3))  # ancho de texto: tipografía a tamaño real
     # banda de pronóstico anidada (fan chart)
     for lvl, a in [(95, 0.13), (80, 0.20), (50, 0.30)]:
         ax.fill_between(
             g.ds, _yr(g[f"BiTCN-lo-{lvl}"]), _yr(g[f"BiTCN-hi-{lvl}"]), color=BLUE, alpha=a, linewidth=0, zorder=1
         )
     # historia (contexto) y real del hold-out
-    ax.plot(ctx.index, _yr(ctx.to_numpy()), color=INK, lw=1.8, zorder=3)
-    ax.plot(g.ds, _yr(g.y.to_numpy()), color=INK, lw=1.8, zorder=4)
+    ax.plot(ctx.index, _yr(ctx.to_numpy()), color=INK, lw=1.4, zorder=3)
+    ax.plot(g.ds, _yr(g.y.to_numpy()), color=INK, lw=1.4, zorder=4)
     # pronóstico
-    ax.plot(g.ds, _yr(g.BiTCN.to_numpy()), color=BLUE, lw=1.8, ls=(0, (4, 2)), zorder=5)
+    ax.plot(g.ds, _yr(g.BiTCN.to_numpy()), color=BLUE, lw=1.4, ls=(0, (4, 2)), zorder=5)
     # línea de separación entrenamiento / pronóstico
     ax.axvline(hold_start, color=GRAY, lw=1.0, ls=":", zorder=2)
     # franja superior de respiro para los rótulos sin chocar con los datos
     ymin, ymax = ax.get_ylim()
-    head = ymax + 0.14 * (ymax - ymin)
+    head = ymax + 0.22 * (ymax - ymin)
     ax.set_ylim(ymin, head)
     ax.text(
         hold_start - pd.Timedelta(days=60),
@@ -68,17 +69,19 @@ def fig_hero(country="philippines", category="F3", table="FAD", out="results_her
         ha="right",
         va="top",
         color=GRAY,
-        fontsize=9,
+        fontsize=8,
         style="italic",
     )
     ax.text(
         hold_start + pd.Timedelta(days=60),
         head,
-        f"Pronóstico a {HOLDOUT} meses",
+        # El lapso reservado son HOLDOUT meses de pronósticos A UN PASO (no un pronóstico a 24 meses).
+        f"Pronósticos a un paso\nen el lapso reservado ({HOLDOUT} meses)",
         ha="left",
         va="top",
         color=BLUE,
-        fontsize=9,
+        fontsize=8,
+        linespacing=1.2,
         style="italic",
         fontweight="bold",
     )
@@ -90,7 +93,7 @@ def fig_hero(country="philippines", category="F3", table="FAD", out="results_her
         "real (estado F)",
         (xend, yreal),
         color=INK,
-        fontsize=8.5,
+        fontsize=8,
         xytext=(10, 6 + 10 * dy),
         textcoords="offset points",
         fontweight="bold",
@@ -100,7 +103,7 @@ def fig_hero(country="philippines", category="F3", table="FAD", out="results_her
         "pronóstico BiTCN",
         (xend, yfc),
         color=BLUE,
-        fontsize=8.5,
+        fontsize=8,
         xytext=(10, -6 - 10 * dy),
         textcoords="offset points",
         fontweight="bold",
@@ -114,8 +117,8 @@ def fig_hero(country="philippines", category="F3", table="FAD", out="results_her
         handles=bands,
         title="Intervalo de predicción",
         loc="lower right",
-        fontsize=7.5,
-        title_fontsize=7.5,
+        fontsize=7,
+        title_fontsize=7,
         frameon=False,
         ncol=3,
         handlelength=1.1,
@@ -123,7 +126,8 @@ def fig_hero(country="philippines", category="F3", table="FAD", out="results_her
         borderaxespad=0.4,
     )
     # cosmética editorial
-    ax.set_ylabel("Fecha de prioridad (año)")
+    ax.set_ylabel("Fecha de prioridad (año)", fontsize=8)
+    ax.tick_params(labelsize=8)
     ax.grid(axis="y", color=GRID, lw=0.8)
     ax.set_axisbelow(True)
     ax.xaxis.set_major_locator(mdates.YearLocator(2))
@@ -137,28 +141,37 @@ def fig_hero(country="philippines", category="F3", table="FAD", out="results_her
         "china": "China",
         "all_chargeability": "Resto del mundo",
     }[country]
-    fig.suptitle(
-        f"Pronóstico del frente de fecha de prioridad — {area} · {category} · {table}",
-        x=0.04,
+    # Titular, bajada y fuente alineados a la misma sangría izquierda que el eje.
+    fig.tight_layout()
+    x0 = ax.get_position().x0 - 0.075
+    fig.text(
+        x0,
+        1.095,
+        f"Pronóstico del frente de fecha de prioridad, {area} · {category} · {table}",
         ha="left",
-        fontsize=13,
+        va="bottom",
+        fontsize=11,
         fontweight="bold",
         color=INK,
-        y=1.02,
-    )
-    ax.set_title(
-        "La red profunda global sigue el avance de la cola migratoria y acota la incertidumbre con intervalos conformes",
-        loc="left",
-        fontsize=9.5,
-        color=GRAY,
-        pad=10,
     )
     fig.text(
-        0.04,
-        -0.02,
+        x0,
+        1.0,
+        "La red profunda global sigue el avance de la cola migratoria mes a mes y acota la\n"
+        "incertidumbre con intervalos conformes",
+        ha="left",
+        va="bottom",
+        fontsize=8,
+        color=TEXT_GRAY,
+        linespacing=1.2,
+    )
+    fig.text(
+        x0,
+        -0.03,
         "Fuente: U.S. Department of State, Visa Bulletin  ·  modelo BiTCN global  ·  bandas: intervalos conformes 50/80/95 %",
-        fontsize=7.5,
-        color=GRAY,
+        fontsize=7,
+        color=TEXT_GRAY,
+        va="top",
     )
     FIG.mkdir(parents=True, exist_ok=True)  # R21: salida local ignorada por git, ausente en un checkout limpio
     fig.savefig(FIG / out)

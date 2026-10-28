@@ -25,16 +25,16 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import matplotlib.ticker
 import numpy as np
 import pandas as pd
-from matplotlib.ticker import MaxNLocator
 
 ROOT = Path(__file__).resolve().parents[1]
 REP = ROOT / "reports"
 FIG = REP / "latex" / "Figures"
 
 from vp_model.config import BASE_EPOCH, days_to_year  # noqa: E402
-from vp_model.palette import BLUE, GOLD, GRAY, GRID, INK, MID, MUTE, STRIPE, WARN  # noqa: E402
+from vp_model.palette import BLUE, FONT_RC, GOLD, GRAY, GRID, INK, MID, MUTE, STRIPE, WARN, series_label  # noqa: E402
 
 BLACK = INK  # alias: el cuerpo usa BLACK para el texto/línea dominante
 
@@ -42,7 +42,7 @@ BLACK = INK  # alias: el cuerpo usa BLACK para el texto/línea dominante
 # monolingue y solo emite PDF, asi que no tiene variantes; pero su marco visual vive en
 # un tema reversible como el de las galerias, y se aplica al generar, no al importar.
 RESULTS_RC = {
-    "font.family": "serif",
+    **FONT_RC,
     "font.size": 9,
     "axes.titlesize": 10,
     "axes.labelsize": 9,
@@ -92,6 +92,68 @@ def _emit(fig: plt.Figure, name: str) -> None:
 #: listón que en reservado no existía.
 LISTON = {"FAD": ("ets", "theta"), "DFF": ("ets",)}
 
+#: Rótulo legible de cada modelo en el texto de las figuras (nunca el identificador crudo del código).
+MODEL_LABEL = {
+    "naive1": "naïve-1",
+    "naive": "naïve",
+    "drift": "Drift",
+    "theta": "Theta",
+    "ets": "ETS",
+    "arima": "ARIMA",
+    "sarima": "SARIMA",
+    "prophet": "Prophet",
+    "lightgbm": "LightGBM",
+    "xgboost": "XGBoost",
+    "catboost": "CatBoost",
+    "llt": "LLT",
+    "kalman": "Kalman",
+    "nlinear": "NLinear",
+    "dlinear": "DLinear",
+    "rlinear": "RLinear",
+    "tft": "TFT",
+    "tide": "TiDE",
+    "nhits": "N-HiTS",
+    "nbeats": "N-BEATS",
+    "lstm": "LSTM",
+    "arima_lstm": "ARIMA-LSTM",
+    "deepar": "DeepAR",
+    "chronos": "Chronos",
+}
+MES_ABBR = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+
+
+def _mlabel(m: str) -> str:
+    return MODEL_LABEL.get(m, m)
+
+
+def _fmt_decimal_year(v: float, _pos=None) -> str:
+    """Eje de fecha de prioridad en años decimales -> 'jul 2007' (o '2008' si cae en enero)."""
+    y = int(np.floor(v + 1e-9))
+    m = int(round((v - y) * 12))
+    if m == 12:
+        y, m = y + 1, 0
+    return f"{y}" if m == 0 else f"{MES_ABBR[m]} {y}"
+
+
+def _year_ticks(ax, max_ticks: int) -> None:
+    """Ticks del eje de años decimales en pasos de calendario (trimestre, semestre, año...)."""
+    lo, hi = ax.get_ylim()
+    for step in (0.25, 0.5, 1, 2, 5, 10, 20):
+        if (hi - lo) / step <= max_ticks:
+            break
+    ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(step))
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(_fmt_decimal_year))
+
+
+def _month_axis(ax, months: tuple[int, ...] = (1, 7)) -> None:
+    """Eje x de fechas mensuales en español ('ene\n2025') en lugar de '2025-01'."""
+    ax.xaxis.set_major_locator(mdates.MonthLocator(bymonth=months))
+    ax.xaxis.set_major_formatter(
+        matplotlib.ticker.FuncFormatter(
+            lambda v, _: f"{MES_ABBR[mdates.num2date(v).month - 1]}\n{mdates.num2date(v).year}"
+        )
+    )
+
 
 def _liston(table: str, universo: set[tuple[str, str]] | None = None) -> tuple[float, int, str]:
     """``(valor, n series, nombre)``: la mejor MASE media de reservado de los modelos del listón sobre ``universo``.
@@ -116,7 +178,7 @@ def _liston(table: str, universo: set[tuple[str, str]] | None = None) -> tuple[f
 
 # ---------- F1: ranking MASE de los 21 modelos ----------
 def fig_ranking() -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(7.2, 4.2))
+    fig, axes = plt.subplots(1, 2, figsize=(6.25, 3.9))
     for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
         df = pd.read_csv(REP / "eval" / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
         # Sólo se ranquea contra el listón lo que puntúa todas las series del listón: un modelo que no converge en
@@ -138,19 +200,20 @@ def fig_ranking() -> None:
         ax.scatter(m.values, y, color=colors, s=34, zorder=3, edgecolor=BLACK, linewidth=0.4)
         ax.axvline(liston, color=GOLD, ls="--", lw=1.3, zorder=2)
         ax.set_yticks(y)
-        ax.set_yticklabels(m.index, fontsize=7.5)
+        ax.set_yticklabels(m.index, fontsize=7.5)  # identificador crudo: lo fijan las pruebas G7 (F1)
+        ax.tick_params(axis="x", labelsize=7.5)
         notas = [f"{n_off} fuera de escala (>0.40)"] if n_off else []
         if len(parciales):
             notas.append("cobertura parcial, fuera del ranking:")
             notas.append(", ".join(f"{k} {v}/{n_series}" for k, v in parciales.items()))
-        ax.set_xlabel("\n".join(["MASE de hold-out", *notas]), fontsize=8)
-        ax.set_title(f"({'a' if table == 'FAD' else 'b'}) {table} — {n_series} series familiares")
+        ax.set_xlabel("\n".join(["MASE en el lapso reservado", *notas]), fontsize=7.5)
+        ax.set_title(f"({'a' if table == 'FAD' else 'b'}) {table} · {n_series} series familiares", fontsize=9)
         ax.text(
             liston,
             len(m) - 0.3,
             f" listón {nombre} {liston:.3f} (reservado)",
             color=GOLD,
-            fontsize=7.5,
+            fontsize=7,
             va="top",
         )
     fig.tight_layout()
@@ -165,7 +228,7 @@ def _to_year(days: np.ndarray) -> np.ndarray:
 
 def fig_forecast() -> None:
     picks = {"DFF": ("BiTCN", None), "FAD": ("BiTCN", None)}
-    fig, axes = plt.subplots(1, 2, figsize=(7.4, 3.6))
+    fig, axes = plt.subplots(1, 2, figsize=(6.25, 2.9))
     for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
         col = picks[table][0]
         d = pd.read_csv(REP / "eval" / f"deep_pi_{table}.csv", parse_dates=["ds"])
@@ -179,15 +242,17 @@ def fig_forecast() -> None:
             _to_year(g[f"{col}-hi-95"]),
             color=BLUE,
             alpha=0.15,
-            label="PI 95%",
+            label="Intervalo de predicción 95 %",
         )
         ax.plot(x, _to_year(g["y"]), color=BLACK, lw=1.6, label="Real (F)")
         ax.plot(x, _to_year(g[col]), color=BLUE, lw=1.4, ls="--", label=f"{col} (pronóstico)")
         country, _b, cat = uid.split("/")
-        ax.set_title(f"({'a' if table == 'FAD' else 'b'}) {table} — {country}/{cat}")
-        ax.set_ylabel("Fecha de prioridad (año)")
-        ax.tick_params(axis="x", labelrotation=30, labelsize=7)
-        ax.legend(fontsize=7, loc="best", framealpha=0.9)
+        ax.set_title(f"({'a' if table == 'FAD' else 'b'}) {series_label(f'{country}/{cat}/{table}')}", fontsize=9)
+        ax.set_ylabel("Fecha de prioridad", fontsize=8)
+        _year_ticks(ax, 6)
+        _month_axis(ax)
+        ax.tick_params(labelsize=7)
+        ax.legend(fontsize=6.5, loc="upper left", framealpha=0.9)
     fig.tight_layout()
     _emit(fig, "results_forecast_winner")
     print("F2 forecast OK")
@@ -265,8 +330,8 @@ def fig_multiseed() -> None:
     ax.set_yticks(ypos)
     ax.set_yticklabels(labels)
     ax.set_ylim(-0.6, len(specs) - 0.2)
-    ax.set_xlabel("MASE de hold-out")
-    ax.set_title("Validación multi-semilla: aprendizaje profundo global vs. listón")
+    ax.set_xlabel("MASE en el lapso reservado")
+    ax.set_title("Validación multi-semilla: aprendizaje profundo global frente al listón", fontsize=9.5)
     ax.legend(fontsize=7.5, loc="lower right", framealpha=0.95)
     fig.tight_layout()
     _emit(fig, "results_multiseed_ci")
@@ -319,11 +384,11 @@ def fig_coverage_crps(crps_parent_root: Path | None = None) -> None:
     # Acredita SIEMPRE: ninguna vía pública dibuja un CRPS que no pase por el lector (auditoría F4).
     crps = _crps_referencia(crps_parent_root)
     cov = pd.read_csv(REP / "eval" / "conformal_coverage.csv").set_index("table")
-    fig, (axc, axr) = plt.subplots(1, 2, figsize=(7.4, 3.5))
+    fig, (axc, axr) = plt.subplots(1, 2, figsize=(6.25, 3.0))
     # (a) cobertura
     tables = ["FAD", "DFF"]
     groups = [
-        ("baseline_coverage", "Base (nf)", GRAY),
+        ("baseline_coverage", "Base", GRAY),
         ("split_coverage", "Split-conf.", GOLD),
         ("aci_coverage", "ACI", BLUE),
     ]
@@ -336,8 +401,9 @@ def fig_coverage_crps(crps_parent_root: Path | None = None) -> None:
     axc.set_xticks(xb)
     axc.set_xticklabels(tables)
     axc.set_ylim(0.6, 1.0)
-    axc.set_ylabel("Cobertura empírica del PI 95%")
-    axc.set_title("(a) Calibración conforme adaptativa")
+    axc.set_ylabel("Cobertura empírica del IP 95 %", fontsize=8)
+    axc.set_title("(a) Calibración conforme adaptativa", fontsize=9)
+    axc.tick_params(labelsize=7.5)
     # leyenda al pie de la figura (fuera del área de barras, evita encimarse con DFF)
     # (b) CRPS por modelo (FAD): clásicos + el deep ganador (BiTCN, calculado desde sus cuantiles)
     crps["BiTCN"] = _bitcn_crps("FAD")
@@ -346,17 +412,21 @@ def fig_coverage_crps(crps_parent_root: Path | None = None) -> None:
     cols = [BLUE if m == "BiTCN" else GRAY for m in crps.index]
     axr.barh(np.arange(len(crps)), crps.values, color=cols, edgecolor=BLACK, linewidth=0.4)
     axr.set_yticks(np.arange(len(crps)))
-    axr.set_yticklabels(crps.index, fontsize=8)
-    axr.set_xlabel("CRPS (días) — menor es mejor")
-    axr.set_title("(b) Afilado de la distribución predictiva")
+    axr.set_yticklabels([_mlabel(k) for k in crps.index], fontsize=8)
+    axr.set_xlabel("CRPS (días), menor es mejor", fontsize=8)
+    axr.set_title("(b) Afilado de la distribución predictiva", fontsize=9)
+    axr.tick_params(labelsize=7.5)
     for i, v in enumerate(crps.values):
         axr.text(v, i, f" {v:.1f}", va="center", fontsize=7.5)
+    axr.set_xlim(0, float(crps.max()) * 1.2)  # margen para el rótulo del valor (antes chocaba con el marco)
+    axc.set_axisbelow(True)
+    axr.set_axisbelow(True)
     fig.tight_layout(rect=(0, 0.06, 1, 1))
     fig.legend(
         *axc.get_legend_handles_labels(),
         loc="lower center",
         ncol=3,
-        fontsize=8,
+        fontsize=7.5,
         frameon=False,
         bbox_to_anchor=(0.5, -0.01),
     )
@@ -384,7 +454,7 @@ def fig_backtest_grid(table: str) -> None:
     # G7 · puerta 2: la ventana del protocolo, y sólo si los pronósticos la cubren (antes, literales de otra añada)
     hold_start, hold_end = holdout_window.window_of(d)
     win_start = hold_start - pd.DateOffset(months=HOLDOUT)  # tantos meses de contexto como de hold-out
-    fig, axes = plt.subplots(5, 5, figsize=(9.6, 10.4), sharex=True)
+    fig, axes = plt.subplots(5, 5, figsize=(6.25, 7.6), sharex=True)  # ancho de texto: letra a tamaño real
     for r, (acode, aname) in enumerate(AREAS):
         for c, cat in enumerate(CATS):
             ax = axes[r, c]
@@ -392,7 +462,7 @@ def fig_backtest_grid(table: str) -> None:
             try:
                 full = dataset.load_series(acode, cat, table).astype("float64")
             except KeyError:
-                ax.text(0.5, 0.5, "sin datos", ha="center", va="center", fontsize=9, color=GRAY, transform=ax.transAxes)
+                ax.text(0.5, 0.5, "sin datos", ha="center", va="center", fontsize=7, color=GRAY, transform=ax.transAxes)
                 full = None
             if full is not None:
                 fw = full[full.index >= win_start]
@@ -413,16 +483,16 @@ def fig_backtest_grid(table: str) -> None:
             if hi - lo < 0.5:
                 mid = (lo + hi) / 2
                 ax.set_ylim(mid - 0.5, mid + 0.5)
-            ax.tick_params(labelsize=9, length=2)
+            ax.tick_params(labelsize=6.5, length=2, pad=1.5)
             ax.margins(x=0.02)
-            ax.xaxis.set_major_locator(mdates.YearLocator(base=2))  # tres años por panel: legibles a 9 pt
+            ax.xaxis.set_major_locator(mdates.YearLocator(base=2))  # tres años por panel
             ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
-            ax.yaxis.set_major_locator(MaxNLocator(4))
-            ax.ticklabel_format(axis="y", useOffset=False, style="plain")
+            # años decimales (2001.4) -> 'may 2001': la fecha de prioridad se lee como fecha
+            _year_ticks(ax, 4)
             if r == 0:
-                ax.set_title(cat, fontsize=12, color=BLUE, fontweight="bold", pad=4)
+                ax.set_title(cat, fontsize=9, color=BLUE, fontweight="bold", pad=3)
             if c == 0:
-                ax.set_ylabel(aname, fontsize=11, color=GRAY)
+                ax.set_ylabel(aname, fontsize=8, color=GRAY)
             for sp in ("top", "right"):
                 ax.spines[sp].set_visible(False)
     # leyenda compartida + nota
@@ -432,13 +502,13 @@ def fig_backtest_grid(table: str) -> None:
     handles = [
         Line2D([0], [0], color=BLACK, lw=1.2, label="Fecha real (estado F)"),
         Line2D([0], [0], color=BLUE, lw=1.2, ls="--", label="Pronóstico (BiTCN)"),
-        Patch(facecolor=BLUE, alpha=0.18, label="Intervalo de predicción 95%"),
+        Patch(facecolor=BLUE, alpha=0.18, label="Intervalo de predicción 95 %"),
         Patch(facecolor=STRIPE, label=f"Conjunto reservado ({HOLDOUT} meses)"),
     ]
-    fig.legend(handles=handles, loc="lower center", ncol=2, fontsize=11, frameon=False, bbox_to_anchor=(0.5, -0.005))
-    fig.supylabel("Fecha de prioridad (año)", fontsize=12)
-    fig.suptitle(f"Backtest del pronóstico sobre el conjunto reservado — tabla {table}", fontsize=14, y=0.997)
-    fig.tight_layout(rect=(0.01, 0.05, 1, 0.99))
+    fig.legend(handles=handles, loc="lower center", ncol=2, fontsize=7.5, frameon=False, bbox_to_anchor=(0.5, -0.005))
+    fig.supylabel("Fecha de prioridad", fontsize=8.5)
+    fig.suptitle(f"Backtest del pronóstico sobre el conjunto reservado · tabla {table}", fontsize=10, y=0.997)
+    fig.tight_layout(rect=(0.01, 0.045, 1, 0.99), h_pad=0.6, w_pad=0.4)
     _emit(fig, f"results_backtest_grid_{table}")
     print(f"F5 grid {table} OK")
 
@@ -498,43 +568,9 @@ def _avg_ranks(table: str):
     return avg, cd, n, k, float(ranking["friedman_p"])
 
 
-def _cd_panel(ax, avg, cd, title):
-    models = list(avg.index)
-    ranks = avg.to_numpy()
-    k = len(models)
-    lo, hi = 1, int(np.ceil(ranks.max()))
-    half = (k + 1) // 2
-    yaxis = k / 2 + 1.7
-    lowest_y = yaxis - 0.5 - (half - 1) * 0.42
-    ax.set_xlim(lo - 0.5, hi + 0.5)
-    ax.set_ylim(lowest_y - 0.45, yaxis + 1.35)
-    ax.axis("off")
-    ax.plot([lo, hi], [yaxis, yaxis], color=BLACK, lw=1.0)  # eje de rangos
-    for r in range(lo, hi + 1):
-        ax.plot([r, r], [yaxis, yaxis + 0.12], color=BLACK, lw=1.0)
-        ax.text(r, yaxis + 0.20, str(r), ha="center", va="bottom", fontsize=7)
-    ax.text((lo + hi) / 2, yaxis + 0.62, title, ha="center", fontsize=9, color=BLUE, fontweight="bold")
-    half = (k + 1) // 2
-    for i, (mdl, rk) in enumerate(zip(models, ranks, strict=True)):
-        left = i < half
-        row = (half - 1 - i) if left else (i - half)
-        ytxt = yaxis - 0.5 - row * 0.42
-        xtxt = lo - 0.4 if left else hi + 0.4
-        best = i == 0
-        col = BLUE if best else BLACK
-        ax.plot([rk, rk], [yaxis, ytxt], color=col, lw=1.4 if best else 0.8)
-        ax.plot([rk, xtxt], [ytxt, ytxt], color=col, lw=1.4 if best else 0.8)
-        ax.text(
-            xtxt + (-0.12 if left else 0.12),
-            ytxt,
-            f"{mdl} ({rk:.2f})",
-            ha="right" if left else "left",
-            va="center",
-            fontsize=7.2,
-            color=col,
-            fontweight="bold" if best else "normal",
-        )
-    # barras de cliques (modelos sin diferencia significativa: rango dentro de CD)
+def _cd_cliques(ranks: np.ndarray, cd: float) -> list[tuple[float, float]]:
+    """Grupos maximales de modelos cuyo rango cabe dentro de CD (sin diferencia significativa)."""
+    k = len(ranks)
     cliques, i = [], 0
     while i < k:
         j = i
@@ -543,47 +579,96 @@ def _cd_panel(ax, avg, cd, title):
         if j > i:
             cliques.append((ranks[i], ranks[j]))
         i += 1
-    cliques = [
+    return [
         c
         for idx, c in enumerate(cliques)
         if not any(c2[0] <= c[0] and c[1] <= c2[1] for k2, c2 in enumerate(cliques) if k2 != idx)
     ]
-    ylev = yaxis - 0.22
+
+
+def _cd_panel(ax, avg, cd, title):
+    models = list(avg.index)
+    ranks = avg.to_numpy()
+    k = len(models)
+    lo, hi = 1, int(np.ceil(ranks.max()))
+    half = (k + 1) // 2
+    cliques = _cd_cliques(ranks, cd)
+    # Las barras de grupo van en su PROPIA franja bajo el eje y los rótulos empiezan debajo de
+    # ella (antes se encimaban unas con otras y con los conectores de los primeros modelos).
+    step_c, step_r = 0.17, 0.40
+    yaxis = 0.0
+    first_row = yaxis - 0.30 - len(cliques) * step_c - 0.12
+    lowest_y = first_row - (half - 1) * step_r
+    ax.set_xlim(lo - 0.5, hi + 0.5)
+    ax.set_ylim(lowest_y - 0.3, yaxis + 1.3)
+    ax.axis("off")
+    ax.plot([lo, hi], [yaxis, yaxis], color=BLACK, lw=1.0)  # eje de rangos
+    for r in range(lo, hi + 1):
+        ax.plot([r, r], [yaxis, yaxis + 0.10], color=BLACK, lw=1.0)
+        ax.text(r, yaxis + 0.16, str(r), ha="center", va="bottom", fontsize=7)
+    ax.text(lo - 0.5, yaxis + 0.95, title, ha="left", va="bottom", fontsize=8.5, color=BLUE, fontweight="bold")
+    for i, (mdl, rk) in enumerate(zip(models, ranks, strict=True)):
+        left = i < half
+        row = (half - 1 - i) if left else (i - half)
+        ytxt = first_row - row * step_r
+        xtxt = lo - 0.4 if left else hi + 0.4
+        best = i == 0
+        col = BLUE if best else BLACK
+        ax.plot([rk, rk], [yaxis, ytxt], color=col, lw=1.3 if best else 0.6)
+        ax.plot([rk, xtxt], [ytxt, ytxt], color=col, lw=1.3 if best else 0.6)
+        ax.text(
+            xtxt + (-0.12 if left else 0.12),
+            ytxt,
+            f"{_mlabel(mdl)} ({rk:.2f})",
+            ha="right" if left else "left",
+            va="center",
+            fontsize=7.5,
+            color=col,
+            fontweight="bold" if best else "normal",
+        )
+    ylev = yaxis - 0.25
     for a, b in cliques:
-        ax.plot([a - 0.03, b + 0.03], [ylev, ylev], color=GOLD, lw=3.2, solid_capstyle="round")
-        ylev -= 0.12
+        ax.plot([a - 0.03, b + 0.03], [ylev, ylev], color=GOLD, lw=2.4, solid_capstyle="round", zorder=4)
+        ylev -= step_c
     # barra de la Diferencia Crítica
-    ax.plot([lo, lo + cd], [yaxis + 0.95, yaxis + 0.95], color=BLACK, lw=1.6)
-    ax.plot([lo, lo], [yaxis + 0.90, yaxis + 1.0], color=BLACK, lw=1.0)
-    ax.plot([lo + cd, lo + cd], [yaxis + 0.90, yaxis + 1.0], color=BLACK, lw=1.0)
-    ax.text(lo + cd / 2, yaxis + 1.02, f"CD = {cd:.2f}", ha="center", va="bottom", fontsize=7)
+    ax.plot([hi - cd, hi], [yaxis + 0.62, yaxis + 0.62], color=BLACK, lw=1.4)
+    ax.plot([hi - cd, hi - cd], [yaxis + 0.57, yaxis + 0.67], color=BLACK, lw=1.0)
+    ax.plot([hi, hi], [yaxis + 0.57, yaxis + 0.67], color=BLACK, lw=1.0)
+    ax.text(hi - cd / 2, yaxis + 0.70, f"CD = {cd:.2f}", ha="center", va="bottom", fontsize=7)
 
 
 def fig_cd_diagram() -> None:
-    fig, axes = plt.subplots(2, 1, figsize=(7.4, 6.6))
+    fig, axes = plt.subplots(2, 1, figsize=(5.9, 7.2))  # 0.92 del ancho de texto
     for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
         avg, cd, n, k, pval = _avg_ranks(table)
         ptxt = "p < 0.001" if pval < 0.001 else f"p = {pval:.3f}"
         _cd_panel(
-            ax, avg, cd, f"({'a' if table == 'FAD' else 'b'}) {table} — {k} modelos, {n} series · Friedman {ptxt}"
+            ax, avg, cd, f"({'a' if table == 'FAD' else 'b'}) {table} · {k} modelos, {n} series · Friedman {ptxt}"
         )
-    fig.tight_layout(h_pad=1.2)
+    fig.tight_layout(h_pad=1.0)
     _emit(fig, "results_cd_diagram")
     print("F6 CD-diagram OK")
 
 
 # ---------- F7: heatmap de error por serie (área x categoría) ----------
 def fig_error_heatmap() -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(7.6, 3.8))
+    fig, axes = plt.subplots(1, 2, figsize=(6.25, 2.8), sharey=True)
     anames = [a[1] for a in AREAS]
-    for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
+    mats = {}
+    for table in ("FAD", "DFF"):
         d = pd.read_csv(REP / "prospective" / f"forecast_vs_actual_{table}.csv")
         d["area"] = pd.Categorical(d["area"], [a[1] for a in AREAS], ordered=True)
-        m = d.pivot_table(index="area", columns="cat", values="mae_dias", observed=True).reindex(anames)[CATS]
+        mats[table] = d.pivot_table(index="area", columns="cat", values="mae_dias", observed=True).reindex(anames)[CATS]
+    # UNA escala de color para los dos paneles (antes cada uno tenía la suya y el mismo tono
+    # significaba cifras distintas) y una sola barra rotulada en días.
+    vmax = float(max(np.nanmax(m.to_numpy()) for m in mats.values()))
+    for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
+        m = mats[table]
         ax.grid(False)
-        im = ax.imshow(m.to_numpy(), cmap=WARN, aspect="auto", vmin=0, vmax=float(np.nanmax(m.to_numpy())))
+        im = ax.imshow(m.to_numpy(), cmap=WARN, aspect="auto", vmin=0, vmax=vmax)
         ax.set_xticks(range(len(CATS)), CATS, fontsize=8)
         ax.set_yticks(range(len(anames)), anames, fontsize=8)
+        ax.tick_params(length=0)
         for i in range(m.shape[0]):
             for j in range(m.shape[1]):
                 v = m.to_numpy()[i, j]
@@ -595,13 +680,17 @@ def fig_error_heatmap() -> None:
                         ha="center",
                         va="center",
                         fontsize=7.5,
-                        color="white" if v > 0.6 * np.nanmax(m.to_numpy()) else BLACK,
+                        color="white" if v > 0.6 * vmax else BLACK,
                     )
         ax.set_title(f"({'a' if table == 'FAD' else 'b'}) {table}", fontsize=9, color=BLUE, fontweight="bold")
-        cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        cb.ax.tick_params(labelsize=6)
-    fig.suptitle("Error absoluto medio del pronóstico por serie (días)", fontsize=10, y=1.02)
-    fig.tight_layout()
+    fig.suptitle("Error absoluto medio del pronóstico por serie", fontsize=10, y=0.97)
+    fig.tight_layout(rect=(0, 0, 0.9, 1))
+    cax = fig.add_axes((0.915, axes[0].get_position().y0, 0.018, axes[0].get_position().height))
+    cb = fig.colorbar(im, cax=cax)
+    cb.set_label("días", fontsize=8)
+    cb.ax.grid(False)
+    cb.ax.spines["outline"].set_linewidth(0.5)
+    cb.ax.tick_params(labelsize=7)
     _emit(fig, "results_error_heatmap")
     print("F7 heatmap OK")
 

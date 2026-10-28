@@ -28,6 +28,7 @@ matplotlib.use("Agg")
 from collections.abc import Callable
 from functools import partial
 
+import matplotlib.dates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -50,6 +51,7 @@ from vp_model import palette as _palette
 from vp_model.config import DAYS_PER_YEAR, days_to_year
 from vp_model.palette import (
     COUNTRY_NAME,
+    cat_label,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -134,7 +136,7 @@ TXT: dict[str, dict] = {
         "g03_foot": "Atraso = mes del boletín − fecha de prioridad vigente.",
         "g04_note": "{name} ({table})\n{mes} {anio}: −{yrs} años",
         "g04_ylabel": "Retroceso del mes (años)",
-        "g04_head": "{n} veces la fila retrocedió — y unas pocas fueron terremotos",
+        "g04_head": "{n} veces la fila retrocedió, y unas pocas fueron terremotos",
         "g04_sub": "Cada punto es un mes de retrogresión en alguna de las series (el {pct}% de los avances "
         "observados); el tamaño es proporcional al retroceso.",
         "g05_gap": "la brecha más ancha: {yrs} años",
@@ -152,12 +154,12 @@ TXT: dict[str, dict] = {
         "g06_kick": "arranque del año fiscal",
         "g06_head": "El año fiscal apenas late: el mes típico avanza entre {lo} y {hi} días",
         "g06_sub": "Avance mediano del panel completo por mes (columnas en orden del año fiscal, octubre primero) "
-        "y por año fiscal (filas). No hay estacionalidad explotable — un hallazgo, no una carencia.",
+        "y por año fiscal (filas). No hay estacionalidad explotable: un hallazgo, no una carencia.",
         "g06_foot": "Escala de color recortada al percentil 98.",
         "g07_cb": "mejor correlación (±6 meses)",
         "g07_lag_some": "Se anota el retardo cuando no es cero.",
         "g07_lag_zero": "En TODAS las parejas el mejor retardo es 0: el co-movimiento es contemporáneo "
-        "— nadie anticipa a nadie.",
+        "y nadie anticipa a nadie.",
         "g07_head": "Solo {n} pareja{s} de áreas se mueven de la mano",
         "g07_sub": "Mejor correlación cruzada de los avances (familiar FAD, retardos de ±6 meses).\n"
         "{lag_note} La heterogeneidad justifica modelar cada serie.",
@@ -184,19 +186,20 @@ TXT: dict[str, dict] = {
             "south_america_caribbean": "Sudamérica y Caribe",
         },
         "g10_ylabel": "Rango de corte publicado",
+        "g10_thousands": "{n} mil",
         "g10_head": "La lotería también hace fila: {region} corta en {n} mil",
         "g10_sub": "Rango de corte del sorteo de diversidad por región ({n} observaciones). Es un NÚMERO de "
         "sorteo, no una fecha: hecho descriptivo separado, fuera del objetivo predictivo.",
         "g10_foot": "El diente de sierra es el ciclo del año fiscal: el corte sube y se reinicia.",
         "g11_xlabel": "Fracción de los meses de la serie",
-        "g11_F": "F (fecha publicada — entrenable)",
+        "g11_F": "F (fecha publicada, entrenable)",
         "g11_C": "C (Current)",
         "g11_U": "U (Unavailable)",
         "g11_nodata": "sin dato",
         "g11_cont_x": "Continuidad del tramo F",
         "g11_cont_y": "Series",
         "g11_title": "{nf} series con fechas;\n{ne} plenamente evaluables",
-        "g11_head": "El {p}% del panel es entrenable — y está censado serie por serie",
+        "g11_head": "El {p}% del panel es entrenable y está censado serie por serie",
         "g11_sub": "Composición de régimen de las {n} series estructurales (izquierda, ordenadas "
         "por % de fechas dentro de cada bloque) y continuidad del tramo con fechas (derecha).",
         "g11_foot": "Cobertura escalonada: estructural → con fechas → evaluable.",
@@ -276,6 +279,7 @@ TXT: dict[str, dict] = {
             "south_america_caribbean": "South America & Caribbean",
         },
         "g10_ylabel": "Published cutoff rank",
+        "g10_thousands": "{n}k",
         "g10_head": "The lottery waits in line too: {region} cuts at {n}k",
         "g10_sub": "Diversity-lottery cutoff rank by region ({n} observations). It is a lottery NUMBER, not a "
         "date: a separate descriptive fact, outside the predictive target.",
@@ -294,6 +298,11 @@ TXT: dict[str, dict] = {
         "g11_foot": "Tiered coverage: structural → with dates → evaluable.",
     },
 }
+
+
+def _cat(code: str, ctx: FigureContext) -> str:
+    """Rótulo legible de categoría (ES: 'EB-3 otros trabajadores'; EN: 'EB-3_OW' como antes)."""
+    return cat_label(code) if ctx.lang.code == "es" else code.replace("EB", "EB-")
 
 
 def _spread(vals: list[float], min_gap: float) -> list[float]:
@@ -371,7 +380,7 @@ def g01_panel(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     rows = df.set_index(["country", "block", "category", "table"]).index.map(row_of)
     mat[rows, per] = cls
 
-    fig, ax = plt.subplots(figsize=(8.6, 11.0))
+    fig, ax = plt.subplots(figsize=(6.2, 8.0))  # ancho de texto: letra a tamaño real
     ax.imshow(mat, aspect="auto", cmap=ListedColormap(colors), vmin=0, vmax=5, interpolation="nearest")
     # separadores + etiquetas de grupo país (bloque×tabla a la derecha)
     bounds, labels_y = [], []
@@ -386,7 +395,7 @@ def g01_panel(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     bounds.append(len(order))
     for a, b in zip(bounds[:-1], bounds[1:], strict=True):
         c, block, _cat, table = order[a]
-        ax.text(-4, (a + b - 1) / 2, CNAME[c], ha="right", va="center", fontsize=6.4, color=INK)
+        ax.text(-4, (a + b - 1) / 2, CNAME[c], ha="right", va="center", fontsize=7, color=INK)
         labels_y.append(((a + b - 1) / 2, block, table))
     # bandas bloque×tabla a la derecha
     seen = set()
@@ -410,22 +419,22 @@ def g01_panel(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     years = pd.period_range(months[0], months[-1], freq="Y")
     xt = [m_idx[pd.Period(f"{y.year}-01", freq="M")] for y in years if pd.Period(f"{y.year}-01", freq="M") in m_idx]
     ax.set_xticks(
-        xt[::2], [str(y.year) for y in years if pd.Period(f"{y.year}-01", freq="M") in m_idx][::2], fontsize=7
+        xt[::4], [str(y.year) for y in years if pd.Period(f"{y.year}-01", freq="M") in m_idx][::4], fontsize=7.5
     )
     ax.set_yticks([])
     for sp in ax.spines.values():
         sp.set_visible(False)
     ax.tick_params(length=0)
 
-    fig.subplots_adjust(top=0.965, bottom=0.075, left=0.09, right=0.93)
+    fig.subplots_adjust(top=0.965, bottom=0.085, left=0.13, right=0.88)
     p = facts["panel"]
     header(
         fig,
         T["g01_head"].format(n=num(p["n_obs"])),
         T["g01_sub"].format(n=p["n_series_structural"], pct=f"{p['pct_frozen']:.0f}"),
         ctx,
-        y=0.975,
-        dy=0.022,
+        y=None,
+        dy=None,
     )
     fig.legend(
         handles=[
@@ -435,13 +444,15 @@ def g01_panel(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
             Patch(fc=TEAL, label=T["leg_current"]),
             Patch(fc=UNK_FILL, ec=MID, lw=0.4, label=T["leg_nodata"]),
         ],
-        loc="lower center",
+        loc="upper center",
         ncol=5,
-        fontsize=7.6,
+        fontsize=7.5,
         frameon=False,
-        bbox_to_anchor=(0.5, 0.038),
+        handlelength=1.2,
+        columnspacing=1.0,
+        bbox_to_anchor=(0.5, 0.055),
     )
-    footer(fig, facts["vintage"], ctx, T["g01_foot"], y=0.022)
+    footer(fig, facts["vintage"], ctx, T["g01_foot"], y=None, fs=7)
     return _save(fig, "g01_panel", ctx)
 
 
@@ -610,7 +621,7 @@ def g04_retros(facts: dict, ctx: FigureContext) -> plt.Figure:
     ev = pd.DataFrame(facts["retro_events"])
     ev["date_ts"] = pd.to_datetime(ev.date + "-01")
     ev["years_lost"] = ev.days / DAYS_PER_YEAR
-    fig, ax = plt.subplots(figsize=(8.6, 4.6))
+    fig, ax = plt.subplots(figsize=(6.3, 3.6))  # ancho de texto: letra a tamaño real
     ax.scatter(
         ev.date_ts,
         ev.years_lost,
@@ -628,7 +639,7 @@ def g04_retros(facts: dict, ctx: FigureContext) -> plt.Figure:
         dx, dy, ha = (10, -4, "left") if i % 2 == 0 else (-10, -16, "right")
         ax.annotate(
             T["g04_note"].format(
-                name=f"{CNAME[r.country]} {r.category.replace('EB', 'EB-')}",
+                name=f"{CNAME[r.country]} {_cat(r.category, ctx)}",
                 table=r.table,
                 mes=MESL[d.month],
                 anio=d.year,
@@ -637,7 +648,7 @@ def g04_retros(facts: dict, ctx: FigureContext) -> plt.Figure:
             (r.date_ts, r.years_lost),
             xytext=(dx, dy),
             textcoords="offset points",
-            fontsize=7.2,
+            fontsize=7,
             color=INK,
             ha=ha,
             arrowprops={"arrowstyle": "-", "color": MID, "lw": 0.7},
@@ -647,11 +658,14 @@ def g04_retros(facts: dict, ctx: FigureContext) -> plt.Figure:
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
     handles = [plt.Line2D([0], [0], marker="o", ls="", mfc=COUNTRY[c], mec=PAPER, ms=6, label=CNAME[c]) for c in PILOT]
-    fig.legend(handles=handles, fontsize=7.6, frameon=False, loc="lower center", ncol=5, bbox_to_anchor=(0.5, -0.005))
+    ax.tick_params(labelsize=8)
+    ax.yaxis.label.set_fontsize(8.5)
+    fig.subplots_adjust(bottom=0.17, top=0.97, left=0.09, right=0.98)
+    fig.legend(handles=handles, fontsize=7.5, frameon=False, loc="lower center", ncol=5, bbox_to_anchor=(0.5, -0.005))
     n = len(ev)
     pct = facts["panel"]["pct_retro"]
-    header(fig, T["g04_head"].format(n=n), T["g04_sub"].format(pct=f"{pct:.1f}"), ctx)
-    footer(fig, facts["vintage"], ctx, y=-0.085)
+    header(fig, T["g04_head"].format(n=n), T["g04_sub"].format(pct=f"{pct:.1f}"), ctx, y=None, dy=None)
+    footer(fig, facts["vintage"], ctx, y=None, fs=7)
     return _save(fig, "g04_retros", ctx)
 
 
@@ -672,13 +686,13 @@ def g05_brecha(facts: dict, ctx: FigureContext) -> plt.Figure:
     wide = wide.sort_values("FAD").reset_index(drop=True)
     if len(wide) > 22:
         wide = wide.tail(22).reset_index(drop=True)
-    fig, ax = plt.subplots(figsize=(8.0, 6.2))
+    fig, ax = plt.subplots(figsize=(5.8, 5.0))  # 0.92 del ancho de texto: letra a tamaño real
     for i, r in wide.iterrows():
         ax.plot([r.DFF, r.FAD], [i, i], color=MUTE, lw=2.2, zorder=1, solid_capstyle="round")
         ax.scatter(r.FAD, i, color=BLUE, s=42, zorder=3)
         ax.scatter(r.DFF, i, color=GOLD, s=42, zorder=3, edgecolor=INK, lw=0.4)
-        name = f"{CNAME[r.country]} {r.category.replace('EB', 'EB-')}"
-        ax.text(-0.4, i, name, ha="right", va="center", fontsize=7.6, color=INK)
+        name = f"{CNAME[r.country]} {_cat(r.category, ctx)}"
+        ax.text(-0.4, i, name, ha="right", va="center", fontsize=7.5, color=INK)
     big = wide.loc[wide.gap.idxmax()]
     ax.annotate(
         T["g05_gap"].format(yrs=f"{big.gap:.1f}"),
@@ -687,21 +701,24 @@ def g05_brecha(facts: dict, ctx: FigureContext) -> plt.Figure:
         textcoords="offset points",
         ha="left",
         va="center",
-        fontsize=7.8,
+        fontsize=7.5,
         color=GRAY,
         arrowprops={"arrowstyle": "-", "color": MID, "lw": 0.7},
     )
     ax.scatter([], [], color=BLUE, s=42, label=T["g05_fad"])
     ax.scatter([], [], color=GOLD, s=42, edgecolor=INK, lw=0.4, label=T["g05_dff"])
-    ax.legend(fontsize=8, frameon=False, loc="lower right")
-    ax.set_xlabel(T["g05_xlabel"])
+    ax.legend(fontsize=7.5, frameon=False, loc="lower right")
+    ax.set_xlabel(T["g05_xlabel"], fontsize=8.5)
+    ax.tick_params(labelsize=8)
     ax.set_yticks([])
     ax.set_xlim(left=-6.5)
+    ax.set_xticks(range(0, int(np.ceil(wide[["FAD", "DFF"]].to_numpy().max())) + 1, 5))  # sin ticks negativos
     ax.grid(True, axis="x", color=GRID, lw=0.6)
     for sp in ("top", "right", "left"):
         ax.spines[sp].set_visible(False)
-    header(fig, T["g05_head"].format(n=f"{med_gap:.0f}"), T["g05_sub"], ctx, y=0.985, dy=0.04)
-    footer(fig, facts["vintage"], ctx, T["g05_foot"], y=0.02)
+    fig.subplots_adjust(top=0.98, bottom=0.09, left=0.2, right=0.98)
+    header(fig, T["g05_head"].format(n=f"{med_gap:.0f}"), T["g05_sub"], ctx, y=None, dy=None)
+    footer(fig, facts["vintage"], ctx, T["g05_foot"], y=None, fs=7)
     return _save(fig, "g05_brecha", ctx)
 
 
@@ -793,11 +810,12 @@ def g07_leadlag(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure
             rs = [(sig[a].corr(sig[b].shift(k)), k) for k in lags]
             r, k = max(rs, key=lambda t: t[0] if not np.isnan(t[0]) else -9)
             best_r[i, j], best_l[i, j] = r, k
-    fig, ax = plt.subplots(figsize=(5.6, 5.0))
+    fig, ax = plt.subplots(figsize=(3.9, 3.7))  # 0.62 del ancho de texto: letra a tamaño real
     im = ax.imshow(best_r, cmap=SEQ, vmin=0, vmax=1)
     names = [CNAME[c] for c in PILOT]
-    ax.set_xticks(range(n), names, rotation=30, ha="right", fontsize=8)
-    ax.set_yticks(range(n), names, fontsize=8)
+    ax.set_xticks(range(n), names, rotation=30, ha="right", fontsize=7.5)
+    ax.set_yticks(range(n), names, fontsize=7.5)
+    ax.tick_params(length=2, pad=2)
     any_lag = False
     for i in range(n):
         for j in range(n):
@@ -810,11 +828,12 @@ def g07_leadlag(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure
                 f"{best_r[i, j]:.2f}{lag_txt}",
                 ha="center",
                 va="center",
-                fontsize=8,
+                fontsize=7,
                 color=PAPER if dark else INK,
             )
-    cb = fig.colorbar(im, ax=ax, fraction=0.045)
-    cb.set_label(T["g07_cb"], fontsize=7.5)
+    cb = fig.colorbar(im, ax=ax, fraction=0.045, pad=0.03)
+    cb.set_label(T["g07_cb"], fontsize=7)
+    cb.ax.tick_params(labelsize=7, length=2)
     mask = ~np.eye(n, dtype=bool)
     strong = int((best_r[mask] > 0.5).sum() // 2)
     lag_note = T["g07_lag_some"] if any_lag else T["g07_lag_zero"]
@@ -823,10 +842,12 @@ def g07_leadlag(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure
         T["g07_head"].format(n=strong, s="s" if strong != 1 else ""),
         T["g07_sub"].format(lag_note=lag_note),
         ctx,
-        y=0.99,
-        dy=0.075,
+        y=None,
+        dy=None,
+        head_fs=9.5,
+        sub_fs=7.5,
     )
-    footer(fig, facts["vintage"], ctx, y=-0.075)
+    footer(fig, facts["vintage"], ctx, y=None, fs=6.5)
     return _save(fig, "g07_leadlag", ctx)
 
 
@@ -953,14 +974,19 @@ def g10_dv(facts: dict, ctx: FigureContext) -> plt.Figure:
     region_name = T["g10_regions"]
     palette = [BLUE, WINE, GOLD, TEAL, SLATE, MID]
     regions = sorted(dv.region.unique())
-    fig, ax = plt.subplots(figsize=(8.6, 4.8))
+    fig, ax = plt.subplots(figsize=(6.3, 3.5))  # ancho de texto: letra a tamaño real
     ends = {}
     for i, reg in enumerate(regions):
         g = dv[dv.region == reg].sort_values("visa_bulletin_date")
         ax.plot(g.visa_bulletin_date, g.rank_cutoff, color=palette[i % 6], lw=1.1, alpha=0.85)
         ends[reg] = float(g.iloc[-1].rank_cutoff)
     # etiquetas directas al borde derecho, des-colisionadas (las 3 regiones chicas van pegadas a 0)
-    ys = _spread([ends[r] for r in regions], min_gap=3600)
+    ax.set_xlim(dv.visa_bulletin_date.min(), dv.visa_bulletin_date.max() + pd.DateOffset(months=64))
+    # separación mínima = alto de un renglón de 7.5 pt en unidades del eje (antes un literal que
+    # dejaba encimarse los rótulos al cambiar el tamaño de la figura)
+    y0, y1 = ax.get_ylim()
+    ax_h_in = ax.get_position().height * fig.get_size_inches()[1]
+    ys = _spread([ends[r] for r in regions], min_gap=(y1 - y0) * (7.5 * 1.3 / 72.0) / ax_h_in)
     for i, (reg, ylab) in enumerate(zip(regions, ys, strict=True)):
         ax.annotate(
             region_name.get(reg, reg.replace("_", " ").title()),
@@ -968,13 +994,18 @@ def g10_dv(facts: dict, ctx: FigureContext) -> plt.Figure:
             xytext=(8, 0),
             textcoords="offset points",
             color=palette[i % 6],
-            fontsize=8,
+            fontsize=7.5,
             fontweight="bold",
             va="center",
         )
     ax.set_ylabel(T["g10_ylabel"])
-    ax.yaxis.set_major_formatter(lambda v, _: f"{int(v / 1000)}k" if v else "0")
-    ax.set_xlim(dv.visa_bulletin_date.min(), dv.visa_bulletin_date.max() + pd.DateOffset(months=64))
+    ax.yaxis.set_major_formatter(lambda v, _: T["g10_thousands"].format(n=int(v / 1000)) if v else "0")
+    ax.tick_params(labelsize=8)
+    ax.yaxis.label.set_fontsize(8.5)
+    # ticks sólo donde hay datos (el margen derecho es para los rótulos, no para años vacíos)
+    y_first, y_last = dv.visa_bulletin_date.min().year + 1, dv.visa_bulletin_date.max().year
+    ax.set_xticks([pd.Timestamp(f"{y}-01-01") for y in range(y_first + (y_first % 2), y_last + 1, 4)])
+    ax.xaxis.set_major_formatter(lambda v, _: f"{matplotlib.dates.num2date(v).year}")
     ax.grid(True, axis="y", color=GRID, lw=0.6)
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
@@ -985,8 +1016,10 @@ def g10_dv(facts: dict, ctx: FigureContext) -> plt.Figure:
         T["g10_head"].format(region=region_name.get(top.region, top.region), n=int(top.rank_cutoff / 1000)),
         T["g10_sub"].format(n=num(facts["dv"]["n_rows"])),
         ctx,
+        y=None,
+        dy=None,
     )
-    footer(fig, facts["vintage"], ctx, T["g10_foot"])
+    footer(fig, facts["vintage"], ctx, T["g10_foot"], y=None, fs=7)
     return _save(fig, "g10_dv", ctx)
 
 
@@ -1002,7 +1035,7 @@ def g11_completitud(facts: dict, ctx: FigureContext) -> plt.Figure:
     order_block = {"family": 0, "employment": 1}
     census = census.sort_values(["block", "pct_F"], key=lambda s: s.map(order_block) if s.name == "block" else s)
     census = census.reset_index(drop=True)
-    fig, (ax, axh) = plt.subplots(1, 2, figsize=(9.2, 6.4), width_ratios=(2.1, 1), gridspec_kw={"wspace": 0.16})
+    fig, (ax, axh) = plt.subplots(1, 2, figsize=(6.3, 4.6), width_ratios=(1.9, 1), gridspec_kw={"wspace": 0.22})
     colors = {"n_F": BLUE, "n_C": TEAL, "n_U": WINE, "n_UNK": NODATA}
     left = np.zeros(len(census))
     for col, colr in colors.items():
@@ -1046,26 +1079,29 @@ def g11_completitud(facts: dict, ctx: FigureContext) -> plt.Figure:
             Patch(fc=WINE, label=T["g11_U"]),
             Patch(fc=NODATA, label=T["g11_nodata"]),
         ],
-        fontsize=7.2,
+        fontsize=7,
         frameon=False,
-        loc="lower left",
-        bbox_to_anchor=(-0.06, -0.185),
-        ncol=4,
+        loc="upper left",
+        bbox_to_anchor=(-0.06, -0.11),
+        ncol=2,
         columnspacing=1.1,
         handletextpad=0.5,
     )
+    ax.tick_params(labelsize=7.5)
+    ax.xaxis.label.set_size(8)
     # panel derecho: continuidad de las series CON observaciones F + umbral evaluable
     ev = census[census.n_F > 0]
     axh.hist(ev.continuity, bins=24, color=BLUE, edgecolor=PAPER, lw=0.5)
-    axh.set_xlabel(T["g11_cont_x"])
-    axh.set_ylabel(T["g11_cont_y"])
+    axh.set_xlabel(T["g11_cont_x"], fontsize=8)
+    axh.set_ylabel(T["g11_cont_y"], fontsize=8)
+    axh.tick_params(labelsize=7.5)
     axh.grid(True, axis="y", color=GRID, lw=0.6)
     for sp in ("top", "right"):
         axh.spines[sp].set_visible(False)
     n_eval = facts["panel"]["n_series_evaluable"]
     axh.set_title(
         T["g11_title"].format(nf=int((census.n_F > 0).sum()), ne=n_eval),
-        fontsize=8.5,
+        fontsize=8,
         color=BLUE,
     )
     p = facts["panel"]
@@ -1074,10 +1110,10 @@ def g11_completitud(facts: dict, ctx: FigureContext) -> plt.Figure:
         T["g11_head"].format(p=p["pct_trainable_F"]),
         T["g11_sub"].format(n=p["n_series_structural"]),
         ctx,
-        y=0.975,
-        dy=0.04,
+        y=None,
+        dy=None,
     )
-    footer(fig, facts["vintage"], ctx, T["g11_foot"], y=-0.055)
+    footer(fig, facts["vintage"], ctx, T["g11_foot"], y=None, fs=7)
     return _save(fig, "g11_completitud", ctx)
 
 
