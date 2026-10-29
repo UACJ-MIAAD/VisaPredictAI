@@ -118,7 +118,8 @@ def test_la_prosa_del_tex_usa_macros_y_no_numeros_sueltos() -> None:
     """RED de cifra tecleada: la subsección cita macros, no dígitos."""
     tex = TEX.read_text()
     inicio = tex.index("Cohortes de estabilidad y enrutado por cohorte")
-    fin = tex.index("\\begin{table}[H]", inicio)
+    fin = tex.index("\\begin{table}", inicio)  # any placement: [H] before the reduction, [tbp] after
+    assert "\\label{tab:cohortes}" in tex[fin : tex.index("\\end{table}", fin)]
     cuerpo = tex[inicio:fin]
     assert "\\cohortFact" in cuerpo
     sueltos = [
