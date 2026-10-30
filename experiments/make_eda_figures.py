@@ -48,6 +48,9 @@ PRINT_W = {
     "eda2_violin_category": 5.16,
     "eda2_seasonality": 5.16,
     "eda2_corr": 4.92,
+    "eda2_ridgeline": 5.16,
+    "eda2_regime": 4.80,
+    "eda2_length_retro": 6.00,
 }
 TICK_FS, LABEL_FS, TITLE_FS = 7.5, 8.5, 9.5  # marcas ≥ 7 pt, rótulos de eje 8-9 pt (impresos)
 MES3 = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
@@ -134,7 +137,9 @@ def fig_ridgeline() -> None:
     g = f[f.delta.between(-90, 200)]
     pal = [SEQ(v) for v in np.linspace(0.40, 0.92, len(CATS))]
     xs = np.linspace(-90, 200, 400)
-    fig, ax = plt.subplots(figsize=(5.4, 3.2))  # 0.86 del ancho de texto
+    # 0.86 del ancho de texto: con este lienzo el recorte `tight` mide 5.16 in y la letra se imprime 1:1
+    # (antes 4.56 in ampliados al 113 %)
+    fig, ax = plt.subplots(figsize=(6.2, 3.2))
     for i, cat in enumerate(reversed(CATS)):  # F4 abajo, F1 arriba
         vals = g[g.category == cat].delta.dropna().to_numpy()
         if len(vals) < 5:
@@ -164,23 +169,34 @@ def fig_regime() -> None:
     """Composición de régimen C/F/U/UNK por área x categoría (familiar, ambas tablas)."""
     d = pd.read_csv(ROOT / "data" / "processed" / "visa_panel_long.csv")
     fam = d[d.block == "family"].copy()
-    fam["serie"] = fam.country.map(CNAME) + "/" + fam.category
+    fam["serie"] = fam.country.map(CNAME) + " · " + fam.category
     order_status = ["F", "C", "U", "UNK"]
     cmap = {s: REGIME[s]["line"] for s in order_status}
+    # el código del régimen con su significado (la leyenda decía solo «F C U UNK»)
+    rotulo = {"F": "F: fecha publicada", "C": "C: vigente", "U": "U: no disponible", "UNK": "UNK: sin dato"}
     comp = fam.groupby(["serie", "status"]).size().unstack(fill_value=0)
     comp = comp.reindex(columns=order_status, fill_value=0)
-    comp = comp.div(comp.sum(axis=1), axis=0).sort_values("F")
-    fig, ax = plt.subplots(figsize=(7.0, 6.6))
+    comp = comp.div(comp.sum(axis=1), axis=0).sort_values("F", kind="stable")
+    # Impresa a 0.80 del ancho de texto (4.80 in): se dibuja a ese ancho para que los 25 rótulos de serie se
+    # impriman a 7 pt (antes 6.65 in reducidos al 72 %: 4.7 pt).
+    fig, ax = plt.subplots(figsize=(4.9, 5.2))
     left = np.zeros(len(comp))
     for s in order_status:
-        ax.barh(comp.index, comp[s], left=left, color=cmap[s], label=s, height=0.8, edgecolor="white", linewidth=0.3)
+        ax.barh(
+            comp.index, comp[s], left=left, color=cmap[s], label=rotulo[s], height=0.8, edgecolor="white", linewidth=0.3
+        )
         left += comp[s].to_numpy()
     ax.set_xlim(0, 1)
-    ax.set_xlabel("Fracción de meses en cada régimen")
-    ax.set_title("Composición de régimen por serie (preferencia familiar)", fontsize=10, color=BLUE, pad=10)
-    # leyenda al pie (evita encimarse con el título arriba)
-    fig.legend(ncol=4, loc="lower center", bbox_to_anchor=(0.5, -0.015), fontsize=8, frameon=False)
-    ax.tick_params(axis="y", labelsize=6.5)
+    ax.set_ylim(-0.6, len(comp) - 0.4)
+    ax.set_xlabel("Fracción de meses en cada régimen", fontsize=LABEL_FS)
+    ax.set_title("Composición de régimen por serie (preferencia familiar)", fontsize=TITLE_FS, color=BLUE, pad=6)
+    ax.tick_params(axis="y", labelsize=7, length=2, pad=2)
+    ax.tick_params(axis="x", labelsize=TICK_FS)
+    fig.tight_layout()
+    # leyenda al pie, bajo el rótulo del eje (evita encimarse con el título arriba)
+    ax.legend(
+        ncol=2, loc="upper center", bbox_to_anchor=(0.5, -0.11), fontsize=TICK_FS, frameon=False, columnspacing=1.2
+    )
     _save(fig, "eda2_regime.pdf")
     plt.close(fig)
     print("eda2_regime OK")
@@ -311,7 +327,10 @@ def fig_corr() -> None:
 
 
 def fig_length_retro() -> None:
-    fig, (a1, a2) = plt.subplots(1, 2, figsize=(6.25, 2.9), gridspec_kw={"wspace": 0.3})  # ancho de texto
+    # Ancho de texto: con este lienzo el recorte `tight` mide PRINT_W["eda2_length_retro"] (6.00 in). La
+    # separación entre paneles va en `tight_layout(w_pad=...)`: un `wspace` fijado en la retícula hacía que
+    # `tight_layout` la declarara incompatible y no ajustara nada (quedaban 0.8 in en blanco).
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(6.1, 3.0))
     # longitud por serie (FAD+DFF familiar)
     d = pd.read_csv(ROOT / "data" / "processed" / "visa_panel_long.csv")
     fam = d[(d.block == "family") & (d.status == "F")]
@@ -359,7 +378,7 @@ def fig_length_retro() -> None:
     a2.set_title("(b) Retrogresiones por serie\n(solo se rotulan las extremas)", fontsize=9, color=BLUE)
     for a in (a1, a2):
         a.tick_params(labelsize=8)
-    fig.tight_layout()
+    fig.tight_layout(w_pad=2.0)
     _save(fig, "eda2_length_retro.pdf")
     plt.close(fig)
     print("eda2_length_retro OK")

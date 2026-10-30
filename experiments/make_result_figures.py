@@ -201,9 +201,15 @@ def _liston(table: str, universo: set[tuple[str, str]] | None = None) -> tuple[f
     return min(medias.values()), len(series), nombre
 
 
+#: Ancho impreso en el `.tex` (ancho de texto = 6.00 in): la figura se dibuja a ese ancho para que la letra salga a su
+#: tamaño real. El alto natural se elige para que el recorte ``tight`` quede en ese ancho.
+GRID_W_IN = 6.05
+
+
 # ---------- F1: ranking MASE de los 21 modelos ----------
+@_imprenta
 def fig_ranking() -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(6.25, 3.9))
+    fig, axes = plt.subplots(1, 2, figsize=(GRID_W_IN, 3.9))  # ancho de texto: letra a tamaño real
     for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
         df = pd.read_csv(REP / "eval" / f"model_comparison_{table}21.csv").pipe(lambda d: d[d.run_id == d.run_id.max()])
         # Sólo se ranquea contra el listón lo que puntúa todas las series del listón: un modelo que no converge en
@@ -225,12 +231,12 @@ def fig_ranking() -> None:
         ax.scatter(m.values, y, color=colors, s=34, zorder=3, edgecolor=BLACK, linewidth=0.4)
         ax.axvline(liston, color=GOLD, ls="--", lw=1.3, zorder=2)
         ax.set_yticks(y)
-        ax.set_yticklabels(m.index, fontsize=7.5)  # identificador crudo: lo fijan las pruebas G7 (F1)
+        ax.set_yticklabels([_mlabel(k) for k in m.index], fontsize=7.5)
         ax.tick_params(axis="x", labelsize=7.5)
         notas = [f"{n_off} fuera de escala (>0.40)"] if n_off else []
         if len(parciales):
             notas.append("cobertura parcial, fuera del ranking:")
-            notas.append(", ".join(f"{k} {v}/{n_series}" for k, v in parciales.items()))
+            notas.append(", ".join(f"{_mlabel(k)} {v}/{n_series}" for k, v in parciales.items()))
         ax.set_xlabel("\n".join(["MASE en el lapso reservado", *notas]), fontsize=7.5)
         ax.set_title(f"({'a' if table == 'FAD' else 'b'}) {table} · {n_series} series familiares", fontsize=9)
         ax.text(
@@ -251,9 +257,10 @@ def _to_year(days: np.ndarray) -> np.ndarray:
     return days_to_year(np.asarray(days, dtype="float64"))  # AD3
 
 
+@_imprenta
 def fig_forecast() -> None:
     picks = {"DFF": ("BiTCN", None), "FAD": ("BiTCN", None)}
-    fig, axes = plt.subplots(1, 2, figsize=(6.25, 2.9))
+    fig, axes = plt.subplots(1, 2, figsize=(GRID_W_IN, 2.9))  # ancho de texto: letra a tamaño real
     for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
         col = picks[table][0]
         d = pd.read_csv(REP / "eval" / f"deep_pi_{table}.csv", parse_dates=["ds"])
@@ -276,9 +283,17 @@ def fig_forecast() -> None:
         ax.set_ylabel("Fecha de prioridad", fontsize=8)
         _year_ticks(ax, 6)
         _month_axis(ax)
-        ax.tick_params(labelsize=7)
-        ax.legend(fontsize=6.5, loc="upper left", framealpha=0.9)
-    fig.tight_layout()
+        ax.tick_params(labelsize=7.5)
+    # UNA leyenda al pie para los dos paneles (antes una por panel, a 6.5 pt y encima de la banda)
+    fig.legend(
+        *axes[0].get_legend_handles_labels(),
+        loc="lower center",
+        ncol=3,
+        fontsize=7.5,
+        frameon=False,
+        bbox_to_anchor=(0.5, -0.01),
+    )
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
     _emit(fig, "results_forecast_winner")
     print("F2 forecast OK")
 
@@ -301,6 +316,7 @@ def _seed_scores(pattern: str, col: str, table: str) -> list[pd.Series]:
     return out
 
 
+@_imprenta
 def fig_multiseed() -> None:
     from scipy import stats
 
@@ -319,7 +335,8 @@ def fig_multiseed() -> None:
                 f"F3 {table}: las {len(scores)} semillas puntúan un universo de series distinto (o ninguno)"
             )
         medidas.append((table, col, np.array([float(s.mean()) for s in scores]), _liston(table, set(universos.pop()))))
-    fig, ax = plt.subplots(figsize=(6.4, 3.4))
+    # Impresa a 0.82 del ancho de texto (4.92 in): se dibuja a ese ancho (texto 1:1; antes 6.3 in al 78 %).
+    fig, ax = plt.subplots(figsize=(5.0, 3.4))
     ypos, labels = [], []
     for i, (table, col, vals, (liston, n_series, nombre)) in enumerate(medidas):
         m, sd, n_semillas = vals.mean(), vals.std(ddof=1), len(vals)
@@ -336,7 +353,7 @@ def fig_multiseed() -> None:
             capsize=4,
             ms=7,
             zorder=3,
-            label="Deep global (media ± IC 95%)" if i == 0 else None,
+            label="Aprendizaje profundo global (media ± IC 95 %)" if i == 0 else None,
         )
         ax.scatter(
             [liston],
@@ -353,11 +370,13 @@ def fig_multiseed() -> None:
         labels.append(f"{table}\n{col}")
         ax.text(m, y + 0.16, f"{m:.3f}", color=BLUE, ha="center", fontsize=7.5)
     ax.set_yticks(ypos)
-    ax.set_yticklabels(labels)
+    ax.set_yticklabels(labels, fontsize=8)
+    ax.tick_params(axis="x", labelsize=7.5)
     ax.set_ylim(-0.6, len(specs) - 0.2)
-    ax.set_xlabel("MASE en el lapso reservado")
-    ax.set_title("Validación multi-semilla: aprendizaje profundo global frente al listón", fontsize=9.5)
-    ax.legend(fontsize=7.5, loc="lower right", framealpha=0.95)
+    ax.set_xlabel("MASE en el lapso reservado", fontsize=8.5)
+    ax.set_title("Validación multi-semilla: aprendizaje profundo global\nfrente al listón", fontsize=9.5)
+    # leyenda bajo el eje: dentro, a este ancho, tapaba el intervalo de FAD
+    ax.legend(fontsize=7.5, loc="upper center", bbox_to_anchor=(0.5, -0.2), frameon=False)
     fig.tight_layout()
     _emit(fig, "results_multiseed_ci")
     print("F3 multiseed OK")
@@ -405,17 +424,18 @@ def _crps_referencia(parent_root: Path | None = None) -> pd.Series:
     return pd.Series({m: v for m, v in prov["means"].items() if v is not None}, dtype="float64")
 
 
+@_imprenta
 def fig_coverage_crps(crps_parent_root: Path | None = None) -> None:
     # Acredita SIEMPRE: ninguna vía pública dibuja un CRPS que no pase por el lector (auditoría F4).
     crps = _crps_referencia(crps_parent_root)
     cov = pd.read_csv(REP / "eval" / "conformal_coverage.csv").set_index("table")
-    fig, (axc, axr) = plt.subplots(1, 2, figsize=(6.25, 3.0))
+    fig, (axc, axr) = plt.subplots(1, 2, figsize=(GRID_W_IN, 3.0))  # ancho de texto: letra a tamaño real
     # (a) cobertura
     tables = ["FAD", "DFF"]
     groups = [
         ("baseline_coverage", "Base", GRAY),
-        ("split_coverage", "Split-conf.", GOLD),
-        ("aci_coverage", "ACI", BLUE),
+        ("split_coverage", "Conforme por división", GOLD),
+        ("aci_coverage", "Conforme adaptativa (ACI)", BLUE),
     ]
     xb = np.arange(len(tables))
     w = 0.26
@@ -426,7 +446,7 @@ def fig_coverage_crps(crps_parent_root: Path | None = None) -> None:
     axc.set_xticks(xb)
     axc.set_xticklabels(tables)
     axc.set_ylim(0.6, 1.0)
-    axc.set_ylabel("Cobertura empírica del IP 95 %", fontsize=8)
+    axc.set_ylabel("Cobertura del intervalo al 95 %", fontsize=8)
     axc.set_title("(a) Calibración conforme adaptativa", fontsize=9)
     axc.tick_params(labelsize=7.5)
     # leyenda al pie de la figura (fuera del área de barras, evita encimarse con DFF)
@@ -469,11 +489,6 @@ AREAS = [
 ]
 CATS = ["F1", "F2A", "F2B", "F3", "F4"]
 BASE = pd.Timestamp(BASE_EPOCH)  # AD3: single-source t0
-
-
-#: Ancho impreso en el `.tex` (ancho de texto = 6.00 in): la figura se dibuja a ese ancho para que la letra salga a su
-#: tamaño real. El alto natural se elige para que el recorte ``tight`` quede en ese ancho.
-GRID_W_IN = 6.05
 
 
 @_imprenta
@@ -691,8 +706,9 @@ def fig_cd_diagram() -> None:
 
 
 # ---------- F7: heatmap de error por serie (área x categoría) ----------
+@_imprenta
 def fig_error_heatmap() -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(6.25, 2.8), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(5.95, 2.8), sharey=True)  # recorte tight = ancho de texto: letra 1:1
     anames = [a[1] for a in AREAS]
     mats = {}
     for table in ("FAD", "DFF"):

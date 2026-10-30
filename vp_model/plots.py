@@ -70,6 +70,7 @@ _MES_ABR = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct"
 _t0 = pd.Timestamp(BASE_EPOCH)
 T0_TXT = f"$t_0$ = {_t0.day}-{_MES_ABR[_t0.month - 1]}-{_t0.year}"
 Y_EPOCH = f"Años desde la época base\n({T0_TXT})"
+_NBSP = "\u00a0"  # «98 %»: el número no se separa de su signo
 
 
 def _save(fig: plt.Figure, name: str) -> Path:
@@ -89,7 +90,7 @@ def _save(fig: plt.Figure, name: str) -> Path:
 
 def plot_pilot_series(table: str = "FAD", category: str = "F3") -> Path:
     """Una categoría a través de los 5 países piloto (heterogeneidad por país)."""
-    fig, ax = plt.subplots(figsize=(5.75, 3.1))  # 0.92 del ancho de texto: tipografía a tamaño real
+    fig, ax = plt.subplots(figsize=(5.62, 3.2))  # 0.92 del ancho de texto (5.52 in recortada): texto 1:1
     # UACJ_YELLOW es ilegible como línea fina sobre blanco; se reserva para chips/rellenos.
     # India, China y Resto del mundo comparten casi el mismo frente en F3: el Resto va ancho y
     # translúcido DEBAJO y India/China encima con trazo propio, para que las tres se distingan.
@@ -116,7 +117,7 @@ def plot_pilot_series(table: str = "FAD", category: str = "F3") -> Path:
         )
     ax.set_title(f"Frente de fecha de prioridad, categoría {category} · tabla {table}", fontsize=10)
     ax.set_xlabel("Mes del boletín", fontsize=9)
-    ax.set_ylabel("Años desde la época base (1975)", fontsize=9)
+    ax.set_ylabel(Y_EPOCH, fontsize=9)  # el mismo rótulo de época base que el resto del EDA
     ax.tick_params(labelsize=8.5)
     ax.legend(fontsize=8, frameon=False, ncol=3, handlelength=2.6, loc="upper left")
     return _save(fig, f"eda_pilot_{category}_{table}.png")
@@ -126,16 +127,29 @@ def plot_coverage_heatmap(table: str = "FAD", block: str = "family") -> Path:
     """Continuidad (% de meses con observación F) por país × categoría."""
     df = eda.profile_all(table=table, block=block)
     pivot = df.pivot(index="country", columns="category", values="continuity")
-    fig, ax = plt.subplots(figsize=(7, 3.2))
+    # Impresa a 0.85 del ancho de texto (5.10 in): se dibuja a ese ancho (texto 1:1; antes 6.9 in al 74 %).
+    fig, ax = plt.subplots(figsize=(5.2, 2.55))
     im = ax.imshow(pivot.to_numpy(), cmap=SEQ, vmin=0, vmax=1, aspect="auto")
     ax.set_xticks(range(len(pivot.columns)), pivot.columns)
     ax.set_yticks(range(len(pivot.index)), [COUNTRY_NAME.get(c, c) for c in pivot.index])
+    ax.tick_params(labelsize=8)
     for i in range(pivot.shape[0]):
         for j in range(pivot.shape[1]):
             v = pivot.to_numpy()[i, j]
-            ax.text(j, i, f"{v:.0%}", ha="center", va="center", color="white" if v > 0.65 else UACJ_BLACK, fontsize=8)
-    ax.set_title(f"Continuidad de las series, tabla {table} · bloque {_BLOQUE.get(block, block)}")
-    fig.colorbar(im, ax=ax, fraction=0.025, label="fracción de meses con fecha")
+            # «98 %», con espacio de no separación, como el resto del texto en español
+            ax.text(
+                j,
+                i,
+                f"{v * 100:.0f}{_NBSP}%",
+                ha="center",
+                va="center",
+                color="white" if v > 0.65 else UACJ_BLACK,
+                fontsize=7.5,
+            )
+    ax.set_title(f"Continuidad de las series, tabla {table} · bloque {_BLOQUE.get(block, block)}", fontsize=9.5)
+    cb = fig.colorbar(im, ax=ax, fraction=0.035, pad=0.03)
+    cb.set_label("fracción de meses con fecha", fontsize=8)
+    cb.ax.tick_params(labelsize=7.5)
     return _save(fig, f"eda_coverage_{table}_{block}.png")
 
 
@@ -146,7 +160,8 @@ def plot_step_distribution(table: str = "FAD", block: str = "family") -> Path:
         s = dataset.load_series(r.country, r.category, r.table)
         steps.append(s.diff().dropna())
     allsteps = pd.concat(steps)
-    fig, ax = plt.subplots(figsize=(7, 3.8))
+    # Impresa a 0.78 del ancho de texto (4.68 in): se dibuja a ese ancho (texto 1:1; antes 6.9 in al 68 %).
+    fig, ax = plt.subplots(figsize=(4.78, 3.0))
     # AC1: nada de np.clip — recortar apilaba los saltos extremos (retrogresiones
     # >8 años REALES) en los bins de borde, winsorizando visualmente el fenómeno
     # que la tesis argumenta. Se grafica el rango central y se ANOTA lo excluido.
@@ -154,12 +169,13 @@ def plot_step_distribution(table: str = "FAD", block: str = "family") -> Path:
     n_lo = int((allsteps < lo).sum())
     n_hi = int((allsteps > hi).sum())
     ax.hist(allsteps[(allsteps >= lo) & (allsteps <= hi)], bins=60, color=UACJ_BLUE, alpha=0.85)
-    ax.axvline(0, color=WINE, lw=1.2, ls="--", label="sin avance")
+    ax.axvline(0, color=WINE, lw=1.0, ls="--", label="sin avance")
+    lo_txt = f"\u2212{-lo}"  # signo menos tipográfico, como el de las marcas del eje
     if n_lo:
         ax.text(
             0.02,
             0.94,
-            f"← {n_lo} retrocesos < {lo} d\n(máx {-allsteps.min():,.0f} d)",
+            f"← {n_lo} retrocesos < {lo_txt} d\n(máx {-allsteps.min():,.0f} d)",
             transform=ax.transAxes,
             fontsize=7.5,
             color=WINE,
@@ -176,10 +192,13 @@ def plot_step_distribution(table: str = "FAD", block: str = "family") -> Path:
             va="top",
             ha="right",
         )
-    ax.set_title(f"Distribución del avance mensual, tabla {table} · bloque {_BLOQUE.get(block, block)}")
-    ax.set_xlabel(f"Avance de la fecha de prioridad (días/mes; rango [{lo}, {hi}], extremos anotados)")
-    ax.set_ylabel("Frecuencia")
-    ax.legend(fontsize=8, frameon=False)
+    ax.set_title(f"Distribución del avance mensual, tabla {table} · bloque {_BLOQUE.get(block, block)}", fontsize=9.5)
+    ax.set_xlabel(
+        f"Avance de la fecha de prioridad (días/mes)\nrango [{lo_txt}, {hi}]; extremos anotados", fontsize=8.5
+    )
+    ax.set_ylabel("Frecuencia", fontsize=8.5)
+    ax.tick_params(labelsize=7.5)
+    ax.legend(fontsize=7.5, frameon=False, loc="lower left")
     return _save(fig, f"eda_steps_{table}_{block}.png")
 
 
@@ -343,15 +362,27 @@ def plot_cross_correlation(category: str = "F3", table: str = "FAD") -> Path:
         except KeyError:
             continue
     corr = pd.DataFrame(cols).corr()
-    fig, ax = plt.subplots(figsize=(5.2, 4.4))
+    # Impresa a 0.62 del ancho de texto (3.72 in): se dibuja a ese ancho (texto 1:1; antes 5.3 in al 70 %).
+    fig, ax = plt.subplots(figsize=(3.73, 3.35))
     im = ax.imshow(corr.to_numpy(), cmap=DIV, vmin=-1, vmax=1)
-    ax.set_xticks(range(len(corr)), [COUNTRY_NAME.get(c, c) for c in corr.columns], rotation=45, ha="right")
+    ax.set_xticks(
+        range(len(corr)),
+        [COUNTRY_NAME.get(c, c) for c in corr.columns],
+        rotation=40,
+        ha="right",
+        rotation_mode="anchor",
+    )
     ax.set_yticks(range(len(corr)), [COUNTRY_NAME.get(c, c) for c in corr.index])
+    ax.tick_params(labelsize=7.5, length=2, pad=2)
     for i in range(len(corr)):
         for j in range(len(corr)):
-            ax.text(j, i, f"{corr.to_numpy()[i, j]:.2f}", ha="center", va="center", fontsize=8)
-    ax.set_title(f"Co-movimiento de los avances entre áreas, {category} · {table}")
-    fig.colorbar(im, ax=ax, fraction=0.046, label="correlación de Pearson")
+            v = corr.to_numpy()[i, j]
+            # blanco sobre las celdas oscuras (|r| alto): el negro casi no se leía sobre el azul
+            ax.text(j, i, f"{v:.2f}", ha="center", va="center", fontsize=7, color="white" if abs(v) > 0.6 else INK)
+    ax.set_title(f"Co-movimiento de los avances entre áreas,\n{category} · {table}", fontsize=9)
+    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, ticks=[-1, -0.5, 0, 0.5, 1])
+    cb.set_label("correlación de Pearson", fontsize=8)
+    cb.ax.tick_params(labelsize=7.5)
     return _save(fig, f"eda_crosscorr_{category}_{table}.png")
 
 
@@ -423,21 +454,25 @@ def plot_kalman_imputation(country: str = "mexico", category: str = "EB4_RW", ta
     raw = miss._raw_monthly(dataset.load_series(country, category, table))
     imp = miss.kalman_impute(raw)
     gaps = raw.isna()
-    fig, ax = plt.subplots(figsize=(8, 3.4))
-    ax.plot(imp.index, imp.to_numpy() / DAYS_PER_YEAR, color=UACJ_GRAY, lw=1.0, ls=":", label="Kalman (relleno EDA)")
-    ax.scatter(raw.index[~gaps], raw[~gaps].to_numpy() / DAYS_PER_YEAR, color=UACJ_BLUE, s=8, label="observado (F)")
+    # Impresa a 0.73 del ancho de texto (4.38 in): se dibuja a ese ancho (texto 1:1; antes 7.9 in al 55 %).
+    # Los marcadores se reducen en la misma proporción para conservar la densidad impresa.
+    fig, ax = plt.subplots(figsize=(4.38, 2.75))
+    ax.plot(imp.index, imp.to_numpy() / DAYS_PER_YEAR, color=UACJ_GRAY, lw=0.8, ls=":", label="Kalman (relleno EDA)")
+    ax.scatter(raw.index[~gaps], raw[~gaps].to_numpy() / DAYS_PER_YEAR, color=UACJ_BLUE, s=3, label="observado (F)")
     ax.scatter(
         imp.index[gaps],
         imp[gaps].to_numpy() / DAYS_PER_YEAR,
         color=WINE,
-        s=26,
+        s=10,
         marker="x",
+        linewidths=0.8,
         label=f"hueco MNAR imputado ({int(gaps.sum())})",
     )
-    ax.set_title(f"Huecos MNAR e imputación por Kalman, {series_label(f'{country}/{category}/{table}')}")
-    ax.set_xlabel("Mes del boletín")
-    ax.set_ylabel("Años desde la época base")
-    ax.legend(fontsize=8, frameon=False)
+    ax.set_title(f"Huecos MNAR e imputación por Kalman,\n{series_label(f'{country}/{category}/{table}')}", fontsize=9)
+    ax.set_xlabel("Mes del boletín", fontsize=8.5)
+    ax.set_ylabel(Y_EPOCH, fontsize=8.5)
+    ax.tick_params(labelsize=7.5)
+    ax.legend(fontsize=7.5, frameon=False, loc="upper left", markerscale=1.4)
     return _save(fig, f"eda_kalman_{country}_{category}_{table}.png")
 
 
