@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import textwrap
 from pathlib import Path
+from typing import Any, cast
 
 import matplotlib
 
@@ -287,7 +288,7 @@ def _footer_one_line(fig: plt.Figure, facts: dict, ctx: FigureContext, fs: float
     Con ``y=None`` el pie del kit baja la marca un renglón cuando estima que no cabe; en
     una figura angosta esa estimación es conservadora y añade un renglón vacío de alto.
     """
-    renderer = fig.canvas.get_renderer()  # type: ignore[attr-defined]
+    renderer = cast(Any, fig.canvas).get_renderer()  # Agg canvas; the base-class stub lacks it
     boxes = [ax.get_tightbbox(renderer) for ax in fig.axes if ax.get_visible()]
     bottom = min(bb.y0 for bb in boxes if bb is not None) / fig.bbox.height
     footer(fig, facts["vintage"], ctx, y=bottom - (0.10 + fs / 72.0) / fig.get_size_inches()[1], fs=fs)
