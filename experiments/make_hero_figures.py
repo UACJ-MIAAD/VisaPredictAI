@@ -45,7 +45,9 @@ def fig_hero(country="philippines", category="F3", table="FAD", out="results_her
     g = g[g.ds.isin(full.index)]
     ctx = full[(full.index >= CTX_START) & (full.index < hold_start)]
 
-    fig, ax = plt.subplots(figsize=(6.25, 3.3))  # ancho de texto: tipografía a tamaño real
+    # Ancho impreso en el `.tex` = 0.85 del ancho de texto = 5.10 in; el recorte ``tight`` quita ~0.12 in, así que
+    # se dibuja a 5.20 in y el PDF natural sale a ~5.10 in: la letra se imprime a su tamaño real (antes, al 84 %).
+    fig, ax = plt.subplots(figsize=(5.20, 3.0))
     # banda de pronóstico anidada (fan chart)
     for lvl, a in [(95, 0.13), (80, 0.20), (50, 0.30)]:
         ax.fill_between(
@@ -68,7 +70,7 @@ def fig_hero(country="philippines", category="F3", table="FAD", out="results_her
         "Historia observada",
         ha="right",
         va="top",
-        color=GRAY,
+        color=TEXT_GRAY,  # el gris medio de las líneas de contexto era casi invisible como texto
         fontsize=8,
         style="italic",
     )

@@ -19,18 +19,39 @@ import pandas as pd
 import seaborn as sns
 
 from vp_model.config import DAYS_PER_YEAR, days_to_year
-from vp_model.palette import BLUE, COUNTRY, DIV, FONT_RC, GOLD, GRID, INK, MID, REGIME, SEQ, WINE, register_fonts
+from vp_model.palette import (
+    BLUE,
+    COUNTRY,
+    COUNTRY_NAME,
+    DIV,
+    FONT_RC,
+    GOLD,
+    GRID,
+    INK,
+    MID,
+    REGIME,
+    SEQ,
+    WINE,
+    register_fonts,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"
 CCOL = COUNTRY
-CNAME = {
-    "mexico": "México",
-    "india": "India",
-    "china": "China",
-    "philippines": "Filipinas",
-    "all_chargeability": "Resto",
+CNAME = COUNTRY_NAME  # «Resto del mundo», no «Resto»: un solo nombre para el área residual
+# Ancho con el que el .tex imprime cada figura (in). Se dibuja a ese ancho para que la letra
+# se imprima 1:1 (antes se encogía a 4-6 pt). `bbox_inches="tight"` suma 0.1 in por lado.
+PRINT_W = {
+    "eda2_spaghetti": 6.00,
+    "eda2_distributions": 6.00,
+    "eda2_violin_country": 5.16,
+    "eda2_violin_category": 5.16,
+    "eda2_seasonality": 5.16,
+    "eda2_corr": 4.92,
 }
+TICK_FS, LABEL_FS, TITLE_FS = 7.5, 8.5, 9.5  # marcas ≥ 7 pt, rótulos de eje 8-9 pt (impresos)
+MES3 = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+NBSP = "\u00a0"  # «45 %»: el número no se separa de su signo al partir renglón
 CATS = ["F1", "F2A", "F2B", "F3", "F4"]
 AREAS = ["mexico", "india", "china", "philippines", "all_chargeability"]
 sns.set_theme(style="whitegrid", font="serif", rc={"axes.edgecolor": MID, "grid.color": GRID})
@@ -54,30 +75,40 @@ def _panel(table="FAD"):
     return f
 
 
+def _violin(g: pd.DataFrame, x: str, order: list[str], **colour) -> tuple[plt.Figure, plt.Axes]:
+    """Violín común a las dos figuras: mismo interior (cuartiles) y mismos tamaños.
+
+    Antes una llevaba líneas de cuartil y la otra una caja de bigotes; ahora ambas
+    marcan mediana (discontinua) y cuartiles (punteadas) en blanco, legibles sobre
+    cualquier relleno de la paleta.
+    """
+    fig, ax = plt.subplots(figsize=(5.7, 3.0))  # 0.86 del ancho de texto (5.16 in, ya recortado)
+    sns.violinplot(
+        data=g,
+        x=x,
+        y="delta",
+        order=order,
+        cut=0,
+        inner="quartile",
+        inner_kws={"color": "white", "linewidth": 1.0},
+        linewidth=0.9,
+        ax=ax,
+        **colour,
+    )
+    ax.axhline(0, color=MID, lw=0.8, ls="--")
+    ax.tick_params(labelsize=TICK_FS)
+    return fig, ax
+
+
 def fig_violin_country() -> None:
     f = _panel()
     g = f[(f.delta.between(-120, 280))]  # recorte para ver la forma; retrogresiones extremas aparte
-    fig, ax = plt.subplots(figsize=(7.2, 3.6))
     order = AREAS
-    sns.violinplot(
-        data=g,
-        x="country",
-        y="delta",
-        order=order,
-        hue="country",
-        hue_order=order,
-        palette=CCOL,
-        legend=False,
-        cut=0,
-        inner="quartile",
-        linewidth=0.9,
-        ax=ax,
-    )
+    fig, ax = _violin(g, "country", order, hue="country", hue_order=order, palette=CCOL, legend=False)
     ax.set_xticks(range(len(order)), [CNAME[a] for a in order])
-    ax.axhline(0, color=MID, lw=0.8, ls="--")
     ax.set_xlabel("")
-    ax.set_ylabel("Avance mensual de la fecha (días)")
-    ax.set_title("Distribución del avance mensual por área de cargabilidad (FAD)", fontsize=10, color=BLUE)
+    ax.set_ylabel("Avance mensual de la fecha (días)", fontsize=LABEL_FS)
+    ax.set_title("Distribución del avance mensual por área de cargabilidad (FAD)", fontsize=TITLE_FS, color=BLUE)
     _save(fig, "eda2_violin_country.pdf")
     plt.close(fig)
     print("eda2_violin_country OK")
@@ -86,12 +117,10 @@ def fig_violin_country() -> None:
 def fig_violin_category() -> None:
     f = _panel()
     g = f[f.delta.between(-120, 280)]
-    fig, ax = plt.subplots(figsize=(7.2, 3.6))
-    sns.violinplot(data=g, x="category", y="delta", order=CATS, color=BLUE, cut=0, inner="box", linewidth=0.9, ax=ax)
-    ax.axhline(0, color=MID, lw=0.8, ls="--")
-    ax.set_xlabel("Categoría de preferencia familiar")
-    ax.set_ylabel("Avance mensual (días)")
-    ax.set_title("Distribución del avance mensual por categoría (FAD)", fontsize=10, color=BLUE)
+    fig, ax = _violin(g, "category", CATS, color=BLUE)
+    ax.set_xlabel("Categoría de preferencia familiar", fontsize=LABEL_FS)
+    ax.set_ylabel("Avance mensual de la fecha (días)", fontsize=LABEL_FS)
+    ax.set_title("Distribución del avance mensual por categoría (FAD)", fontsize=TITLE_FS, color=BLUE)
     _save(fig, "eda2_violin_category.pdf")
     plt.close(fig)
     print("eda2_violin_category OK")
@@ -160,38 +189,51 @@ def fig_regime() -> None:
 def fig_seasonality() -> None:
     f = _panel()
     g = f[f.delta.between(-120, 280)]
-    fig, ax = plt.subplots(figsize=(5.4, 2.9))  # 0.86 del ancho de texto: letra a tamaño real
+    fig, ax = plt.subplots(figsize=(5.7, 3.0))  # 0.86 del ancho de texto (5.16 in, ya recortado)
     sns.boxplot(data=g, x="mes", y="delta", color=BLUE, fliersize=1.0, linewidth=0.7, boxprops={"alpha": 0.55}, ax=ax)
     ax.axvline(8.5, color=GOLD, ls="--", lw=1.2)
     # rótulo en una franja libre sobre los datos (antes cruzaba la línea y los atípicos)
     y_top = float(g.delta.max())
     ax.set_ylim(top=y_top + 70)
-    ax.text(8.38, y_top + 58, "inicio del año fiscal (oct)", color=GOLD, fontsize=7.5, va="top", ha="right")
-    ax.set_xticks(range(12), ["E", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"])
+    ax.text(8.38, y_top + 58, "inicio del año fiscal (oct)", color=GOLD, fontsize=TICK_FS, va="top", ha="right")
+    # tres letras: las iniciales sueltas (E F M A M J J A S…) repetían M, A y J
+    ax.set_xticks(range(12), MES3)
     ax.axhline(0, color=MID, lw=0.8, ls="--")
-    ax.set_xlabel("Mes del boletín", fontsize=8.5)
-    ax.set_ylabel("Avance mensual (días)", fontsize=8.5)
-    ax.tick_params(labelsize=8)
-    ax.set_title("Estacionalidad del avance por mes calendario (FAD)", fontsize=9.5, color=BLUE)
+    ax.set_xlabel("Mes del boletín", fontsize=LABEL_FS)
+    ax.set_ylabel("Avance mensual (días)", fontsize=LABEL_FS)
+    ax.tick_params(labelsize=TICK_FS)
+    ax.set_title("Estacionalidad del avance por mes calendario (FAD)", fontsize=TITLE_FS, color=BLUE)
     _save(fig, "eda2_seasonality.pdf")
     plt.close(fig)
     print("eda2_seasonality OK")
 
 
 def fig_spaghetti() -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(7.6, 3.4), sharex=True)
+    from matplotlib.lines import Line2D
+
+    # «Resto del mundo» en pizarra se confundía con el teal de Filipinas en líneas finas:
+    # aquí va en tinta, el tono más separado de la paleta (solo en esta figura)
+    col = {**CCOL, "all_chargeability": INK}
+    fig, axes = plt.subplots(1, 2, figsize=(6.08, 2.9), sharex=True, sharey=False)
+    ends = []
     for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
         ff = _panel(table)
         for (country, _cat), s in ff.groupby(["country", "category"]):
-            ax.plot(s.bulletin_date, s.years, color=CCOL[country], lw=0.8, alpha=0.75)
-        ax.set_title(f"{table}", fontsize=10, color=BLUE)
-        ax.set_ylabel("Fecha de prioridad (año)") if table == "FAD" else None
-        ax.tick_params(axis="x", labelrotation=30, labelsize=7)
-    from matplotlib.lines import Line2D
-
-    handles = [Line2D([0], [0], color=CCOL[a], lw=2, label=CNAME[a]) for a in AREAS]
-    fig.legend(handles=handles, loc="lower center", ncol=5, fontsize=8, frameon=False, bbox_to_anchor=(0.5, -0.06))
-    fig.suptitle("Trayectoria de las 25 series familiares por área", y=1.0, fontsize=10, color=BLUE)
+            ax.plot(s.bulletin_date, s.years, color=col[country], lw=0.8, alpha=0.75)
+        ends.append(ff.bulletin_date.max())
+        ax.set_title(f"{table}", fontsize=TITLE_FS, color=BLUE)
+        ax.set_ylabel("Fecha de prioridad (año)", fontsize=LABEL_FS)
+        ax.tick_params(labelsize=TICK_FS)
+    # el eje termina en el último boletín (antes llegaba a 2028, sin datos); años sin rotar
+    first, last = _panel("FAD").bulletin_date.min(), max(ends)
+    axes[0].set_xlim(first, last)
+    years = range(first.year + (4 - first.year % 4) % 4, last.year + 1, 4)
+    axes[0].set_xticks([pd.Timestamp(f"{y}-01-01") for y in years], [str(y) for y in years])
+    handles = [Line2D([0], [0], color=col[a], lw=2, label=CNAME[a]) for a in AREAS]
+    fig.legend(
+        handles=handles, loc="lower center", ncol=5, fontsize=TICK_FS, frameon=False, bbox_to_anchor=(0.5, -0.07)
+    )
+    fig.suptitle("Trayectoria de las 25 series familiares por área", y=1.0, fontsize=TITLE_FS + 0.5, color=BLUE)
     fig.tight_layout()
     _save(fig, "eda2_spaghetti.pdf")
     plt.close(fig)
@@ -200,26 +242,33 @@ def fig_spaghetti() -> None:
 
 def fig_distributions() -> None:
     f = _panel()
-    fig, (a1, a2) = plt.subplots(1, 2, figsize=(7.6, 3.2))
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(6.08, 2.8))
     sns.histplot(f.years, bins=40, color=BLUE, ax=a1, edgecolor="white")
-    a1.set_xlabel("Fecha de prioridad (año)")
-    a1.set_ylabel("Observaciones (F)")
-    a1.set_title("(a) Variable objetivo", fontsize=9.5, color=BLUE)
+    a1.set_xlabel("Fecha de prioridad (año)", fontsize=LABEL_FS)
+    a1.set_ylabel("Observaciones (F)", fontsize=LABEL_FS)
+    a1.set_title("(a) Variable objetivo", fontsize=TITLE_FS, color=BLUE)
     d = f.delta.dropna()
     a2.hist(np.sign(d) * np.log1p(np.abs(d)), bins=60, color=GOLD, edgecolor="white")
     a2.axvline(0, color=MID, lw=0.8, ls="--")
-    a2.set_xlabel("Avance mensual  (escala signo·log)")
-    a2.set_title("(b) Incrementos: cola de retrogresión", fontsize=9.5, color=BLUE)
+    # las marcas se rotulan en DÍAS sobre la escala signo·log (antes, unidades del log)
+    days = [-1000, -100, -10, 0, 10, 100, 1000]
+    a2.set_xticks([np.sign(v) * np.log1p(abs(v)) for v in days], [f"{v:,}".replace("-", "\u2212") for v in days])
+    a2.set_xlabel("Avance mensual (días, escala signo·log)", fontsize=LABEL_FS)
+    a2.set_ylabel("Observaciones (F)", fontsize=LABEL_FS)
+    a2.set_title("(b) Incrementos: cola de retrogresión", fontsize=TITLE_FS, color=BLUE)
     a2.text(
         0.03,
         0.95,
-        f"retrogresiones: {(d < 0).mean() * 100:.1f}%",
+        f"retrogresiones: {(d < 0).mean() * 100:.1f}{NBSP}%",
         transform=a2.transAxes,
-        fontsize=7.5,
+        fontsize=TICK_FS,
         va="top",
         color=WINE,
     )
-    fig.suptitle("Distribución del objetivo y de sus incrementos (FAD)", fontsize=10, color=BLUE, y=1.02)
+    for a in (a1, a2):
+        a.tick_params(labelsize=TICK_FS)
+    a2.tick_params(axis="x", labelsize=7)
+    fig.suptitle("Distribución del objetivo y de sus incrementos (FAD)", fontsize=TITLE_FS + 0.5, color=BLUE, y=1.02)
     fig.tight_layout()
     _save(fig, "eda2_distributions.pdf")
     plt.close(fig)
@@ -228,29 +277,34 @@ def fig_distributions() -> None:
 
 def fig_corr() -> None:
     f = _panel()
-    f["serie"] = f.pais + "/" + f.category
+    f["serie"] = f.pais + " · " + f.category
     wide = f.pivot_table(index="bulletin_date", columns="serie", values="delta")
     corr = wide.corr().fillna(0)
-    # Tamaño real de impresión (0.82 del ancho de texto): rótulos de 7 pt sin reducción.
-    # La barra de color va horizontal en la esquina libre entre dendrogramas (antes pisaba
-    # el dendrograma de filas) y se retira el rótulo «serie» duplicado de ambos ejes.
+    # Tamaño real de impresión (0.82 del ancho de texto, 4.92 in): rótulos de 7 pt sin reducción.
+    # La barra de color va VERTICAL en la esquina inferior izquierda, libre (antes, horizontal
+    # arriba, su «1.0» chocaba con el dendrograma) y marca el rango real: el mínimo es negativo.
+    lo = float(corr.to_numpy().min())
+    # marca en el mínimo exacto; el 0 (blanco) no se rotula: a esta altura pisaría al mínimo
+    ticks = [lo, 0.5, 1.0] if lo < -0.05 else [0.0, 0.5, 1.0]
     g = sns.clustermap(
         corr,
         cmap=DIV,
         center=0,
-        figsize=(5.2, 5.4),
-        cbar_pos=(0.015, 0.935, 0.10, 0.018),
-        cbar_kws={"orientation": "horizontal", "ticks": [0, 0.5, 1]},
+        figsize=(5.8, 5.6),
+        cbar_pos=(0.075, 0.05, 0.02, 0.13),
+        cbar_kws={"orientation": "vertical", "ticks": ticks},
         dendrogram_ratio=0.12,
         xticklabels=True,
         yticklabels=True,
     )
-    g.ax_heatmap.tick_params(labelsize=6.5, length=2, pad=1.5)
+    g.ax_heatmap.tick_params(labelsize=7, length=2, pad=1.5)
     g.ax_heatmap.set_xlabel("")
     g.ax_heatmap.set_ylabel("")
-    g.ax_cbar.tick_params(labelsize=6.5, length=2, pad=1)
-    g.ax_cbar.set_title("r de Pearson", fontsize=6.5, pad=2, loc="left")
-    g.figure.suptitle("Correlación entre incrementos de las 25 series (FAD)", y=1.0, fontsize=9.5, color=BLUE)
+    g.ax_cbar.yaxis.set_ticks_position("left")
+    g.ax_cbar.set_yticks(ticks, [f"{t:.2f}".replace("-", "\u2212") if t < 0 else f"{t:.1f}" for t in ticks])
+    g.ax_cbar.tick_params(labelsize=7, length=2, pad=1)
+    g.ax_cbar.set_title("r de Pearson", fontsize=7, pad=3)
+    g.figure.suptitle("Correlación entre incrementos de las 25 series (FAD)", y=1.0, fontsize=TITLE_FS, color=BLUE)
     _save(g.figure, "eda2_corr.pdf")
     plt.close(g.figure)
     print("eda2_corr OK")
