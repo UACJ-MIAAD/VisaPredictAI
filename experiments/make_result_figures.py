@@ -231,12 +231,12 @@ def fig_ranking() -> None:
         ax.scatter(m.values, y, color=colors, s=34, zorder=3, edgecolor=BLACK, linewidth=0.4)
         ax.axvline(liston, color=GOLD, ls="--", lw=1.3, zorder=2)
         ax.set_yticks(y)
-        ax.set_yticklabels(m.index, fontsize=7.5)  # identificador crudo: lo fijan las pruebas G7 (F1)
+        ax.set_yticklabels([_mlabel(k) for k in m.index], fontsize=7.5)
         ax.tick_params(axis="x", labelsize=7.5)
         notas = [f"{n_off} fuera de escala (>0.40)"] if n_off else []
         if len(parciales):
             notas.append("cobertura parcial, fuera del ranking:")
-            notas.append(", ".join(f"{k} {v}/{n_series}" for k, v in parciales.items()))
+            notas.append(", ".join(f"{_mlabel(k)} {v}/{n_series}" for k, v in parciales.items()))
         ax.set_xlabel("\n".join(["MASE en el lapso reservado", *notas]), fontsize=7.5)
         ax.set_title(f"({'a' if table == 'FAD' else 'b'}) {table} · {n_series} series familiares", fontsize=9)
         ax.text(

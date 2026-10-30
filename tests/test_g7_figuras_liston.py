@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import matplotlib
@@ -50,7 +51,7 @@ def _pool(rep: Path) -> None:
 
 
 @pytest.fixture
-def figuras(tmp_path: Path, monkeypatch) -> dict:
+def figuras(tmp_path: Path, monkeypatch) -> Iterator[dict]:
     """REP temporal con los pools; `_emit` captura la figura sin escribirla; el `_KF` viejo apunta a selección."""
     rep = tmp_path / "reports"
     _pool(rep)
@@ -58,7 +59,10 @@ def figuras(tmp_path: Path, monkeypatch) -> dict:
     monkeypatch.setattr(mrf, "_KF", {"fad_champion_mase": SEL, "ets_dff_mean": SEL}, raising=False)
     capturadas: dict = {}
     monkeypatch.setattr(mrf, "_emit", lambda fig, nombre: capturadas.__setitem__(nombre, fig))
-    return capturadas
+    yield capturadas
+    import matplotlib.pyplot as plt
+
+    plt.close("all")  # el `_emit` real cierra cada figura; aquí quedarían abiertas para la prueba siguiente
 
 
 def _media(t: str, modelo: str, idx: list[int]) -> float:
@@ -109,7 +113,7 @@ def parciales(figuras: dict) -> dict:
 def test_f1_un_modelo_de_cobertura_parcial_no_se_dibuja_contra_el_liston(parciales: dict) -> None:
     for ax, t in zip(parciales["results_ranking_mase"].axes, ("FAD", "DFF"), strict=True):
         etiquetas = {x.get_text() for x in ax.get_yticklabels()}
-        assert etiquetas == {"ets", "theta", "naive1"}, (t, etiquetas)
+        assert etiquetas == {"ETS", "Theta", "naïve-1"}, (t, etiquetas)  # rótulo legible, nunca el identificador
         puntos = sorted(p for v in _puntos(ax).values() for p in v)
         assert puntos == [
             pytest.approx(_media(t, m, [0, 1, 2])) for m in sorted(HOLD[t], key=lambda m: _media(t, m, [0, 1, 2]))
@@ -122,7 +126,7 @@ def test_f1_un_modelo_de_cobertura_parcial_no_se_dibuja_contra_el_liston(parcial
 def test_f1_declara_aparte_los_parciales_con_su_cobertura(parciales: dict) -> None:
     for ax, t in zip(parciales["results_ranking_mase"].axes, ("FAD", "DFF"), strict=True):
         texto = _textos(ax)
-        assert "arima 2/3" in texto and "arima_lstm 0/3" in texto and "parcial" in texto, (t, texto)
+        assert "ARIMA 2/3" in texto and "ARIMA-LSTM 0/3" in texto and "parcial" in texto, (t, texto)
 
 
 def test_f1_el_titulo_dice_el_universo_medido(parciales: dict) -> None:
