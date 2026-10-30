@@ -264,7 +264,7 @@ def fig_csv_panel() -> None:
         show,
         FIG / "data_csv_panel.pdf",
         "Panel largo ordenado: visa_panel_long.csv (variable objetivo days_since_base)",
-        width=6.0,
+        width=6.3,
         fontsize=8.0,
         mono_cols=("days_since_base",),
         row_in=0.28,
@@ -286,7 +286,18 @@ def fig_duckdb() -> None:
     con.close()
     df["pais"] = "México"
     df["dias_base"] = df["dias_base"].apply(lambda x: "" if pd.isna(x) else str(int(x)))
-    _render_df(df, FIG / "data_duckdb_sample.pdf", "Almacén DuckDB (capa gold):  SELECT ... FROM v_panel_long")
+    # Impresa a 0.85 del ancho de texto (5.10 in) con la letra 1:1. El lienzo es más ancho que eso porque el
+    # relleno de las celdas es proporcional al eje: con 6.3 in el recorte `tight` queda en 5.1 in. Los
+    # encabezados son los alias de la consulta SQL, así que van en monoespaciada (de ahí «pais» sin tilde).
+    _render_df(
+        df,
+        FIG / "data_duckdb_sample.pdf",
+        "Almacén DuckDB (capa gold): SELECT ... FROM v_panel_long",
+        width=6.3,
+        fontsize=8.0,
+        mono_cols=tuple(df.columns),
+        row_in=0.28,
+    )
     print("data_duckdb_sample.pdf OK")
 
 

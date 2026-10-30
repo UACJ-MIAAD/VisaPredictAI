@@ -399,7 +399,9 @@ def f02_calendar(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figur
     cal = preprocess.calendar_features(idx)
     k = np.arange(12)
     sin, cos = cal["fiscal_sin"].to_numpy(), cal["fiscal_cos"].to_numpy()
-    fig, (a1, a2) = plt.subplots(1, 2, figsize=(5.9, 2.9), width_ratios=(1.35, 1), gridspec_kw={"wspace": 0.12})
+    # Impresa a 0.80 del ancho de texto (4.80 in): se dibuja a ese ancho para que la letra salga 1:1 (antes
+    # 5.45 in reducidos al 88 %: los meses se imprimían a 6.2 pt). Titular y bajada se envuelven a este ancho.
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(5.07, 2.75), width_ratios=(1.35, 1), gridspec_kw={"wspace": 0.12})
     xx = np.linspace(0, 12, 300)
     a1.plot(xx, np.sin(2 * np.pi * xx / 12), color=BLUE, lw=1.6, label=r"$\sin(2\pi m/12)$")
     a1.plot(xx, np.cos(2 * np.pi * xx / 12), color=GOLD, lw=1.6, label=r"$\cos(2\pi m/12)$")
