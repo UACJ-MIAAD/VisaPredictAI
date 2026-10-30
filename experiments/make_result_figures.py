@@ -72,6 +72,23 @@ def results_style():
     return plain_style(RESULTS_RC)
 
 
+def _imprenta(fn):
+    """Dibuja ``fn`` dentro de `results_style`, también cuando se la llama suelta (fuera de `main`).
+
+    Sin esto, regenerar una sola figura (``m.fig_cd_diagram()``) salía sin el recorte ``tight`` ni la
+    retícula de imprenta y con otro tamaño natural del que da `main`, así que el ancho impreso en el
+    `.tex` dejaba de corresponder al dibujado. Anidado dentro de `main` es inocuo: el contexto es reversible.
+    """
+    import functools
+
+    @functools.wraps(fn)
+    def envuelta(*a, **k):
+        with results_style():
+            return fn(*a, **k)
+
+    return envuelta
+
+
 def _emit(fig: plt.Figure, name: str) -> None:
     """Guarda el PDF del .tex y cierra la figura.
 
@@ -95,7 +112,7 @@ LISTON = {"FAD": ("ets", "theta"), "DFF": ("ets",)}
 #: Rótulo legible de cada modelo en el texto de las figuras (nunca el identificador crudo del código).
 MODEL_LABEL = {
     "naive1": "naïve-1",
-    "naive": "naïve",
+    "naive": "naïve estacional",  # el texto de la tesis lo llama así; «naïve» a secas se confundía con naïve-1
     "drift": "Drift",
     "theta": "Theta",
     "ets": "ETS",
@@ -126,23 +143,31 @@ def _mlabel(m: str) -> str:
     return MODEL_LABEL.get(m, m)
 
 
-def _fmt_decimal_year(v: float, _pos=None) -> str:
-    """Eje de fecha de prioridad en años decimales -> 'jul 2007' (o '2008' si cae en enero)."""
+def _fmt_decimal_year(v: float, _pos=None, *, months: bool = True) -> str:
+    """Eje de fecha de prioridad en años decimales -> 'jul 2007' / 'ene 2008', o sólo '2008' con ``months=False``."""
     y = int(np.floor(v + 1e-9))
     m = int(round((v - y) * 12))
     if m == 12:
         y, m = y + 1, 0
-    return f"{y}" if m == 0 else f"{MES_ABBR[m]} {y}"
+    return f"{MES_ABBR[m]} {y}" if months else f"{y}"
 
 
 def _year_ticks(ax, max_ticks: int) -> None:
-    """Ticks del eje de años decimales en pasos de calendario (trimestre, semestre, año...)."""
+    """Ticks del eje de años decimales en pasos de calendario (trimestre, semestre, año...).
+
+    UN formato por eje: con paso de año o más, sólo el año; con paso menor, mes y año en TODAS las
+    marcas ('jul 2000', 'ene 2001', 'jul 2001'). Antes la marca de enero salía como '2001' entre dos
+    'jul …' y el mismo eje mezclaba dos formatos.
+    """
     lo, hi = ax.get_ylim()
     for step in (0.25, 0.5, 1, 2, 5, 10, 20):
         if (hi - lo) / step <= max_ticks:
             break
+    months = step < 1
     ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(step))
-    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(_fmt_decimal_year))
+    ax.yaxis.set_major_formatter(
+        matplotlib.ticker.FuncFormatter(lambda v, pos: _fmt_decimal_year(v, pos, months=months))
+    )
 
 
 def _month_axis(ax, months: tuple[int, ...] = (1, 7)) -> None:
@@ -446,6 +471,12 @@ CATS = ["F1", "F2A", "F2B", "F3", "F4"]
 BASE = pd.Timestamp(BASE_EPOCH)  # AD3: single-source t0
 
 
+#: Ancho impreso en el `.tex` (ancho de texto = 6.00 in): la figura se dibuja a ese ancho para que la letra salga a su
+#: tamaño real. El alto natural se elige para que el recorte ``tight`` quede en ese ancho.
+GRID_W_IN = 6.05
+
+
+@_imprenta
 def fig_backtest_grid(table: str) -> None:
     from vp_model import dataset, holdout_window
     from vp_model.config import HOLDOUT
@@ -454,7 +485,7 @@ def fig_backtest_grid(table: str) -> None:
     # G7 · puerta 2: la ventana del protocolo, y sólo si los pronósticos la cubren (antes, literales de otra añada)
     hold_start, hold_end = holdout_window.window_of(d)
     win_start = hold_start - pd.DateOffset(months=HOLDOUT)  # tantos meses de contexto como de hold-out
-    fig, axes = plt.subplots(5, 5, figsize=(6.25, 7.6), sharex=True)  # ancho de texto: letra a tamaño real
+    fig, axes = plt.subplots(5, 5, figsize=(GRID_W_IN, 7.6), sharex=True)  # ancho de texto: letra a tamaño real
     for r, (acode, aname) in enumerate(AREAS):
         for c, cat in enumerate(CATS):
             ax = axes[r, c]
@@ -483,7 +514,7 @@ def fig_backtest_grid(table: str) -> None:
             if hi - lo < 0.5:
                 mid = (lo + hi) / 2
                 ax.set_ylim(mid - 0.5, mid + 0.5)
-            ax.tick_params(labelsize=6.5, length=2, pad=1.5)
+            ax.tick_params(labelsize=7, length=2, pad=1.5)
             ax.margins(x=0.02)
             ax.xaxis.set_major_locator(mdates.YearLocator(base=2))  # tres años por panel
             ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
@@ -492,7 +523,7 @@ def fig_backtest_grid(table: str) -> None:
             if r == 0:
                 ax.set_title(cat, fontsize=9, color=BLUE, fontweight="bold", pad=3)
             if c == 0:
-                ax.set_ylabel(aname, fontsize=8, color=GRAY)
+                ax.set_ylabel(aname, fontsize=8.5, color=GRAY)
             for sp in ("top", "right"):
                 ax.spines[sp].set_visible(False)
     # leyenda compartida + nota
@@ -507,7 +538,7 @@ def fig_backtest_grid(table: str) -> None:
     ]
     fig.legend(handles=handles, loc="lower center", ncol=2, fontsize=7.5, frameon=False, bbox_to_anchor=(0.5, -0.005))
     fig.supylabel("Fecha de prioridad", fontsize=8.5)
-    fig.suptitle(f"Backtest del pronóstico sobre el conjunto reservado · tabla {table}", fontsize=10, y=0.997)
+    fig.suptitle(f"Validación del pronóstico sobre el conjunto reservado · tabla {table}", fontsize=10, y=0.997)
     fig.tight_layout(rect=(0.01, 0.045, 1, 0.99), h_pad=0.6, w_pad=0.4)
     _emit(fig, f"results_backtest_grid_{table}")
     print(f"F5 grid {table} OK")
@@ -600,13 +631,16 @@ def _cd_panel(ax, avg, cd, title):
     first_row = yaxis - 0.30 - len(cliques) * step_c - 0.12
     lowest_y = first_row - (half - 1) * step_r
     ax.set_xlim(lo - 0.5, hi + 0.5)
-    ax.set_ylim(lowest_y - 0.3, yaxis + 1.3)
+    ax.set_ylim(lowest_y - 0.3, yaxis + 1.45)
     ax.axis("off")
     ax.plot([lo, hi], [yaxis, yaxis], color=BLACK, lw=1.0)  # eje de rangos
     for r in range(lo, hi + 1):
-        ax.plot([r, r], [yaxis, yaxis + 0.10], color=BLACK, lw=1.0)
-        ax.text(r, yaxis + 0.16, str(r), ha="center", va="bottom", fontsize=7)
-    ax.text(lo - 0.5, yaxis + 0.95, title, ha="left", va="bottom", fontsize=8.5, color=BLUE, fontweight="bold")
+        # rótulo en rangos alternos: al ancho impreso (4.08 in) los 20+ números de 7 pt se tocaban
+        rotulado = (r - lo) % 2 == 0
+        ax.plot([r, r], [yaxis, yaxis + (0.10 if rotulado else 0.06)], color=BLACK, lw=1.0 if rotulado else 0.7)
+        if rotulado:
+            ax.text(r, yaxis + 0.16, str(r), ha="center", va="bottom", fontsize=7)
+    ax.text(lo - 0.5, yaxis + 1.08, title, ha="left", va="bottom", fontsize=8.5, color=BLUE, fontweight="bold")
     for i, (mdl, rk) in enumerate(zip(models, ranks, strict=True)):
         left = i < half
         row = (half - 1 - i) if left else (i - half)
@@ -637,8 +671,14 @@ def _cd_panel(ax, avg, cd, title):
     ax.text(hi - cd / 2, yaxis + 0.70, f"CD = {cd:.2f}", ha="center", va="bottom", fontsize=7)
 
 
+#: Ancho impreso en el `.tex` (0.68 del ancho de texto = 4.08 in): se dibuja a ese ancho para que la letra salga a su
+#: tamaño real (antes 5.9 in reducidos al 69 %: rótulos de 7.5 pt impresos a 5 pt).
+CD_W_IN = 4.08
+
+
+@_imprenta
 def fig_cd_diagram() -> None:
-    fig, axes = plt.subplots(2, 1, figsize=(5.9, 7.2))  # 0.92 del ancho de texto
+    fig, axes = plt.subplots(2, 1, figsize=(CD_W_IN, 5.1))
     for ax, table in zip(axes, ("FAD", "DFF"), strict=True):
         avg, cd, n, k, pval = _avg_ranks(table)
         ptxt = "p < 0.001" if pval < 0.001 else f"p = {pval:.3f}"

@@ -16,6 +16,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from vp_model import config, dataset, walkforward
+from vp_model.palette import FONT_RC, GRAY, GRID, INK, LIGHT, MID, register_fonts, series_label
 from vp_model.plots import OUTDIR, UACJ_BLACK, UACJ_BLUE, _save
 
 log = config.get_logger(__name__)
@@ -46,6 +47,34 @@ PRETTY = {
     "catboost": "CatBoost",
     "tft": "TFT",
     "chronos": "Chronos (zero-shot)",
+}
+
+
+#: Rótulo del modelo DENTRO de la figura (español). La tabla conserva `PRETTY`, que comparte con `make_tex_tables`.
+FIG_LABEL = {**PRETTY, "ets": "ETS amortiguado"}
+
+#: Ancho impreso en el `.tex` (0.6 del ancho de texto = 3.60 in): con `tight_layout` + recorte ``tight`` el PNG natural
+#: sale al mismo ancho que la figura, así que la letra se imprime a su tamaño real (antes, 7.5 in impresos al 49 %).
+HOLDOUT_FIG_IN = (3.60, 2.45)
+
+_MES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+
+#: Marco de imprenta de la figura: tipografía serif del proyecto y lienzo blanco de la paleta, aplicado de forma
+#: reversible (no se toca el rcParams global del proceso).
+_HOLDOUT_RC = {
+    **FONT_RC,
+    "font.size": 8,
+    "figure.facecolor": LIGHT["PAPER"],
+    "axes.facecolor": LIGHT["PAPER"],
+    "savefig.facecolor": LIGHT["PAPER"],
+    "axes.edgecolor": MID,
+    "axes.labelcolor": INK,
+    "axes.titlecolor": UACJ_BLUE,
+    "xtick.color": GRAY,
+    "ytick.color": GRAY,
+    "text.color": INK,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
 }
 
 
@@ -127,21 +156,49 @@ def plot_winner_holdout(country: str, category: str, table: str, model_name: str
         **extra,
     )
     real = ts.slice_intersect(fc)
-    fig, ax = plt.subplots(figsize=(7.5, 3.8))
-    ax.plot(real.time_index, real.values().flatten() / config.DAYS_PER_YEAR, color=UACJ_BLACK, lw=1.5, label="real")
-    ax.plot(
-        fc.time_index,
-        fc.values().flatten() / config.DAYS_PER_YEAR,
-        color=UACJ_BLUE,
-        lw=1.5,
-        ls="--",
-        label=f"{PRETTY[model_name]} (pronóstico)",
-    )
-    ax.set_title(f"Pronóstico vs. real en el hold-out — {country}/{category}/{table}")
-    ax.set_xlabel("Mes del boletín")
-    ax.set_ylabel("Años desde la época base")
-    ax.legend(fontsize=8, frameon=False)
-    return _save(fig, f"results_holdout_{country}_{category}_{table}.png")
+    return _draw_holdout(real, fc, country, category, table, model_name)
+
+
+def _draw_holdout(real, fc, country: str, category: str, table: str, model_name: str) -> Path:
+    """Dibuja (sin recalcular nada) las dos curvas del hold-out a su ancho impreso, en español y con la paleta."""
+    import matplotlib.dates as mdates
+    import matplotlib.ticker as mticker
+
+    register_fonts()
+    with plt.rc_context(_HOLDOUT_RC):
+        fig, ax = plt.subplots(figsize=HOLDOUT_FIG_IN)
+        ax.plot(
+            real.time_index,
+            real.values().flatten() / config.DAYS_PER_YEAR,
+            color=UACJ_BLACK,
+            lw=1.3,
+            label="valor real",
+        )
+        ax.plot(
+            fc.time_index,
+            fc.values().flatten() / config.DAYS_PER_YEAR,
+            color=UACJ_BLUE,
+            lw=1.3,
+            ls="--",
+            label=f"{FIG_LABEL[model_name]} (pronóstico)",
+        )
+        ax.set_title(
+            f"Pronóstico frente a valor real en el conjunto reservado\n{series_label(f'{country}/{category}/{table}')}",
+            fontsize=9,
+            linespacing=1.25,
+        )
+        ax.set_xlabel("Mes del boletín", fontsize=8)
+        ax.set_ylabel("Años desde la época base", fontsize=8)
+        # Un solo formato de mes en español ('ene 2025', 'jul 2025'), no '2025-01'.
+        ax.xaxis.set_major_locator(mdates.MonthLocator(bymonth=(1, 7)))
+        ax.xaxis.set_major_formatter(
+            mticker.FuncFormatter(lambda v, _: f"{_MES[mdates.num2date(v).month - 1]} {mdates.num2date(v).year}")
+        )
+        ax.tick_params(labelsize=7, length=2.5)
+        ax.grid(axis="y", color=GRID, lw=0.6)
+        ax.set_axisbelow(True)
+        ax.legend(fontsize=7, frameon=False, loc="lower right")
+        return _save(fig, f"results_holdout_{country}_{category}_{table}.png")
 
 
 def main(argv: list[str] | None = None) -> None:

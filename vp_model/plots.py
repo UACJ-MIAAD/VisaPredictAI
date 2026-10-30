@@ -15,12 +15,13 @@ import pandas as pd
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 from statsmodels.tsa.seasonal import STL
 
 from vp_model import config, dataset, eda, preprocess
 from vp_model import series_characterization as features
-from vp_model.config import DAYS_PER_YEAR
+from vp_model.config import BASE_EPOCH, DAYS_PER_YEAR
 from vp_model.palette import (
     BLUE,
     COUNTRY,
@@ -62,6 +63,13 @@ plt.rcParams.update(
 # 300 ppi (estándar de impresión) para .png nítidos. Explícito en cada savefig:
 # statsmodels (STL/ACF) reescribe rcParams a mitad de proceso, así que no se confía en el rcParam.
 SAVE_DPI = 300
+
+# Los «años» de estas figuras son años transcurridos desde la época base t0 del panel
+# (config.BASE_EPOCH), no años calendario: el rótulo lo dice y se deriva de la constante.
+_MES_ABR = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
+_t0 = pd.Timestamp(BASE_EPOCH)
+T0_TXT = f"$t_0$ = {_t0.day}-{_MES_ABR[_t0.month - 1]}-{_t0.year}"
+Y_EPOCH = f"Años desde la época base\n({T0_TXT})"
 
 
 def _save(fig: plt.Figure, name: str) -> Path:
@@ -179,17 +187,29 @@ def plot_decomposition(country: str = "mexico", category: str = "F3", table: str
     """STL de una serie representativa (tendencia + estacionalidad + residuo)."""
     s = preprocess.to_regular_monthly(dataset.load_series(country, category, table)).dropna()
     res = STL(s, period=12, robust=True).fit()
-    fig, axes = plt.subplots(4, 1, figsize=(8, 6.5), sharex=True)
+    # Se imprime a 0.72 del ancho de texto (4.32 in): se dibuja a ese ancho para que el
+    # texto salga 1:1 y no a 4 pt.
+    fig, axes = plt.subplots(4, 1, figsize=(4.32, 5.0), sharex=True)
     for ax, (comp, color) in zip(
         axes,
         [(s, UACJ_BLUE), (res.trend, UACJ_BLACK), (res.seasonal, UACJ_GRAY), (res.resid, WINE)],
         strict=True,
     ):
-        ax.plot(comp.index, np.asarray(comp) / DAYS_PER_YEAR, color=color, lw=1.0)
-    for ax, lbl in zip(axes, ["observado", "tendencia", "estacional", "residuo"], strict=True):
+        ax.plot(comp.index, np.asarray(comp) / DAYS_PER_YEAR, color=color, lw=0.9)
+        ax.tick_params(labelsize=7.5)
+    # observado y tendencia son NIVELES (años desde t0); estacional y residuo, desviaciones en años
+    for ax, lbl in zip(
+        axes,
+        ["observado\n(años desde $t_0$)", "tendencia\n(años desde $t_0$)", "estacional\n(años)", "residuo\n(años)"],
+        strict=True,
+    ):
         ax.set_ylabel(lbl, fontsize=8)
-    axes[0].set_title(f"Descomposición STL, {series_label(f'{country}/{category}/{table}')} (años)")
-    axes[-1].set_xlabel("Mes del boletín")
+    fig.align_ylabels(axes)
+    axes[0].set_title(
+        f"Descomposición STL, {series_label(f'{country}/{category}/{table}')}\n({T0_TXT}, época base)",
+        fontsize=9,
+    )
+    axes[-1].set_xlabel("Mes del boletín", fontsize=8.5)
     return _save(fig, f"eda_stl_{country}_{category}_{table}.png")
 
 
@@ -197,11 +217,19 @@ def plot_acf_pacf(country: str = "mexico", category: str = "F3", table: str = "F
     """ACF/PACF de la serie diferenciada (orienta el orden de ARIMA/SARIMA)."""
     s = preprocess.to_regular_monthly(dataset.load_series(country, category, table)).dropna()
     d = s.diff().dropna()
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8, 3.2))
-    plot_acf(d, ax=ax1, lags=24, color=UACJ_BLUE)
-    plot_pacf(d, ax=ax2, lags=24, method="ywm", color=UACJ_BLUE)
-    ax1.set_title("ACF (serie diferenciada)")
-    ax2.set_title("PACF (serie diferenciada)")
+    # Impresa a 0.85 del ancho de texto (5.10 in): se dibuja a ese ancho (texto 1:1).
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(5.10, 2.5))
+    stems = {"colors": UACJ_BLUE, "linewidth": 1.0}
+    plot_acf(d, ax=ax1, lags=24, color=UACJ_BLUE, markersize=3.5, vlines_kwargs=stems)
+    plot_pacf(d, ax=ax2, lags=24, method="ywm", color=UACJ_BLUE, markersize=3.5, vlines_kwargs=stems)
+    ax1.set_title("ACF (serie diferenciada)", fontsize=9)
+    ax2.set_title("PACF (serie diferenciada)", fontsize=9)
+    ax1.set_ylabel("correlación", fontsize=8.5)
+    ax2.set_ylabel("correlación parcial", fontsize=8.5)
+    for ax in (ax1, ax2):
+        ax.set_xlabel("rezago (meses)", fontsize=8.5)
+        ax.set_yticks([-1.0, -0.5, 0.0, 0.5, 1.0])
+        ax.tick_params(labelsize=7.5)
     return _save(fig, f"eda_acfpacf_{country}_{category}_{table}.png")
 
 
@@ -214,7 +242,7 @@ def plot_feature_space(table: str = "FAD", block: str = "family") -> Path:
     (antes 25 puntos se encimaban en una esquina de un lienzo 0-1 vacío).
     """
     ft = features.feature_table(table=table, block=block)
-    fig, ax = plt.subplots(figsize=(5.1, 3.4))  # 0.82 del ancho de texto
+    fig, ax = plt.subplots(figsize=(4.92, 3.75))  # 0.82 del ancho de texto (4.92 in): texto 1:1
     colors = {
         c: col for c, col in zip(dataset.PILOT_COUNTRIES, [COUNTRY[c] for c in dataset.PILOT_COUNTRIES], strict=True)
     }
@@ -229,37 +257,59 @@ def plot_feature_space(table: str = "FAD", block: str = "family") -> Path:
     ins.set_ylim(-0.006, max(float(y[x > 0.98].max()) if (x > 0.98).any() else 0.05, 0.03) * 1.15)
     for country, grp in ft.groupby("country"):
         color = colors.get(country, UACJ_BLUE)
-        for target, size, label in ((ax, 26, COUNTRY_NAME.get(country, country)), (ins, 20, None)):
+        # «Resto del mundo» cae casi encima de India: se dibuja como anillo hueco por ENCIMA,
+        # así ambos puntos se ven sin desplazar ningún valor.
+        ring = country == "all_chargeability"
+        for target, size, label in ((ax, 26, COUNTRY_NAME.get(country, country)), (ins, 22, None)):
             target.scatter(
                 grp["trend_strength"],
                 grp["seasonal_strength"],
                 label=label,
-                s=size,
-                color=color,
-                alpha=0.85,
-                edgecolor="white",
-                linewidths=0.4,
+                s=size * 1.9 if ring else size,
+                facecolor="none" if ring else color,
+                edgecolor=color if ring else "white",
+                alpha=1.0 if ring else 0.85,
+                linewidths=1.1 if ring else 0.4,
+                zorder=4 if ring else 3,
             )
     # rótulo de las series fuera del cúmulo (las que el recuadro no amplía)
+    # rótulos a la izquierda en la mitad derecha del lienzo: a la derecha chocaban con el
+    # recuadro del cúmulo y con su conector
+    mid_x = (lo_x - 0.02 + 1.004) / 2
     for _, r in ft[x < cx0].iterrows():
+        left = r.trend_strength > mid_x
         ax.annotate(
             f"{COUNTRY_NAME.get(r.country, r.country)} {r.category}",
             (r.trend_strength, r.seasonal_strength),
-            xytext=(-4, 4) if r.trend_strength > 0.95 else (4, 4),
-            ha="right" if r.trend_strength > 0.95 else "left",
+            xytext=(-4, 4) if left else (4, 4),
+            ha="right" if left else "left",
             textcoords="offset points",
             fontsize=7,
             color=INK,
         )
-    ins.tick_params(labelsize=6.5, length=2, pad=1)
-    ins.set_title("ampliación del cúmulo", fontsize=7, color=GRAY, pad=2)
-    ax.indicate_inset_zoom(ins, edgecolor=MID, alpha=0.9)
-    ax.set_xlabel("Fuerza de tendencia $F_T$", fontsize=9)
-    ax.set_ylabel("Fuerza de estacionalidad $F_S$", fontsize=9)
-    ax.tick_params(labelsize=8)
+    ins.xaxis.set_major_locator(MultipleLocator(0.005))
+    ins.tick_params(labelsize=7, length=2, pad=1)
+    ins.set_title("ampliación del cúmulo", fontsize=7.5, color=GRAY, pad=2)
+    zoom = ax.indicate_inset_zoom(ins, edgecolor=MID, alpha=0.9)
+    # solo los conectores del lado derecho del recuadro: los del izquierdo cruzaban el
+    # rótulo «México F4» de camino al cúmulo
+    # (orden de Matplotlib: inferior izq., superior izq., inferior der., superior der.)
+    for k, conn in enumerate(zoom.connectors or ()):
+        conn.set_visible(k >= 2)
+    ax.set_xlabel("Fuerza de tendencia $F_T$", fontsize=8.5)
+    ax.set_ylabel("Fuerza de estacionalidad $F_S$", fontsize=8.5)
+    ax.tick_params(labelsize=7.5)
     bloque = _BLOQUE.get(block, block)
-    ax.set_title(f"Espacio de características de las series, tabla {table} · bloque {bloque}", fontsize=9.5)
-    ax.legend(fontsize=7, frameon=False, ncol=1, loc="upper left", bbox_to_anchor=(1.0, 1.0), handletextpad=0.2)
+    ax.set_title(f"Espacio de características de las series,\ntabla {table} · bloque {bloque}", fontsize=9)
+    ax.legend(
+        fontsize=7.5,
+        frameon=False,
+        ncol=5,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.17),
+        handletextpad=0.1,
+        columnspacing=0.9,
+    )
     return _save(fig, f"eda_features_{table}_{block}.png")
 
 
@@ -336,23 +386,29 @@ def plot_changepoints(country: str = "mexico", category: str = "F3", table: str 
     mad = (resid - med).abs().rolling(13, center=True, min_periods=6).median()
     anom = s[((resid - med).abs() > 3 * 1.4826 * mad) & (mad > 0)]
 
-    fig, ax = plt.subplots(figsize=(8, 3.8))
-    ax.plot(s.index, s.to_numpy() / DAYS_PER_YEAR, color=UACJ_BLUE, lw=1.2, label="serie")
+    fig, ax = plt.subplots(figsize=(5.16, 2.9))  # 0.86 del ancho de texto (5.16 in): texto 1:1
+    ax.plot(s.index, s.to_numpy() / DAYS_PER_YEAR, color=UACJ_BLUE, lw=1.0, label="serie")
     for b in bkps[:-1]:
         ax.axvline(s.index[min(b, len(s) - 1)], color=WINE, lw=1.1, ls="--")
     ax.scatter(
         anom.index,
         anom.to_numpy() / DAYS_PER_YEAR,
         color=GOLD,
-        s=18,
+        s=10,
         zorder=3,
         label=f"anomalías puntuales ({len(anom)})",
     )
     ax.plot([], [], color=WINE, lw=1.1, ls="--", label=f"cambios de régimen ({len(bkps) - 1})")
-    ax.set_title(f"Cambios de régimen y anomalías puntuales, {series_label(f'{country}/{category}/{table}')}")
-    ax.set_xlabel("Mes del boletín")
-    ax.set_ylabel("Años desde la época base")
-    ax.legend(fontsize=8, frameon=False)
+    ax.set_title(
+        f"Cambios de régimen y anomalías puntuales,\n{series_label(f'{country}/{category}/{table}')}",
+        fontsize=9,
+    )
+    ax.set_xlabel("Mes del boletín", fontsize=8.5)
+    ax.set_ylabel(Y_EPOCH, fontsize=8.5)
+    ax.tick_params(labelsize=7.5)
+    # arriba a la izquierda: antes de 2016 la serie no pasa de ~20 años y ninguna línea de
+    # cambio cruza esa esquina
+    ax.legend(fontsize=7.5, frameon=False, loc="upper left")
     return _save(fig, f"eda_changepoints_{country}_{category}_{table}.png")
 
 

@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from PIL import Image
 
-from vp_model.palette import BLUE, FONT_RC, GRAY, MUTE, REGIME, STRIPE, register_fonts
+from vp_model.palette import BLUE, COUNTRY_NAME, FONT_RC, GRAY, MUTE, REGIME, STRIPE, cat_label, register_fonts
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "reports" / "latex" / "Figures"
@@ -189,46 +189,85 @@ def fig_bulletin_table() -> None:
     print("data_bulletin_table.pdf OK")
 
 
-def _render_df(df: pd.DataFrame, path: Path, title: str) -> None:
+def _render_df(
+    df: pd.DataFrame,
+    path: Path,
+    title: str,
+    *,
+    width: float = 7.6,
+    fontsize: float = 7.2,
+    mono_cols: tuple[str, ...] = (),
+    row_in: float = 0.34,
+) -> None:
+    """Tabla tipográfica. ``width``/``fontsize`` permiten dibujarla al ancho de impresión,
+    ``row_in`` ajusta el alto del lienzo a la tabla y ``mono_cols`` pone en monoespaciada los
+    encabezados que son nombres reales de columna. Los valores por omisión son los de siempre."""
     df = df.fillna("").replace({"nan": "", "NaT": ""}).astype(str)
-    fig, ax = plt.subplots(figsize=(7.6, 0.34 * (len(df) + 1.8)))
+    fig, ax = plt.subplots(figsize=(width, row_in * (len(df) + 1.8)))
     ax.axis("off")
     tbl = ax.table(cellText=df.values, colLabels=df.columns, loc="center", cellLoc="center")
     tbl.auto_set_font_size(False)
-    tbl.set_fontsize(7.2)
+    tbl.set_fontsize(fontsize)
     tbl.auto_set_column_width(col=list(range(len(df.columns))))  # ancho por contenido (evita truncar)
     tbl.scale(1, 1.30)
-    for (r, _c), cell in tbl.get_celld().items():
+    for (r, c), cell in tbl.get_celld().items():
         cell.set_edgecolor(MUTE)
         cell.set_linewidth(0.5)
         if r == 0:
             cell.set_facecolor(BLUE)
             cell.set_text_props(color="white", fontweight="bold")
+            if df.columns[c] in mono_cols:
+                cell.set_text_props(family="monospace")
         elif r % 2 == 0:
             cell.set_facecolor(STRIPE)
-    ax.set_title(title, fontsize=9.5, color=BLUE, fontweight="bold", pad=6)
+    ax.set_title(title, fontsize=fontsize + 2.3, color=BLUE, fontweight="bold", pad=6)
     fig.savefig(path)
     plt.close(fig)
 
 
 def fig_csv_panel() -> None:
-    """Muestra del panel tidy: filas que ilustran los tres regímenes C/F/U."""
+    """Muestra del panel largo ordenado: filas que ilustran los tres regímenes C/F/U."""
     d = pd.read_csv(ROOT / "data" / "processed" / "visa_panel_long.csv")
     sub = d[(d.country == "mexico") & (d.category == "F2A") & (d.table == "FAD")].copy()
     rows = pd.concat([sub[sub.status == "C"].head(2), sub[sub.status == "F"].head(4)])
     extra_u = d[d.status == "U"].head(1)
     extra = d[(d.country == "india") & (d.category == "F1") & (d.table == "FAD") & (d.status == "F")].head(2)
     show = pd.concat([rows, extra, extra_u]).copy()
-    show["country"] = show["country"].replace({"all_chargeability": "all_charg", "mexico": "México", "india": "India"})
+    # Es una MUESTRA de exhibición: cada serie en orden cronológico (las filas no cambian,
+    # solo el orden en que se muestran), y las series en el orden en que entran a la muestra.
+    serie = pd.Categorical(
+        show["country"] + "/" + show["category"], categories=pd.unique(show["country"] + "/" + show["category"])
+    )
+    show = show.assign(_serie=serie).sort_values(["_serie", "bulletin_date"], kind="stable")
+    show["country"] = show["country"].map(lambda c: COUNTRY_NAME.get(c, c))
+    show["category"] = show["category"].map(cat_label)
     show = show[
         ["country", "category", "table", "bulletin_date", "status", "priority_date", "days_since_base", "raw_value"]
     ]
-    show.columns = ["país", "cat.", "tabla", "mes (t)", "estado", "fecha prioridad", "días_base", "celda cruda"]
+    # encabezados en español salvo la variable objetivo, que se muestra con su nombre real
+    show.columns = [
+        "país",
+        "categoría",
+        "tabla",
+        "mes (t)",
+        "estado",
+        "fecha prioridad",
+        "days_since_base",
+        "celda cruda",
+    ]
     for c in ("mes (t)", "fecha prioridad"):
         show[c] = show[c].astype(str).str.slice(0, 10).replace("nan", "")
-    show["días_base"] = show["días_base"].apply(lambda x: "" if pd.isna(x) or x == "" else str(int(float(x))))
+    show["days_since_base"] = show["days_since_base"].apply(
+        lambda x: "" if pd.isna(x) or x == "" else str(int(float(x)))
+    )
     _render_df(
-        show, FIG / "data_csv_panel.pdf", "Panel tidy:  visa_panel_long.csv   (variable objetivo days_since_base)"
+        show,
+        FIG / "data_csv_panel.pdf",
+        "Panel largo ordenado: visa_panel_long.csv (variable objetivo days_since_base)",
+        width=6.0,
+        fontsize=8.0,
+        mono_cols=("days_since_base",),
+        row_in=0.28,
     )
     print("data_csv_panel.pdf OK")
 

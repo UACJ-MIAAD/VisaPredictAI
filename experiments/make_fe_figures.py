@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import textwrap
 from pathlib import Path
+from typing import Any, cast
 
 import matplotlib
 
@@ -40,6 +41,7 @@ from _figkit import (
 )
 from make_latinometrics_figures import MES  # (sys.path[0] = experiments/)
 from matplotlib.patches import FancyArrowPatch, Patch, Rectangle
+from matplotlib.ticker import MultipleLocator
 
 from vp_data.visa_common import classify_status, string_to_datetime
 from vp_model import dataset, missingness, preprocess
@@ -104,8 +106,7 @@ TXT: dict[str, dict] = {
         "footer": "Fuente: U.S. Department of State, Visa Bulletin (dic 2001 – {mes} {anio}).",
         # f01 — diferenciación
         "f01_head": "Los árboles no extrapolan: se les entrena sobre el avance mensual, no el nivel",
-        "f01_sub": "Serie {name}: el nivel arrastra décadas de tendencia (un árbol se satura en el máximo "
-        "visto); la primera diferencia es estacionaria y el pronóstico se reintegra de forma causal.",
+        "f01_sub": "{name}: el nivel arrastra décadas de tendencia; la primera diferencia es estacionaria.",
         "f01_series": "Resto del mundo · F2A · FAD",
         "f01_a": "(a) Serie en niveles: tendencia fuerte (no estacionaria)",
         "f01_b": "(b) Primera diferencia: estacionaria y extrapolable",
@@ -123,19 +124,16 @@ TXT: dict[str, dict] = {
         "f02_xlab": "Mes del año fiscal",
         "f02_ylab": "Valor de la codificación",
         # f03 — importancia
-        "f03_head": "La característica dominante: {top}",
-        "f03_sub": "Importancia por ganancia de un LightGBM entrenado sobre el avance mensual de las series "
-        "familiares FAD (rezagos del avance + calendario cíclico).",
+        "f03_head": "Las dos características que más pesan: {top} y {second}",
+        "f03_sub": "Número de divisiones de un LightGBM sobre el avance mensual, series familiares FAD.",
         "f03_lag": "Avance en $t-{k}$",
         "f03_sin": "Calendario (seno)",
         "f03_cos": "Calendario (coseno)",
-        "f03_xlab": "Importancia (ganancia, LightGBM)",
+        "f03_xlab": "Importancia (número de divisiones, LightGBM)",
         # f04 — política de huecos (MNAR)
         "f04_head": "Rejilla descriptiva: huecos de hasta {cap} meses se interpolan; los {n} tramos largos jamás se inventan",
-        "f04_sub": "{name}: {miss} meses sin fecha en {runs} corridas (la más larga, {maxrun} meses). "
-        "Las corridas cortas (≤{cap}) se interpolan linealmente solo en la rejilla descriptiva; la de "
-        "modelado rellena de forma causal con la última observación. Las largas quedan vacías y solo el EDA "
-        "las caracteriza con suavizado de Kalman.",
+        "f04_sub": "{name}: {miss} meses sin fecha en {runs} corridas (la más larga, {maxrun}); "
+        "solo las de ≤{cap} se interpolan.",
         "f04_series": "México · EB-4 religiosos · FAD",
         "f04_long": "hueco de {n} meses:\nKalman solo para EDA,\njamás para entrenar",
         "f04_obs": "observación F (real)",
@@ -145,14 +143,12 @@ TXT: dict[str, dict] = {
         "f04_ylab": "Fecha de prioridad (año)",
         # f05 — máscara de régimen (B1)
         "f05_head": "C y U son anotación, no objetivo: solo se puntúan las {nf} fechas publicadas",
-        "f05_sub": "{name}: la línea existe solo en los meses F; los fondos marcan el régimen del boletín "
-        "({nc} meses Current, {nu} Unavailable, {nk} sin dato). La franja inferior muestra los meses que la "
-        "evaluación puntúa (máscara F-only).",
+        "f05_sub": "{name}: línea solo en meses F; {nc} meses vigentes, {nu} no disponibles y {nk} sin dato.",
         "f05_series": "India · EB-2 · FAD",
         "f05_strip": "puntuado (F)",
-        "f05_F": "F: fecha publicada ({n})",
-        "f05_C": "C: Current ({n})",
-        "f05_U": "U: Unavailable ({n})",
+        "f05_F": "F: publicada ({n})",
+        "f05_C": "C: vigente ({n})",
+        "f05_U": "U: no disponible ({n})",
         "f05_UNK": "sin dato ({n})",
         "f05_ylab": "Fecha de prioridad (año)",
         # f06 — parser tolerante
@@ -196,8 +192,7 @@ TXT: dict[str, dict] = {
     "en": {
         "footer": "Source: U.S. Department of State, Visa Bulletin (Dec 2001 – {mes} {anio}).",
         "f01_head": "Trees don't extrapolate: they are trained on the monthly advance, not the level",
-        "f01_sub": "Series {name}: the level carries decades of trend (a tree saturates at the maximum it "
-        "saw); the first difference is stationary and the forecast is reintegrated causally.",
+        "f01_sub": "{name}: the level carries decades of trend; the first difference is stationary.",
         "f01_series": "Rest of world · F2A · FAD",
         "f01_a": "(a) Series in levels: strong trend (non-stationary)",
         "f01_b": "(b) First difference: stationary and extrapolable",
@@ -213,18 +208,15 @@ TXT: dict[str, dict] = {
         "f02_b": "(b) Months on the unit circle",
         "f02_xlab": "Fiscal-year month",
         "f02_ylab": "Encoding value",
-        "f03_head": "The dominant feature: {top}",
-        "f03_sub": "Gain importance of a LightGBM trained on the monthly advance of the family FAD series "
-        "(advance lags + cyclic calendar).",
+        "f03_head": "The two features that weigh most: {top} and {second}",
+        "f03_sub": "Number of splits of a LightGBM on the monthly advance, family FAD series.",
         "f03_lag": "Advance at $t-{k}$",
         "f03_sin": "Calendar (sine)",
         "f03_cos": "Calendar (cosine)",
-        "f03_xlab": "Importance (gain, LightGBM)",
+        "f03_xlab": "Importance (number of splits, LightGBM)",
         "f04_head": "Descriptive grid: gaps of up to {cap} months are interpolated; the {n} long runs are never invented",
-        "f04_sub": "{name}: {miss} months without a date across {runs} runs (the longest, {maxrun} months). "
-        "Short runs (≤{cap}) are linearly interpolated only in the descriptive grid; the modeling grid carries "
-        "the last observation forward causally. Long ones stay empty and only the EDA characterizes them with "
-        "Kalman smoothing.",
+        "f04_sub": "{name}: {miss} months without a date across {runs} runs (the longest, {maxrun}); "
+        "only those of ≤{cap} are interpolated.",
         "f04_series": "Mexico · EB4_RW (religious workers) · FAD",
         "f04_long": "{n}-month gap:\nKalman for EDA only,\nnever for training",
         "f04_obs": "F observation (real)",
@@ -233,9 +225,7 @@ TXT: dict[str, dict] = {
         "f04_gap": "long gap (never invented)",
         "f04_ylab": "Priority date (year)",
         "f05_head": "C and U are annotation, not targets: only the {nf} published dates are scored",
-        "f05_sub": "{name}: the line exists only in F months; the backgrounds mark the bulletin regime "
-        "({nc} Current months, {nu} Unavailable, {nk} no data). The bottom strip shows the months the "
-        "evaluation actually scores (F-only mask).",
+        "f05_sub": "{name}: line only in F months; {nc} Current months, {nu} Unavailable and {nk} no data.",
         "f05_series": "India · EB-2 · FAD",
         "f05_strip": "scored (F)",
         "f05_F": "F — published date ({n})",
@@ -282,6 +272,28 @@ TXT: dict[str, dict] = {
 }
 
 
+def _minus(v: object) -> str:
+    """Signo menos tipográfico (U+2212) en texto libre; matplotlib ya lo usa en los ejes."""
+    return str(v).replace("-", "\u2212")
+
+
+def _lower_first(label: str) -> str:
+    """'Avance en $t-1$' -> 'avance en $t-1$' para usarlo dentro del titular."""
+    return label[:1].lower() + label[1:]
+
+
+def _footer_one_line(fig: plt.Figure, facts: dict, ctx: FigureContext, fs: float = 7) -> None:
+    """Pie y marca en UN renglón, 0.10 in bajo el contenido.
+
+    Con ``y=None`` el pie del kit baja la marca un renglón cuando estima que no cabe; en
+    una figura angosta esa estimación es conservadora y añade un renglón vacío de alto.
+    """
+    renderer = cast(Any, fig.canvas).get_renderer()  # Agg canvas; the base-class stub lacks it
+    boxes = [ax.get_tightbbox(renderer) for ax in fig.axes if ax.get_visible()]
+    bottom = min(bb.y0 for bb in boxes if bb is not None) / fig.bbox.height
+    footer(fig, facts["vintage"], ctx, y=bottom - (0.10 + fs / 72.0) / fig.get_size_inches()[1], fs=fs)
+
+
 def load_inputs() -> tuple[pd.DataFrame, dict]:
     df = pd.read_csv(ROOT / "data" / "processed" / "visa_panel_long.csv", parse_dates=["bulletin_date"])
     facts = json.loads((ROOT / "reports" / "fe" / "fe_facts.json").read_text())
@@ -316,8 +328,14 @@ def f01_differencing(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.F
     )
     s["years"] = days_to_year(s.days_since_base)
     s["delta"] = s.days_since_base.diff()
-    fig, (a1, a2) = plt.subplots(2, 1, figsize=(5.6, 4.0), sharex=True, gridspec_kw={"hspace": 0.38})
-    a1.plot(s.bulletin_date, s.years, color=BLUE, lw=1.4)
+    # Impresa a 0.73 del ancho de texto (4.38 in, que incluyen los 0.1 in de margen por lado
+    # de bbox_inches="tight"): se dibuja a ese ancho para que el texto salga 1:1.
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(4.22, 2.75), sharex=True)
+    # El nivel sobre la rejilla mensual: los meses sin fecha publicada quedan en NaN y la línea
+    # se corta ahí (antes unía 2019-2023 con una recta que parecía dato).
+    lvl = s.set_index("bulletin_date").years
+    lvl = lvl.reindex(pd.date_range(lvl.index.min(), lvl.index.max(), freq="MS"))
+    a1.plot(lvl.index, lvl.to_numpy(), color=BLUE, lw=1.3)
     a1.set_ylabel(T["f01_ylab_a"], fontsize=8)
     a1.set_title(T["f01_a"], fontsize=8.5, color=BLUE, loc="left")
     # AC1: sin recorte silencioso — el rango central se muestra y lo extremo se ANOTA
@@ -332,7 +350,8 @@ def f01_differencing(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.F
     dates = s.bulletin_date.reset_index(drop=True)
     gaps = [(dates[i - 1], dates[i]) for i in range(1, len(dates)) if (dates[i] - dates[i - 1]).days > 75]
     for g0, g1 in gaps:
-        a2.axvspan(g0 + pd.DateOffset(days=20), g1 - pd.DateOffset(days=20), color=MUTE, alpha=0.35, lw=0, zorder=0)
+        for ax in (a1, a2):  # el mismo hueco en ambos paneles
+            ax.axvspan(g0 + pd.DateOffset(days=20), g1 - pd.DateOffset(days=20), color=MUTE, alpha=0.35, lw=0, zorder=0)
     if gaps:
         g0, g1 = max(gaps, key=lambda g: g[1] - g[0])
         a2.text(g0 + (g1 - g0) / 2, hi * 0.55, T["f01_nodate"], ha="center", va="center", fontsize=7, color=GRAY)
@@ -341,17 +360,21 @@ def f01_differencing(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.F
     a2.scatter(out.bulletin_date, clipped[out.index] + np.sign(out.delta) * 6, marker="|", s=14, color=GRAY, lw=0.8)
     if n_lo or n_hi:
         worst = s.delta.min() if n_lo else s.delta.max()
-        a2.text(
-            0.0,
-            -0.30,
-            T["f01_clip"].format(n=n_lo + n_hi, lo=lo, hi=hi, worst=f"{worst:,.0f}"),
-            transform=a2.transAxes,
+        a2.annotate(
+            T["f01_clip"].format(n=n_lo + n_hi, lo=_minus(lo), hi=hi, worst=_minus(f"{worst:,.0f}")),
+            (0.0, 0.0),
+            xycoords="axes fraction",
+            xytext=(0, -17),
+            textcoords="offset points",
             fontsize=7,
             color=GRAY,
             va="top",
         )
     a2.axhline(0, color=GRAY, lw=0.8)
     a2.set_ylim(lo - 14, hi + 14)
+    # marcas fijas: no dependen del alto del panel
+    a1.yaxis.set_major_locator(MultipleLocator(10))
+    a2.yaxis.set_major_locator(MultipleLocator(100))
     a2.set_ylabel(T["f01_ylab_b"], fontsize=8)
     a2.set_title(T["f01_b"], fontsize=8.5, color=BLUE, loc="left")
     for ax in (a1, a2):
@@ -359,6 +382,8 @@ def f01_differencing(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.F
         ax.grid(True, axis="y", color=GRID, lw=0.6)
         for sp in ("top", "right"):
             ax.spines[sp].set_visible(False)
+    # ejes al ancho exacto de la figura: así el ancho natural del PDF es el de impresión
+    fig.tight_layout(pad=0.15, h_pad=1.2)
     header(fig, T["f01_head"], T["f01_sub"].format(name=T["f01_series"]), ctx, y=None, dy=None)
     footer(fig, facts["vintage"], ctx, y=None, fs=7)
     return _save(fig, "f01_differencing", ctx)
@@ -435,7 +460,7 @@ def f03_importance(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Fig
     imp = pd.Series(model.feature_importances_, index=feats).sort_values()
     nice = {f"rezago_{lg}": T["f03_lag"].format(k=lg) for lg in lags}
     nice |= {"mes_sin": T["f03_sin"], "mes_cos": T["f03_cos"]}
-    fig, ax = plt.subplots(figsize=(5.4, 2.7))  # 0.84 del ancho de texto
+    fig, ax = plt.subplots(figsize=(4.10, 2.06))  # impresa a 4.26 in (con margen de 0.1 in por lado): texto 1:1
     is_cal = [k in ("mes_sin", "mes_cos") for k in imp.index]
     cols = [GOLD if c else BLUE for c in is_cal]
     ax.barh([nice[k] for k in imp.index], imp.to_numpy(), color=cols, edgecolor=PAPER)
@@ -445,9 +470,13 @@ def f03_importance(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Fig
     ax.set_axisbelow(True)
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
-    top = nice[str(imp.index[-1])]  # el titular se DERIVA del modelo, no se tipea
-    header(fig, T["f03_head"].format(top=top), T["f03_sub"], ctx, y=None, dy=None)
-    footer(fig, facts["vintage"], ctx, y=None, fs=7)
+    # el titular se DERIVA del modelo, no se tipea: nombra las DOS primeras porque la segunda
+    # suele quedar casi empatada con la primera (517 frente a 510 divisiones en nov-2026)
+    top, second = (_lower_first(nice[str(k)]) for k in imp.index[::-1][:2])
+    # ejes al ancho exacto de la figura: así el ancho natural del PDF es el de impresión
+    fig.tight_layout(pad=0.15)
+    header(fig, T["f03_head"].format(top=top, second=second), T["f03_sub"], ctx, y=None, dy=None)
+    _footer_one_line(fig, facts, ctx)
     return _save(fig, "f03_importance", ctx)
 
 
@@ -481,7 +510,7 @@ def f04_gaps(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     short = [r for r in runs if r[1] - r[0] + 1 <= cap]
     long_ = [r for r in runs if r[1] - r[0] + 1 > cap]
 
-    fig, ax = plt.subplots(figsize=(5.8, 3.3))  # 0.9 del ancho de texto
+    fig, ax = plt.subplots(figsize=(4.46, 2.48))  # impresa a 4.62 in (con margen de 0.1 in por lado): texto 1:1
     pad = pd.DateOffset(days=15)
     for i0, i1 in long_:
         ax.axvspan(grid_idx[i0] - pad, grid_idx[i1] + pad, color=UNK_FILL, zorder=0, lw=0)
@@ -505,6 +534,7 @@ def f04_gaps(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
         style="italic",
     )
     ax.set_ylabel(T["f04_ylab"], fontsize=8)
+    ax.yaxis.set_major_locator(MultipleLocator(2))  # marcas fijas: no dependen del alto del panel
     ax.tick_params(labelsize=7.5)
     ax.grid(True, axis="y", color=GRID, lw=0.6)
     for sp in ("top", "right"):
@@ -516,6 +546,8 @@ def f04_gaps(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
         Patch(fc=UNK_FILL, ec=MID, lw=0.4, label=T["f04_gap"]),
     ]
     ax.legend(handles=handles, fontsize=7, frameon=False, loc="lower right")
+    # ejes al ancho exacto de la figura: así el ancho natural del PDF es el de impresión
+    fig.tight_layout(pad=0.15)
     header(
         fig,
         T["f04_head"].format(cap=cap, n=len(long_)),
@@ -542,9 +574,7 @@ def f05_regime(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     fdays = s[s.status == "F"].set_index("bulletin_date").days_since_base.reindex(grid_idx)
     counts = status.value_counts()
 
-    fig, (ax, axs) = plt.subplots(
-        2, 1, figsize=(5.7, 3.5), height_ratios=(6, 0.55), sharex=True, gridspec_kw={"hspace": 0.07}
-    )
+    fig, (ax, axs) = plt.subplots(2, 1, figsize=(4.486, 2.46), height_ratios=(6, 0.55), sharex=True)
     pad = pd.DateOffset(days=15)
     # bandas de régimen: corridas contiguas del mismo estado NO-F (F queda en papel)
     codes = status.to_numpy()
@@ -560,6 +590,7 @@ def f05_regime(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
             i += 1
     ax.plot(grid_idx, days_to_year(fdays), color=BLUE, lw=1.3, zorder=3)
     ax.set_ylabel(T["f05_ylab"], fontsize=8)
+    ax.yaxis.set_major_locator(MultipleLocator(2))  # marcas fijas: no dependen del alto del panel
     ax.tick_params(labelsize=7.5)
     axs.tick_params(labelsize=7.5)
     ax.grid(True, axis="y", color=GRID, lw=0.6)
@@ -599,6 +630,8 @@ def f05_regime(df: pd.DataFrame, facts: dict, ctx: FigureContext) -> plt.Figure:
     axs.text(-0.012, 0.5, T["f05_strip"], transform=axs.transAxes, ha="right", va="center", fontsize=7, color=BLUE)
     for sp in ("top", "right", "left"):
         axs.spines[sp].set_visible(False)
+    # ejes al ancho exacto de la figura: así el ancho natural del PDF es el de impresión
+    fig.tight_layout(pad=0.15, h_pad=0.25)
     header(
         fig,
         T["f05_head"].format(nf=int(counts.get("F", 0))),
