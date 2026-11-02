@@ -7,7 +7,7 @@ and never overwrites: a page already on disk is frozen.
     ante/bin/python -m pipeline.freeze_snapshots
     aws s3 sync data/snapshots/ s3://<your-bucket>/raw-html/   # then push to S3
 
-ponytail: skip-if-exists IS the immutability -- no versioning logic, no hashing.
+Skip-if-exists IS the immutability -- no versioning logic, no hashing.
 
 A1 (fetcher seam): the network lives behind an injected ``vp_data.fetchers``
 ``Fetcher`` (default: the retrying live one), so this whole module tests

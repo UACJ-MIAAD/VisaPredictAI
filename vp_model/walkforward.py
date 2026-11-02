@@ -6,7 +6,7 @@ hold-out independiente que NUNCA participa en la selección de modelo. El pronó
 a 1 paso en cada origen usa solo el pasado (darts ``historical_forecasts`` con
 ventana expansible), de modo que la comparación entre modelos está libre de leakage.
 
-Decisión documentada (ponytail): los modelos estadísticos se reentrenan en cada
+Decisión documentada: los modelos estadísticos se reentrenan en cada
 paso (barato, ventana expansible verdadera); las redes se reentrenan cada 12 meses
 (anual) porque reentrenar una NN en cada uno de ~200 orígenes es inviable en CPU. Es
 el compromiso estándar coste/validez para forecasting con NN.
