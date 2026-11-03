@@ -23,13 +23,13 @@ probabilísticas sin reimplementar nada. Núcleo de referencia:
 AP3: ``_FACTORIES`` (dict nombre -> fábrica) es LA fuente del catálogo; ``build_model``
 es un lookup y un assert de import mantiene ``config.MODEL_NAMES`` sincronizado.
 
-Decisión (ponytail): darts cubre casi todo el catálogo; solo la cascada ARIMA-LSTM es
+Decisión: darts cubre casi todo el catálogo; solo la cascada ARIMA-LSTM es
 código propio, y es un envoltorio delgado, no un modelo nuevo.
 """
 
 from __future__ import annotations
 
-# ponytail: el runtime OpenMP de xgboost DEBE cargarse antes que el de torch; el
+# El runtime OpenMP de xgboost DEBE cargarse antes que el de torch; el
 # orden inverso segfaultea (doble libomp) en macOS. Por eso xgboost se importa
 # primero y aislado del bloque ordenado por isort.
 import xgboost  # noqa: F401
@@ -84,7 +84,7 @@ from vp_model.config import (
     SEASONAL_PERIOD,
 )
 
-# ponytail: torch 2.12 / py3.14 en macOS segfaultea entrenando LSTM con múltiples
+# torch 2.12 / py3.14 en macOS segfaultea entrenando LSTM con múltiples
 # hilos OpenMP; un solo hilo es estable. Subir si el throughput de entrenamiento
 # llega a importar (no es el caso con series mensuales cortas).
 torch.set_num_threads(1)

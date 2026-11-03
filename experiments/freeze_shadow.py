@@ -207,7 +207,7 @@ def main() -> int:
                 continue
             recipe = champion.recipe_from_dict(rec_dict)
             if any(m in config.DIFFERENCED for m in recipe.models):
-                # ponytail: covariate plumbing for GBM recipes isn't wired here yet —
+                # Covariate plumbing for GBM recipes isn't wired here yet —
                 # skip LOUDLY instead of dying per-series and aborting the vintage.
                 # Upgrade path: FeatureBuilder covariates over an extended calendar.
                 log.warning("[%s] retador %s incluye GBM — sombra no soportada aún, se omite", table, recipe.name)

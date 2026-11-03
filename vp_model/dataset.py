@@ -31,7 +31,7 @@ def _connect(db_path: str | Path | None = None) -> duckdb.DuckDBPyConnection:
     path = Path(db_path) if db_path else DB_PATH
     if not path.exists():
         raise FileNotFoundError(f"Almacén no encontrado en {path}. Corre `make db` para regenerarlo.")
-    # ponytail: read-only — el modelado nunca escribe en el almacén (regla un-solo-escritor).
+    # Solo lectura: el modelado nunca escribe en el almacén (regla un-solo-escritor).
     con = duckdb.connect(str(path), read_only=True)
     # M2: etl_run se escribe al FINAL del build — es un centinela de completitud
     # gratis que nadie consultaba: un build interrumpido dejaba un almacén parcial
