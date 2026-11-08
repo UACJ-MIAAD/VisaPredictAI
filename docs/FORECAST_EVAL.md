@@ -4,10 +4,17 @@ Mide qué tan buenos son los pronósticos del demostrador web contra lo que el V
 Bulletin realmente publica después. Complementa al MASE *retrospectivo* del
 entregable (hold-out) con la medida out-of-sample del desempeño a 12 meses.
 **Precisión A1 (plan auditoría 2026-07-11):** el registro puntuado a la fecha es un
-**backfill sin fuga de información** (cada pronóstico usa solo información disponible
-hasta su origen, pero no fue servido en tiempo real); las añadas servidas en vivo se
+**backfill** (no fue servido en tiempo real); las añadas servidas en vivo se
 congelan al emitirse desde el despliegue de julio de 2026. Los claims deben respetar
 esa distinción.
+**Errata 7-nov-2026:** ese backfill **no es sin fuga** en los orígenes que caen dentro de un
+hueco. Las tres añadas efectivas se congelaron el 21-jun-2026 (`92db507` para 2024-07 y
+2025-01; `30fddb8` para 2025-07) rellenando la serie COMPLETA por interpolación lineal
+bidireccional (`models.to_timeseries` → `fill_missing_values(fill="auto")`) y cortando
+después en el origen (`ts.drop_after`); 105 de los 2,944 casos arrancan en un mes sin
+fecha y heredaron el extremo futuro del hueco. El relleno causal (LOCF, `9f58ba6`,
+12-jul-2026) es posterior y el registro no se regeneró: se lee como orientativo hasta
+regenerar las tres añadas con el código actual.
 
 ## Matriz de protocolos (vocabulario congelado — D1)
 
@@ -24,7 +31,7 @@ renombrar sin actualizar esta matriz.
 | P5 | **Registro sombra** (retador naïve-1) | mismo universo servido | h=1..12 | las de P4 (scoring unificado A3: `forecast_scorecard_shadow.csv` + `prospective_head_to_head.json`) | añadas congeladas por el cron desde jul-2026 | Insumo del gate de promoción (A4) vía head-to-head por pares del mismo modo | Promoción (0 pares puntuados aún; la política y la muestra mínima son A4) |
 | P6 | **Prospectivo real** (añadas servidas en vivo) | universo servido | h=1..12 | las de P4 | añadas emitidas y congeladas desde jul-2026; targets aún futuros (n scored ≈ 0) | ÚNICO protocolo que autoriza claims de servicio en tiempo real; base de la decisión de promoción (A4) | Nada lo sustituye retroactivamente: una fila es P6 solo con prueba de nacimiento anterior al target |
 
-**Vocabulario congelado:** *backfill sin fuga* (P4) · *añada servida en vivo* (P6) ·
+**Vocabulario congelado:** *backfill* (P4; orientativo hasta regenerarlo, ver la errata del 7-nov-2026) · *añada servida en vivo* (P6) ·
 *hold-out de confirmación* (P2) · *región de selección* (P1) · *registro sombra* (P5) ·
 *apto en hold-out h=1* (`holdout_pass`, antes "promovible") = veredicto retrospectivo del
 gate en P2, **no** una autorización de despliegue — la promoción la decide el **gate
@@ -93,9 +100,9 @@ make derive-band80                          # imprime ratio + cov80 held-out
 ```
 
 > La añada en vivo produce, por serie, su propio último mes F como origen (de ahí las 7
-> añadas "antiguas" 2015-08…2026-07). Las 3 añadas `as_of` son un **backfill leakage-free**
-> para tener métricas desde hoy. **Caveat honesto:** un backfill leakage-free **no es lo
-> mismo que haber servido esos pronósticos en tiempo real**; de aquí en adelante el ledger
+> añadas "antiguas" 2015-08…2026-07). Las 3 añadas `as_of` son un **backfill**
+> para tener métricas desde hoy (congelado antes del relleno causal: ver la errata del inicio).
+> **Caveat:** un backfill **no es lo mismo que haber servido esos pronósticos en tiempo real**; de aquí en adelante el ledger
 > acumula añadas realmente servidas, mes a mes. El resultado es bit-reproducible salvo
 > deriva numérica menor de la optimización de SARIMA.
 
@@ -158,8 +165,9 @@ meses y el acierto de la banda 95 %.
 3. **n efectivo = pocas añadas.** El meta lista 10 añadas pero solo ~3 recientes (2024-07, 2025-01,
    2025-07) aportan el grueso del `n_scored`; las demás (orígenes con último-F antiguo) puntúan ~0.
    Ver `n_vintages_effective` y `scored_by_vintage`. No es una prueba multi-época amplia.
-4. **Backfill leakage-free ≠ servido en tiempo real.** Las añadas históricas son reconstrucciones
-   sin fuga, pero NO se sirvieron en su momento; de aquí en adelante el ledger acumula añadas reales.
+4. **Backfill ≠ servido en tiempo real.** Las añadas históricas son reconstrucciones
+   congeladas antes del relleno causal (los orígenes dentro de un hueco heredaron la interpolación
+   bidireccional) y NO se sirvieron en su momento; de aquí en adelante el ledger acumula añadas reales.
 5. **`cov80` overall es optimista** (incluye datos de calibración); el número honesto es
    `band80_calibration.cov80_heldout` (out-of-sample).
 6. **Determinismo:** semilla fija (`config.seed_everything`), pero la optimización de SARIMA puede

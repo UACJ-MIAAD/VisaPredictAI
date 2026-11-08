@@ -161,7 +161,7 @@ def render(release_id: str, *, reconciliation_root: Path | None = None, parent_r
 **Marco comparativo:** {kf.get("n_models", "n/d")} modelos evaluados bajo el mismo protocolo walk-forward; de ahí salen el campeón desplegado y su retador.
 **Hold-out leakage-free (MASE media):** FAD campeón `{recipe("FAD")}` = **{champ_mean("FAD")}** · DFF campeón `{recipe("DFF")}` = **{champ_mean("DFF")}**.
 **Model Confidence Set (90 %):** FAD = {{{mcs("FAD")}}} · DFF = {{{mcs("DFF")}}} (Friedman–Nemenyi).
-**Prospectiva (backfill sin fuga de información; añadas servidas en vivo desde jul-2026):** n={kf.get("prosp_n_scored", "n/d")} · MAE={kf.get("prosp_mae_days", "n/d")} días · MASE={kf.get("prosp_mase", "n/d")} · cobertura 95 %={kf.get("prosp_cov95", "n/d")} · 80 % (out-of-sample)={kf.get("prosp_cov80_heldout", "n/d")}.
+**Prospectiva (backfill congelado antes del relleno causal de huecos, orientativo hasta regenerarlo; añadas servidas en vivo desde jul-2026):** n={kf.get("prosp_n_scored", "n/d")} · MAE={kf.get("prosp_mae_days", "n/d")} días · MASE={kf.get("prosp_mase", "n/d")} · cobertura 95 %={kf.get("prosp_cov95", "n/d")} · 80 % (out-of-sample)={kf.get("prosp_cov80_heldout", "n/d")}.
 
 ## 5.1 Cohortes de estabilidad y enrutado (épica E, exploratorio)
 {_e5_block(_load("governance/e5_facts.json", inputs))}
@@ -180,7 +180,7 @@ def render(release_id: str, *, reconciliation_root: Path | None = None, parent_r
 - El borde del modelado profundo sobre los clásicos es **modesto y frágil** (sensible a agregación; muestra DFF efectiva pequeña).
 - Solo modela estado F; C/U son anotación descriptiva, no objetivo.
 - Las retrogresiones por cuota son reales y el modelo debe tolerarlas; no constituye consejo legal.
-- El registro prospectivo actual es un backfill sin fuga (información truncada al origen), no pronósticos servidos en tiempo real; las añadas servidas en vivo se acumulan desde jul-2026.
+- El registro prospectivo actual es un backfill congelado en jun-2026, antes del relleno causal de huecos: los orígenes dentro de un hueco heredaron una interpolación bidireccional, así que se lee como orientativo hasta regenerarlo; no son pronósticos servidos en tiempo real; las añadas servidas en vivo se acumulan desde jul-2026.
 """
     return md
 

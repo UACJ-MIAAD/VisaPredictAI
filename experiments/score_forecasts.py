@@ -373,7 +373,7 @@ def _score_all(tracked: TrackedRun) -> Path | None:
     scored_by_vintage = {o: int((sdf["origin"] == o).sum()) for o in sorted(fc["origin"].unique())} if len(sdf) else {}
     meta = {
         "what": "evaluación prospectiva (pronóstico congelado vs corte realmente publicado)",
-        "caveat": "backfill leakage-free; NO equivale a haber servido los pronósticos en tiempo real",
+        "caveat": "backfill congelado en jun-2026, antes del relleno causal de huecos: los orígenes dentro de un hueco heredaron una interpolación bidireccional (orientativo hasta regenerarlo); NO equivale a haber servido los pronósticos en tiempo real",
         "aggregation_scope": (
             "overall/by_horizon/by_table = SOLO filas evaluation_mode=backfill (A3); "
             "las añadas live se reportan aparte en by_mode y JAMÁS se agregan junto al backfill"
@@ -421,7 +421,7 @@ def _score_all(tracked: TrackedRun) -> Path | None:
         _s_back, s_by_mode = _mode_blocks(s_sdf)
         shadow_meta = {
             "what": "scoring del ledger SOMBRA (retador) con la misma maquinaria y universo que el campeón (A3)",
-            "caveat": "backfill leakage-free; NO equivale a haber servido los pronósticos en tiempo real",
+            "caveat": "backfill congelado en jun-2026, antes del relleno causal de huecos: los orígenes dentro de un hueco heredaron una interpolación bidireccional (orientativo hasta regenerarlo); NO equivale a haber servido los pronósticos en tiempo real",
             "n_scored": int(len(s_sdf)),
             "n_pending": int(s_pending),
             "by_mode": s_by_mode,
