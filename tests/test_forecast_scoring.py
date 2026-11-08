@@ -105,9 +105,9 @@ OUTPUTS = (
 # el pipeline publica. Regenerar SOLO si cambia deliberadamente el contenido publicado.
 BASELINE_OUTPUT_SHA256 = {
     "forecast_scorecard.csv": "9877b5f7b5d60050009817270d37aef6eeda65bc06171fdfc19357fc6aa5c744",
-    "forecast_scorecard_meta.json": "a9f6cd93e3d313d023288b039228399f2b2ba4193a60b646a38e63e067069168",
+    "forecast_scorecard_meta.json": "4506b22d9fe5fc11901dd14c3daed1481226fef7c826a9f0f3599c4f01eb2227",
     "forecast_scorecard_shadow.csv": "3f451b734884a8deb9b5109d6d872d6ec25e92cf398a49fd5c3cce79a631077c",
-    "forecast_scorecard_shadow_meta.json": "42481258b74ed6cea02396fbdb17ad86c72254401ca22495b75587c0d1109d28",
+    "forecast_scorecard_shadow_meta.json": "9daf7313e2b8cd10b1c2dfbf0ec1c109d4e8a3fc9cdf9c0e65b27d6542a3fa38",
     "prospective_head_to_head.json": "5f408272e4a104a0604807b0062cd402d311ede9ea25301ea4ce0d2763e72850",
 }
 
@@ -368,6 +368,16 @@ def test_outputs_stay_byte_identical_to_the_baseline(scoring_env) -> None:
     sf.run()
     got = {name: hashlib.sha256((scoring_env.prospective / name).read_bytes()).hexdigest() for name in OUTPUTS}
     assert got == BASELINE_OUTPUT_SHA256
+
+
+def test_caveat_declares_the_backfill_predates_the_causal_fill(scoring_env) -> None:
+    """Errata 7-nov-2026: the June vintages interpolated the whole series before cutting at the
+    origin, so the caveat may not call the backfill leakage-free (documental #27)."""
+    sf.run()
+    for name in ("forecast_scorecard_meta.json", "forecast_scorecard_shadow_meta.json"):
+        caveat = json.loads((scoring_env.prospective / name).read_text())["caveat"]
+        assert "antes del relleno causal de huecos" in caveat
+        assert "leakage-free" not in caveat and "sin fuga" not in caveat
 
 
 def test_head_to_head_json_still_has_no_instrumentation_fields(scoring_env) -> None:
