@@ -45,8 +45,8 @@ def _run(tmp_path: Path, staged_changes: bool) -> tuple[str, str]:
         'case "$*" in "diff --cached --quiet") [ "$STAGED" = 1 ] && exit 1 || exit 0;; '
         '"rev-parse HEAD") echo abc123;; esac\n'
     )
-    for tool in binary.iterdir():
-        tool.chmod(0o755)
+    for stub in binary.iterdir():
+        stub.chmod(0o755)
     output = tmp_path / "output"
     output.write_text("")
     result = subprocess.run(
