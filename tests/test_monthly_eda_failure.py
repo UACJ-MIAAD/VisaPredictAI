@@ -94,7 +94,7 @@ def test_incomplete_release_falls_through_to_the_complete_rebuild(tmp_path: Path
             "bash",
             "-e",
             "-c",
-            "new=0; source_status=blocked; publish_data() { echo STATE; };\n"
+            "new=0; source_status=blocked; publish_data() { echo STATE; }; request_reseal() { echo RESEAL; };\n"
             + script[begin:end]
             + "\necho FULL_REBUILD",
         ],
@@ -111,3 +111,5 @@ def test_incomplete_release_falls_through_to_the_complete_rebuild(tmp_path: Path
     assert result.returncode == 0, result.stderr
     assert ("FULL_REBUILD" in result.stdout) == (state == "stale")
     assert ("STATE" in result.stdout) == (state == "fresh")
+    # El commit solo-de-estado pide re-sellar; el rebuild completo sella por su cuenta.
+    assert ("RESEAL" in result.stdout) == (state == "fresh")

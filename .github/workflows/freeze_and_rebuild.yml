@@ -116,6 +116,7 @@ jobs:
       release_id: ${{ steps.release.outputs.release_id }}
       model_outcome: ${{ steps.model.outcome }}
       release_outcome: ${{ steps.release.outcome }}
+      reseal: ${{ steps.run.outputs.reseal }}
     steps:
     - name: Mint the repository-scoped GitHub App token (B0)
       id: cron-app-token
@@ -217,6 +218,19 @@ jobs:
           git push origin "HEAD:$GITHUB_REF_NAME"
           echo "pushed=true" >> "$GITHUB_OUTPUT"
           echo "data_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          DATA_PUSHED=1
+        }
+
+        # El feed de ingesta es un artefacto SELLADO del manifiesto (F2). Un commit
+        # solo-de-estado lo cambia sin rebuild: sin re-sellar, el manifiesto deja de
+        # describir el árbol (check_contracts rojo en main y el web sirve `stale`,
+        # 16-nov-2026). El paso release re-sella los bytes commiteados; aquí sólo
+        # se marca y se instala lo que ese paso necesita (perfil dev, como el rebuild).
+        request_reseal() {
+          if [ "${DATA_PUSHED:-0}" = "1" ]; then
+            echo "reseal=true" >> "$GITHUB_OUTPUT"
+            pip install --require-hashes -r locks/dev-linux-x86_64.txt && pip install -e . --no-deps
+          fi
         }
 
         # A3: skip_freeze omite SOLO el acceso a la fuente; todo lo demás corre igual.
@@ -234,6 +248,7 @@ jobs:
             source_status=$(python tools/check_ingestion.py --mode source) || source_status="absent"
             echo "source=$source_status" >> "$GITHUB_OUTPUT"
             publish_data "Record source ingestion state: $source_status"
+            request_reseal
             exit "$freeze_rc"
           fi
           # A5: robusto a stdout espurio (un warning de una dep rompía el [ "$new" = "0" ])
@@ -259,6 +274,7 @@ jobs:
           model=$(python tools/check_ingestion.py --mode model-pending)
           if [ "$model" = "fresh" ]; then
             publish_data "Record source ingestion state: $source_status"
+            request_reseal
             echo "No new bulletin and complete release up to date -- nothing to rebuild."
             exit 0
           fi
@@ -616,7 +632,9 @@ jobs:
       # se reutiliza en silencio el manifiesto previo. El arbol se restaura al estado
       # COMMITEADO antes de hashear (un artefacto parcial en disco que nunca se comiteo
       # no debe entrar al manifiesto).
-      if: steps.run.outputs.rebuilt == 'true' && steps.model.outcome == 'success' && steps.eda.outcome == 'success'
+      # Re-sellado solo-de-estado: corre también si el freeze murió tras publicar el
+      # feed (always), porque sólo hashea bytes ya commiteados.
+      if: (success() && steps.run.outputs.rebuilt == 'true' && steps.model.outcome == 'success' && steps.eda.outcome == 'success') || (always() && steps.run.outputs.reseal == 'true')
       run: |
         set -eo pipefail
         git checkout -- data reports dvc.lock 2>/dev/null || true
@@ -920,7 +938,8 @@ jobs:
     - name: Redeploy the website on a rebuild (Netlify build hook)
       # L4 + A-01: keyed on REBUILT, modeling OK, release gate sellado y CI VERDE
       # sobre el SHA exacto. The web build re-fetches panel + forecasts from this repo.
-      if: needs.update.result == 'success' && needs.update.outputs.rebuilt == 'true' && needs.update.outputs.model_outcome == 'success' && needs.update.outputs.release_outcome == 'success' && steps.ciwait.outcome == 'success'
+      # Un re-sellado solo-de-estado también redespliega: el web consume el manifiesto nuevo.
+      if: needs.update.result == 'success' && needs.update.outputs.release_outcome == 'success' && steps.ciwait.outcome == 'success' && ((needs.update.outputs.rebuilt == 'true' && needs.update.outputs.model_outcome == 'success') || needs.update.outputs.reseal == 'true')
       env:
         HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
       run: |
@@ -937,7 +956,7 @@ jobs:
       # release_id content-addressed que ESTE run sello en el release gate (paso
       # bloqueante — ya no puede ser el manifiesto del mes anterior) y reporta
       # esperado-vs-visto al resumen final del consumidor.
-      if: needs.update.result == 'success' && needs.update.outputs.rebuilt == 'true' && needs.update.outputs.release_outcome == 'success' && steps.ciwait.outcome == 'success'
+      if: needs.update.result == 'success' && (needs.update.outputs.rebuilt == 'true' || needs.update.outputs.reseal == 'true') && needs.update.outputs.release_outcome == 'success' && steps.ciwait.outcome == 'success'
       run: |
         want="${{ needs.update.outputs.release_id }}"
         [ -n "$want" ] || { echo "release_id ausente: no se verifica ni inventa un corte"; exit 1; }

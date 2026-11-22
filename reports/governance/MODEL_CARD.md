@@ -11,7 +11,7 @@
 - **Sistema:** predictor del U.S. Visa Bulletin — panel multiserie `y_{p,c,b,t}` (país × categoría × tabla × mes).
 - **Tarea:** regresión temporal de fechas de prioridad sobre observaciones con estado **F** (FAD y DFF por separado).
 - **Receta desplegada (campeón):** FAD → `median(theta+ets+sarima)` · DFF → `sarima` (manifiesto versionado `champion_manifest.json`).
-- **Versión / linaje:** git `b86e8ee` · hash del panel `399cd7b48931`.
+- **Versión / linaje:** git `a49d8c4` · hash del panel `399cd7b48931`.
 - **Autor:** Javier A. Rebull Saucedo · MIAAD, UACJ. Demostrador: visapredictai.com.
 
 ## 2. Uso previsto
@@ -31,7 +31,7 @@
 **Marco comparativo:** 24 modelos evaluados bajo el mismo protocolo walk-forward; de ahí salen el campeón desplegado y su retador.
 **Hold-out leakage-free (MASE media):** FAD campeón `median(theta+ets+sarima)` = **0.1519** · DFF campeón `sarima` = **0.1215**.
 **Model Confidence Set (90 %):** FAD = {naive1} · DFF = {ets, naive1} (Friedman–Nemenyi).
-**Prospectiva (backfill sin fuga de información; añadas servidas en vivo desde jul-2026):** n=2944 · MAE=146 días · MASE=0.347 · cobertura 95 %=0.92 · 80 % (out-of-sample)=0.81.
+**Prospectiva (backfill congelado antes del relleno causal de huecos, orientativo hasta regenerarlo; añadas servidas en vivo desde jul-2026):** n=2944 · MAE=146 días · MASE=0.347 · cobertura 95 %=0.92 · 80 % (out-of-sample)=0.81.
 
 ## 5.1 Cohortes de estabilidad y enrutado (épica E, exploratorio)
 - **Partición (regla v1.0.0, pre-registrada):** 74 series evaluables · 39 estables · 35 no estables. Calculada solo con información anterior al hold-out.
@@ -42,11 +42,11 @@
 
 ## 6. Linaje y reproducibilidad
 - **Receta:** `champion_manifest.json` (cambia solo vía `run_champion_challenger.py --promote`, auditado).
-- **Código:** git `b86e8ee`. **Datos:** panel hash `399cd7b48931`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
-- **Corte (D4):** identidad del corte en el campo estructural de abajo · pipeline_run_id `40136706583` · añada `2026-11`.
+- **Código:** git `a49d8c4`. **Datos:** panel hash `399cd7b48931`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
+- **Corte (D4):** identidad del corte en el campo estructural de abajo · pipeline_run_id `local` · añada `2026-11`.
 
 ```
-release_id: 2026-11-5ed564aa4d00
+release_id: 2026-11-a539be1944da
 ```
 - **Promoción (dos gates):** el hold-out (Wilcoxon+Holm, h=1) solo declara aptitud retrospectiva; la autorización la da el gate prospectivo PRE-REGISTRADO (docs/PROMOTION_POLICY.md) sobre pares live campeón-vs-sombra, aplicada por un humano (`--promote`, que se rehúsa sin decisión "promote") con rollback versionado.
 
@@ -54,4 +54,4 @@ release_id: 2026-11-5ed564aa4d00
 - El borde del modelado profundo sobre los clásicos es **modesto y frágil** (sensible a agregación; muestra DFF efectiva pequeña).
 - Solo modela estado F; C/U son anotación descriptiva, no objetivo.
 - Las retrogresiones por cuota son reales y el modelo debe tolerarlas; no constituye consejo legal.
-- El registro prospectivo actual es un backfill sin fuga (información truncada al origen), no pronósticos servidos en tiempo real; las añadas servidas en vivo se acumulan desde jul-2026.
+- El registro prospectivo actual es un backfill congelado en jun-2026, antes del relleno causal de huecos: los orígenes dentro de un hueco heredaron una interpolación bidireccional, así que se lee como orientativo hasta regenerarlo; no son pronósticos servidos en tiempo real; las añadas servidas en vivo se acumulan desde jul-2026.
