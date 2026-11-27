@@ -249,3 +249,12 @@ class TestTheBenignCasesStaySilent:
         reglas = {"tex_json": [{**MACROS, "tex": "reports/latex/no_existe.tex"}]}
         problemas = cc._tex_json_violations(reglas)
         assert any("contrato roto" in p for p in problemas)
+
+
+@pytest.mark.parametrize(
+    ("selected", "esperado"),
+    [([], "—"), (["a_b"], r"a\_b"), (["a_b", "c"], r"a\_b y c"), (["a", "b", "c_d"], r"a, b y c\_d")],
+)
+def test_names_escaped_lists_every_selected_descriptor(selected, esperado) -> None:
+    """With two or more selected descriptors the macro must name all of them (Dec 2026: two)."""
+    assert cc._authority_value({"s": selected}, "names_escaped:s") == esperado

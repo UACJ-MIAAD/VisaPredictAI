@@ -179,7 +179,7 @@ tex_json:
       SelSeries: feature_selection.n_series
       NCleanDecisions: 'len:cleaning_decisions'
       NFeDecisions: 'len:fe_decisions'
-      SelName: 'first_escaped:feature_selection.selected'
+      SelName: 'names_escaped:feature_selection.selected'
     generator: experiments/build_fe_facts.py
   - kind: table
     tex: reports/latex/horizon_champion.tex

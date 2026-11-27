@@ -109,7 +109,7 @@ _MACRO_RX = re.compile(r"\\newcommand\{\\(\w+)\}\{((?:[^{}]|\{,\})*)\}")
 
 
 def _authority_value(data: dict, expr: str):
-    """Autoridad de una macro: ruta punteada, `len:ruta` o `first_escaped:ruta`."""
+    """Autoridad de una macro: ruta punteada, `len:ruta`, `first_escaped:ruta` o `names_escaped:ruta`."""
     op, _, path = expr.partition(":")
     if not path:
         op, path = "value", expr
@@ -122,10 +122,14 @@ def _authority_value(data: dict, expr: str):
         if not isinstance(node, (list, dict)):
             raise TypeError(f"{path}: len: exige lista u objeto, no {type(node).__name__}")
         return len(node)
-    if op == "first_escaped":
+    if op in ("first_escaped", "names_escaped"):
         if not isinstance(node, list):
-            raise TypeError(f"{path}: first_escaped: exige lista, no {type(node).__name__}")
-        return (node[0] if node else "—").replace("_", r"\_")
+            raise TypeError(f"{path}: {op}: exige lista, no {type(node).__name__}")
+        names = [str(n).replace("_", r"\_") for n in node]
+        if op == "first_escaped" or len(names) < 2:
+            return names[0] if names else "—"
+        # Mirror of build_fe_facts: every name, the last joined with " y ".
+        return ", ".join(names[:-1]) + " y " + names[-1]
     return node
 
 

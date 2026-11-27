@@ -39,8 +39,8 @@
     <rect x="790" y="116" width="490" height="26" rx="10" fill="#003CA6"/>
     <rect x="790" y="132" width="490" height="10" fill="#003CA6"/>
     <text x="802" y="134" font-size="13" font-weight="600" fill="#ffffff">Panel multiserie</text>
-    <text x="802" y="162" font-size="12" fill="#231F20">28,211 filas · 300 meses (2001-12 a 2026-11)</text>
-    <text x="802" y="179" font-size="12" fill="#231F20">16,323 observaciones con estado F (entrenables)</text>
+    <text x="802" y="162" font-size="12" fill="#231F20">28,361 filas · 301 meses (2001-12 a 2026-12)</text>
+    <text x="802" y="179" font-size="12" fill="#231F20">16,426 observaciones con estado F (entrenables)</text>
     <text x="802" y="196" font-size="12" fill="#231F20">194 series catalogadas · 136 con historia F</text>
     <text x="802" y="213" font-size="12" fill="#231F20">74 evaluables tras el filtro de longitud</text>
   </g>
@@ -63,7 +63,7 @@
     <text x="422" y="322" font-size="13" font-weight="600" fill="#ffffff">Despliegue en sombra</text>
     <text x="422" y="350" font-size="12" fill="#231F20">ledger sombra propio e inmutable</text>
     <text x="422" y="367" font-size="12" fill="#231F20">misma máquina de scoring que el campeón</text>
-    <text x="422" y="384" font-size="12" fill="#231F20">574 pares live campeón-vs-sombra</text>
+    <text x="422" y="384" font-size="12" fill="#231F20">911 pares live campeón-vs-sombra</text>
     <text x="422" y="401" font-size="12" fill="#231F20">salida: prospective_head_to_head.json</text>
     <text x="422" y="418" font-size="12" fill="#231F20">jamás se mezcla con el campeón</text>
   </g>
@@ -95,7 +95,7 @@
     <rect x="410" y="510" width="330" height="26" rx="10" fill="#B26A00"/>
     <rect x="410" y="526" width="330" height="10" fill="#B26A00"/>
     <text x="422" y="528" font-size="13" font-weight="600" fill="#ffffff">Monitor de deriva</text>
-    <text x="422" y="556" font-size="12" fill="#231F20">deriva: detectado · datos ok</text>
+    <text x="422" y="556" font-size="12" fill="#231F20">deriva: sin señal · datos ok</text>
     <text x="422" y="573" font-size="12" fill="#231F20">no es un gate: alimenta el correo</text>
     <text x="422" y="590" font-size="12" fill="#231F20">3 añadas seguidas abren UN issue</text>
     <text x="422" y="607" font-size="12" fill="#231F20">la re-campaña la decide un humano</text>
