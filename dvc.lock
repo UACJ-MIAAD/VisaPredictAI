@@ -5,9 +5,9 @@ stages:
     deps:
     - path: data/snapshots
       hash: md5
-      md5: 6ac6ec6464d689602ad9298f098ad08f.dir
-      size: 33891866
-      nfiles: 302
+      md5: 2fa7be25eed9e995a0e85fc440c30aec.dir
+      size: 33895865
+      nfiles: 303
     - path: pipeline/scrape_all.py
       hash: md5
       md5: 7484099981b9f6b8a376afac1ac83da1
@@ -43,16 +43,16 @@ stages:
     outs:
     - path: data/raw
       hash: md5
-      md5: 8ea7f3092d2510aaf6a242b1742a15bd.dir
-      size: 2139657
+      md5: 7f8d1529a2bd90b3ec14270b7d97db3b.dir
+      size: 2151129
       nfiles: 11
   panel:
     cmd: python -m pipeline.build_panel
     deps:
     - path: data/raw
       hash: md5
-      md5: 8ea7f3092d2510aaf6a242b1742a15bd.dir
-      size: 2139657
+      md5: 7f8d1529a2bd90b3ec14270b7d97db3b.dir
+      size: 2151129
       nfiles: 11
     - path: pipeline/build_panel.py
       hash: md5
@@ -69,19 +69,19 @@ stages:
     outs:
     - path: data/processed/visa_panel_long.csv
       hash: md5
-      md5: 399cd7b48931965b5a28e8ca01d7bfb6
-      size: 1625869
+      md5: d56e4136867978c460da7656118678d3
+      size: 1635060
     - path: reports/governance/cleaning_ledger.json
       hash: md5
-      md5: fb5c84ad694222bb0088b3a41c5a9239
+      md5: d84d115972141bccb6f060da8232e929
       size: 387
   bulletins:
     cmd: python -m pipeline.build_bulletins_json
     deps:
     - path: data/processed/visa_panel_long.csv
       hash: md5
-      md5: 399cd7b48931965b5a28e8ca01d7bfb6
-      size: 1625869
+      md5: d56e4136867978c460da7656118678d3
+      size: 1635060
     - path: pipeline/build_bulletins_json.py
       hash: md5
       md5: 66c46684c209a71f3497af6f87680e08
@@ -89,19 +89,19 @@ stages:
     outs:
     - path: data/processed/bulletins.json
       hash: md5
-      md5: 879a93782f9817848e5b5cba8c645ebc
-      size: 607446
+      md5: aa53be20cdbbb84586777e840236b435
+      size: 607406
   database:
     cmd: python -m pipeline.build_database
     deps:
     - path: data/processed/visa_panel_long.csv
       hash: md5
-      md5: 399cd7b48931965b5a28e8ca01d7bfb6
-      size: 1625869
+      md5: d56e4136867978c460da7656118678d3
+      size: 1635060
     - path: data/raw
       hash: md5
-      md5: 8ea7f3092d2510aaf6a242b1742a15bd.dir
-      size: 2139657
+      md5: 7f8d1529a2bd90b3ec14270b7d97db3b.dir
+      size: 2151129
       nfiles: 11
     - path: pipeline/build_database.py
       hash: md5
@@ -143,8 +143,8 @@ stages:
     outs:
     - path: data/processed/visa_panel_long.parquet
       hash: md5
-      md5: cf7bea54cf51e13538d70965d5239e43
-      size: 101580
+      md5: a9ce3a52b61d884e691516d16e7c667f
+      size: 97729
   key_facts:
     cmd: python experiments/build_key_facts.py
     deps:

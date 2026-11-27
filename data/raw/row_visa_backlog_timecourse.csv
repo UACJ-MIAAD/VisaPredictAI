@@ -1,4 +1,24 @@
 EB_level,priority_date,visa_bulletin_date,table_type,raw_value,status,visa_wait_time,raw_category
+EB1,2026-12-01,2026-12-01,dates_for_filing,C,C,0.0,1st
+EB2,2026-03-15,2026-12-01,dates_for_filing,15MAR26,F,0.7145790554414785,2nd
+EB3,2024-08-01,2026-12-01,dates_for_filing,01AUG24,F,2.3326488706365502,3rd
+EB3_OW,2022-07-01,2026-12-01,dates_for_filing,01JUL22,F,4.418891170431212,Other Workers
+EB4,2025-01-01,2026-12-01,dates_for_filing,01JAN25,F,1.9137577002053388,4th
+EB4_RW,2025-01-01,2026-12-01,dates_for_filing,01JAN25,F,1.9137577002053388,Certain Religious Workers
+EB5_HIGHUNEMP,2026-12-01,2026-12-01,dates_for_filing,C,C,0.0,5th Set Aside High Unemployment
+EB5_INFRA,2026-12-01,2026-12-01,dates_for_filing,C,C,0.0,5th Set Aside Infrastructure
+EB5_RURAL,2026-12-01,2026-12-01,dates_for_filing,C,C,0.0,5th Set Aside Rural
+EB5_UNRESERVED,2026-12-01,2026-12-01,dates_for_filing,C,C,0.0,5th Unreserved
+EB1,2026-12-01,2026-12-01,final_action,C,C,0.0,1st
+EB2,2025-04-01,2026-12-01,final_action,01APR25,F,1.6673511293634498,2nd
+EB3,2024-06-15,2026-12-01,final_action,15JUN24,F,2.461327857631759,3rd
+EB3_OW,2022-06-01,2026-12-01,final_action,01JUN22,F,4.501026694045175,Other Workers
+EB4,2022-12-15,2026-12-01,final_action,15DEC22,F,3.9616700889801506,4th
+EB4_RW,2022-12-15,2026-12-01,final_action,15DEC22,F,3.9616700889801506,Certain Religious Workers
+EB5_HIGHUNEMP,2026-12-01,2026-12-01,final_action,C,C,0.0,5th Set Aside High Unemployment
+EB5_INFRA,2026-12-01,2026-12-01,final_action,C,C,0.0,5th Set Aside Infrastructure
+EB5_RURAL,2026-12-01,2026-12-01,final_action,C,C,0.0,5th Set Aside Rural
+EB5_UNRESERVED,2026-12-01,2026-12-01,final_action,C,C,0.0,5th Unreserved
 EB1,2026-11-01,2026-11-01,dates_for_filing,C,C,0.0,1st
 EB2,2026-03-15,2026-11-01,dates_for_filing,15MAR26,F,0.6324435318275154,2nd
 EB3,2024-08-01,2026-11-01,dates_for_filing,01AUG24,F,2.2505133470225873,3rd

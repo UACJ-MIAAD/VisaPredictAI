@@ -11,8 +11,8 @@ _Auditoría exhaustiva generada por `mega_audit.py` sobre `data/processed/visa_p
 
 ## 2. Completitud a nivel boletín
 
-- Span: **2001-12 → 2026-11** (300 meses)
-- Meses con ≥1 fila en el panel: **300** (100.0%)
+- Span: **2001-12 → 2026-12** (301 meses)
+- Meses con ≥1 fila en el panel: **301** (100.0%)
 - Meses sin ninguna fila: ninguno
 - Muertos confirmados (404 + Wayback-only): `[]`
 - ✓ Sin meses ausentes inexplicados.
@@ -20,39 +20,39 @@ _Auditoría exhaustiva generada por `mega_audit.py` sobre `data/processed/visa_p
 ## 3. Inventario de series (país × categoría × tabla)
 
 - Total series: **194**
-- Filas: **28,211** · filas status=F: **16,323**
+- Filas: **28,361** · filas status=F: **16,426**
 - Por bloque×tabla:
 
 | bloque | tabla | series | filas | F |
 |---|---|--:|--:|--:|
-| employment | DFF | 64 | 5,898 | 2,275 |
-| employment | FAD | 80 | 11,748 | 3,859 |
-| family | DFF | 25 | 3,350 | 3,225 |
-| family | FAD | 25 | 7,215 | 6,964 |
+| employment | DFF | 64 | 5,948 | 2,304 |
+| employment | FAD | 80 | 11,798 | 3,888 |
+| family | DFF | 25 | 3,375 | 3,245 |
+| family | FAD | 25 | 7,240 | 6,989 |
 
 - Series más cortas (n_F menor), candidatas a exclusión:
 
 | país | cat | tabla | n | n_F | rango |
 |---|---|---|--:|--:|---|
-| all_chargeability | EB5_HIGHUNEMP | DFF | 55 | 0 | 2022-05→2026-11 |
-| all_chargeability | EB5_HIGHUNEMP | FAD | 55 | 0 | 2022-05→2026-11 |
-| all_chargeability | EB5_INFRA | DFF | 55 | 0 | 2022-05→2026-11 |
-| all_chargeability | EB5_INFRA | FAD | 55 | 0 | 2022-05→2026-11 |
+| all_chargeability | EB5_HIGHUNEMP | DFF | 56 | 0 | 2022-05→2026-12 |
+| all_chargeability | EB5_HIGHUNEMP | FAD | 56 | 0 | 2022-05→2026-12 |
+| all_chargeability | EB5_INFRA | DFF | 56 | 0 | 2022-05→2026-12 |
+| all_chargeability | EB5_INFRA | FAD | 56 | 0 | 2022-05→2026-12 |
 | all_chargeability | EB5_NONRC | DFF | 78 | 0 | 2015-11→2022-04 |
 | all_chargeability | EB5_NONRC | FAD | 80 | 0 | 2015-09→2022-04 |
 | all_chargeability | EB5_PILOT | FAD | 21 | 0 | 2009-04→2012-10 |
 | all_chargeability | EB5_RC | DFF | 78 | 0 | 2015-11→2022-04 |
 | all_chargeability | EB5_RC | FAD | 83 | 0 | 2005-08→2022-04 |
-| all_chargeability | EB5_RURAL | DFF | 55 | 0 | 2022-05→2026-11 |
-| all_chargeability | EB5_RURAL | FAD | 55 | 0 | 2022-05→2026-11 |
-| all_chargeability | EB5_UNRESERVED | DFF | 55 | 0 | 2022-05→2026-11 |
+| all_chargeability | EB5_RURAL | DFF | 56 | 0 | 2022-05→2026-12 |
+| all_chargeability | EB5_RURAL | FAD | 56 | 0 | 2022-05→2026-12 |
+| all_chargeability | EB5_UNRESERVED | DFF | 56 | 0 | 2022-05→2026-12 |
 
 ## 4. Distribución de estado e∈{C,F,U,UNK}
 
 | status | filas | % |
 |---|--:|--:|
-| F | 16,323 | 57.9% |
-| C | 11,262 | 39.9% |
+| F | 16,426 | 57.9% |
+| C | 11,309 | 39.9% |
 | U | 625 | 2.2% |
 | UNK | 1 | 0.0% |
 
@@ -60,10 +60,10 @@ _Auditoría exhaustiva generada por `mega_audit.py` sobre `data/processed/visa_p
 
 | bloque | tabla | F | total | %F |
 |---|---|--:|--:|--:|
-| employment | DFF | 2,275 | 5,898 | 39% |
-| employment | FAD | 3,859 | 11,748 | 33% |
-| family | DFF | 3,225 | 3,350 | 96% |
-| family | FAD | 6,964 | 7,215 | 97% |
+| employment | DFF | 2,304 | 5,948 | 39% |
+| employment | FAD | 3,888 | 11,798 | 33% |
+| family | DFF | 3,245 | 3,375 | 96% |
+| family | FAD | 6,989 | 7,240 | 97% |
 
 ## 6. Unicidad de clave
 
@@ -80,8 +80,8 @@ _Auditoría exhaustiva generada por `mega_audit.py` sobre `data/processed/visa_p
 
 ## 8. Coherencia DFF vs FAD (DFF debe ser ≥ avanzada que FAD)
 
-- Pares (mismo país/cat/mes) con FAD y DFF: **5,193**
-- Violaciones DFF < FAD: **6** (0.12%)
+- Pares (mismo país/cat/mes) con FAD y DFF: **5,242**
+- Violaciones DFF < FAD: **6** (0.11%)
 - _Interpretación: inversiones reales de pocos días publicadas por el Depto. de Estado (los `raw_value` parsean bien), NO errores de parseo._
 
   | país | bloque | cat | mes | FAD | DFF |
@@ -117,8 +117,8 @@ _Auditoría exhaustiva generada por `mega_audit.py` sobre `data/processed/visa_p
 
 ## 10. Reconciliación fuente ↔ panel
 
-- Filas por status en las 10 fuentes (suma): **{'C': 11262, 'F': 16323, 'U': 625, 'UNK': 1}**
-- Filas por status en el panel: **{'F': 16323, 'C': 11262, 'U': 625, 'UNK': 1}**
+- Filas por status en las 10 fuentes (suma): **{'C': 11309, 'F': 16426, 'U': 625, 'UNK': 1}**
+- Filas por status en el panel: **{'F': 16426, 'C': 11309, 'U': 625, 'UNK': 1}**
 
 ## 11. Matriz de cobertura categoría × país (nº de tablas con datos)
 
@@ -151,7 +151,7 @@ _Auditoría exhaustiva generada por `mega_audit.py` sobre `data/processed/visa_p
 
 - Series con ≥ 24 obs F: **115** / 194 · con corrida F CONTINUA ≥ 24: **106**
 - Series con ≥ 60 obs F: **81** / 194 · con corrida F CONTINUA ≥ 60: **71**
-- Series con ≥ 120 obs F: **63** / 194 · con corrida F CONTINUA ≥ 120: **49**
+- Series con ≥ 120 obs F: **63** / 194 · con corrida F CONTINUA ≥ 120: **53**
 
 - Las series con n_F bajo (EB-5 set-asides, categorías sin columna histórica) son cobertura **estructural**; el filtro evaluable/piloto del anteproyecto las descarta para modelado.
 
