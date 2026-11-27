@@ -246,8 +246,8 @@ stages:
     deps:
     - path: data/processed/visa_panel_long.csv
       hash: md5
-      md5: 399cd7b48931965b5a28e8ca01d7bfb6
-      size: 1625869
+      md5: d56e4136867978c460da7656118678d3
+      size: 1635060
     - path: experiments/build_eda_facts.py
       hash: md5
       md5: de79a9bb46e40b027221e50aef1c7c9b
@@ -263,15 +263,15 @@ stages:
     outs:
     - path: reports/eda/eda_facts.json
       hash: md5
-      md5: 6b9ea48847419451a7377834955b149d
-      size: 184357
+      md5: c5c28beabedd57ba2a59c7462566ce66
+      size: 184383
   fe_facts:
     cmd: python experiments/build_fe_facts.py
     deps:
     - path: data/processed/visa_panel_long.csv
       hash: md5
-      md5: 399cd7b48931965b5a28e8ca01d7bfb6
-      size: 1625869
+      md5: d56e4136867978c460da7656118678d3
+      size: 1635060
     - path: experiments/build_fe_facts.py
       hash: md5
       md5: c1eefa595ff9ee6debd679b13455c705
@@ -303,9 +303,9 @@ stages:
     outs:
     - path: reports/fe/fe_facts.json
       hash: md5
-      md5: c861d2d8fe371873773f6ff35a99e286
-      size: 19889
+      md5: 7006ab6ff2e82540fa7b51b40620201d
+      size: 20007
     - path: reports/latex/fe_facts.tex
       hash: md5
-      md5: 3d9a89501148864a5db14cf7e995cfe1
-      size: 367
+      md5: d23ddf7fe4a766f091e57de29b7789c1
+      size: 397

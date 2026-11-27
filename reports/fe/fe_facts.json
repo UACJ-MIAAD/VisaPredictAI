@@ -1,6 +1,6 @@
 {
  "_source": "experiments/build_fe_facts.py — NO editar a mano",
- "vintage": "2026-11",
+ "vintage": "2026-12",
  "fe_version": "2.0.0",
  "constants": {
   "base_epoch": "1975-01-01",
@@ -241,12 +241,12 @@
   }
  ],
  "cleaning_ledger": {
-  "vintage": "2026-11",
-  "n_rows": 28211,
+  "vintage": "2026-12",
+  "n_rows": 28361,
   "n_series": 194,
   "rows_by_status": {
-   "F": 16323,
-   "C": 11262,
+   "F": 16426,
+   "C": 11309,
    "U": 625,
    "UNK": 1
   },
@@ -261,10 +261,16 @@
   "n_series": 50,
   "n_features_in": 44,
   "alpha_fdr": 0.05,
-  "n_relevant": 0,
-  "n_selected": 0,
-  "relevant": [],
-  "selected": [],
+  "n_relevant": 2,
+  "n_selected": 2,
+  "relevant": [
+   "CO_FirstMin_ac",
+   "DN_OutlierInclude_p_001_mdrmd"
+  ],
+  "selected": [
+   "DN_OutlierInclude_p_001_mdrmd",
+   "CO_FirstMin_ac"
+  ],
   "dropped_redundant": {}
  }
 }
