@@ -1,69 +1,69 @@
 {
   "what": "scoring del ledger SOMBRA (retador) con la misma maquinaria y universo que el campeón (A3)",
-  "caveat": "backfill leakage-free; NO equivale a haber servido los pronósticos en tiempo real",
-  "n_scored": 578,
-  "n_pending": 2578,
+  "caveat": "backfill congelado en jun-2026, antes del relleno causal de huecos: los orígenes dentro de un hueco heredaron una interpolación bidireccional (orientativo hasta regenerarlo); NO equivale a haber servido los pronósticos en tiempo real",
+  "n_scored": 916,
+  "n_pending": 3272,
   "by_mode": {
     "live": {
       "overall": {
-        "n": 578,
-        "mae_days": 200.2,
-        "mase": 0.6053,
-        "cov80": 0.749,
-        "cov95": 0.888,
+        "n": 916,
+        "mae_days": 197.2,
+        "mase": 0.6046,
+        "cov80": 0.769,
+        "cov95": 0.902,
         "cov80_ci95": [
-          0.713,
-          0.783
+          0.74,
+          0.795
         ],
         "cov95_ci95": [
-          0.86,
-          0.911
+          0.881,
+          0.92
         ]
       },
       "by_horizon": {
         "1": {
-          "n": 246,
-          "mae_days": 89.4,
-          "mase": 0.2534,
-          "cov80": 0.878,
-          "cov95": 0.935,
+          "n": 332,
+          "mae_days": 75.9,
+          "mase": 0.2224,
+          "cov80": 0.901,
+          "cov95": 0.946,
           "cov80_ci95": [
-            0.833,
-            0.914
+            0.865,
+            0.929
           ],
           "cov95_ci95": [
-            0.899,
-            0.961
+            0.917,
+            0.966
           ]
         },
         "2": {
-          "n": 160,
-          "mae_days": 209.5,
-          "mase": 0.6536,
-          "cov80": 0.738,
-          "cov95": 0.875,
+          "n": 246,
+          "mae_days": 177.0,
+          "mase": 0.5542,
+          "cov80": 0.785,
+          "cov95": 0.902,
           "cov80_ci95": [
-            0.666,
-            0.801
+            0.73,
+            0.832
           ],
           "cov95_ci95": [
-            0.817,
-            0.919
+            0.861,
+            0.935
           ]
         },
         "3": {
-          "n": 80,
-          "mae_days": 314.3,
-          "mase": 0.9487,
-          "cov80": 0.55,
-          "cov95": 0.825,
+          "n": 160,
+          "mae_days": 256.6,
+          "mase": 0.7853,
+          "cov80": 0.669,
+          "cov95": 0.887,
           "cov80_ci95": [
-            0.441,
-            0.656
+            0.593,
+            0.738
           ],
           "cov95_ci95": [
-            0.731,
-            0.896
+            0.832,
+            0.929
           ]
         },
         "4": {
@@ -82,6 +82,21 @@
           ]
         },
         "5": {
+          "n": 81,
+          "mae_days": 430.2,
+          "mase": 1.358,
+          "cov80": 0.556,
+          "cov95": 0.815,
+          "cov80_ci95": [
+            0.447,
+            0.66
+          ],
+          "cov95_ci95": [
+            0.72,
+            0.888
+          ]
+        },
+        "6": {
           "n": 1,
           "mae_days": 61.0,
           "mase": 0.1073,
@@ -122,6 +137,22 @@
           "cov80_ci95": [
             0.209,
             0.906
+          ],
+          "cov95_ci95": [
+            0.621,
+            1.0
+          ],
+          "insufficient_n": true
+        },
+        "9": {
+          "n": 5,
+          "mae_days": 180.4,
+          "mase": 0.1982,
+          "cov80": 1.0,
+          "cov95": 1.0,
+          "cov80_ci95": [
+            0.621,
+            1.0
           ],
           "cov95_ci95": [
             0.621,

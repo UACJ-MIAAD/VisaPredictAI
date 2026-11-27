@@ -1,22 +1,22 @@
 {
   "what": "campeón vs sombra por pares (misma añada/serie/target/h y MISMO evaluation_mode) — insumo del gate de promoción (A4)",
-  "n_pairs": 574,
+  "n_pairs": 911,
   "n_mixed_mode_excluded": 0,
   "by_table": {
     "DFF": {
       "live": {
-        "n": 226,
+        "n": 359,
         "champion": {
           "mase": 0.6847,
-          "mae_days": 197.7,
+          "mae_days": 194.2,
           "model_version": [
             "n/d",
             "sarima"
           ]
         },
         "shadow": {
-          "mase": 0.7357,
-          "mae_days": 206.3,
+          "mase": 0.758,
+          "mae_days": 210.0,
           "model_version": [
             "median(sarima+ets+theta)",
             "naive1"
@@ -24,24 +24,29 @@
         },
         "by_horizon": {
           "1": {
-            "n": 97,
-            "champion_mase": 0.4013,
-            "shadow_mase": 0.3267
+            "n": 131,
+            "champion_mase": 0.369,
+            "shadow_mase": 0.311
           },
           "2": {
-            "n": 63,
-            "champion_mase": 0.629,
-            "shadow_mase": 0.7932
+            "n": 97,
+            "champion_mase": 0.5631,
+            "shadow_mase": 0.6757
           },
           "3": {
-            "n": 31,
-            "champion_mase": 0.9924,
-            "shadow_mase": 1.0889
+            "n": 63,
+            "champion_mase": 0.809,
+            "shadow_mase": 0.9892
           },
           "4": {
             "n": 31,
             "champion_mase": 1.4576,
             "shadow_mase": 1.6032
+          },
+          "5": {
+            "n": 31,
+            "champion_mase": 1.4979,
+            "shadow_mase": 1.6803
           },
           "7": {
             "n": 2,
@@ -52,43 +57,48 @@
             "n": 2,
             "champion_mase": 0.0466,
             "shadow_mase": 0.2899
+          },
+          "9": {
+            "n": 2,
+            "champion_mase": 0.0138,
+            "shadow_mase": 0.2899
           }
         }
       }
     },
     "FAD": {
       "live": {
-        "n": 348,
+        "n": 552,
         "champion": {
-          "mase": 0.4897,
-          "mae_days": 184.8,
+          "mase": 0.4678,
+          "mae_days": 174.8,
           "model_version": [
             "median(theta+ets+sarima)",
             "n/d"
           ]
         },
         "shadow": {
-          "mase": 0.5232,
-          "mae_days": 196.4,
+          "mase": 0.5063,
+          "mae_days": 188.6,
           "model_version": [
             "naive1"
           ]
         },
         "by_horizon": {
           "1": {
-            "n": 148,
-            "champion_mase": 0.2091,
-            "shadow_mase": 0.2071
+            "n": 200,
+            "champion_mase": 0.1812,
+            "shadow_mase": 0.1655
           },
           "2": {
-            "n": 96,
-            "champion_mase": 0.5192,
-            "shadow_mase": 0.5688
+            "n": 148,
+            "champion_mase": 0.4365,
+            "shadow_mase": 0.4783
           },
           "3": {
-            "n": 48,
-            "champion_mase": 0.7909,
-            "shadow_mase": 0.8624
+            "n": 96,
+            "champion_mase": 0.5578,
+            "shadow_mase": 0.652
           },
           "4": {
             "n": 49,
@@ -96,8 +106,13 @@
             "shadow_mase": 1.1168
           },
           "5": {
+            "n": 49,
+            "champion_mase": 1.0454,
+            "shadow_mase": 1.1667
+          },
+          "6": {
             "n": 1,
-            "champion_mase": 0.0352,
+            "champion_mase": 0.0211,
             "shadow_mase": 0.1073
           },
           "7": {
@@ -108,6 +123,11 @@
           "8": {
             "n": 3,
             "champion_mase": 0.2986,
+            "shadow_mase": 0.1371
+          },
+          "9": {
+            "n": 3,
+            "champion_mase": 0.3313,
             "shadow_mase": 0.1371
           }
         }
