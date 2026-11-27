@@ -159,7 +159,9 @@ def build() -> dict:
     # Macros LaTeX (patrón key_facts.tex): la nota de FE del .tex cita la selección
     # sin tipear cifras a mano; una re-campaña actualiza las macros, no la prosa.
     fs = facts["feature_selection"]
-    sel_name = (fs["selected"][0] if fs["selected"] else "—").replace("_", r"\_")
+    # Name every selected descriptor: with two or more, naming only the first misreports the selection.
+    names = [n.replace("_", r"\_") for n in fs["selected"]]
+    sel_name = (", ".join(names[:-1]) + " y " + names[-1]) if len(names) > 1 else (names[0] if names else "—")
     tex = [
         "% Auto-generado por experiments/build_fe_facts.py — \\input este archivo y usa \\feFactXxx.\n",
         f"\\newcommand{{\\feFactVersion}}{{{facts['fe_version']}}}\n",
