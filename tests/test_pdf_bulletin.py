@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 from pipeline import ingest_pdf
 from pipeline.ingest_manual import _completeness_problems
 from pipeline.ingest_pdf import merge_month
-from pipeline.pdf_bulletin import as_html, extract_text, parse_layout
+from pipeline.pdf_bulletin import as_html, drop_page_overlap, extract_text, parse_layout
 
 FIXTURE = Path(__file__).parent / "fixtures/pdf_bulletin_november_2026.txt"
 
@@ -97,7 +97,7 @@ def test_new_month_uses_iso_dates_compatible_with_database_alias_loader():
         pd.to_datetime(merged[column])  # the unmodified DB loader uses this exact conversion
 
 
-@pytest.mark.parametrize(("name", "month"), [("October", "2026-10"), ("November", "2026-11")])
+@pytest.mark.parametrize(("name", "month"), [("October", "2026-10"), ("November", "2026-11"), ("December", "2026-12")])
 def test_real_pdf_extraction(name, month):
     folder = FIXTURE.parent / "pdf_bulletins"
     text, version = extract_text(folder / f"Visa Bulletin For {name} 2026.pdf")
@@ -153,3 +153,30 @@ def test_historical_snapshot_cache_missing_blocks_candidate(tmp_path, monkeypatc
     with pytest.raises(ValueError, match="histórica incompleta"):
         ingest_pdf.build_candidate(b"unused", "2026-11", stage, tmp_path, "test")
     assert not (stage / "data/processed/visapredict.duckdb").exists()
+
+
+def test_safari_page_overlap_is_removed_and_cells_match_the_pdf():
+    """December arrived as a Safari print: lines repeat across page breaks."""
+    text, _ = extract_text(FIXTURE.parent / "pdf_bulletins" / "Visa Bulletin For December 2026.pdf")
+    assert drop_page_overlap(text)[1] > 0
+    cells = {(c["block"], c["table"], c["label"], c["country"]): c["value"] for c in parse_layout(text, "2026-12")}
+    assert len(cells) == 150
+    assert cells[("family", "FAD", "F2B", "MEXICO")] == "15MAY10"
+    assert cells[("family", "DFF", "F1", "PHILIPPINES")] == "22APR15"
+    assert cells[("family", "DFF", "F2A", "INDIA")] == "C"
+    assert cells[("employment", "FAD", "3rd", "INDIA")] == "22JAN14"
+    assert cells[("employment", "DFF", "2nd", "INDIA")] == "15JAN15"
+    assert cells[("employment", "FAD", "5th Set Aside Infrastructure", "MEXICO")] == "C"
+
+
+@pytest.mark.parametrize(
+    ("text", "dropped"),
+    [
+        ("a\nb\n\f  b\nc\n", 1),  # exact repeat across the break is removed
+        ("a\nb\n\fx\nb\n", 0),  # a repeat that is not at the top of the page stays
+        ("a\nC C\n\fC  D\n", 0),  # near-identical rows are never merged
+        ("x\ny\n\f x\n y\nz\n", 2),
+    ],
+)
+def test_drop_page_overlap_is_exact_and_boundary_only(text, dropped):
+    assert drop_page_overlap(text)[1] == dropped
