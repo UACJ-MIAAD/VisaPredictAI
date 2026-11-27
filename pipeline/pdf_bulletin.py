@@ -52,6 +52,36 @@ def extract_text(pdf: Path) -> tuple[str, str]:
     return text, version.stderr.decode("utf-8").splitlines()[0]
 
 
+_MAX_PAGE_OVERLAP = 3
+
+
+def drop_page_overlap(text: str) -> tuple[str, int]:
+    """Remove the lines a browser repeats at the top of the next printed page.
+
+    Safari's print-to-PDF re-draws the last one or two lines of a page at the
+    top of the following one, so ``pdftotext`` emits them twice across the form
+    feed. Only an EXACT repeat (whitespace-normalized) of the previous page's
+    final non-blank lines, placed at the very start of the next page, is
+    removed. Anything else stays and the strict matrix checks still decide; a
+    wrongly dropped row would fail label or row-count validation, never pass.
+    """
+    pages = text.split("\f")
+    dropped = 0
+    for index in range(1, len(pages)):
+        previous = [" ".join(line.split()) for line in pages[index - 1].splitlines() if line.strip()]
+        lines = pages[index].splitlines(keepends=True)
+        filled = [position for position, line in enumerate(lines) if line.strip()]
+        for size in range(min(_MAX_PAGE_OVERLAP, len(previous), len(filled)), 0, -1):
+            head = [" ".join(lines[position].split()) for position in filled[:size]]
+            if head == previous[-size:]:
+                for position in filled[:size]:
+                    lines[position] = ""
+                pages[index] = "".join(lines)
+                dropped += size
+                break
+    return "\f".join(pages), dropped
+
+
 def _validated_row(label: str, before: str, line: str, values: list[re.Match[str]]) -> list[str]:
     """Validate the complete token boundaries before assigning a canonical label."""
     compact = " ".join(re.sub(r"[^a-z0-9 ]", " ", before.lower()).split())
@@ -85,6 +115,7 @@ def parse_layout(text: str, month: str) -> list[dict]:
     dates = {(int(year), MONTH_MAP.get(name.lower())) for name, year in titles}
     if dates != {(expected.year, expected.month)}:
         raise ValueError(f"mes del contenido no coincide con {month}: {sorted(dates)}")
+    text, _ = drop_page_overlap(text)
     # Normalize wrapping only for headings; retain rows and column positions below.
     normalized = re.sub(r"-\s*\n\s*", "-", text)
     headings = list(_HEADING.finditer(normalized))
