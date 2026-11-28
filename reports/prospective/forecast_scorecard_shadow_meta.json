@@ -2,7 +2,7 @@
   "what": "scoring del ledger SOMBRA (retador) con la misma maquinaria y universo que el campeón (A3)",
   "caveat": "backfill congelado en jun-2026, antes del relleno causal de huecos: los orígenes dentro de un hueco heredaron una interpolación bidireccional (orientativo hasta regenerarlo); NO equivale a haber servido los pronósticos en tiempo real",
   "n_scored": 916,
-  "n_pending": 3272,
+  "n_pending": 4304,
   "by_mode": {
     "live": {
       "overall": {

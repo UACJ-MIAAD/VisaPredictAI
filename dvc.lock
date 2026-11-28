@@ -222,7 +222,7 @@ stages:
       size: 8677
     - path: reports/governance/promotion_decision.json
       hash: md5
-      md5: 2e34271e80b9256112c5ce94225de0d5
+      md5: 85d27f04761d93a718be67e2c703af99
       size: 2823
     - path: reports/prospective/forecast_scorecard_meta.json
       hash: md5
