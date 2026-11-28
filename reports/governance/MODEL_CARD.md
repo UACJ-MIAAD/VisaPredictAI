@@ -11,7 +11,7 @@
 - **Sistema:** predictor del U.S. Visa Bulletin — panel multiserie `y_{p,c,b,t}` (país × categoría × tabla × mes).
 - **Tarea:** regresión temporal de fechas de prioridad sobre observaciones con estado **F** (FAD y DFF por separado).
 - **Receta desplegada (campeón):** FAD → `median(theta+ets+sarima)` · DFF → `sarima` (manifiesto versionado `champion_manifest.json`).
-- **Versión / linaje:** git `a49d8c4` · hash del panel `399cd7b48931`.
+- **Versión / linaje:** git `74cd12a` · hash del panel `d56e41368679`.
 - **Autor:** Javier A. Rebull Saucedo · MIAAD, UACJ. Demostrador: visapredictai.com.
 
 ## 2. Uso previsto
@@ -23,7 +23,7 @@
 - Categorías: familiares (F1–F4) y empleo (EB). Tablas: Final Action Dates (FAD) y Dates for Filing (DFF), evaluadas por separado.
 
 ## 4. Datos de entrenamiento
-- **Panel:** 28,211 observaciones · 58 % entrenables (estado F = 16,323) · rango 2001-12 → 2026-11.
+- **Panel:** 28,361 observaciones · 58 % entrenables (estado F = 16,426) · rango 2001-12 → 2026-12.
 - **Series:** 194 estructurales · 74 plenamente evaluables (≥84 obs F = ventana 60 + hold-out 24).
 - Fuente: U.S. Department of State, Visa Bulletin (HTML congelado, parseo offline reproducible).
 
@@ -42,11 +42,11 @@
 
 ## 6. Linaje y reproducibilidad
 - **Receta:** `champion_manifest.json` (cambia solo vía `run_champion_challenger.py --promote`, auditado).
-- **Código:** git `a49d8c4`. **Datos:** panel hash `399cd7b48931`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
-- **Corte (D4):** identidad del corte en el campo estructural de abajo · pipeline_run_id `local` · añada `2026-11`.
+- **Código:** git `74cd12a`. **Datos:** panel hash `d56e41368679`. **Pipeline:** `dvc repro` (DAG determinista, `dvc.lock`).
+- **Corte (D4):** identidad del corte en el campo estructural de abajo · pipeline_run_id `46084918315` · añada `2026-12`.
 
 ```
-release_id: 2026-11-a539be1944da
+release_id: 2026-12-fcd7c16407a2
 ```
 - **Promoción (dos gates):** el hold-out (Wilcoxon+Holm, h=1) solo declara aptitud retrospectiva; la autorización la da el gate prospectivo PRE-REGISTRADO (docs/PROMOTION_POLICY.md) sobre pares live campeón-vs-sombra, aplicada por un humano (`--promote`, que se rehúsa sin decisión "promote") con rollback versionado.
 
